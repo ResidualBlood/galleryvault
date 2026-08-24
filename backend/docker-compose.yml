@@ -10,6 +10,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
+      TZ: Asia/Shanghai
       # Everything user-editable (library roots, downloads, proxies, favorites,
       # telegram, tag-sync, translation interval, auth_required) and the auth
       # secret / password hash are persisted in PostgreSQL.  Only infra values
@@ -33,6 +34,7 @@ services:
       POSTGRES_USER: galleryvault
       POSTGRES_PASSWORD: galleryvault
       POSTGRES_DB: galleryvault
+      TZ: Asia/Shanghai
     # Database persistence lives in this directory (./db-data) so it survives
     # container recreation and travels with the compose.yml.
     volumes:

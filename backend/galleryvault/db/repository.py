@@ -533,7 +533,12 @@ class GalleryRepository:
         synced_at: datetime,
         category: str | None = None,
     ) -> int:
-        """Replace one gallery's relations while preserving the global tag dictionary."""
+        """Replace one gallery's relations while preserving the global tag dictionary.
+
+        Concurrency-safe: missing tags are inserted with ``ON CONFLICT DO
+        NOTHING`` so parallel tag-sync workers can't race on the unique
+        ``(namespace, name)`` constraint.
+        """
         await self.session.execute(delete(GalleryTag).where(GalleryTag.gallery_id == gallery.id))
         await self.session.flush()
         unique_tags: set[tuple[str, str]] = set()
@@ -542,15 +547,27 @@ class GalleryRepository:
             name = str(tag_data.get("name", "")).strip()
             if name:
                 unique_tags.add((namespace, name))
-        for namespace, name in sorted(unique_tags):
-            tag = await self.session.scalar(
-                select(Tag).where(Tag.namespace == namespace, Tag.name == name)
+        if unique_tags:
+            statement = (
+                pg_insert(Tag)
+                .values(
+                    [
+                        {"namespace": namespace, "name": name}
+                        for namespace, name in sorted(unique_tags)
+                    ]
+                )
+                .on_conflict_do_nothing(index_elements=["namespace", "name"])
             )
-            if tag is None:
-                tag = Tag(namespace=namespace, name=name)
-                self.session.add(tag)
-                await self.session.flush()
-            self.session.add(GalleryTag(gallery_id=gallery.id, tag_id=tag.id))
+            await self.session.execute(statement)
+            await self.session.flush()
+            existing = (
+                await self.session.scalars(
+                    select(Tag).where(tuple_(Tag.namespace, Tag.name).in_(unique_tags))
+                )
+            ).all()
+            for tag in existing:
+                self.session.add(GalleryTag(gallery_id=gallery.id, tag_id=tag.id))
+            await self.session.flush()
         if category and category != "other":
             gallery.category = category
         gallery.tags_synced_at = synced_at

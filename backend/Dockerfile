@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends unrar-free \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends unrar-free tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 COPY pyproject.toml README.md ./
 COPY galleryvault ./galleryvault
 COPY alembic.ini ./

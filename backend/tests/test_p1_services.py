@@ -287,11 +287,23 @@ async def test_repository_replaces_tag_rows_and_reuses_tag_names() -> None:
             self.lookups = 0
 
         async def execute(self, statement):
+            # pg_insert ... ON CONFLICT DO NOTHING: the fake has no real DB, so
+            # just record the delete statement and ignore the upsert.
+            from sqlalchemy.sql.expression import Insert
+
+            if isinstance(statement, Insert):
+                return
             self.deleted.append(statement)
 
         async def scalar(self, statement):
             self.lookups += 1
-            return existing if self.lookups == 1 else None
+
+        async def scalars(self, statement):
+            # After the upsert, return the existing artist tag plus a new one.
+            fox = Tag(namespace="female", name="fox")
+            fox.id = 22
+            result = _RowResult([existing, fox])
+            return result
 
         def add(self, value):
             if isinstance(value, Tag):
@@ -325,6 +337,9 @@ class _RowResult:
 
     def __iter__(self):
         return iter(self._rows)
+
+    def all(self):
+        return list(self._rows)
 
 
 class _SelectSession:
