@@ -3,8 +3,10 @@ import contextlib
 import hmac
 import logging
 import re
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import parse_qs
 
 import httpx
@@ -88,7 +90,6 @@ tag_sync_queue: asyncio.Queue[int] = asyncio.Queue()
 tag_sync_queued: set[int] = set()
 tag_sync_attempts: dict[int, int] = {}
 tag_sync_worker_task = None
-category_refresh_task = None
 translation_update_task = None
 translation_state: dict[str, object] = {
     "running": False,
@@ -304,6 +305,7 @@ async def startup() -> None:
     download_worker_task = asyncio.create_task(_download_worker_loop())
     global tag_sync_worker_task
     tag_sync_worker_task = asyncio.create_task(_tag_sync_worker_loop())
+    app.state.spawned_tasks = set()
     _ensure_translation_updater()
     load_translations()
     logger.info("GalleryVault started", extra=log_extra(library_roots=_settings().library_roots))
@@ -311,6 +313,15 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    for task in list(getattr(app.state, "spawned_tasks", set()) or ()):
+        task.cancel()
+    for task in list(getattr(app.state, "spawned_tasks", set()) or ()):
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+    if translation_update_task is not None:
+        translation_update_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await translation_update_task
     poll_task = app.state.favorite_poll_task
     if poll_task is not None:
         poll_task.cancel()
@@ -611,6 +622,7 @@ async def _download_worker_loop() -> None:
                         row.max_retries,
                         row.mode,
                         row.category or "other",
+                        max_pages=row.max_pages,
                     )
             if row is not None:
                 await _run_download(task)
@@ -796,6 +808,16 @@ async def _tag_sync_worker_loop() -> None:
                     _enqueue_tag_sync([gallery_id])
                     return
             tag_sync_attempts.pop(gallery_id, None)
+            # Retries are exhausted for a persistently failing gallery; mark it
+            # attempted so it stops re-seeding the queue on every restart.
+            try:
+                async with _settings_session() as session, session.begin():
+                    await GalleryRepository(session).mark_tag_synced(gallery_id)
+            except Exception:  # noqa: BLE001 - marking is best-effort
+                logger.warning(
+                    "could not mark failed gallery synced",
+                    extra=log_extra(gallery_id=gallery_id),
+                )
 
     async def _worker() -> None:
         while True:
@@ -874,19 +896,6 @@ async def _category_refresh_once() -> int:
     finally:
         tag_sync_state["category_refresh_running"] = False
     return refreshed
-
-
-async def _category_refresh_loop() -> None:
-    while True:
-        try:
-            await _category_refresh_once()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "category refresh loop error", extra=log_extra(error=type(exc).__name__)
-            )
-        await asyncio.sleep(3600)
 
 
 class DownloadRequest(BaseModel):
@@ -1037,8 +1046,6 @@ async def settings_get() -> dict[str, object]:
     except Exception as exc:  # noqa: BLE001 - DB down: serve in-memory settings
         # DB unavailable: serve the current in-memory settings unchanged.
         logger.warning("settings could not be re-read", extra={"error": str(exc)})
-    if app.state.eh_client is not None:
-        await _refresh_services()
     return _settings_public()
 
 
@@ -1216,7 +1223,11 @@ def _spawn(coroutine, operation: str) -> None:
                 extra=log_extra(operation=operation, error=type(exc).__name__),
             )
 
-    asyncio.create_task(guarded())
+    task = asyncio.create_task(guarded())
+    spawned = getattr(app.state, "spawned_tasks", None)
+    if spawned is not None:
+        spawned.add(task)
+        task.add_done_callback(spawned.discard)
 
 
 @app.post("/api/downloads", status_code=202)
@@ -1224,7 +1235,7 @@ async def create_download(body: DownloadRequest) -> dict[str, object]:
     try:
         async with _settings_session() as session, session.begin():
             task = await DownloadRepository(session).create(
-                body.gid, body.token, body.title, body.mode
+                body.gid, body.token, body.title, body.mode, body.max_pages
             )
             if task is None:
                 raise HTTPException(
@@ -1703,7 +1714,12 @@ def _remove_gallery_files(gallery: Gallery) -> None:
         return
     path = Path(path_text)
     try:
-        if path.is_dir() and any(str(path).startswith(str(Path(root))) for root in _scan_roots()):
+        owned = False
+        try:
+            owned = any(path.is_relative_to(root) for root in _scan_roots())
+        except (ValueError, TypeError):
+            owned = False
+        if path.is_dir() and owned:
             import shutil as _shutil
 
             _shutil.rmtree(path, ignore_errors=True)
@@ -1780,7 +1796,22 @@ async def gallery_page(identifier: int, page_index: int) -> StreamingResponse:
         _meta(row, pages),
         PageInfo(page.page_index, page.member_name, page.media_type),
     )
-    return StreamingResponse(stream, media_type=f"image/{page.media_type}")
+    return StreamingResponse(_closing_stream(stream), media_type=f"image/{page.media_type}")
+
+
+def _closing_stream(stream: BinaryIO) -> Iterator[bytes]:
+    """Yield a sync page stream, closing the underlying file when exhausted.
+
+    StreamingResponse iterates sync iterators in a threadpool but never closes
+    a raw file object, so every served page would leak a file descriptor.
+    """
+    try:
+        yield from stream
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
 
 
 @app.get("/api/tags/search")

@@ -51,7 +51,6 @@ def db_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
         "_favorites_poll_loop",
         "_download_worker_loop",
         "_tag_sync_worker_loop",
-        "_category_refresh_loop",
     ):
         monkeypatch.setattr(main, _name, _noop)
     monkeypatch.setattr(main, "_ensure_translation_updater", lambda: None)

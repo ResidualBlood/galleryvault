@@ -378,6 +378,8 @@ class GalleryRepository:
         rows = await self.session.execute(
             select(Tag.namespace, func.count(GalleryTag.gallery_id.distinct()))
             .join(GalleryTag, GalleryTag.tag_id == Tag.id)
+            .join(Gallery, Gallery.id == GalleryTag.gallery_id)
+            .where(Gallery.expunged.is_(False))
             .group_by(Tag.namespace)
         )
         return [(namespace, int(count)) for namespace, count in rows]
@@ -673,7 +675,12 @@ class DownloadRepository:
         self.session = session
 
     async def create(
-        self, gid: int, token: str, title: str | None = None, mode: str | None = None
+        self,
+        gid: int,
+        token: str,
+        title: str | None = None,
+        mode: str | None = None,
+        max_pages: int | None = None,
     ) -> DownloadTask | None:
         active = await self.session.scalar(
             select(DownloadTask).where(
@@ -690,6 +697,7 @@ class DownloadRepository:
             status="pending",
             retry_count=0,
             max_retries=3,
+            max_pages=max_pages,
         )
         self.session.add(task)
         await self.session.flush()
