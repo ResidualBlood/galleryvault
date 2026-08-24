@@ -814,6 +814,58 @@ class FavoritesRepository:
         )
         return {int(favcat): (int(cloud), int(local), int(size)) for favcat, cloud, local, size in rows}
 
+    async def cloud_size_breakdown(self, favcat: int) -> tuple[int, int]:
+        """Exact-ish cloud size for a folder: ``(known bytes, unknown count)``.
+
+        ``known`` sums local gallery file_size for galleries already on disk and
+        the recorded ``favorite_items.file_size`` for the missing ones that have
+        been fetched; ``unknown`` counts missing galleries whose size has not
+        been fetched yet (the API fills those with the local average).
+        """
+        row = await self.session.execute(
+            select(
+                func.coalesce(
+                    func.sum(func.coalesce(Gallery.file_size, FavoriteItem.file_size)), 0
+                ),
+                func.count().filter(
+                    and_(Gallery.id.is_(None), FavoriteItem.file_size.is_(None))
+                ),
+            )
+            .select_from(FavoriteItem)
+            .outerjoin(
+                Gallery,
+                and_(Gallery.gid == FavoriteItem.gid, Gallery.expunged.is_(False)),
+            )
+            .where(FavoriteItem.favcat == favcat)
+        )
+        result = row.one()
+        return int(result[0]), int(result[1])
+
+    async def pending_size_gids(self, favcat: int, limit: int = 200) -> list[tuple[int, str]]:
+        """``(gid, token)`` of folder galleries missing a size and not local."""
+        rows = await self.session.execute(
+            select(FavoriteItem.gid, FavoriteItem.token)
+            .select_from(FavoriteItem)
+            .outerjoin(
+                Gallery,
+                and_(Gallery.gid == FavoriteItem.gid, Gallery.expunged.is_(False)),
+            )
+            .where(
+                FavoriteItem.favcat == favcat,
+                Gallery.id.is_(None),
+                FavoriteItem.file_size.is_(None),
+            )
+            .limit(limit)
+        )
+        return [(int(row[0]), str(row[1])) for row in rows]
+
+    async def set_file_size(self, favcat: int, gid: int, size: int | None) -> None:
+        await self.session.execute(
+            update(FavoriteItem)
+            .where(FavoriteItem.favcat == favcat, FavoriteItem.gid == gid)
+            .values(file_size=size)
+        )
+
     async def category(self, favcat: int) -> FavoritesMonitor | None:
         return await self.session.scalar(
             select(FavoritesMonitor).where(FavoritesMonitor.favcat == favcat)

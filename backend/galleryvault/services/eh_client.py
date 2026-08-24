@@ -68,6 +68,7 @@ class GalleryData:
     tags: list[dict[str, str]] = field(default_factory=list)
     category: str = "other"
     title_jpn: str | None = None
+    file_size: int | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,34 @@ def _favorites_next_url(body: str) -> str:
     if not value or "next=" not in value:
         return ""
     return value
+
+
+def _parse_file_size(body: str) -> int | None:
+    """Total archive size in bytes from the gallery info table (``32.63 MiB``)."""
+    match = re.search(
+        r"File\s*Size:.*?<td[^>]*>([0-9.,]+\s*(?:[KMGT]?i?B|bytes?))</td>",
+        body,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+    value = match.group(1).strip()
+    number = re.sub(r"[^0-9.]", "", value)
+    try:
+        amount = float(number)
+    except ValueError:
+        return None
+    unit = re.sub(r"[0-9.,\s]", "", value).lower()
+    multipliers = {
+        "b": 1,
+        "kb": 1024,
+        "kib": 1024,
+        "mb": 1024**2,
+        "mib": 1024**2,
+        "gb": 1024**3,
+        "gib": 1024**3,
+    }
+    return int(amount * multipliers.get(unit, 1))
 
 
 def _parse_category(body: str) -> str:
@@ -279,7 +308,8 @@ class EhClient:
             # 200 page that has no title (or a real 404). Treat both as gone.
             raise GalleryGoneError("gallery does not exist on ExHentai")
         return GalleryData(
-            int(gid), token, title, [], tags, _parse_category(body), title_jpn
+            int(gid), token, title, [], tags, _parse_category(body), title_jpn,
+            _parse_file_size(body),
         )
 
     async def fetch_gallery(

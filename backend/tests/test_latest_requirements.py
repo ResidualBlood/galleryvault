@@ -216,3 +216,15 @@ def test_parse_favorite_counts_from_fp_blocks() -> None:
         '<div>234</div><div>1 长篇大作</div></div>'
     )
     assert _parse_favorite_counts(body) == {0: 2233, 1: 234}
+
+
+def test_parse_file_size_units() -> None:
+    from galleryvault.services.eh_client import _parse_file_size
+
+    assert _parse_file_size(
+        '<td class="gdt1">File Size:</td><td class="gdt2">32.63 MiB</td>'
+    ) == int(32.63 * 1024 * 1024)
+    assert _parse_file_size(
+        '<td class="gdt1">File Size:</td><td class="gdt2">1.2 GB</td>'
+    ) == int(1.2 * 1024**3)
+    assert _parse_file_size("<p>no size here</p>") is None

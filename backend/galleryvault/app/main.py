@@ -1380,6 +1380,10 @@ async def favorite_categories() -> list[dict[str, object]]:
         async with _settings_session() as session:
             rows = await FavoritesRepository(session).categories()
             stats = await FavoritesRepository(session).counts_and_sizes()
+            breakdown = {
+                row.favcat: await FavoritesRepository(session).cloud_size_breakdown(row.favcat)
+                for row in rows
+            }
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
     live_counts: dict[int, int] = {}
@@ -1389,24 +1393,37 @@ async def favorite_categories() -> list[dict[str, object]]:
         logger.warning(
             "could not fetch live favorite counts", extra=log_extra(error=type(exc).__name__)
         )
-    return [
-        {
-            "favcat": x.favcat,
-            "name": x.name,
-            "enabled": x.enabled,
-            "mode": x.mode,
-            "poll_interval_minutes": max(1, round(x.poll_interval_seconds / 60)),
-            "cloud_count": live_counts.get(x.favcat, stats.get(x.favcat, (0, 0, 0))[0]),
-            "local_count": stats.get(x.favcat, (0, 0, 0))[1],
-            "local_size": stats.get(x.favcat, (0, 0, 0))[2],
-            "cloud_size": _estimate_cloud_size(
-                live_counts.get(x.favcat, stats.get(x.favcat, (0, 0, 0))[0]),
-                stats.get(x.favcat, (0, 0, 0))[1],
-                stats.get(x.favcat, (0, 0, 0))[2],
-            ),
-        }
-        for x in rows
-    ]
+    result = []
+    for x in rows:
+        cloud, local, local_size = stats.get(x.favcat, (0, 0, 0))
+        cloud_count = live_counts.get(x.favcat, cloud)
+        known, unknown = breakdown.get(x.favcat, (0, 0))
+        if unknown > 0 and local > 0:
+            known += int((local_size / local) * unknown)  # estimate the unfetched tail
+        result.append(
+            {
+                "favcat": x.favcat,
+                "name": x.name,
+                "enabled": x.enabled,
+                "mode": x.mode,
+                "poll_interval_minutes": max(1, round(x.poll_interval_seconds / 60)),
+                "cloud_count": cloud_count,
+                "local_count": local,
+                "local_size": local_size,
+                "cloud_size": known or _estimate_cloud_size(cloud_count, local, local_size),
+            }
+        )
+    return result
+
+
+@app.post("/api/favorites/compute-sizes", status_code=202)
+async def compute_favorite_sizes() -> dict[str, object]:
+    """Fetch missing gallery sizes in the background for exact cloud sizes."""
+    async with _settings_session() as session:
+        favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
+    for favcat in favcats:
+        _spawn(_favorite_size_sync(favcat), f"favorite size sync {favcat}")
+    return {"status": "started", "favcats": favcats}
 
 
 _FAV_COUNTS_TTL = 300.0
@@ -1440,6 +1457,44 @@ def _estimate_cloud_size(cloud: int, local: int, local_size: int) -> int:
         average = local_size / local
         return int(average * cloud)
     return 0
+
+
+async def _favorite_size_sync(favcat: int) -> None:
+    """Fetch missing gallery sizes from ExHentai into favorite_items.file_size.
+
+    Runs in the background so the folder check itself stays fast; the exact
+    size improves the cloud-size figure on the Favorites page.
+    """
+    try:
+        async with _settings_session() as session:
+            pending = await FavoritesRepository(session).pending_size_gids(favcat)
+        if not pending:
+            return
+        client = app.state.eh_client
+        if client is None:
+            return
+        semaphore = asyncio.Semaphore(4)
+
+        async def fetch_one(gid: int, token: str) -> tuple[int, int | None]:
+            async with semaphore:
+                try:
+                    meta = await client.fetch_gallery_metadata(gid, token)
+                    return gid, meta.file_size
+                except Exception:  # noqa: BLE001 - one gallery must not block the sync
+                    return gid, None
+
+        results = await asyncio.gather(*(fetch_one(gid, token) for gid, token in pending))
+        sizes = {gid: size for gid, size in results if size}
+        async with _settings_session() as session, session.begin():
+            for gid, size in sizes.items():
+                await FavoritesRepository(session).set_file_size(favcat, gid, size)
+        logger.info(
+            "favorite sizes synced", extra=log_extra(favcat=favcat, fetched=len(sizes))
+        )
+    except Exception as exc:  # noqa: BLE001 - background task must not crash
+        logger.warning(
+            "favorite size sync failed", extra=log_extra(favcat=favcat, error=type(exc).__name__)
+        )
 
 
 @app.post("/api/favorites/categories")
@@ -1509,8 +1564,9 @@ async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
     # only starts downloading once the user enables the folder.
     if category is not None and not category.enabled:
         await service.check_category(favcat, mode="monitor_only")
-        return
-    await service.check_category(favcat, mode=category.mode if category else "incremental")
+    else:
+        await service.check_category(favcat, mode=category.mode if category else "incremental")
+    _spawn(_favorite_size_sync(favcat), f"favorite size sync {favcat}")
 
 
 async def _favorites_poll_loop() -> None:
