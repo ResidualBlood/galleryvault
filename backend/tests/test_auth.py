@@ -136,6 +136,46 @@ def test_protected_api_requires_authentication(client: TestClient) -> None:
     assert client.get("/api/downloads", follow_redirects=False).status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_refresh_services_restarts_telegram_bot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rebuilding services (e.g. after saving Settings) must restart the bot.
+
+    Otherwise the old bot keeps polling through a closed client and logs
+    RuntimeError every loop (regression guard for the shared-client fix).
+    """
+    from galleryvault.app import main
+
+    started = []
+
+    def fake_start() -> None:
+        started.append(1)
+
+    class FakeNotifier:
+        async def aclose(self):
+            pass
+
+    class FakeClient:
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(main, "_start_telegram_bot", fake_start)
+    monkeypatch.setattr(main, "EhClient", lambda settings: FakeClient())
+    monkeypatch.setattr(main, "Downloader", lambda *a, **k: object())
+    monkeypatch.setattr(main, "TelegramNotifier", lambda settings: FakeNotifier())
+    monkeypatch.setattr(main, "FavoritesService", lambda *a, **k: object())
+    monkeypatch.setattr(
+        main, "_FavoritesRepositoryProxy", lambda: object()
+    )
+    monkeypatch.setattr(main, "_FavoriteDownloadQueue", lambda: object())
+
+    old_bot = object()
+    monkeypatch.setattr(main.app.state, "telegram_bot_task", old_bot)
+    monkeypatch.setattr(main.app.state, "telegram", FakeNotifier())
+
+    await main._refresh_services()
+    assert started == [1]
+
+
 def test_gallery_search_and_pagination_api(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

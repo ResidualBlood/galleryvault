@@ -292,15 +292,7 @@ async def startup() -> None:
         client, _settings().download_root, concurrency=_settings().download_concurrency
     )
     app.state.telegram = TelegramNotifier(_settings())
-    if _settings().telegram_bot_token:
-        app.state.telegram_bot_task = asyncio.create_task(
-            TelegramBotService(
-                _settings(),
-                client=app.state.telegram.client,
-                queue=_FavoriteDownloadQueue(),
-                notifier=app.state.telegram,
-            ).run()
-        )
+    _start_telegram_bot()
     app.state.favorites_service = FavoritesService(
         client, _FavoritesRepositoryProxy(), _FavoriteDownloadQueue(), app.state.telegram
     )
@@ -1058,9 +1050,31 @@ async def _refresh_services() -> None:
         client, _settings().download_root, concurrency=_settings().download_concurrency
     )
     app.state.telegram = TelegramNotifier(_settings())
+    _start_telegram_bot()
     app.state.favorites_service = FavoritesService(
         client, _FavoritesRepositoryProxy(), _FavoriteDownloadQueue(), app.state.telegram
     )
+
+
+def _start_telegram_bot() -> None:
+    """(Re)start the Telegram long-polling bot using the current notifier client.
+
+    Must be called whenever ``app.state.telegram`` is rebuilt, otherwise the old
+    bot keeps polling through a closed client and logs RuntimeError every loop.
+    """
+    if app.state.telegram_bot_task is not None:
+        app.state.telegram_bot_task.cancel()
+    if _settings().telegram_bot_token:
+        app.state.telegram_bot_task = asyncio.create_task(
+            TelegramBotService(
+                _settings(),
+                client=app.state.telegram.client,
+                queue=_FavoriteDownloadQueue(),
+                notifier=app.state.telegram,
+            ).run()
+        )
+    else:
+        app.state.telegram_bot_task = None
 
 
 @app.post("/api/settings")
