@@ -898,7 +898,7 @@ async function renderFavorites() {
         <td class="muted">${c.count || 0}</td>
         <td class="muted">${fmtSize(c.local_size || 0)}</td>
         <td><input type="checkbox" class="fav-enabled"${c.enabled ? " checked" : ""}></td>
-        <td><select class="fav-mode">${FAV_MODES.map(m => `<option value="${m}"${m === (c.mode || "incremental") ? " selected" : ""}>${esc(t("favMode" + m[0].toUpperCase() + m.slice(1)))}</option>`).join("")}</select></td>
+        <td><select class="fav-mode">${FAV_MODES.map(m => `<option value="${m}"${m === (c.mode || "incremental") ? " selected" : ""}>${esc(t("favMode" + m.split("_").map(s => s[0].toUpperCase() + s.slice(1)).join("")))}</option>`).join("")}</select></td>
         <td><input type="number" min="1" class="fav-interval" value="${c.poll_interval_minutes != null ? c.poll_interval_minutes : 720}"></td>
         <td><button class="secondary" data-action="favcat-check" data-favcat="${c.favcat}" type="button">${esc(t("checkNow"))}</button></td>
       </tr>`).join("");
