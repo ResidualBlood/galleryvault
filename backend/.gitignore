@@ -1,0 +1,22 @@
+# Local gallery samples and downloaded library data are not source files.
+TEMP/*/
+TEMP/cookies.txt
+TEMP/**/*.bin
+
+# Local configuration, secrets, and runtime data.
+.env
+.env.*
+!.env.example
+config.json
+db-data/
+media/
+volumes/
+*.sqlite3
+__pycache__/
+.pytest_cache/
+
+# Python build artifacts.
+*.egg-info/
+.venv/
+venv/
+.ruff_cache/

@@ -1,0 +1,178 @@
+import json
+import logging
+import os
+import secrets
+from pathlib import Path
+
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+
+class Settings(BaseSettings):
+    database_url: str = (
+        "postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault"
+    )
+    library_roots: list[str] = Field(default_factory=lambda: ["/TEMP", "/downloads"])
+    download_root: str = "/downloads"
+    log_level: str = "INFO"
+    log_json: bool = False
+    scan_batch_size: int = 500
+    auth_secret: str | None = None
+    auth_password_hash: str | None = None
+    auth_password: str | None = None
+    auth_required: bool = True
+    auth_cookie_name: str = "galleryvault_session"
+    auth_session_ttl: int = 86400
+    auth_cookie_secure: bool = False
+    tag_translation_update_interval_minutes: int = 720
+    exhentai_base_url: str = "https://exhentai.org"
+    exhentai_cookies: dict[str, str] = Field(default_factory=dict)
+    http_proxy: str | None = None
+    socks5_proxy: str | None = None
+    download_concurrency: int = 2
+    download_quality: str = "resample"
+    use_hah: bool = True
+    title_display: str = "japanese"
+    auto_sync_tags: bool = True
+    tag_sync_interval_seconds: float = 1.5
+    tag_sync_concurrency: int = Field(default=4, ge=1, le=32)
+    favorites_poll_interval_minutes: int = 720
+    telegram_bot_token: str | None = None
+    telegram_chat_ids: list[str] = Field(default_factory=list)
+    telegram_allowed_user_ids: list[int] = Field(default_factory=list)
+    favorites_categories: list[int] = Field(default_factory=lambda: list(range(8)))
+    download_favorites_enabled: bool = False
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
+
+    @field_validator("library_roots", mode="before")
+    @classmethod
+    def validate_library_roots(cls, value: object) -> list[str]:
+        return cls.parse_library_roots(value)
+
+    @field_validator("exhentai_cookies", mode="before")
+    @classmethod
+    def parse_cookies(cls, value: object) -> dict[str, str]:
+        if value is None or value == "":
+            return {}
+        if isinstance(value, dict):
+            return {str(k): str(v) for k, v in value.items()}
+        parsed = json.loads(str(value))
+        if not isinstance(parsed, dict):
+            raise TypeError("EXHENTAI_COOKIES must be a JSON object")
+        return {str(k): str(v) for k, v in parsed.items()}
+
+    @field_validator("telegram_chat_ids", "favorites_categories", mode="before")
+    @classmethod
+    def parse_list(cls, value: object) -> list[object]:
+        if isinstance(value, list):
+            return value
+        if value is None or value == "":
+            return []
+        try:
+            parsed = json.loads(str(value))
+            return parsed if isinstance(parsed, list) else [parsed]
+        except json.JSONDecodeError:
+            return [item.strip() for item in str(value).split(",") if item.strip()]
+
+    @model_validator(mode="after")
+    def validate_proxy(self) -> "Settings":
+        if self.http_proxy and self.socks5_proxy:
+            raise ValueError("configure only one proxy")
+        if self.download_quality not in {"original", "resample"}:
+            raise ValueError("download_quality must be 'original' or 'resample'")
+        if self.title_display not in {"japanese", "english", "directory"}:
+            raise ValueError("title_display must be 'japanese', 'english', or 'directory'")
+        return self
+
+    @classmethod
+    def parse_library_roots(cls, value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        text = str(value).strip()
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except json.JSONDecodeError:
+            pass
+        # Accept comma separated lists as well as one path per line (textarea).
+        return [
+            part.strip()
+            for line in text.splitlines()
+            for part in line.split(",")
+            if part.strip()
+        ]
+
+    def model_post_init(self, __context: object, /) -> None:
+        self.library_roots = self.parse_library_roots(self.library_roots)
+        if not self.auth_secret:
+            self.auth_secret = secrets.token_urlsafe(32)
+            logger.warning("AUTH_SECRET is missing; using a temporary process secret")
+
+
+def normalize_library_roots(value: object) -> list[str]:
+    roots = Settings.parse_library_roots(value)
+    result: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        normalized = str(Path(root).expanduser())
+        key = str(Path(normalized).resolve(strict=False))
+        if key not in seen:
+            seen.add(key)
+            result.append(normalized)
+    return result
+
+
+def library_root_warnings(roots: list[str]) -> list[str]:
+    return [
+        f"Library root is missing or unreadable: {root}"
+        for root in roots
+        if not Path(root).exists() or not os.access(root, os.R_OK)
+    ]
+
+
+EDITABLE_SETTINGS = {
+    "library_roots",
+    "exhentai_base_url",
+    "exhentai_cookies",
+    "http_proxy",
+    "socks5_proxy",
+        "download_root",
+        "download_concurrency",
+        "download_quality",
+        "use_hah",
+        "title_display",
+        "auto_sync_tags",
+        "tag_sync_interval_seconds",
+        "tag_sync_concurrency",
+        "favorites_poll_interval_minutes",
+    "favorites_categories",
+    "download_favorites_enabled",
+    "telegram_bot_token",
+    "telegram_chat_ids",
+    "telegram_allowed_user_ids",
+    "auth_required",
+    "tag_translation_update_interval_minutes",
+}
+
+
+def load_settings() -> Settings:
+    """Load Settings from environment variables + built-in defaults.
+
+    There is no config.json and no secrets file: everything user-editable is
+    persisted in PostgreSQL (``app_config.user_settings``) and re-applied at
+    startup.  Only infrastructure values that are needed to reach the database
+    (``database_url``, ``log_level``, ``log_json``, ``scan_batch_size``) come
+    from the environment, and they all have sensible defaults.
+    """
+    return Settings()
+
+
+def get_settings() -> Settings:
+    return load_settings()
+
+
+def get_settings() -> Settings:
+    return load_settings()
