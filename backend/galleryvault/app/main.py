@@ -1920,25 +1920,31 @@ async def _seed_thumbnails() -> None:
 
 
 async def _thumbnail_worker_loop() -> None:
-    while True:
-        try:
-            gallery_id = await asyncio.wait_for(thumb_queue.get(), timeout=5)
-        except TimeoutError:
-            thumb_state["running"] = thumb_queue.qsize() > 0
+    concurrency = 4
+
+    async def _worker() -> None:
+        while True:
+            try:
+                gallery_id = await asyncio.wait_for(thumb_queue.get(), timeout=5)
+            except TimeoutError:
+                continue
+            thumb_queued.discard(gallery_id)
+            try:
+                await _thumbnail_gallery(gallery_id)
+            except Exception as exc:  # noqa: BLE001 - one gallery must not stop the worker
+                thumb_state["failed"] += 1
+                thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "thumbnail generation failed",
+                    extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+                )
+            thumb_state["processed"] += 1
             thumb_state["queued"] = thumb_queue.qsize()
-            continue
-        thumb_queued.discard(gallery_id)
-        try:
-            await _thumbnail_gallery(gallery_id)
-        except Exception as exc:  # noqa: BLE001 - one gallery must not stop the worker
-            thumb_state["failed"] += 1
-            thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
-            logger.warning(
-                "thumbnail generation failed",
-                extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
-            )
-        thumb_state["processed"] += 1
-        thumb_state["queued"] = thumb_queue.qsize()
+
+    workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
+    try:
+        await asyncio.gather(*workers)
+    finally:
         thumb_state["running"] = thumb_queue.qsize() > 0
 
 
