@@ -127,7 +127,7 @@ const I18N = {
 
 const app = {
   authenticated: false, settings: null, session: {}, view: "browse", params: {}, query: {},
-  lang: (localStorage.getItem("gv_lang") === "zh" ? "zh" : "en"),
+  lang: (localStorage.getItem("gv_lang") === "en" ? "en" : "zh"),
 };
 
 const $view = () => document.getElementById("view");
