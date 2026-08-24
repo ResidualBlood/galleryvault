@@ -1921,6 +1921,7 @@ async def _seed_thumbnails() -> None:
 
 async def _thumbnail_worker_loop() -> None:
     concurrency = 4
+    thumb_state["running"] = True
 
     async def _worker() -> None:
         while True:
