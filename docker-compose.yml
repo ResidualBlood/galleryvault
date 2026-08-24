@@ -15,6 +15,7 @@ services:
     volumes:
       - ./library:/library
       - ./downloads:/downloads
+      - ./cache:/gv-cache
     depends_on:
       db:
         condition: service_healthy
