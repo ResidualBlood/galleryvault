@@ -1364,6 +1364,7 @@ async def favorite_categories() -> list[dict[str, object]]:
     try:
         async with _settings_session() as session:
             rows = await FavoritesRepository(session).categories()
+            stats = await FavoritesRepository(session).counts_and_sizes()
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
     return [
@@ -1373,6 +1374,8 @@ async def favorite_categories() -> list[dict[str, object]]:
             "enabled": x.enabled,
             "mode": x.mode,
             "poll_interval_minutes": max(1, round(x.poll_interval_seconds / 60)),
+            "count": stats.get(x.favcat, (0, 0))[0],
+            "local_size": stats.get(x.favcat, (0, 0))[1],
         }
         for x in rows
     ]

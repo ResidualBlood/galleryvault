@@ -784,6 +784,20 @@ class FavoritesRepository:
             ).all()
         )
 
+    async def counts_and_sizes(self) -> dict[int, tuple[int, int]]:
+        """Per-favcat stats: (number of remembered favorite items, bytes held
+        locally for those galleries in the galleries table)."""
+        rows = await self.session.execute(
+            select(
+                FavoriteItem.favcat,
+                func.count(FavoriteItem.id),
+                func.coalesce(func.sum(Gallery.file_size), 0),
+            )
+            .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+            .group_by(FavoriteItem.favcat)
+        )
+        return {int(favcat): (int(count), int(size)) for favcat, count, size in rows}
+
     async def category(self, favcat: int) -> FavoritesMonitor | None:
         return await self.session.scalar(
             select(FavoritesMonitor).where(FavoritesMonitor.favcat == favcat)
@@ -800,13 +814,17 @@ class FavoritesRepository:
 
         Used to skip favorite downloads for galleries that are already on disk
         (e.g. an Ehviewer export mounted under a library root), so they are not
-        downloaded a second time into the downloads directory.
+        downloaded a second time into the downloads directory.  Expunged rows
+        (directory removed and the scan expired them) count as missing, so the
+        favorite monitor re-downloads them.
         """
         if not gids:
             return set()
         rows = await self.session.scalars(
             select(Gallery.gid).where(
-                Gallery.gid.is_not(None), Gallery.gid.in_(list(dict.fromkeys(gids)))
+                Gallery.gid.is_not(None),
+                Gallery.expunged.is_(False),
+                Gallery.gid.in_(list(dict.fromkeys(gids))),
             )
         )
         return {int(gid) for gid in rows if gid is not None}
