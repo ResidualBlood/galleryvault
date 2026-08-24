@@ -50,6 +50,39 @@ async def test_favorite_category_fetch_only_requests_favorites_page() -> None:
     assert requests == ["/favorites.php"]
 
 
+@pytest.mark.asyncio
+async def test_fetch_favorites_follows_paging() -> None:
+    requests: list[str] = []
+
+    def page_body(page: int) -> str:
+        galleries = "".join(
+            f'<a href="/g/{1000 + i}/{f"{page:02d}{i:02d}abcdef"}/">Gallery {i}</a>'
+            for i in range(40)
+        )
+        paging = (
+            f'<div id="paging"><a href="/favorites.php?favcat=0&amp;page={page + 1}">next</a></div>'
+        )
+        return galleries + paging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        params = request.url.params
+        requests.append(path + "?" + str(params))
+        page = int(params.get("page", "1") or "1")
+        if page == 1:
+            return httpx.Response(200, text=page_body(1))
+        return httpx.Response(200, text="<p>empty</p>")
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(client=http_client)
+        items = await client.fetch_favorites(0)
+    assert len(items) == 40  # page 2 returns nothing new; walk stops
+    assert [r.split("?")[0] for r in requests] == ["/favorites.php", "/favorites.php"]
+    assert "page=2" in requests[1]
+
+
 def test_parse_category_supports_exhentai_cs_ct2_markup() -> None:
     body = (
         '<div class="cs ct2" onclick="document.location='

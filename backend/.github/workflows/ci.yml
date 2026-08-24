@@ -73,3 +73,5 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

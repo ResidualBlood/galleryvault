@@ -335,19 +335,47 @@ class EhClient:
         )
 
     async def fetch_favorites(self, favcat: int) -> list[FavoriteData]:
-        response = await self._get(f"/favorites.php?favcat={int(favcat)}")
+        """Fetch every gallery in a favorite folder, following ExHentai paging.
+
+        ExHentai lists favorites in pages (default ~40 per page); a large
+        folder must be walked page by page via ``/favorites.php?favcat=N&page=M``
+        or the tail of the folder is silently dropped.
+        """
         result: list[FavoriteData] = []
-        for href, label in re.findall(
-            r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>(.*?)</a>',
-            response.text,
-            re.IGNORECASE | re.DOTALL,
-        ):
-            try:
-                gid, token = parse_gallery_url(href, self.settings.exhentai_base_url)
-            except ValueError:
-                continue
-            result.append(FavoriteData(gid, token, _text(label), urljoin(str(response.url), href)))
-        return list({item.gid: item for item in result}.values())
+        seen: set[int] = set()
+        page = 1
+        while True:
+            params: dict[str, object] = {"favcat": int(favcat)}
+            if page > 1:
+                params["page"] = page
+            response = await self._get("/favorites.php", params=params)
+            items: list[FavoriteData] = []
+            for href, label in re.findall(
+                r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>(.*?)</a>',
+                response.text,
+                re.IGNORECASE | re.DOTALL,
+            ):
+                try:
+                    gid, token = parse_gallery_url(href, self.settings.exhentai_base_url)
+                except ValueError:
+                    continue
+                if gid in seen:
+                    continue
+                seen.add(gid)
+                items.append(
+                    FavoriteData(gid, token, _text(label), urljoin(str(response.url), href))
+                )
+            if not items:
+                break
+            result.extend(items)
+            page += 1
+            # A full page with a link to the next page continues; a short page
+            # (or a missing next link) means the folder is exhausted.
+            if len(items) < 40:
+                break
+            if not re.search(rf"page={page}(?:[^0-9]|$)", response.text, re.IGNORECASE):
+                break
+        return result
 
     async def fetch_favorite_categories(self) -> dict[int, str]:
         response = await self._get("/favorites.php")
