@@ -35,7 +35,7 @@ from ..logging import configure_logging, log_extra
 from ..scanners import registry
 from ..scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ..services.downloader import Downloader, DownloadTask
-from ..services.eh_client import EhClient, EhClientError, parse_gallery_url
+from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
 from ..services.favorites import FavoritesService
 from ..services.ingest import GalleryIngestService
 from ..services.library import LibraryService
@@ -752,6 +752,24 @@ async def _tag_sync_worker_loop() -> None:
             success_streak[0] += 1
             if success_streak[0] >= 10 and interval[0] > base_interval:
                 interval[0] = max(base_interval, interval[0] / 2)
+        except GalleryGoneError as exc:
+            # The gallery was deleted from ExHentai; nothing can be synced.
+            # Mark it done so it stops cluttering the pending queue, without
+            # treating it as a transient failure (no retries / no backoff).
+            try:
+                async with _settings_session() as session, session.begin():
+                    await GalleryRepository(session).mark_tag_synced(gallery_id)
+            except Exception:  # noqa: BLE001 - marking is best-effort
+                logger.warning(
+                    "could not mark deleted gallery synced",
+                    extra=log_extra(gallery_id=gallery_id),
+                )
+            tag_sync_state["failed"] += 1
+            tag_sync_attempts.pop(gallery_id, None)
+            logger.warning(
+                "tag sync skipped (gallery gone)",
+                extra=log_extra(gallery_id=gallery_id, error=str(exc)),
+            )
         except Exception as exc:  # noqa: BLE001 - one gallery must not stop the worker
             tag_sync_state["failed"] += 1
             tag_sync_state["last_error"] = f"{type(exc).__name__}: {exc}"

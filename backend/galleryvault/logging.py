@@ -1,7 +1,7 @@
 import json
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 
@@ -13,7 +13,9 @@ class _Formatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         context = getattr(record, "context", {})
         data = {
-            "time": datetime.now(UTC).isoformat(),
+            # Local time (container TZ, e.g. Asia/Shanghai) so log timestamps
+            # match the system clock.
+            "time": datetime.now().astimezone().isoformat(timespec="seconds"),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

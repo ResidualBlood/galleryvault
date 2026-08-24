@@ -38,6 +38,9 @@ class TelegramNotifier:
         if target is None or target not in allowed:
             logger.warning("Telegram notification skipped: chat is not allowed")
             return False
+        # Reuse the shared client when present (the Telegram bot polls through
+        # the same one), otherwise open a short-lived client for this call.
+        shared = self.client is not None
         client = self.client or httpx.AsyncClient(
             timeout=15, proxy=self.settings.socks5_proxy or self.settings.http_proxy
         )
@@ -54,7 +57,9 @@ class TelegramNotifier:
             )
             return False
         finally:
-            if self._owned:
+            # Never close the shared client (owned by this notifier and shared
+            # with the polling bot); only tear down the per-call client.
+            if not shared and client is not None:
                 await client.aclose()
 
 

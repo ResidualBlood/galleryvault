@@ -37,6 +37,14 @@ class EhClientError(RuntimeError):
     pass
 
 
+class GalleryGoneError(EhClientError):
+    """The gallery no longer exists on ExHentai (HTTP 404).
+
+    Local folders for deleted galleries will never sync successfully, so callers
+    should treat this as terminal (skip) rather than a transient failure.
+    """
+
+
 class EhParseError(EhClientError):
     pass
 
@@ -223,9 +231,12 @@ class EhClient:
             logger.warning("ExHentai request failed", extra=log_extra(error=type(exc).__name__))
             raise EhClientError("ExHentai request failed") from exc
         except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
             logger.warning(
-                "ExHentai returned HTTP error", extra=log_extra(status=exc.response.status_code)
+                "ExHentai returned HTTP error", extra=log_extra(status=status)
             )
+            if status == 404:
+                raise GalleryGoneError("gallery does not exist on ExHentai (404)") from exc
             raise EhClientError("ExHentai returned an HTTP error") from exc
 
     async def fetch_gallery_metadata(self, gid: int, token: str) -> GalleryData:

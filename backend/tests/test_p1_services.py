@@ -149,6 +149,26 @@ async def test_telegram_without_token_is_noop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_telegram_shared_client_survives_send_message() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json={"ok": True})
+
+    settings = Settings(telegram_bot_token="secret", telegram_chat_ids=["7"])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        notifier = TelegramNotifier(settings, client=client)
+        # First send uses the shared client and must NOT close it.
+        assert await notifier.send_message("hello", chat_id="7")
+        # The same shared client must still be usable afterwards (the Telegram
+        # bot polls through this same client; closing it would raise).
+        assert notifier.client is client
+        assert await notifier.send_message("again", chat_id="7")
+        assert len(calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_persistent_downloader_does_not_retry_inside_downloader(tmp_path: Path) -> None:
     client = FakeDownloadClient()
     with pytest.raises(RuntimeError):

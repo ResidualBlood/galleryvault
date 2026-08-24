@@ -5,6 +5,7 @@ import pytest
 from galleryvault.config import EDITABLE_SETTINGS, Settings
 from galleryvault.services.eh_client import (
     EhClient,
+    GalleryGoneError,
     _parse_category,
     _parse_favorite_categories,
 )
@@ -65,6 +66,19 @@ def test_category_normalization_includes_image_set_and_asianporn() -> None:
     assert normalize_category("Image Set") == "image_set"
     assert normalize_category("Asian Porn") == "asianporn"
     assert normalize_category("Imageset") == "other"
+
+
+@pytest.mark.asyncio
+async def test_exhentai_404_raises_gallery_gone() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(client=http_client)
+        with pytest.raises(GalleryGoneError):
+            await client.fetch_gallery_metadata(12345, "sometoken")
 
 
 def test_gallery_dirname_matches_ehviewer_style() -> None:
