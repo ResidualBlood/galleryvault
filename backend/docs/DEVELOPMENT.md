@@ -17,7 +17,7 @@ Browser ── :8001 ──▶ FastAPI app (galleryvault/app/main.py)  ──▶
 
 - **Frontend** (`galleryvault-frontend` repo) is a build-free vanilla-JS SPA
   served by nginx on port 8000. nginx reverse-proxies `/api`, `/login` and
-  `/logout` to the backend service (`http://backend:8000`).
+  `/logout` to the backend service (`http://backend:8001`).
 - **Backend** (this repo) is a **pure JSON API** on port 8001 (container
   port 8000): no HTML pages, no static files.
 - **Database**: PostgreSQL 16 runs alongside the backend in the same
@@ -42,15 +42,23 @@ backend/  (this git repository)
 galleryvault/
   app/
     main.py            # FastAPI app, all JSON route handlers
-  api/
-    __init__.py        # Canonical API reference (re-exports handlers + API_ROUTES)
+  api/                 # canonical API reference (re-exports handlers + routes)
   auth/                # password hashing + session cookies
   config.py            # Settings model + DB persistence
   db/                  # SQLAlchemy models, repositories, session
   scanners/            # ehviewer / zip / rar / folder scanners + registry
-  services/            # downloader, library scan, tag sync, favorites, ingest
+  services/
+    downloader.py      # ExHentai download engine (concurrent pages, resume, max_pages)
+    eh_client.py       # ExHentai HTML scraper (httpx) + EhClientError/GalleryGoneError
+    favorites.py       # favorite-folder monitor + download queue
+    ingest.py          # metadata ingestion from scan results
+    library.py         # filesystem scanning / expiry
+    tag_sync.py        # per-gallery tag & category sync, category backfill
+    tag_translation.py # EhTagTranslation database loading + translation lookups
+    telegram.py        # TelegramNotifier (async client)
+    telegram_bot.py    # long-poll bot for incoming commands
   logging.py
-alembic/               # database migrations
+alembic/               # database migrations (0001..0011)
 tests/                 # pytest suite
 docs/                  # this guide, USAGE.md, API.md
 Dockerfile
@@ -121,7 +129,10 @@ python -m pytest tests -q -p no:cacheprovider
 
 `tests/test_auth.py` exercises the auth gate, the JSON API contract, and the
 SPA fallback page. `test_scanners.py`, `test_p1_services.py`, and
-`test_latest_requirements.py` cover the library/scanning services.
+`test_latest_requirements.py` cover the library/scanning services. The tests
+run against a real PostgreSQL (the container's `DATABASE_URL`); the
+`db_isolated` autouse fixture stubs the DB-backed auth bootstrap and disables
+the background worker loops so they don't interfere with the test event loop.
 
 ## Database migrations
 
@@ -131,6 +142,13 @@ Schema changes go through Alembic:
 alembic revision --autogenerate -m "describe change"
 alembic upgrade head
 ```
+
+Migrations are applied automatically on container boot (`CMD` runs
+`alembic upgrade head` before uvicorn), so `docker compose pull && up -d` is a
+complete upgrade. Notable migrations: `0009` added the `category_refreshed_at`
+column (one-time category backfill), `0010` merged `other` into `misc` and
+moved coordinate-less galleries to `deleted`, and `0011` added
+`download_tasks.max_pages` so partial/sample downloads survive the worker.
 
 ## Tag translations (标签翻译)
 

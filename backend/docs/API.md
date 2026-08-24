@@ -14,6 +14,7 @@ authenticated session cookie. Unauthenticated `/api/*` requests receive
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
+| GET | `/healthz` | no | `{status: "ok"}` — liveness probe (used by the compose healthcheck). |
 | GET | `/api/auth/session` | yes | `{authenticated, auth_required, must_change_password}` or `401`. |
 | POST | `/login` | no | Form field `password`. Success sets the session cookie and redirects (`303`) to `/`; failure redirects to `/login?error=1`. |
 | POST | `/logout` | no | Clears the session cookie, redirects to `/login`. |
@@ -87,7 +88,7 @@ derives `favorites_categories` from the enabled ones.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode}`. Returns `202 {id, gid, status}`. |
+| POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. Returns `202 {id, gid, status}`. |
 | GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤100), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress and `retry_count`/`max_retries`. |
 | POST | `/api/downloads/{task_id}/cancel` | Cancel a pending/active task. |
 | POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`204`-style `{id, status:pending}`). |
@@ -111,7 +112,7 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/galleries` | Search/browse. Query: `page`, `page_size`, `q`, `tags` (csv `ns:name`), `tag_mode` (and/or), `tag_match` (exact/fuzzy), `category` (`doujinshi`, `manga`, `artistcg`, `gamecg`, `western`, `non-h`, `image_set`, `cosplay`, `asianporn`, `misc`, `other`). |
+| GET | `/api/galleries` | Search/browse. Query: `page`, `page_size`, `q`, `tags` (csv `ns:name`), `tag_mode` (and/or), `tag_match` (exact/fuzzy), `category` (`doujinshi`, `manga`, `artistcg`, `gamecg`, `western`, `non-h`, `image_set`, `cosplay`, `asianporn`, `misc`, `deleted`). `misc` is the generic bucket — it also holds what used to be `other`; galleries deleted from ExHentai (or without usable coordinates) live under `deleted`. |
 | GET | `/api/galleries/random` | `{id}` of a random non-expunged gallery (`404` when empty). |
 | GET | `/api/galleries/{identifier}` | Metadata, page list, tags (each with Chinese `display` when available), `spider_info`. `identifier` may be the DB `id` or the ExHentai `gid`. |
 | DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes the on-disk directory. |
@@ -150,7 +151,8 @@ refresh is available via the button in Settings. Markdown icon syntax
 | ------ | ---- | ----------- |
 | GET | `/api/scan` | Current scan status (`running`, `last`). |
 | POST | `/api/scan` | `202` – trigger a library scan. |
-| GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`). |
+| GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
+| POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |
 
 ## Errors
 
