@@ -14,6 +14,7 @@ CATEGORIES = (
     "non-h",
     "image_set",
     "asianporn",
+    "deleted",
     "other",
 )
 

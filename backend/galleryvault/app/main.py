@@ -750,7 +750,9 @@ async def _tag_sync_worker_loop() -> None:
             # treating it as a transient failure (no retries / no backoff).
             try:
                 async with _settings_session() as session, session.begin():
-                    await GalleryRepository(session).mark_tag_synced(gallery_id)
+                    await GalleryRepository(session).mark_tag_synced(
+                        gallery_id, category="deleted"
+                    )
             except Exception:  # noqa: BLE001 - marking is best-effort
                 logger.warning(
                     "could not mark deleted gallery synced",

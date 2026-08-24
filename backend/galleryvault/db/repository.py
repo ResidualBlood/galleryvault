@@ -504,16 +504,19 @@ class GalleryRepository:
             select(Gallery).where((Gallery.id == identifier) | (Gallery.gid == identifier))
         )
 
-    async def mark_tag_synced(self, gallery_id: int) -> None:
+    async def mark_tag_synced(self, gallery_id: int, category: str | None = None) -> None:
         """Mark a gallery's tags as synchronized without writing any tags.
 
         Used for galleries that no longer exist on ExHentai (404): there is
         nothing to sync, so we timestamp them to keep them out of the pending
-        queue instead of failing forever.
+        queue instead of failing forever.  When ``category`` is given (e.g.
+        ``deleted``) the gallery is reclassified into that category too.
         """
         row = await self.session.get(Gallery, gallery_id)
         if row is not None:
             row.tags_synced_at = datetime.now(UTC)
+            if category:
+                row.category = category
         await self.session.flush()
 
     async def delete_by_identifier(self, identifier: int) -> Gallery | None:

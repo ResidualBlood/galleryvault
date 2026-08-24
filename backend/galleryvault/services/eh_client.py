@@ -246,7 +246,9 @@ class EhClient:
         title, title_jpn = _parse_gallery_titles(body)
         tags = _parse_tags(body)
         if not title:
-            raise EhParseError("gallery metadata HTML did not contain a title")
+            # ExHentai answers non-existent / deleted galleries with a tiny
+            # 200 page that has no title (or a real 404). Treat both as gone.
+            raise GalleryGoneError("gallery does not exist on ExHentai")
         return GalleryData(
             int(gid), token, title, [], tags, _parse_category(body), title_jpn
         )
