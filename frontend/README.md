@@ -2,7 +2,7 @@
 
 Vanilla-JS Single-Page Application (hash-routed, no build step, no CDN
 dependency) for GalleryVault. Served by nginx on port 8000; nginx reverse-proxies
-`/api`, `/login` and `/logout` to the backend (`http://backend:8000`, host port
+`/api`, `/login` and `/logout` to the backend (`http://backend:8001`, host port
 8001).
 
 - `index.html` — SPA shell
@@ -21,5 +21,5 @@ docker build -t galleryvault-frontend .
 docker run --rm -p 8000:80 galleryvault-frontend
 ```
 
-Backend must be reachable at `http://backend:8000` (in compose) or adjust
+Backend must be reachable at `http://backend:8001` (in compose) or adjust
 `nginx.conf` `proxy_pass` for local development.
