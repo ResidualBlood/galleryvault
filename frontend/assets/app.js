@@ -31,6 +31,8 @@ const I18N = {
     progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
+    favCount: "Galleries", favSize: "Size",
+    favModeIncremental: "Incremental", favModeMonitorOnly: "Monitor only", favModeForce: "Force",
     libraryRoots: "Library roots (one path per line)", baseUrl: "Base URL",
     cookieId: "ipb_member_id", cookieHash: "ipb_pass_hash", cookieIgneous: "igneous",
     cookiesNote: "Cookies are never displayed after saving.",
@@ -93,6 +95,8 @@ const I18N = {
     progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
     enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
     syncFavcats: "同步收藏夹名称", checkNow: "立即检查", saveOk: "已保存",
+    favCount: "画廊数", favSize: "大小",
+    favModeIncremental: "增量下载", favModeMonitorOnly: "仅监控", favModeForce: "强制下载",
     libraryRoots: "库根目录（每行一个路径）", baseUrl: "Base URL",
     cookieId: "ipb_member_id", cookieHash: "ipb_pass_hash", cookieIgneous: "igneous",
     cookiesNote: "Cookie 保存后不会回显。",
@@ -891,17 +895,27 @@ async function renderFavorites() {
     const rows = (Array.isArray(cats) ? cats : []).map(c => `
       <tr data-favcat="${c.favcat}">
         <td>${esc(c.name || ("Folder " + c.favcat))} <span class="badge">#${c.favcat}</span></td>
+        <td class="muted">${c.count || 0}</td>
+        <td class="muted">${fmtSize(c.local_size || 0)}</td>
         <td><input type="checkbox" class="fav-enabled"${c.enabled ? " checked" : ""}></td>
-        <td><select class="fav-mode">${FAV_MODES.map(m => `<option value="${m}"${m === (c.mode || "incremental") ? " selected" : ""}>${m}</option>`).join("")}</select></td>
+        <td><select class="fav-mode">${FAV_MODES.map(m => `<option value="${m}"${m === (c.mode || "incremental") ? " selected" : ""}>${esc(t("favMode" + m[0].toUpperCase() + m.slice(1)))}</option>`).join("")}</select></td>
         <td><input type="number" min="1" class="fav-interval" value="${c.poll_interval_minutes != null ? c.poll_interval_minutes : 720}"></td>
         <td><button class="secondary" data-action="favcat-check" data-favcat="${c.favcat}" type="button">${esc(t("checkNow"))}</button></td>
       </tr>`).join("");
     document.getElementById("fav-list").innerHTML = `
       <table class="table">
-        <thead><tr><th>${esc(t("favorites"))}</th><th>${esc(t("enabled"))}</th><th>${esc(t("mode"))}</th><th>${esc(t("intervalMin"))}</th><th></th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="5">—</td></tr>`}</tbody>
+        <thead><tr><th>${esc(t("favorites"))}</th><th>${esc(t("favCount"))}</th><th>${esc(t("favSize"))}</th><th>${esc(t("enabled"))}</th><th>${esc(t("mode"))}</th><th>${esc(t("intervalMin"))}</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="7">—</td></tr>`}</tbody>
       </table>`;
   } catch (e) { document.getElementById("fav-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+function fmtSize(bytes) {
+  if (!bytes || bytes < 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0, v = bytes;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
 }
 
 async function saveFavoriteCategories() {
