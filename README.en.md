@@ -105,7 +105,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 Gallery format compatibility and translation features build on the following open-source projects:
 
-- **Ehviewer** — Ehviewer export directory structure and naming conventions (`<gid>-<title>`, `.ehviewer` metadata files, `.thumb` thumbnails).
+- **Ehviewer_CN_SXJ** — the Chinese fork of Ehviewer ([github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)). Its export directory structure and naming conventions (`<gid>-<title>`, `.ehviewer` metadata files, `.thumb` thumbnails), concurrent page download and resume behavior, and Chinese tag-translation reverse lookup are the reference for this project.
 - **EhTagTranslation** — tag translation database and update mechanism ([github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)).
 - **ehsyringe** — curation and export format of the translation data.
 
