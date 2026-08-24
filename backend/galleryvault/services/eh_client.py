@@ -168,6 +168,24 @@ def _parse_category(body: str) -> str:
     return normalize_category(_text(match.group(1)) if match else "other")
 
 
+def _parse_favorite_counts(body: str) -> dict[int, int]:
+    """Per-folder gallery counts from the favorites page header (fp blocks).
+
+    ExHentai renders each favorite folder's current size in the page header
+    (``<div class="fp">…<div>234</div> <div>1 长篇大作</div>…``), so a single
+    request yields every folder's count without paging through the galleries.
+    """
+    result: dict[int, int] = {}
+    for block in re.finditer(
+        r'<div[^>]+class=["\']fp["\'][\s\S]*?</div>\s*</div>', body, re.IGNORECASE
+    ):
+        category = re.search(r"favcat=(\d+)", block.group(0), re.IGNORECASE)
+        parts = _text(block.group(0)).split(maxsplit=2)
+        if category and len(parts) >= 2 and parts[0].isdigit():
+            result[int(category.group(1))] = int(parts[0])
+    return result
+
+
 def _parse_favorite_categories(body: str) -> dict[int, str]:
     result: dict[int, str] = {}
     patterns = (
@@ -389,6 +407,11 @@ class EhClient:
     async def fetch_favorite_categories(self) -> dict[int, str]:
         response = await self._get("/favorites.php")
         return _parse_favorite_categories(response.text)
+
+    async def fetch_favorite_counts(self) -> dict[int, int]:
+        """Current per-folder gallery counts from one favorites.php request."""
+        response = await self._get("/favorites.php")
+        return _parse_favorite_counts(response.text)
 
     async def fetch_gallery_by_category(self, category: str) -> tuple[int, str] | None:
         """Return the first ``(gid, token)`` listed for an ExHentai content category."""

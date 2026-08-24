@@ -1382,6 +1382,13 @@ async def favorite_categories() -> list[dict[str, object]]:
             stats = await FavoritesRepository(session).counts_and_sizes()
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
+    live_counts: dict[int, int] = {}
+    try:
+        live_counts = await _favorite_counts_cached()
+    except Exception as exc:  # noqa: BLE001 - fall back to recorded counts
+        logger.warning(
+            "could not fetch live favorite counts", extra=log_extra(error=type(exc).__name__)
+        )
     return [
         {
             "favcat": x.favcat,
@@ -1389,13 +1396,36 @@ async def favorite_categories() -> list[dict[str, object]]:
             "enabled": x.enabled,
             "mode": x.mode,
             "poll_interval_minutes": max(1, round(x.poll_interval_seconds / 60)),
-            "cloud_count": stats.get(x.favcat, (0, 0, 0))[0],
+            "cloud_count": live_counts.get(x.favcat, stats.get(x.favcat, (0, 0, 0))[0]),
             "local_count": stats.get(x.favcat, (0, 0, 0))[1],
             "local_size": stats.get(x.favcat, (0, 0, 0))[2],
-            "cloud_size": _estimate_cloud_size(*stats.get(x.favcat, (0, 0, 0))),
+            "cloud_size": _estimate_cloud_size(
+                live_counts.get(x.favcat, stats.get(x.favcat, (0, 0, 0))[0]),
+                stats.get(x.favcat, (0, 0, 0))[1],
+                stats.get(x.favcat, (0, 0, 0))[2],
+            ),
         }
         for x in rows
     ]
+
+
+_FAV_COUNTS_TTL = 300.0
+_fav_counts_cache: dict[str, object] = {"ts": 0.0, "counts": {}}
+
+
+async def _favorite_counts_cached() -> dict[int, int]:
+    """Live per-folder gallery counts, cached for ``_FAV_COUNTS_TTL`` seconds."""
+    import time as _time
+
+    now = _time.time()
+    if now - float(_fav_counts_cache["ts"]) < _FAV_COUNTS_TTL:
+        return dict(_fav_counts_cache["counts"])  # type: ignore[arg-type]
+    if app.state.eh_client is not None:
+        counts = await app.state.eh_client.fetch_favorite_counts()
+        _fav_counts_cache["ts"] = now
+        _fav_counts_cache["counts"] = counts
+        return counts
+    return {}
 
 
 def _estimate_cloud_size(cloud: int, local: int, local_size: int) -> int:

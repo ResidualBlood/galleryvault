@@ -204,3 +204,15 @@ async def test_fetch_gallery_by_category_requests_listing() -> None:
     assert result == (4139697, "bb74ca821e")
     assert await client.fetch_gallery_by_category("bogus") is None
 
+
+
+def test_parse_favorite_counts_from_fp_blocks() -> None:
+    from galleryvault.services.eh_client import _parse_favorite_counts
+
+    body = (
+        '<div class="fp" onclick="document.location=\'/favorites.php?favcat=0\'">'
+        '<div>2233</div><div>0 看过的番</div></div>'
+        '<div class="fp" onclick="document.location=\'/favorites.php?favcat=1\'">'
+        '<div>234</div><div>1 长篇大作</div></div>'
+    )
+    assert _parse_favorite_counts(body) == {0: 2233, 1: 234}
