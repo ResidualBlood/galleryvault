@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     )
     library_roots: list[str] = Field(default_factory=lambda: ["/library", "/downloads"])
     download_root: str = "/downloads"
+    thumbnail_cache_dir: str = "/gv-cache/thumbs"
+    generate_thumbnails: bool = True
     log_level: str = "INFO"
     log_json: bool = False
     scan_batch_size: int = 500
@@ -155,6 +157,7 @@ EDITABLE_SETTINGS = {
     "telegram_allowed_user_ids",
     "auth_required",
     "tag_translation_update_interval_minutes",
+    "generate_thumbnails",
 }
 
 

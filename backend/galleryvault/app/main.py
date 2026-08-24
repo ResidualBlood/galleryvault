@@ -11,7 +11,7 @@ from urllib.parse import parse_qs
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -55,6 +55,7 @@ from ..services.tag_translation import (
 )
 from ..services.telegram import TelegramNotifier
 from ..services.telegram_bot import TelegramBotService
+from ..services.thumbnails import JPEG_MIME, ThumbnailError, ThumbnailService
 
 settings = get_settings()
 configure_logging(settings.log_level, settings.log_json)
@@ -98,6 +99,19 @@ translation_state: dict[str, object] = {
     "entries": 0,
 }
 CSRF_COOKIE = "galleryvault_csrf"
+thumb_state: dict[str, object] = {
+    "running": False,
+    "queued": 0,
+    "processed": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "total": 0,
+    "last_error": None,
+}
+thumb_queue: asyncio.Queue[int] = asyncio.Queue()
+thumb_queued: set[int] = set()
+thumb_worker_task = None
+thumb_service: ThumbnailService | None = None
 
 # Built-in default password used when no auth hash is configured anywhere. The
 # SPA forces a password change once you log in with it.  Documented in the
@@ -306,6 +320,15 @@ async def startup() -> None:
     global tag_sync_worker_task
     tag_sync_worker_task = asyncio.create_task(_tag_sync_worker_loop())
     app.state.spawned_tasks = set()
+    global thumb_worker_task
+    thumb_worker_task = asyncio.create_task(_thumbnail_worker_loop())
+    if _settings().generate_thumbnails:
+        try:
+            await _seed_thumbnails()
+        except Exception as exc:  # noqa: BLE001 - seeding must not block boot
+            logger.warning(
+                "thumbnail seeding failed", extra=log_extra(error=type(exc).__name__)
+            )
     _ensure_translation_updater()
     load_translations()
     logger.info("GalleryVault started", extra=log_extra(library_roots=_settings().library_roots))
@@ -337,8 +360,12 @@ async def shutdown() -> None:
             await download_worker_task
     if tag_sync_worker_task is not None:
         tag_sync_worker_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await tag_sync_worker_task
+    if thumb_worker_task is not None:
+        thumb_worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await thumb_worker_task
     if app.state.telegram is not None:
         await app.state.telegram.aclose()
     if app.state.eh_client is not None:
@@ -956,6 +983,7 @@ class SettingsRequest(BaseModel):
     auto_sync_tags: bool | None = None
     tag_sync_interval_seconds: float | None = Field(default=None, gt=0)
     tag_sync_concurrency: int | None = Field(default=None, ge=1, le=32)
+    generate_thumbnails: bool | None = None
 
     @model_validator(mode="after")
     def validate_values(self) -> "SettingsRequest":
@@ -993,6 +1021,8 @@ def _settings_public() -> dict[str, object]:
         "auto_sync_tags": current.auto_sync_tags,
         "tag_sync_interval_seconds": current.tag_sync_interval_seconds,
         "tag_sync_concurrency": current.tag_sync_concurrency,
+        "generate_thumbnails": current.generate_thumbnails,
+        "thumbnail_cache_dir": current.thumbnail_cache_dir,
         "auth_required": current.auth_required,
         "auth_hash_configured": _auth_hash_configured(),
         "must_change_password": _must_change_password(),
@@ -1030,6 +1060,7 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "download_favorites_enabled",
         "auth_required",
         "tag_translation_update_interval_minutes",
+        "generate_thumbnails",
     }
     updates = {key: value for key, value in values.items() if key in allowed}
     if "library_roots" in updates:
@@ -1103,6 +1134,7 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
             "tag_sync_interval_seconds",
             "tag_sync_concurrency",
             "tag_translation_update_interval_minutes",
+            "generate_thumbnails",
         )
     }
     persisted_values.update(values)
@@ -1503,7 +1535,7 @@ async def gallery_list(
                 "storage_type": row.storage_type,
                 "category": row.category or "other",
                 "page_count": row.page_count or 0,
-                "cover_url": f"/api/galleries/{row.id}/pages/0" if row.page_count else None,
+                "cover_url": f"/api/galleries/{row.id}/thumb/0" if row.page_count else None,
                 "tags": [
                     {"namespace": namespace, "name": name, "display": translated_tag(namespace, name)[1]}
                     for namespace, name in tag_map.get(row.id, [])
@@ -1812,6 +1844,172 @@ def _closing_stream(stream: BinaryIO) -> Iterator[bytes]:
             stream.close()
         except OSError:
             pass
+
+
+def _thumb_service() -> ThumbnailService:
+    global thumb_service
+    if thumb_service is None:
+        thumb_service = ThumbnailService(_settings().thumbnail_cache_dir)
+    return thumb_service
+
+
+async def _thumbnail_gallery(gallery_id: int) -> None:
+    """Generate (or refresh) cached thumbnails for one gallery, page by page."""
+    async with _settings_session() as session:
+        row = await session.get(Gallery, gallery_id)
+        if row is None or not row.page_count:
+            return
+        pages = list(
+            await session.scalars(
+                select(GalleryPage)
+                .where(GalleryPage.gallery_id == gallery_id)
+                .order_by(GalleryPage.page_index)
+            )
+        )
+    service = _thumb_service()
+    scanner = registry.for_path(Path(row.storage_path))
+    if scanner is None:
+        return
+    meta = _meta(row, pages)
+    for page in pages:
+        if service.cached(gallery_id, page.page_index) is not None:
+            continue
+        stream = None
+        try:
+            stream = await run_in_threadpool(
+                scanner.open_page,
+                meta,
+                PageInfo(page.page_index, page.member_name, page.media_type),
+            )
+            data = await run_in_threadpool(stream.read)
+            service.get_or_create(gallery_id, page.page_index, data)
+            thumb_state["succeeded"] += 1
+        except (ThumbnailError, OSError, EOFError) as exc:
+            thumb_state["failed"] += 1
+            thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+        thumb_state["processed"] += 1
+
+
+async def _seed_thumbnails() -> None:
+    """Queue every gallery missing its cover thumbnail for background generation."""
+    async with _settings_session() as session:
+        rows = await session.execute(
+            select(Gallery.id, Gallery.page_count).where(Gallery.page_count.is_not(None))
+        )
+        pairs = [(int(row[0]), int(row[1])) for row in rows if row[1]]
+    service = _thumb_service()
+    added = 0
+    for gallery_id, page_count in pairs:
+        if service.cached(gallery_id, 0) is not None:
+            continue
+        if gallery_id in thumb_queued:
+            continue
+        thumb_queued.add(gallery_id)
+        thumb_queue.put_nowait(gallery_id)
+        added += 1
+    thumb_state["total"] = len(pairs)
+    thumb_state["queued"] = thumb_queue.qsize()
+    logger.info(
+        "thumbnail seeding complete", extra=log_extra(queued=added, galleries=len(pairs))
+    )
+
+
+async def _thumbnail_worker_loop() -> None:
+    while True:
+        try:
+            gallery_id = await asyncio.wait_for(thumb_queue.get(), timeout=5)
+        except TimeoutError:
+            thumb_state["running"] = thumb_queue.qsize() > 0
+            thumb_state["queued"] = thumb_queue.qsize()
+            continue
+        thumb_queued.discard(gallery_id)
+        try:
+            await _thumbnail_gallery(gallery_id)
+        except Exception as exc:  # noqa: BLE001 - one gallery must not stop the worker
+            thumb_state["failed"] += 1
+            thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "thumbnail generation failed",
+                extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+            )
+        thumb_state["processed"] += 1
+        thumb_state["queued"] = thumb_queue.qsize()
+        thumb_state["running"] = thumb_queue.qsize() > 0
+
+
+@app.get("/api/galleries/{identifier}/thumb/{page_index}")
+async def gallery_thumbnail(identifier: int, page_index: int) -> FileResponse:
+    row, pages = await _gallery(identifier)
+    page = next((item for item in pages if item.page_index == page_index), None)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    scanner = registry.for_path(Path(row.storage_path))
+    if scanner is None:
+        raise HTTPException(status_code=500, detail="No scanner for gallery")
+    service = _thumb_service()
+    cached = service.cached(row.id, page_index)
+    if cached is None:
+        stream = await run_in_threadpool(
+            scanner.open_page,
+            _meta(row, pages),
+            PageInfo(page.page_index, page.member_name, page.media_type),
+        )
+        try:
+            data = await run_in_threadpool(stream.read)
+        finally:
+            try:
+                stream.close()
+            except OSError:
+                pass
+        try:
+            cached = await run_in_threadpool(
+                service.get_or_create, row.id, page_index, data
+            )
+        except ThumbnailError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return FileResponse(
+        cached,
+        media_type=JPEG_MIME,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/api/thumbs/status")
+async def thumb_status() -> dict[str, object]:
+    return dict(thumb_state)
+
+
+@app.post("/api/thumbs/generate", status_code=202)
+async def trigger_thumbnail_generation() -> dict[str, object]:
+    """Queue every gallery missing thumbnails for background generation."""
+    await _seed_thumbnails()
+    thumb_state["running"] = True
+    return {
+        "status": "running" if thumb_queue.qsize() else "started",
+        "queued": thumb_queue.qsize(),
+    }
+
+
+@app.post("/api/tag-sync/start", status_code=202)
+async def trigger_tag_sync() -> dict[str, object]:
+    """Re-queue every gallery that still needs tag sync (manual full run)."""
+    async with _settings_session() as session:
+        last_id = 0
+        seeded = 0
+        while True:
+            ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
+            if not ids:
+                break
+            _enqueue_tag_sync(ids)
+            seeded += len(ids)
+            last_id = ids[-1]
+    return {"status": "started", "queued": seeded}
 
 
 @app.get("/api/tags/search")

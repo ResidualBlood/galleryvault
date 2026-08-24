@@ -423,3 +423,42 @@ async def test_tag_sync_status_for_gids_maps_gid_to_synced_at() -> None:
     session = _SelectSession([(100, None), (200, datetime(2026, 1, 1, tzinfo=UTC))])
     status = await GalleryRepository(session).tag_sync_status_for_gids([100, 200])
     assert status == {100: None, 200: datetime(2026, 1, 1, tzinfo=UTC)}
+
+
+def test_thumbnail_service_renders_static_jpeg(tmp_path: Path) -> None:
+    from PIL import Image
+
+    from galleryvault.services.thumbnails import ThumbnailService
+
+    buf = _make_jpeg_bytes(640, 900)
+    service = ThumbnailService(tmp_path / "thumbs")
+    path = service.get_or_create(7, 0, buf)
+    assert path.is_file()
+    assert service.cached(7, 0) == path
+    with Image.open(path) as img:
+        assert img.format == "JPEG"
+        assert img.size[0] <= 240
+    assert service.missing_pages(7, 3) == [1, 2]
+    # A second call returns the same cached file without re-rendering.
+    path2 = service.get_or_create(7, 0, b"")
+    assert path2 == path
+
+
+def _make_jpeg_bytes(width: int, height: int) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (width, height), (120, 30, 90)).save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+def test_thumbnail_service_rejects_corrupt_input(tmp_path: Path) -> None:
+    import pytest
+
+    from galleryvault.services.thumbnails import ThumbnailError, ThumbnailService
+
+    service = ThumbnailService(tmp_path / "thumbs")
+    with pytest.raises(ThumbnailError):
+        service.get_or_create(1, 0, b"not-an-image")
