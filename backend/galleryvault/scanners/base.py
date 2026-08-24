@@ -18,18 +18,22 @@ CATEGORIES = (
     "other",
 )
 
+# ExHentai "Misc" and our generic fallback are the same bucket; unknown or
+# unclassifiable galleries land here too.
+GENERIC_CATEGORY = "misc"
+
 
 def normalize_category(value: object) -> str:
     candidate = str(value or "").strip().casefold().replace(" ", "_")
+    if candidate == "other":
+        # 'other' (our generic bucket) and ExHentai's 'misc' are the same class.
+        return GENERIC_CATEGORY
     if candidate in CATEGORIES:
         return candidate
-    # Some ExHentai category labels do not collapse onto our keys cleanly
-    # (e.g. "Asian Porn" -> asian_porn vs the key asianporn).  Compare the
-    # compact form (underscores removed) as well.
     compact = candidate.replace("_", "")
     if compact in CATEGORIES:
         return compact
-    return "other"
+    return GENERIC_CATEGORY
 
 
 def infer_category(path: Path, metadata: dict[str, Any] | None = None) -> str:
@@ -38,7 +42,7 @@ def infer_category(path: Path, metadata: dict[str, Any] | None = None) -> str:
         candidate = str(value or "").strip().casefold().replace(" ", "_")
         if candidate in CATEGORIES:
             return candidate
-    return "other"
+    return GENERIC_CATEGORY
 
 
 @dataclass(frozen=True)

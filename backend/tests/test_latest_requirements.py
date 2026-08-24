@@ -56,7 +56,7 @@ def test_parse_category_supports_exhentai_cs_ct2_markup() -> None:
         "'https://exhentai.org/doujinshi'\">Doujinshi</div>"
     )
     assert _parse_category(body) == "doujinshi"
-    assert _parse_category("<span>Nothing</span>") == "other"
+    assert _parse_category("<span>Nothing</span>") == "misc"
 
 
 def test_category_normalization_includes_image_set_and_asianporn() -> None:
@@ -65,7 +65,7 @@ def test_category_normalization_includes_image_set_and_asianporn() -> None:
     assert "image_set" in CATEGORIES and "asianporn" in CATEGORIES
     assert normalize_category("Image Set") == "image_set"
     assert normalize_category("Asian Porn") == "asianporn"
-    assert normalize_category("Imageset") == "other"
+    assert normalize_category("Imageset") == "misc"
 
 
 @pytest.mark.asyncio
