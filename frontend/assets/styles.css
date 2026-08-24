@@ -254,6 +254,12 @@ a.row:hover { border-color: var(--accent); }
   background-size: 200% 100%; animation: dl-slide 1.4s linear infinite;
 }
 @keyframes dl-slide { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.task-progress { margin-top: 8px; }
+.task-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 14px; margin-bottom: 8px;
+}
 .table { width: 100%; border-collapse: collapse; margin-top: 16px; }
 .table th, .table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .table th { color: var(--muted); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; }

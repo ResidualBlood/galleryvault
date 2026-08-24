@@ -49,6 +49,8 @@ const I18N = {
     confirmDeleteFiltered: "Delete all matching galleries?", deleted: "Deleted",
     select: "Select", clearSel: "Clear selection", deleteSel: "Delete selected",
     confirmDeleteSel: "Delete selected galleries?",
+    tasks: "Background tasks", scanning: "Scanning library", tagSyncing: "Syncing tags",
+    noTasks: "No background tasks",
     favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
     settingsSub: "Library, connection and background tasks.",
     groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages" },
@@ -102,6 +104,8 @@ const I18N = {
     confirmDeleteFiltered: "确定删除所有匹配的画廊？", deleted: "已删除",
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
     confirmDeleteSel: "确定删除所选画廊？",
+    tasks: "后台任务", scanning: "扫描库中", tagSyncing: "同步标签中",
+    noTasks: "无后台任务",
     favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
     settingsSub: "本地库、连接与后台任务。",
     groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
@@ -368,6 +372,10 @@ async function renderBrowse() {
       <div id="browse-grid"><p>${esc(t("loading"))}</p></div>
       <div class="pages pager" id="browse-pager"></div>
     </section>
+    <section id="task-progress" class="task-progress" hidden>
+      <h2>${esc(t("tasks"))}</h2>
+      <div id="task-progress-body"></div>
+    </section>
     <section>
       <h2>${esc(t("tags"))}</h2>
       <div id="browse-ns" class="ns-strip"></div>
@@ -389,6 +397,7 @@ async function renderBrowse() {
         .map(g => `<a class="pill" href="${navHash("tags", {}, { ns: g.ns })}">${esc(groupLabel(g.key))} <b>${counts[g.ns]}</b></a>`)
         .join("");
     }
+    pollTaskProgress();
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
@@ -914,8 +923,55 @@ async function randomGallery() {
 }
 
 async function scanLibrary() {
-  try { await api("POST", "/api/scan"); toast("Scan started"); location.hash = navHash("library"); }
+  try { await api("POST", "/api/scan"); toast("Scan started"); pollTaskProgress(); }
   catch (e) { toast(e.message); }
+}
+
+let taskTimer = null;
+
+function progressHtml(label, done, total, extra) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : null;
+  return `<div class="task-row">
+    <span class="row-title">${esc(label)}</span>
+    ${pct !== null
+      ? `<div class="dl-progress"><div class="dl-progress-bar" style="width:${pct}%"></div></div>
+         <span class="row-meta">${done}/${total} · ${pct}%${extra ? " · " + esc(extra) : ""}</span>`
+      : `<div class="dl-progress dl-progress-indet"></div><span class="row-meta">${esc(extra || "…")}</span>`}
+  </div>`;
+}
+
+async function pollTaskProgress() {
+  if (taskTimer) clearInterval(taskTimer);
+  taskTimer = setInterval(async () => {
+    const sec = document.getElementById("task-progress");
+    if (!sec) return;
+    try {
+      const [scan, ts] = await Promise.all([
+        api("GET", "/api/scan").catch(() => null),
+        api("GET", "/api/tag-sync/status").catch(() => null),
+      ]);
+      const rows = [];
+      if (scan && scan.running) {
+        rows.push(progressHtml(t("scanning"), scan.scanned || 0, (scan.scanned || 0) + 0, `persisted ${scan.persisted || 0}`));
+      }
+      if (ts && (ts.running || (ts.total && ts.processed < ts.total))) {
+        rows.push(progressHtml(t("tagSyncing"), ts.processed || 0, ts.total || 0, `ok ${ts.succeeded || 0} / fail ${ts.failed || 0}`));
+      }
+      const body = document.getElementById("task-progress-body");
+      if (rows.length) {
+        sec.hidden = false;
+        body.innerHTML = rows.join("");
+      } else {
+        sec.hidden = true;
+        body.innerHTML = "";
+        clearInterval(taskTimer);
+        taskTimer = null;
+      }
+    } catch (_) { /* transient */ }
+  }, 2000);
+  // Kick off an immediate render so progress appears without waiting 2s.
+  const sec = document.getElementById("task-progress");
+  if (sec) { sec.hidden = false; }
 }
 
 async function clearHistory() {
