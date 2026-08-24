@@ -35,6 +35,11 @@ jobs:
         run: |
           pip install -e ".[dev]"
 
+      - name: Migrate database
+        env:
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: alembic upgrade head
+
       - name: Lint
         run: ruff check .
 
