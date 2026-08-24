@@ -1359,6 +1359,18 @@ async def cancel_download(task_id: int) -> dict[str, object]:
     return {"id": task_id, "status": "cancelled"}
 
 
+@app.delete("/api/downloads/{task_id}", status_code=204)
+async def delete_download_task(task_id: int) -> None:
+    try:
+        async with _settings_session() as session, session.begin():
+            if not await DownloadRepository(session).delete(task_id):
+                raise HTTPException(status_code=404, detail="Download task not found")
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+
+
 @app.get("/api/favorites/categories")
 async def favorite_categories() -> list[dict[str, object]]:
     try:
@@ -1374,11 +1386,27 @@ async def favorite_categories() -> list[dict[str, object]]:
             "enabled": x.enabled,
             "mode": x.mode,
             "poll_interval_minutes": max(1, round(x.poll_interval_seconds / 60)),
-            "count": stats.get(x.favcat, (0, 0))[0],
-            "local_size": stats.get(x.favcat, (0, 0))[1],
+            "cloud_count": stats.get(x.favcat, (0, 0, 0))[0],
+            "local_count": stats.get(x.favcat, (0, 0, 0))[1],
+            "local_size": stats.get(x.favcat, (0, 0, 0))[2],
+            "cloud_size": _estimate_cloud_size(*stats.get(x.favcat, (0, 0, 0))),
         }
         for x in rows
     ]
+
+
+def _estimate_cloud_size(cloud: int, local: int, local_size: int) -> int:
+    """Estimate how much syncing the whole folder would take.
+
+    Uses the average size of the galleries we already have locally as a proxy
+    for the missing ones; 0 when there is no local sample to average against.
+    """
+    if cloud <= 0:
+        return 0
+    if local > 0:
+        average = local_size / local
+        return int(average * cloud)
+    return 0
 
 
 @app.post("/api/favorites/categories")
@@ -1444,6 +1472,11 @@ async def check_favorites(favcat: int) -> dict[str, object]:
 async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
     async with _settings_session() as session:
         category = await FavoritesRepository(session).category(favcat)
+    # A disabled folder is check-only: record entries but never download. It
+    # only starts downloading once the user enables the folder.
+    if category is not None and not category.enabled:
+        await service.check_category(favcat, mode="monitor_only")
+        return
     await service.check_category(favcat, mode=category.mode if category else "incremental")
 
 

@@ -770,6 +770,14 @@ class DownloadRepository:
             task.status = "cancelled"
         return True
 
+    async def delete(self, task_id: int) -> bool:
+        """Permanently remove a download task (and its attempt log)."""
+        task = await self.session.get(DownloadTask, task_id)
+        if task is None:
+            return False
+        await self.session.delete(task)
+        return True
+
 
 class FavoritesRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -784,19 +792,27 @@ class FavoritesRepository:
             ).all()
         )
 
-    async def counts_and_sizes(self) -> dict[int, tuple[int, int]]:
-        """Per-favcat stats: (number of remembered favorite items, bytes held
-        locally for those galleries in the galleries table)."""
+    async def counts_and_sizes(self) -> dict[int, tuple[int, int, int]]:
+        """Per-favcat stats: (cloud items, local galleries, local bytes).
+
+        ``cloud`` counts every favorite item recorded for the folder; ``local``
+        counts the ones present locally (galleries table, not expunged) and
+        ``local bytes`` is the sum of their file_size.  The API derives an
+        estimated cloud size from these.
+        """
         rows = await self.session.execute(
             select(
                 FavoriteItem.favcat,
                 func.count(FavoriteItem.id),
-                func.coalesce(func.sum(Gallery.file_size), 0),
+                func.count(Gallery.id).filter(Gallery.expunged.is_(False)),
+                func.coalesce(
+                    func.sum(Gallery.file_size).filter(Gallery.expunged.is_(False)), 0
+                ),
             )
             .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
             .group_by(FavoriteItem.favcat)
         )
-        return {int(favcat): (int(count), int(size)) for favcat, count, size in rows}
+        return {int(favcat): (int(cloud), int(local), int(size)) for favcat, cloud, local, size in rows}
 
     async def category(self, favcat: int) -> FavoritesMonitor | None:
         return await self.session.scalar(
