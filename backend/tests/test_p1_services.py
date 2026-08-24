@@ -127,6 +127,10 @@ class FakeFavoritesRepo:
         self.known.add(item.gid)
         self.remembered.append(item.gid)
 
+    async def remember_many(self, favcat: int, items) -> None:
+        for item in items:
+            await self.remember(favcat, item)
+
     async def checked(self, favcat: int, success: bool) -> None:
         pass
 

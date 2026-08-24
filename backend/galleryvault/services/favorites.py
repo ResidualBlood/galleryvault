@@ -14,6 +14,7 @@ class FavoriteRepository(Protocol):
     async def known_gids(self, favcat: int) -> set[int]: ...
     async def existing_gallery_gids(self, gids: list[int]) -> set[int]: ...
     async def remember(self, favcat: int, item: FavoriteData) -> None: ...
+    async def remember_many(self, favcat: int, items: list[FavoriteData]) -> None: ...
     async def checked(self, favcat: int, success: bool) -> None: ...
 
 
@@ -91,8 +92,8 @@ class FavoritesService:
                 candidates = [item for item in candidates if item.gid not in local_gids]
         # Record every folder item as seen (idempotent) so the per-folder count
         # reflects the whole ExHentai folder, including galleries already local.
-        for item in unique.values():
-            await self.repository.remember(favcat, item)
+        if unique:
+            await self.repository.remember_many(favcat, list(unique.values()))
         downloaded = failed = 0
         for item in candidates:
             if mode == "monitor_only":

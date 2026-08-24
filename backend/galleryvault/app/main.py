@@ -1232,6 +1232,9 @@ class _FavoritesRepositoryProxy:
     async def remember(self, favcat: int, item):
         return await self._call("remember", favcat, item)
 
+    async def remember_many(self, favcat: int, items):
+        return await self._call("remember_many", favcat, items)
+
     async def checked(self, favcat: int, success: bool):
         return await self._call("checked", favcat, success)
 
