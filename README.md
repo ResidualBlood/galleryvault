@@ -53,10 +53,11 @@ docker compose up -d
 | 路径 | 说明 |
 |------|------|
 | `./db-data` | PostgreSQL 数据（索引、设置、历史），容器重建后保留 |
-| `./library` | 画廊归档/目录，挂载至 `/library`，默认扫描 |
-| `./downloads` | 从 ExHentai 下载的画廊，挂载至 `/downloads` |
+| `./library` | **只读库目录**：存放已有画廊归档（Ehviewer 导出、CBZ/CBR），挂载至 `/library`。新下载的画廊不会写入此目录 |
+| `./downloads` | **下载目录**：从 ExHentai 下载的画廊存放于此，挂载至 `/downloads`，自动纳入扫描 |
+| `./cache` | **缩略图缓存**（自动生成），挂载至 `/gv-cache`，不会写入画廊目录 |
 
-更多库目录可在「设置 → 库目录」中添加；每个路径均需在 `docker-compose.yml` 中挂载进容器。
+库目录与下载目录在「设置」中分开配置：`library_roots`（只读，每行一个路径）与 `download_root`（下载目标）；下载目录始终会被扫描。更多库目录需在 `docker-compose.yml` 中挂载进容器。
 
 ## 配置
 

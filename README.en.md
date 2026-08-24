@@ -53,10 +53,11 @@ docker compose up -d
 | Path | Purpose |
 |------|---------|
 | `./db-data` | PostgreSQL data (index, settings, history) — survives container recreation |
-| `./library` | Your gallery archives, mounted at `/library`, scanned by default |
-| `./downloads` | Galleries downloaded from ExHentai, mounted at `/downloads` |
+| `./library` | **Read-only library**: your existing archives (Ehviewer exports, CBZ/CBR), mounted at `/library`. New downloads never land here |
+| `./downloads` | **Download directory**: galleries downloaded from ExHentai, mounted at `/downloads`, scanned automatically |
+| `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache`; never written into the galleries |
 
-Additional library directories can be added in *Settings → Library roots*; each path must be mounted into the container in `docker-compose.yml`.
+The library roots and the download root are configured separately in *Settings* (`library_roots`, read-only, one path per line) and `download_root` (download target); the download directory is always scanned. Additional library paths must be mounted into the container in `docker-compose.yml`.
 
 ## Configuration
 
