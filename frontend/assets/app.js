@@ -45,6 +45,7 @@ const I18N = {
     allowedIds: "Allowed user IDs (comma separated)",
     autoSyncTags: "Auto sync tags", tagSyncInterval: "Tag sync interval (seconds)",
     tagSyncConcurrency: "Tag sync concurrency",
+    generateThumbnails: "Generate thumbnails", genThumbs: "Generate now", syncAllTags: "Sync tags now",
     pollDefault: "Default poll interval (minutes)",
     favHint: "Enable folders to monitor; per-folder settings below.",
     testExhentai: "Test ExHentai login", cancelDl: "Cancel", error: "Error",
@@ -55,7 +56,7 @@ const I18N = {
     confirmDeleteFiltered: "Delete all matching galleries?", deleted: "Deleted",
     select: "Select", clearSel: "Clear selection", deleteSel: "Delete selected",
     confirmDeleteSel: "Delete selected galleries?",
-    tasks: "Background tasks", scanning: "Scanning library", tagSyncing: "Syncing tags",
+    tasks: "Background tasks", scanning: "Scanning library", tagSyncing: "Syncing tags", thumbs: "Generating thumbnails",
     noTasks: "No background tasks", dlTasks: "Download tasks",
     favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
     settingsSub: "Library, connection and background tasks.",
@@ -106,6 +107,7 @@ const I18N = {
     allowedIds: "允许的用户 ID（逗号分隔）",
     autoSyncTags: "自动同步标签", tagSyncInterval: "标签同步间隔（秒）",
     tagSyncConcurrency: "标签同步并发",
+    generateThumbnails: "生成缩略图", genThumbs: "立即生成", syncAllTags: "立即同步标签",
     pollDefault: "默认轮询间隔（分钟）",
     favHint: "勾选要监控的收藏夹；各收藏夹设置见下表。",
     testExhentai: "测试 ExHentai 登录", cancelDl: "取消任务", error: "错误",
@@ -116,7 +118,7 @@ const I18N = {
     confirmDeleteFiltered: "确定删除所有匹配的画廊？", deleted: "已删除",
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
     confirmDeleteSel: "确定删除所选画廊？",
-    tasks: "后台任务", scanning: "扫描库中", tagSyncing: "同步标签中",
+    tasks: "后台任务", scanning: "扫描库中", tagSyncing: "同步标签中", thumbs: "生成缩略图中",
     noTasks: "无后台任务", dlTasks: "下载任务",
     favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
     settingsSub: "本地库、连接与后台任务。",
@@ -481,7 +483,7 @@ async function renderGallery() {
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbs = thumbsVisible.map(p => `
       <a class="thumb" href="${navHash("reader", { id, page: p.index })}">
-        <img loading="lazy" src="/api/galleries/${id}/pages/${p.index}" alt="Page ${p.index + 1}">
+        <img loading="lazy" src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
       </a>`).join("");
     const thumbPagerParts = [];
     if (thumbPage > 1) {
@@ -812,6 +814,14 @@ async function renderSettings() {
           ${field(t("tagSyncConcurrency"), `<input name="tag_sync_concurrency" type="number" min="1" max="32" value="${s.tag_sync_concurrency != null ? s.tag_sync_concurrency : 2}">`)}
         </div>
       </fieldset>
+      <fieldset><legend>Thumbnails</legend>
+        <label class="checkbox"><input type="checkbox" name="generate_thumbnails"${s.generate_thumbnails ? " checked" : ""}> ${esc(t("generateThumbnails"))}</label>
+        <div class="toolbar">
+          <button class="secondary" data-action="gen-thumbs" type="button">${esc(t("genThumbs"))}</button>
+          <button class="secondary" data-action="sync-all-tags" type="button">${esc(t("syncAllTags"))}</button>
+        </div>
+        <p class="notice">${esc(t("thumbs"))}</p>
+      </fieldset>
       <fieldset><legend>${esc(t("translationUpdate"))}</legend>
         ${field(t("translationInterval"), `<input name="tag_translation_update_interval_minutes" type="number" min="0" value="${s.tag_translation_update_interval_minutes != null ? s.tag_translation_update_interval_minutes : 720}">`)}
         <div class="toolbar"><button class="secondary" data-action="force-update" type="button">${esc(t("forceUpdate"))}</button></div>
@@ -856,6 +866,7 @@ function collectSettings(form) {
     download_favorites_enabled: form.download_favorites_enabled.checked,
     favorites_poll_interval_minutes: Math.max(1, num("favorites_poll_interval_minutes", 720)),
     auto_sync_tags: form.auto_sync_tags.checked,
+    generate_thumbnails: form.generate_thumbnails ? form.generate_thumbnails.checked : undefined,
     tag_sync_interval_seconds: Math.max(0.1, num("tag_sync_interval_seconds", 1)),
     tag_sync_concurrency: Math.min(32, Math.max(1, num("tag_sync_concurrency", 2))),
     telegram_chat_ids: lines(val("telegram_chat_ids")),
@@ -950,6 +961,8 @@ function onClick(e) {
   if (action === "change-password") { e.preventDefault(); changePassword(); return; }
   if (action === "test-telegram") { testTelegram(); return; }
   if (action === "force-update") { forceUpdate(); return; }
+  if (action === "gen-thumbs") { generateThumbnails(); return; }
+  if (action === "sync-all-tags") { syncAllTags(); return; }
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
@@ -1006,9 +1019,10 @@ async function pollTaskProgress() {
     const sec = document.getElementById("task-progress");
     if (!sec) return;
     try {
-      const [scan, ts] = await Promise.all([
+      const [scan, ts, th] = await Promise.all([
         api("GET", "/api/scan").catch(() => null),
         api("GET", "/api/tag-sync/status").catch(() => null),
+        api("GET", "/api/thumbs/status").catch(() => null),
       ]);
       const rows = [];
       if (scan && scan.running) {
@@ -1016,6 +1030,9 @@ async function pollTaskProgress() {
       }
       if (ts && (ts.running || (ts.total && ts.processed < ts.total))) {
         rows.push(progressHtml(t("tagSyncing"), ts.processed || 0, ts.total || 0, `ok ${ts.succeeded || 0} / fail ${ts.failed || 0}`));
+      }
+      if (th && (th.running || th.queued || (th.total && th.processed < th.total))) {
+        rows.push(progressHtml(t("thumbs"), th.processed || 0, th.total || 0, `ok ${th.succeeded || 0} / fail ${th.failed || 0}`));
       }
       const body = document.getElementById("task-progress-body");
       if (rows.length) {
@@ -1204,6 +1221,22 @@ async function forceUpdate() {
     const el = document.getElementById("trans-status");
     if (el) el.textContent = r.ok ? t("transUpdated") : (r.last_error || "?");
     toast(t("forceUpdate") + (r.ok ? " OK" : " :: " + (r.last_error || "?")));
+  } catch (e) { toast(e.message); }
+}
+
+async function generateThumbnails() {
+  try {
+    const r = await api("POST", "/api/thumbs/generate");
+    toast(t("genThumbs") + (r && r.queued ? ` (${r.queued})` : ""));
+    pollTaskProgress();
+  } catch (e) { toast(e.message); }
+}
+
+async function syncAllTags() {
+  try {
+    const r = await api("POST", "/api/tag-sync/start");
+    toast(t("syncAllTags") + (r && r.queued ? ` (${r.queued})` : ""));
+    pollTaskProgress();
   } catch (e) { toast(e.message); }
 }
 
