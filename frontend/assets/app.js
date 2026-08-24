@@ -688,6 +688,7 @@ async function renderDownloads() {
       </div>
       <button class="secondary" data-action="dl-select-all" type="button">${esc(t("selectAll"))}</button>
       <button class="primary" data-action="dl-retry-selected" type="button">${esc(t("retrySelected"))}</button>
+      <button class="secondary danger" data-action="dl-delete-selected" type="button">${esc(t("deleteSel"))}</button>
     </div>
     <div id="dl-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="dl-pages"></div>`;
@@ -972,6 +973,7 @@ function onClick(e) {
   if (action === "delete-download") { deleteDownload(el.getAttribute("data-id")); return; }
   if (action === "dl-select-all") { selectAllDownloads(); return; }
   if (action === "dl-retry-selected") { retrySelectedDownloads(); return; }
+  if (action === "dl-delete-selected") { deleteSelectedDownloads(); return; }
   if (action === "test-exhentai") { testExhentai(); return; }
   if (action === "favcats-save") { saveFavoriteCategories(); return; }
   if (action === "favcats-sync") { syncFavoriteCategories(); return; }
@@ -1094,6 +1096,19 @@ function selectAllDownloads() {
   const boxes = document.querySelectorAll(".dl-check");
   const all = boxes.length && [...boxes].every(b => b.checked);
   boxes.forEach(b => { b.checked = !all; });
+}
+
+async function deleteSelectedDownloads() {
+  const ids = [...document.querySelectorAll(".dl-check:checked")].map(b => b.getAttribute("data-id"));
+  if (!ids.length) { toast(t("deleteSel")); return; }
+  if (!window.confirm(t("deleteSel") + " (" + ids.length + ")?")) return;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try { await api("DELETE", `/api/downloads/${id}`); ok++; }
+    catch (_) { fail++; }
+  }
+  toast(`${ok} ${t("deleted")}${fail ? `, ${fail} failed` : ""}`);
+  loadDownloads(app.query.filter || "all", app.query.page || "1");
 }
 
 async function retrySelectedDownloads() {
