@@ -89,17 +89,19 @@ class FavoritesService:
             )
             if local_gids:
                 candidates = [item for item in candidates if item.gid not in local_gids]
+        # Record every folder item as seen (idempotent) so the per-folder count
+        # reflects the whole ExHentai folder, including galleries already local.
+        for item in unique.values():
+            await self.repository.remember(favcat, item)
         downloaded = failed = 0
         for item in candidates:
             if mode == "monitor_only":
-                await self.repository.remember(favcat, item)
                 continue
             try:
                 if self.queue is not None:
                     accepted = await self.queue.enqueue(item)
                     if accepted is False:
                         raise RuntimeError("download task was not created")
-                await self.repository.remember(favcat, item)
                 downloaded += 1
             except Exception as exc:  # noqa: BLE001
                 failed += 1
