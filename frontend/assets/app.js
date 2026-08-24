@@ -31,10 +31,12 @@ const I18N = {
     progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
-    favCount: "Galleries", favSize: "Size",
+    favCount: "Galleries (cloud/local)", favSize: "Size (cloud/local)",
     favModeIncremental: "Incremental", favModeMonitorOnly: "Monitor only", favModeForce: "Force",
-    libraryRoots: "Library roots (one path per line)", baseUrl: "Base URL",
+    libraryRoots: "Library roots (read-only)", baseUrl: "Base URL",
     cookieId: "ipb_member_id", cookieHash: "ipb_pass_hash", cookieIgneous: "igneous",
+    libraryRootsHint: "Read-only roots holding your existing archives (Ehviewer exports, CBZ…). New downloads never land here.",
+    downloadRootHint: "Download directory: newly downloaded ExHentai galleries are stored here and scanned automatically.",
     cookiesNote: "Cookies are never displayed after saving.",
     proxyHttp: "HTTP proxy", proxySocks5: "SOCKS5 proxy",
     downloadRoot: "Download root", concurrency: "Concurrency", quality: "Quality",
@@ -52,6 +54,7 @@ const I18N = {
     favHint: "Enable folders to monitor; per-folder settings below.",
     testExhentai: "Test ExHentai login", cancelDl: "Cancel", error: "Error",
     retry: "Retry", retrySelected: "Retry selected", selectAll: "Select all",
+    deleteDl: "Delete",
     downloading: "downloading", perPage: "per page",
     delete: "Delete", deleteGallery: "Delete gallery", deleteFiltered: "Delete filtered",
     deleteFiles: "Also delete files on disk", confirmDelete: "Delete this gallery?",
@@ -95,10 +98,12 @@ const I18N = {
     progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
     enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
     syncFavcats: "同步收藏夹名称", checkNow: "立即检查", saveOk: "已保存",
-    favCount: "画廊数", favSize: "大小",
+    favCount: "画廊数（云端/本地）", favSize: "大小（云端/本地）",
     favModeIncremental: "增量下载", favModeMonitorOnly: "仅监控", favModeForce: "强制下载",
-    libraryRoots: "库根目录（每行一个路径）", baseUrl: "Base URL",
+    libraryRoots: "库根目录（只读）", baseUrl: "Base URL",
     cookieId: "ipb_member_id", cookieHash: "ipb_pass_hash", cookieIgneous: "igneous",
+    libraryRootsHint: "只读库根目录：存放已有的画廊归档（Ehviewer 导出、CBZ 等）。新下载的画廊不会放到这里。",
+    downloadRootHint: "下载目录：新从 ExHentai 下载的画廊存放于此，并自动纳入扫描。",
     cookiesNote: "Cookie 保存后不会回显。",
     proxyHttp: "HTTP 代理", proxySocks5: "SOCKS5 代理",
     downloadRoot: "下载根目录", concurrency: "并发数", quality: "画质",
@@ -116,6 +121,7 @@ const I18N = {
     favHint: "勾选要监控的收藏夹；各收藏夹设置见下表。",
     testExhentai: "测试 ExHentai 登录", cancelDl: "取消任务", error: "错误",
     retry: "重试", retrySelected: "重试所选", selectAll: "全选",
+    deleteDl: "删除",
     downloading: "下载中", perPage: "每页",
     delete: "删除", deleteGallery: "删除画廊", deleteFiltered: "删除筛选结果",
     deleteFiles: "同时删除磁盘文件", confirmDelete: "确定删除此画廊？",
@@ -731,6 +737,7 @@ async function loadDownloads(filter, page) {
         if (x.status === "failed" || x.status === "cancelled" || x.status === "success") {
           actions.push(`<button class="secondary" data-action="retry-download" data-id="${x.id}" type="button">${esc(t("retry"))}</button>`);
         }
+        actions.push(`<button class="secondary danger" data-action="delete-download" data-id="${x.id}" type="button">${esc(t("deleteDl"))}</button>`);
         return `<div class="row" data-task-id="${x.id}">
           <input type="checkbox" class="dl-check" data-id="${x.id}"${checked.has(String(x.id)) ? " checked" : ""} aria-label="${esc(t("selectAll"))}">
           <span class="row-title dl-title" title="${esc(title)}">${esc(title)}</span>
@@ -775,6 +782,7 @@ async function renderSettings() {
         <button class="secondary" data-action="change-password" type="button">${esc(t("changePassword"))}</button>
       </fieldset>
       <fieldset><legend>${esc(t("libraryRoots"))}</legend>
+        <p class="notice">${esc(t("libraryRootsHint"))}</p>
         <textarea name="library_roots" rows="4">${esc((s.library_roots || []).join("\n"))}</textarea>
         ${warnings}
       </fieldset>
@@ -797,6 +805,7 @@ async function renderSettings() {
       <fieldset><legend>Downloads</legend>
         <div class="form-grid">
           ${field(t("downloadRoot"), `<input name="download_root" value="${esc(s.download_root || "")}">`)}
+          <p class="notice">${esc(t("downloadRootHint"))}</p>
           ${field(t("concurrency"), `<input name="download_concurrency" type="number" min="1" max="32" value="${s.download_concurrency != null ? s.download_concurrency : 2}">`)}
           ${field(t("quality"), `<select name="download_quality">
             <option value="original"${(s.download_quality || "resample") === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
@@ -895,8 +904,8 @@ async function renderFavorites() {
     const rows = (Array.isArray(cats) ? cats : []).map(c => `
       <tr data-favcat="${c.favcat}">
         <td>${esc(c.name || ("Folder " + c.favcat))} <span class="badge">#${c.favcat}</span></td>
-        <td class="muted">${c.count || 0}</td>
-        <td class="muted">${fmtSize(c.local_size || 0)}</td>
+        <td class="muted">${c.cloud_count || 0} / ${c.local_count || 0}</td>
+        <td class="muted">${(c.cloud_size ? "~" : "") + fmtSize(c.cloud_size || 0)} / ${fmtSize(c.local_size || 0)}</td>
         <td><input type="checkbox" class="fav-enabled"${c.enabled ? " checked" : ""}></td>
         <td><select class="fav-mode">${FAV_MODES.map(m => `<option value="${m}"${m === (c.mode || "incremental") ? " selected" : ""}>${esc(t("favMode" + m.split("_").map(s => s[0].toUpperCase() + s.slice(1)).join("")))}</option>`).join("")}</select></td>
         <td><input type="number" min="1" class="fav-interval" value="${c.poll_interval_minutes != null ? c.poll_interval_minutes : 720}"></td>
@@ -960,6 +969,7 @@ function onClick(e) {
   if (action === "clear-history") { clearHistory(); return; }
   if (action === "cancel-download") { cancelDownload(el.getAttribute("data-id")); return; }
   if (action === "retry-download") { retryDownload(el.getAttribute("data-id")); return; }
+  if (action === "delete-download") { deleteDownload(el.getAttribute("data-id")); return; }
   if (action === "dl-select-all") { selectAllDownloads(); return; }
   if (action === "dl-retry-selected") { retrySelectedDownloads(); return; }
   if (action === "test-exhentai") { testExhentai(); return; }
@@ -1071,6 +1081,12 @@ async function cancelDownload(id) {
 
 async function retryDownload(id) {
   try { await api("POST", `/api/downloads/${id}/retry`); toast("#" + id + " queued"); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
+  catch (e) { toast(e.message); }
+}
+
+async function deleteDownload(id) {
+  if (!window.confirm(t("deleteDl") + " #" + id + "?")) return;
+  try { await api("DELETE", `/api/downloads/${id}`); toast("#" + id + " " + t("deleted")); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
   catch (e) { toast(e.message); }
 }
 
