@@ -1226,6 +1226,9 @@ class _FavoritesRepositoryProxy:
     async def known_gids(self, favcat: int):
         return await self._call("known_gids", favcat)
 
+    async def existing_gallery_gids(self, gids: list[int]):
+        return await self._call("existing_gallery_gids", gids)
+
     async def remember(self, favcat: int, item):
         return await self._call("remember", favcat, item)
 

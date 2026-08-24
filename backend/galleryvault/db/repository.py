@@ -795,6 +795,22 @@ class FavoritesRepository:
         )
         return set(rows.all())
 
+    async def existing_gallery_gids(self, gids: list[int]) -> set[int]:
+        """gids that already exist in the local library (galleries table).
+
+        Used to skip favorite downloads for galleries that are already on disk
+        (e.g. an Ehviewer export mounted under a library root), so they are not
+        downloaded a second time into the downloads directory.
+        """
+        if not gids:
+            return set()
+        rows = await self.session.scalars(
+            select(Gallery.gid).where(
+                Gallery.gid.is_not(None), Gallery.gid.in_(list(dict.fromkeys(gids)))
+            )
+        )
+        return {int(gid) for gid in rows if gid is not None}
+
     async def remember(self, favcat: int, item) -> None:
         now = datetime.now(UTC)
         row = await self.session.scalar(

@@ -12,6 +12,7 @@ MODES = {"monitor_only", "incremental", "force"}
 
 class FavoriteRepository(Protocol):
     async def known_gids(self, favcat: int) -> set[int]: ...
+    async def existing_gallery_gids(self, gids: list[int]) -> set[int]: ...
     async def remember(self, favcat: int, item: FavoriteData) -> None: ...
     async def checked(self, favcat: int, success: bool) -> None: ...
 
@@ -79,6 +80,15 @@ class FavoritesService:
             if mode == "force"
             else [item for item in unique.values() if item.gid not in known]
         )
+        # Deduplicate against the local library: a gallery already present on
+        # disk (e.g. an Ehviewer export under a mounted library root) must not
+        # be downloaded again into the downloads directory.
+        if candidates:
+            local_gids = await self.repository.existing_gallery_gids(
+                [item.gid for item in candidates]
+            )
+            if local_gids:
+                candidates = [item for item in candidates if item.gid not in local_gids]
         downloaded = failed = 0
         for item in candidates:
             if mode == "monitor_only":

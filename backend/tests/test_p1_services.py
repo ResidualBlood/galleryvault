@@ -115,9 +115,13 @@ class FakeFavoritesRepo:
     def __init__(self) -> None:
         self.known = set()
         self.remembered = []
+        self.local = set()
 
     async def known_gids(self, favcat: int) -> set[int]:
         return self.known
+
+    async def existing_gallery_gids(self, gids: list[int]) -> set[int]:
+        return self.local & set(gids)
 
     async def remember(self, favcat: int, item: FavoriteData) -> None:
         self.known.add(item.gid)
@@ -146,6 +150,25 @@ async def test_favorites_deduplicates_and_monitor_only_does_not_enqueue() -> Non
 @pytest.mark.asyncio
 async def test_telegram_without_token_is_noop() -> None:
     assert not await TelegramNotifier(Settings(telegram_bot_token=None)).send_message("x", "1")
+
+
+@pytest.mark.asyncio
+async def test_favorites_skip_galleries_already_in_local_library() -> None:
+    repo = FakeFavoritesRepo()
+    repo.local = {1}  # gid 1 already exists locally (e.g. under /Ehviewer)
+    queued = []
+
+    async def enqueue(item):
+        queued.append(item.gid)
+        return True
+
+    queue = type("Queue", (), {"enqueue": enqueue})()
+    result = await FavoritesService(FakeFetcher(), repo, queue).check_category(
+        0, mode="incremental"
+    )
+    assert result.new == 0
+    assert result.downloaded == 0
+    assert queued == []
 
 
 @pytest.mark.asyncio
