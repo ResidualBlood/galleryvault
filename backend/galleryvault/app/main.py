@@ -1893,7 +1893,6 @@ async def _thumbnail_gallery(gallery_id: int) -> None:
                     stream.close()
                 except OSError:
                     pass
-        thumb_state["processed"] += 1
 
 
 async def _seed_thumbnails() -> None:
