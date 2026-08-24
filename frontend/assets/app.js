@@ -1,0 +1,1123 @@
+"use strict";
+
+const I18N = {
+  en: {
+    loginSub: "Password required to access the local library.",
+    searchPlaceholder: "Search library...",
+    username: "Username",
+    password: "Password", login: "Login", wrong: "Wrong password, please retry.",
+    mustChange: "Default password in use — please change it now.",
+    changePassword: "Change password", currentPassword: "Current password",
+    newPassword: "New password", changePwOk: "Password changed",
+    pwDefault: "Using the default password", pwConfigured: "Password configured",
+    authLogin: "Account login", authRequired: "Require login",
+    translationUpdate: "Translation auto-update",
+    translationInterval: "Update interval (minutes, 0 = off)",
+    forceUpdate: "Update now", translationStatus: "Translation status",
+    testTelegram: "Send test message",
+    browse: "Browse", library: "Library", tags: "Tags", downloads: "Downloads",
+    favorites: "Favorites", history: "History", settings: "Settings", logout: "Logout",
+    scan: "Scan library", random: "Random", readNow: "Read now", syncTags: "Sync tags",
+    tagSection: "Tags", pagesSection: "Pages", details: "Details", prev: "Previous",
+    next: "Next", allPages: "All pages", clearHistory: "Clear history",
+    refreshFolders: "Refresh folder names", checkDownload: "Check & download",
+    notConfigured: "Folders not configured or not synced yet.",
+    save: "Save", testLogin: "Test login", cookieSet: "set (not shown)", cookieUnset: "not set",
+    filterAll: "All", filterPending: "Pending", filterSuccess: "Success", filterFailed: "Failed",
+    cancel: "Cancel", noTasks: "No download tasks.", noGalleries: "No matching galleries, click Scan.",
+    noHistory: "No reading history.", noTags: "No local tags found.",
+    progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
+    enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
+    syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
+    libraryRoots: "Library roots (one path per line)", baseUrl: "Base URL",
+    cookieId: "ipb_member_id", cookieHash: "ipb_pass_hash", cookieIgneous: "igneous",
+    cookiesNote: "Cookies are never displayed after saving.",
+    proxyHttp: "HTTP proxy", proxySocks5: "SOCKS5 proxy",
+    downloadRoot: "Download root", concurrency: "Concurrency", quality: "Quality",
+    useHah: "Use H@H", titleDisplay: "Title display",
+    botToken: "Bot token (leave blank to keep)", chatIds: "Chat IDs (comma separated)",
+    allowedIds: "Allowed user IDs (comma separated)",
+    autoSyncTags: "Auto sync tags", tagSyncInterval: "Tag sync interval (seconds)",
+    tagSyncConcurrency: "Tag sync concurrency",
+    pollDefault: "Default poll interval (minutes)",
+    favHint: "Enable folders to monitor; per-folder settings below.",
+    testExhentai: "Test ExHentai login", cancelDl: "Cancel", error: "Error",
+    retry: "Retry", retrySelected: "Retry selected", selectAll: "Select all",
+    downloading: "downloading", perPage: "per page",
+    delete: "Delete", deleteGallery: "Delete gallery", deleteFiltered: "Delete filtered",
+    deleteFiles: "Also delete files on disk", confirmDelete: "Delete this gallery?",
+    confirmDeleteFiltered: "Delete all matching galleries?", deleted: "Deleted",
+    select: "Select", clearSel: "Clear selection", deleteSel: "Delete selected",
+    confirmDeleteSel: "Delete selected galleries?",
+    favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
+    settingsSub: "Library, connection and background tasks.",
+    groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages" },
+    ns: { artist: "Artist", character: "Character", parody: "Parody", group: "Group", language: "Language", category: "Category", misc: "Tag", other: "Tag", female: "Female", male: "Male", mixed: "Mixed" },
+  },
+  zh: {
+    loginSub: "需要密码才能访问本地画廊。",
+    searchPlaceholder: "搜索画廊…",
+    username: "用户名",
+    password: "密码", login: "登录", wrong: "密码错误，请重试。",
+    mustChange: "正在使用默认密码，请立即修改。",
+    changePassword: "修改密码", currentPassword: "当前密码",
+    newPassword: "新密码", changePwOk: "密码已修改",
+    pwDefault: "正在使用默认密码", pwConfigured: "已配置密码",
+    authLogin: "账户登录", authRequired: "需要登录",
+    translationUpdate: "翻译自动更新",
+    translationInterval: "更新间隔（分钟，0=关闭）",
+    forceUpdate: "立即更新", translationStatus: "翻译状态",
+    testTelegram: "发送测试消息",
+    browse: "浏览", library: "画廊库", tags: "标签", downloads: "下载",
+    favorites: "收藏夹", history: "历史", settings: "设置", logout: "退出",
+    scan: "扫描库", random: "随机", readNow: "开始阅读", syncTags: "同步标签",
+    tagSection: "标签", pagesSection: "页面", details: "详情", prev: "上一页",
+    next: "下一页", allPages: "所有页面", clearHistory: "清空历史",
+    refreshFolders: "刷新文件夹名称", checkDownload: "检查并下载",
+    notConfigured: "尚未配置或同步收藏夹。",
+    save: "保存", testLogin: "测试登录", cookieSet: "已设置（不回显）", cookieUnset: "未设置",
+    filterAll: "全部", filterPending: "进行中", filterSuccess: "成功", filterFailed: "失败",
+    cancel: "取消", noTasks: "暂无下载任务。", noGalleries: "没有匹配的画廊，请点击扫描。",
+    noHistory: "暂无阅读历史。", noTags: "未找到本地标签。",
+    progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
+    enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
+    syncFavcats: "同步收藏夹名称", checkNow: "立即检查", saveOk: "已保存",
+    libraryRoots: "库根目录（每行一个路径）", baseUrl: "Base URL",
+    cookieId: "ipb_member_id", cookieHash: "ipb_pass_hash", cookieIgneous: "igneous",
+    cookiesNote: "Cookie 保存后不会回显。",
+    proxyHttp: "HTTP 代理", proxySocks5: "SOCKS5 代理",
+    downloadRoot: "下载根目录", concurrency: "并发数", quality: "画质",
+    useHah: "使用 H@H", titleDisplay: "标题显示",
+    botToken: "Bot Token（留空保持不变）", chatIds: "Chat ID（逗号分隔）",
+    allowedIds: "允许的用户 ID（逗号分隔）",
+    autoSyncTags: "自动同步标签", tagSyncInterval: "标签同步间隔（秒）",
+    tagSyncConcurrency: "标签同步并发",
+    pollDefault: "默认轮询间隔（分钟）",
+    favHint: "勾选要监控的收藏夹；各收藏夹设置见下表。",
+    testExhentai: "测试 ExHentai 登录", cancelDl: "取消任务", error: "错误",
+    retry: "重试", retrySelected: "重试所选", selectAll: "全选",
+    downloading: "下载中", perPage: "每页",
+    delete: "删除", deleteGallery: "删除画廊", deleteFiltered: "删除筛选结果",
+    deleteFiles: "同时删除磁盘文件", confirmDelete: "确定删除此画廊？",
+    confirmDeleteFiltered: "确定删除所有匹配的画廊？", deleted: "已删除",
+    select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
+    confirmDeleteSel: "确定删除所选画廊？",
+    favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
+    settingsSub: "本地库、连接与后台任务。",
+    groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
+    ns: { artist: "作者", character: "角色", parody: "原作", group: "社团", language: "语言", category: "分类", misc: "标签", other: "标签", female: "女性", male: "男性", mixed: "男女" },
+  },
+};
+
+const app = {
+  authenticated: false, settings: null, session: {}, view: "browse", params: {}, query: {},
+  lang: (localStorage.getItem("gv_lang") === "zh" ? "zh" : "en"),
+};
+
+const $view = () => document.getElementById("view");
+const $topbar = () => document.getElementById("topbar");
+
+const selGalleries = new Set();
+let suggestTimer = null;
+
+function renderCardCheckboxes() {
+  document.querySelectorAll(".gc-check input").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const id = parseInt(cb.getAttribute("data-gallery-id"), 10);
+      if (cb.checked) selGalleries.add(id); else selGalleries.delete(id);
+      const btn = document.querySelector('[data-action="sel-delete"]');
+      if (btn) btn.textContent = `${t("deleteSel")}${selGalleries.size ? ` (${selGalleries.size})` : ""}`;
+    });
+  });
+}
+
+function t(key) { return (I18N[app.lang] && I18N[app.lang][key]) || I18N.en[key] || key; }
+function nsLabel(ns) { return (I18N[app.lang].ns && I18N[app.lang].ns[ns]) || ns; }
+function groupLabel(key) { return (I18N[app.lang].groups && I18N[app.lang].groups[key]) || key; }
+function tagText(tag) { return app.lang === "zh" ? (tag.display || tag.name) : tag.name; }
+function updateLangButton() {
+  const b = document.querySelector('[data-action="toggle-lang"]');
+  if (b) b.textContent = t("language");
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+}
+
+function updateBanner() {
+  const el = document.getElementById("banner");
+  if (!el) return;
+  if (app.authenticated && app.session.must_change_password) {
+    el.hidden = false;
+    el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="primary" href="#/settings">${esc(t("changePassword"))}</a>`;
+  } else {
+    el.hidden = true;
+    el.innerHTML = "";
+  }
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+}
+
+async function api(method, path, body) {
+  const opts = { method, credentials: "include", headers: {} };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  if (res.status === 204) return null;
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) {
+    const detail = (data && (data.detail || data.message)) || res.statusText;
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return data;
+}
+
+async function checkAuth() {
+  try {
+    const session = await api("GET", "/api/auth/session");
+    app.authenticated = true;
+    app.session = session || {};
+    $topbar().hidden = false;
+    updateBanner();
+    // Normalise the address bar: after logging in the SPA is served at /login
+    // (the middleware redirect target) but the app lives at "/"; rewrite the
+    // path so the URL reads e.g. /#/browse instead of /login#/browse.
+    if (location.pathname.endsWith("/login")) {
+      history.replaceState(null, "", "/" + location.hash);
+    }
+    if (!location.hash || location.hash === "#/" || location.hash === "#/login") {
+      location.hash = app.session.must_change_password ? "#/settings" : "#/browse";
+    }
+    router();
+  } catch (_) {
+    app.authenticated = false;
+    app.session = {};
+    $topbar().hidden = true;
+    renderLogin();
+  }
+}
+
+async function doLogin(password) {
+  await fetch("/login", {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "password=" + encodeURIComponent(password || ""),
+  });
+  await checkAuth();
+  if (!app.authenticated) toast(t("wrong"));
+}
+
+async function doLogout() {
+  await fetch("/logout", { method: "POST", credentials: "include" });
+  app.authenticated = false;
+  $topbar().hidden = true;
+  location.hash = "";
+  renderLogin();
+}
+
+function parseHash() {
+  let h = location.hash.replace(/^#/, "");
+  if (!h) h = "/browse";
+  const [path, qs] = h.split("?");
+  const parts = path.split("/").filter(Boolean);
+  app.view = parts[0] || "browse";
+  app.params = {};
+  if (app.view === "gallery" || app.view === "reader") app.params.id = parts[1];
+  if (app.view === "reader") app.params.page = parts[2] || "0";
+  app.query = {};
+  if (qs) for (const kv of qs.split("&")) {
+    const [k, v] = kv.split("=");
+    app.query[decodeURIComponent(k)] = decodeURIComponent(v || "");
+  }
+}
+
+function navHash(view, params = {}, query = {}) {
+  let p = "/" + view;
+  if (params.id) p += "/" + params.id;
+  if (view === "reader") p += "/" + (params.page || 0);
+  const q = Object.entries(query).filter(([, v]) => v !== "" && v != null)
+    .map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(v)).join("&");
+  return "#" + p + (q ? "?" + q : "");
+}
+
+function router() {
+  parseHash();
+  updateLangButton();
+  if (!app.authenticated) { renderLogin(); return; }
+  switch (app.view) {
+    case "browse": renderBrowse(); break;
+    case "library": renderLibrary(); break;
+    case "gallery": renderGallery(); break;
+    case "reader": renderReader(); break;
+    case "tags": renderTags(); break;
+    case "history": renderHistory(); break;
+    case "downloads": renderDownloads(); break;
+    case "settings": renderSettings(); break;
+    case "favorites": renderFavorites(); break;
+    default: renderBrowse();
+  }
+  bindTagSuggest();
+}
+
+function renderLogin() {
+  $view().innerHTML = `
+    <div class="login-wrap"><div class="panel">
+      <p class="eyebrow">PRIVATE LIBRARY</p>
+      <h1>GalleryVault</h1>
+      <p class="sub">${esc(t("loginSub"))}</p>
+      <form data-action="login">
+        <label>${esc(t("password"))}<input name="password" type="password" autocomplete="current-password" autofocus></label>
+        <button class="primary" type="submit">${esc(t("login"))}</button>
+      </form>
+    </div></div>`;
+}
+
+function nsClass(ns) {
+  return "nst-" + (ns && ["artist","character","parody","group","language","category","female","male","mixed","other","misc"].includes(ns) ? ns : "misc");
+}
+
+const CATEGORY_LABELS = {
+  doujinshi: "Doujinshi", manga: "Manga", artistcg: "Artist CG", gamecg: "Game CG",
+  western: "Western", "non-h": "Non-H", image_set: "Image Set", cosplay: "Cosplay",
+  asianporn: "Asian Porn", misc: "Misc", other: "Other",
+};
+
+function galleryCard(it) {
+  const cat = esc(CATEGORY_LABELS[it.category] || it.category || "Other");
+  return `<div class="gc-wrap">
+    <a class="gc" href="${navHash("gallery", { id: it.id })}">
+      <div class="gc-cover">
+        ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<span class="badge">no cover</span>`}
+        <span class="gc-cat">${cat}</span>
+        <span class="gc-pages">${it.page_count} P</span>
+      </div>
+      <div class="gc-title">${esc(it.title)}</div>
+      <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</div>
+    </a>
+    <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-gallery-id="${it.id}"${selGalleries.has(it.id) ? " checked" : ""}></label>
+  </div>`;
+}
+
+async function galleryGrid(container, page, extraQuery) {
+  const pageSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : (app.query.page_size || 20);
+  const q = Object.assign({ page, page_size: pageSize }, extraQuery || {});
+  delete q.page_size;
+  q.page_size = pageSize;
+  const qs = Object.entries(q).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  const data = await api("GET", `/api/galleries?${qs}`);
+  if (container == null) return data;
+  const el = document.getElementById(container);
+  if (!el) return data;
+  if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
+  else { el.innerHTML = `<div class="grid gc-grid">` + data.items.map(galleryCard).join("") + `</div>`; }
+  return data;
+}
+
+const PAGE_SIZES = [5, 20, 50, 100, 200, 500];
+
+function pageSizeSelect(current, view) {
+  return `<select class="page-size" data-action="page-size" data-view="${view}" aria-label="page size">
+    ${PAGE_SIZES.map(n => `<option value="${n}"${String(n) === String(current) ? " selected" : ""}>${n}</option>`).join("")}
+  </select>`;
+}
+
+function gridPager(elId, data, buildQuery) {
+  const el = document.getElementById(elId);
+  if (!el || !data) return;
+  const last = Math.max(1, Math.ceil(data.total / data.page_size));
+  const link = (p, label) =>
+    `<a class="page-link" href="${navHash(app.view, {}, buildQuery(p))}">${label}</a>`;
+  const parts = [];
+  if (data.page > 1) parts.push(link(data.page - 1, "<"));
+  for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
+    parts.push(p === data.page ? `<strong class="cur">${p}</strong>` : link(p, String(p)));
+  }
+  if (data.page < last) parts.push(link(data.page + 1, ">"));
+  el.innerHTML =
+    `<span class="muted">${data.page}/${last}</span> ` +
+    parts.join(" ") +
+    ` · ${pageSizeSelect(data.page_size, app.view)}`;
+}
+
+async function renderBrowse() {
+  $view().innerHTML = `
+    <header><p class="eyebrow">GALLERYVAULT</p><h1>${esc(t("browse"))}</h1></header>
+    <form class="toolbar" data-action="browse-search">
+      <div class="search-box">
+        <input name="q" value="" placeholder="${esc(t("searchPlaceholder"))}" autocomplete="off">
+        <div id="tag-suggest" class="tag-suggest" hidden></div>
+      </div>
+      <button class="primary" type="submit">${esc(t("library"))}</button>
+      <button class="secondary big" data-action="random" type="button">🎲 ${esc(t("random"))}</button>
+    </form>
+    <section>
+      <h2>${esc(t("latest"))} <span class="muted" id="browse-total"></span></h2>
+      <div id="browse-grid"><p>${esc(t("loading"))}</p></div>
+      <div class="pages pager" id="browse-pager"></div>
+    </section>
+    <section>
+      <h2>${esc(t("tags"))}</h2>
+      <div id="browse-ns" class="ns-strip"></div>
+    </section>`;
+  try {
+    const [data, tagData] = await Promise.all([
+      galleryGrid("browse-grid", app.query.page || "1", { page_size: app.query.page_size || 20 }),
+      api("GET", "/api/tags/search?page=1&page_size=1").catch(() => null),
+    ]);
+    const totalEl = document.getElementById("browse-total");
+    if (totalEl && data) totalEl.textContent = `· ${data.total}`;
+    gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 20 }));
+    const strip = document.getElementById("browse-ns");
+    if (strip && tagData) {
+      const counts = {};
+      for (const f of tagData.facets || []) counts[f.namespace] = f.total;
+      strip.innerHTML = TAG_NAMESPACES
+        .filter(g => g.ns && counts[g.ns])
+        .map(g => `<a class="pill" href="${navHash("tags", {}, { ns: g.ns })}">${esc(groupLabel(g.key))} <b>${counts[g.ns]}</b></a>`)
+        .join("");
+    }
+  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+async function renderLibrary() {
+  const page = app.query.page || "1";
+  const q = app.query.q || "";
+  const category = app.query.category || "";
+  const tags = app.query.tags || "";
+  const filterPill = tags
+    ? `<span class="tag">${esc(tags)} <a class="tag-x" data-action="clear-tag" href="#">×</a></span>` : "";
+  const selCount = selGalleries.size;
+  $view().innerHTML = `
+    <header><p class="eyebrow">LOCAL LIBRARY</p><h1>${esc(t("library"))}</h1></header>
+    <form class="toolbar" data-action="library-search">
+      <div class="search-box">
+        <input name="q" value="${esc(q)}" placeholder="${esc(t("searchPlaceholder"))}" autocomplete="off">
+        <div id="tag-suggest" class="tag-suggest" hidden></div>
+      </div>
+      <select name="category">
+        <option value="">All categories</option>
+        ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","other"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(CATEGORY_LABELS[c] || c)}</option>`).join("")}
+      </select>
+      <button class="primary" type="submit">${esc(t("library"))}</button>
+      <button class="secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
+      <button class="secondary" data-action="sel-clear" type="button">${esc(t("clearSel"))}</button>
+      <button class="secondary danger" data-action="sel-delete" type="button">${esc(t("deleteSel"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary danger" data-action="delete-filtered" type="button">${esc(t("deleteFiltered"))}</button>
+    </form>
+    <div class="filters">${filterPill}</div>
+    <div id="lib-grid"><p>${esc(t("loading"))}</p></div>
+    <div class="pages pager" id="lib-pager"></div>`;
+  try {
+    const extra = { page_size: app.query.page_size || 20 };
+    if (q) extra.q = q;
+    if (category) extra.category = category;
+    if (tags) extra.tags = tags;
+    const data = await galleryGrid("lib-grid", page, extra);
+    renderCardCheckboxes();
+    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 20 }));
+    bindTagSuggest();
+  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+async function renderGallery() {
+  const id = app.params.id;
+  $view().innerHTML = `<p>${esc(t("loading"))}</p>`;
+  try {
+    const g = await api("GET", `/api/galleries/${id}`);
+    let progress = { current_page: 0, total_pages: g.page_count };
+    try { progress = await api("GET", `/api/galleries/${id}/progress`); } catch (_) {}
+    const order = ["parody", "character", "group", "artist", "language", "category", "misc"];
+    const byNs = {};
+    for (const tg of (g.tags || [])) (byNs[tg.namespace] = byNs[tg.namespace] || []).push(tg);
+    const nsList = Object.keys(byNs).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const tagHtml = nsList.map(ns => `
+      <div class="tag-group"><strong>${esc(nsLabel(ns))}</strong><div class="tag-list">
+        ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${navHash("library", {}, { tags: `${tg.namespace}:${tg.name}` })}">${esc(tagText(tg))}</a>`).join("")}
+      </div></div>`).join("");
+    const thumbsAll = g.pages || [];
+    const perPage = parseInt(app.query.page_size || "20", 10);
+    const thumbPage = parseInt(app.query.page || "1", 10);
+    const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
+    const pageStart = (thumbPage - 1) * perPage;
+    const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
+    const thumbs = thumbsVisible.map(p => `
+      <a class="thumb" href="${navHash("reader", { id, page: p.index })}">
+        <img loading="lazy" src="/api/galleries/${id}/pages/${p.index}" alt="Page ${p.index + 1}">
+      </a>`).join("");
+    const thumbPagerParts = [];
+    if (thumbPage > 1) {
+      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { page: thumbPage - 1, page_size: perPage })}">&lt;</a>`);
+    }
+    for (let p = Math.max(1, thumbPage - 2); p <= Math.min(totalPages, thumbPage + 2); p++) {
+      thumbPagerParts.push(p === thumbPage
+        ? `<strong class="cur">${p}</strong>`
+        : `<a class="page-link" href="${navHash("gallery", { id }, { page: p, page_size: perPage })}">${p}</a>`);
+    }
+    if (thumbPage < totalPages) {
+      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
+    }
+    $view().innerHTML = `
+      <a class="link-button" href="${navHash("library")}">← ${esc(t("library"))}</a>
+      <header style="margin-top:16px"><p class="eyebrow">${esc(g.storage_type)} · LOCAL GALLERY</p><h1>${esc(g.title)}</h1>
+      <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page}/${progress.total_pages || g.page_count}</p></header>
+      <div class="toolbar">
+        <a class="primary" href="${navHash("reader", { id, page: progress.current_page })}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
+        <button class="secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
+        <button class="secondary danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
+      </div>
+      <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
+      <section><h2>${esc(t("pagesSection"))}</h2>
+        <div class="thumbs">${thumbs}</div>
+        <div class="pages pager">${thumbPagerParts.join(" ")} <span class="muted">${thumbPage}/${totalPages}</span> · ${pageSizeSelect(perPage, "gallery")}</div>
+      </section>`;
+  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+async function renderReader() {
+  const id = app.params.id;
+  const page = parseInt(app.params.page || "0", 10);
+  try {
+    const g = await api("GET", `/api/galleries/${id}`);
+    const total = g.page_count;
+    $view().innerHTML = `
+      <div class="reader">
+        <div class="reader-bar toolbar">
+          <a class="link-button" href="${navHash("gallery", { id })}">← ${esc(t("details"))}</a>
+          <span>${page + 1} / ${total}</span>
+        </div>
+        <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}">
+        <div class="nav">
+          ${page > 0 ? `<a class="secondary" href="${navHash("reader", { id, page: page - 1 })}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
+          <a class="secondary" href="${navHash("gallery", { id })}">${esc(t("allPages"))}</a>
+          ${page + 1 < total ? `<a class="secondary" href="${navHash("reader", { id, page: page + 1 })}">${esc(t("next"))}</a>` : `<span>${esc(t("next"))}</span>`}
+        </div>
+      </div>`;
+    try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
+  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+const TAG_NAMESPACES = [
+  { key: "all", ns: "" }, { key: "tag", ns: "other" }, { key: "artist", ns: "artist" },
+  { key: "character", ns: "character" }, { key: "parody", ns: "parody" }, { key: "group", ns: "group" },
+  { key: "female", ns: "female" }, { key: "male", ns: "male" },
+  { key: "language", ns: "language" },
+];
+
+function cloudSizeClass(count, max) {
+  if (!count) return "s1";
+  const ratio = max > 0 ? Math.log(count + 1) / Math.log(max + 1) : 0;
+  if (ratio > 0.8) return "s5";
+  if (ratio > 0.55) return "s4";
+  if (ratio > 0.3) return "s3";
+  if (ratio > 0.1) return "s2";
+  return "s1";
+}
+
+async function renderTags() {
+  const ns = app.query.ns || "";
+  const q = app.query.q || "";
+  const page = app.query.page || "1";
+  const title = ns ? nsLabel(ns) : t("tags");
+  $view().innerHTML = `
+    <header><p class="eyebrow">LOCAL TAXONOMY</p><h1>${esc(title)}</h1></header>
+    <div class="pills" id="tag-pills"></div>
+    <form class="toolbar" data-action="tags-search">
+      <input name="q" value="${esc(q)}" placeholder="${esc(t("searchPlaceholder"))}">
+      <button class="primary" type="submit">${esc(t("tags"))}</button>
+    </form>
+    <div id="tag-cloud" class="cloud"><p>${esc(t("loading"))}</p></div>
+    <div class="pages pager" id="tag-pages"></div>`;
+  await loadTags(q, ns, page);
+}
+
+async function loadTags(q, ns, page) {
+  try {
+    const url = `/api/tags/search?page=${encodeURIComponent(page)}&page_size=100`
+      + `${ns ? `&namespace=${encodeURIComponent(ns)}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+    const data = await api("GET", url);
+    const pills = document.getElementById("tag-pills");
+    if (pills && (data.facets || []).length) {
+      const counts = {};
+      let totalAll = 0;
+      for (const f of data.facets) { counts[f.namespace] = f.total; }
+      pills.innerHTML = TAG_NAMESPACES.map(g => {
+        const active = (g.ns || "") === ns;
+        const count = g.ns ? counts[g.ns] : Object.values(counts).reduce((a, b) => a + b, 0);
+        return `<a class="pill${active ? " active" : ""}${count ? "" : " empty"}" href="${navHash("tags", {}, g.ns ? { ns: g.ns } : {})}">${esc(groupLabel(g.key))} <b>${count || 0}</b></a>`;
+      }).join("");
+    }
+    const cloud = document.getElementById("tag-cloud");
+    if (!cloud) return;
+    const items = data.items;
+    if (!items.length) { cloud.innerHTML = `<p>${esc(t("noTags"))}</p>`; }
+    else {
+      const max = items.reduce((m, it) => Math.max(m, it.usage_count), 0);
+      cloud.innerHTML = items
+        .map(it => `<a class="cloud-tag ${nsClass(it.namespace)} ${cloudSizeClass(it.usage_count, max)}" href="${navHash("library", {}, { tags: `${it.namespace}:${it.name}` })}">${esc(tagText(it))}<small>${it.usage_count}</small></a>`)
+        .join("");
+    }
+    const pagerEl = document.getElementById("tag-pages");
+    if (pagerEl) {
+      const last = Math.max(1, Math.ceil(data.total / data.page_size));
+      const qp = p => navHash("tags", {}, { ...(ns ? { ns } : {}), ...(q ? { q } : {}), ...(p > 1 ? { page: p } : {}) });
+      pagerEl.innerHTML =
+        `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""}
+         <strong>${data.page}/${last}</strong>
+         ${data.page < last ? `<a class="page-link" href="${qp(data.page + 1)}">&gt;</a>` : ""}
+         <span class="muted">· ${data.total}</span>`;
+    }
+  } catch (e) {
+    const cloud = document.getElementById("tag-cloud");
+    if (cloud) cloud.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+async function renderHistory() {
+  const page = app.query.page || "1";
+  $view().innerHTML = `
+    <header><p class="eyebrow">READING LOG</p><h1>${esc(t("history"))}</h1>
+    <button class="secondary" data-action="clear-history" type="button">${esc(t("clearHistory"))}</button></header>
+    <div id="hist-list"><p>${esc(t("loading"))}</p></div>
+    <div class="pages" id="hist-pages"></div>`;
+  try {
+    const data = await api("GET", `/api/history?page=${encodeURIComponent(page)}`);
+    const el = document.getElementById("hist-list");
+    const items = (data && data.items) || [];
+    if (!items.length) { el.innerHTML = `<p>${esc(t("noHistory"))}</p>`; return; }
+    el.innerHTML = `<div class="rows">` + items.map(h => `
+      <a class="row" href="${navHash("gallery", { id: h.gallery_id })}">
+        <span class="row-title">${esc(h.title || ("#" + h.gallery_id))}</span>
+        <span class="row-meta">${esc(t("progress"))} ${h.current_page}/${h.total_pages} · ${h.last_read_at ? esc(String(h.last_read_at).slice(0, 10)) : ""}</span>
+      </a>`).join("") + `</div>`;
+    const last = Math.max(1, Math.ceil(data.total / data.page_size));
+    document.getElementById("hist-pages").innerHTML =
+      `${data.page > 1 ? `<a href="${navHash("history", {}, { page: data.page - 1 })}">${esc(t("prev"))}</a>` : ""}
+       <strong>${data.page}/${last}</strong> · ${data.total}`;
+  } catch (e) { document.getElementById("hist-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+const DL_STATUSES = ["all", "pending", "downloading", "success", "failed", "cancelled"];
+let dlTimer = null;
+
+async function renderDownloads() {
+  const filter = app.query.filter || "all";
+  $view().innerHTML = `
+    <header><p class="eyebrow">SYNC ENGINE</p><h1>${esc(t("downloads"))}</h1></header>
+    <div class="toolbar">
+      <div class="pills" style="margin:0">
+        ${DL_STATUSES.map(s => `<a class="pill${s === filter ? " active" : ""}" href="${navHash("downloads", {}, s !== "all" ? { filter: s } : {})}">${esc(s === "all" ? t("filterAll") : s)}</a>`).join("")}
+      </div>
+      <button class="secondary" data-action="dl-select-all" type="button">${esc(t("selectAll"))}</button>
+      <button class="primary" data-action="dl-retry-selected" type="button">${esc(t("retrySelected"))}</button>
+    </div>
+    <div id="dl-list"><p>${esc(t("loading"))}</p></div>
+    <div class="pages" id="dl-pages"></div>`;
+  loadDownloads(filter, app.query.page || "1");
+  if (dlTimer) clearInterval(dlTimer);
+  dlTimer = setInterval(() => {
+    if (location.hash.startsWith("#/downloads")) loadDownloads(filter, app.query.page || "1");
+  }, 2000);
+}
+
+function dlProgressHtml(x) {
+  const cur = x.current_page || 0;
+  const total = x.total_pages;
+  if (x.status === "downloading") {
+    if (total) {
+      const pct = Math.min(100, Math.round((cur / total) * 100));
+      return `<div class="dl-progress"><div class="dl-progress-bar" style="width:${pct}%"></div></div>
+        <span class="row-meta">${cur}/${total} · ${pct}%</span>`;
+    }
+    // Still enumerating the gallery / waiting to start: indeterminate bar.
+    return `<div class="dl-progress dl-progress-indet"></div>
+      <span class="row-meta">${esc(t("downloading"))}…</span>`;
+  }
+  return `<span class="row-meta">${esc(x.status)}${total ? ` · ${cur}/${total}` : ""}${x.retry_count ? ` · retry ${x.retry_count}` : ""}${x.error_message ? ` · ${esc(t("error"))}: ${esc(x.error_message)}` : ""}</span>`;
+}
+
+async function loadDownloads(filter, page) {
+  try {
+    const status = filter !== "all" ? `&status=${encodeURIComponent(filter)}` : "";
+    const data = await api("GET", `/api/downloads?page=${encodeURIComponent(page)}${status}`);
+    const items = (data && data.items) || [];
+    const el = document.getElementById("dl-list");
+    if (!el) return;
+    // Preserve the user's selection across the auto-refresh re-render.
+    const checked = new Set(
+      [...document.querySelectorAll(".dl-check:checked")].map(b => b.getAttribute("data-id"))
+    );
+    if (!items.length) { el.innerHTML = `<p>${esc(t("noTasks"))}</p>`; }
+    else {
+      el.innerHTML = `<div class="rows">` + items.map(x => {
+        const title = x.title || ("gid " + (x.gid != null ? x.gid : x.id));
+        const actions = [];
+        if (x.status === "pending" || x.status === "downloading") {
+          actions.push(`<button class="secondary" data-action="cancel-download" data-id="${x.id}" type="button">${esc(t("cancelDl"))}</button>`);
+        }
+        if (x.status === "failed" || x.status === "cancelled" || x.status === "success") {
+          actions.push(`<button class="secondary" data-action="retry-download" data-id="${x.id}" type="button">${esc(t("retry"))}</button>`);
+        }
+        return `<div class="row" data-task-id="${x.id}">
+          <input type="checkbox" class="dl-check" data-id="${x.id}"${checked.has(String(x.id)) ? " checked" : ""} aria-label="${esc(t("selectAll"))}">
+          <span class="row-title dl-title" title="${esc(title)}">${esc(title)}</span>
+          ${dlProgressHtml(x)}
+          ${actions.join("")}
+        </div>`;
+      }).join("") + `</div>`;
+    }
+    const last = Math.max(1, Math.ceil(data.total / data.page_size));
+    const qp = p => navHash("downloads", {}, filter !== "all" ? { filter, page: p } : { page: p });
+    document.getElementById("dl-pages").innerHTML =
+      `${data.page > 1 ? `<a href="${qp(data.page - 1)}">${esc(t("prev"))}</a>` : ""}
+       <strong>${data.page}/${last}</strong> · ${data.total}`;
+  } catch (e) {
+    const el = document.getElementById("dl-list");
+    if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+function field(label, inputHtml) {
+  return `<label class="field"><span>${esc(label)}</span>${inputHtml}</label>`;
+}
+
+async function renderSettings() {
+  if (!app.settings) {
+    try { app.settings = await api("GET", "/api/settings"); } catch (_) { app.settings = {}; }
+  }
+  const s = app.settings;
+  const warnings = (s.library_root_warnings || [])
+    .map(w => `<p class="notice">${esc(w)}</p>`).join("");
+  $view().innerHTML = `
+    <header><p class="eyebrow">CONFIGURATION</p><h1>${esc(t("settings"))}</h1>
+    <p class="sub">${esc(t("settingsSub"))}</p></header>
+    <form data-action="settings-save">
+      <fieldset><legend>${esc(t("authLogin"))}</legend>
+        <label class="checkbox"><input type="checkbox" name="auth_required"${s.auth_required == null ? " checked" : (s.auth_required ? " checked" : "")}> ${esc(t("authRequired"))}</label>
+        <p class="notice">${s.auth_hash_configured ? esc(t("pwConfigured")) : esc(t("pwDefault"))}</p>
+      </fieldset>
+      <fieldset><legend>${esc(t("changePassword"))}</legend>
+        ${field(t("currentPassword"), `<input name="current_password" type="password" autocomplete="current-password">`)}
+        ${field(t("newPassword"), `<input name="new_password" type="password" autocomplete="new-password">`)}
+        <button class="secondary" data-action="change-password" type="button">${esc(t("changePassword"))}</button>
+      </fieldset>
+      <fieldset><legend>${esc(t("libraryRoots"))}</legend>
+        <textarea name="library_roots" rows="4">${esc((s.library_roots || []).join("\n"))}</textarea>
+        ${warnings}
+      </fieldset>
+      <fieldset><legend>ExHentai</legend>
+        ${field(t("baseUrl"), `<input name="exhentai_base_url" value="${esc(s.exhentai_base_url || "")}">`)}
+        <p class="notice">Cookie: <strong>${s.exhentai_cookie_configured ? esc(t("cookieSet")) : esc(t("cookieUnset"))}</strong> · ${esc(t("cookiesNote"))}</p>
+        <div class="form-grid">
+          <input name="ipb_member_id" placeholder="${esc(t("cookieId"))}" autocomplete="off">
+          <input name="ipb_pass_hash" placeholder="${esc(t("cookieHash"))}" autocomplete="off">
+          <input name="igneous" placeholder="${esc(t("cookieIgneous"))}" autocomplete="off">
+        </div>
+        <button class="secondary" data-action="test-exhentai" type="button">${esc(t("testExhentai"))}</button>
+      </fieldset>
+      <fieldset><legend>Proxy</legend>
+        <div class="form-grid">
+          ${field(t("proxyHttp"), `<input name="http_proxy" value="${esc(s.http_proxy || "")}">`)}
+          ${field(t("proxySocks5"), `<input name="socks5_proxy" value="${esc(s.socks5_proxy || "")}">`)}
+        </div>
+      </fieldset>
+      <fieldset><legend>Downloads</legend>
+        <div class="form-grid">
+          ${field(t("downloadRoot"), `<input name="download_root" value="${esc(s.download_root || "")}">`)}
+          ${field(t("concurrency"), `<input name="download_concurrency" type="number" min="1" max="32" value="${s.download_concurrency != null ? s.download_concurrency : 2}">`)}
+          ${field(t("quality"), `<input name="download_quality" value="${esc(s.download_quality || "auto")}">`)}
+          ${field(t("titleDisplay"), `<select name="title_display">${["japanese", "english", "directory"].map(o => `<option value="${o}"${o === (s.title_display || "japanese") ? " selected" : ""}>${o}</option>`).join("")}</select>`)}
+        </div>
+        <label class="checkbox"><input type="checkbox" name="use_hah"${s.use_hah ? " checked" : ""}> ${esc(t("useHah"))}</label>
+        <label class="checkbox"><input type="checkbox" name="download_favorites_enabled"${s.download_favorites_enabled ? " checked" : ""}> download favorites</label>
+      </fieldset>
+      <fieldset><legend>Favorites</legend>
+        ${field(t("pollDefault"), `<input name="favorites_poll_interval_minutes" type="number" min="1" value="${s.favorites_poll_interval_minutes != null ? s.favorites_poll_interval_minutes : 720}">`)}
+        <p class="notice">${esc(t("favHint"))}</p>
+      </fieldset>
+      <fieldset><legend>Tags</legend>
+        <label class="checkbox"><input type="checkbox" name="auto_sync_tags"${s.auto_sync_tags ? " checked" : ""}> ${esc(t("autoSyncTags"))}</label>
+        <div class="form-grid">
+          ${field(t("tagSyncInterval"), `<input name="tag_sync_interval_seconds" type="number" step="0.1" min="0.1" value="${s.tag_sync_interval_seconds != null ? s.tag_sync_interval_seconds : 1}">`)}
+          ${field(t("tagSyncConcurrency"), `<input name="tag_sync_concurrency" type="number" min="1" max="32" value="${s.tag_sync_concurrency != null ? s.tag_sync_concurrency : 2}">`)}
+        </div>
+      </fieldset>
+      <fieldset><legend>${esc(t("translationUpdate"))}</legend>
+        ${field(t("translationInterval"), `<input name="tag_translation_update_interval_minutes" type="number" min="0" value="${s.tag_translation_update_interval_minutes != null ? s.tag_translation_update_interval_minutes : 720}">`)}
+        <div class="toolbar"><button class="secondary" data-action="force-update" type="button">${esc(t("forceUpdate"))}</button></div>
+        <p class="notice">${esc(t("translationStatus"))}: <span id="trans-status">${esc(s.translation ? s.translation : "")}</span></p>
+      </fieldset>
+      <fieldset><legend>Telegram</legend>
+        ${field(t("botToken"), `<input name="telegram_bot_token" type="password" autocomplete="new-password" placeholder="${s.telegram_bot_configured ? t("cookieSet") : t("cookieUnset")}">`)}
+        <div class="form-grid">
+          ${field(t("chatIds"), `<input name="telegram_chat_ids" value="${esc((s.telegram_chat_ids || []).join(","))}">`)}
+          ${field(t("allowedIds"), `<input name="telegram_allowed_user_ids" value="${esc((s.telegram_allowed_user_ids || []).join(","))}">`)}
+        </div>
+        <button class="secondary" data-action="test-telegram" type="button">${esc(t("testTelegram"))}</button>
+      </fieldset>
+      <div class="toolbar"><button class="primary" type="submit">${esc(t("save"))}</button></div>
+    </form>`;
+}
+
+function collectSettings(form) {
+  const val = n => form[n] ? form[n].value.trim() : "";
+  const num = (n, d) => { const v = parseFloat(val(n)); return Number.isFinite(v) ? v : d; };
+  const lines = a => a.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
+  const body = {
+    library_roots: val("library_roots"),
+    exhentai_base_url: val("exhentai_base_url"),
+    http_proxy: val("http_proxy"),
+    socks5_proxy: val("socks5_proxy"),
+    download_root: val("download_root"),
+    download_concurrency: Math.min(32, Math.max(1, num("download_concurrency", 2))),
+    download_quality: val("download_quality") || "auto",
+    title_display: val("title_display") || "japanese",
+    use_hah: form.use_hah.checked,
+    download_favorites_enabled: form.download_favorites_enabled.checked,
+    favorites_poll_interval_minutes: Math.max(1, num("favorites_poll_interval_minutes", 720)),
+    auto_sync_tags: form.auto_sync_tags.checked,
+    tag_sync_interval_seconds: Math.max(0.1, num("tag_sync_interval_seconds", 1)),
+    tag_sync_concurrency: Math.min(32, Math.max(1, num("tag_sync_concurrency", 2))),
+    telegram_chat_ids: lines(val("telegram_chat_ids")),
+    telegram_allowed_user_ids: lines(val("telegram_allowed_user_ids")).map(Number).filter(Number.isFinite),
+    auth_required: form.auth_required.checked,
+    tag_translation_update_interval_minutes: Math.max(0, num("tag_translation_update_interval_minutes", 720)),
+  };
+  for (const k of ["ipb_member_id", "ipb_pass_hash", "igneous", "telegram_bot_token"]) {
+    if (val(k)) body[k] = val(k);
+  }
+  return body;
+}
+
+const FAV_MODES = ["incremental", "monitor_only", "force"];
+
+async function renderFavorites() {
+  $view().innerHTML = `
+    <header><p class="eyebrow">EXHENTAI FOLDERS</p><h1>${esc(t("favcatTitle"))}</h1>
+    <p class="sub">${esc(t("favcatSub"))}</p></header>
+    <div class="toolbar">
+      <button class="primary" data-action="favcats-save" type="button">${esc(t("save"))}</button>
+      <button class="secondary" data-action="favcats-sync" type="button">${esc(t("syncFavcats"))}</button>
+    </div>
+    <div id="fav-list"><p>${esc(t("loading"))}</p></div>`;
+  try {
+    const cats = await api("GET", "/api/favorites/categories");
+    const rows = (Array.isArray(cats) ? cats : []).map(c => `
+      <tr data-favcat="${c.favcat}">
+        <td>${esc(c.name || ("Folder " + c.favcat))} <span class="badge">#${c.favcat}</span></td>
+        <td><input type="checkbox" class="fav-enabled"${c.enabled ? " checked" : ""}></td>
+        <td><select class="fav-mode">${FAV_MODES.map(m => `<option value="${m}"${m === (c.mode || "incremental") ? " selected" : ""}>${m}</option>`).join("")}</select></td>
+        <td><input type="number" min="1" class="fav-interval" value="${c.poll_interval_minutes != null ? c.poll_interval_minutes : 720}"></td>
+        <td><button class="secondary" data-action="favcat-check" data-favcat="${c.favcat}" type="button">${esc(t("checkNow"))}</button></td>
+      </tr>`).join("");
+    document.getElementById("fav-list").innerHTML = `
+      <table class="table">
+        <thead><tr><th>${esc(t("favorites"))}</th><th>${esc(t("enabled"))}</th><th>${esc(t("mode"))}</th><th>${esc(t("intervalMin"))}</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5">—</td></tr>`}</tbody>
+      </table>`;
+  } catch (e) { document.getElementById("fav-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+async function saveFavoriteCategories() {
+  const favorites = [...document.querySelectorAll("#fav-list tr[data-favcat]")].map(tr => ({
+    favcat: parseInt(tr.dataset.favcat, 10),
+    enabled: tr.querySelector(".fav-enabled").checked,
+    mode: tr.querySelector(".fav-mode").value,
+    poll_interval_minutes: Math.max(1, parseInt(tr.querySelector(".fav-interval").value, 10) || 720),
+  }));
+  try {
+    await api("POST", "/api/settings", { favorites });
+    app.settings = null;
+    toast(t("saveOk"));
+  } catch (e) { toast(e.message); }
+}
+
+async function syncFavoriteCategories() {
+  try {
+    await api("POST", "/api/favorites/sync-categories");
+    app.settings = null;
+    toast(t("saveOk"));
+    renderFavorites();
+  } catch (e) { toast(e.message); }
+}
+
+async function checkFavoriteCategory(favcat) {
+  try {
+    await api("POST", `/api/favorites/${favcat}/check`);
+    toast("#" + favcat + " · 202");
+  } catch (e) { toast(e.message); }
+}
+
+function onClick(e) {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.getAttribute("data-action");
+  if (action === "toggle-lang") { toggleLang(); return; }
+  if (action === "logout") { doLogout(); return; }
+  if (action === "random") { randomGallery(); return; }
+  if (action === "scan") { scanLibrary(); return; }
+  if (action === "clear-tag") { e.preventDefault(); location.hash = navHash("library", {}, { q: app.query.q || "", category: app.query.category || "" }); return; }
+  if (action === "clear-history") { clearHistory(); return; }
+  if (action === "cancel-download") { cancelDownload(el.getAttribute("data-id")); return; }
+  if (action === "retry-download") { retryDownload(el.getAttribute("data-id")); return; }
+  if (action === "dl-select-all") { selectAllDownloads(); return; }
+  if (action === "dl-retry-selected") { retrySelectedDownloads(); return; }
+  if (action === "test-exhentai") { testExhentai(); return; }
+  if (action === "favcats-save") { saveFavoriteCategories(); return; }
+  if (action === "favcats-sync") { syncFavoriteCategories(); return; }
+  if (action === "favcat-check") { checkFavoriteCategory(el.getAttribute("data-favcat")); return; }
+  if (action === "sync-tags") { syncTags(el.getAttribute("data-id")); return; }
+  if (action === "change-password") { e.preventDefault(); changePassword(); return; }
+  if (action === "test-telegram") { testTelegram(); return; }
+  if (action === "force-update") { forceUpdate(); return; }
+  if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
+  if (action === "delete-filtered") { deleteFiltered(); return; }
+  if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
+  if (action === "sel-delete") { deleteSelected(); return; }
+}
+
+function onSubmit(e) {
+  const form = e.target;
+  if (form.tagName !== "FORM") return;
+  const action = form.getAttribute("data-action");
+  if (action === "login") { e.preventDefault(); doLogin(form.password.value); return; }
+  if (action === "change-password") { e.preventDefault(); changePassword(form); return; }
+  if (action === "search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
+  if (action === "library-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim(), category: form.category.value }); return; }
+  if (action === "tags-search") { e.preventDefault(); location.hash = navHash("tags", {}, { ns: app.query.ns || "", q: form.q.value.trim() }); return; }
+  if (action === "browse-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
+  if (action === "settings-save") { e.preventDefault(); saveSettings(form); return; }
+}
+
+function toggleLang() {
+  app.lang = app.lang === "zh" ? "en" : "zh";
+  localStorage.setItem("gv_lang", app.lang);
+  updateLangButton();
+  router();
+}
+
+async function randomGallery() {
+  try { const d = await api("GET", "/api/galleries/random"); location.hash = navHash("gallery", { id: d.id }); }
+  catch (e) { toast(e.message); }
+}
+
+async function scanLibrary() {
+  try { await api("POST", "/api/scan"); toast("Scan started"); location.hash = navHash("library"); }
+  catch (e) { toast(e.message); }
+}
+
+async function clearHistory() {
+  try { await api("DELETE", "/api/history"); renderHistory(); }
+  catch (e) { toast(e.message); }
+}
+
+async function cancelDownload(id) {
+  try { await api("POST", `/api/downloads/${id}/cancel`); toast("#" + id + " cancelled"); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
+  catch (e) { toast(e.message); }
+}
+
+async function retryDownload(id) {
+  try { await api("POST", `/api/downloads/${id}/retry`); toast("#" + id + " queued"); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
+  catch (e) { toast(e.message); }
+}
+
+function selectAllDownloads() {
+  const boxes = document.querySelectorAll(".dl-check");
+  const all = boxes.length && [...boxes].every(b => b.checked);
+  boxes.forEach(b => { b.checked = !all; });
+}
+
+async function retrySelectedDownloads() {
+  const ids = [...document.querySelectorAll(".dl-check:checked")].map(b => b.getAttribute("data-id"));
+  if (!ids.length) { toast(t("retrySelected")); return; }
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try { await api("POST", `/api/downloads/${id}/retry`); ok++; }
+    catch (_) { fail++; }
+  }
+  toast(`${ok} queued${fail ? `, ${fail} failed` : ""}`);
+  loadDownloads(app.query.filter || "all", app.query.page || "1");
+}
+
+async function deleteGallery(id) {
+  if (!window.confirm(t("confirmDelete"))) return;
+  const deleteFiles = window.confirm(t("deleteFiles"));
+  try {
+    await api("DELETE", `/api/galleries/${id}?delete_files=${deleteFiles}`);
+    toast(t("deleted"));
+    location.hash = navHash("library");
+  } catch (e) { toast(e.message); }
+}
+
+async function deleteFiltered() {
+  const q = app.query.q || "";
+  const category = app.query.category || "";
+  const tags = app.query.tags || "";
+  if (!window.confirm(t("confirmDeleteFiltered"))) return;
+  const deleteFiles = window.confirm(t("deleteFiles"));
+  try {
+    // Resolve the current filter to a list of gallery ids (all pages), then bulk delete.
+    const allIds = [];
+    let page = 1, total = Infinity;
+    while (allIds.length < total) {
+      const extra = { page, page_size: 100 };
+      if (q) extra.q = q;
+      if (category) extra.category = category;
+      if (tags) extra.tags = tags;
+      const data = await galleryGrid(null, page, extra);
+      if (!data || !data.items.length) break;
+      allIds.push(...data.items.map(it => it.id));
+      total = data.total;
+      page += 1;
+    }
+    if (!allIds.length) { toast(t("noGalleries")); return; }
+    await api("POST", "/api/galleries/delete-bulk", { ids: allIds, delete_files: deleteFiles });
+    toast(t("deleted") + ": " + allIds.length);
+    location.hash = navHash("library");
+  } catch (e) { toast(e.message); }
+}
+
+async function deleteSelected() {
+  const ids = [...selGalleries];
+  if (!ids.length) { toast(t("deleteSel")); return; }
+  if (!window.confirm(t("confirmDeleteSel") + " (" + ids.length + ")")) return;
+  const deleteFiles = window.confirm(t("deleteFiles"));
+  try {
+    await api("POST", "/api/galleries/delete-bulk", { ids, delete_files: deleteFiles });
+    selGalleries.clear();
+    toast(t("deleted") + ": " + ids.length);
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+function bindTagSuggest() {
+  document.querySelectorAll('.search-box input[name="q"]').forEach(input => {
+    if (input.dataset.suggestBound) return;
+    input.dataset.suggestBound = "1";
+    const box = input.parentElement.querySelector(".tag-suggest");
+    if (!box) return;
+    input.addEventListener("input", () => {
+      clearTimeout(suggestTimer);
+      const value = input.value.trim();
+      if (!value) { box.hidden = true; return; }
+      suggestTimer = setTimeout(() => loadTagSuggest(value, box), 200);
+    });
+    input.addEventListener("focus", () => {
+      const value = input.value.trim();
+      if (value) loadTagSuggest(value, box);
+    });
+    box.addEventListener("click", (e) => e.stopPropagation());
+  });
+  document.addEventListener("click", function dismiss(e) {
+    document.querySelectorAll(".tag-suggest").forEach(box => {
+      if (!e.target.closest(".search-box")) box.hidden = true;
+    });
+  });
+}
+
+async function loadTagSuggest(q, box) {
+  if (!box) return;
+  try {
+    const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/u.test(q);
+    const url = `/api/tags/search?q=${encodeURIComponent(q)}&page_size=8${isCjk ? "&zh=1" : ""}`;
+    const data = await api("GET", url);
+    const items = (data && data.items) || [];
+    if (!items.length) { box.hidden = true; return; }
+    box.innerHTML = items.map(it => `
+      <div class="suggest-item" data-tags="${esc(`${it.namespace}:${it.name}`)}">
+        <span class="suggest-name">${esc(tagText(it))}</span>
+        <span class="suggest-ns">${esc(nsLabel(it.namespace))} · ${it.usage_count}</span>
+      </div>`).join("");
+    box.hidden = false;
+    box.querySelectorAll(".suggest-item").forEach(item => {
+      item.addEventListener("click", () => {
+        box.hidden = true;
+        const tags = item.getAttribute("data-tags");
+        location.hash = navHash("library", {}, { tags });
+      });
+    });
+  } catch (_) { box.hidden = true; }
+}
+
+async function testExhentai() {
+  try {
+    const r = await api("POST", "/api/settings/exhentai/test");
+    toast(r.message || r.status);
+  } catch (e) { toast(e.message); }
+}
+
+async function changePassword() {
+  const form = document.querySelector('[data-action="settings-save"]');
+  const current = form.querySelector('[name="current_password"]').value;
+  const next = form.querySelector('[name="new_password"]').value;
+  if (!next) { toast(t("newPassword")); return; }
+  try {
+    await api("POST", "/api/auth/change-password", { current, new: next });
+    app.session.must_change_password = false;
+    toast(t("changePwOk"));
+    updateBanner();
+  } catch (e) { toast(e.message); }
+}
+
+async function testTelegram() {
+  try {
+    const r = await api("POST", "/api/telegram/test");
+    toast(r.ok ? t("testTelegram") + " OK" : JSON.stringify(r.results));
+  } catch (e) { toast(e.message); }
+}
+
+async function forceUpdate() {
+  try {
+    const r = await api("POST", "/api/tags/search/reload");
+    const el = document.getElementById("trans-status");
+    if (el) el.textContent = r.ok ? t("changePwOk") : (r.last_error || "?");
+    toast(t("forceUpdate") + (r.ok ? " OK" : " :: " + (r.last_error || "?")));
+  } catch (e) { toast(e.message); }
+}
+
+async function syncTags(id) {
+  try { await api("POST", `/api/galleries/${id}/sync-tags`); toast("Syncing tags..."); }
+  catch (e) { toast(e.message); }
+}
+
+async function saveSettings(form) {
+  try {
+    const data = await api("POST", "/api/settings", collectSettings(form));
+    app.settings = data && data.library_roots !== undefined ? data : null;
+    toast(t("saveOk"));
+    renderSettings();
+  } catch (e) { toast(e.message); }
+}
+
+function onChange(e) {
+  const el = e.target;
+  if (!el || !el.matches(".page-size")) return;
+  const view = el.getAttribute("data-view") || app.view;
+  const params = view === "gallery" ? { id: app.params.id } : {};
+  const q = { ...app.query, page_size: el.value, page: undefined };
+  Object.keys(q).forEach(k => { if (q[k] === undefined) delete q[k]; });
+  location.hash = navHash(view, params, q);
+}
+
+function init() {
+  document.addEventListener("click", onClick);
+  document.addEventListener("change", onChange);
+  document.addEventListener("submit", onSubmit);
+  window.addEventListener("hashchange", router);
+  updateLangButton();
+  checkAuth();
+}
+
+init();

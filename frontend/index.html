@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GalleryVault</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div id="app">
+    <nav class="topbar" id="topbar" hidden>
+      <a class="brand" href="#/browse">GalleryVault</a>
+      <form class="top-search" data-action="search">
+        <div class="search-box search-box-top">
+          <input id="global-search" name="q" placeholder="Search library..." aria-label="Search library" autocomplete="off">
+          <div id="tag-suggest-top" class="tag-suggest" hidden></div>
+        </div>
+        <button type="submit" aria-label="Search">⌕</button>
+      </form>
+      <button class="icon-button" data-action="random" title="Random" aria-label="Random">🎲</button>
+      <div class="links">
+        <a href="#/browse" data-i18n="browse">Browse</a>
+        <a href="#/library" data-i18n="library">Library</a>
+        <a href="#/tags" data-i18n="tags">Tags</a>
+        <a href="#/downloads" data-i18n="downloads">Downloads</a>
+        <a href="#/favorites" data-i18n="favorites">Favorites</a>
+        <a href="#/history" data-i18n="history">History</a>
+        <a href="#/settings" data-i18n="settings">Settings</a>
+        <button class="link-button" data-action="toggle-lang">中文</button>
+        <button class="link-button" data-action="logout" data-i18n="logout">Logout</button>
+      </div>
+    </nav>
+    <div id="banner" class="banner" hidden></div>
+    <main id="view"></main>
+    <div id="toast" class="toast" hidden></div>
+  </div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
