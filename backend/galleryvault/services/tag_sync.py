@@ -14,7 +14,11 @@ class TagSyncRepository(Protocol):
     async def get_for_tag_sync(self, identifier: int) -> Gallery | None: ...
 
     async def replace_tags(
-        self, gallery: Gallery, tags: list[dict[str, str]], synced_at: datetime
+        self,
+        gallery: Gallery,
+        tags: list[dict[str, str]],
+        synced_at: datetime,
+        category: str | None = None,
     ) -> int: ...
 
 
@@ -70,5 +74,7 @@ class TagSyncService:
                 seen.add((namespace, name))
                 unique_tags.append({"namespace": namespace, "name": name})
         synced_at = datetime.now(UTC)
-        count = await self.repository.replace_tags(gallery, unique_tags, synced_at)
+        count = await self.repository.replace_tags(
+            gallery, unique_tags, synced_at, category=metadata.category
+        )
         return TagSyncResult(metadata.gid, metadata.title, count, synced_at)

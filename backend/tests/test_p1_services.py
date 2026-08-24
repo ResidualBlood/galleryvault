@@ -234,13 +234,15 @@ async def test_tag_sync_deduplicates_and_replaces_relations() -> None:
             assert identifier == 3
             return gallery
 
-        async def replace_tags(self, row, tags, synced_at):
+        async def replace_tags(self, row, tags, synced_at, category=None):
             assert row is gallery
+            assert category == "manga"
             assert {(item["namespace"], item["name"]) for item in tags} == {
                 ("artist", "alice"),
                 ("female", "fox"),
             }
             gallery.tags_synced_at = synced_at
+            gallery.category = category
             return 2
 
     class Client:
@@ -258,6 +260,7 @@ async def test_tag_sync_deduplicates_and_replaces_relations() -> None:
                     {"namespace": "artist", "name": "alice"},
                     {"namespace": "female", "name": "fox"},
                 ],
+                category="manga",
             )
 
         async def download_image(self, url: str) -> bytes:
@@ -268,6 +271,7 @@ async def test_tag_sync_deduplicates_and_replaces_relations() -> None:
     result = await TagSyncService(client, Repo()).sync(3)
     assert result.gid == 7 and result.title == "Remote title" and result.count == 2
     assert gallery.tags_synced_at == result.synced_at
+    assert gallery.category == "manga"  # sync refreshes the category too
     assert client.downloads == 0
 
 

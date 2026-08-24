@@ -527,7 +527,11 @@ class GalleryRepository:
         return len(models)
 
     async def replace_tags(
-        self, gallery: Gallery, tags: list[dict[str, str]], synced_at: datetime
+        self,
+        gallery: Gallery,
+        tags: list[dict[str, str]],
+        synced_at: datetime,
+        category: str | None = None,
     ) -> int:
         """Replace one gallery's relations while preserving the global tag dictionary."""
         await self.session.execute(delete(GalleryTag).where(GalleryTag.gallery_id == gallery.id))
@@ -547,6 +551,8 @@ class GalleryRepository:
                 self.session.add(tag)
                 await self.session.flush()
             self.session.add(GalleryTag(gallery_id=gallery.id, tag_id=tag.id))
+        if category and category != "other":
+            gallery.category = category
         gallery.tags_synced_at = synced_at
         await self.session.flush()
         return len(unique_tags)

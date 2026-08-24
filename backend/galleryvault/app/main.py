@@ -73,6 +73,7 @@ scan_lock = asyncio.Lock()
 download_worker_task = None
 tag_sync_state: dict[str, object] = {
     "running": False,
+    "total": 0,
     "queued": 0,
     "processed": 0,
     "succeeded": 0,
@@ -394,6 +395,15 @@ async def logout():
 async def _run_scan() -> None:
     async with scan_lock:
         persisted = 0
+        scanned = 0
+        success = 0
+        errors = 0
+        scan_state["running"] = True
+        scan_state["scanned"] = 0
+        scan_state["persisted"] = 0
+        scan_state["success"] = 0
+        scan_state["errors"] = 0
+        scan_state["last"] = None
         try:
             async with _settings_session() as session:
                 known = await GalleryRepository(session).signatures(_scan_roots())
@@ -407,19 +417,28 @@ async def _run_scan() -> None:
                 batch = await run_in_threadpool(next, iterator, None)
                 if batch is None:
                     break
+                scanned += len(batch)
                 try:
                     async with _settings_session() as session, session.begin():
                         await GalleryIngestService(session).ingest(batch)
                     persisted += len(batch)
+                    success += len(batch)
                 except Exception as exc:  # noqa: BLE001
+                    errors += len(batch)
                     logger.error(
                         "library scan batch failed",
                         extra=log_extra(error=type(exc).__name__, batch_size=len(batch)),
                     )
+                # Live progress so the UI can show scan-in-progress counts.
+                scan_state["scanned"] = scanned
+                scan_state["persisted"] = persisted
+                scan_state["success"] = success
+                scan_state["errors"] = errors
             async with _settings_session() as session, session.begin():
                 expunged = await GalleryRepository(session).expunge_missing(
                     _scan_roots(), service.seen_path_hashes
                 )
+            scan_state["expunged"] = expunged
             if _settings().auto_sync_tags:
                 try:
                     async with _settings_session() as session:
@@ -701,12 +720,15 @@ async def _tag_sync_worker_loop() -> None:
     try:
         async with _settings_session() as session:
             last_id = 0
+            seeded = 0
             while True:
                 ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
                 if not ids:
                     break
                 _enqueue_tag_sync(ids)
+                seeded += len(ids)
                 last_id = ids[-1]
+            tag_sync_state["total"] = seeded + tag_sync_state["processed"]
     except Exception as exc:  # noqa: BLE001 - seeding must not kill the worker
         logger.warning("tag sync seeding failed", extra=log_extra(error=type(exc).__name__))
     logger.info("tag sync seeded", extra=log_extra(queued=tag_sync_queue.qsize()))
