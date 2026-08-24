@@ -144,6 +144,17 @@ def _parse_tags(body: str) -> list[dict[str, str]]:
     return unique
 
 
+def _favorites_next_url(body: str) -> str:
+    """The ``next`` cursor URL embedded by ExHentai for favorites paging."""
+    match = re.search(r"var\s+nexturl\s*=\s*\"([^\"]*)\"", body)
+    if not match:
+        return ""
+    value = match.group(1).strip()
+    if not value or "next=" not in value:
+        return ""
+    return value
+
+
 def _parse_category(body: str) -> str:
     from ..scanners.base import normalize_category
 
@@ -337,18 +348,17 @@ class EhClient:
     async def fetch_favorites(self, favcat: int) -> list[FavoriteData]:
         """Fetch every gallery in a favorite folder, following ExHentai paging.
 
-        ExHentai lists favorites in pages (default ~40 per page); a large
-        folder must be walked page by page via ``/favorites.php?favcat=N&page=M``
-        or the tail of the folder is silently dropped.
+        ExHentai favorites are paginated with a ``next`` cursor embedded in the
+        page (``var nexturl="...?favcat=N&next=gid-timestamp"``) rather than a
+        ``page`` number; walking only the first page silently drops the tail of
+        a large folder.
         """
         result: list[FavoriteData] = []
         seen: set[int] = set()
-        page = 1
+        url = "/favorites.php"
+        params: dict[str, object] = {"favcat": int(favcat)}
         while True:
-            params: dict[str, object] = {"favcat": int(favcat)}
-            if page > 1:
-                params["page"] = page
-            response = await self._get("/favorites.php", params=params)
+            response = await self._get(url, params=params)
             items: list[FavoriteData] = []
             for href, label in re.findall(
                 r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>(.*?)</a>',
@@ -368,13 +378,12 @@ class EhClient:
             if not items:
                 break
             result.extend(items)
-            page += 1
-            # A full page with a link to the next page continues; a short page
-            # (or a missing next link) means the folder is exhausted.
-            if len(items) < 40:
+            next_url = _favorites_next_url(response.text)
+            if not next_url:
                 break
-            if not re.search(rf"page={page}(?:[^0-9]|$)", response.text, re.IGNORECASE):
-                break
+            parsed = urlparse(next_url)
+            url = parsed.path or "/favorites.php"
+            params = {key: values[0] for key, values in parse_qs(parsed.query).items()}
         return result
 
     async def fetch_favorite_categories(self) -> dict[int, str]:

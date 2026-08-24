@@ -54,33 +54,31 @@ async def test_favorite_category_fetch_only_requests_favorites_page() -> None:
 async def test_fetch_favorites_follows_paging() -> None:
     requests: list[str] = []
 
-    def page_body(page: int) -> str:
+    def page_body(cursor: str | None, base: int) -> str:
         galleries = "".join(
-            f'<a href="/g/{1000 + i}/{f"{page:02d}{i:02d}abcdef"}/">Gallery {i}</a>'
-            for i in range(40)
+            f'<a href="/g/{1000 + base + i}/{f"{base + i:02d}abcdef"}/">Gallery {i}</a>'
+            for i in range(50)
         )
-        paging = (
-            f'<div id="paging"><a href="/favorites.php?favcat=0&amp;page={page + 1}">next</a></div>'
-        )
-        return galleries + paging
+        if cursor:
+            galleries += f'<script>var nexturl="https://exhentai.test/favorites.php?favcat=0&next={cursor}";</script>'
+        return galleries
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         params = request.url.params
         requests.append(path + "?" + str(params))
-        page = int(params.get("page", "1") or "1")
-        if page == 1:
-            return httpx.Response(200, text=page_body(1))
-        return httpx.Response(200, text="<p>empty</p>")
+        if params.get("next"):
+            return httpx.Response(200, text=page_body(None, 50))
+        return httpx.Response(200, text=page_body("462571-1777996391", 0))
 
     async with httpx.AsyncClient(
         base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
     ) as http_client:
         client = EhClient(client=http_client)
         items = await client.fetch_favorites(0)
-    assert len(items) == 40  # page 2 returns nothing new; walk stops
+    assert len(items) == 100  # page 1 (50) + page 2 (50), cursor walk stops
     assert [r.split("?")[0] for r in requests] == ["/favorites.php", "/favorites.php"]
-    assert "page=2" in requests[1]
+    assert "next=462571-1777996391" in requests[1]
 
 
 def test_parse_category_supports_exhentai_cs_ct2_markup() -> None:
