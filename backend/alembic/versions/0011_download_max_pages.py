@@ -4,8 +4,9 @@ The API accepted max_pages but the persistent download worker rebuilt the task
 from the DB row without it, silently downloading every page.
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0011_download_max_pages"
 down_revision = "0010_category_merge"
