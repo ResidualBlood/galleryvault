@@ -781,11 +781,6 @@ async function renderSettings() {
         ${field(t("newPassword"), `<input name="new_password" type="password" autocomplete="new-password">`)}
         <button class="secondary" data-action="change-password" type="button">${esc(t("changePassword"))}</button>
       </fieldset>
-      <fieldset><legend>${esc(t("libraryRoots"))}</legend>
-        <p class="notice">${esc(t("libraryRootsHint"))}</p>
-        <textarea name="library_roots" rows="4">${esc((s.library_roots || []).join("\n"))}</textarea>
-        ${warnings}
-      </fieldset>
       <fieldset><legend>ExHentai</legend>
         ${field(t("baseUrl"), `<input name="exhentai_base_url" value="${esc(s.exhentai_base_url || "")}">`)}
         <p class="notice">Cookie: <strong>${s.exhentai_cookie_configured ? esc(t("cookieSet")) : esc(t("cookieUnset"))}</strong> · ${esc(t("cookiesNote"))}</p>
@@ -801,6 +796,11 @@ async function renderSettings() {
           ${field(t("proxyHttp"), `<input name="http_proxy" value="${esc(s.http_proxy || "")}">`)}
           ${field(t("proxySocks5"), `<input name="socks5_proxy" value="${esc(s.socks5_proxy || "")}">`)}
         </div>
+      </fieldset>
+      <fieldset><legend>${esc(t("libraryRoots"))}</legend>
+        <p class="notice">${esc(t("libraryRootsHint"))}</p>
+        <textarea name="library_roots" rows="4">${esc((s.library_roots || []).join("\n"))}</textarea>
+        ${warnings}
       </fieldset>
       <fieldset><legend>Downloads</legend>
         <div class="form-grid">
