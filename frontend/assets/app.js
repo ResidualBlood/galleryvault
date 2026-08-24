@@ -803,22 +803,18 @@ async function renderSettings() {
         <label class="checkbox"><input type="checkbox" name="use_hah"${s.use_hah ? " checked" : ""}> ${esc(t("useHah"))}</label>
         <label class="checkbox"><input type="checkbox" name="download_favorites_enabled"${s.download_favorites_enabled ? " checked" : ""}> download favorites</label>
       </fieldset>
-      <fieldset><legend>Favorites</legend>
-        ${field(t("pollDefault"), `<input name="favorites_poll_interval_minutes" type="number" min="1" value="${s.favorites_poll_interval_minutes != null ? s.favorites_poll_interval_minutes : 720}">`)}
-        <p class="notice">${esc(t("favHint"))}</p>
-      </fieldset>
       <fieldset><legend>Tags</legend>
         <label class="checkbox"><input type="checkbox" name="auto_sync_tags"${s.auto_sync_tags ? " checked" : ""}> ${esc(t("autoSyncTags"))}</label>
         <div class="form-grid">
           ${field(t("tagSyncInterval"), `<input name="tag_sync_interval_seconds" type="number" step="0.1" min="0.1" value="${s.tag_sync_interval_seconds != null ? s.tag_sync_interval_seconds : 1}">`)}
           ${field(t("tagSyncConcurrency"), `<input name="tag_sync_concurrency" type="number" min="1" max="32" value="${s.tag_sync_concurrency != null ? s.tag_sync_concurrency : 2}">`)}
         </div>
+        <div class="toolbar"><button class="secondary" data-action="sync-all-tags" type="button">${esc(t("syncAllTags"))}</button></div>
       </fieldset>
       <fieldset><legend>Thumbnails</legend>
         <label class="checkbox"><input type="checkbox" name="generate_thumbnails"${s.generate_thumbnails ? " checked" : ""}> ${esc(t("generateThumbnails"))}</label>
         <div class="toolbar">
           <button class="secondary" data-action="gen-thumbs" type="button">${esc(t("genThumbs"))}</button>
-          <button class="secondary" data-action="sync-all-tags" type="button">${esc(t("syncAllTags"))}</button>
         </div>
         <p class="notice">${esc(t("thumbs"))}</p>
       </fieldset>
@@ -864,7 +860,6 @@ function collectSettings(form) {
     title_display: val("title_display") || "japanese",
     use_hah: form.use_hah.checked,
     download_favorites_enabled: form.download_favorites_enabled.checked,
-    favorites_poll_interval_minutes: Math.max(1, num("favorites_poll_interval_minutes", 720)),
     auto_sync_tags: form.auto_sync_tags.checked,
     generate_thumbnails: form.generate_thumbnails ? form.generate_thumbnails.checked : undefined,
     tag_sync_interval_seconds: Math.max(0.1, num("tag_sync_interval_seconds", 1)),
