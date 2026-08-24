@@ -351,6 +351,20 @@ async def test_repository_replaces_tag_rows_and_reuses_tag_names() -> None:
     assert gallery.tags_synced_at == timestamp
 
 
+@pytest.mark.asyncio
+async def test_pending_category_refresh_returns_ids() -> None:
+    class Rows:
+        def __iter__(self):
+            return iter([(7,), (11,)])
+
+    class Session:
+        async def execute(self, statement):
+            return Rows()
+
+    result = await GalleryRepository(Session()).pending_category_refresh_ids()
+    assert result == [7, 11]
+
+
 class _RowResult:
     def __init__(self, rows):
         self._rows = rows

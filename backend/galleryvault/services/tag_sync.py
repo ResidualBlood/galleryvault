@@ -21,6 +21,12 @@ class TagSyncRepository(Protocol):
         category: str | None = None,
     ) -> int: ...
 
+    async def refresh_category(self, gallery_id: int, category: str) -> None: ...
+
+    async def pending_category_refresh_ids(
+        self, limit: int = 500, last_id: int = 0
+    ) -> list[int]: ...
+
 
 class TagSyncError(ValueError):
     """The local gallery cannot be synchronized with its current metadata."""
@@ -78,3 +84,21 @@ class TagSyncService:
             gallery, unique_tags, synced_at, category=metadata.category
         )
         return TagSyncResult(metadata.gid, metadata.title, count, synced_at)
+
+    async def refresh_category(self, identifier: int) -> str | None:
+        """Re-fetch a gallery's metadata and refresh only its 大分类.
+
+        Used by the one-time backfill for galleries that were tag-synced before
+        category refresh existed (their real category stayed ``other``).  Returns
+        the corrected category, or ``None`` if the gallery is gone.
+        """
+        gallery = await self.repository.get_for_tag_sync(identifier)
+        if gallery is None or gallery.gid is None or not gallery.token:
+            return None
+        metadata_fetcher = getattr(self.client, "fetch_gallery_metadata", None)
+        if metadata_fetcher is None:
+            metadata = await self.client.fetch_gallery(gallery.gid, gallery.token)
+        else:
+            metadata = await metadata_fetcher(gallery.gid, gallery.token)
+        await self.repository.refresh_category(identifier, metadata.category)
+        return metadata.category

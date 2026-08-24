@@ -515,9 +515,55 @@ class GalleryRepository:
         row = await self.session.get(Gallery, gallery_id)
         if row is not None:
             row.tags_synced_at = datetime.now(UTC)
+            row.category_refreshed_at = datetime.now(UTC)
             if category:
                 row.category = category
         await self.session.flush()
+
+    async def refresh_category(self, gallery_id: int, category: str) -> None:
+        """Update a gallery's category in place (used by category backfill)."""
+        row = await self.session.get(Gallery, gallery_id)
+        if row is not None and category and category != "other":
+            row.category = category
+        if row is not None:
+            row.category_refreshed_at = datetime.now(UTC)
+        await self.session.flush()
+
+    async def pending_category_refresh_ids(
+        self, limit: int = 500, last_id: int = 0
+    ) -> list[int]:
+        """Gallery ids still in the generic 'other' bucket despite having tags.
+
+        These are galleries that were tag-synced before category refresh existed,
+        so their real 大分类 was never written back.  They are re-fetched (once)
+        to correct the category.
+        """
+        rows = await self.session.execute(
+            select(Gallery.id)
+            .where(
+                Gallery.id > last_id,
+                Gallery.gid.is_not(None),
+                Gallery.token.is_not(None),
+                Gallery.category == "other",
+                Gallery.tags_synced_at.is_not(None),
+                Gallery.category_refreshed_at.is_(None),
+            )
+            .order_by(Gallery.id)
+            .limit(limit)
+        )
+        return [int(row[0]) for row in rows]
+
+    async def count_pending_category_refresh(self) -> int:
+        rows = await self.session.scalar(
+            select(func.count(Gallery.id)).where(
+                Gallery.gid.is_not(None),
+                Gallery.token.is_not(None),
+                Gallery.category == "other",
+                Gallery.tags_synced_at.is_not(None),
+                Gallery.category_refreshed_at.is_(None),
+            )
+        )
+        return int(rows or 0)
 
     async def delete_by_identifier(self, identifier: int) -> Gallery | None:
         """Remove a gallery (cascading to pages, tags links, progress, history)."""

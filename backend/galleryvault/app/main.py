@@ -81,11 +81,14 @@ tag_sync_state: dict[str, object] = {
     "retries": 0,
     "interval": None,
     "last_error": None,
+    "category_refreshed": 0,
+    "category_refresh_running": False,
 }
 tag_sync_queue: asyncio.Queue[int] = asyncio.Queue()
 tag_sync_queued: set[int] = set()
 tag_sync_attempts: dict[int, int] = {}
 tag_sync_worker_task = None
+category_refresh_task = None
 translation_update_task = None
 translation_state: dict[str, object] = {
     "running": False,
@@ -321,6 +324,10 @@ async def shutdown() -> None:
         download_worker_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await download_worker_task
+    if tag_sync_worker_task is not None:
+        tag_sync_worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await tag_sync_worker_task
     if app.state.telegram is not None:
         await app.state.telegram.aclose()
     if app.state.eh_client is not None:
@@ -495,6 +502,14 @@ async def scan_status() -> dict[str, object]:
 @app.get("/api/tag-sync/status")
 async def tag_sync_status() -> dict[str, object]:
     return dict(tag_sync_state)
+
+
+@app.post("/api/tag-sync/refresh-categories", status_code=202)
+async def trigger_category_refresh() -> dict[str, object]:
+    """Start a one-time 大分类 backfill for galleries stuck in ``other``."""
+    if not tag_sync_state["category_refresh_running"]:
+        asyncio.create_task(_category_refresh_once())
+    return {"status": "running" if tag_sync_state["category_refresh_running"] else "started"}
 
 
 def _db_error(exc: Exception) -> HTTPException:
@@ -803,6 +818,75 @@ async def _tag_sync_worker_loop() -> None:
         await asyncio.gather(*workers)
     finally:
         tag_sync_state["running"] = False
+
+
+async def _category_refresh_once() -> int:
+    """Backfill the 大分类 for galleries stuck in ``other``.
+
+    These were tag-synced before category write-back existed.  Each is
+    re-fetched once (paced through the tag-sync worker) and its category is
+    corrected; galleries that 404 are reclassified as ``deleted``.
+    """
+    tag_sync_state["category_refresh_running"] = True
+    refreshed = 0
+    try:
+        async with _settings_session() as session:
+            last_id = 0
+            ids: list[int] = []
+            while True:
+                batch = await GalleryRepository(session).pending_category_refresh_ids(500, last_id)
+                if not batch:
+                    break
+                ids.extend(batch)
+                last_id = batch[-1]
+        for gallery_id in ids:
+            try:
+                async with _settings_session() as session, session.begin():
+                    await TagSyncService(
+                        app.state.eh_client, GalleryRepository(session)
+                    ).refresh_category(gallery_id)
+                refreshed += 1
+            except GalleryGoneError:
+                try:
+                    async with _settings_session() as session, session.begin():
+                        await GalleryRepository(session).mark_tag_synced(
+                            gallery_id, category="deleted"
+                        )
+                except Exception as exc:  # noqa: BLE001 - best-effort
+                    logger.warning(
+                        "could not mark deleted gallery during category refresh",
+                        extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+                    )
+            except EhClientError:
+                # Transient upstream failure: skip this round, will retry later.
+                logger.warning(
+                    "category refresh failed",
+                    extra=log_extra(gallery_id=gallery_id, error="EhClientError"),
+                )
+            except Exception as exc:  # noqa: BLE001 - one gallery must not stop the backfill
+                logger.warning(
+                    "category refresh error",
+                    extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+                )
+            if gallery_id != ids[-1]:
+                await asyncio.sleep(0.3)  # pace requests to ExHentai
+        tag_sync_state["category_refreshed"] += refreshed
+    finally:
+        tag_sync_state["category_refresh_running"] = False
+    return refreshed
+
+
+async def _category_refresh_loop() -> None:
+    while True:
+        try:
+            await _category_refresh_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "category refresh loop error", extra=log_extra(error=type(exc).__name__)
+            )
+        await asyncio.sleep(3600)
 
 
 class DownloadRequest(BaseModel):

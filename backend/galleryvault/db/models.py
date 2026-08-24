@@ -49,6 +49,7 @@ class Gallery(Base):
     page_count: Mapped[int | None] = mapped_column(Integer)
     source_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     tags_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    category_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (

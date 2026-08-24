@@ -39,9 +39,22 @@ def db_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _empty_runtime() -> dict:
         return {}
 
+    async def _noop() -> None:
+        return None
+
     monkeypatch.setattr(main, "SettingsRepository", lambda: (_ for _ in ()).throw(AssertionError))
     monkeypatch.setattr(main, "_runtime_row", _empty_runtime)
     monkeypatch.setattr(main, "_bootstrap_auth", _empty_runtime)
+    # Keep the app's background workers out of the test event loop: they use
+    # global asyncio.Queues/engines that must not leak across TestClient loops.
+    for _name in (
+        "_favorites_poll_loop",
+        "_download_worker_loop",
+        "_tag_sync_worker_loop",
+        "_category_refresh_loop",
+    ):
+        monkeypatch.setattr(main, _name, _noop)
+    monkeypatch.setattr(main, "_ensure_translation_updater", lambda: None)
 
 
 def test_password_hash_and_verify() -> None:
