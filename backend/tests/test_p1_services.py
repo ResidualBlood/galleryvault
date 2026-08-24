@@ -102,7 +102,7 @@ class CountingDownloadClient(FakeDownloadClient):
 async def test_downloader_resumes_without_refetching_existing_pages(tmp_path: Path) -> None:
     client = CountingDownloadClient()
     downloader = Downloader(client, tmp_path)
-    result = await downloader.execute(DownloadTask(1, "tok", "title"))
+    await downloader.execute(DownloadTask(1, "tok", "title"))
     assert client.image_calls == 2  # both pages fetched on first run
     # Retry: existing pages are kept, nothing is re-downloaded.
     result2 = await downloader.execute(DownloadTask(1, "tok", "title"))

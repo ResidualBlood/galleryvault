@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from ..logging import log_extra
 from .eh_client import GalleryData
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ class Downloader:
         return True
 
     async def execute(
-        self, task: DownloadTask, progress: "ProgressCallback | None" = None
+        self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
         if not await self.enqueue(task):
             raise RuntimeError("an active download already exists for this gid")
@@ -109,7 +110,7 @@ class Downloader:
                 self._gids.discard(task.gid)
 
     async def _execute_with_retries(
-        self, task: DownloadTask, progress: "ProgressCallback | None" = None
+        self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
         # Retry ownership belongs to the persistent DownloadManager. A call to
         # execute is exactly one attempt, otherwise attempt rows lie after a restart.
@@ -126,7 +127,7 @@ class Downloader:
         raise RuntimeError("download failed after three attempts") from last
 
     async def _download_once(
-        self, task: DownloadTask, progress: "ProgressCallback | None" = None
+        self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
         gallery = await self.client.fetch_gallery(task.gid, task.token)
         pages = list(gallery.pages)

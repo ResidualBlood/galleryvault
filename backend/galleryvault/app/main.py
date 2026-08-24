@@ -3,15 +3,13 @@ import contextlib
 import hmac
 import logging
 import re
-import secrets
 from datetime import UTC, datetime
-from html import escape
 from pathlib import Path
-from urllib.parse import parse_qs, quote_plus
+from urllib.parse import parse_qs
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import httpx
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -95,6 +93,11 @@ translation_state: dict[str, object] = {
     "entries": 0,
 }
 CSRF_COOKIE = "galleryvault_csrf"
+
+# Built-in default password used when no auth hash is configured anywhere. The
+# SPA forces a password change once you log in with it.  Documented in the
+# frontend README.
+DEFAULT_PASSWORD = "p1a2s3s4"
 
 
 def _settings() -> Settings:
@@ -375,7 +378,7 @@ def verify_login_password(password: str, effective: str | None) -> bool:
     """Validate a password against the configured hash or legacy plaintext."""
     if effective is None:
         # No hash configured: fall back to the built-in default password.
-        return password == "password"
+        return password == DEFAULT_PASSWORD
     if "$" in effective and effective.startswith("pbkdf2_sha256"):
         return verify_password(password, effective)
     return hmac.compare_digest(password, effective)
@@ -913,7 +916,7 @@ async def settings_get() -> dict[str, object]:
         async with _settings_session() as session:
             persisted = await SettingsRepository(session).get()
         _update_runtime_settings(persisted)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - DB down: serve in-memory settings
         # DB unavailable: serve the current in-memory settings unchanged.
         logger.warning("settings could not be re-read", extra={"error": str(exc)})
     if app.state.eh_client is not None:
@@ -1564,7 +1567,7 @@ def _remove_gallery_files(gallery: Gallery) -> None:
             import shutil as _shutil
 
             _shutil.rmtree(path, ignore_errors=True)
-    except OSError:  # noqa: BLE001 - file deletion is best effort
+    except OSError:
         logger.warning("gallery file removal failed", extra={"path": str(path)})
 
 
@@ -1747,11 +1750,11 @@ async def change_password(body: ChangePasswordRequest) -> None:
     effective = _password_effective()
     using_default = effective is None
     current_valid = (
-        using_default and body.current == "password"
+        using_default and body.current == DEFAULT_PASSWORD
     ) or verify_login_password(body.current, effective)
     if not current_valid:
         raise HTTPException(status_code=403, detail="Current password is incorrect")
-    if body.new == "password" and using_default:
+    if body.new == DEFAULT_PASSWORD and using_default:
         raise HTTPException(status_code=422, detail="New password cannot be the default")
     new_hash = hash_password(body.new)
     try:

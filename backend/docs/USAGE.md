@@ -97,7 +97,7 @@ and back/forward work without server round-trips.
 - **Library roots**: one filesystem path per line. In Docker these must be
   paths mounted into the container.
 - **Account**: toggle *Require login*. **Change password** asks for the current
-  and new password; if still on the default `password`, a banner prompts you to
+  and new password; if still on the default `p1a2s3s4`, a banner prompts you to
   change it. Turning *Require login* off disables authentication entirely.
 - **ExHentai**: base URL plus `ipb_member_id` / `ipb_pass_hash` / `igneous`
   cookies (exported from a logged-in browser session). **测试登录** validates
@@ -124,7 +124,7 @@ On a fresh install `docker compose up` works out of the box:
 1. The app connects with `DATABASE_URL` (env, with a Docker default), runs
    migrations, then generates and persists a stable `auth_secret` in the DB so
    sessions survive restarts.
-2. No password is configured yet, so the built-in default `password` works and
+2. No password is configured yet, so the built-in default `p1a2s3s4` works and
    the SPA shows a banner prompting you to set a real one in Settings.
 3. After you save Settings (or change the password) the values are persisted in
    the DB and are loaded on every subsequent boot — recreating the container

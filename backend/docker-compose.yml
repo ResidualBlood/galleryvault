@@ -14,16 +14,15 @@ services:
       # telegram, tag-sync, translation interval, auth_required) and the auth
       # secret / password hash are persisted in PostgreSQL.  Only infra values
       # that are needed before the database is reachable are set here.
-    ports: ["8001:8000"]
+    ports: ["8001:8001"]
     volumes:
-      - ./TEMP:/library:ro
-      - ./TEMP:/TEMP:ro
-      - ./media:/downloads
+      - ./library:/library
+      - ./downloads:/downloads
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
       interval: 10s
       timeout: 5s
       retries: 6

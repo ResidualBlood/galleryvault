@@ -21,7 +21,7 @@ authenticated session cookie. Unauthenticated `/api/*` requests receive
 
 Login is **password-only**. `must_change_password` is `true` when login is
 required and no password hash is configured anywhere (the built-in default
-`password` is in effect); the SPA shows a banner that links to Settings.
+`p1a2s3s4` is in effect); the SPA shows a banner that links to Settings.
 Turning off login entirely is done by disabling `auth_required` in Settings (or
 `AUTH_REQUIRED=false` in the environment), which lets the API through without a
 session —

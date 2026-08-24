@@ -1,5 +1,3 @@
-import json
-from pathlib import Path
 
 import httpx
 import pytest
@@ -99,7 +97,11 @@ def test_tag_translation_namespace_and_name() -> None:
 
 
 def test_tag_translation_strips_markdown_icons() -> None:
-    from galleryvault.services.tag_translation import clean_display, load_translations, translate_tag
+    from galleryvault.services.tag_translation import (
+        clean_display,
+        load_translations,
+        translate_tag,
+    )
 
     assert (
         clean_display(
@@ -142,7 +144,6 @@ def test_parse_gallery_titles_reads_gn_and_gj() -> None:
 
 @pytest.mark.asyncio
 async def test_fetch_gallery_by_category_requests_listing() -> None:
-    import re
 
     from galleryvault.services.eh_client import EhClient
 

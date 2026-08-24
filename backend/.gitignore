@@ -1,7 +1,6 @@
 # Local gallery samples and downloaded library data are not source files.
-TEMP/*/
-TEMP/cookies.txt
-TEMP/**/*.bin
+library/
+downloads/
 
 # Local configuration, secrets, and runtime data.
 .env

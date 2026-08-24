@@ -254,7 +254,7 @@ class EhClient:
         # galleries are downloaded, not just the first screenful.
         page_hrefs: list[str] = []
         seen: set[str] = set()
-        for offset in range(0, 512):
+        for offset in range(512):
             page_body = body if offset == 0 else None
             if page_body is None:
                 page_response = await self._get(f"{base}?p={offset}")

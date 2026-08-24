@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault"
     )
-    library_roots: list[str] = Field(default_factory=lambda: ["/TEMP", "/downloads"])
+    library_roots: list[str] = Field(default_factory=lambda: ["/library", "/downloads"])
     download_root: str = "/downloads"
     log_level: str = "INFO"
     log_json: bool = False
@@ -168,10 +168,6 @@ def load_settings() -> Settings:
     from the environment, and they all have sensible defaults.
     """
     return Settings()
-
-
-def get_settings() -> Settings:
-    return load_settings()
 
 
 def get_settings() -> Settings:
