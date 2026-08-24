@@ -1,12 +1,12 @@
 services:
   frontend:
-    build: ../frontend
+    image: residualblood/galleryvault-frontend:latest
     ports: ["8000:80"]
     depends_on:
       - backend
 
   backend:
-    build: .
+    image: residualblood/galleryvault-backend:latest
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads

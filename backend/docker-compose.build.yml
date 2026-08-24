@@ -1,0 +1,8 @@
+# Local development override: build images from source instead of pulling from
+# Docker Hub.  Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  frontend:
+    build: ../frontend
+  backend:
+    build: .
