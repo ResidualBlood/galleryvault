@@ -658,8 +658,13 @@ async function renderDownloads() {
       <button class="primary" data-action="dl-retry-selected" type="button">${esc(t("retrySelected"))}</button>
     </div>
     <div id="dl-list"><p>${esc(t("loading"))}</p></div>
-    <div class="pages" id="dl-pages"></div>`;
+    <div class="pages" id="dl-pages"></div>
+    <section id="task-progress" class="task-progress" hidden>
+      <h2>${esc(t("tasks"))}</h2>
+      <div id="task-progress-body"></div>
+    </section>`;
   loadDownloads(filter, app.query.page || "1");
+  pollTaskProgress();
   if (dlTimer) clearInterval(dlTimer);
   dlTimer = setInterval(() => {
     if (location.hash.startsWith("#/downloads")) loadDownloads(filter, app.query.page || "1");
