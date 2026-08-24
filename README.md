@@ -1,48 +1,48 @@
 # 📚 GalleryVault
 
-> A private, self-hosted library manager for local gallery archives — with
-> ExHentai download, tag-sync and translation built in.
+> 一个私有的、自托管的本地画廊库管理器 —— 内置 ExHentai 下载、标签同步与翻译。
 
-GalleryVault indexes **Ehviewer exports, CBZ/CBR archives and plain image
-folders** into a searchable web library, and can optionally **sync tags &
-metadata from ExHentai**, **download galleries**, **monitor your favorite
-folders**, and **translate every tag** — all behind a simple password, with a
-polished EN/中文 interface.
+GalleryVault 将 **Ehviewer 导出目录、CBZ/CBR 压缩包和普通图片文件夹** 索引成一个可搜索的 Web 画廊库，并可选地 **从 ExHentai 同步标签与元数据**、**下载画廊**、**监控你的收藏夹**、**翻译每个标签**——全部在一个简洁的密码保护界面之后，支持 中文/English 双语。
 
 [![Backend CI](https://github.com/ResidualBlood/galleryvault-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-backend/actions)
 [![Frontend CI](https://github.com/ResidualBlood/galleryvault-frontend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-frontend/actions)
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
 
----
-
-## Screenshots
-
-| Library | Tag cloud |
-|---------|-----------|
-| <img src="docs/screenshots/library.png" alt="Library" width="480"> | <img src="docs/screenshots/tags.png" alt="Tag cloud" width="480"> |
+**中文（默认）** · [English](README.en.md)
 
 ---
 
-## ✨ Features
+## 界面截图
+
+| 中文界面 | 英文界面 |
+|----------|----------|
+| **画廊库** | **Library** |
+| <img src="docs/screenshots/library_zh.png" alt="画廊库界面" width="420"> | <img src="docs/screenshots/library_en.png" alt="Library UI" width="420"> |
+| **标签云** | **Tag cloud** |
+| <img src="docs/screenshots/tags_zh.png" alt="标签云页面" width="420"> | <img src="docs/screenshots/tags_en.png" alt="Tag cloud page" width="420"> |
+
+---
+
+## ✨ 功能特性
 
 | | |
 |---|---|
-| 🗂️ **Local gallery library** | Scan Ehviewer export directories, CBZ/CBR files and plain image folders into a persistent, searchable index (PostgreSQL). |
-| 🏷️ **Tag cloud & search** | Namespaced tags (Artist / Character / Parody / Group / Language / Category / Misc…), a weighted tag cloud, and instant tag autocomplete. |
-| 🌐 **Tag translations** | Pulls the latest EhTagTranslation release — Chinese input reverse-matches the translation table, so typing 巨乳 suggests `big breasts`. |
-| 🆎 **Bilingual UI** | Full English and 中文 interface, switchable any time; tags render their translations in the 中文 view. |
-| 🌠 **ExHentai integration** | Login with your own cookies (表站 or 里站) to fetch metadata, categories and tags for every gallery. |
-| ⬇️ **Download manager** | Concurrent page downloads like Ehviewer, live progress bars, resumable retries (only missing pages), partial/sample downloads (`max_pages`), cancel & bulk retry. |
-| ⭐ **Favorites monitor** | Watches your ten ExHentai favorite folders and auto-downloads anything you don't have yet — on a schedule or on demand. |
-| 📖 **Reader & history** | Streams one page at a time, saves your reading position, and keeps a browsable history. |
-| 🔔 **Telegram alerts** | Get notified on download success/failure, scan completion, and favorite sync. |
-| 🗑️ **Orphan cleanup** | Galleries deleted from ExHentai (or with no usable coordinates) are grouped under **Deleted** automatically. |
-| 🔒 **Private & simple** | Single-password auth with persistent sessions, secure settings storage, and an optional "no login" mode. |
-| 🐳 **One-command deploy** | Two published Docker Hub images + PostgreSQL run with a single `docker compose up`. |
+| 🗂️ **本地画廊库** | 将 Ehviewer 导出目录、CBZ/CBR 文件和普通图片文件夹扫描进一个持久化、可搜索的索引（PostgreSQL）。 |
+| 🏷️ **标签云与搜索** | 带命名空间的标签（画师/角色/原作/社团/语言/分类/杂项…）、按词频加权的标签云、即时标签自动补全。 |
+| 🌐 **标签翻译** | 自动拉取最新 EhTagTranslation 数据库——中文输入反向匹配翻译表，输入"巨乳"会提示 `big breasts`。 |
+| 🆎 **双语界面** | 完整的中文和 English 界面，随时切换；中文界面下标签显示翻译。 |
+| 🌠 **ExHentai 集成** | 用你自己的 cookie（表站或里站）登录，为每个画廊获取元数据、分类和标签。 |
+| ⬇️ **下载管理器** | 类似 Ehviewer 的并发分页下载、实时进度条、可续传重试（只补下缺失页）、部分下载（`max_pages`）、取消与批量重试。 |
+| ⭐ **收藏夹监控** | 监控你的十个 ExHentai 收藏文件夹，自动下载还没有的画廊——定时或手动触发。 |
+| 📖 **阅读器与历史** | 逐页流式加载、自动保存阅读进度、可浏览的阅读历史。 |
+| 🔔 **Telegram 通知** | 下载成功/失败、扫描完成、收藏同步时发送通知。 |
+| 🗑️ **孤儿清理** | 从 ExHentai 删除的画廊（或无坐标的画廊）自动归入 **已删除** 分类。 |
+| 🔒 **私有且简单** | 单密码认证 + 持久会话、安全的设置存储、可选的"免登录"模式。 |
+| 🐳 **一键部署** | 两个发布的 Docker Hub 镜像 + PostgreSQL，一条 `docker compose up` 启动。 |
 
 ---
 
-## Quick start
+## 快速开始
 
 ```bash
 git clone https://github.com/ResidualBlood/galleryvault
@@ -50,74 +50,64 @@ cd galleryvault
 docker compose up -d
 ```
 
-1. Open **http://\<host\>:8000** — the web UI.
-2. Log in with the default password **`p1a2s3s4`** and change it in *Settings*
-   (a banner reminds you until you do).
-3. Put your galleries in `./library` (mounted at `/library`), hit **扫描库**
-   (Scan library), and start reading.
+1. 打开 **http://\<主机地址\>:8000** —— Web 界面。
+2. 使用默认密码 **`p1a2s3s4`** 登录，并在 *设置* 中修改（在修改前会有横幅提醒）。
+3. 把画廊放进 `./library`（挂载到 `/library`），点击 **扫描库**，开始阅读。
 
-> The JSON API is available on **http://\<host\>:8001**.
+> JSON API 位于 **http://\<主机地址\>:8001**。
 
 ---
 
-## Data & volumes
+## 数据与目录
 
-| Path | Purpose |
-|------|---------|
-| `./db-data` | PostgreSQL data (index, settings, history) — survives container recreation |
-| `./library` | Your gallery archives (mounted at `/library`, scanned by default) |
-| `./downloads` | Galleries downloaded from ExHentai (mounted at `/downloads`) |
+| 路径 | 用途 |
+|------|------|
+| `./db-data` | PostgreSQL 数据（索引、设置、历史）——容器重建后依然保留 |
+| `./library` | 你的画廊压缩包/目录（挂载到 `/library`，默认被扫描） |
+| `./downloads` | 从 ExHentai 下载的画廊（挂载到 `/downloads`） |
 
-Add more library directories in *Settings → Library roots* (each path must be
-mounted into the container in `docker-compose.yml`).
-
----
-
-## Configuration
-
-There is **no `config.json` and no `.env`** to hand-edit. Every setting lives
-in the *Settings* page and is persisted to PostgreSQL:
-
-- **Library roots** — one filesystem path per line.
-- **Account** — change password, toggle *Require login*.
-- **ExHentai** — base URL (表站/里站), `ipb_member_id` / `ipb_pass_hash` /
-  `igneous` cookies, with a **测试登录** (test login) button. Cookies are never
-  echoed back.
-- **Proxy** — HTTP or SOCKS5.
-- **Downloads** — root, concurrency, image quality, H@H network, `max_pages`.
-- **Tag sync** — automatic sync after scans/startup, interval, concurrency.
-- **Favorites** — auto-download toggle and polling interval.
-- **Telegram** — bot token, chat IDs, allowed user IDs, **send test message**.
-- **Translation** — auto-update interval and **立即更新** (update now).
-
-Secrets (cookies, bot token, password hash) are stored in PostgreSQL and never
-exposed through the API.
+更多库目录请在 *设置 → 库目录* 中添加（每个路径都需要在 `docker-compose.yml` 中挂载进容器）。
 
 ---
 
-## Architecture
+## 配置
 
-The project is split into two source repositories that publish the Docker
-images used here:
+没有需要手工编辑的 **`config.json` 或 `.env`**。所有设置都在 *设置* 页面中，并持久化到 PostgreSQL：
+
+- **库目录** —— 每行一个文件系统路径。
+- **账户** —— 修改密码、切换 *需要登录*。
+- **ExHentai** —— 基础 URL（表站/里站）、`ipb_member_id` / `ipb_pass_hash` / `igneous` cookie，带 **测试登录** 按钮。cookie 永远不会被回显。
+- **代理** —— HTTP 或 SOCKS5。
+- **下载** —— 根目录、并发数、画质、H@H 网络、`max_pages`。
+- **标签同步** —— 扫描/启动后自动同步、间隔、并发数。
+- **收藏夹** —— 自动下载开关与轮询间隔。
+- **Telegram** —— bot token、chat ID、允许的 user ID、**发送测试消息**。
+- **翻译** —— 自动更新间隔与 **立即更新** 按钮。
+
+敏感信息（cookie、bot token、密码哈希）存储在 PostgreSQL 中，绝不会通过 API 暴露。
+
+---
+
+## 架构
+
+项目拆分为两个源码仓库，发布这里使用的 Docker 镜像：
 
 ```
 ┌────────────┐   :8000   ┌──────────────────────┐   :8001   ┌────────────────┐
-│  Browser   │ ────────▶ │ nginx SPA (vanilla JS)│ ────────▶ │ FastAPI backend │ ─▶ PostgreSQL
-└────────────┘           │  /api,/login,/logout  │           └────────────────┘
+│  浏览器     │ ────────▶ │ nginx SPA（原生 JS）  │ ────────▶ │ FastAPI 后端   │ ─▶ PostgreSQL
+└────────────┘           │  /api,/login,/logout │           └────────────────┘
                          └──────────────────────┘
 ```
 
-| Component | Repository | Docker image | Host port |
-|-----------|------------|--------------|-----------|
-| Frontend (nginx SPA) | [galleryvault-frontend](https://github.com/ResidualBlood/galleryvault-frontend) | `residualblood/galleryvault-frontend` | **8000** |
-| Backend (FastAPI + asyncpg) | [galleryvault-backend](https://github.com/ResidualBlood/galleryvault-backend) | `residualblood/galleryvault-backend` | **8001** |
-| Database | — | `postgres:16-alpine` | internal |
+| 组件 | 仓库 | Docker 镜像 | 宿主端口 |
+|------|------|-------------|----------|
+| 前端（nginx SPA） | [galleryvault-frontend](https://github.com/ResidualBlood/galleryvault-frontend) | `residualblood/galleryvault-frontend` | **8000** |
+| 后端（FastAPI + asyncpg） | [galleryvault-backend](https://github.com/ResidualBlood/galleryvault-backend) | `residualblood/galleryvault-backend` | **8001** |
+| 数据库 | — | `postgres:16-alpine` | 内部 |
 
-The frontend is a dependency-free vanilla-JS single-page app (no build step,
-no CDN); the backend runs Alembic migrations on boot, so upgrades are a single
-`docker compose pull && docker compose up -d`.
+前端是无依赖的原生 JS 单页应用（无构建步骤、无 CDN）；后端启动时自动运行 Alembic 迁移，升级只需一条 `docker compose pull && docker compose up -d`。
 
-### Building from source
+### 从源码构建
 
 ```bash
 git clone https://github.com/ResidualBlood/galleryvault-backend
@@ -127,32 +117,25 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 ---
 
-## Usage highlights
+## 使用亮点
 
-- **Library** (`#/library`) — search by title, filter by category, page-size
-  selector (5…500), multi-select delete (files on disk optional), tag-based
-  autocomplete filtering.
-- **Tags** (`#/tags`) — namespace pills, weighted tag cloud, usage counts, and
-  per-tag drill-down into the library.
-- **Gallery** (`#/gallery/<id>`) — metadata, translated tags, page thumbnails,
-  **Read now**, **Sync tags**.
-- **Reader** (`#/reader/<id>/<page>`) — arrow-key navigation with auto-saved
-  reading position.
-- **Downloads** (`#/downloads`) — live progress, cancel/retry, bulk operations.
-- **Favorites** (`#/favorites`) — the ten favorite folders with modes and
-  scheduling.
+- **画廊库**（`#/library`）—— 按标题搜索、按分类筛选、页码大小选择（5…500）、批量删除（可选删除磁盘文件）、基于标签的自动补全筛选。
+- **标签**（`#/tags`）—— 命名空间标签页、词频加权标签云、使用次数统计、点击标签下钻到画廊库。
+- **画廊详情**（`#/gallery/<id>`）—— 元数据、翻译后的标签、页面缩略图、**立即阅读**、**同步标签**。
+- **阅读器**（`#/reader/<id>/<page>`)—— 方向键翻页、自动保存阅读位置。
+- **下载**（`#/downloads`）—— 实时进度、取消/重试、批量操作。
+- **收藏夹**（`#/favorites`）—— 十个收藏文件夹的模式与调度。
 
 ---
 
-## Documentation
+## 文档
 
-- [API reference](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/API.md)
-- [Usage guide](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/USAGE.md)
-- [Development notes](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/DEVELOPMENT.md)
+- [API 参考](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/API.md)
+- [使用指南](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/USAGE.md)
+- [开发说明](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/DEVELOPMENT.md)
 
 ---
 
-## Disclaimer
+## 免责声明
 
-Use responsibly. ExHentai integration requires **your own** account cookies and
-should respect the site's rules and rate limits.
+请合理使用。ExHentai 集成需要 **你自己的** 账户 cookie，并应遵守站点的规则与频率限制。
