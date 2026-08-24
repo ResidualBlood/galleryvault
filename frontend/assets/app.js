@@ -526,7 +526,7 @@ async function renderGallery() {
 
 async function renderReader() {
   const id = app.params.id;
-  const page = parseInt(app.params.page || "0", 10);
+  const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   try {
     const g = await api("GET", `/api/galleries/${id}`);
     const total = g.page_count;
@@ -954,7 +954,7 @@ async function syncFavoriteCategories() {
 async function checkFavoriteCategory(favcat) {
   try {
     await api("POST", `/api/favorites/${favcat}/check`);
-    toast("#" + favcat + " · 202");
+    toast("#" + favcat + " · " + t("checkNow"));
   } catch (e) { toast(e.message); }
 }
 
