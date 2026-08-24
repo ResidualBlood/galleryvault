@@ -34,6 +34,7 @@ const I18N = {
     cookiesNote: "Cookies are never displayed after saving.",
     proxyHttp: "HTTP proxy", proxySocks5: "SOCKS5 proxy",
     downloadRoot: "Download root", concurrency: "Concurrency", quality: "Quality",
+    qualityOriginal: "Original (原图)", qualityResample: "Resample (普通)",
     useHah: "Use H@H", titleDisplay: "Title display",
     botToken: "Bot token (leave blank to keep)", chatIds: "Chat IDs (comma separated)",
     allowedIds: "Allowed user IDs (comma separated)",
@@ -89,6 +90,7 @@ const I18N = {
     cookiesNote: "Cookie 保存后不会回显。",
     proxyHttp: "HTTP 代理", proxySocks5: "SOCKS5 代理",
     downloadRoot: "下载根目录", concurrency: "并发数", quality: "画质",
+    qualityOriginal: "原图 (Original)", qualityResample: "重采样 (Resample)",
     useHah: "使用 H@H", titleDisplay: "标题显示",
     botToken: "Bot Token（留空保持不变）", chatIds: "Chat ID（逗号分隔）",
     allowedIds: "允许的用户 ID（逗号分隔）",
@@ -525,6 +527,34 @@ const TAG_NAMESPACES = [
   { key: "language", ns: "language" },
 ];
 
+function tagNsPillsHtml(activeNs, counts) {
+  return TAG_NAMESPACES.map(g => {
+    const active = (g.ns || "") === activeNs;
+    const count = g.ns ? (counts[g.ns] || 0) : Object.values(counts).reduce((a, b) => a + b, 0);
+    return `<a class="pill${active ? " active" : ""}${count ? "" : " empty"}"
+      data-action="tag-ns" data-ns="${esc(g.ns || "")}"
+      href="${navHash("tags", {}, g.ns ? { ns: g.ns } : {})}">
+      ${esc(groupLabel(g.key))} <b>${count || 0}</b></a>`;
+  }).join("");
+}
+
+function selectTagNamespace(ns) {
+  // Update only the namespace pills + tag cloud (no full page re-render).
+  app.query.ns = ns || "";
+  delete app.query.page;
+  const h1 = document.querySelector("main h1");
+  if (h1) h1.textContent = app.query.ns ? nsLabel(app.query.ns) : t("tags");
+  const pills = document.getElementById("tag-pills");
+  if (pills) {
+    pills.querySelectorAll(".pill").forEach(p => {
+      p.classList.toggle("active", p.getAttribute("data-ns") === (app.query.ns || ""));
+    });
+  }
+  const q = app.query.q || "";
+  loadTags(q, app.query.ns, "1");
+  history.replaceState(null, "", navHash("tags", {}, app.query.ns ? { ns: app.query.ns } : {}));
+}
+
 function cloudSizeClass(count, max) {
   if (!count) return "s1";
   const ratio = max > 0 ? Math.log(count + 1) / Math.log(max + 1) : 0;
@@ -560,13 +590,8 @@ async function loadTags(q, ns, page) {
     const pills = document.getElementById("tag-pills");
     if (pills && (data.facets || []).length) {
       const counts = {};
-      let totalAll = 0;
       for (const f of data.facets) { counts[f.namespace] = f.total; }
-      pills.innerHTML = TAG_NAMESPACES.map(g => {
-        const active = (g.ns || "") === ns;
-        const count = g.ns ? counts[g.ns] : Object.values(counts).reduce((a, b) => a + b, 0);
-        return `<a class="pill${active ? " active" : ""}${count ? "" : " empty"}" href="${navHash("tags", {}, g.ns ? { ns: g.ns } : {})}">${esc(groupLabel(g.key))} <b>${count || 0}</b></a>`;
-      }).join("");
+      pills.innerHTML = tagNsPillsHtml(ns, counts);
     }
     const cloud = document.getElementById("tag-cloud");
     if (!cloud) return;
@@ -746,7 +771,10 @@ async function renderSettings() {
         <div class="form-grid">
           ${field(t("downloadRoot"), `<input name="download_root" value="${esc(s.download_root || "")}">`)}
           ${field(t("concurrency"), `<input name="download_concurrency" type="number" min="1" max="32" value="${s.download_concurrency != null ? s.download_concurrency : 2}">`)}
-          ${field(t("quality"), `<input name="download_quality" value="${esc(s.download_quality || "auto")}">`)}
+          ${field(t("quality"), `<select name="download_quality">
+            <option value="original"${(s.download_quality || "resample") === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
+            <option value="resample"${(s.download_quality || "resample") === "resample" ? " selected" : ""}>${esc(t("qualityResample"))}</option>
+          </select>`)}
           ${field(t("titleDisplay"), `<select name="title_display">${["japanese", "english", "directory"].map(o => `<option value="${o}"${o === (s.title_display || "japanese") ? " selected" : ""}>${o}</option>`).join("")}</select>`)}
         </div>
         <label class="checkbox"><input type="checkbox" name="use_hah"${s.use_hah ? " checked" : ""}> ${esc(t("useHah"))}</label>
@@ -791,7 +819,7 @@ function collectSettings(form) {
     socks5_proxy: val("socks5_proxy"),
     download_root: val("download_root"),
     download_concurrency: Math.min(32, Math.max(1, num("download_concurrency", 2))),
-    download_quality: val("download_quality") || "auto",
+    download_quality: val("download_quality") || "resample",
     title_display: val("title_display") || "japanese",
     use_hah: form.use_hah.checked,
     download_favorites_enabled: form.download_favorites_enabled.checked,
@@ -895,6 +923,7 @@ function onClick(e) {
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
+  if (action === "tag-ns") { e.preventDefault(); selectTagNamespace(el.getAttribute("data-ns")); return; }
 }
 
 function onSubmit(e) {
