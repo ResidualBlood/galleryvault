@@ -15,7 +15,8 @@ const I18N = {
     translationInterval: "Update interval (minutes, 0 = off)",
     forceUpdate: "Update now", translationStatus: "Translation status",
     testTelegram: "Send test message",
-    browse: "Browse", library: "Library", tags: "Tags", downloads: "Downloads",
+    browse: "Browse", library: "Library", tags: "Tags", downloads: "Tasks",
+    downloadsSub: "Download tasks and tag synchronization.",
     favorites: "Favorites", history: "History", settings: "Settings", logout: "Logout",
     scan: "Scan library", random: "Random", readNow: "Read now", syncTags: "Sync tags",
     tagSection: "Tags", pagesSection: "Pages", details: "Details", prev: "Previous",
@@ -35,6 +36,9 @@ const I18N = {
     proxyHttp: "HTTP proxy", proxySocks5: "SOCKS5 proxy",
     downloadRoot: "Download root", concurrency: "Concurrency", quality: "Quality",
     qualityOriginal: "Original (原图)", qualityResample: "Resample (普通)",
+    catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
+    catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
+    catAsianporn: "Asian Porn", catMisc: "Misc", catOther: "Other", catDeleted: "Deleted",
     useHah: "Use H@H", titleDisplay: "Title display",
     botToken: "Bot token (leave blank to keep)", chatIds: "Chat IDs (comma separated)",
     allowedIds: "Allowed user IDs (comma separated)",
@@ -51,7 +55,7 @@ const I18N = {
     select: "Select", clearSel: "Clear selection", deleteSel: "Delete selected",
     confirmDeleteSel: "Delete selected galleries?",
     tasks: "Background tasks", scanning: "Scanning library", tagSyncing: "Syncing tags",
-    noTasks: "No background tasks",
+    noTasks: "No background tasks", dlTasks: "Download tasks",
     favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
     settingsSub: "Library, connection and background tasks.",
     groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages" },
@@ -71,7 +75,8 @@ const I18N = {
     translationInterval: "更新间隔（分钟，0=关闭）",
     forceUpdate: "立即更新", translationStatus: "翻译状态",
     testTelegram: "发送测试消息",
-    browse: "浏览", library: "画廊库", tags: "标签", downloads: "下载",
+    browse: "浏览", library: "画廊库", tags: "标签", downloads: "任务",
+    downloadsSub: "下载任务与标签同步。",
     favorites: "收藏夹", history: "历史", settings: "设置", logout: "退出",
     scan: "扫描库", random: "随机", readNow: "开始阅读", syncTags: "同步标签",
     tagSection: "标签", pagesSection: "页面", details: "详情", prev: "上一页",
@@ -91,6 +96,9 @@ const I18N = {
     proxyHttp: "HTTP 代理", proxySocks5: "SOCKS5 代理",
     downloadRoot: "下载根目录", concurrency: "并发数", quality: "画质",
     qualityOriginal: "原图 (Original)", qualityResample: "重采样 (Resample)",
+    catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
+    catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
+    catAsianporn: "亚洲色情", catMisc: "杂项", catOther: "其他", catDeleted: "已删除",
     useHah: "使用 H@H", titleDisplay: "标题显示",
     botToken: "Bot Token（留空保持不变）", chatIds: "Chat ID（逗号分隔）",
     allowedIds: "允许的用户 ID（逗号分隔）",
@@ -107,7 +115,7 @@ const I18N = {
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
     confirmDeleteSel: "确定删除所选画廊？",
     tasks: "后台任务", scanning: "扫描库中", tagSyncing: "同步标签中",
-    noTasks: "无后台任务",
+    noTasks: "无后台任务", dlTasks: "下载任务",
     favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
     settingsSub: "本地库、连接与后台任务。",
     groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
@@ -296,13 +304,15 @@ function nsClass(ns) {
 }
 
 const CATEGORY_LABELS = {
-  doujinshi: "Doujinshi", manga: "Manga", artistcg: "Artist CG", gamecg: "Game CG",
-  western: "Western", "non-h": "Non-H", image_set: "Image Set", cosplay: "Cosplay",
-  asianporn: "Asian Porn", misc: "Misc", other: "Other",
+  doujinshi: "catDoujinshi", manga: "catManga", artistcg: "catArtistcg", gamecg: "catGamecg",
+  western: "catWestern", "non-h": "catNonH", image_set: "catImageSet", cosplay: "catCosplay",
+  asianporn: "catAsianporn", misc: "catMisc", other: "catOther", deleted: "catDeleted",
 };
 
+function catLabel(c) { return t(CATEGORY_LABELS[c] || "catOther"); }
+
 function galleryCard(it) {
-  const cat = esc(CATEGORY_LABELS[it.category] || it.category || "Other");
+  const cat = esc(catLabel(it.category));
   return `<div class="gc-wrap">
     <a class="gc" href="${navHash("gallery", { id: it.id })}">
       <div class="gc-cover">
@@ -420,7 +430,7 @@ async function renderLibrary() {
       </div>
       <select name="category">
         <option value="">All categories</option>
-        ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","other"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(CATEGORY_LABELS[c] || c)}</option>`).join("")}
+        ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted","other"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
       </select>
       <button class="primary" type="submit">${esc(t("library"))}</button>
       <button class="secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
@@ -649,7 +659,12 @@ let dlTimer = null;
 async function renderDownloads() {
   const filter = app.query.filter || "all";
   $view().innerHTML = `
-    <header><p class="eyebrow">SYNC ENGINE</p><h1>${esc(t("downloads"))}</h1></header>
+    <header><p class="eyebrow">BACKGROUND TASKS</p><h1>${esc(t("downloads"))}</h1>
+    <p class="sub">${esc(t("downloadsSub"))}</p></header>
+    <section id="task-progress" class="task-progress" hidden>
+      <div id="task-progress-body"></div>
+    </section>
+    <h2 style="margin-top:20px">${esc(t("dlTasks"))}</h2>
     <div class="toolbar">
       <div class="pills" style="margin:0">
         ${DL_STATUSES.map(s => `<a class="pill${s === filter ? " active" : ""}" href="${navHash("downloads", {}, s !== "all" ? { filter: s } : {})}">${esc(s === "all" ? t("filterAll") : s)}</a>`).join("")}
@@ -658,11 +673,7 @@ async function renderDownloads() {
       <button class="primary" data-action="dl-retry-selected" type="button">${esc(t("retrySelected"))}</button>
     </div>
     <div id="dl-list"><p>${esc(t("loading"))}</p></div>
-    <div class="pages" id="dl-pages"></div>
-    <section id="task-progress" class="task-progress" hidden>
-      <h2>${esc(t("tasks"))}</h2>
-      <div id="task-progress-body"></div>
-    </section>`;
+    <div class="pages" id="dl-pages"></div>`;
   loadDownloads(filter, app.query.page || "1");
   pollTaskProgress();
   if (dlTimer) clearInterval(dlTimer);
