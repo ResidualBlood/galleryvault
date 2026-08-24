@@ -1,0 +1,12 @@
+# Local runtime data (not source files) — never commit these.
+library/
+downloads/
+media/
+TEMP/
+db-data/
+volumes/
+.env
+.env.*
+!.env.example
+*.sqlite3
+.DS_Store

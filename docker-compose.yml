@@ -1,0 +1,38 @@
+services:
+  frontend:
+    image: residualblood/galleryvault-frontend:latest
+    ports: ["8000:80"]
+    depends_on:
+      - backend
+
+  backend:
+    image: residualblood/galleryvault-backend:latest
+    environment:
+      DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
+      DOWNLOAD_ROOT: /downloads
+    ports: ["8001:8001"]
+    volumes:
+      - ./library:/library
+      - ./downloads:/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: galleryvault
+      POSTGRES_PASSWORD: galleryvault
+      POSTGRES_DB: galleryvault
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U galleryvault -d galleryvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
