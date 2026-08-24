@@ -1853,12 +1853,18 @@ def _thumb_service() -> ThumbnailService:
     return thumb_service
 
 
-async def _thumbnail_gallery(gallery_id: int) -> None:
-    """Generate (or refresh) cached thumbnails for one gallery, page by page."""
+async def _thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
+    """Generate (or refresh) cached thumbnails for one gallery, page by page.
+
+    Returns ``(generated_pages, failed_pages)`` so the worker can count a
+    gallery as succeeded/failed once (progress is per gallery, matching total).
+    """
+    generated = 0
+    failed_pages = 0
     async with _settings_session() as session:
         row = await session.get(Gallery, gallery_id)
         if row is None or not row.page_count:
-            return
+            return 0, 0
         pages = list(
             await session.scalars(
                 select(GalleryPage)
@@ -1869,7 +1875,7 @@ async def _thumbnail_gallery(gallery_id: int) -> None:
     service = _thumb_service()
     scanner = registry.for_path(Path(row.storage_path))
     if scanner is None:
-        return
+        return 0, 0
     meta = _meta(row, pages)
     for page in pages:
         if service.cached(gallery_id, page.page_index) is not None:
@@ -1883,9 +1889,9 @@ async def _thumbnail_gallery(gallery_id: int) -> None:
             )
             data = await run_in_threadpool(stream.read)
             service.get_or_create(gallery_id, page.page_index, data)
-            thumb_state["succeeded"] += 1
+            generated += 1
         except (ThumbnailError, OSError, EOFError) as exc:
-            thumb_state["failed"] += 1
+            failed_pages += 1
             thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
         finally:
             if stream is not None:
@@ -1893,6 +1899,7 @@ async def _thumbnail_gallery(gallery_id: int) -> None:
                     stream.close()
                 except OSError:
                     pass
+    return generated, failed_pages
 
 
 async def _seed_thumbnails() -> None:
@@ -1931,7 +1938,12 @@ async def _thumbnail_worker_loop() -> None:
                 continue
             thumb_queued.discard(gallery_id)
             try:
-                await _thumbnail_gallery(gallery_id)
+                _generated, failed_pages = await _thumbnail_gallery(gallery_id)
+                if failed_pages == 0:
+                    thumb_state["succeeded"] += 1
+                else:
+                    thumb_state["failed"] += 1
+                    thumb_state["last_error"] = f"{failed_pages} pages failed"
             except Exception as exc:  # noqa: BLE001 - one gallery must not stop the worker
                 thumb_state["failed"] += 1
                 thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
