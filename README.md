@@ -105,7 +105,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 本项目的画廊格式兼容与翻译功能基于以下开源项目：
 
-- **Ehviewer**：Ehviewer 导出的目录结构与命名约定（`<gid>-<标题>`、`.ehviewer` 元数据文件、`.thumb` 缩略图）。
+- **Ehviewer_CN_SXJ**：Ehviewer 的汉化版（[github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)）。本项目的画廊导出目录结构与命名约定（`<gid>-<标题>`、`.ehviewer` 元数据文件、`.thumb` 缩略图）、并发分页下载与断点续传，以及中文标签翻译的反向检索，均参考其实现。
 - **EhTagTranslation**：标签翻译数据库与更新机制（[github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)）。
 - **ehsyringe（e 站注射器）**：翻译数据的整理与导出格式。
 
