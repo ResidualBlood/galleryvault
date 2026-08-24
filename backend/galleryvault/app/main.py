@@ -1909,7 +1909,12 @@ async def _thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
 
 
 async def _seed_thumbnails() -> None:
-    """Queue every gallery missing its cover thumbnail for background generation."""
+    """Queue every gallery missing its cover thumbnail for background generation.
+
+    ``total`` reflects the remaining work (galleries still missing a cover), so
+    a container restart continues the remaining work instead of looking like it
+    restarted from zero — cached thumbnails are never regenerated.
+    """
     async with _settings_session() as session:
         rows = await session.execute(
             select(Gallery.id, Gallery.page_count).where(Gallery.page_count.is_not(None))
@@ -1917,18 +1922,20 @@ async def _seed_thumbnails() -> None:
         pairs = [(int(row[0]), int(row[1])) for row in rows if row[1]]
     service = _thumb_service()
     added = 0
+    missing_total = 0
     for gallery_id, page_count in pairs:
         if service.cached(gallery_id, 0) is not None:
             continue
+        missing_total += 1
         if gallery_id in thumb_queued:
             continue
         thumb_queued.add(gallery_id)
         thumb_queue.put_nowait(gallery_id)
         added += 1
-    thumb_state["total"] = len(pairs)
+    thumb_state["total"] = missing_total
     thumb_state["queued"] = thumb_queue.qsize()
     logger.info(
-        "thumbnail seeding complete", extra=log_extra(queued=added, galleries=len(pairs))
+        "thumbnail seeding complete", extra=log_extra(queued=added, pending=missing_total)
     )
 
 
