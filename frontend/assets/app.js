@@ -14,6 +14,7 @@ const I18N = {
     translationUpdate: "Translation auto-update",
     translationInterval: "Update interval (minutes, 0 = off)",
     forceUpdate: "Update now", translationStatus: "Translation status",
+    transUpdated: "Translations updated",
     testTelegram: "Send test message",
     browse: "Browse", library: "Library", tags: "Tags", downloads: "Tasks",
     downloadsSub: "Download tasks and tag synchronization.",
@@ -38,7 +39,7 @@ const I18N = {
     qualityOriginal: "Original (原图)", qualityResample: "Resample (普通)",
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
-    catAsianporn: "Asian Porn", catMisc: "Misc", catOther: "Other", catDeleted: "Deleted",
+    catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted",
     useHah: "Use H@H", titleDisplay: "Title display",
     botToken: "Bot token (leave blank to keep)", chatIds: "Chat IDs (comma separated)",
     allowedIds: "Allowed user IDs (comma separated)",
@@ -74,6 +75,7 @@ const I18N = {
     translationUpdate: "翻译自动更新",
     translationInterval: "更新间隔（分钟，0=关闭）",
     forceUpdate: "立即更新", translationStatus: "翻译状态",
+    transUpdated: "翻译已更新",
     testTelegram: "发送测试消息",
     browse: "浏览", library: "画廊库", tags: "标签", downloads: "任务",
     downloadsSub: "下载任务与标签同步。",
@@ -98,7 +100,7 @@ const I18N = {
     qualityOriginal: "原图 (Original)", qualityResample: "重采样 (Resample)",
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
-    catAsianporn: "亚洲色情", catMisc: "杂项", catOther: "其他", catDeleted: "已删除",
+    catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除",
     useHah: "使用 H@H", titleDisplay: "标题显示",
     botToken: "Bot Token（留空保持不变）", chatIds: "Chat ID（逗号分隔）",
     allowedIds: "允许的用户 ID（逗号分隔）",
@@ -270,6 +272,7 @@ function navHash(view, params = {}, query = {}) {
 function router() {
   parseHash();
   updateLangButton();
+  updateBanner();
   if (!app.authenticated) { renderLogin(); return; }
   switch (app.view) {
     case "browse": renderBrowse(); break;
@@ -306,10 +309,10 @@ function nsClass(ns) {
 const CATEGORY_LABELS = {
   doujinshi: "catDoujinshi", manga: "catManga", artistcg: "catArtistcg", gamecg: "catGamecg",
   western: "catWestern", "non-h": "catNonH", image_set: "catImageSet", cosplay: "catCosplay",
-  asianporn: "catAsianporn", misc: "catMisc", other: "catOther", deleted: "catDeleted",
+  asianporn: "catAsianporn", misc: "catMisc", other: "catMisc", deleted: "catDeleted",
 };
 
-function catLabel(c) { return t(CATEGORY_LABELS[c] || "catOther"); }
+function catLabel(c) { return t(CATEGORY_LABELS[c] || "catMisc"); }
 
 function galleryCard(it) {
   const cat = esc(catLabel(it.category));
@@ -430,7 +433,7 @@ async function renderLibrary() {
       </div>
       <select name="category">
         <option value="">All categories</option>
-        ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted","other"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
+        ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
       </select>
       <button class="primary" type="submit">${esc(t("library"))}</button>
       <button class="secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
@@ -1183,7 +1186,7 @@ async function forceUpdate() {
   try {
     const r = await api("POST", "/api/tags/search/reload");
     const el = document.getElementById("trans-status");
-    if (el) el.textContent = r.ok ? t("changePwOk") : (r.last_error || "?");
+    if (el) el.textContent = r.ok ? t("transUpdated") : (r.last_error || "?");
     toast(t("forceUpdate") + (r.ok ? " OK" : " :: " + (r.last_error || "?")));
   } catch (e) { toast(e.message); }
 }
