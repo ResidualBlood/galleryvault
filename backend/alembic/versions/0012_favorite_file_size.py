@@ -5,8 +5,9 @@ store it here, so the Favorites page can report an exact cloud size instead of
 an average-based estimate.
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0012_favorite_file_size"
 down_revision = "0011_download_max_pages"
