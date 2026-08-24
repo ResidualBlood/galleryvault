@@ -220,7 +220,7 @@ async def test_telegram_bot_uses_mock_transport_and_allowed_user() -> None:
         def __init__(self):
             self.messages = []
 
-        async def send_message(self, text, chat_id=None):
+        async def send_message(self, text, chat_id=None, force=False):
             self.messages.append((text, chat_id))
 
     queue, notifier = Queue(), Notifier()

@@ -426,7 +426,7 @@ class EhClient:
             if not items:
                 break
             result.extend(items)
-            next_url = _favorites_next_url(response.text)
+            next_url = html.unescape(_favorites_next_url(response.text))
             if not next_url:
                 break
             parsed = urlparse(next_url)

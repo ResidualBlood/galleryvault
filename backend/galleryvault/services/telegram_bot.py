@@ -49,10 +49,10 @@ class TelegramBotService:
         chat_id = message.get("chat", {}).get("id")
         if text == "/pause":
             self.paused = True
-            await self.notifier.send_message("Downloads paused", chat_id)
+            await self.notifier.send_message("Downloads paused", chat_id, force=True)
         elif text == "/resume":
             self.paused = False
-            await self.notifier.send_message("Downloads resumed", chat_id)
+            await self.notifier.send_message("Downloads resumed", chat_id, force=True)
         elif text == "/status":
             await self.notifier.send_message(
                 "GalleryVault downloads are " + ("paused" if self.paused else "running"), chat_id
@@ -66,7 +66,7 @@ class TelegramBotService:
                 await self.queue.enqueue(
                     type("TelegramGallery", (), {"gid": gid, "token": token, "title": text})()
                 )
-                await self.notifier.send_message(f"Queued gallery {gid}", chat_id)
+                await self.notifier.send_message(f"Queued gallery {gid}", chat_id, force=True)
 
     async def run(self) -> None:
         while True:

@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 ProgressCallback = "callable[[int, int], object]"
 
 
+class DownloadCancelledError(Exception):
+    """Raised when a pending/active download is cancelled mid-flight."""
+
+
 @dataclass(frozen=True)
 class DownloadTask:
     gid: int
@@ -192,6 +196,8 @@ class Downloader:
             index, page = pair
             try:
                 await _download_page(index, page)
+            except DownloadCancelledError:
+                raise
             except Exception as exc:  # noqa: BLE001 - record and keep going
                 async with first_error_lock:
                     if first_error is None:

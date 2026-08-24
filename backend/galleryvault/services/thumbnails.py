@@ -67,13 +67,13 @@ class ThumbnailService:
         try:
             with Image.open(BytesIO(page_bytes)) as source:
                 source.load()
+                image = source.convert("RGB")
+                image.thumbnail((THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT))
         except UnidentifiedImageError as exc:
             raise ThumbnailError(f"unsupported image format: {exc}") from exc
         except OSError as exc:
             raise ThumbnailError(f"could not decode image: {exc}") from exc
 
-        image = source.convert("RGB")
-        image.thumbnail((THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT))
         buf = BytesIO()
         image.save(buf, format="JPEG", quality=THUMB_QUALITY, optimize=True)
         return buf.getvalue()

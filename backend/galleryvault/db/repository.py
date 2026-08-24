@@ -998,11 +998,15 @@ class SettingsRepository:
         """Persist non-editable runtime settings (e.g. a changed password hash).
 
         These are stored under their own key so they are never written to the
-        config file and never show up in the editable settings payload.
+        config file and never show up in the editable settings payload.  The
+        existing dict (which also holds ``auth_secret``) is merged, never
+        replaced, so a password change does not invalidate session secrets.
         """
         row = await self.session.get(AppConfig, "runtime_auth")
         if row is None:
             self.session.add(AppConfig(key="runtime_auth", value=value))
         else:
-            row.value = value
+            merged = dict(row.value or {})
+            merged.update(value)
+            row.value = merged
         await self.session.flush()

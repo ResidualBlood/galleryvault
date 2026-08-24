@@ -26,16 +26,16 @@ class TelegramNotifier:
         if self._owned and self.client is not None:
             await self.client.aclose()
 
-    async def send_message(self, text: str, chat_id: str | int | None = None) -> bool:
-        token, allowed = (
-            self.settings.telegram_bot_token,
-            {str(x) for x in self.settings.telegram_chat_ids},
-        )
+    async def send_message(
+        self, text: str, chat_id: str | int | None = None, force: bool = False
+    ) -> bool:
+        token = self.settings.telegram_bot_token
+        allowed = {str(x) for x in self.settings.telegram_chat_ids}
         target = str(chat_id) if chat_id is not None else None
         if not token:
             logger.debug("Telegram notification skipped: not configured")
             return False
-        if target is None or target not in allowed:
+        if target is None or (not force and target not in allowed):
             logger.warning("Telegram notification skipped: chat is not allowed")
             return False
         # Reuse the shared client when present (the Telegram bot polls through

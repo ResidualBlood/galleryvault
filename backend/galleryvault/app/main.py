@@ -36,7 +36,7 @@ from ..db.session import create_database
 from ..logging import configure_logging, log_extra
 from ..scanners import registry
 from ..scanners.base import CATEGORIES, GalleryMeta, PageInfo
-from ..services.downloader import Downloader, DownloadTask
+from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
 from ..services.favorites import FavoritesService
 from ..services.ingest import GalleryIngestService
@@ -92,6 +92,7 @@ tag_sync_queued: set[int] = set()
 tag_sync_attempts: dict[int, int] = {}
 tag_sync_worker_task = None
 translation_update_task = None
+_download_cancelled: set[int] = set()
 translation_state: dict[str, object] = {
     "running": False,
     "last": None,
@@ -526,9 +527,9 @@ def _settings_session():
 
 @app.post("/api/scan", status_code=202)
 async def trigger_scan() -> dict[str, object]:
-    if not scan_lock.locked() and not scan_state["running"]:
+    if not scan_state["running"]:
         scan_state["running"] = True
-        asyncio.create_task(_run_scan())
+        _spawn(_run_scan(), "library scan")
     return {"status": "running" if scan_state["running"] else "started"}
 
 
@@ -546,7 +547,7 @@ async def tag_sync_status() -> dict[str, object]:
 async def trigger_category_refresh() -> dict[str, object]:
     """Start a one-time 大分类 backfill for galleries stuck in ``other``."""
     if not tag_sync_state["category_refresh_running"]:
-        asyncio.create_task(_category_refresh_once())
+        _spawn(_category_refresh_once(), "category refresh")
     return {"status": "running" if tag_sync_state["category_refresh_running"] else "started"}
 
 
@@ -578,6 +579,8 @@ async def _run_download(task: DownloadTask) -> None:
         # Retry ownership lives in the persistent worker. The downloader makes
         # exactly one network attempt per claimed task attempt.
         async def _on_progress(current: int, total: int) -> None:
+            if task.id is not None and task.id in _download_cancelled:
+                raise DownloadCancelledError("download was cancelled")
             await _download_progress(task.id, current, total)
 
         result = await app.state.downloader.execute(
@@ -603,6 +606,19 @@ async def _run_download(task: DownloadTask) -> None:
             await app.state.telegram.send_message(
                 f"Download succeeded: {result.title or task.gid} ({result.pages} pages)"
             )
+    except DownloadCancelledError:
+        # The user cancelled mid-flight: drop the partial temp dir and leave
+        # the task cancelled (do not retry or mark failed).
+        try:
+            temp = Path(_settings().download_root) / f".gv-{task.gid}"
+            if temp.exists():
+                import shutil as _shutil
+
+                _shutil.rmtree(temp, ignore_errors=True)
+        except OSError:
+            pass
+        _download_cancelled.discard(task.id)
+        logger.info("download cancelled", extra=log_extra(gid=task.gid))
     except Exception as exc:  # noqa: BLE001
         logger.error(
             "download task failed", extra=log_extra(gid=task.gid, error=type(exc).__name__)
@@ -673,6 +689,10 @@ def _enqueue_tag_sync(gallery_ids: list[int]) -> int:
             tag_sync_queue.put_nowait(gallery_id)
             added += 1
     tag_sync_state["queued"] = tag_sync_queue.qsize()
+    if added:
+        current = int(tag_sync_state["total"] or 0)
+        tag_sync_state["total"] = current + added
+    return added
     return added
 
 
@@ -728,8 +748,8 @@ async def _translation_update_once() -> bool:
 
 async def _translation_update_loop() -> None:
     while True:
-        interval = max(1, int(_settings().tag_translation_update_interval_minutes))
-        if interval <= 0:
+        minutes = int(_settings().tag_translation_update_interval_minutes)
+        if minutes <= 0:
             await asyncio.sleep(3600)
             continue
         try:
@@ -740,7 +760,7 @@ async def _translation_update_loop() -> None:
             logger.warning("tag translation loop error", extra={"error": str(exc)})
             translation_state["last_error"] = str(exc)
         # Sleep in small slices so shutdown can interrupt promptly.
-        deadline = asyncio.get_event_loop().time() + interval * 60
+        deadline = asyncio.get_event_loop().time() + minutes * 60
         while asyncio.get_event_loop().time() < deadline:
             await asyncio.sleep(min(1, max(0.1, deadline - asyncio.get_event_loop().time())))
 
@@ -1091,15 +1111,21 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
             values[proxy_key] = None
     if "favorites" in values:
         favorites = values.pop("favorites")
+        def _favcat(item: dict[str, object]) -> int:
+            try:
+                return int(item.get("favcat", -1))
+            except (TypeError, ValueError):
+                return -1
+
         if not isinstance(favorites, list) or any(
             not isinstance(item, dict)
-            or int(item.get("favcat", -1)) not in range(10)
+            or _favcat(item) not in range(10)
             or item.get("mode") not in {"monitor_only", "incremental", "force"}
             for item in favorites
         ):
             raise HTTPException(status_code=422, detail="invalid favorites configuration")
         values["favorites_categories"] = [
-            int(item["favcat"]) for item in favorites if bool(item.get("enabled", True))
+            _favcat(item) for item in favorites if bool(item.get("enabled", True))
         ]
     else:
         favorites = []
@@ -1143,7 +1169,7 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
         async with _settings_session() as session, session.begin():
             await SettingsRepository(session).save(persisted_values)
             for item in favorites:
-                favcat = int(item["favcat"])
+                favcat = _favcat(item)
                 row = await FavoritesRepository(session).category(favcat)
                 if row is None:
                     from ..db.models import FavoritesMonitor
@@ -1359,6 +1385,7 @@ async def cancel_download(task_id: int) -> dict[str, object]:
         raise
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
+    _download_cancelled.add(task_id)
     return {"id": task_id, "status": "cancelled"}
 
 
@@ -1956,7 +1983,16 @@ async def gallery_page(identifier: int, page_index: int) -> StreamingResponse:
         _meta(row, pages),
         PageInfo(page.page_index, page.member_name, page.media_type),
     )
-    return StreamingResponse(_closing_stream(stream), media_type=f"image/{page.media_type}")
+    return StreamingResponse(
+        _closing_stream(stream), media_type=_page_media_type(page.media_type)
+    )
+
+
+def _page_media_type(ext: str) -> str:
+    """Map a page file extension to a standards-compliant media type."""
+    return {"jpg": "image/jpeg", "jpe": "image/jpeg", "jpeg": "image/jpeg"}.get(
+        (ext or "").lower(), f"image/{ext}"
+    )
 
 
 def _closing_stream(stream: BinaryIO) -> Iterator[bytes]:
@@ -2039,7 +2075,9 @@ async def _seed_thumbnails() -> None:
     """
     async with _settings_session() as session:
         rows = await session.execute(
-            select(Gallery.id, Gallery.page_count).where(Gallery.page_count.is_not(None))
+            select(Gallery.id, Gallery.page_count).where(
+                Gallery.page_count.is_not(None), Gallery.expunged.is_(False)
+            )
         )
         pairs = [(int(row[0]), int(row[1])) for row in rows if row[1]]
     service = _thumb_service()
