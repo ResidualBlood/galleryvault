@@ -256,7 +256,8 @@ function parseHash() {
   app.query = {};
   if (qs) for (const kv of qs.split("&")) {
     const [k, v] = kv.split("=");
-    app.query[decodeURIComponent(k)] = decodeURIComponent(v || "");
+    try { app.query[decodeURIComponent(k)] = decodeURIComponent(v || ""); }
+    catch (e) { app.query[k.replace(/%/g, "")] = (v || "").replace(/%/g, ""); }
   }
 }
 
@@ -274,6 +275,7 @@ function router() {
   updateLangButton();
   updateBanner();
   if (!app.authenticated) { renderLogin(); return; }
+  if (app.view !== "library") selGalleries.clear();
   switch (app.view) {
     case "browse": renderBrowse(); break;
     case "library": renderLibrary(); break;
@@ -473,8 +475,8 @@ async function renderGallery() {
       </div></div>`).join("");
     const thumbsAll = g.pages || [];
     const perPage = parseInt(app.query.page_size || "20", 10);
-    const thumbPage = parseInt(app.query.page || "1", 10);
     const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
+    const thumbPage = Math.min(Math.max(parseInt(app.query.page || "1", 10), 1), totalPages);
     const pageStart = (thumbPage - 1) * perPage;
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbs = thumbsVisible.map(p => `
@@ -565,7 +567,7 @@ function selectTagNamespace(ns) {
   }
   const q = app.query.q || "";
   loadTags(q, app.query.ns, "1");
-  history.replaceState(null, "", navHash("tags", {}, app.query.ns ? { ns: app.query.ns } : {}));
+  history.replaceState(null, "", navHash("tags", {}, Object.assign({}, q ? { q } : {}, app.query.ns ? { ns: app.query.ns } : {})));
 }
 
 function cloudSizeClass(count, max) {
@@ -825,6 +827,16 @@ async function renderSettings() {
       </fieldset>
       <div class="toolbar"><button class="primary" type="submit">${esc(t("save"))}</button></div>
     </form>`;
+  api("GET", "/api/tags/search/status").then(status => {
+    const el = document.getElementById("trans-status");
+    if (el && status) {
+      const n = status.entries ? parseInt(status.entries, 10) : 0;
+      const last = status.last ? new Date(status.last) : null;
+      const when = last && !isNaN(last) ? last.toLocaleString() : (status.last || "");
+      const err = status.last_error ? ` — ${esc(status.last_error)}` : "";
+      el.textContent = (n > 0 ? `${n} entries, updated ${when}` : when) + err;
+    }
+  }).catch(() => {});
 }
 
 function collectSettings(form) {
@@ -990,7 +1002,7 @@ function progressHtml(label, done, total, extra) {
 
 async function pollTaskProgress() {
   if (taskTimer) clearInterval(taskTimer);
-  taskTimer = setInterval(async () => {
+  const tick = async () => {
     const sec = document.getElementById("task-progress");
     if (!sec) return;
     try {
@@ -1000,7 +1012,7 @@ async function pollTaskProgress() {
       ]);
       const rows = [];
       if (scan && scan.running) {
-        rows.push(progressHtml(t("scanning"), scan.scanned || 0, (scan.scanned || 0) + 0, `persisted ${scan.persisted || 0}`));
+        rows.push(progressHtml(t("scanning"), scan.scanned || 0, 0, `scanned ${scan.scanned || 0} · persisted ${scan.persisted || 0}`));
       }
       if (ts && (ts.running || (ts.total && ts.processed < ts.total))) {
         rows.push(progressHtml(t("tagSyncing"), ts.processed || 0, ts.total || 0, `ok ${ts.succeeded || 0} / fail ${ts.failed || 0}`));
@@ -1016,10 +1028,9 @@ async function pollTaskProgress() {
         taskTimer = null;
       }
     } catch (_) { /* transient */ }
-  }, 2000);
-  // Kick off an immediate render so progress appears without waiting 2s.
-  const sec = document.getElementById("task-progress");
-  if (sec) { sec.hidden = false; }
+  };
+  tick();
+  taskTimer = setInterval(tick, 2000);
 }
 
 async function clearHistory() {
@@ -1124,10 +1135,15 @@ function bindTagSuggest() {
     });
     box.addEventListener("click", (e) => e.stopPropagation());
   });
-  document.addEventListener("click", function dismiss(e) {
-    document.querySelectorAll(".tag-suggest").forEach(box => {
-      if (!e.target.closest(".search-box")) box.hidden = true;
-    });
+  if (!window.__gvSuggestBound) {
+    window.__gvSuggestBound = true;
+    document.addEventListener("click", dismiss);
+  }
+}
+
+function dismiss(e) {
+  document.querySelectorAll(".tag-suggest").forEach(box => {
+    if (!e.target.closest(".search-box")) box.hidden = true;
   });
 }
 
