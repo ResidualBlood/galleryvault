@@ -12,6 +12,7 @@ from .models import (
     AppConfig,
     DownloadAttempt,
     DownloadTask,
+    DuplicateIgnore,
     FavoriteItem,
     FavoritesMonitor,
     Gallery,
@@ -1388,6 +1389,39 @@ class FavoritesRepository:
             )
         )
         return {int(gid): (title, title_jpn) for gid, title, title_jpn in rows if gid is not None}
+
+    async def ignored_duplicate_keys(self) -> set[str]:
+        rows = await self.session.scalars(select(DuplicateIgnore.key))
+        return set(rows.all())
+
+    async def ignored_duplicates(self) -> list[dict[str, object]]:
+        rows = await self.session.scalars(
+            select(DuplicateIgnore).order_by(DuplicateIgnore.created_at.desc())
+        )
+        return [
+            {
+                "key": row.key,
+                "title": row.title,
+                "gids": row.gids or [],
+            }
+            for row in rows
+        ]
+
+    async def add_duplicate_ignore(
+        self, key: str, title: str | None, gids: list[int]
+    ) -> None:
+        self.session.add(
+            DuplicateIgnore(
+                key=key,
+                title=title or None,
+                gids=gids or None,
+            )
+        )
+
+    async def remove_duplicate_ignore(self, key: str) -> None:
+        row = await self.session.get(DuplicateIgnore, key)
+        if row is not None:
+            await self.session.delete(row)
 
     async def update_posted_at(self, gid_to_posted: dict[int, datetime]) -> None:
         """Persist ExHentai posted timestamps onto on-disk galleries."""

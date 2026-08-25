@@ -193,6 +193,22 @@ class GalleryMetadata(Base):
     )
 
 
+class DuplicateIgnore(Base):
+    """User-marked duplicate groups that should not be reported again.
+
+    Keyed by the group key (``artist|normalized_title``) produced by the
+    duplicate scan, so the manager can hide false positives permanently.
+    """
+
+    __tablename__ = "favorite_duplicate_ignores"
+    key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    title: Mapped[str | None] = mapped_column(Text)
+    gids: Mapped[list[int] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)

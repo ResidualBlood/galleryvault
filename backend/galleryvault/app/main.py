@@ -44,7 +44,7 @@ from ..logging import configure_logging, log_extra
 from ..scanners import registry
 from ..scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
-from ..services.duplicates import find_duplicate_groups
+from ..services.duplicates import find_duplicate_groups, mark_likely_false_positive
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
 from ..services.favorites import FavoritesService
 from ..services.ingest import GalleryIngestService
@@ -1645,7 +1645,13 @@ async def _run_duplicates_scan() -> None:
                 if local_write:
                     async with _settings_session() as session, session.begin():
                         await FavoritesRepository(session).update_posted_at(local_write)
+            ignored_keys = await FavoritesRepository(session).ignored_duplicate_keys()
+            groups = [g for g in groups if g["key"] not in ignored_keys]
+            for group in groups:
+                group["likely_false_positive"] = mark_likely_false_positive(group)
+            groups.sort(key=lambda g: (g.get("likely_false_positive"), -len(g["items"])))
             duplicates_state["groups"] = groups
+            duplicates_state["ignored"] = await FavoritesRepository(session).ignored_duplicates()
             duplicates_state["done"] = len(items)
             duplicates_state["stage"] = "done"
     except Exception as exc:  # noqa: BLE001
@@ -1680,7 +1686,40 @@ async def duplicates_status() -> dict[str, object]:
         "groups": groups,
         "group_count": len(groups),
         "item_count": total_items,
+        "ignored": duplicates_state.get("ignored") or [],
     }
+
+
+class DuplicateIgnoreRequest(BaseModel):
+    key: str
+    title: str | None = None
+    gids: list[int] = Field(default_factory=list)
+
+
+@app.post("/api/favorites/duplicates/ignore")
+async def duplicates_ignore(body: DuplicateIgnoreRequest) -> dict[str, object]:
+    if not body.key.strip():
+        raise HTTPException(status_code=422, detail="invalid key")
+    try:
+        async with _settings_session() as session, session.begin():
+            await FavoritesRepository(session).add_duplicate_ignore(
+                body.key.strip(), body.title, body.gids
+            )
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    return {"ok": True, "key": body.key.strip()}
+
+
+@app.delete("/api/favorites/duplicates/ignore")
+async def duplicates_unignore(key: str) -> dict[str, object]:
+    if not key.strip():
+        raise HTTPException(status_code=422, detail="invalid key")
+    try:
+        async with _settings_session() as session, session.begin():
+            await FavoritesRepository(session).remove_duplicate_ignore(key.strip())
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    return {"ok": True, "key": key.strip()}
 
 
 @app.get("/api/galleries/{identifier}/favorite")
