@@ -415,7 +415,7 @@ class EhClient:
             response = await self._get(url, params=params)
             items: list[FavoriteData] = []
             for href, label in re.findall(
-                r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>(.*?)</a>',
+                r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>(?![^<]*<img)(.*?)</a>',
                 response.text,
                 re.IGNORECASE | re.DOTALL,
             ):
@@ -450,6 +450,27 @@ class EhClient:
         """Current per-folder gallery counts from one favorites.php request."""
         response = await self._get("/favorites.php")
         return _parse_favorite_counts(response.text)
+
+    async def remove_favorites(self, gids: list[int]) -> None:
+        """Remove galleries from ExHentai favorites (across all folders).
+
+        Mirrors Ehviewer_CN_SXJ: POST /favorites.php with ``ddact=delete`` and
+        one ``modifygids[]`` entry per gid.  A non-2xx response is raised so the
+        caller can surface a cloud sync failure.
+        """
+        if not gids:
+            return
+        form = {"ddact": "delete", "apply": "Apply"}
+        for gid in gids:
+            form["modifygids[]"] = str(int(gid))
+        response = await self.client.post(
+            "/favorites.php",
+            data=form,
+            headers={"Referer": urljoin(str(self.client.base_url), "/favorites.php")},
+        )
+        if response.status_code in (401, 403) or "login" in str(response.url).lower():
+            raise EhClientError("ExHentai authentication is required or expired")
+        response.raise_for_status()
 
     async def fetch_gallery_by_category(self, category: str) -> tuple[int, str] | None:
         """Return the first ``(gid, token)`` listed for an ExHentai content category."""

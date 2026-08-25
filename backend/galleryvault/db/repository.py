@@ -994,6 +994,94 @@ class FavoritesRepository:
         )
         await self.session.flush()
 
+    async def list_items(
+        self, favcat: int, page: int, page_size: int
+    ) -> tuple[int, list[tuple[object, object | None]]]:
+        """Paginated favorite items for a folder, joined with the local gallery.
+
+        Returns ``(total, [(FavoriteItem, Gallery|None)])``.
+        """
+        query = (
+            select(FavoriteItem, Gallery)
+            .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+            .where(FavoriteItem.favcat == favcat)
+        )
+        total = int(
+            await self.session.scalar(
+                select(func.count()).select_from(query.subquery())
+            )
+            or 0
+        )
+        rows = (
+            await self.session.execute(
+                query.order_by(FavoriteItem.last_seen_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        return total, [(row[0], row[1]) for row in rows]
+
+    async def all_items(self) -> list[tuple[int, int, str, str, str, int | None]]:
+        """Every recorded favorite item joined with the local gallery title.
+
+        Returns ``(favcat, gid, token, title, url, gallery_id|None)``.
+        """
+        rows = await self.session.execute(
+            select(
+                FavoriteItem.favcat,
+                FavoriteItem.gid,
+                FavoriteItem.token,
+                FavoriteItem.title,
+                FavoriteItem.url,
+                Gallery.id,
+            )
+            .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+        )
+        return [
+            (int(r[0]), int(r[1]), str(r[2]), str(r[3]), str(r[4]), int(r[5]) if r[5] is not None else None)
+            for r in rows
+        ]
+
+    async def remove_gids(self, gids: list[int]) -> int:
+        if not gids:
+            return 0
+        result = await self.session.execute(
+            delete(FavoriteItem).where(FavoriteItem.gid.in_(gids))
+        )
+        return result.rowcount or 0
+
+    async def favcats_for_gid(self, gid: int | None) -> list[int]:
+        if gid is None:
+            return []
+        rows = await self.session.scalars(
+            select(FavoriteItem.favcat).where(FavoriteItem.gid == gid)
+        )
+        return sorted({int(f) for f in rows.all()})
+
+    async def galleries_for_gids(self, gids: list[int]) -> dict[int, int]:
+        """Map gid -> local gallery.id for galleries on disk (not expunged)."""
+        if not gids:
+            return {}
+        rows = await self.session.execute(
+            select(Gallery.gid, Gallery.id).where(
+                Gallery.gid.is_not(None),
+                Gallery.expunged.is_(False),
+                Gallery.gid.in_(list(dict.fromkeys(gids))),
+            )
+        )
+        return {int(gid): int(gid_local) for gid, gid_local in rows if gid is not None}
+
+    async def gallery_titles_by_gid(self, gids: list[int]) -> dict[int, tuple[str | None, str | None]]:
+        """Map gid -> (title, title_jpn) for galleries on disk."""
+        if not gids:
+            return {}
+        rows = await self.session.execute(
+            select(Gallery.gid, Gallery.title, Gallery.title_jpn).where(
+                Gallery.gid.is_not(None), Gallery.gid.in_(list(dict.fromkeys(gids)))
+            )
+        )
+        return {int(gid): (title, title_jpn) for gid, title, title_jpn in rows if gid is not None}
+
 
 class SettingsRepository:
     """Persistence for user-editable settings kept outside environment secrets."""

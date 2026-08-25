@@ -37,6 +37,7 @@ from ..logging import configure_logging, log_extra
 from ..scanners import registry
 from ..scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
+from ..services.duplicates import find_duplicate_groups
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
 from ..services.favorites import FavoritesService
 from ..services.ingest import GalleryIngestService
@@ -97,6 +98,14 @@ favorites_check_state: dict[str, object] = {
     "running": False,
     "categories": {},
     "last_error": None,
+}
+duplicates_state: dict[str, object] = {
+    "running": False,
+    "stage": None,
+    "done": 0,
+    "total": 0,
+    "last_error": None,
+    "groups": [],
 }
 translation_state: dict[str, object] = {
     "running": False,
@@ -1404,6 +1413,186 @@ async def delete_download_task(task_id: int) -> None:
         raise
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
+
+
+@app.get("/api/favorites/{favcat}/items")
+async def favorite_items(
+    favcat: int, page: int = 1, page_size: int = 24
+) -> dict[str, object]:
+    if page < 1 or not 1 <= page_size <= 100:
+        raise HTTPException(status_code=422, detail="invalid pagination")
+    try:
+        async with _settings_session() as session:
+            total, rows = await FavoritesRepository(session).list_items(
+                favcat, page, page_size
+            )
+            tag_map = await GalleryRepository(session).tags_for_galleries(
+                [
+                    g.id
+                    for _, g in rows
+                    if (g is not None) and g.id is not None
+                ]
+            )
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    items = []
+    for item, gallery in rows:
+        if gallery is not None:
+            title = display_title(gallery)
+            title_jpn = gallery.title_jpn
+            category = gallery.category or "other"
+            page_count = gallery.page_count or 0
+            cover_url = f"/api/galleries/{gallery.id}/thumb/0" if gallery.page_count else None
+            file_size = gallery.file_size
+            tags = [
+                {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                for ns, name in tag_map.get(gallery.id, [])
+            ]
+        else:
+            title = item.title or f"gid {item.gid}"
+            title_jpn = None
+            category = None
+            page_count = None
+            cover_url = None
+            file_size = None
+            tags = []
+        items.append(
+            {
+                "favcat": item.favcat,
+                "gid": item.gid,
+                "token": item.token,
+                "title": title,
+                "title_jpn": title_jpn,
+                "url": item.url,
+                "gallery_id": gallery.id if gallery is not None else None,
+                "category": category,
+                "page_count": page_count,
+                "cover_url": cover_url,
+                "file_size": file_size,
+                "tags": tags,
+            }
+        )
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+class FavoritesRemoveRequest(BaseModel):
+    gids: list[int]
+    delete_local: bool = False
+
+
+@app.post("/api/favorites/remove")
+async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
+    if not body.gids:
+        raise HTTPException(status_code=422, detail="no galleries selected")
+    gids = list(dict.fromkeys(body.gids))
+    cloud_removed = 0
+    cloud_ok = True
+    try:
+        client = EhClient()
+        async with client:
+            await client.remove_favorites(gids)
+        cloud_removed = len(gids)
+    except Exception as exc:  # noqa: BLE001 - cloud is best-effort, keep going
+        cloud_ok = False
+        logger.warning(
+            "cloud favorite removal failed",
+            extra=log_extra(error=type(exc).__name__),
+        )
+    local_removed = 0
+    deleted_local_galleries = 0
+    try:
+        async with _settings_session() as session, session.begin():
+            if body.delete_local:
+                mapping = await FavoritesRepository(session).galleries_for_gids(gids)
+                for gallery_id in mapping.values():
+                    gallery = await session.get(Gallery, gallery_id)
+                    if gallery is None:
+                        continue
+                    await GalleryRepository(session).delete_ids([gallery_id])
+                    _remove_gallery_files(gallery)
+                    deleted_local_galleries += 1
+            local_removed = await FavoritesRepository(session).remove_gids(gids)
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    return {
+        "gids": gids,
+        "cloud_ok": cloud_ok,
+        "cloud_removed": cloud_removed,
+        "local_removed": local_removed,
+        "deleted_local_galleries": deleted_local_galleries,
+    }
+
+
+@app.post("/api/favorites/duplicates/scan", status_code=202)
+async def duplicates_scan() -> dict[str, object]:
+    if duplicates_state["running"]:
+        raise HTTPException(status_code=409, detail="scan already running")
+    task = asyncio.create_task(_run_duplicates_scan())
+    task.add_done_callback(
+        lambda t: _duplicates_done(t) if not t.cancelled() else None
+    )
+    return {"started": True}
+
+
+async def _run_duplicates_scan() -> None:
+    duplicates_state.update({"running": True, "stage": "reading", "done": 0, "total": 0, "last_error": None, "groups": []})
+    try:
+        async with _settings_session() as session:
+            items = await FavoritesRepository(session).all_items()
+            gids = list({gid for _, gid, _, _, _, _ in items})
+            duplicates_state["total"] = len(items)
+            duplicates_state["stage"] = "analyzing"
+            gallery_titles = await FavoritesRepository(session).gallery_titles_by_gid(gids)
+            duplicates_state["done"] = len(items)
+            duplicates_state["stage"] = "grouping"
+            groups = find_duplicate_groups(items, gallery_titles=gallery_titles)
+            duplicates_state["groups"] = groups
+            duplicates_state["done"] = len(items)
+            duplicates_state["stage"] = "done"
+    except Exception as exc:  # noqa: BLE001
+        duplicates_state["last_error"] = f"{type(exc).__name__}: {exc}"
+        duplicates_state["stage"] = "error"
+    finally:
+        duplicates_state["running"] = False
+
+
+def _duplicates_done(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    try:
+        task.result()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "favorite duplicates scan failed",
+            extra=log_extra(error=type(exc).__name__),
+        )
+
+
+@app.get("/api/favorites/duplicates/status")
+async def duplicates_status() -> dict[str, object]:
+    groups = duplicates_state.get("groups") or []
+    total_items = sum(len(g["items"]) for g in groups)
+    return {
+        "running": bool(duplicates_state["running"]),
+        "stage": duplicates_state.get("stage"),
+        "done": duplicates_state.get("done", 0),
+        "total": duplicates_state.get("total", 0),
+        "last_error": duplicates_state.get("last_error"),
+        "groups": groups,
+        "group_count": len(groups),
+        "item_count": total_items,
+    }
+
+
+@app.get("/api/galleries/{identifier}/favorite")
+async def gallery_favorite_status(identifier: int) -> dict[str, object]:
+    try:
+        async with _settings_session() as session:
+            row, _ = await _gallery(identifier)
+            favcats = await FavoritesRepository(session).favcats_for_gid(row.gid)
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    return {"gid": row.gid, "favorite": bool(favcats), "favcats": favcats}
 
 
 @app.get("/api/favorites/categories")
