@@ -45,7 +45,8 @@ docker compose up -d
 
 1. Open **http://\<host\>:8000** — the web UI.
 2. Log in with the default password **`p1a2s3s4`** and change it in *Settings* (a banner reminds you until you do).
-3. Put your galleries in `./library` (mounted at `/library`), hit *Scan library*, and start reading.
+3. **Recommended: configure your ExHentai cookies and run *Favorites → Check all folders* once before scanning the library.** The favorites monitor batches every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; galleries scanned onto disk that the monitor has already seen then reuse that cache directly — no per-gallery ExHentai fetch for tag sync — so scanning and tag sync are much faster.
+4. Put your galleries in `./library` (mounted at `/library`), hit *Scan library*, and start reading.
 
 > The JSON API is available at **http://\<host\>:8001**.
 
