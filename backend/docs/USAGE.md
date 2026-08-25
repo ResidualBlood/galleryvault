@@ -136,9 +136,12 @@ and back/forward work without server round-trips.
   or **取消收藏并删除已下载** (also delete the local copies).
   Groups that are likely *same-name, different works* (posted dates span
   months, or the items share no parody/character tag) are demoted to a
-  collapsible **疑似同名不同作品** section so they don't dominate. If a group
-  is really a false positive, hit **忽略** to hide it forever (restorable from
-  the **已忽略** list); it is excluded from every later scan.
+  collapsible **疑似同名不同作品** section so they don't dominate. Select the
+  checkboxes of a false-positive group and hit **忽略所选** (next to Clear
+  selection) to hide it — the group is struck through in place and disappears
+  on the next scan. All ignored groups live on the **已忽略项目** page
+  (`#/favorites/ignored`, button in the toolbar) where you can batch-restore
+  them. The duplicate list is paginated at 20 groups per page.
 - Gallery detail pages show a **取消收藏** button whenever the gallery is in a
   favorite folder.
 
