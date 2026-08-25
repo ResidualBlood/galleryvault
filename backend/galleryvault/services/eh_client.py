@@ -499,6 +499,46 @@ class EhClient:
         content, _ = await self.download_image_with_metadata(url)
         return content
 
+    async def fetch_gallery_cover(self, gid: int | str, token: str | None = None) -> tuple[bytes, str]:
+        """Download the gallery cover image, returning ``(bytes, content_type)``."""
+        if token is None:
+            gid, token = parse_gallery_url(str(gid), self.settings.exhentai_base_url)
+        response = await self._get(f"/g/{int(gid)}/{token}/")
+        match = re.search(
+            r'id=["\']cover["\'][^>]*src=["\']([^"\']+)["\']', response.text, re.IGNORECASE
+        )
+        if not match:
+            match = re.search(
+                r'<div[^>]*id=["\']gd1["\'][^>]*>.*?'
+                r'background[^:]*:\s*(?:transparent\s*)?url\(["\']?([^"\')]+)["\']?\)',
+                response.text,
+                re.IGNORECASE | re.DOTALL,
+            )
+        if not match:
+            match = re.search(
+                r'<div[^>]*id=["\']gd1["\'][^>]*>.*?<img[^>]+src=["\']([^"\']+)["\']',
+                response.text,
+                re.IGNORECASE | re.DOTALL,
+            )
+        if not match:
+            raise GalleryGoneError("gallery has no cover")
+        cover_url = urljoin(str(response.url), html.unescape(match.group(1)))
+        cover_response = await self.client.get(
+            cover_url,
+            headers={"Referer": str(response.url)},
+        )
+        if cover_response.status_code in (401, 403) or "login" in str(cover_response.url).lower():
+            raise EhClientError("ExHentai authentication is required or expired")
+        cover_response.raise_for_status()
+        if len(cover_response.content) < 200:
+            # ExHentai answers galleries without a usable cover (or ones that
+            # need a different H@H setup) with a 1x1 placeholder GIF.
+            raise GalleryGoneError("gallery has no usable cover")
+        return (
+            cover_response.content,
+            cover_response.headers.get("content-type", "image/jpeg").split(";")[0].strip(),
+        )
+
     async def download_image_with_metadata(self, url: str) -> tuple[bytes, str]:
         response = await self._get(url)
         if not response.content or response.headers.get("content-type", "").lower().startswith(

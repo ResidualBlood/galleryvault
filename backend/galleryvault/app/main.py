@@ -11,7 +11,13 @@ from urllib.parse import parse_qs
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -1590,9 +1596,45 @@ async def gallery_favorite_status(identifier: int) -> dict[str, object]:
         async with _settings_session() as session:
             row, _ = await _gallery(identifier)
             favcats = await FavoritesRepository(session).favcats_for_gid(row.gid)
+            names = await FavoritesRepository(session).category_names(favcats)
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
-    return {"gid": row.gid, "favorite": bool(favcats), "favcats": favcats}
+    return {
+        "gid": row.gid,
+        "favorite": bool(favcats),
+        "favcats": favcats,
+        "favcat_names": [{"favcat": f, "name": names.get(f, "")} for f in favcats],
+    }
+
+
+@app.get("/api/favorites/cover")
+async def favorite_cover(gid: int, token: str) -> Response:
+    """Proxy an ExHentai gallery cover for a not-yet-local favorite item.
+
+    Cached under ``/gv-cache/remote-covers/{gid}.img`` so repeated lists do not
+    re-fetch ExHentai.
+    """
+    if not _settings().exhentai_cookies:
+        raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
+    cache_dir = Path(_settings().thumbnail_cache_dir).parent / "remote-covers"
+    path = cache_dir / f"{int(gid)}.img"
+    if not path.is_file():
+        client = app.state.eh_client
+        if client is None:
+            raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
+        try:
+            data, _ = await client.fetch_gallery_cover(int(gid), token)
+        except (GalleryGoneError, EhClientError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    return Response(
+        path.read_bytes(),
+        media_type=_image_content_type(path.read_bytes()),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.get("/api/favorites/categories")
@@ -1781,6 +1823,22 @@ async def check_favorites(favcat: int) -> dict[str, object]:
         raise HTTPException(status_code=503, detail="Favorites service is unavailable")
     _spawn(_run_favorites_check(favcat, service), "favorites check")
     return {"status": "started", "favcat": favcat}
+
+
+@app.post("/api/favorites/check-all", status_code=202)
+async def check_all_favorites() -> dict[str, object]:
+    service = app.state.favorites_service
+    if service is None:
+        raise HTTPException(status_code=503, detail="Favorites service is unavailable")
+    try:
+        async with _settings_session() as session:
+            cats = await FavoritesRepository(session).categories()
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    favcats = [int(c.favcat) for c in cats] or list(range(10))
+    for favcat in favcats:
+        _spawn(_run_favorites_check(favcat, service), f"favorites check {favcat}")
+    return {"status": "started", "favcats": favcats}
 
 
 async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
@@ -2266,6 +2324,18 @@ def _thumb_service() -> ThumbnailService:
     if thumb_service is None:
         thumb_service = ThumbnailService(_settings().thumbnail_cache_dir)
     return thumb_service
+
+
+def _image_content_type(data: bytes) -> str:
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"\x89PNG":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:6] in (b"GIF89a", b"GIF87a"):
+        return "image/gif"
+    return "application/octet-stream"
 
 
 async def _thumbnail_gallery(gallery_id: int) -> tuple[int, int]:

@@ -1058,6 +1058,14 @@ class FavoritesRepository:
         )
         return sorted({int(f) for f in rows.all()})
 
+    async def category_names(self, favcats: list[int]) -> dict[int, str]:
+        if not favcats:
+            return {}
+        rows = await self.session.scalars(
+            select(FavoritesMonitor).where(FavoritesMonitor.favcat.in_(favcats))
+        )
+        return {int(r.favcat): r.name or "" for r in rows}
+
     async def galleries_for_gids(self, gids: list[int]) -> dict[int, int]:
         """Map gid -> local gallery.id for galleries on disk (not expunged)."""
         if not gids:
