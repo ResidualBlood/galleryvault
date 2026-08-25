@@ -32,7 +32,7 @@ const I18N = {
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
     checkAll: "Check all folders", favLocal: "local", favCloud: "cloud",
-    favcatTag: "folder", favDate: "fav:", backToGallery: "back to gallery",
+    favcatTag: "folder", favDate: "fav:", backToGallery: "back to gallery", postedDate: "posted:",
     unfavorite: "Unfavorite", unfavoriteFail: "Cannot unfavorite", unfavorited: "Removed from favorites",
     unfavoritedLocal: "Cloud removal failed; local record removed", confirmUnfavorite: "Remove this gallery from favorites?",
     favManage: "Manage duplicates", favManageTitle: "Favorites — duplicates",
@@ -144,7 +144,7 @@ const I18N = {
     favManage: "收藏夹管理", favManageTitle: "收藏夹管理 — 查重",
     favManageSub: "扫描收藏夹中重复的画廊（同一作品的不同版本，如 DL 版 / 无修正 / 不同语言搬运）。",
     checkAll: "立即检查所有", favLocal: "本地", favCloud: "云端",
-    favcatTag: "收藏夹", favDate: "收藏", backToGallery: "返回画廊",
+    favcatTag: "收藏夹", favDate: "收藏", backToGallery: "返回画廊", postedDate: "发布于",
     favListSub: "该收藏夹内的画廊。勾选后可下载或从收藏移除。",
     favDl: "下载所选", favDlQueued: "已加入下载", favDlSkip: "已本地/跳过",
     favRemove: "移除收藏", confirmFavRemove: "将所选从收藏夹移除？",
@@ -1251,7 +1251,7 @@ function renderDupGroups(st) {
                 <span class="dup-meta">
                   ${it.gallery_id != null ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id })}">${esc(t("favLocal"))}</a>` : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`}
                   <span class="badge">#${it.favcat}${favCatNames[it.favcat] ? " " + esc(favCatNames[it.favcat]) : ""}</span>
-                  ${fmtDate(it.first_seen_at) ? `<span class="badge">${esc(t("favDate"))} ${fmtDate(it.first_seen_at)}</span>` : ""}
+                  ${fmtDate(it.posted_at) ? `<span class="badge">${esc(t("postedDate"))} ${fmtDate(it.posted_at)}</span>` : ""}
                   ${it.file_size ? `<span class="badge">${fmtSize(it.file_size)}</span>` : ""}
                 </span>
                 ${(it.tags || []).length ? `<span class="dup-tags">${it.tags.map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</span>` : ""}
