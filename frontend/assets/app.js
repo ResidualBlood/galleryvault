@@ -81,6 +81,8 @@ const I18N = {
     select: "Select", clearSel: "Clear selection", deleteSel: "Delete selected",
     confirmDeleteSel: "Delete selected galleries?",
     tasks: "Background tasks", scanning: "Scanning library",     tagSyncing: "Syncing tags", thumbs: "Generating thumbnails",
+    scanDone: "Scan complete", tagSyncDone: "Tag sync complete", thumbsDone: "Thumbnails complete",
+    metaDone: "Metadata sync complete", completed: "done", scanned: "scanned", persisted: "persisted",
     favMetaSync: "Syncing favorite metadata", favMetaApply: "Applying favorite metadata", applied: "applied",
     tagSyncFromCache: "Tags updated from cache", tagSyncFromNetwork: "Tags synced from ExHentai",
     noTasks: "No background tasks", dlTasks: "Download tasks",
@@ -169,6 +171,8 @@ const I18N = {
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
     confirmDeleteSel: "确定删除所选画廊？",
     tasks: "后台任务", scanning: "扫描库中", tagSyncing: "同步标签中", thumbs: "生成缩略图中",
+    scanDone: "扫描完成", tagSyncDone: "标签同步完成", thumbsDone: "缩略图完成",
+    metaDone: "元数据同步完成", completed: "已完成", scanned: "扫描", persisted: "入库",
     favMetaSync: "同步收藏元数据", favMetaApply: "应用收藏元数据", applied: "已应用",
     tagSyncFromCache: "标签已从缓存更新", tagSyncFromNetwork: "标签已从 ExHentai 同步",
     noTasks: "无后台任务", dlTasks: "下载任务",
@@ -1496,19 +1500,43 @@ async function pollTaskProgress() {
         api("GET", "/api/favorites/metadata-status").catch(() => null),
       ]);
       const rows = [];
-      if (scan && scan.running) {
-        rows.push(progressHtml(t("scanning"), scan.scanned || 0, 0, `scanned ${scan.scanned || 0} · persisted ${scan.persisted || 0}`));
+      const isDone = st => !!(st && !st.running && st.completed_at);
+      const tickText = "✓ " + t("completed") + " ";
+      if (scan && (scan.running || isDone(scan))) {
+        const done = isDone(scan);
+        rows.push(progressHtml(
+          done ? t("scanDone") : t("scanning"),
+          scan.scanned || 0, 0,
+          done
+            ? tickText + (scan.scanned ? `${t("scanned")} ${scan.scanned} · ` : "") + `${t("persisted")} ${scan.persisted || 0}`
+            : `${t("scanned")} ${scan.scanned || 0} · ${t("persisted")} ${scan.persisted || 0}`
+        ));
       }
-      if (ts && (ts.running || (ts.total && ts.processed < ts.total))) {
-        rows.push(progressHtml(t("tagSyncing"), ts.processed || 0, ts.total || 0, `ok ${ts.succeeded || 0} / fail ${ts.failed || 0}`));
+      if (ts && (ts.running || isDone(ts))) {
+        const done = isDone(ts);
+        rows.push(progressHtml(
+          done ? t("tagSyncDone") : t("tagSyncing"),
+          ts.processed || 0, ts.total || 0,
+          (done ? tickText : "") + `ok ${ts.succeeded || 0} / fail ${ts.failed || 0}`
+        ));
       }
-      if (th && (th.running || th.queued || (th.total && th.processed < th.total))) {
-        rows.push(progressHtml(t("thumbs"), th.processed || 0, th.total || 0, `ok ${th.succeeded || 0} / fail ${th.failed || 0}`));
+      if (th && (th.running || isDone(th))) {
+        const done = isDone(th);
+        const doneCount = (th.succeeded || 0) + (th.failed || 0);
+        rows.push(progressHtml(
+          done ? t("thumbsDone") : t("thumbs"),
+          doneCount, th.total || 0,
+          (done ? tickText : "") + `ok ${th.succeeded || 0} / fail ${th.failed || 0}`
+        ));
       }
-      if (md && md.running) {
+      if (md && (md.running || isDone(md))) {
+        const done = isDone(md);
         const applying = (md.stage || "") === "apply";
-        const label = applying ? t("favMetaApply") : t("favMetaSync");
-        rows.push(progressHtml(label, md.done || 0, md.total || 0, applying ? `${t("applied")} ${md.applied || 0}` : `applied ${md.applied || 0}`));
+        rows.push(progressHtml(
+          done ? t("metaDone") : (applying ? t("favMetaApply") : t("favMetaSync")),
+          md.done || 0, md.total || 0,
+          (done ? tickText : "") + `${t("applied")} ${md.applied || 0}`
+        ));
       }
       const body = document.getElementById("task-progress-body");
       if (rows.length) {
