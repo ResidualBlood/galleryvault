@@ -29,14 +29,18 @@ and back/forward work without server round-trips.
 
 ### Gallery detail (`#/gallery/<id>`)
 
-- Shows metadata, tags, and page thumbnails.
+- Shows metadata (including gallery size, adaptive units), tags, and page
+  thumbnails.
 - **Read now** opens the reader at your last reading position (or page 1).
 - **Sync tags** pulls tags/metadata from ExHentai for this gallery (requires
   configured cookies).
 
 ### Reader (`#/reader/<id>/<page>`)
 
-- Streams one page image at a time. Use Previous/Next or the arrow keys.
+- Streams one page image at a time. Navigate with **←/→ arrow keys** or
+  **space** (next page), or the Previous/Next buttons.
+- The next three pages are preloaded so paging feels instant.
+- The bar shows `page / total · size` (adaptive B/KB/MB/GB).
 - Reading progress is saved automatically on each page view.
 
 ### Tags (`#/tags`)

@@ -117,7 +117,7 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | ------ | ---- | ----------- |
 | GET | `/api/galleries` | Search/browse. Query: `page`, `page_size`, `q`, `tags` (csv `ns:name`), `tag_mode` (and/or), `tag_match` (exact/fuzzy), `category` (`doujinshi`, `manga`, `artistcg`, `gamecg`, `western`, `non-h`, `image_set`, `cosplay`, `asianporn`, `misc`, `deleted`). `misc` is the generic bucket — it also holds what used to be `other`; galleries deleted from ExHentai (or without usable coordinates) live under `deleted`. |
 | GET | `/api/galleries/random` | `{id}` of a random non-expunged gallery (`404` when empty). |
-| GET | `/api/galleries/{identifier}` | Metadata, page list, tags (each with Chinese `display` when available), `spider_info`. `identifier` may be the DB `id` or the ExHentai `gid`. |
+| GET | `/api/galleries/{identifier}` | Metadata (`file_size` included), page list, tags (each with Chinese `display` when available), `spider_info`. `identifier` may be the DB `id` or the ExHentai `gid`. |
 | DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes the on-disk directory. |
 | POST | `/api/galleries/delete-bulk` | Body `{ids: [...], delete_files?: bool}`. Bulk remove galleries by id; returns `{deleted}`. |
 | GET | `/api/galleries/{identifier}/pages/{page_index}` | Stream one page image (`image/jpeg`/`image/png`/…). |
