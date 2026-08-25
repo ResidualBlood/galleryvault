@@ -149,6 +149,39 @@ thumb_service: ThumbnailService | None = None
 # frontend README.
 DEFAULT_PASSWORD = "p1a2s3s4"
 
+# Simple in-memory login rate limiter (per source IP) so a public instance is
+# not trivially brute-forced.  A successful login clears the IP's history.
+_login_attempts: dict[str, list[float]] = {}
+_login_lock = asyncio.Lock()
+LOGIN_RATE_WINDOW = 60.0
+LOGIN_RATE_MAX = 10
+
+
+async def _login_gate(ip: str) -> bool:
+    """Return True if ``ip`` may attempt a login within the rate window."""
+    import time as _time
+
+    global _login_attempts
+    now = _time.time()
+    async with _login_lock:
+        if len(_login_attempts) > 2048:
+            cutoff = now - LOGIN_RATE_WINDOW
+            _login_attempts = {
+                key: [t for t in stamps if t >= cutoff]
+                for key, stamps in _login_attempts.items()
+                if any(t >= cutoff for t in stamps)
+            }
+        stamps = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_RATE_WINDOW]
+        if len(stamps) >= LOGIN_RATE_MAX:
+            return False
+        _login_attempts[ip] = stamps + [now]
+    return True
+
+
+async def _login_succeeded(ip: str) -> None:
+    async with _login_lock:
+        _login_attempts.pop(ip, None)
+
 
 def _settings() -> Settings:
     return app.state.settings
@@ -229,6 +262,22 @@ async def authentication(request: Request, call_next):
     # JSON APIs use the authenticated session and do not accept browser form
     # bodies; HTML forms use the double-submit token below.  Logging out is
     # exempt: it only clears the session and the SPA posts it without a form.
+    if (
+        request.method in {"POST", "PUT", "DELETE", "PATCH"}
+        and request.url.path.startswith("/api/")
+    ):
+        origin = request.headers.get("origin")
+        if origin:
+            from urllib.parse import urlparse as _origin_parse
+
+            origin_host = _origin_parse(origin).hostname
+            request_hostname = request.headers.get("host", "").split(":", 1)[0]
+            if origin_host and origin_host != request_hostname:
+                return HTMLResponse(
+                    '{"detail":"Cross-origin request rejected"}',
+                    status_code=403,
+                    media_type="application/json",
+                )
     if (
         request.method == "POST"
         and request.url.path not in {"/login", "/logout"}
@@ -411,6 +460,12 @@ async def healthz() -> dict[str, str]:
 
 @app.post("/login")
 async def login(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    if not await _login_gate(ip):
+        logger.info(
+            "login rate limited", extra=log_extra(ip=ip, reason="rate_limit")
+        )
+        return HTMLResponse("Too many attempts, try again later", status_code=429)
     form = parse_qs((await request.body()).decode(errors="replace"), keep_blank_values=True)
     password = form.get("password", [""])[0]
     valid = True
@@ -433,6 +488,7 @@ async def login(request: Request):
         secure=_settings().auth_cookie_secure,
         max_age=_settings().auth_session_ttl,
     )
+    await _login_succeeded(ip)
     return response
 
 
@@ -614,7 +670,16 @@ async def _run_download(task: DownloadTask) -> None:
             await _download_progress(task.id, current, total)
 
         result = await app.state.downloader.execute(
-            DownloadTask(task.gid, task.token, task.title, task.id, 1, task.mode, task.category),
+            DownloadTask(
+                task.gid,
+                task.token,
+                task.title,
+                task.id,
+                1,
+                task.mode,
+                task.category,
+                max_pages=task.max_pages,
+            ),
             progress=_on_progress,
         )
         completed = False
@@ -1132,6 +1197,16 @@ async def settings_get() -> dict[str, object]:
 
 async def _save_settings(body: SettingsRequest) -> dict[str, object]:
     values = body.model_dump(exclude_none=True)
+    if values.get("exhentai_base_url"):
+        from urllib.parse import urlparse as _base_parse
+
+        host = (_base_parse(str(values["exhentai_base_url"])).hostname or "").lower()
+        if host not in {"exhentai.org", "e-hentai.org"} and not host.endswith(
+            (".exhentai.org", ".e-hentai.org")
+        ):
+            raise HTTPException(
+                status_code=422, detail="exhentai_base_url must be on exhentai.org / e-hentai.org"
+            )
     if "library_roots" in values:
         values["library_roots"] = normalize_library_roots(values["library_roots"])
     # An empty input means "clear this proxy"; an empty string would be sent to
@@ -1235,6 +1310,7 @@ async def _refresh_services() -> None:
     app.state.favorites_service = FavoritesService(
         client, _FavoritesRepositoryProxy(), _FavoriteDownloadQueue(), app.state.telegram
     )
+    _ensure_translation_updater()
 
 
 def _start_telegram_bot() -> None:
@@ -1402,33 +1478,63 @@ async def retry_download(task_id: int) -> dict[str, object]:
         raise
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
+    _download_cancelled.discard(task_id)
     return {"id": task_id, "status": "pending"}
 
 
 @app.post("/api/downloads/{task_id}/cancel")
 async def cancel_download(task_id: int) -> dict[str, object]:
+    was_downloading = False
     try:
         async with _settings_session() as session, session.begin():
+            row = await session.get(DownloadTaskModel, task_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="Download task not found")
+            was_downloading = row.status == "downloading"
             if not await DownloadRepository(session).cancel(task_id):
                 raise HTTPException(status_code=404, detail="Download task not found")
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
-    _download_cancelled.add(task_id)
+    # Only a mid-flight download needs the in-flight cancel flag; a pending task
+    # is simply not claimed.  The worker discards the flag when it handles the
+    # cancellation, so the set never grows with dead ids.
+    if was_downloading:
+        _download_cancelled.add(task_id)
     return {"id": task_id, "status": "cancelled"}
 
 
 @app.delete("/api/downloads/{task_id}", status_code=204)
 async def delete_download_task(task_id: int) -> None:
+    gid: int | None = None
     try:
         async with _settings_session() as session, session.begin():
+            row = await session.get(DownloadTaskModel, task_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="Download task not found")
+            gid = row.gid
             if not await DownloadRepository(session).delete(task_id):
                 raise HTTPException(status_code=404, detail="Download task not found")
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
+    _download_cancelled.discard(task_id)
+    if gid is not None:
+        await _cleanup_download_temp(gid)
+
+
+async def _cleanup_download_temp(gid: int) -> None:
+    """Remove a partial download directory (``.gv-{gid}``) if present."""
+    import shutil as _shutil
+
+    try:
+        temp = Path(_settings().download_root) / f".gv-{gid}"
+        if temp.exists():
+            _shutil.rmtree(temp, ignore_errors=True)
+    except OSError:
+        pass
 
 
 @app.get("/api/favorites/{favcat}/items")
@@ -1524,7 +1630,7 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
     cloud_removed = 0
     cloud_ok = True
     try:
-        client = EhClient()
+        client = app.state.eh_client or EhClient(_settings())
         async with client:
             await client.remove_favorites(gids)
         cloud_removed = len(gids)
@@ -1563,10 +1669,7 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
 async def duplicates_scan() -> dict[str, object]:
     if duplicates_state["running"]:
         raise HTTPException(status_code=409, detail="scan already running")
-    task = asyncio.create_task(_run_duplicates_scan())
-    task.add_done_callback(
-        lambda t: _duplicates_done(t) if not t.cancelled() else None
-    )
+    _spawn(_run_duplicates_scan(), "duplicates scan")
     return {"started": True}
 
 
@@ -1659,18 +1762,6 @@ async def _run_duplicates_scan() -> None:
         duplicates_state["stage"] = "error"
     finally:
         duplicates_state["running"] = False
-
-
-def _duplicates_done(task: asyncio.Task) -> None:
-    if task.cancelled():
-        return
-    try:
-        task.result()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "favorite duplicates scan failed",
-            extra=log_extra(error=type(exc).__name__),
-        )
 
 
 @app.get("/api/favorites/duplicates/status")
@@ -1789,6 +1880,8 @@ async def favorite_cover(gid: int, token: str) -> Response:
     """
     if not _settings().exhentai_cookies:
         raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
+    if not re.fullmatch(r"[0-9a-fA-F]{8,64}", token):
+        raise HTTPException(status_code=422, detail="invalid token")
     cache_dir = Path(_settings().thumbnail_cache_dir).parent / "remote-covers"
     path = cache_dir / f"{int(gid)}.img"
     if not path.is_file():
@@ -2685,7 +2778,9 @@ async def _thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
                 PageInfo(page.page_index, page.member_name, page.media_type),
             )
             data = await run_in_threadpool(stream.read)
-            service.get_or_create(gallery_id, page.page_index, data)
+            await run_in_threadpool(
+                service.get_or_create, gallery_id, page.page_index, data
+            )
             generated += 1
         except (ThumbnailError, OSError, EOFError) as exc:
             failed_pages += 1
@@ -2877,7 +2972,7 @@ async def tag_search(
         # Attach real usage counts for the matched (namespace, name) pairs.
         async with _settings_session() as session:
             repo = GalleryRepository(session)
-            rows = await repo.tag_counts_for(matched)
+            rows = await repo.tag_counts_for([(ns, name) for ns, name, _ in matched])
         counts = {(ns, name): count for ns, name, count in rows}
         return {
             "total": len(matched),

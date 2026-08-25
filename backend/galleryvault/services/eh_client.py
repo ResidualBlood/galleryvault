@@ -466,9 +466,7 @@ class EhClient:
         """
         if not gids:
             return
-        form = {"ddact": "delete", "apply": "Apply"}
-        for gid in gids:
-            form["modifygids[]"] = str(int(gid))
+        form = {"ddact": "delete", "apply": "Apply", "modifygids[]": [str(int(g)) for g in gids]}
         response = await self.client.post(
             "/favorites.php",
             data=form,

@@ -65,6 +65,18 @@ class Settings(BaseSettings):
             raise TypeError("EXHENTAI_COOKIES must be a JSON object")
         return {str(k): str(v) for k, v in parsed.items()}
 
+    @field_validator("exhentai_base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        from urllib.parse import urlparse
+
+        host = (urlparse(value or "").hostname or "").lower()
+        if host not in {"exhentai.org", "e-hentai.org"} and not host.endswith(
+            (".exhentai.org", ".e-hentai.org")
+        ):
+            raise ValueError("exhentai_base_url must be on exhentai.org / e-hentai.org")
+        return value
+
     @field_validator("telegram_chat_ids", "favorites_categories", mode="before")
     @classmethod
     def parse_list(cls, value: object) -> list[object]:

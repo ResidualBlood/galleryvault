@@ -256,18 +256,18 @@ async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(
-        base_url="https://exhentai.test", transport=transport
+        base_url="https://exhentai.org", transport=transport
     ) as http_client:
-        client = EhClient(Settings(exhentai_base_url="https://exhentai.test"), client=http_client)
+        client = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=http_client)
         gallery = await client.fetch_gallery(7, "token")
     assert gallery.title == "A title"
     assert [page.url for page in gallery.pages] == [
-        "https://exhentai.test/s/7/token/page-a/",
-        "https://exhentai.test/s/7/token/page-b/",
+        "https://exhentai.org/s/7/token/page-a/",
+        "https://exhentai.org/s/7/token/page-b/",
     ]
     assert [page.image_url for page in gallery.pages] == [
         "https://img.test/a.jpg",
-        "https://exhentai.test/images/b.jpg",
+        "https://exhentai.org/images/b.jpg",
     ]
     assert gallery.tags == [{"namespace": "artist", "name": "alice"}]
 

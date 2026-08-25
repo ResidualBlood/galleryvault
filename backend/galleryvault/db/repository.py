@@ -623,6 +623,12 @@ class GalleryRepository:
                 for value in (e.get("tags") or [])
                 if value
             ]
+            posted_at = None
+            if posted:
+                try:
+                    posted_at = datetime.fromtimestamp(int(posted), tz=UTC)
+                except (ValueError, OSError, OverflowError, TypeError):
+                    posted_at = None
             rows.append(
                 {
                     "gid": int(e["gid"]),
@@ -638,9 +644,7 @@ class GalleryRepository:
                     "file_count": e.get("file_count"),
                     "file_size": e.get("file_size"),
                     "rating": e.get("rating"),
-                    "posted_at": (
-                        datetime.fromtimestamp(int(posted), tz=UTC) if posted else None
-                    ),
+                    "posted_at": posted_at,
                     "expunged": bool(e.get("expunged")),
                     "tags": tags,
                     "updated_at": now,
