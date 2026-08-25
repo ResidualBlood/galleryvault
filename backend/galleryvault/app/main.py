@@ -1205,6 +1205,10 @@ async def settings_get() -> dict[str, object]:
 
 async def _save_settings(body: SettingsRequest) -> dict[str, object]:
     values = body.model_dump(exclude_none=True)
+    # A blank bot token must never clobber a configured one (older frontends /
+    # cached JS used to submit an empty value). "Leave blank to keep" semantics.
+    if "telegram_bot_token" in values and not str(values["telegram_bot_token"]).strip():
+        values.pop("telegram_bot_token", None)
     if values.get("exhentai_base_url"):
         from urllib.parse import urlparse as _base_parse
 
@@ -1256,27 +1260,16 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
     if cookie_fields:
         values["exhentai_cookies"] = {**_settings().exhentai_cookies, **cookie_fields}
     _update_runtime_settings(values)
-    persisted_values = {
-        key: getattr(_settings(), key)
-        for key in (
-            "library_roots",
-            "exhentai_base_url",
-            "exhentai_cookies",
-            "http_proxy",
-            "socks5_proxy",
-            "download_root",
-            "download_concurrency",
-            "favorites_categories",
-            "download_favorites_enabled",
-            "favorites_poll_interval_minutes",
-            "auto_sync_tags",
-            "tag_sync_interval_seconds",
-            "tag_sync_concurrency",
-            "tag_translation_update_interval_minutes",
-            "generate_thumbnails",
-        )
-    }
-    persisted_values.update(values)
+    # Start from what is already persisted so a field the frontend did not
+    # submit (e.g. the bot token, which is never echoed and only sent when
+    # changed) is kept. save() replaces the whole dict, so this DB-read + merge
+    # is what protects the token from being dropped by an unrelated save.
+    try:
+        async with _settings_session() as session:
+            db_settings = await SettingsRepository(session).get()
+    except Exception:  # noqa: BLE001 - DB down: fall back to in-memory settings
+        db_settings = {}
+    persisted_values = {**db_settings, **values}
     # All user-editable settings live in the DB (single source of truth).
     try:
         async with _settings_session() as session, session.begin():
