@@ -919,33 +919,40 @@ class FavoritesRepository:
         await self.session.flush()
 
     async def remember_many(self, favcat: int, items: list[object]) -> None:
-        """Bulk upsert favorite items in one statement (fast for large folders)."""
+        """Bulk upsert favorite items, batched for large folders.
+
+        PostgreSQL/asyncpg cap the number of bound parameters per statement, so
+        a folder with thousands of galleries must be inserted in chunks.
+        """
         if not items:
             return
         now = datetime.now(UTC)
-        rows = [
-            {
-                "favcat": favcat,
-                "gid": item.gid,
-                "token": item.token,
-                "title": item.title,
-                "url": item.url,
-                "first_seen_at": now,
-                "last_seen_at": now,
-            }
-            for item in items
-        ]
-        statement = pg_insert(FavoriteItem).values(rows)
-        statement = statement.on_conflict_do_update(
-            constraint="favorite_items_favcat_gid_key",
-            set_={
-                "token": statement.excluded.token,
-                "title": statement.excluded.title,
-                "url": statement.excluded.url,
-                "last_seen_at": statement.excluded.last_seen_at,
-            },
-        )
-        await self.session.execute(statement)
+        batch_size = 500
+        for start in range(0, len(items), batch_size):
+            chunk = items[start : start + batch_size]
+            rows = [
+                {
+                    "favcat": favcat,
+                    "gid": item.gid,
+                    "token": item.token,
+                    "title": item.title,
+                    "url": item.url,
+                    "first_seen_at": now,
+                    "last_seen_at": now,
+                }
+                for item in chunk
+            ]
+            statement = pg_insert(FavoriteItem).values(rows)
+            statement = statement.on_conflict_do_update(
+                constraint="favorite_items_favcat_gid_key",
+                set_={
+                    "token": statement.excluded.token,
+                    "title": statement.excluded.title,
+                    "url": statement.excluded.url,
+                    "last_seen_at": statement.excluded.last_seen_at,
+                },
+            )
+            await self.session.execute(statement)
 
     async def checked(self, favcat: int, success: bool) -> None:
         row = await self.category(favcat)
