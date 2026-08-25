@@ -532,6 +532,7 @@ async function renderReader() {
   try {
     const g = await api("GET", `/api/galleries/${id}`);
     const total = g.page_count;
+    app.readerTotal = total;
     let preload = "";
     for (let i = 1; i <= 3 && page + i < total; i++) {
       preload += `<link rel="preload" as="image" href="/api/galleries/${id}/pages/${page + i}">`;
@@ -565,18 +566,27 @@ function bindReaderKeys() {
   if (app.view !== "reader") return;
   const id = app.params.id;
   const current = () => Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  const advance = () => {
+    const n = current() + 1;
+    if (app.readerTotal && n >= app.readerTotal) { goReaderNext(id); return; }
+    location.hash = navHash("reader", { id, page: n });
+  };
   readerKeyHandler = (e) => {
     if (e.type === "click") {
       const img = e.target.closest && e.target.closest("#reader-img");
-      if (!img || !img.dataset.next) return;
-      location.hash = navHash("reader", { id, page: parseInt(img.dataset.next, 10) });
+      if (!img) return;
+      if (img.dataset.next) {
+        location.hash = navHash("reader", { id, page: parseInt(img.dataset.next, 10) });
+      } else {
+        goReaderNext(id);
+      }
       return;
     }
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
     if (e.key === "ArrowRight" || e.key === " " || e.key === "Spacebar") {
       e.preventDefault();
-      location.hash = navHash("reader", { id, page: current() + 1 });
+      advance();
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) });
@@ -584,6 +594,13 @@ function bindReaderKeys() {
   };
   document.addEventListener("keydown", readerKeyHandler);
   document.addEventListener("click", readerKeyHandler);
+}
+
+async function goReaderNext(id) {
+  try {
+    const r = await api("GET", `/api/galleries/${id}/next`);
+    location.hash = navHash("reader", { id: r.id, page: 0 });
+  } catch (_) { /* no next gallery */ }
 }
 
 const TAG_NAMESPACES = [
