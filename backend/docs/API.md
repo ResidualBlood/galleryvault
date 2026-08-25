@@ -110,6 +110,11 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | POST | `/api/favorites/{favcat}/check` | `202` – scan folder `favcat`. A disabled folder runs check-only (`monitor_only`): records items and sizes but never downloads; an enabled folder downloads missing galleries per its mode. |
 | GET | `/api/favorites/check-status` | Per-folder check progress: `{running, categories: {favcat: {running, done, total, error}}, last_error}`. `done`/`total` track the cursor walk. |
 | POST | `/api/favorites/compute-sizes` | `202` – fetch sizes for missing galleries in the background so `cloud_size` becomes exact. |
+| GET | `/api/favorites/{favcat}/items` | Paginated folder galleries (`page`, `page_size`): `favcat`, `gid`, `token`, `title`, `url`, and when the gallery is local `gallery_id`, `category`, `page_count`, `cover_url`, `file_size`, `tags`. |
+| POST | `/api/favorites/remove` | Body `{gids: [...], delete_local?: bool}`. Remove galleries from ExHentai favorites (all folders, `favorites.php` `ddact=delete` like SXJ) and from local `favorite_items`; `delete_local` also deletes on-disk galleries. Returns `{cloud_ok, cloud_removed, local_removed, deleted_local_galleries}`. |
+| POST | `/api/favorites/duplicates/scan` | `202` – background scan grouping favorite items into duplicate sets (same normalized title + same artist). |
+| GET | `/api/favorites/duplicates/status` | Scan progress (`stage`, `done`, `total`) and result `groups` (`key`, `artist`, `items: [{favcat, gid, token, title, url, gallery_id}]`), `group_count`, `item_count`. |
+| GET | `/api/galleries/{identifier}/favorite` | Which favorite folders a gallery is in: `{gid, favorite: bool, favcats: [...]}`.
 
 ## Galleries (local library)
 

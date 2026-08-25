@@ -102,6 +102,16 @@ and back/forward work without server round-trips.
   once the missing galleries' sizes have been fetched). A **progress ring**
   appears next to the folder name while a check runs (hover shows walked/total),
   and disappears when the sync completes.
+- **Click a folder name** to open `#/favorites/<favcat>`: its galleries as a
+  grid with checkboxes, plus **下载所选** (Download selected, skipping ones
+  already local) and **移除收藏** (Remove from favorites).
+- **收藏夹管理** (`#/favorites/manage`): **开始扫描重复画廊** compares every
+  favorite gallery (normalized title + artist, e.g. the same work in `[DL版]`,
+  `[無修正]` or language re-uploads) and groups duplicates with a progress bar.
+  Check the groups you want and **取消收藏** (remove from favorites) or
+  **取消收藏并删除已下载** (also delete the local copies).
+- Gallery detail pages show a **取消收藏** button whenever the gallery is in a
+  favorite folder.
 
 ### Settings (`#/settings`)
 
