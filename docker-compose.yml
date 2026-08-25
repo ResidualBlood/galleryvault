@@ -11,7 +11,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
       TZ: Asia/Shanghai
-    ports: ["8001:8001"]
+    # The JSON API is only reachable through the frontend proxy; bind it to the
+    # loopback interface so it is never exposed straight to the public network.
+    ports: ["127.0.0.1:8001:8001"]
     volumes:
       # Read-only library: put your existing archives (Ehviewer exports, CBZ…)
       # here. New downloads never land in this directory.
