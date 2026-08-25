@@ -302,6 +302,7 @@ function router() {
     default: renderBrowse();
   }
   bindTagSuggest();
+  bindReaderKeys();
 }
 
 function renderLogin() {
@@ -511,7 +512,7 @@ async function renderGallery() {
     $view().innerHTML = `
       <a class="link-button" href="${navHash("library")}">← ${esc(t("library"))}</a>
       <header style="margin-top:16px"><p class="eyebrow">${esc(g.storage_type)} · LOCAL GALLERY</p><h1>${esc(g.title)}</h1>
-      <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page}/${progress.total_pages || g.page_count}</p></header>
+      <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)}</p></header>
       <div class="toolbar">
         <a class="primary" href="${navHash("reader", { id, page: progress.current_page })}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
         <button class="secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
@@ -531,12 +532,17 @@ async function renderReader() {
   try {
     const g = await api("GET", `/api/galleries/${id}`);
     const total = g.page_count;
+    let preload = "";
+    for (let i = 1; i <= 3 && page + i < total; i++) {
+      preload += `<link rel="preload" as="image" href="/api/galleries/${id}/pages/${page + i}">`;
+    }
     $view().innerHTML = `
       <div class="reader">
         <div class="reader-bar toolbar">
           <a class="link-button" href="${navHash("gallery", { id })}">← ${esc(t("details"))}</a>
-          <span>${page + 1} / ${total}</span>
+          <span>${page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
         </div>
+        ${preload}
         <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}">
         <div class="nav">
           ${page > 0 ? `<a class="secondary" href="${navHash("reader", { id, page: page - 1 })}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
@@ -546,6 +552,27 @@ async function renderReader() {
       </div>`;
     try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+let readerKeyHandler = null;
+
+function bindReaderKeys() {
+  if (readerKeyHandler) { document.removeEventListener("keydown", readerKeyHandler); readerKeyHandler = null; }
+  if (app.view !== "reader") return;
+  const id = app.params.id;
+  const current = () => Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  readerKeyHandler = (e) => {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    if (e.key === "ArrowRight" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      location.hash = navHash("reader", { id, page: current() + 1 });
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) });
+    }
+  };
+  document.addEventListener("keydown", readerKeyHandler);
 }
 
 const TAG_NAMESPACES = [
