@@ -104,9 +104,13 @@ and back/forward work without server round-trips.
   and disappears when the sync completes.
 - Every check also caches the full ExHentai metadata (title, tags, category,
   posted date, size) keyed by gid — local galleries are seeded straight from
-  the DB and cloud-only gids via the batched gdata API. Galleries scanned onto
-  disk later reuse this cache, so **tag sync and ingestion need no extra
-  ExHentai fetch** for galleries the monitor has already seen.
+  the DB and cloud-only gids via the batched gdata API. The fresh metadata is
+  then **applied to the on-disk galleries of that folder automatically**:
+  `gallery_tags` are replaced and category/title/posted/size are refreshed.
+  Nothing is rewritten when the cache hasn't changed since the last sync, so
+  repeated checks stay cheap. Galleries scanned onto disk later also reuse this
+  cache, so **tag sync and ingestion need no extra ExHentai fetch** for
+  galleries the monitor has already seen.
 - **Click a folder name** to open `#/favorites/<favcat>`: its galleries as a
   grid with checkboxes, plus **下载所选** (Download selected, skipping ones
   already local) and **移除收藏** (Remove from favorites). Cloud-only galleries
