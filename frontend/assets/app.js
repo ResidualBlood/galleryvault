@@ -31,6 +31,18 @@ const I18N = {
     progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
+    unfavorite: "Unfavorite", unfavoriteFail: "Cannot unfavorite", unfavorited: "Removed from favorites",
+    unfavoritedLocal: "Cloud removal failed; local record removed", confirmUnfavorite: "Remove this gallery from favorites?",
+    favManage: "Manage duplicates", favManageTitle: "Favorites — duplicates",
+    favManageSub: "Scan favorite folders for duplicate galleries (same work in different versions, e.g. DL / uncensored / language re-uploads).",
+    favListSub: "Galleries in this favorite folder. Select and download or remove from favorites.",
+    favDl: "Download selected", favDlQueued: "Download queued", favDlSkip: "already local/skipped",
+    favRemove: "Remove from favorites", confirmFavRemove: "Remove selected from favorites?",
+    dupScan: "Scan duplicates", dupUnfav: "Unfavorite", dupUnfavDelete: "Unfavorite & delete local",
+    dupHint: "Press “Scan duplicates” to compare all favorite galleries.",
+    dupNone: "No duplicate groups found.",
+    dupFound: "Found", dupGroups: "groups", dupItems: "items",
+    confirmDupUnfav: "Remove selected from favorites?", confirmDupDelete: "Remove from favorites and delete local copies?",
     favCount: "Galleries (cloud/local)", favSize: "Size (cloud/local)",
     favModeIncremental: "Incremental", favModeMonitorOnly: "Monitor only", favModeForce: "Force",
     libraryRoots: "Library roots (read-only)", baseUrl: "Base URL",
@@ -124,6 +136,18 @@ const I18N = {
     deleteDl: "删除",
     downloading: "下载中", perPage: "每页",
     delete: "删除", deleteGallery: "删除画廊", deleteFiltered: "删除筛选结果",
+    unfavorite: "取消收藏", unfavoriteFail: "无法取消收藏", unfavorited: "已取消收藏",
+    unfavoritedLocal: "云端移除失败，仅移除本地记录", confirmUnfavorite: "确定从收藏夹移除该画廊？",
+    favManage: "收藏夹管理", favManageTitle: "收藏夹管理 — 查重",
+    favManageSub: "扫描收藏夹中重复的画廊（同一作品的不同版本，如 DL 版 / 无修正 / 不同语言搬运）。",
+    favListSub: "该收藏夹内的画廊。勾选后可下载或从收藏移除。",
+    favDl: "下载所选", favDlQueued: "已加入下载", favDlSkip: "已本地/跳过",
+    favRemove: "移除收藏", confirmFavRemove: "将所选从收藏夹移除？",
+    dupScan: "开始扫描重复画廊", dupUnfav: "取消收藏", dupUnfavDelete: "取消收藏并删除已下载",
+    dupHint: "点击“开始扫描重复画廊”对比所有收藏的画廊。",
+    dupNone: "未发现重复画廊。",
+    dupFound: "发现", dupGroups: "组重复", dupItems: "项",
+    confirmDupUnfav: "将所选从收藏夹移除？", confirmDupDelete: "将所选从收藏夹移除并删除本地副本？",
     deleteFiles: "同时删除磁盘文件", confirmDelete: "确定删除此画廊？",
     confirmDeleteFiltered: "确定删除所有匹配的画廊？", deleted: "已删除",
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
@@ -155,6 +179,26 @@ function renderCardCheckboxes() {
       if (cb.checked) selGalleries.add(id); else selGalleries.delete(id);
       const btn = document.querySelector('[data-action="sel-delete"]');
       if (btn) btn.textContent = `${t("deleteSel")}${selGalleries.size ? ` (${selGalleries.size})` : ""}`;
+    });
+  });
+  document.querySelectorAll('.gc-check input[data-fav-gid]').forEach(cb => {
+    cb.addEventListener("change", () => {
+      const gid = parseInt(cb.getAttribute("data-fav-gid"), 10);
+      if (cb.checked) selFav.add(gid); else selFav.delete(gid);
+      const update = () => {
+        document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-unfav"]').forEach(b => {
+          const base = b.getAttribute("data-action") === "favlist-download" ? t("favDl") : t("favRemove");
+          b.textContent = base + (selFav.size ? ` (${selFav.size})` : "");
+        });
+      };
+      update();
+    });
+  });
+  document.querySelectorAll('#dup-groups input[data-dup-gid]').forEach(cb => {
+    cb.addEventListener("change", () => {
+      const gid = parseInt(cb.getAttribute("data-dup-gid"), 10);
+      if (cb.checked) selDup.add(gid); else selDup.delete(gid);
+      updateDupButtons();
     });
   });
 }
@@ -265,6 +309,10 @@ function parseHash() {
   app.params = {};
   if (app.view === "gallery" || app.view === "reader") app.params.id = parts[1];
   if (app.view === "reader") app.params.page = parts[2] || "0";
+  if (app.view === "favorites") {
+    if (parts[1] === "manage") { app.view = "favmanage"; }
+    else if (/^\d+$/.test(parts[1] || "")) { app.view = "favlist"; app.params.id = parts[1]; }
+  }
   app.query = {};
   if (qs) for (const kv of qs.split("&")) {
     const [k, v] = kv.split("=");
@@ -275,7 +323,8 @@ function parseHash() {
 
 function navHash(view, params = {}, query = {}) {
   let p = "/" + view;
-  if (params.id) p += "/" + params.id;
+  if (view === "favlist") { p = "/favorites/" + (params.id || app.params.id); }
+  else if (params.id) p += "/" + params.id;
   if (view === "reader") p += "/" + (params.page || 0);
   const q = Object.entries(query).filter(([, v]) => v !== "" && v != null)
     .map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(v)).join("&");
@@ -288,7 +337,7 @@ function router() {
   updateBanner();
   if (!app.authenticated) { renderLogin(); return; }
   if (app.view !== "library") selGalleries.clear();
-  if (app.view !== "favorites" && favTimer) { clearInterval(favTimer); favTimer = null; }
+  if (app.view !== "favorites" && app.view !== "favlist" && favTimer) { clearInterval(favTimer); favTimer = null; }
   switch (app.view) {
     case "browse": renderBrowse(); break;
     case "library": renderLibrary(); break;
@@ -299,6 +348,8 @@ function router() {
     case "downloads": renderDownloads(); break;
     case "settings": renderSettings(); break;
     case "favorites": renderFavorites(); break;
+    case "favmanage": renderFavManage(); break;
+    case "favlist": renderFavList(); break;
     default: renderBrowse();
   }
   bindTagSuggest();
@@ -516,6 +567,7 @@ async function renderGallery() {
       <div class="toolbar">
         <a class="primary" href="${navHash("reader", { id, page: progress.current_page })}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
         <button class="secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
+        <button class="secondary" data-action="unfavorite-gallery" data-id="${id}" type="button" hidden>${esc(t("unfavorite"))}</button>
         <button class="secondary danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
       </div>
       <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
@@ -523,6 +575,15 @@ async function renderGallery() {
         <div class="thumbs">${thumbs}</div>
         <div class="pages pager">${thumbPagerParts.join(" ")} <span class="muted">${thumbPage}/${totalPages}</span> · ${pageSizeSelect(perPage, "gallery")}</div>
       </section>`;
+    if (g.gid) {
+      try {
+        const fav = await api("GET", `/api/galleries/${id}/favorite`);
+        if (fav.favorite) {
+          const btn = document.querySelector('[data-action="unfavorite-gallery"]');
+          if (btn) { btn.hidden = false; btn.dataset.gid = fav.gid; }
+        }
+      } catch (_) {}
+    }
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
@@ -954,13 +1015,14 @@ async function renderFavorites() {
     <div class="toolbar">
       <button class="primary" data-action="favcats-save" type="button">${esc(t("save"))}</button>
       <button class="secondary" data-action="favcats-sync" type="button">${esc(t("syncFavcats"))}</button>
+      <a class="secondary" href="#/favorites/manage" style="padding:8px 14px;border-radius:4px">${esc(t("favManage"))}</a>
     </div>
     <div id="fav-list"><p>${esc(t("loading"))}</p></div>`;
   try {
     const cats = await api("GET", "/api/favorites/categories");
     const rows = (Array.isArray(cats) ? cats : []).map(c => `
       <tr data-favcat="${c.favcat}">
-        <td class="fav-name">${esc(c.name || ("Folder " + c.favcat))} <span class="badge">#${c.favcat}</span></td>
+        <td class="fav-name"><a href="#/favorites/${c.favcat}" class="fav-link">${esc(c.name || ("Folder " + c.favcat))}</a> <span class="badge">#${c.favcat}</span></td>
         <td class="muted">${c.cloud_count || 0} / ${c.local_count || 0}</td>
         <td class="muted">${(c.cloud_size ? "~" : "") + fmtSize(c.cloud_size || 0)} / ${fmtSize(c.local_size || 0)}</td>
         <td><input type="checkbox" class="fav-enabled"${c.enabled ? " checked" : ""}></td>
@@ -978,6 +1040,151 @@ async function renderFavorites() {
 }
 
 let favTimer = null;
+
+const selFav = new Set();
+
+async function renderFavList() {
+  const favcat = parseInt(app.params.id, 10);
+  if (isNaN(favcat)) { location.hash = "#/favorites"; return; }
+  const page = app.query.page || "1";
+  const selCount = selFav.size;
+  $view().innerHTML = `
+    <a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>
+    <header style="margin-top:16px"><p class="eyebrow">FAVORITE FOLDER</p><h1>#${favcat}</h1>
+    <p class="sub">${esc(t("favListSub"))}</p></header>
+    <div class="toolbar">
+      <button class="primary" data-action="favlist-download" data-favcat="${favcat}" type="button">${esc(t("favDl"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary danger" data-action="favlist-unfav" data-favcat="${favcat}" type="button">${esc(t("favRemove"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="favlist-clear" type="button">${esc(t("clearSel"))}</button>
+    </div>
+    <div id="fav-items"><p>${esc(t("loading"))}</p></div>
+    <div class="pages pager" id="favlist-pager"></div>`;
+  try {
+    const data = await api("GET", `/api/favorites/${favcat}/items?page=${encodeURIComponent(page)}&page_size=${app.query.page_size || 20}`);
+    const el = document.getElementById("fav-items");
+    if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
+    else {
+      el.innerHTML = `<div class="grid gc-grid">` + data.items.map(favCard).join("") + `</div>`;
+      document.querySelectorAll('#fav-items input[data-fav-gid]').forEach(cb => {
+        cb.checked = selFav.has(parseInt(cb.dataset.favGid, 10));
+      });
+      renderCardCheckboxes();
+    }
+    renderFavPager("favlist-pager", data, page);
+  } catch (e) { document.getElementById("fav-items").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+function favCard(it) {
+  const cat = it.category ? esc(catLabel(it.category)) : "";
+  const inner = it.cover_url
+    ? `<img loading="lazy" src="${it.cover_url}" alt="">`
+    : `<span class="badge">no cover</span>`;
+  const link = it.gallery_id != null ? `href="${navHash("gallery", { id: it.gallery_id })}"` : `href="${esc(it.url || "#")}" target="_blank" rel="noopener"`;
+  return `<div class="gc-wrap">
+    <a class="gc" ${link}>
+      <div class="gc-cover">${inner}${cat ? `<span class="gc-cat">${cat}</span>` : ""}${it.page_count ? `<span class="gc-pages">${it.page_count} P</span>` : ""}</div>
+      <div class="gc-title">${esc(it.title || ("gid " + it.gid))}</div>
+      <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</div>
+    </a>
+    <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-fav-gid="${it.gid}"${selFav.has(it.gid) ? " checked" : ""}></label>
+  </div>`;
+}
+
+function renderFavPager(elId, data, page) {
+  const el = document.getElementById(elId);
+  if (!el || !data) return;
+  const favcat = parseInt(app.params.id, 10);
+  const total = data.total, pageSize = data.page_size || 20;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const parts = [];
+  for (let p = Math.max(1, parseInt(page, 10) - 2); p <= Math.min(pages, parseInt(page, 10) + 2); p++) {
+    parts.push(p === parseInt(page, 10)
+      ? `<strong class="cur">${p}</strong>`
+      : `<a class="page-link" href="${navHash("favlist", { id: favcat }, { page: p })}">${p}</a>`);
+  }
+  el.innerHTML = `${parts.join(" ")} <span class="muted">${pages}</span> · ${pageSizeSelect(pageSize, "favlist")}`;
+}
+
+const selDup = new Set();
+
+async function renderFavManage() {
+  $view().innerHTML = `
+    <a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>
+    <header style="margin-top:16px"><p class="eyebrow">FAVORITES</p><h1>${esc(t("favManageTitle"))}</h1>
+    <p class="sub">${esc(t("favManageSub"))}</p></header>
+    <div class="toolbar">
+      <button class="primary" data-action="dup-scan" type="button">${esc(t("dupScan"))}</button>
+      <button class="secondary danger" data-action="dup-unfav" type="button">${esc(t("dupUnfav"))}${selDup.size ? ` (${selDup.size})` : ""}</button>
+      <button class="secondary danger" data-action="dup-unfav-delete" type="button">${esc(t("dupUnfavDelete"))}${selDup.size ? ` (${selDup.size})` : ""}</button>
+      <button class="secondary" data-action="dup-clear" type="button">${esc(t("clearSel"))}</button>
+    </div>
+    <div id="dup-progress" hidden>
+      <div class="progress-bar"><div class="progress-fill" id="dup-progress-fill"></div></div>
+      <p class="muted" id="dup-progress-text"></p>
+    </div>
+    <div id="dup-groups"><p class="muted">${esc(t("dupHint"))}</p></div>`;
+}
+
+async function runDupScan() {
+  const bar = document.getElementById("dup-progress");
+  const fill = document.getElementById("dup-progress-fill");
+  const text = document.getElementById("dup-progress-text");
+  const groupsEl = document.getElementById("dup-groups");
+  selDup.clear();
+  bar.hidden = false;
+  groupsEl.innerHTML = `<p>${esc(t("loading"))}</p>`;
+  try {
+    await api("POST", "/api/favorites/duplicates/scan");
+  } catch (e) { groupsEl.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  for (let i = 0; i < 120; i++) {
+    let st;
+    try { st = await api("GET", "/api/favorites/duplicates/status"); }
+    catch (e) { groupsEl.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+    if (st.total > 0) {
+      const pct = Math.min(100, Math.round((st.done / st.total) * 100));
+      fill.style.width = pct + "%";
+      text.textContent = `${esc(st.stage || "")} ${st.done}/${st.total}`;
+    }
+    if (!st.running) {
+      fill.style.width = "100%";
+      if (st.last_error) { groupsEl.innerHTML = `<p class="error">${esc(st.last_error)}</p>`; return; }
+      lastDupStatus = st;
+      renderDupGroups(st);
+      renderCardCheckboxes();
+      updateDupButtons();
+      bar.hidden = true;
+      return;
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  groupsEl.innerHTML = `<p class="muted">${esc(t("loading"))}</p>`;
+}
+
+function renderDupGroups(st) {
+  const el = document.getElementById("dup-groups");
+  const groups = st.groups || [];
+  if (!groups.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
+  el.innerHTML = `
+    <p class="sub">${esc(t("dupFound"))}: ${st.group_count} ${esc(t("dupGroups"))} · ${st.item_count} ${esc(t("dupItems"))}</p>
+    ` + groups.map((g, gi) => `
+      <div class="panel dup-group" style="margin-top:14px">
+        <div class="toolbar" style="margin:8px 0">
+          <strong>${esc(g.items.length)} ×</strong>
+          <span class="muted">${esc(g.artist ? g.artist : "—")}</span>
+          <button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button>
+        </div>
+        ${g.items.map((it, ii) => `
+          <div class="dup-row">
+            <label class="checkbox"><input type="checkbox" data-dup-gid="${it.gid}" data-gi="${gi}" data-ii="${ii}"${selDup.has(it.gid) ? " checked" : ""}>
+              <span class="dup-title">
+                <a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+                ${it.gallery_id != null ? `<a class="badge" href="${navHash("gallery", { id: it.gallery_id })}" style="color:var(--accent)">local</a>` : `<span class="badge">cloud</span>`}
+                <span class="badge">#${it.favcat}</span>
+              </span>
+            </label>
+          </div>`).join("")}
+      </div>`).join("");
+}
 
 function favRingHtml(done, total) {
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
@@ -1069,6 +1276,14 @@ function onClick(e) {
   if (action === "favcats-save") { saveFavoriteCategories(); return; }
   if (action === "favcats-sync") { syncFavoriteCategories(); return; }
   if (action === "favcat-check") { checkFavoriteCategory(el.getAttribute("data-favcat")); return; }
+  if (action === "favlist-download") { favListDownload(el.getAttribute("data-favcat")); return; }
+  if (action === "favlist-unfav") { favListUnfavorite(el.getAttribute("data-favcat")); return; }
+  if (action === "favlist-clear") { selFav.clear(); router(); return; }
+  if (action === "dup-scan") { runDupScan(); return; }
+  if (action === "dup-unfav") { dupAction(false); return; }
+  if (action === "dup-unfav-delete") { dupAction(true); return; }
+  if (action === "dup-clear") { selDup.clear(); renderDupGroupsFromCache(); return; }
+  if (action === "dup-group-sel") { dupSelectGroup(el.getAttribute("data-gi")); return; }
   if (action === "sync-tags") { syncTags(el.getAttribute("data-id")); return; }
   if (action === "change-password") { e.preventDefault(); changePassword(); return; }
   if (action === "test-telegram") { testTelegram(); return; }
@@ -1076,6 +1291,7 @@ function onClick(e) {
   if (action === "gen-thumbs") { generateThumbnails(); return; }
   if (action === "sync-all-tags") { syncAllTags(); return; }
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
+  if (action === "unfavorite-gallery") { unfavoriteGallery(el); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
@@ -1222,6 +1438,100 @@ async function deleteGallery(id) {
     toast(t("deleted"));
     location.hash = navHash("library");
   } catch (e) { toast(e.message); }
+}
+
+async function unfavoriteGallery(el) {
+  const gid = parseInt(el.dataset.gid, 10);
+  if (!gid) { toast(t("unfavoriteFail")); return; }
+  if (!window.confirm(t("confirmUnfavorite"))) return;
+  try {
+    const r = await api("POST", "/api/favorites/remove", { gids: [gid], delete_local: false });
+    if (r.cloud_ok) toast(t("unfavorited"));
+    else toast(t("unfavoritedLocal"));
+    el.hidden = true;
+  } catch (e) { toast(e.message); }
+}
+
+async function favListDownload(favcat) {
+  if (!selFav.size) { toast(t("select")); return; }
+  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  const data = await api("GET", `/api/favorites/${favcat}/items?page=1&page_size=100`);
+  const total = data.total || 0;
+  const pages = Math.max(1, Math.ceil(total / 100));
+  const byGid = new Map(data.items.map(i => [i.gid, i]));
+  for (let p = 2; p <= pages; p++) {
+    const d = await api("GET", `/api/favorites/${favcat}/items?page=${p}&page_size=100`);
+    (d.items || []).forEach(i => byGid.set(i.gid, i));
+  }
+  let queued = 0, skip = 0;
+  for (const gid of selected) {
+    const meta = byGid.get(gid);
+    if (!meta || !meta.token) { skip++; continue; }
+    if (meta.gallery_id != null) { skip++; continue; }
+    try {
+      await api("POST", "/api/downloads", { gid: meta.gid, token: meta.token, title: meta.title, mode: "favorites" });
+      queued++;
+    } catch (_) { skip++; }
+  }
+  toast(t("favDlQueued") + ": " + queued + (skip ? " · " + t("favDlSkip") + ": " + skip : ""));
+  selFav.clear();
+}
+
+async function favListUnfavorite(favcat) {
+  const items = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!items.length) { toast(t("select")); return; }
+  if (!window.confirm(t("confirmFavRemove") + " " + items.length)) return;
+  try {
+    const r = await api("POST", "/api/favorites/remove", { gids: items, delete_local: false });
+    toast(t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal")));
+    selFav.clear();
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+let lastDupStatus = null;
+
+async function dupAction(deleteLocal) {
+  const items = [...document.querySelectorAll('#dup-groups [data-dup-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.dupGid, 10));
+  if (!items.length) { toast(t("select")); return; }
+  const msg = deleteLocal ? t("confirmDupDelete") : t("confirmDupUnfav");
+  if (!window.confirm(msg + " " + items.length)) return;
+  try {
+    const r = await api("POST", "/api/favorites/remove", { gids: items, delete_local: deleteLocal });
+    toast(t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal"))
+      + (r.deleted_local_galleries ? " · " + t("deleted") + " " + r.deleted_local_galleries : ""));
+    selDup.clear();
+    runDupScan();
+  } catch (e) { toast(e.message); }
+}
+
+function dupSelectGroup(gi) {
+  const group = (lastDupStatus && lastDupStatus.groups && lastDupStatus.groups[gi]);
+  if (!group) return;
+  const gids = group.items.map(it => it.gid);
+  const allSel = gids.every(gid => selDup.has(gid));
+  const cbs = [...document.querySelectorAll(`#dup-groups input[data-gi="${gi}"]`)];
+  cbs.forEach(cb => {
+    const gid = parseInt(cb.dataset.dupGid, 10);
+    if (allSel) selDup.delete(gid); else selDup.add(gid);
+    cb.checked = !allSel;
+  });
+  updateDupButtons();
+}
+
+function updateDupButtons() {
+  document.querySelectorAll('[data-action="dup-unfav"], [data-action="dup-unfav-delete"]').forEach(b => {
+    b.textContent = (b.getAttribute("data-action") === "dup-unfav" ? t("dupUnfav") : t("dupUnfavDelete")) + (selDup.size ? ` (${selDup.size})` : "");
+  });
+}
+
+async function renderDupGroupsFromCache() {
+  if (!lastDupStatus) return;
+  renderDupGroups(lastDupStatus);
+  updateDupButtons();
 }
 
 async function deleteFiltered() {
@@ -1389,7 +1699,7 @@ function onChange(e) {
   const el = e.target;
   if (!el || !el.matches(".page-size")) return;
   const view = el.getAttribute("data-view") || app.view;
-  const params = view === "gallery" ? { id: app.params.id } : {};
+  const params = (view === "gallery" || view === "favlist") ? { id: app.params.id } : {};
   const q = { ...app.query, page_size: el.value, page: undefined };
   Object.keys(q).forEach(k => { if (q[k] === undefined) delete q[k]; });
   location.hash = navHash(view, params, q);
