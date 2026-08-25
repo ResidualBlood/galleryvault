@@ -46,6 +46,8 @@ const I18N = {
     dupNone: "No duplicate groups found.",
     dupFound: "Found", dupGroups: "groups", dupItems: "items",
     confirmDupUnfav: "Remove selected from favorites?", confirmDupDelete: "Remove from favorites and delete local copies?",
+    dupIgnore: "Ignore", dupUnignore: "Restore", dupIgnored: "Ignored", dupIgnoredOk: "Group ignored",
+    dupUnignoredOk: "Group restored", dupFp: "likely same name", dupFpBlock: "Possible same-name, different works (collapsed)",
     favCount: "Galleries (cloud/local)", favSize: "Size (cloud/local)",
     favModeIncremental: "Incremental", favModeMonitorOnly: "Monitor only", favModeForce: "Force",
     libraryRoots: "Library roots (read-only)", baseUrl: "Base URL",
@@ -156,6 +158,8 @@ const I18N = {
     dupNone: "未发现重复画廊。",
     dupFound: "发现", dupGroups: "组重复", dupItems: "项",
     confirmDupUnfav: "将所选从收藏夹移除？", confirmDupDelete: "将所选从收藏夹移除并删除本地副本？",
+    dupIgnore: "忽略", dupUnignore: "恢复", dupIgnored: "已忽略", dupIgnoredOk: "已忽略该组",
+    dupUnignoredOk: "已恢复该组", dupFp: "疑似同名", dupFpBlock: "疑似同名不同作品（已折叠）",
     deleteFiles: "同时删除磁盘文件", confirmDelete: "确定删除此画廊？",
     confirmDeleteFiltered: "确定删除所有匹配的画廊？", deleted: "已删除",
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
@@ -1231,18 +1235,29 @@ function dupThumbHtml(it) {
 function renderDupGroups(st) {
   const el = document.getElementById("dup-groups");
   if (!el) return;
+  const ignored = st.ignored || [];
   const groups = applyDupFilter(st.groups || []);
-  if (!groups.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
+  if (!groups.length && !ignored.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
   const totalItems = groups.reduce((n, g) => n + g.items.length, 0);
-  el.innerHTML = `
-    <p class="sub">${esc(t("dupFound"))}: ${groups.length} ${esc(t("dupGroups"))} · ${totalItems} ${esc(t("dupItems"))}</p>
-    ` + groups.map((g, gi) => `
-      <div class="panel dup-group" style="margin-top:14px">
+  const ignoredHtml = ignored.length
+    ? `<div class="panel dup-ignored" style="margin-top:14px">
+        <strong>${esc(t("dupIgnored"))} (${ignored.length})</strong>
+        ${ignored.map(x => `<span class="dup-ignored-row">${esc(x.title || x.key)} <button class="secondary" data-action="dup-unignore" data-key="${esc(x.key)}" type="button">${esc(t("dupUnignore"))}</button></span>`).join("")}
+      </div>`
+    : "";
+  const fpGroups = groups.filter(g => g.likely_false_positive);
+  const normalGroups = groups.filter(g => !g.likely_false_positive);
+  const renderGroup = (g, gi) => `
+      <div class="panel dup-group ${g.likely_false_positive ? "dup-fp" : ""}" style="margin-top:14px">
         <div class="dup-group-head">
           <span class="dup-count">${esc(g.items.length)} ×</span>
           <a class="dup-main-title" href="${esc(g.items[0].url)}" target="_blank" rel="noopener">${esc(g.items[0].title)}</a>
           ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
-          <span class="dup-head-actions"><button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
+          ${g.likely_false_positive ? `<span class="badge dup-fp-badge">${esc(t("dupFp"))}</span>` : ""}
+          <span class="dup-head-actions">
+            <button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button>
+            <button class="secondary" data-action="dup-ignore" data-key="${esc(g.key)}" data-title="${esc(g.items[0].title)}" data-gids="${esc(g.items.map(it => it.gid).join(","))}" type="button">${esc(t("dupIgnore"))}</button>
+          </span>
         </div>
         ${g.items.map((it, ii) => `
           <div class="dup-row">
@@ -1262,7 +1277,15 @@ function renderDupGroups(st) {
               </span>
             </label>
           </div>`).join("")}
-      </div>`).join("");
+      </div>`;
+  const normalHtml = normalGroups.length
+    ? `<p class="sub">${esc(t("dupFound"))}: ${normalGroups.length} ${esc(t("dupGroups"))} · ${normalGroups.reduce((n, g) => n + g.items.length, 0)} ${esc(t("dupItems"))}</p>`
+      + normalGroups.map((g, i) => renderGroup(g, i)).join("")
+    : "";
+  const fpHtml = fpGroups.length
+    ? `<details class="dup-fp-block" style="margin-top:18px"><summary><strong>${esc(t("dupFpBlock"))} (${fpGroups.length})</strong></summary>${fpGroups.map((g, i) => renderGroup(g, normalGroups.length + i)).join("")}</details>`
+    : "";
+  el.innerHTML = ignoredHtml + normalHtml + fpHtml;
 }
 
 function favRingHtml(done, total) {
@@ -1381,6 +1404,8 @@ function onClick(e) {
   if (action === "dup-clear") { selDup.clear(); renderDupGroupsFromCache(); return; }
   if (action === "dup-group-sel") { dupSelectGroup(el.getAttribute("data-gi")); return; }
   if (action === "dup-filter") { dupFilter = el.getAttribute("data-value") || "all"; renderFavManage().then(() => renderDupGroupsFromCache()); return; }
+  if (action === "dup-ignore") { dupIgnore(el); return; }
+  if (action === "dup-unignore") { dupUnignore(el.getAttribute("data-key")); return; }
   if (action === "sync-tags") { syncTags(el.getAttribute("data-id")); return; }
   if (action === "change-password") { e.preventDefault(); changePassword(); return; }
   if (action === "test-telegram") { testTelegram(); return; }
@@ -1624,6 +1649,27 @@ function dupSelectGroup(gi) {
     cb.checked = !allSel;
   });
   updateDupButtons();
+}
+
+async function dupIgnore(el) {
+  const key = el.getAttribute("data-key");
+  const title = el.getAttribute("data-title") || "";
+  const gids = (el.getAttribute("data-gids") || "").split(",").filter(Boolean).map(Number);
+  if (!key) return;
+  try {
+    await api("POST", "/api/favorites/duplicates/ignore", { key, title, gids });
+    toast(t("dupIgnoredOk"));
+    await runDupScan();
+  } catch (e) { toast(e.message); }
+}
+
+async function dupUnignore(key) {
+  if (!key) return;
+  try {
+    await api("DELETE", `/api/favorites/duplicates/ignore?key=${encodeURIComponent(key)}`);
+    toast(t("dupUnignoredOk"));
+    await runDupScan();
+  } catch (e) { toast(e.message); }
 }
 
 function updateDupButtons() {
