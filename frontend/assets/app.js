@@ -325,8 +325,10 @@ function parseHash() {
   const parts = path.split("/").filter(Boolean);
   app.view = parts[0] || "browse";
   app.params = {};
-  if (app.view === "gallery" || app.view === "reader") app.params.id = parts[1];
-  if (app.view === "reader") app.params.page = parts[2] || "0";
+  if (app.view === "gallery" || app.view === "reader") {
+    app.params.id = /^\d+$/.test(parts[1] || "") ? parts[1] : "";
+  }
+  if (app.view === "reader") app.params.page = /^\d+$/.test(parts[2] || "") ? parts[2] : "0";
   if (app.view === "favorites") {
     if (parts[1] === "manage") { app.view = "favmanage"; }
     else if (parts[1] === "ignored") { app.view = "favignored"; }
@@ -357,6 +359,9 @@ function router() {
   if (!app.authenticated) { renderLogin(); return; }
   if (app.view !== "library") selGalleries.clear();
   if (app.view !== "favorites" && app.view !== "favlist" && favTimer) { clearInterval(favTimer); favTimer = null; }
+  if (app.view !== "downloads" && dlTimer) { clearInterval(dlTimer); dlTimer = null; }
+  if (app.view !== "favlist") selFav.clear();
+  if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
   switch (app.view) {
     case "browse": renderBrowse(); break;
     case "library": renderLibrary(); break;
@@ -432,7 +437,7 @@ async function galleryGrid(container, page, extraQuery) {
   return data;
 }
 
-const PAGE_SIZES = [5, 20, 50, 100, 200, 500];
+const PAGE_SIZES = [5, 20, 50, 100];
 
 function pageSizeSelect(current, view) {
   return `<select class="page-size" data-action="page-size" data-view="${view}" aria-label="page size">
