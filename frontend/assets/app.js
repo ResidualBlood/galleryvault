@@ -543,7 +543,7 @@ async function renderReader() {
           <span>${page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
         </div>
         ${preload}
-        <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}">
+        <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-next="${page + 1 < total ? page + 1 : ""}">
         <div class="nav">
           ${page > 0 ? `<a class="secondary" href="${navHash("reader", { id, page: page - 1 })}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
           <a class="secondary" href="${navHash("gallery", { id })}">${esc(t("allPages"))}</a>
@@ -557,11 +557,21 @@ async function renderReader() {
 let readerKeyHandler = null;
 
 function bindReaderKeys() {
-  if (readerKeyHandler) { document.removeEventListener("keydown", readerKeyHandler); readerKeyHandler = null; }
+  if (readerKeyHandler) {
+    document.removeEventListener("keydown", readerKeyHandler);
+    document.removeEventListener("click", readerKeyHandler);
+    readerKeyHandler = null;
+  }
   if (app.view !== "reader") return;
   const id = app.params.id;
   const current = () => Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   readerKeyHandler = (e) => {
+    if (e.type === "click") {
+      const img = e.target.closest && e.target.closest("#reader-img");
+      if (!img || !img.dataset.next) return;
+      location.hash = navHash("reader", { id, page: parseInt(img.dataset.next, 10) });
+      return;
+    }
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
     if (e.key === "ArrowRight" || e.key === " " || e.key === "Spacebar") {
@@ -573,6 +583,7 @@ function bindReaderKeys() {
     }
   };
   document.addEventListener("keydown", readerKeyHandler);
+  document.addEventListener("click", readerKeyHandler);
 }
 
 const TAG_NAMESPACES = [
