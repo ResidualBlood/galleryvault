@@ -226,6 +226,7 @@ def test_gallery_detail_includes_spider_info(
         category=None,
         token=None,
         tags_synced_at=None,
+        file_size=None,
         source_meta={"version": "1.0", "start_page": 0, "mode": "local"},
     )
     page = SimpleNamespace(page_index=0, member_name="one.jpg", media_type="jpeg")
