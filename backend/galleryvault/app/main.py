@@ -1690,6 +1690,15 @@ async def duplicates_status() -> dict[str, object]:
     }
 
 
+@app.get("/api/favorites/duplicates/ignored")
+async def duplicates_ignored_list() -> list[dict[str, object]]:
+    try:
+        async with _settings_session() as session:
+            return await FavoritesRepository(session).ignored_duplicates()
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+
+
 class DuplicateIgnoreRequest(BaseModel):
     key: str
     title: str | None = None
