@@ -114,6 +114,15 @@ duplicates_state: dict[str, object] = {
     "last_error": None,
     "groups": [],
 }
+metadata_sync_state: dict[str, object] = {
+    "running": False,
+    "stage": None,
+    "done": 0,
+    "total": 0,
+    "applied": 0,
+    "last_error": None,
+}
+_metadata_sync_active = 0
 translation_state: dict[str, object] = {
     "running": False,
     "last": None,
@@ -1763,6 +1772,11 @@ async def favorite_categories() -> list[dict[str, object]]:
     return result
 
 
+@app.get("/api/favorites/metadata-status")
+async def favorites_metadata_status() -> dict[str, object]:
+    return dict(metadata_sync_state)
+
+
 @app.get("/api/favorites/check-status")
 async def favorites_check_status() -> dict[str, object]:
     return dict(favorites_check_state)
@@ -1818,73 +1832,90 @@ async def _favorite_size_sync(favcat: int) -> None:
     (no network); the remaining cloud-only gids are fetched with the batched
     gdata API (25 per request) in a bounded loop.  This is what lets a gallery
     scanned onto disk later reuse tags/title/category/posted without a fresh
-    ExHentai fetch.
+    ExHentai fetch.  Progress is reported on the Tasks page.
     """
+    global _metadata_sync_active
+    _metadata_sync_active += 1
+    metadata_sync_state["running"] = True
     try:
-        client = app.state.eh_client
-        if client is None:
-            return
-        async with _settings_session() as session, session.begin():
-            seeded = await GalleryRepository(session).seed_metadata_from_galleries(favcat)
-        total_cached = seeded
-        for _round in range(60):
-            async with _settings_session() as session:
-                pending = await FavoritesRepository(session).pending_size_gids(favcat, 500)
-                cold = await GalleryRepository(session).cold_metadata_gids(favcat, 500)
-            seen: set[int] = set()
-            pairs: list[tuple[int, str]] = []
-            for gid, token in pending + cold:
-                if gid not in seen:
-                    seen.add(gid)
-                    pairs.append((gid, token))
-            if not pairs:
-                break
-            try:
-                metadata = await client.fetch_gmetadata(pairs)
-            except Exception as exc:  # noqa: BLE001 - stop the loop, retry next check
-                logger.warning(
-                    "favorite metadata sync round failed",
-                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
-                )
-                break
-            sizes = {
-                gid: size for gid, meta in metadata.items() if (size := meta.get("file_size"))
-            }
+        try:
+            client = app.state.eh_client
+            if client is None:
+                return
             async with _settings_session() as session, session.begin():
-                for gid, size in sizes.items():
-                    await FavoritesRepository(session).set_file_size(favcat, gid, size)
-                await GalleryRepository(session).upsert_metadata(
-                    [{"gid": gid, **meta} for gid, meta in metadata.items()]
+                seeded = await GalleryRepository(session).seed_metadata_from_galleries(favcat)
+            total_cached = seeded
+            metadata_sync_state["stage"] = "sync"
+            for _round in range(60):
+                async with _settings_session() as session:
+                    pending = await FavoritesRepository(session).pending_size_gids(favcat, 500)
+                    cold = await GalleryRepository(session).cold_metadata_gids(favcat, 500)
+                seen: set[int] = set()
+                pairs: list[tuple[int, str]] = []
+                for gid, token in pending + cold:
+                    if gid not in seen:
+                        seen.add(gid)
+                        pairs.append((gid, token))
+                if not pairs:
+                    break
+                try:
+                    metadata = await client.fetch_gmetadata(pairs)
+                except Exception as exc:  # noqa: BLE001 - stop the loop, retry next check
+                    logger.warning(
+                        "favorite metadata sync round failed",
+                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                    )
+                    break
+                sizes = {
+                    gid: size
+                    for gid, meta in metadata.items()
+                    if (size := meta.get("file_size"))
+                }
+                async with _settings_session() as session, session.begin():
+                    for gid, size in sizes.items():
+                        await FavoritesRepository(session).set_file_size(favcat, gid, size)
+                    await GalleryRepository(session).upsert_metadata(
+                        [{"gid": gid, **meta} for gid, meta in metadata.items()]
+                    )
+                total_cached += len(metadata)
+                metadata_sync_state["total"] = int(metadata_sync_state["total"]) + len(pairs)
+                metadata_sync_state["done"] = int(metadata_sync_state["done"]) + len(metadata)
+                if len(cold) < 500:
+                    break
+            if total_cached:
+                logger.info(
+                    "favorite metadata synced", extra=log_extra(favcat=favcat, cached=total_cached)
                 )
-            total_cached += len(metadata)
-            if len(cold) < 500:
-                break
-        if total_cached:
-            logger.info(
-                "favorite metadata synced", extra=log_extra(favcat=favcat, cached=total_cached)
-            )
-        # Apply the fresh metadata (tags, category, title, posted, sizes) to the
-        # on-disk galleries of this folder, so local tags stay in sync without
-        # any per-gallery ExHentai fetch.  Skipped automatically when the cache
-        # is unchanged since the last apply.
-        applied = 0
-        for _apply_round in range(100):
-            async with _settings_session() as session, session.begin():
-                applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
-                    favcat, 200
+            # Apply the fresh metadata (tags, category, title, posted, sizes) to the
+            # on-disk galleries of this folder, so local tags stay in sync without
+            # any per-gallery ExHentai fetch.  Skipped automatically when the cache
+            # is unchanged since the last apply.
+            applied = 0
+            metadata_sync_state["stage"] = "apply"
+            for _apply_round in range(100):
+                async with _settings_session() as session, session.begin():
+                    applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
+                        favcat, 200
+                    )
+                if not applied_round:
+                    break
+                applied += applied_round
+                metadata_sync_state["applied"] = int(metadata_sync_state["applied"]) + applied_round
+            if applied:
+                logger.info(
+                    "favorite metadata applied", extra=log_extra(favcat=favcat, applied=applied)
                 )
-            if not applied_round:
-                break
-            applied += applied_round
-        if applied:
-            logger.info(
-                "favorite metadata applied", extra=log_extra(favcat=favcat, applied=applied)
+        except Exception as exc:  # noqa: BLE001 - background task must not crash
+            metadata_sync_state["last_error"] = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "favorite metadata sync failed",
+                extra=log_extra(favcat=favcat, error=type(exc).__name__),
             )
-    except Exception as exc:  # noqa: BLE001 - background task must not crash
-        logger.warning(
-            "favorite metadata sync failed",
-            extra=log_extra(favcat=favcat, error=type(exc).__name__),
-        )
+    finally:
+        _metadata_sync_active -= 1
+        if _metadata_sync_active <= 0:
+            metadata_sync_state["running"] = False
+            metadata_sync_state["stage"] = None
 
 
 @app.post("/api/favorites/categories")

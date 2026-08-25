@@ -15,6 +15,15 @@ metadata synchronisation. This guide covers day-to-day use of the web UI.
 > The password gates the whole instance. There is no per-user account system;
 > the cookie simply proves you know the password.
 
+> **Before scanning your library into the index, it pays to configure ExHentai
+> cookies and run *Favorites → Check all folders* once.** The favorites monitor
+> batches every favorited gallery's metadata (tags, category, posted date, size)
+> into a database cache via the gdata API. Galleries scanned onto disk that the
+> monitor has already seen then reuse that cache directly — no per-gallery
+> ExHentai fetch for tag sync — so the first scan and the tag-sync pass complete
+> far faster. (The same cache is also refreshed automatically on every later
+> folder check.)
+
 ## Navigating the UI
 
 The SPA uses hash routing (`#/library`, `#/gallery/7`, …), so browser refresh

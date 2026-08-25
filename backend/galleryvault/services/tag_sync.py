@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
 from ..db.models import Gallery
+from ..logging import log_extra
 from .eh_client import EhClient
+
+logger = logging.getLogger(__name__)
 
 
 class TagSyncRepository(Protocol):
@@ -28,6 +32,8 @@ class TagSyncRepository(Protocol):
     ) -> list[int]: ...
 
     async def metadata_for_gid(self, gid: int) -> dict | None: ...
+
+    async def upsert_metadata(self, entries: list[dict]) -> int: ...
 
 
 class TagSyncError(ValueError):
@@ -52,6 +58,7 @@ class TagSyncResult:
     title: str
     count: int
     synced_at: datetime
+    source: str = "network"
 
 
 class TagSyncService:
@@ -76,7 +83,9 @@ class TagSyncService:
             count = await self.repository.replace_tags(
                 gallery, cached["tags"], synced_at, category=cached.get("category")
             )
-            return TagSyncResult(gallery.gid, cached.get("title") or gallery.title, count, synced_at)
+            return TagSyncResult(
+                gallery.gid, cached.get("title") or gallery.title, count, synced_at, "cache"
+            )
 
         metadata_fetcher = getattr(self.client, "fetch_gallery_metadata", None)
         if metadata_fetcher is None:
@@ -95,18 +104,47 @@ class TagSyncService:
         count = await self.repository.replace_tags(
             gallery, unique_tags, synced_at, category=metadata.category
         )
-        return TagSyncResult(metadata.gid, metadata.title, count, synced_at)
+        # Backfill the cache so sibling galleries with the same gid (or a later
+        # folder check / duplicate scan) need no further ExHentai fetch.
+        try:
+            await self.repository.upsert_metadata(
+                [
+                    {
+                        "gid": metadata.gid,
+                        "token": gallery.token,
+                        "title": metadata.title,
+                        "title_jpn": metadata.title_jpn,
+                        "category": metadata.category,
+                        "file_size": metadata.file_size,
+                        "tags": [
+                            f"{tag['namespace']}:{tag['name']}"
+                            for tag in unique_tags
+                            if tag.get("name")
+                        ],
+                    }
+                ]
+            )
+        except Exception as exc:  # noqa: BLE001 - cache write must not fail the sync
+            logger.warning(
+                "tag sync cache write failed", extra=log_extra(error=type(exc).__name__)
+            )
+        return TagSyncResult(metadata.gid, metadata.title, count, synced_at, "network")
 
     async def refresh_category(self, identifier: int) -> str | None:
         """Re-fetch a gallery's metadata and refresh only its 大分类.
 
         Used by the one-time backfill for galleries that were tag-synced before
-        category refresh existed (their real category stayed ``other``).  Returns
-        the corrected category, or ``None`` if the gallery is gone.
+        category refresh existed (their real category stayed ``other``).  Uses
+        the cached metadata when available; returns the corrected category, or
+        ``None`` if the gallery is gone.
         """
         gallery = await self.repository.get_for_tag_sync(identifier)
         if gallery is None or gallery.gid is None or not gallery.token:
             return None
+        cached = await self.repository.metadata_for_gid(gallery.gid)
+        if cached and cached.get("category"):
+            await self.repository.refresh_category(identifier, cached["category"])
+            return cached["category"]
         metadata_fetcher = getattr(self.client, "fetch_gallery_metadata", None)
         if metadata_fetcher is None:
             metadata = await self.client.fetch_gallery(gallery.gid, gallery.token)
