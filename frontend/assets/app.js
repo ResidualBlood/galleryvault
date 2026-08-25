@@ -47,7 +47,7 @@ const I18N = {
     dupFound: "Found", dupGroups: "groups", dupItems: "items",
     confirmDupUnfav: "Remove selected from favorites?", confirmDupDelete: "Remove from favorites and delete local copies?",
     dupIgnore: "Ignore", dupUnignore: "Restore", dupIgnored: "Ignored", dupIgnoredOk: "Group ignored",
-    dupUnignoredOk: "Group restored", dupFp: "likely same name", dupFpBlock: "Possible same-name, different works (collapsed)",
+    dupUnignoredOk: "Group restored",
     dupIgnoreSel: "Ignore selected", dupIgnoredPage: "Ignored items", dupIgnoredSub: "Groups you marked as not-duplicates. Select and restore to re-enable them.",
     dupUnignoreSel: "Restore selected",
     favCount: "Galleries (cloud/local)", favSize: "Size (cloud/local)",
@@ -161,7 +161,7 @@ const I18N = {
     dupFound: "发现", dupGroups: "组重复", dupItems: "项",
     confirmDupUnfav: "将所选从收藏夹移除？", confirmDupDelete: "将所选从收藏夹移除并删除本地副本？",
     dupIgnore: "忽略", dupUnignore: "恢复", dupIgnored: "已忽略", dupIgnoredOk: "已忽略该组",
-    dupUnignoredOk: "已恢复该组", dupFp: "疑似同名", dupFpBlock: "疑似同名不同作品（已折叠）",
+    dupUnignoredOk: "已恢复该组",
     dupIgnoreSel: "忽略所选", dupIgnoredPage: "已忽略项目", dupIgnoredSub: "你标记为不重复的组。勾选后点击「恢复所选」重新纳入查重。",
     dupUnignoreSel: "恢复所选",
     deleteFiles: "同时删除磁盘文件", confirmDelete: "确定删除此画廊？",
@@ -1254,21 +1254,18 @@ function renderDupGroups(st) {
   if (!el) return;
   const groups = applyDupFilter(st.groups || []);
   if (!groups.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
-  const normalGroups = groups.filter(g => !g.likely_false_positive);
-  const fpGroups = groups.filter(g => g.likely_false_positive);
   const perPage = 20;
-  const totalPages = Math.max(1, Math.ceil(normalGroups.length / perPage));
+  const totalPages = Math.max(1, Math.ceil(groups.length / perPage));
   const page = Math.max(1, Math.min(dupPage, totalPages));
-  const slice = normalGroups.slice((page - 1) * perPage, page * perPage);
+  const slice = groups.slice((page - 1) * perPage, page * perPage);
   const renderGroup = (g, gi) => {
     const hidden = dupLocallyIgnored.has(g.key);
     return `
-      <div class="panel dup-group ${g.likely_false_positive ? "dup-fp" : ""} ${hidden ? "dup-hidden" : ""}" style="margin-top:14px">
+      <div class="panel dup-group ${hidden ? "dup-hidden" : ""}" style="margin-top:14px">
         <div class="dup-group-head">
           <span class="dup-count">${esc(g.items.length)} ×</span>
           <a class="dup-main-title" href="${esc(g.items[0].url)}" target="_blank" rel="noopener">${esc(g.items[0].title)}</a>
           ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
-          ${g.likely_false_positive ? `<span class="badge dup-fp-badge">${esc(t("dupFp"))}</span>` : ""}
           ${hidden ? `<span class="badge dup-ignored-badge">${esc(t("dupIgnored"))}</span>` : ""}
           <span class="dup-head-actions"><button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
         </div>
@@ -1298,18 +1295,13 @@ function renderDupGroups(st) {
       ? `<strong class="cur">${p}</strong>`
       : `<a class="page-link" href="#" data-action="dup-page" data-page="${p}">${p}</a>`);
   }
-  const pagerHtml = normalGroups.length > perPage
+  const pagerHtml = groups.length > perPage
     ? `<div class="pages pager" style="margin-top:16px">${pageLinks.join(" ")} <span class="muted">${totalPages}</span></div>`
     : "";
-  const normalHtml = slice.length
-    ? `<p class="sub">${esc(t("dupFound"))}: ${normalGroups.length} ${esc(t("dupGroups"))} · ${normalGroups.reduce((n, g) => n + g.items.length, 0)} ${esc(t("dupItems"))}</p>`
-      + slice.map((g, i) => renderGroup(g, (page - 1) * perPage + i)).join("")
-      + pagerHtml
-    : "";
-  const fpHtml = fpGroups.length
-    ? `<details class="dup-fp-block" style="margin-top:18px"><summary><strong>${esc(t("dupFpBlock"))} (${fpGroups.length})</strong></summary>${fpGroups.map(renderGroup).join("")}</details>`
-    : "";
-  el.innerHTML = normalHtml + fpHtml;
+  el.innerHTML = `
+    <p class="sub">${esc(t("dupFound"))}: ${groups.length} ${esc(t("dupGroups"))} · ${groups.reduce((n, g) => n + g.items.length, 0)} ${esc(t("dupItems"))}</p>
+    ${slice.map((g, i) => renderGroup(g, (page - 1) * perPage + i)).join("")}
+    ${pagerHtml}`;
 }
 
 function favRingHtml(done, total) {

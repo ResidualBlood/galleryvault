@@ -284,8 +284,6 @@ a.row:hover { border-color: var(--accent); }
 .dup-badge-local { color: var(--accent); }
 .dup-badge-cloud { color: var(--muted); }
 .dup-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-.dup-fp-badge { background: #5c4a1c; color: #f5e3c9; }
-.dup-fp-block summary { cursor: pointer; color: var(--muted); margin-bottom: 4px; }
 .dup-ignored-row { display: inline-flex; align-items: center; gap: 8px; margin: 6px 12px 0 0; }
 .dup-hidden { opacity: .45; position: relative; }
 .dup-hidden::before {
