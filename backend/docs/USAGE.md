@@ -41,8 +41,10 @@ and back/forward work without server round-trips.
 - Shows metadata (including gallery size, adaptive units), tags, and page
   thumbnails.
 - **Read now** opens the reader at your last reading position (or page 1).
-- **Sync tags** pulls tags/metadata from ExHentai for this gallery (requires
-  configured cookies).
+- **Sync tags** pulls tags/metadata for this gallery. When the favorites
+  monitor already cached it, the sync is served **from the database cache** (a
+  toast says so); otherwise it fetches ExHentai and backfills the cache. The
+  detail page also shows which favorite folders the gallery belongs to.
 
 ### Reader (`#/reader/<id>/<page>`)
 
@@ -79,6 +81,9 @@ and back/forward work without server round-trips.
   are missing — pages already on disk (in the temp or final folder) are skipped.
 - Pending/active tasks can be **cancelled**; failed/cancelled/success tasks can
   be **retried**, individually or in bulk via checkboxes + Retry selected.
+- The top of the page shows **background task progress** (library scan, tag
+  sync, thumbnails, and the favorites metadata sync/apply that runs after a
+  folder check), so you can watch the cache being built and applied.
 - When a Telegram bot is configured you get a notification on download
   success / failure and when a library scan finishes.
 
