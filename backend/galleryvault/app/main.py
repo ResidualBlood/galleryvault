@@ -2094,6 +2094,8 @@ async def _seed_thumbnails() -> None:
         added += 1
     thumb_state["total"] = missing_total
     thumb_state["queued"] = thumb_queue.qsize()
+    if added:
+        thumb_state["running"] = True
     logger.info(
         "thumbnail seeding complete", extra=log_extra(queued=added, pending=missing_total)
     )
@@ -2108,6 +2110,9 @@ async def _thumbnail_worker_loop() -> None:
             try:
                 gallery_id = await asyncio.wait_for(thumb_queue.get(), timeout=5)
             except TimeoutError:
+                # Queue drained: reflect idle so the task-progress UI hides.
+                thumb_state["running"] = thumb_queue.qsize() > 0
+                thumb_state["queued"] = thumb_queue.qsize()
                 continue
             thumb_queued.discard(gallery_id)
             try:
