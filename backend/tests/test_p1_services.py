@@ -136,7 +136,7 @@ class FakeFavoritesRepo:
 
 
 class FakeFetcher:
-    async def fetch_favorites(self, favcat: int) -> list[FavoriteData]:
+    async def fetch_favorites(self, favcat: int, progress=None) -> list[FavoriteData]:
         return [FavoriteData(1, "a", "one", "u"), FavoriteData(1, "a", "one", "u")]
 
 

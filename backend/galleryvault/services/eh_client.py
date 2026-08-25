@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Self
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -393,13 +394,18 @@ class EhClient:
             int(gid), token, title, pages, tags, _parse_category(body), title_jpn
         )
 
-    async def fetch_favorites(self, favcat: int) -> list[FavoriteData]:
+    async def fetch_favorites(
+        self,
+        favcat: int,
+        progress: Callable[[int], object] | None = None,
+    ) -> list[FavoriteData]:
         """Fetch every gallery in a favorite folder, following ExHentai paging.
 
         ExHentai favorites are paginated with a ``next`` cursor embedded in the
         page (``var nexturl="...?favcat=N&next=gid-timestamp"``) rather than a
         ``page`` number; walking only the first page silently drops the tail of
-        a large folder.
+        a large folder.  ``progress`` (if given) is called with the number of
+        galleries collected so far after every page.
         """
         result: list[FavoriteData] = []
         seen: set[int] = set()
@@ -426,6 +432,8 @@ class EhClient:
             if not items:
                 break
             result.extend(items)
+            if progress is not None:
+                progress(len(result))
             next_url = html.unescape(_favorites_next_url(response.text))
             if not next_url:
                 break

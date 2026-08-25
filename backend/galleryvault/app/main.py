@@ -93,6 +93,11 @@ tag_sync_attempts: dict[int, int] = {}
 tag_sync_worker_task = None
 translation_update_task = None
 _download_cancelled: set[int] = set()
+favorites_check_state: dict[str, object] = {
+    "running": False,
+    "categories": {},
+    "last_error": None,
+}
 translation_state: dict[str, object] = {
     "running": False,
     "last": None,
@@ -1443,6 +1448,11 @@ async def favorite_categories() -> list[dict[str, object]]:
     return result
 
 
+@app.get("/api/favorites/check-status")
+async def favorites_check_status() -> dict[str, object]:
+    return dict(favorites_check_state)
+
+
 @app.post("/api/favorites/compute-sizes", status_code=202)
 async def compute_favorite_sizes() -> dict[str, object]:
     """Fetch missing gallery sizes in the background for exact cloud sizes."""
@@ -1585,15 +1595,54 @@ async def check_favorites(favcat: int) -> dict[str, object]:
 
 
 async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
-    async with _settings_session() as session:
-        category = await FavoritesRepository(session).category(favcat)
-    # A disabled folder is check-only: record entries but never download. It
-    # only starts downloading once the user enables the folder.
-    if category is not None and not category.enabled:
-        await service.check_category(favcat, mode="monitor_only")
-    else:
-        await service.check_category(favcat, mode=category.mode if category else "incremental")
-    _spawn(_favorite_size_sync(favcat), f"favorite size sync {favcat}")
+    entry: dict[str, object] = {
+        "running": True,
+        "started": datetime.now(UTC).isoformat(),
+        "error": None,
+        "done": 0,
+        "total": 0,
+    }
+    categories = favorites_check_state["categories"]
+    assert isinstance(categories, dict)
+    categories[str(favcat)] = entry
+    favorites_check_state["running"] = True
+    try:
+        try:
+            counts = await _favorite_counts_cached()
+            entry["total"] = counts.get(favcat, 0)
+        except Exception as exc:  # noqa: BLE001 - live count is best-effort
+            logger.warning(
+                "could not fetch live count for check progress",
+                extra=log_extra(favcat=favcat, error=type(exc).__name__),
+            )
+
+        def _progress(done: int) -> None:
+            entry["done"] = done
+
+        async with _settings_session() as session:
+            category = await FavoritesRepository(session).category(favcat)
+        # A disabled folder is check-only: record entries but never download. It
+        # only starts downloading once the user enables the folder.
+        if category is not None and not category.enabled:
+            await service.check_category(favcat, mode="monitor_only", progress=_progress)
+        else:
+            await service.check_category(
+                favcat,
+                mode=category.mode if category else "incremental",
+                progress=_progress,
+            )
+        _spawn(_favorite_size_sync(favcat), f"favorite size sync {favcat}")
+    except Exception as exc:  # noqa: BLE001 - record and surface in the UI
+        entry["error"] = f"{type(exc).__name__}: {exc}"
+        favorites_check_state["last_error"] = entry["error"]
+        logger.warning(
+            "favorites check failed", extra=log_extra(favcat=favcat, error=type(exc).__name__)
+        )
+    finally:
+        entry["running"] = False
+        favorites_check_state["running"] = any(
+            item.get("running") for item in categories.values()
+        )
 
 
 async def _favorites_poll_loop() -> None:

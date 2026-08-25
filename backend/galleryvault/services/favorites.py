@@ -39,7 +39,12 @@ class FavoritesService:
         )
 
     async def check_category(
-        self, favcat: int, *, mode: str = "incremental", retries: int = 3
+        self,
+        favcat: int,
+        *,
+        mode: str = "incremental",
+        retries: int = 3,
+        progress: Any | None = None,
     ) -> FavoritesCheckResult:
         if mode not in MODES:
             raise ValueError("mode must be monitor_only, incremental, or force")
@@ -49,7 +54,7 @@ class FavoritesService:
         attempts = min(max(1, retries), 3)
         for attempt in range(1, attempts + 1):
             try:
-                items = await self.fetcher.fetch_favorites(favcat)
+                items = await self.fetcher.fetch_favorites(favcat, progress=progress)
                 fetched = True
                 break
             except Exception as exc:  # noqa: BLE001
