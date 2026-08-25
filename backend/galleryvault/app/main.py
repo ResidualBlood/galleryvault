@@ -1845,6 +1845,7 @@ async def gallery_detail(identifier: int) -> dict[str, object]:
         "storage_type": row.storage_type,
         "category": row.category or "other",
         "page_count": len(pages),
+        "file_size": row.file_size,
         "pages": [
             {"index": p.page_index, "name": p.member_name, "media_type": p.media_type}
             for p in pages
