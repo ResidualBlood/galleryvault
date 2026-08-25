@@ -48,17 +48,18 @@ galleryvault/
   db/                  # SQLAlchemy models, repositories, session
   scanners/            # ehviewer / zip / rar / folder scanners + registry
   services/
-    downloader.py      # ExHentai download engine (concurrent pages, resume, max_pages)
-    eh_client.py       # ExHentai HTML scraper (httpx) + EhClientError/GalleryGoneError
-    favorites.py       # favorite-folder monitor + download queue
+    downloader.py      # ExHentai download engine (concurrent pages, resume, max_pages, cancel)
+    eh_client.py       # ExHentai HTML scraper (httpx) + GalleryGoneError + favorites paging/sizes
+    favorites.py       # favorite-folder monitor + download queue (check-only when disabled)
     ingest.py          # metadata ingestion from scan results
     library.py         # filesystem scanning / expiry
     tag_sync.py        # per-gallery tag & category sync, category backfill
     tag_translation.py # EhTagTranslation database loading + translation lookups
     telegram.py        # TelegramNotifier (async client)
     telegram_bot.py    # long-poll bot for incoming commands
+    thumbnails.py      # static JPEG thumbnail generation + on-disk cache
   logging.py
-alembic/               # database migrations (0001..0011)
+alembic/               # database migrations (0001..0012)
 tests/                 # pytest suite
 docs/                  # this guide, USAGE.md, API.md
 Dockerfile
@@ -147,8 +148,48 @@ Migrations are applied automatically on container boot (`CMD` runs
 `alembic upgrade head` before uvicorn), so `docker compose pull && up -d` is a
 complete upgrade. Notable migrations: `0009` added the `category_refreshed_at`
 column (one-time category backfill), `0010` merged `other` into `misc` and
-moved coordinate-less galleries to `deleted`, and `0011` added
-`download_tasks.max_pages` so partial/sample downloads survive the worker.
+moved coordinate-less galleries to `deleted`, `0011` added
+`download_tasks.max_pages` so partial/sample downloads survive the worker, and
+`0012` added `favorite_items.file_size` for exact cloud-size estimates.
+
+## Thumbnails (缩略图)
+
+`services/thumbnails.py` renders static JPEG thumbnails (max 240px wide) into
+a dedicated cache dir (`thumbnail_cache_dir`, default `/gv-cache/thumbs`, a
+volume mounted at `/gv-cache`) keyed by gallery id + page index. Animated
+formats become static first frames. Nothing is ever written into the gallery
+archives. A background worker (`_thumbnail_worker_loop`, 4 concurrent)
+generates every page for queued galleries; progress is exposed via
+`GET /api/thumbs/status`. Gallery cover art and the detail-page thumbnail grid
+load `/api/galleries/{id}/thumb/{page}` instead of the full-size page.
+
+## Favorites (收藏夹)
+
+- `fetch_favorites` walks ExHentai's `next` cursor (not `page=`), calling a
+  `progress` callback with the walked count; per-folder check progress lives in
+  `favorites_check_state` (see `GET /api/favorites/check-status`).
+- A **disabled** folder runs check-only (`monitor_only`): it records items and
+  fetches sizes but never downloads. Only enabled folders download.
+- `remember_many` upserts in 500-row batches (a single INSERT for a folder with
+  thousands of galleries exceeds the asyncpg parameter limit).
+- `cloud_size` = local real size + fetched sizes of missing galleries
+  (`favorite_items.file_size`, via `_favorite_size_sync`) + an average estimate
+  for the unfetched tail.
+
+## Building & deploying (生产)
+
+This is a local deployment: build the two images locally (fast, dependency
+layer is cached), then `docker compose up -d` — no need to wait for CI.
+
+```bash
+cd /mnt/GalleryVault/backend && docker build -t residualblood/galleryvault-backend:latest .
+cd /mnt/GalleryVault/frontend && docker build -t residualblood/galleryvault-frontend:latest .
+cd /mnt/ehviewer && docker compose up -d backend frontend
+```
+
+`git push` afterwards runs CI (test + lint + build-push to Docker Hub) for
+other machines. Runtime containers are authoritative: `docker cp` edits do not
+persist across recreation.
 
 ## Tag translations (标签翻译)
 

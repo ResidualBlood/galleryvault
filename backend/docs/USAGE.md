@@ -85,17 +85,24 @@ and back/forward work without server round-trips.
 ### Favorites (`#/favorites`)
 
 - Lists the ten ExHentai favorite folders with enable checkbox, mode
-  (incremental / monitor_only / force) and polling interval; **保存** writes
-  them all at once.
+  (incremental / 仅监控 monitor_only / force) and polling interval; **保存**
+  writes them all at once.
 - **同步收藏夹名称** pulls folder names from ExHentai.
-- **立即检查** scans that folder and enqueues galleries you do not yet have
-  locally. When *download favorites* is enabled in Settings this also runs on
-  a schedule.
+- **立即检查** scans that folder. A **disabled** folder is check-only (records
+  items and sizes, never downloads); an **enabled** folder downloads galleries
+  you do not yet have. When *download favorites* is enabled in Settings this
+  also runs on a schedule.
+- Each folder shows **云端/本地** gallery counts and sizes (cloud size is exact
+  once the missing galleries' sizes have been fetched). A **progress ring**
+  appears next to the folder name while a check runs (hover shows walked/total),
+  and disappears when the sync completes.
 
 ### Settings (`#/settings`)
 
-- **Library roots**: one filesystem path per line. In Docker these must be
-  paths mounted into the container.
+- **Library roots** (read-only): one filesystem path per line. In Docker these
+  must be paths mounted into the container. New downloads never land here.
+- **Downloads**: root directory (where downloads are stored and scanned
+  automatically), concurrency, quality (普通/原图), H@H network, `max_pages`.
 - **Account**: toggle *Require login*. **Change password** asks for the current
   and new password; if still on the default `p1a2s3s4`, a banner prompts you to
   change it. Turning *Require login* off disables authentication entirely.
@@ -103,13 +110,20 @@ and back/forward work without server round-trips.
   cookies (exported from a logged-in browser session). **测试登录** validates
   them. Cookies are never echoed back to the UI.
 - **Proxy**: HTTP **or** SOCKS5 (not both).
-- **Downloads**: root directory, concurrency, quality (普通/原图), H@H network.
-- **标签同步**: automatic tag sync after scans / startup, interval, concurrency.
-- **Favorites**: enable auto-download and set the polling interval.
+- **标签同步**: automatic tag sync after scans / startup, interval, concurrency,
+  plus a **立即同步标签** (Sync tags now) button.
+- **Thumbnails**: *Generate thumbnails* switch and **立即生成** (Generate now)
+  button; progress appears in the Background-tasks bar.
 - **Telegram**: bot token, chat IDs, allowed user IDs — **发送测试消息** verifies
   the bot can reach the configured chat.
 - **翻译自动更新**: interval (minutes, 0 = off) for the backend to pull the
   latest EhTagTranslation release; **立即更新** forces a refresh.
+
+### Downloads (`#/downloads`)
+
+- Each task can be **cancelled** (stops the page writes and removes the partial
+  temp dir), **retried**, or **deleted** (removes the task record); bulk
+  operations via **全选 / 重试所选 / 删除所选**.
 
 ## Configuration
 

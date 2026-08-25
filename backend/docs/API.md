@@ -90,8 +90,9 @@ derives `favorites_categories` from the enabled ones.
 | ------ | ---- | ----------- |
 | POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. Returns `202 {id, gid, status}`. |
 | GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤100), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress and `retry_count`/`max_retries`. |
-| POST | `/api/downloads/{task_id}/cancel` | Cancel a pending/active task. |
-| POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`204`-style `{id, status:pending}`). |
+| POST | `/api/downloads/{task_id}/cancel` | Cancel a pending/active task. An in-flight download is interrupted (page writes stop, the partial temp dir is removed). |
+| POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`). |
+| DELETE | `/api/downloads/{task_id}` | `204` – permanently remove a download task and its attempt log. |
 
 ```bash
 curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
@@ -103,10 +104,12 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/favorites/categories` | The ten favorite folders with `enabled`/`mode`. |
+| GET | `/api/favorites/categories` | The ten favorite folders with `enabled`/`mode`, plus `cloud_count` (live folder size from the favorites page header), `local_count`/`local_size` (galleries already local, from `favorite_items`), `cloud_size` (exact: local real size + fetched sizes of missing galleries, with an average estimate for the unfetched tail). |
 | POST | `/api/favorites/categories` | Body `{favcat, enabled?, mode?}` to update one folder. |
 | POST | `/api/favorites/sync-categories` | Refresh folder names from ExHentai. |
-| POST | `/api/favorites/{favcat}/check` | `202` – scan folder `favcat` and enqueue missing galleries. |
+| POST | `/api/favorites/{favcat}/check` | `202` – scan folder `favcat`. A disabled folder runs check-only (`monitor_only`): records items and sizes but never downloads; an enabled folder downloads missing galleries per its mode. |
+| GET | `/api/favorites/check-status` | Per-folder check progress: `{running, categories: {favcat: {running, done, total, error}}, last_error}`. `done`/`total` track the cursor walk. |
+| POST | `/api/favorites/compute-sizes` | `202` – fetch sizes for missing galleries in the background so `cloud_size` becomes exact. |
 
 ## Galleries (local library)
 
@@ -118,6 +121,7 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes the on-disk directory. |
 | POST | `/api/galleries/delete-bulk` | Body `{ids: [...], delete_files?: bool}`. Bulk remove galleries by id; returns `{deleted}`. |
 | GET | `/api/galleries/{identifier}/pages/{page_index}` | Stream one page image (`image/jpeg`/`image/png`/…). |
+| GET | `/api/galleries/{identifier}/thumb/{page_index}` | Serve a cached static JPEG thumbnail for a page (generated on first access into `/gv-cache/thumbs`, `Cache-Control` + `ETag`). |
 | GET | `/api/galleries/{identifier}/progress` | Reading progress (`current_page`, `total_pages`). |
 | PUT | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – records progress and history. |
 | POST | `/api/galleries/{identifier}/sync-tags` | Sync tags from ExHentai. |
@@ -145,14 +149,17 @@ release (the same source ehsyringe uses). A background task runs every
 refresh is available via the button in Settings. Markdown icon syntax
 (`![alt](url)`) embedded in translations is stripped for display.
 
-## Library scan & tag-sync status
+## Library scan, tag-sync & thumbnails
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/scan` | Current scan status (`running`, `last`). |
 | POST | `/api/scan` | `202` – trigger a library scan. |
 | GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
+| POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. |
 | POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |
+| GET | `/api/thumbs/status` | Thumbnail generation worker status (`running`, `queued`, `processed`, `succeeded`, `failed`, `total`, `last_error`). |
+| POST | `/api/thumbs/generate` | `202` – queue every gallery missing a cover thumbnail for background generation. |
 
 ## Errors
 
