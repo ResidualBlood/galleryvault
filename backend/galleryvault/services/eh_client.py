@@ -472,6 +472,48 @@ class EhClient:
             raise EhClientError("ExHentai authentication is required or expired")
         response.raise_for_status()
 
+    async def fetch_gmetadata(
+        self, pairs: list[tuple[int, str]]
+    ) -> dict[int, dict[str, Any]]:
+        """Batch-fetch gallery metadata via the ExHentai ``gdata`` API.
+
+        ExHentai caps each request at 25 galleries, so larger lists are chunked.
+        Returns ``{gid: {thumb, title, title_jpn, category, file_count,
+        file_size, tags}}`` for every gallery the API answered with.
+        """
+        result: dict[int, dict[str, Any]] = {}
+        for start in range(0, len(pairs), 25):
+            chunk = pairs[start : start + 25]
+            payload = {
+                "method": "gdata",
+                "gidlist": [[int(gid), token] for gid, token in chunk],
+                "namespace": 1,
+            }
+            response = await self.client.post(
+                "/api.php",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            if response.status_code in (401, 403) or "login" in str(response.url).lower():
+                raise EhClientError("ExHentai authentication is required or expired")
+            response.raise_for_status()
+            try:
+                body = response.json()
+            except ValueError as exc:
+                raise EhClientError("ExHentai gdata response was not JSON") from exc
+            for gallery in body.get("gmetadata", []) or []:
+                gid = int(gallery.get("gid"))
+                result[gid] = {
+                    "thumb": html.unescape(gallery.get("thumb", "") or ""),
+                    "title": gallery.get("title", "") or "",
+                    "title_jpn": gallery.get("title_jpn") or None,
+                    "category": gallery.get("category") or None,
+                    "file_count": int(gallery.get("filecount") or 0),
+                    "file_size": int(gallery.get("filesize") or 0) or None,
+                    "tags": gallery.get("tags", []) or [],
+                }
+        return result
+
     async def fetch_gallery_by_category(self, category: str) -> tuple[int, str] | None:
         """Return the first ``(gid, token)`` listed for an ExHentai content category."""
         masks = {

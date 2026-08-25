@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import contextlib
 import hmac
 import logging
@@ -1441,6 +1442,20 @@ async def favorite_items(
             )
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
+    cloud_pairs = [
+        (item.gid, item.token)
+        for item, gallery in rows
+        if gallery is None and item.token
+    ]
+    metadata: dict[int, dict[str, object]] = {}
+    if cloud_pairs and app.state.eh_client is not None:
+        try:
+            metadata = await app.state.eh_client.fetch_gmetadata(cloud_pairs)
+        except Exception as exc:  # noqa: BLE001 - covers/metadata are best-effort
+            logger.warning(
+                "favorite gdata fetch failed", extra=log_extra(error=type(exc).__name__)
+            )
+    cover_data = await _remote_cover_data_batch(cloud_pairs, metadata)
     items = []
     for item, gallery in rows:
         if gallery is not None:
@@ -1455,13 +1470,17 @@ async def favorite_items(
                 for ns, name in tag_map.get(gallery.id, [])
             ]
         else:
-            title = item.title or f"gid {item.gid}"
-            title_jpn = None
-            category = None
-            page_count = None
+            meta = metadata.get(item.gid, {})
+            title = item.title or meta.get("title") or f"gid {item.gid}"
+            title_jpn = meta.get("title_jpn")
+            category = meta.get("category")
+            page_count = meta.get("file_count")
             cover_url = None
-            file_size = None
-            tags = []
+            file_size = meta.get("file_size") or item.file_size
+            tags = [
+                {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                for ns, name in _parse_gdata_tags(meta.get("tags", []))
+            ]
         items.append(
             {
                 "favcat": item.favcat,
@@ -1474,7 +1493,9 @@ async def favorite_items(
                 "category": category,
                 "page_count": page_count,
                 "cover_url": cover_url,
+                "cover_data": cover_data.get(item.gid),
                 "file_size": file_size,
+                "first_seen_at": item.first_seen_at,
                 "tags": tags,
             }
         )
@@ -1545,13 +1566,48 @@ async def _run_duplicates_scan() -> None:
     try:
         async with _settings_session() as session:
             items = await FavoritesRepository(session).all_items()
-            gids = list({gid for _, gid, _, _, _, _ in items})
+            gids = list({item[1] for item in items})
             duplicates_state["total"] = len(items)
             duplicates_state["stage"] = "analyzing"
             gallery_titles = await FavoritesRepository(session).gallery_titles_by_gid(gids)
             duplicates_state["done"] = len(items)
             duplicates_state["stage"] = "grouping"
             groups = find_duplicate_groups(items, gallery_titles=gallery_titles)
+            group_items = [it for g in groups for it in g["items"]]
+            local_ids = [it["gallery_id"] for it in group_items if it["gallery_id"] is not None]
+            tag_map = await FavoritesRepository(session).tags_for_gallery_ids(local_ids)
+            cloud_pairs = [
+                (it["gid"], it["token"]) for it in group_items if it["gallery_id"] is None
+            ]
+            gmeta: dict[int, dict[str, object]] = {}
+            duplicates_state["stage"] = "enriching"
+            if cloud_pairs and app.state.eh_client is not None:
+                try:
+                    gmeta = await app.state.eh_client.fetch_gmetadata(cloud_pairs)
+                except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+                    logger.warning(
+                        "duplicate gdata enrichment failed",
+                        extra=log_extra(error=type(exc).__name__),
+                    )
+            for it in group_items:
+                if it["gallery_id"] is not None:
+                    it["title_jpn"] = (gallery_titles.get(it["gid"], (None, None)))[1]
+                    it["tags"] = [
+                        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                        for ns, name in tag_map.get(it["gallery_id"], [])
+                    ]
+                else:
+                    meta = gmeta.get(it["gid"], {})
+                    it["file_size"] = it["file_size"] or meta.get("file_size")
+                    it["title_jpn"] = meta.get("title_jpn")
+                    it["tags"] = [
+                        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                        for ns, name in _parse_gdata_tags(meta.get("tags", []))
+                    ]
+            cover_map = await _remote_cover_data_batch(cloud_pairs, gmeta)
+            for it in group_items:
+                if it["gallery_id"] is None:
+                    it["cover_data"] = cover_map.get(it["gid"])
             duplicates_state["groups"] = groups
             duplicates_state["done"] = len(items)
             duplicates_state["stage"] = "done"
@@ -2324,6 +2380,76 @@ def _thumb_service() -> ThumbnailService:
     if thumb_service is None:
         thumb_service = ThumbnailService(_settings().thumbnail_cache_dir)
     return thumb_service
+
+
+def _remote_cover_cache_dir() -> Path:
+    return Path(_settings().thumbnail_cache_dir).parent / "remote-covers"
+
+
+def _img_data_uri(data: bytes) -> str:
+    media_type = _image_content_type(data)
+    return f"data:{media_type};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def _parse_gdata_tags(raw_tags: list[str]) -> list[tuple[str | None, str]]:
+    out = []
+    for value in raw_tags:
+        if not value:
+            continue
+        if ":" in value:
+            namespace, name = value.split(":", 1)
+        else:
+            namespace, name = None, value
+        out.append((namespace or None, name.strip()))
+    return out
+
+
+async def _remote_cover_data_batch(
+    pairs: list[tuple[int, str]], metadata: dict[int, dict[str, object]]
+) -> dict[int, str]:
+    """Download (and cache) ExHentai cover thumbnails, returning base64 data URIs.
+
+    One gdata metadata fetch already resolved the thumb URLs in bulk; this only
+    downloads the small images, concurrently and cached under
+    ``/gv-cache/remote-covers/{gid}.img``.
+    """
+    if not pairs:
+        return {}
+    cache_dir = _remote_cover_cache_dir()
+    client = app.state.eh_client
+    if client is None:
+        return {}
+    semaphore = asyncio.Semaphore(8)
+
+    async def fetch_one(gid: int, thumb_url: str) -> str | None:
+        if not thumb_url:
+            return None
+        path = cache_dir / f"{gid}.img"
+        if path.is_file():
+            return _img_data_uri(path.read_bytes())
+        async with semaphore:
+            try:
+                response = await client.client.get(
+                    thumb_url,
+                    headers={"Referer": _settings().exhentai_base_url.rstrip("/") + "/"},
+                )
+                if response.status_code != 200 or len(response.content) < 200:
+                    return None
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_suffix(".tmp")
+                tmp.write_bytes(response.content)
+                tmp.replace(path)
+                return _img_data_uri(response.content)
+            except Exception:  # noqa: BLE001 - one cover must not fail the list
+                return None
+
+    results = await asyncio.gather(
+        *(
+            fetch_one(gid, str((metadata.get(gid) or {}).get("thumb", "") or ""))
+            for gid, _ in pairs
+        )
+    )
+    return {gid: data for (gid, _), data in zip(pairs, results) if data}
 
 
 def _image_content_type(data: bytes) -> str:

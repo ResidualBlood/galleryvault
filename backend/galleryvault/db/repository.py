@@ -1021,10 +1021,12 @@ class FavoritesRepository:
         ).all()
         return total, [(row[0], row[1]) for row in rows]
 
-    async def all_items(self) -> list[tuple[int, int, str, str, str, int | None]]:
-        """Every recorded favorite item joined with the local gallery title.
+    async def all_items(self) -> list[tuple]:
+        """Every recorded favorite item joined with the local gallery.
 
-        Returns ``(favcat, gid, token, title, url, gallery_id|None)``.
+        Returns ``(favcat, gid, token, title, url, gallery_id, file_size,
+        first_seen_at)`` where ``file_size`` prefers the on-disk gallery's real
+        size and falls back to the recorded favorite size.
         """
         rows = await self.session.execute(
             select(
@@ -1034,13 +1036,38 @@ class FavoritesRepository:
                 FavoriteItem.title,
                 FavoriteItem.url,
                 Gallery.id,
-            )
-            .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+                func.coalesce(Gallery.file_size, FavoriteItem.file_size),
+                FavoriteItem.first_seen_at,
+            ).outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
         )
         return [
-            (int(r[0]), int(r[1]), str(r[2]), str(r[3]), str(r[4]), int(r[5]) if r[5] is not None else None)
+            (
+                int(r[0]),
+                int(r[1]),
+                str(r[2]),
+                str(r[3]),
+                str(r[4]),
+                int(r[5]) if r[5] is not None else None,
+                int(r[6]) if r[6] is not None else None,
+                r[7],
+            )
             for r in rows
         ]
+
+    async def tags_for_gallery_ids(
+        self, gallery_ids: list[int]
+    ) -> dict[int, list[tuple[str, str]]]:
+        if not gallery_ids:
+            return {}
+        rows = await self.session.execute(
+            select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
+            .join(Tag, Tag.id == GalleryTag.tag_id)
+            .where(GalleryTag.gallery_id.in_(list(dict.fromkeys(gallery_ids))))
+        )
+        result: dict[int, list[tuple[str, str]]] = {}
+        for gallery_id, namespace, name in rows:
+            result.setdefault(int(gallery_id), []).append((namespace, name))
+        return result
 
     async def remove_gids(self, gids: list[int]) -> int:
         if not gids:
