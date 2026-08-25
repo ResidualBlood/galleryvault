@@ -1600,6 +1600,7 @@ async def _run_duplicates_scan() -> None:
                     meta = gmeta.get(it["gid"], {})
                     it["file_size"] = it["file_size"] or meta.get("file_size")
                     it["title_jpn"] = meta.get("title_jpn")
+                    it["posted_at"] = _unix_to_iso(meta.get("posted"))
                     it["tags"] = [
                         {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
                         for ns, name in _parse_gdata_tags(meta.get("tags", []))
@@ -1608,6 +1609,33 @@ async def _run_duplicates_scan() -> None:
             for it in group_items:
                 if it["gallery_id"] is None:
                     it["cover_data"] = cover_map.get(it["gid"])
+            missing_posted = [
+                (it["gid"], it["token"])
+                for it in group_items
+                if not it["posted_at"] and it["token"]
+            ]
+            if missing_posted and app.state.eh_client is not None:
+                try:
+                    posted_meta = await app.state.eh_client.fetch_gmetadata(missing_posted)
+                except Exception as exc:  # noqa: BLE001 - best-effort
+                    posted_meta = {}
+                    logger.warning(
+                        "duplicate posted enrichment failed",
+                        extra=log_extra(error=type(exc).__name__),
+                    )
+                local_write: dict[int, datetime] = {}
+                for it in group_items:
+                    if it["posted_at"] or it["gid"] not in posted_meta:
+                        continue
+                    posted = _unix_to_iso(posted_meta[it["gid"]].get("posted"))
+                    if not posted:
+                        continue
+                    it["posted_at"] = posted
+                    if it["gallery_id"] is not None:
+                        local_write[it["gid"]] = datetime.fromisoformat(posted)
+                if local_write:
+                    async with _settings_session() as session, session.begin():
+                        await FavoritesRepository(session).update_posted_at(local_write)
             duplicates_state["groups"] = groups
             duplicates_state["done"] = len(items)
             duplicates_state["stage"] = "done"
@@ -1786,8 +1814,8 @@ def _estimate_cloud_size(cloud: int, local: int, local_size: int) -> int:
 async def _favorite_size_sync(favcat: int) -> None:
     """Fetch missing gallery sizes from ExHentai into favorite_items.file_size.
 
-    Runs in the background so the folder check itself stays fast; the exact
-    size improves the cloud-size figure on the Favorites page.
+    Uses the batched ``gdata`` API (25 galleries per request) instead of one
+    HTML fetch per gallery, so large folders sync with a handful of requests.
     """
     try:
         async with _settings_session() as session:
@@ -1797,18 +1825,19 @@ async def _favorite_size_sync(favcat: int) -> None:
         client = app.state.eh_client
         if client is None:
             return
-        semaphore = asyncio.Semaphore(4)
-
-        async def fetch_one(gid: int, token: str) -> tuple[int, int | None]:
-            async with semaphore:
-                try:
-                    meta = await client.fetch_gallery_metadata(gid, token)
-                    return gid, meta.file_size
-                except Exception:  # noqa: BLE001 - one gallery must not block the sync
-                    return gid, None
-
-        results = await asyncio.gather(*(fetch_one(gid, token) for gid, token in pending))
-        sizes = {gid: size for gid, size in results if size}
+        try:
+            metadata = await client.fetch_gmetadata(pending)
+        except Exception as exc:  # noqa: BLE001 - sync must not crash the check
+            logger.warning(
+                "favorite size gdata sync failed",
+                extra=log_extra(favcat=favcat, error=type(exc).__name__),
+            )
+            return
+        sizes = {
+            gid: size
+            for gid, meta in metadata.items()
+            if (size := meta.get("file_size"))
+        }
         async with _settings_session() as session, session.begin():
             for gid, size in sizes.items():
                 await FavoritesRepository(session).set_file_size(favcat, gid, size)
@@ -2389,6 +2418,15 @@ def _remote_cover_cache_dir() -> Path:
 def _img_data_uri(data: bytes) -> str:
     media_type = _image_content_type(data)
     return f"data:{media_type};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def _unix_to_iso(value: object) -> str | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value), tz=UTC).isoformat()
+    except (ValueError, OSError, OverflowError):
+        return None
 
 
 def _parse_gdata_tags(raw_tags: list[str]) -> list[tuple[str | None, str]]:

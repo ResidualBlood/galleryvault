@@ -36,22 +36,22 @@ def artist_from_title(title: str) -> str | None:
 
 
 def find_duplicate_groups(
-    items: list[tuple[int, int, str, str, str, int | None, int | None, object]],
+    items: list[tuple[int, int, str, str, str, int | None, int | None, object, object]],
     *,
     gallery_titles: dict[int, tuple[str | None, str | None]],
 ) -> list[dict[str, Any]]:
     """Group favorite items that are likely the same work in different versions.
 
     ``items`` is ``(favcat, gid, token, title, url, gallery_id, file_size,
-    first_seen_at)``.  Titles are taken from the favorite record, falling back
-    to the local gallery's English then Japanese title.  Items with no usable
-    title are skipped.
+    first_seen_at, posted_at)``.  Titles are taken from the favorite record,
+    falling back to the local gallery's English then Japanese title.  Items
+    with no usable title are skipped.
 
     A group requires a matching (normalized title, artist) pair with at least
     two distinct gallery ids.
     """
     keyed: dict[tuple[str, str | None], list[dict[str, Any]]] = defaultdict(list)
-    for favcat, gid, token, title, url, gallery_id, file_size, first_seen_at in items:
+    for favcat, gid, token, title, url, gallery_id, file_size, first_seen_at, posted_at in items:
         eff_title = title
         if not eff_title and gallery_id is not None:
             en, jp = gallery_titles.get(gid, (None, None))
@@ -72,6 +72,7 @@ def find_duplicate_groups(
                 "gallery_id": gallery_id,
                 "file_size": file_size,
                 "first_seen_at": first_seen_at,
+                "posted_at": posted_at,
             }
         )
     groups = []

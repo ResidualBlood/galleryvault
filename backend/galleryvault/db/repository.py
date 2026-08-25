@@ -1025,8 +1025,8 @@ class FavoritesRepository:
         """Every recorded favorite item joined with the local gallery.
 
         Returns ``(favcat, gid, token, title, url, gallery_id, file_size,
-        first_seen_at)`` where ``file_size`` prefers the on-disk gallery's real
-        size and falls back to the recorded favorite size.
+        first_seen_at, posted_at)`` where ``file_size`` prefers the on-disk
+        gallery's real size and falls back to the recorded favorite size.
         """
         rows = await self.session.execute(
             select(
@@ -1038,6 +1038,7 @@ class FavoritesRepository:
                 Gallery.id,
                 func.coalesce(Gallery.file_size, FavoriteItem.file_size),
                 FavoriteItem.first_seen_at,
+                Gallery.posted_at,
             ).outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
         )
         return [
@@ -1050,6 +1051,7 @@ class FavoritesRepository:
                 int(r[5]) if r[5] is not None else None,
                 int(r[6]) if r[6] is not None else None,
                 r[7],
+                r[8],
             )
             for r in rows
         ]
@@ -1116,6 +1118,17 @@ class FavoritesRepository:
             )
         )
         return {int(gid): (title, title_jpn) for gid, title, title_jpn in rows if gid is not None}
+
+    async def update_posted_at(self, gid_to_posted: dict[int, datetime]) -> None:
+        """Persist ExHentai posted timestamps onto on-disk galleries."""
+        if not gid_to_posted:
+            return
+        for gid, posted in gid_to_posted.items():
+            await self.session.execute(
+                update(Gallery)
+                .where(Gallery.gid.is_not(None), Gallery.gid == gid)
+                .values(posted_at=posted)
+            )
 
 
 class SettingsRepository:

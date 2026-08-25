@@ -426,9 +426,15 @@ class EhClient:
                 if gid in seen:
                     continue
                 seen.add(gid)
-                items.append(
-                    FavoriteData(gid, token, _text(label), urljoin(str(response.url), href))
+                # ExHentai nests the whole tag table inside the title <a>, so
+                # only the <div class="glink"> holds the actual title.
+                glink = re.search(
+                    r'<div[^>]*class=["\']glink["\'][^>]*>(.*?)</div>',
+                    label,
+                    re.IGNORECASE | re.DOTALL,
                 )
+                title = _text(glink.group(1)) if glink else _text(label)
+                items.append(FavoriteData(gid, token, title, urljoin(str(response.url), href)))
             if not items:
                 break
             result.extend(items)
@@ -511,6 +517,7 @@ class EhClient:
                     "file_count": int(gallery.get("filecount") or 0),
                     "file_size": int(gallery.get("filesize") or 0) or None,
                     "tags": gallery.get("tags", []) or [],
+                    "posted": int(gallery.get("posted") or 0),
                 }
         return result
 
