@@ -37,8 +37,10 @@ and back/forward work without server round-trips.
 
 ### Reader (`#/reader/<id>/<page>`)
 
-- Streams one page image at a time. Navigate with **←/→ arrow keys** or
-  **space** (next page), or the Previous/Next buttons.
+- Streams one page image at a time. Navigate with **←/→ arrow keys**,
+  **space**, or by **clicking the image** (next page), plus the Previous/Next
+  buttons.
+- **Paging past the last page jumps to the next gallery's first page.**
 - The next three pages are preloaded so paging feels instant.
 - The bar shows `page / total · size` (adaptive B/KB/MB/GB).
 - Reading progress is saved automatically on each page view.
