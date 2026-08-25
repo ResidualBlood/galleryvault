@@ -1812,41 +1812,61 @@ def _estimate_cloud_size(cloud: int, local: int, local_size: int) -> int:
 
 
 async def _favorite_size_sync(favcat: int) -> None:
-    """Fetch missing gallery sizes from ExHentai into favorite_items.file_size.
+    """Backfill sizes + the metadata cache for one favorite folder.
 
-    Uses the batched ``gdata`` API (25 galleries per request) instead of one
-    HTML fetch per gallery, so large folders sync with a handful of requests.
+    Local galleries are seeded into ``gallery_metadata`` straight from the DB
+    (no network); the remaining cloud-only gids are fetched with the batched
+    gdata API (25 per request) in a bounded loop.  This is what lets a gallery
+    scanned onto disk later reuse tags/title/category/posted without a fresh
+    ExHentai fetch.
     """
     try:
-        async with _settings_session() as session:
-            pending = await FavoritesRepository(session).pending_size_gids(favcat)
-        if not pending:
-            return
         client = app.state.eh_client
         if client is None:
             return
-        try:
-            metadata = await client.fetch_gmetadata(pending)
-        except Exception as exc:  # noqa: BLE001 - sync must not crash the check
-            logger.warning(
-                "favorite size gdata sync failed",
-                extra=log_extra(favcat=favcat, error=type(exc).__name__),
-            )
-            return
-        sizes = {
-            gid: size
-            for gid, meta in metadata.items()
-            if (size := meta.get("file_size"))
-        }
         async with _settings_session() as session, session.begin():
-            for gid, size in sizes.items():
-                await FavoritesRepository(session).set_file_size(favcat, gid, size)
-        logger.info(
-            "favorite sizes synced", extra=log_extra(favcat=favcat, fetched=len(sizes))
-        )
+            seeded = await GalleryRepository(session).seed_metadata_from_galleries(favcat)
+        total_cached = seeded
+        for _round in range(60):
+            async with _settings_session() as session:
+                pending = await FavoritesRepository(session).pending_size_gids(favcat, 500)
+                cold = await GalleryRepository(session).cold_metadata_gids(favcat, 500)
+            seen: set[int] = set()
+            pairs: list[tuple[int, str]] = []
+            for gid, token in pending + cold:
+                if gid not in seen:
+                    seen.add(gid)
+                    pairs.append((gid, token))
+            if not pairs:
+                break
+            try:
+                metadata = await client.fetch_gmetadata(pairs)
+            except Exception as exc:  # noqa: BLE001 - stop the loop, retry next check
+                logger.warning(
+                    "favorite metadata sync round failed",
+                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                )
+                break
+            sizes = {
+                gid: size for gid, meta in metadata.items() if (size := meta.get("file_size"))
+            }
+            async with _settings_session() as session, session.begin():
+                for gid, size in sizes.items():
+                    await FavoritesRepository(session).set_file_size(favcat, gid, size)
+                await GalleryRepository(session).upsert_metadata(
+                    [{"gid": gid, **meta} for gid, meta in metadata.items()]
+                )
+            total_cached += len(metadata)
+            if len(cold) < 500:
+                break
+        if total_cached:
+            logger.info(
+                "favorite metadata synced", extra=log_extra(favcat=favcat, cached=total_cached)
+            )
     except Exception as exc:  # noqa: BLE001 - background task must not crash
         logger.warning(
-            "favorite size sync failed", extra=log_extra(favcat=favcat, error=type(exc).__name__)
+            "favorite metadata sync failed",
+            extra=log_extra(favcat=favcat, error=type(exc).__name__),
         )
 
 

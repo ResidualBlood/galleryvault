@@ -168,6 +168,31 @@ class FavoriteItem(Base):
     )
 
 
+class GalleryMetadata(Base):
+    """Cached ExHentai metadata for a gid, filled from the gdata batch API.
+
+    Lets a gallery scanned onto disk reuse tags/title/category/posted without
+    another per-gallery ExHentai fetch: ingest and tag-sync look here first.
+    """
+
+    __tablename__ = "gallery_metadata"
+    gid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    token: Mapped[str | None] = mapped_column(String(64))
+    title: Mapped[str | None] = mapped_column(Text)
+    title_jpn: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(32))
+    uploader: Mapped[str | None] = mapped_column(String(128))
+    file_count: Mapped[int | None] = mapped_column(Integer)
+    file_size: Mapped[int | None] = mapped_column(BigInteger)
+    rating: Mapped[float | None] = mapped_column(Float)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expunged: Mapped[bool] = mapped_column(Boolean, default=False)
+    tags: Mapped[list[Any] | None] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)

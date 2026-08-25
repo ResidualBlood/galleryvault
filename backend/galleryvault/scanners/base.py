@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -68,6 +69,7 @@ class GalleryMeta:
     file_count: int | None = None
     file_size: int | None = None
     rating: float | None = None
+    posted_at: datetime | None = None
     tags: list[dict[str, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     source_meta: dict[str, Any] = field(default_factory=dict)

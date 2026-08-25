@@ -510,6 +510,7 @@ class EhClient:
             for gallery in body.get("gmetadata", []) or []:
                 gid = int(gallery.get("gid"))
                 result[gid] = {
+                    "token": gallery.get("token") or "",
                     "thumb": html.unescape(gallery.get("thumb", "") or ""),
                     "title": gallery.get("title", "") or "",
                     "title_jpn": gallery.get("title_jpn") or None,
@@ -518,6 +519,9 @@ class EhClient:
                     "file_size": int(gallery.get("filesize") or 0) or None,
                     "tags": gallery.get("tags", []) or [],
                     "posted": int(gallery.get("posted") or 0),
+                    "expunged": bool(gallery.get("expunged")),
+                    "uploader": gallery.get("uploader") or None,
+                    "rating": float(gallery.get("rating") or 0) or None,
                 }
         return result
 

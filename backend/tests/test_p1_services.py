@@ -281,6 +281,9 @@ async def test_tag_sync_deduplicates_and_replaces_relations() -> None:
             assert identifier == 3
             return gallery
 
+        async def metadata_for_gid(self, gid: int):
+            return None  # cold cache: fall through to a live fetch
+
         async def replace_tags(self, row, tags, synced_at, category=None):
             assert row is gallery
             assert category == "manga"
@@ -320,6 +323,51 @@ async def test_tag_sync_deduplicates_and_replaces_relations() -> None:
     assert gallery.tags_synced_at == result.synced_at
     assert gallery.category == "manga"  # sync refreshes the category too
     assert client.downloads == 0
+
+
+@pytest.mark.asyncio
+async def test_tag_sync_uses_cached_metadata_without_network() -> None:
+    gallery = SimpleNamespace(
+        id=9, gid=7, token="token", title="Local title", tags_synced_at=None, category=None
+    )
+
+    class Repo:
+        async def get_for_tag_sync(self, identifier: int):
+            return gallery
+
+        async def metadata_for_gid(self, gid: int):
+            assert gid == 7
+            return {
+                "title": "Cached title",
+                "category": "doujinshi",
+                "tags": [
+                    {"namespace": "artist", "name": "alice"},
+                    {"namespace": "female", "name": "fox"},
+                ],
+            }
+
+        async def replace_tags(self, row, tags, synced_at, category=None):
+            assert row is gallery and category == "doujinshi"
+            assert {(item["namespace"], item["name"]) for item in tags} == {
+                ("artist", "alice"),
+                ("female", "fox"),
+            }
+            gallery.tags_synced_at = synced_at
+            return 2
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def fetch_gallery(self, gid: int, token: str):  # pragma: no cover
+            self.calls += 1
+            raise AssertionError("cached metadata must avoid a network fetch")
+
+    client = Client()
+    result = await TagSyncService(client, Repo()).sync(9)
+    assert result.gid == 7 and result.title == "Cached title" and result.count == 2
+    assert gallery.tags_synced_at == result.synced_at
+    assert client.calls == 0
 
 
 @pytest.mark.asyncio

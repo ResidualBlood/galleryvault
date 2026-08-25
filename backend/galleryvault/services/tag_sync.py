@@ -27,6 +27,8 @@ class TagSyncRepository(Protocol):
         self, limit: int = 500, last_id: int = 0
     ) -> list[int]: ...
 
+    async def metadata_for_gid(self, gid: int) -> dict | None: ...
+
 
 class TagSyncError(ValueError):
     """The local gallery cannot be synchronized with its current metadata."""
@@ -65,6 +67,16 @@ class TagSyncService:
             raise GalleryGidMissing("Gallery has no ExHentai gid")
         if not gallery.token:
             raise GalleryTokenMissing("Gallery has no ExHentai token")
+
+        # Prefer cached gdata metadata (written by the favorites monitor); only
+        # fall back to a per-gallery ExHentai fetch when the cache is cold.
+        cached = await self.repository.metadata_for_gid(gallery.gid)
+        if cached and cached.get("tags"):
+            synced_at = datetime.now(UTC)
+            count = await self.repository.replace_tags(
+                gallery, cached["tags"], synced_at, category=cached.get("category")
+            )
+            return TagSyncResult(gallery.gid, cached.get("title") or gallery.title, count, synced_at)
 
         metadata_fetcher = getattr(self.client, "fetch_gallery_metadata", None)
         if metadata_fetcher is None:

@@ -7,7 +7,7 @@ from sqlalchemy import and_, delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..scanners.base import GalleryMeta
+from ..scanners.base import GalleryMeta, normalize_category
 from .models import (
     AppConfig,
     DownloadAttempt,
@@ -15,6 +15,7 @@ from .models import (
     FavoriteItem,
     FavoritesMonitor,
     Gallery,
+    GalleryMetadata,
     GalleryPage,
     GalleryTag,
     ReadingHistory,
@@ -145,6 +146,7 @@ class GalleryRepository:
                 "file_count": gallery.file_count,
                 "file_size": gallery.file_size,
                 "rating": gallery.rating,
+                "posted_at": gallery.posted_at,
                 "storage_type": gallery.storage_type,
                 "storage_path": str(gallery.path),
                 "path_hash": path_hash(gallery.path),
@@ -602,6 +604,172 @@ class GalleryRepository:
             await self.session.delete(model)
         await self.session.flush()
         return len(models)
+
+    async def upsert_metadata(self, entries: list[dict]) -> int:
+        """Bulk upsert cached gdata metadata into ``gallery_metadata``.
+
+        ``entries`` is the shape returned by ``EhClient.fetch_gmetadata`` keyed
+        by gid; returns the number of rows written.
+        """
+        if not entries:
+            return 0
+        now = datetime.now(UTC)
+        rows = []
+        for e in entries:
+            posted = e.get("posted")
+            tags = [
+                (parts if len(parts := value.split(":", 1)) == 2 else ["misc", value])
+                for value in (e.get("tags") or [])
+                if value
+            ]
+            rows.append(
+                {
+                    "gid": int(e["gid"]),
+                    "token": e.get("token") or None,
+                    "title": e.get("title") or None,
+                    "title_jpn": e.get("title_jpn") or None,
+                    "category": (
+                        normalize_category(e.get("category"))
+                        if e.get("category")
+                        else None
+                    ),
+                    "uploader": e.get("uploader") or None,
+                    "file_count": e.get("file_count"),
+                    "file_size": e.get("file_size"),
+                    "rating": e.get("rating"),
+                    "posted_at": (
+                        datetime.fromtimestamp(int(posted), tz=UTC) if posted else None
+                    ),
+                    "expunged": bool(e.get("expunged")),
+                    "tags": tags,
+                    "updated_at": now,
+                }
+            )
+        batch_size = 500
+        written = 0
+        for start in range(0, len(rows), batch_size):
+            statement = pg_insert(GalleryMetadata).values(rows[start : start + batch_size])
+            statement = statement.on_conflict_do_update(
+                index_elements=["gid"],
+                set_={
+                    "token": statement.excluded.token,
+                    "title": statement.excluded.title,
+                    "title_jpn": statement.excluded.title_jpn,
+                    "category": statement.excluded.category,
+                    "uploader": statement.excluded.uploader,
+                    "file_count": statement.excluded.file_count,
+                    "file_size": statement.excluded.file_size,
+                    "rating": statement.excluded.rating,
+                    "posted_at": statement.excluded.posted_at,
+                    "expunged": statement.excluded.expunged,
+                    "tags": statement.excluded.tags,
+                    "updated_at": statement.excluded.updated_at,
+                },
+            )
+            result = await self.session.execute(statement)
+            written += result.rowcount or 0
+        return written
+
+    async def metadata_map(self, gids: list[int]) -> dict[int, dict]:
+        """Return cached gdata metadata for gids, ``{gid: {…}}`` with parsed tags."""
+        if not gids:
+            return {}
+        rows = await self.session.scalars(
+            select(GalleryMetadata).where(GalleryMetadata.gid.in_(list(dict.fromkeys(gids))))
+        )
+        result: dict[int, dict] = {}
+        for row in rows:
+            tags = [
+                {"namespace": str(pair[0] or "misc"), "name": str(pair[1])}
+                for pair in (row.tags or [])
+                if len(pair) == 2 and str(pair[1]).strip()
+            ]
+            result[int(row.gid)] = {
+                "token": row.token,
+                "title": row.title,
+                "title_jpn": row.title_jpn,
+                "category": row.category,
+                "uploader": row.uploader,
+                "file_count": row.file_count,
+                "file_size": row.file_size,
+                "rating": row.rating,
+                "posted_at": row.posted_at,
+                "expunged": row.expunged,
+                "tags": tags,
+            }
+        return result
+
+    async def metadata_for_gid(self, gid: int) -> dict | None:
+        return (await self.metadata_map([gid])).get(gid)
+
+    async def seed_metadata_from_galleries(self, favcat: int) -> int:
+        """Backfill the metadata cache from on-disk galleries for a folder.
+
+        Galleries already local already carry title/tags/category/posted, so
+        filling the cache from ``galleries`` avoids a network fetch for them.
+        Returns the number of rows seeded.
+        """
+        statement = pg_insert(GalleryMetadata).from_select(
+            [
+                "gid",
+                "token",
+                "title",
+                "title_jpn",
+                "category",
+                "uploader",
+                "file_count",
+                "file_size",
+                "rating",
+                "posted_at",
+                "expunged",
+                "tags",
+                "updated_at",
+            ],
+            select(
+                Gallery.gid,
+                Gallery.token,
+                Gallery.title,
+                Gallery.title_jpn,
+                Gallery.category,
+                Gallery.uploader,
+                Gallery.file_count,
+                Gallery.file_size,
+                Gallery.rating,
+                Gallery.posted_at,
+                Gallery.expunged,
+                select(func.jsonb_agg(func.jsonb_build_array(Tag.namespace, Tag.name)))
+                .select_from(GalleryTag)
+                .join(Tag, Tag.id == GalleryTag.tag_id)
+                .where(GalleryTag.gallery_id == Gallery.id)
+                .correlate(Gallery)
+                .scalar_subquery(),
+                func.now(),
+            )
+            .select_from(FavoriteItem)
+            .join(Gallery, Gallery.gid == FavoriteItem.gid)
+            .where(
+                FavoriteItem.favcat == favcat,
+                Gallery.gid.is_not(None),
+                ~select(GalleryMetadata.gid)
+                .where(GalleryMetadata.gid == Gallery.gid)
+                .exists(),
+            ),
+        )
+        statement = statement.on_conflict_do_nothing(index_elements=["gid"])
+        result = await self.session.execute(statement)
+        return result.rowcount or 0
+
+    async def cold_metadata_gids(self, favcat: int, limit: int = 500) -> list[tuple[int, str]]:
+        """``(gid, token)`` for folder galleries missing from the metadata cache."""
+        rows = await self.session.execute(
+            select(FavoriteItem.gid, FavoriteItem.token)
+            .select_from(FavoriteItem)
+            .outerjoin(GalleryMetadata, GalleryMetadata.gid == FavoriteItem.gid)
+            .where(FavoriteItem.favcat == favcat, GalleryMetadata.gid.is_(None))
+            .limit(limit)
+        )
+        return [(int(row[0]), str(row[1])) for row in rows]
+
 
     async def replace_tags(
         self,
