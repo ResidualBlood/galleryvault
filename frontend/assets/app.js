@@ -48,6 +48,8 @@ const I18N = {
     confirmDupUnfav: "Remove selected from favorites?", confirmDupDelete: "Remove from favorites and delete local copies?",
     dupIgnore: "Ignore", dupUnignore: "Restore", dupIgnored: "Ignored", dupIgnoredOk: "Group ignored",
     dupUnignoredOk: "Group restored", dupFp: "likely same name", dupFpBlock: "Possible same-name, different works (collapsed)",
+    dupIgnoreSel: "Ignore selected", dupIgnoredPage: "Ignored items", dupIgnoredSub: "Groups you marked as not-duplicates. Select and restore to re-enable them.",
+    dupUnignoreSel: "Restore selected",
     favCount: "Galleries (cloud/local)", favSize: "Size (cloud/local)",
     favModeIncremental: "Incremental", favModeMonitorOnly: "Monitor only", favModeForce: "Force",
     libraryRoots: "Library roots (read-only)", baseUrl: "Base URL",
@@ -160,6 +162,8 @@ const I18N = {
     confirmDupUnfav: "将所选从收藏夹移除？", confirmDupDelete: "将所选从收藏夹移除并删除本地副本？",
     dupIgnore: "忽略", dupUnignore: "恢复", dupIgnored: "已忽略", dupIgnoredOk: "已忽略该组",
     dupUnignoredOk: "已恢复该组", dupFp: "疑似同名", dupFpBlock: "疑似同名不同作品（已折叠）",
+    dupIgnoreSel: "忽略所选", dupIgnoredPage: "已忽略项目", dupIgnoredSub: "你标记为不重复的组。勾选后点击「恢复所选」重新纳入查重。",
+    dupUnignoreSel: "恢复所选",
     deleteFiles: "同时删除磁盘文件", confirmDelete: "确定删除此画廊？",
     confirmDeleteFiltered: "确定删除所有匹配的画廊？", deleted: "已删除",
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
@@ -325,6 +329,7 @@ function parseHash() {
   if (app.view === "reader") app.params.page = parts[2] || "0";
   if (app.view === "favorites") {
     if (parts[1] === "manage") { app.view = "favmanage"; }
+    else if (parts[1] === "ignored") { app.view = "favignored"; }
     else if (/^\d+$/.test(parts[1] || "")) { app.view = "favlist"; app.params.id = parts[1]; }
   }
   app.query = {};
@@ -363,6 +368,7 @@ function router() {
     case "settings": renderSettings(); break;
     case "favorites": renderFavorites(); break;
     case "favmanage": renderFavManage(); break;
+    case "favignored": renderFavIgnored(); break;
     case "favlist": renderFavList(); break;
     default: renderBrowse();
   }
@@ -1138,6 +1144,8 @@ function renderFavPager(elId, data, page) {
 
 const selDup = new Set();
 let dupFilter = "all";
+let dupPage = 1;
+const dupLocallyIgnored = new Set();
 const favCatNames = {};
 
 async function loadFavNames() {
@@ -1181,7 +1189,9 @@ async function renderFavManage() {
       ${filterBtn("cloud", t("dupFilterCloud"))}
       <button class="secondary danger" data-action="dup-unfav" type="button">${esc(t("dupUnfav"))}${selDup.size ? ` (${selDup.size})` : ""}</button>
       <button class="secondary danger" data-action="dup-unfav-delete" type="button">${esc(t("dupUnfavDelete"))}${selDup.size ? ` (${selDup.size})` : ""}</button>
+      <button class="secondary" data-action="dup-ignore-selected" type="button">${esc(t("dupIgnoreSel"))}${selDup.size ? ` (${selDup.size})` : ""}</button>
       <button class="secondary" data-action="dup-clear" type="button">${esc(t("clearSel"))}</button>
+      <a class="secondary" href="#/favorites/ignored" style="padding:8px 14px;border-radius:4px;margin-left:auto">${esc(t("dupIgnoredPage"))}</a>
     </div>
     <div id="dup-progress" hidden>
       <div class="progress-bar"><div class="progress-fill" id="dup-progress-fill"></div></div>
@@ -1196,6 +1206,8 @@ async function runDupScan() {
   const text = document.getElementById("dup-progress-text");
   const groupsEl = document.getElementById("dup-groups");
   selDup.clear();
+  dupPage = 1;
+  dupLocallyIgnored.clear();
   bar.hidden = false;
   groupsEl.innerHTML = `<p>${esc(t("loading"))}</p>`;
   try {
@@ -1235,33 +1247,29 @@ function dupThumbHtml(it) {
 function renderDupGroups(st) {
   const el = document.getElementById("dup-groups");
   if (!el) return;
-  const ignored = st.ignored || [];
   const groups = applyDupFilter(st.groups || []);
-  if (!groups.length && !ignored.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
-  const totalItems = groups.reduce((n, g) => n + g.items.length, 0);
-  const ignoredHtml = ignored.length
-    ? `<div class="panel dup-ignored" style="margin-top:14px">
-        <strong>${esc(t("dupIgnored"))} (${ignored.length})</strong>
-        ${ignored.map(x => `<span class="dup-ignored-row">${esc(x.title || x.key)} <button class="secondary" data-action="dup-unignore" data-key="${esc(x.key)}" type="button">${esc(t("dupUnignore"))}</button></span>`).join("")}
-      </div>`
-    : "";
-  const fpGroups = groups.filter(g => g.likely_false_positive);
+  if (!groups.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
   const normalGroups = groups.filter(g => !g.likely_false_positive);
-  const renderGroup = (g, gi) => `
-      <div class="panel dup-group ${g.likely_false_positive ? "dup-fp" : ""}" style="margin-top:14px">
+  const fpGroups = groups.filter(g => g.likely_false_positive);
+  const perPage = 20;
+  const totalPages = Math.max(1, Math.ceil(normalGroups.length / perPage));
+  const page = Math.max(1, Math.min(dupPage, totalPages));
+  const slice = normalGroups.slice((page - 1) * perPage, page * perPage);
+  const renderGroup = (g, gi) => {
+    const hidden = dupLocallyIgnored.has(g.key);
+    return `
+      <div class="panel dup-group ${g.likely_false_positive ? "dup-fp" : ""} ${hidden ? "dup-hidden" : ""}" style="margin-top:14px">
         <div class="dup-group-head">
           <span class="dup-count">${esc(g.items.length)} ×</span>
           <a class="dup-main-title" href="${esc(g.items[0].url)}" target="_blank" rel="noopener">${esc(g.items[0].title)}</a>
           ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
           ${g.likely_false_positive ? `<span class="badge dup-fp-badge">${esc(t("dupFp"))}</span>` : ""}
-          <span class="dup-head-actions">
-            <button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button>
-            <button class="secondary" data-action="dup-ignore" data-key="${esc(g.key)}" data-title="${esc(g.items[0].title)}" data-gids="${esc(g.items.map(it => it.gid).join(","))}" type="button">${esc(t("dupIgnore"))}</button>
-          </span>
+          ${hidden ? `<span class="badge dup-ignored-badge">${esc(t("dupIgnored"))}</span>` : ""}
+          <span class="dup-head-actions"><button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
         </div>
         ${g.items.map((it, ii) => `
           <div class="dup-row">
-            <label class="checkbox"><input type="checkbox" data-dup-gid="${it.gid}" data-gi="${gi}" data-ii="${ii}"${selDup.has(it.gid) ? " checked" : ""}>
+            <label class="checkbox"><input type="checkbox" data-dup-gid="${it.gid}" data-key="${esc(g.key)}" data-gi="${gi}" data-ii="${ii}"${selDup.has(it.gid) ? " checked" : ""}>
               <span class="dup-thumb-wrap">${dupThumbHtml(it)}</span>
               <span class="dup-body">
                 <span class="dup-title">
@@ -1278,14 +1286,25 @@ function renderDupGroups(st) {
             </label>
           </div>`).join("")}
       </div>`;
-  const normalHtml = normalGroups.length
+  };
+  const pageLinks = [];
+  for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) {
+    pageLinks.push(p === page
+      ? `<strong class="cur">${p}</strong>`
+      : `<a class="page-link" href="#" data-action="dup-page" data-page="${p}">${p}</a>`);
+  }
+  const pagerHtml = normalGroups.length > perPage
+    ? `<div class="pages pager" style="margin-top:16px">${pageLinks.join(" ")} <span class="muted">${totalPages}</span></div>`
+    : "";
+  const normalHtml = slice.length
     ? `<p class="sub">${esc(t("dupFound"))}: ${normalGroups.length} ${esc(t("dupGroups"))} · ${normalGroups.reduce((n, g) => n + g.items.length, 0)} ${esc(t("dupItems"))}</p>`
-      + normalGroups.map((g, i) => renderGroup(g, i)).join("")
+      + slice.map((g, i) => renderGroup(g, (page - 1) * perPage + i)).join("")
+      + pagerHtml
     : "";
   const fpHtml = fpGroups.length
-    ? `<details class="dup-fp-block" style="margin-top:18px"><summary><strong>${esc(t("dupFpBlock"))} (${fpGroups.length})</strong></summary>${fpGroups.map((g, i) => renderGroup(g, normalGroups.length + i)).join("")}</details>`
+    ? `<details class="dup-fp-block" style="margin-top:18px"><summary><strong>${esc(t("dupFpBlock"))} (${fpGroups.length})</strong></summary>${fpGroups.map(renderGroup).join("")}</details>`
     : "";
-  el.innerHTML = ignoredHtml + normalHtml + fpHtml;
+  el.innerHTML = normalHtml + fpHtml;
 }
 
 function favRingHtml(done, total) {
@@ -1403,9 +1422,12 @@ function onClick(e) {
   if (action === "dup-unfav-delete") { dupAction(true); return; }
   if (action === "dup-clear") { selDup.clear(); renderDupGroupsFromCache(); return; }
   if (action === "dup-group-sel") { dupSelectGroup(el.getAttribute("data-gi")); return; }
-  if (action === "dup-filter") { dupFilter = el.getAttribute("data-value") || "all"; renderFavManage().then(() => renderDupGroupsFromCache()); return; }
-  if (action === "dup-ignore") { dupIgnore(el); return; }
+  if (action === "dup-filter") { dupFilter = el.getAttribute("data-value") || "all"; dupPage = 1; renderFavManage().then(() => renderDupGroupsFromCache()); return; }
+  if (action === "dup-ignore-selected") { dupIgnoreSelected(); return; }
   if (action === "dup-unignore") { dupUnignore(el.getAttribute("data-key")); return; }
+  if (action === "dup-unignore-selected") { dupUnignoreSelected(); return; }
+  if (action === "dup-ignored-clear") { document.querySelectorAll('#ignored-list input[data-ignore-key]').forEach(cb => cb.checked = false); renderFavIgnored(); return; }
+  if (action === "dup-page") { e.preventDefault(); dupPage = parseInt(el.getAttribute("data-page"), 10) || 1; renderDupGroupsFromCache(); return; }
   if (action === "sync-tags") { syncTags(el.getAttribute("data-id")); return; }
   if (action === "change-password") { e.preventDefault(); changePassword(); return; }
   if (action === "test-telegram") { testTelegram(); return; }
@@ -1651,16 +1673,24 @@ function dupSelectGroup(gi) {
   updateDupButtons();
 }
 
-async function dupIgnore(el) {
-  const key = el.getAttribute("data-key");
-  const title = el.getAttribute("data-title") || "";
-  const gids = (el.getAttribute("data-gids") || "").split(",").filter(Boolean).map(Number);
-  if (!key) return;
-  try {
-    await api("POST", "/api/favorites/duplicates/ignore", { key, title, gids });
-    toast(t("dupIgnoredOk"));
-    await runDupScan();
-  } catch (e) { toast(e.message); }
+async function dupIgnoreSelected() {
+  const keys = new Set();
+  document.querySelectorAll('#dup-groups input[data-dup-gid]:checked').forEach(cb => {
+    const k = cb.getAttribute("data-key");
+    if (k) keys.add(k);
+  });
+  if (!keys.size) { toast(t("select")); return; }
+  let ok = 0;
+  for (const key of keys) {
+    try { await api("POST", "/api/favorites/duplicates/ignore", { key }); ok++; }
+    catch (_) { /* keep going */ }
+  }
+  keys.forEach(k => dupLocallyIgnored.add(k));
+  selDup.clear();
+  toast(t("dupIgnoredOk") + ": " + ok);
+  renderDupGroupsFromCache();
+  renderCardCheckboxes();
+  updateDupButtons();
 }
 
 async function dupUnignore(key) {
@@ -1668,8 +1698,54 @@ async function dupUnignore(key) {
   try {
     await api("DELETE", `/api/favorites/duplicates/ignore?key=${encodeURIComponent(key)}`);
     toast(t("dupUnignoredOk"));
-    await runDupScan();
+    if (app.view === "favignored") { renderFavIgnored(); }
+    else { dupLocallyIgnored.delete(key); renderDupGroupsFromCache(); }
   } catch (e) { toast(e.message); }
+}
+
+async function renderFavIgnored() {
+  let list = [];
+  try { list = await api("GET", "/api/favorites/duplicates/ignored"); }
+  catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  const selIgnored = new Set();
+  $view().innerHTML = `
+    <a class="link-button" href="#/favorites/manage">← ${esc(t("favManage"))}</a>
+    <header style="margin-top:16px"><p class="eyebrow">FAVORITES</p><h1>${esc(t("dupIgnoredPage"))}</h1>
+    <p class="sub">${esc(t("dupIgnoredSub"))}</p></header>
+    <div class="toolbar">
+      <button class="primary" data-action="dup-unignore-selected" type="button">${esc(t("dupUnignoreSel"))}</button>
+      <button class="secondary" data-action="dup-ignored-clear" type="button">${esc(t("clearSel"))}</button>
+    </div>
+    <div id="ignored-list">${list.length ? `<p class="muted">${list.length} ${esc(t("dupGroups"))}</p>` : `<p class="muted">${esc(t("dupNone"))}</p>`}</div>`;
+  const el = document.getElementById("ignored-list");
+  if (!list.length) return;
+  el.innerHTML = list.map(x => `
+    <div class="panel dup-ignored-item" style="margin-top:10px;padding:10px 12px">
+      <label class="checkbox" style="margin:0"><input type="checkbox" data-ignore-key="${esc(x.key)}">
+        <span>${esc(x.title || x.key)} <span class="badge">${(x.gids || []).length} gid</span></span>
+      </label>
+    </div>`).join("");
+  document.querySelectorAll('#ignored-list input[data-ignore-key]').forEach(cb => {
+    cb.addEventListener("change", () => {
+      const key = cb.getAttribute("data-ignore-key");
+      if (cb.checked) selIgnored.add(key); else selIgnored.delete(key);
+      const btn = document.querySelector('[data-action="dup-unignore-selected"]');
+      if (btn) btn.textContent = t("dupUnignoreSel") + (selIgnored.size ? ` (${selIgnored.size})` : "");
+    });
+  });
+}
+
+async function dupUnignoreSelected() {
+  const keys = [...document.querySelectorAll('#ignored-list input[data-ignore-key]:checked')]
+    .map(cb => cb.getAttribute("data-ignore-key"));
+  if (!keys.length) { toast(t("select")); return; }
+  let ok = 0;
+  for (const key of keys) {
+    try { await api("DELETE", `/api/favorites/duplicates/ignore?key=${encodeURIComponent(key)}`); ok++; }
+    catch (_) { /* keep going */ }
+  }
+  toast(t("dupUnignoredOk") + ": " + ok);
+  renderFavIgnored();
 }
 
 function updateDupButtons() {
