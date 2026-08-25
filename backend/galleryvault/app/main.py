@@ -79,7 +79,7 @@ app.state.eh_client = None
 app.state.telegram = None
 app.state.favorite_poll_task = None
 app.state.telegram_bot_task = None
-scan_state: dict[str, object] = {"running": False, "last": None}
+scan_state: dict[str, object] = {"running": False, "last": None, "completed_at": None}
 scan_lock = asyncio.Lock()
 download_worker_task = None
 tag_sync_state: dict[str, object] = {
@@ -92,6 +92,7 @@ tag_sync_state: dict[str, object] = {
     "retries": 0,
     "interval": None,
     "last_error": None,
+    "completed_at": None,
     "category_refreshed": 0,
     "category_refresh_running": False,
 }
@@ -121,6 +122,7 @@ metadata_sync_state: dict[str, object] = {
     "total": 0,
     "applied": 0,
     "last_error": None,
+    "completed_at": None,
 }
 _metadata_sync_active = 0
 translation_state: dict[str, object] = {
@@ -138,6 +140,7 @@ thumb_state: dict[str, object] = {
     "failed": 0,
     "total": 0,
     "last_error": None,
+    "completed_at": None,
 }
 thumb_queue: asyncio.Queue[int] = asyncio.Queue()
 thumb_queued: set[int] = set()
@@ -523,6 +526,7 @@ async def _run_scan() -> None:
         success = 0
         errors = 0
         scan_state["running"] = True
+        scan_state["completed_at"] = None
         scan_state["scanned"] = 0
         scan_state["persisted"] = 0
         scan_state["success"] = 0
@@ -589,6 +593,7 @@ async def _run_scan() -> None:
             )
         finally:
             scan_state["running"] = False
+            scan_state["completed_at"] = datetime.now(UTC).isoformat()
             try:
                 if app.state.telegram is not None and _settings().telegram_chat_ids:
                     last = scan_state["last"] or {}
@@ -894,6 +899,7 @@ async def _tag_sync_worker_loop() -> None:
         logger.warning("tag sync seeding failed", extra=log_extra(error=type(exc).__name__))
     logger.info("tag sync seeded", extra=log_extra(queued=tag_sync_queue.qsize()))
     tag_sync_state["running"] = True
+    tag_sync_state["completed_at"] = None
     concurrency = max(1, _settings().tag_sync_concurrency)
     semaphore = asyncio.Semaphore(concurrency)
     base_interval = max(0.1, float(_settings().tag_sync_interval_seconds))
@@ -967,6 +973,8 @@ async def _tag_sync_worker_loop() -> None:
                 gallery_id = await asyncio.wait_for(tag_sync_queue.get(), timeout=5)
             except TimeoutError:
                 tag_sync_state["queued"] = tag_sync_queue.qsize()
+                if tag_sync_queue.qsize() == 0 and tag_sync_state["running"]:
+                    tag_sync_state["completed_at"] = datetime.now(UTC).isoformat()
                 tag_sync_state["running"] = tag_sync_queue.qsize() > 0
                 continue
             tag_sync_queued.discard(gallery_id)
@@ -2008,6 +2016,7 @@ async def _favorite_size_sync(favcat: int) -> None:
     global _metadata_sync_active
     _metadata_sync_active += 1
     metadata_sync_state["running"] = True
+    metadata_sync_state["completed_at"] = None
     try:
         try:
             client = app.state.eh_client
@@ -2086,6 +2095,7 @@ async def _favorite_size_sync(favcat: int) -> None:
         _metadata_sync_active -= 1
         if _metadata_sync_active <= 0:
             metadata_sync_state["running"] = False
+            metadata_sync_state["completed_at"] = datetime.now(UTC).isoformat()
             metadata_sync_state["stage"] = None
 
 
@@ -2822,6 +2832,7 @@ async def _seed_thumbnails() -> None:
     thumb_state["queued"] = thumb_queue.qsize()
     if added:
         thumb_state["running"] = True
+        thumb_state["completed_at"] = None
     logger.info(
         "thumbnail seeding complete", extra=log_extra(queued=added, pending=missing_total)
     )
@@ -2836,7 +2847,10 @@ async def _thumbnail_worker_loop() -> None:
             try:
                 gallery_id = await asyncio.wait_for(thumb_queue.get(), timeout=5)
             except TimeoutError:
-                # Queue drained: reflect idle so the task-progress UI hides.
+                # Queue drained: reflect idle so the task-progress UI hides, but
+                # keep the finished progress visible.
+                if thumb_queue.qsize() == 0 and thumb_state["running"]:
+                    thumb_state["completed_at"] = datetime.now(UTC).isoformat()
                 thumb_state["running"] = thumb_queue.qsize() > 0
                 thumb_state["queued"] = thumb_queue.qsize()
                 continue
