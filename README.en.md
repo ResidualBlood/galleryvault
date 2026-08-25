@@ -19,7 +19,7 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery.
 - **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry.
 - **Favorites monitor** — Watches the ten ExHentai favorite folders and auto-downloads galleries you do not have yet (scheduled or on demand).
-- **Reader and history** — Streams one page at a time, saves your reading position, and keeps a browsable history.
+- **Reader and history** — Streams one page at a time with keyboard/space/click paging, preloads the next three pages, advances to the next gallery after the last page, saves your reading position, and keeps a browsable history.
 - **Telegram notifications** — Get notified on download success/failure, scan completion, and favorite sync.
 - **Orphan cleanup** — Galleries deleted from ExHentai (or without usable coordinates) are automatically grouped under the Deleted category.
 - **Security and privacy** — Single-password authentication with persistent sessions, secure settings storage, and an optional no-login mode.
