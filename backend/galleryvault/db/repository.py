@@ -352,24 +352,29 @@ class GalleryRepository:
         self, q: str | None, page: int, page_size: int, namespace: str | None = None
     ) -> tuple[int, list[tuple[str, str, int]]]:
         pattern = f"%{q.strip()}%" if q and q.strip() else None
-        query = (
-            select(Tag.namespace, Tag.name, func.count(Gallery.id))
-            .select_from(Tag)
-            .outerjoin(GalleryTag, GalleryTag.tag_id == Tag.id)
-            .outerjoin(
-                Gallery, and_(Gallery.id == GalleryTag.gallery_id, Gallery.expunged.is_(False))
-            )
-        )
+        match = select(Tag.id).select_from(Tag)
         if namespace:
-            query = query.where(Tag.namespace == namespace)
+            match = match.where(Tag.namespace == namespace)
         if pattern:
-            query = query.where(Tag.name.ilike(pattern) | Tag.namespace.ilike(pattern))
-        query = query.group_by(Tag.id).order_by(Tag.namespace, Tag.name)
-        total = int(
-            await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        )
+            match = match.where(Tag.name.ilike(pattern) | Tag.namespace.ilike(pattern))
+        total = int(await self.session.scalar(select(func.count()).select_from(match.subquery())) or 0)
+        # Limit the tag rows first, then compute usage counts only for the
+        # visible page — counting usage for every matching tag then slicing was
+        # a full-table aggregation on large libraries.
+        page_ids = match.order_by(Tag.namespace, Tag.name).offset((page - 1) * page_size).limit(page_size)
         rows = (
-            await self.session.execute(query.offset((page - 1) * page_size).limit(page_size))
+            await self.session.execute(
+                select(Tag.namespace, Tag.name, func.count(Gallery.id))
+                .select_from(Tag)
+                .outerjoin(GalleryTag, GalleryTag.tag_id == Tag.id)
+                .outerjoin(
+                    Gallery,
+                    and_(Gallery.id == GalleryTag.gallery_id, Gallery.expunged.is_(False)),
+                )
+                .where(Tag.id.in_(page_ids))
+                .group_by(Tag.id)
+                .order_by(Tag.namespace, Tag.name)
+            )
         ).all()
         return total, [(namespace, name, int(count)) for namespace, name, count in rows]
 

@@ -2257,6 +2257,24 @@ async def trigger_tag_sync() -> dict[str, object]:
     return {"status": "started", "queued": seeded}
 
 
+_tag_facets_cache: dict[str, object] = {"ts": 0.0, "facets": []}
+_TAG_FACETS_TTL = 120.0
+
+
+async def _tag_facets_cached() -> list[tuple[str, int]]:
+    """Per-namespace tag counts, cached (they change slowly with scans)."""
+    import time as _time
+
+    now = _time.time()
+    if now - float(_tag_facets_cache["ts"]) < _TAG_FACETS_TTL:
+        return list(_tag_facets_cache["facets"])  # type: ignore[arg-type]
+    async with _settings_session() as session:
+        facets = await GalleryRepository(session).tag_facets()
+    _tag_facets_cache["ts"] = now
+    _tag_facets_cache["facets"] = facets
+    return facets
+
+
 @app.get("/api/tags/search")
 async def tag_search(
     q: str | None = None,
@@ -2295,7 +2313,7 @@ async def tag_search(
     async with _settings_session() as session:
         repo = GalleryRepository(session)
         total, rows = await repo.search_tags(q, page, page_size, namespace)
-        facets = await repo.tag_facets() if not namespace else []
+        facets = await _tag_facets_cached() if not namespace else []
     facet_items = [
         {"namespace": name, "total": count}
         for name, count in sorted(facets, key=lambda x: -x[1])
