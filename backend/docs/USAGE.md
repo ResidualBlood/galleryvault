@@ -134,6 +134,11 @@ and back/forward work without server round-trips.
   folder name, posted date, size and translated tags. Filter with
   **全部 / 只显示本地 / 只显示云端**, then **取消收藏** (remove from favorites)
   or **取消收藏并删除已下载** (also delete the local copies).
+  Groups that are likely *same-name, different works* (posted dates span
+  months, or the items share no parody/character tag) are demoted to a
+  collapsible **疑似同名不同作品** section so they don't dominate. If a group
+  is really a false positive, hit **忽略** to hide it forever (restorable from
+  the **已忽略** list); it is excluded from every later scan.
 - Gallery detail pages show a **取消收藏** button whenever the gallery is in a
   favorite folder.
 
