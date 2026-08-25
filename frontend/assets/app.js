@@ -288,6 +288,7 @@ function router() {
   updateBanner();
   if (!app.authenticated) { renderLogin(); return; }
   if (app.view !== "library") selGalleries.clear();
+  if (app.view !== "favorites" && favTimer) { clearInterval(favTimer); favTimer = null; }
   switch (app.view) {
     case "browse": renderBrowse(); break;
     case "library": renderLibrary(); break;
@@ -904,7 +905,7 @@ async function renderFavorites() {
     const cats = await api("GET", "/api/favorites/categories");
     const rows = (Array.isArray(cats) ? cats : []).map(c => `
       <tr data-favcat="${c.favcat}">
-        <td>${esc(c.name || ("Folder " + c.favcat))} <span class="badge">#${c.favcat}</span></td>
+        <td class="fav-name">${esc(c.name || ("Folder " + c.favcat))} <span class="badge">#${c.favcat}</span></td>
         <td class="muted">${c.cloud_count || 0} / ${c.local_count || 0}</td>
         <td class="muted">${(c.cloud_size ? "~" : "") + fmtSize(c.cloud_size || 0)} / ${fmtSize(c.local_size || 0)}</td>
         <td><input type="checkbox" class="fav-enabled"${c.enabled ? " checked" : ""}></td>
@@ -917,7 +918,42 @@ async function renderFavorites() {
         <thead><tr><th>${esc(t("favorites"))}</th><th>${esc(t("favCount"))}</th><th>${esc(t("favSize"))}</th><th>${esc(t("enabled"))}</th><th>${esc(t("mode"))}</th><th>${esc(t("intervalMin"))}</th><th></th></tr></thead>
         <tbody>${rows || `<tr><td colspan="7">—</td></tr>`}</tbody>
       </table>`;
+    pollFavoriteRings();
   } catch (e) { document.getElementById("fav-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+let favTimer = null;
+
+function favRingHtml(done, total) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const r = 15.9, c = 2 * Math.PI * r;
+  const off = c * (1 - pct / 100);
+  return `<span class="fav-ring" title="${esc(done + " / " + total)}">
+    <svg viewBox="0 0 36 36"><circle class="ring-bg" cx="18" cy="18" r="${r}"></circle>
+    <circle class="ring-fg" cx="18" cy="18" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${off}"></circle></svg>
+  </span>`;
+}
+
+async function pollFavoriteRings() {
+  if (favTimer) clearInterval(favTimer);
+  const tick = async () => {
+    try {
+      const st = await api("GET", "/api/favorites/check-status");
+      const cats = (st && st.categories) || {};
+      document.querySelectorAll("#fav-list tr[data-favcat]").forEach(tr => {
+        const nameCell = tr.querySelector(".fav-name");
+        if (!nameCell) return;
+        const old = nameCell.querySelector(".fav-ring");
+        if (old) old.remove();
+        const e = cats[tr.dataset.favcat];
+        if (e && e.running) {
+          nameCell.insertAdjacentHTML("beforeend", favRingHtml(e.done || 0, e.total || 0));
+        }
+      });
+    } catch (_) { /* transient */ }
+  };
+  tick();
+  favTimer = setInterval(tick, 3000);
 }
 
 function fmtSize(bytes) {

@@ -274,3 +274,9 @@ form fieldset legend { padding: 0 8px; color: var(--accent); font-size: .8rem; l
 .field { display: block; }
 .notice { font-size: .82rem; }
 
+
+.fav-name { position: relative; white-space: nowrap; }
+.fav-ring { display: inline-block; vertical-align: middle; margin-left: 8px; width: 20px; height: 20px; cursor: default; }
+.fav-ring svg { width: 20px; height: 20px; transform: rotate(-90deg); }
+.fav-ring .ring-bg { fill: none; stroke: var(--line); stroke-width: 3; }
+.fav-ring .ring-fg { fill: none; stroke: var(--accent, #4a90d9); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .3s; }
