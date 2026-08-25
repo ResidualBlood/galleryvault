@@ -76,7 +76,9 @@ const I18N = {
     confirmDeleteFiltered: "Delete all matching galleries?", deleted: "Deleted",
     select: "Select", clearSel: "Clear selection", deleteSel: "Delete selected",
     confirmDeleteSel: "Delete selected galleries?",
-    tasks: "Background tasks", scanning: "Scanning library", tagSyncing: "Syncing tags", thumbs: "Generating thumbnails",
+    tasks: "Background tasks", scanning: "Scanning library",     tagSyncing: "Syncing tags", thumbs: "Generating thumbnails",
+    favMetaSync: "Syncing favorite metadata", favMetaApply: "Applying favorite metadata", applied: "applied",
+    tagSyncFromCache: "Tags updated from cache", tagSyncFromNetwork: "Tags synced from ExHentai",
     noTasks: "No background tasks", dlTasks: "Download tasks",
     favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
     settingsSub: "Library, connection and background tasks.",
@@ -159,6 +161,8 @@ const I18N = {
     select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
     confirmDeleteSel: "确定删除所选画廊？",
     tasks: "后台任务", scanning: "扫描库中", tagSyncing: "同步标签中", thumbs: "生成缩略图中",
+    favMetaSync: "同步收藏元数据", favMetaApply: "应用收藏元数据", applied: "已应用",
+    tagSyncFromCache: "标签已从缓存更新", tagSyncFromNetwork: "标签已从 ExHentai 同步",
     noTasks: "无后台任务", dlTasks: "下载任务",
     favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
     settingsSub: "本地库、连接与后台任务。",
@@ -1440,10 +1444,11 @@ async function pollTaskProgress() {
     const sec = document.getElementById("task-progress");
     if (!sec) return;
     try {
-      const [scan, ts, th] = await Promise.all([
+      const [scan, ts, th, md] = await Promise.all([
         api("GET", "/api/scan").catch(() => null),
         api("GET", "/api/tag-sync/status").catch(() => null),
         api("GET", "/api/thumbs/status").catch(() => null),
+        api("GET", "/api/favorites/metadata-status").catch(() => null),
       ]);
       const rows = [];
       if (scan && scan.running) {
@@ -1454,6 +1459,11 @@ async function pollTaskProgress() {
       }
       if (th && (th.running || th.queued || (th.total && th.processed < th.total))) {
         rows.push(progressHtml(t("thumbs"), th.processed || 0, th.total || 0, `ok ${th.succeeded || 0} / fail ${th.failed || 0}`));
+      }
+      if (md && md.running) {
+        const applying = (md.stage || "") === "apply";
+        const label = applying ? t("favMetaApply") : t("favMetaSync");
+        rows.push(progressHtml(label, md.done || 0, md.total || 0, applying ? `${t("applied")} ${md.applied || 0}` : `applied ${md.applied || 0}`));
       }
       const body = document.getElementById("task-progress-body");
       if (rows.length) {
@@ -1776,7 +1786,10 @@ async function syncAllTags() {
 }
 
 async function syncTags(id) {
-  try { await api("POST", `/api/galleries/${id}/sync-tags`); toast("Syncing tags..."); }
+  try {
+    const r = await api("POST", `/api/galleries/${id}/sync-tags`);
+    toast((r && r.source === "cache") ? t("tagSyncFromCache") : t("tagSyncFromNetwork") + (r ? ` · ${r.count}` : ""));
+  }
   catch (e) { toast(e.message); }
 }
 
