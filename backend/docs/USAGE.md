@@ -102,6 +102,11 @@ and back/forward work without server round-trips.
   once the missing galleries' sizes have been fetched). A **progress ring**
   appears next to the folder name while a check runs (hover shows walked/total),
   and disappears when the sync completes.
+- Every check also caches the full ExHentai metadata (title, tags, category,
+  posted date, size) keyed by gid — local galleries are seeded straight from
+  the DB and cloud-only gids via the batched gdata API. Galleries scanned onto
+  disk later reuse this cache, so **tag sync and ingestion need no extra
+  ExHentai fetch** for galleries the monitor has already seen.
 - **Click a folder name** to open `#/favorites/<favcat>`: its galleries as a
   grid with checkboxes, plus **下载所选** (Download selected, skipping ones
   already local) and **移除收藏** (Remove from favorites). Cloud-only galleries
