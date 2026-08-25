@@ -1818,6 +1818,18 @@ async def gallery_random() -> dict[str, object]:
     return {"id": gallery_id}
 
 
+@app.get("/api/galleries/{identifier}/next")
+async def gallery_next(identifier: int) -> dict[str, object]:
+    try:
+        async with _settings_session() as session:
+            next_id = await GalleryRepository(session).next_gallery_id(identifier)
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    if next_id is None:
+        raise HTTPException(status_code=404, detail="No next gallery")
+    return {"id": next_id}
+
+
 @app.get("/api/galleries/{identifier}")
 async def gallery_detail(identifier: int) -> dict[str, object]:
     row, pages = await _gallery(identifier)

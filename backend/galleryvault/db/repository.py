@@ -348,6 +348,15 @@ class GalleryRepository:
         ).all()
         return total, list(rows)
 
+    async def next_gallery_id(self, current_id: int) -> int | None:
+        """The next non-expunged gallery id after ``current_id`` (ascending)."""
+        return await self.session.scalar(
+            select(Gallery.id)
+            .where(Gallery.id > current_id, Gallery.expunged.is_(False))
+            .order_by(Gallery.id)
+            .limit(1)
+        )
+
     async def search_tags(
         self, q: str | None, page: int, page_size: int, namespace: str | None = None
     ) -> tuple[int, list[tuple[str, str, int]]]:
