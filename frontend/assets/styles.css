@@ -274,6 +274,17 @@ a.row:hover { border-color: var(--accent); }
 .dup-thumb-wrap { flex: 0 0 auto; }
 .dup-thumb { width: 56px; height: 75px; object-fit: cover; border-radius: 3px; border: 1px solid var(--line); background: #000; }
 .dup-thumb-empty { display: inline-block; }
+.dup-group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.dup-count { font-weight: 800; color: var(--accent); }
+.dup-main-title { font-weight: 700; }
+.dup-artist { color: var(--muted); font-size: .85rem; }
+.dup-head-actions { margin-left: auto; }
+.dup-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dup-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.dup-badge-local { color: var(--accent); }
+.dup-badge-cloud { color: var(--muted); }
+.dup-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.gc-size { display: block; color: var(--muted); font-size: .72rem; margin-top: 2px; }
 .fav-state { position: absolute; top: 6px; left: 6px; padding: 1px 7px; border-radius: 10px; font-size: .68rem; font-weight: 700; letter-spacing: .04em; z-index: 1; }
 .fav-state.local { background: #1c5c2c; color: #c9f5d4; }
 .fav-state.cloud { background: #24456e; color: #cfe3ff; }

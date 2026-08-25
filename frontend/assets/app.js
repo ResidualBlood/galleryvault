@@ -32,7 +32,7 @@ const I18N = {
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
     checkAll: "Check all folders", favLocal: "local", favCloud: "cloud",
-    favcatTag: "folder",
+    favcatTag: "folder", favDate: "fav:", backToGallery: "back to gallery",
     unfavorite: "Unfavorite", unfavoriteFail: "Cannot unfavorite", unfavorited: "Removed from favorites",
     unfavoritedLocal: "Cloud removal failed; local record removed", confirmUnfavorite: "Remove this gallery from favorites?",
     favManage: "Manage duplicates", favManageTitle: "Favorites — duplicates",
@@ -144,7 +144,7 @@ const I18N = {
     favManage: "收藏夹管理", favManageTitle: "收藏夹管理 — 查重",
     favManageSub: "扫描收藏夹中重复的画廊（同一作品的不同版本，如 DL 版 / 无修正 / 不同语言搬运）。",
     checkAll: "立即检查所有", favLocal: "本地", favCloud: "云端",
-    favcatTag: "收藏夹",
+    favcatTag: "收藏夹", favDate: "收藏", backToGallery: "返回画廊",
     favListSub: "该收藏夹内的画廊。勾选后可下载或从收藏移除。",
     favDl: "下载所选", favDlQueued: "已加入下载", favDlSkip: "已本地/跳过",
     favRemove: "移除收藏", confirmFavRemove: "将所选从收藏夹移除？",
@@ -590,7 +590,7 @@ async function renderGallery() {
           if (btn) { btn.hidden = false; btn.dataset.gid = fav.gid; }
           if (favcatEl) {
             favcatEl.innerHTML = (fav.favcat_names || []).map(n =>
-              `<a class="badge" href="#/favorites/${n.favcat}" style="color:var(--accent)">${esc(n.name || ("#" + n.favcat))}</a>`
+              `<a class="badge" href="#/favorites/${n.favcat}?from=${id}" style="color:var(--accent)">${esc(n.name || ("#" + n.favcat))}</a>`
             ).join(" ");
           }
         }
@@ -1061,8 +1061,13 @@ async function renderFavList() {
   if (isNaN(favcat)) { location.hash = "#/favorites"; return; }
   const page = app.query.page || "1";
   const selCount = selFav.size;
+  const from = app.query.from;
+  const backLinks = `<a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>`
+    + (from ? ` <a class="link-button" href="#/gallery/${esc(from)}">← ${esc(t("backToGallery"))}</a>` : "");
   $view().innerHTML = `
-    <a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>
+    <div class="toolbar" style="margin-bottom:0">
+      ${backLinks}
+    </div>
     <header style="margin-top:16px"><p class="eyebrow">FAVORITE FOLDER</p><h1>#${favcat}</h1>
     <p class="sub">${esc(t("favListSub"))}</p></header>
     <div class="toolbar">
@@ -1089,22 +1094,19 @@ async function renderFavList() {
 
 function favCard(it) {
   const cat = it.category ? esc(catLabel(it.category)) : "";
-  const cover = it.cover_url
-    ? it.cover_url
-    : (it.gallery_id == null && it.gid && it.token
-        ? `/api/favorites/cover?gid=${it.gid}&token=${encodeURIComponent(it.token)}`
-        : null);
+  const cover = it.cover_url || it.cover_data || null;
   const inner = cover
     ? `<img loading="lazy" src="${cover}" alt="">`
     : `<span class="badge">no cover</span>`;
   const stateBadge = it.gallery_id != null
     ? `<span class="fav-state local">${esc(t("favLocal"))}</span>`
     : `<span class="fav-state cloud">${esc(t("favCloud"))}</span>`;
+  const size = it.file_size ? `<span class="gc-size">${fmtSize(it.file_size)}</span>` : "";
   const link = it.gallery_id != null ? `href="${navHash("gallery", { id: it.gallery_id })}"` : `href="${esc(it.url || "#")}" target="_blank" rel="noopener"`;
   return `<div class="gc-wrap">
     <a class="gc" ${link}>
       <div class="gc-cover">${inner}${stateBadge}${cat ? `<span class="gc-cat">${cat}</span>` : ""}${it.page_count ? `<span class="gc-pages">${it.page_count} P</span>` : ""}</div>
-      <div class="gc-title">${esc(it.title || ("gid " + it.gid))}</div>
+      <div class="gc-title">${esc(it.title || ("gid " + it.gid))}${size}</div>
       <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</div>
     </a>
     <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-fav-gid="${it.gid}"${selFav.has(it.gid) ? " checked" : ""}></label>
@@ -1215,6 +1217,13 @@ async function runDupScan() {
   groupsEl.innerHTML = `<p class="muted">${esc(t("loading"))}</p>`;
 }
 
+function dupThumbHtml(it) {
+  const src = it.gallery_id != null
+    ? `/api/galleries/${it.gallery_id}/thumb/0`
+    : (it.cover_data || null);
+  return src ? `<img class="dup-thumb" loading="lazy" src="${src}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`;
+}
+
 function renderDupGroups(st) {
   const el = document.getElementById("dup-groups");
   if (!el) return;
@@ -1225,19 +1234,27 @@ function renderDupGroups(st) {
     <p class="sub">${esc(t("dupFound"))}: ${groups.length} ${esc(t("dupGroups"))} · ${totalItems} ${esc(t("dupItems"))}</p>
     ` + groups.map((g, gi) => `
       <div class="panel dup-group" style="margin-top:14px">
-        <div class="toolbar" style="margin:8px 0">
-          <strong>${esc(g.items.length)} ×</strong>
-          <span class="muted">${esc(g.artist ? g.artist : "—")}</span>
-          <button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button>
+        <div class="dup-group-head">
+          <span class="dup-count">${esc(g.items.length)} ×</span>
+          <a class="dup-main-title" href="${esc(g.items[0].url)}" target="_blank" rel="noopener">${esc(g.items[0].title)}</a>
+          ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
+          <span class="dup-head-actions"><button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
         </div>
         ${g.items.map((it, ii) => `
           <div class="dup-row">
             <label class="checkbox"><input type="checkbox" data-dup-gid="${it.gid}" data-gi="${gi}" data-ii="${ii}"${selDup.has(it.gid) ? " checked" : ""}>
               <span class="dup-thumb-wrap">${dupThumbHtml(it)}</span>
-              <span class="dup-title">
-                <a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
-                ${it.gallery_id != null ? `<a class="badge" href="${navHash("gallery", { id: it.gallery_id })}" style="color:var(--accent)">${esc(t("favLocal"))}</a>` : `<span class="badge">${esc(t("favCloud"))}</span>`}
-                <span class="badge">${esc(t("favcatTag"))} #${it.favcat}${favCatNames[it.favcat] ? " " + esc(favCatNames[it.favcat]) : ""}</span>
+              <span class="dup-body">
+                <span class="dup-title">
+                  <a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+                </span>
+                <span class="dup-meta">
+                  ${it.gallery_id != null ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id })}">${esc(t("favLocal"))}</a>` : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`}
+                  <span class="badge">#${it.favcat}${favCatNames[it.favcat] ? " " + esc(favCatNames[it.favcat]) : ""}</span>
+                  ${fmtDate(it.first_seen_at) ? `<span class="badge">${esc(t("favDate"))} ${fmtDate(it.first_seen_at)}</span>` : ""}
+                  ${it.file_size ? `<span class="badge">${fmtSize(it.file_size)}</span>` : ""}
+                </span>
+                ${(it.tags || []).length ? `<span class="dup-tags">${it.tags.map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</span>` : ""}
               </span>
             </label>
           </div>`).join("")}
@@ -1282,6 +1299,14 @@ function fmtSize(bytes) {
   let i = 0, v = bytes;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 async function saveFavoriteCategories() {
