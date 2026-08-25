@@ -18,12 +18,13 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Bilingual interface** — Full English and Chinese interface, switchable at any time; tags render their translations in the Chinese view.
 - **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery.
 - **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry.
-- **Favorites monitor** — Watches the ten ExHentai favorite folders and auto-downloads galleries you do not have yet (scheduled or on demand).
-- **Favorites management** — Each folder gets its own gallery grid (checkboxes, bulk download / remove from favorites), a one-click Unfavorite on gallery detail pages, and a **duplicate scan** that groups the same work across versions (DL, uncensored, language re-uploads) for bulk unfavoriting or deleting local copies.
+- **Favorites monitor** — Watches the ten ExHentai favorite folders and auto-downloads galleries you do not have yet (scheduled or on demand); **Check all folders** runs them all at once.
+- **Favorites management** — Each folder gets its own gallery grid (checkboxes, bulk download / remove from favorites, inline cloud covers), a one-click Unfavorite plus folder badges on gallery detail pages, and a **duplicate scan** that groups the same work across versions (DL, uncensored, language re-uploads) for bulk unfavoriting or deleting local copies — with false-positive **ignore/restore**, a collapsed **likely same-name** section, and pagination.
+- **Metadata cache & auto-sync** — Folder checks batch every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; galleries scanned onto disk reuse it with no extra ExHentai fetch, and fresh metadata is applied to on-disk galleries automatically after every check.
 - **Reader and history** — Streams one page at a time with keyboard/space/click paging, preloads the next three pages, advances to the next gallery after the last page, saves your reading position, and keeps a browsable history.
 - **Telegram notifications** — Get notified on download success/failure, scan completion, and favorite sync.
 - **Orphan cleanup** — Galleries deleted from ExHentai (or without usable coordinates) are automatically grouped under the Deleted category.
-- **Security and privacy** — Single-password authentication with persistent sessions, secure settings storage, and an optional no-login mode.
+- **Security and privacy** — Single-password auth (PBKDF2-SHA256, 310k iterations) with persistent sessions, login rate limiting against brute force, cross-origin checks and an ExHentai domain whitelist, secure settings storage, and an optional no-login mode.
 - **One-command deployment** — Two published Docker Hub images plus PostgreSQL run with a single `docker compose up`.
 
 ## Screenshots
@@ -120,6 +121,16 @@ The backend is built on the following open-source components:
 - **Pydantic** — data validation and configuration
 
 Infrastructure: **PostgreSQL**, **nginx**, **Docker**.
+
+## Public deployment checklist
+
+Before exposing an instance to the public internet:
+
+1. **Use a strong password.** The default `p1a2s3s4` is for first login only — change it in Settings. Login is rate-limited out of the box (10 attempts / 60 s per IP), and nginx throttles `/login` (10 r/min) and `/api` (30 r/s) per client IP.
+2. **Enable TLS.** Terminate HTTPS at a reverse proxy / Caddy in front of nginx and set `AUTH_COOKIE_SECURE=true`; otherwise the password and session cookie travel in plaintext. Add HSTS once HTTPS is live.
+3. **Only expose port 8000.** The compose file binds the backend API to `127.0.0.1:8001` (loopback only) — keep it that way and route all API traffic through the nginx frontend.
+4. **Built-in defenses (no setup needed):** login rate limiting, cross-origin checks on state-changing `/api` calls, an `exhentai_base_url` whitelist (exhentai.org / e-hentai.org only), `HttpOnly + SameSite=Lax` session cookies, and PBKDF2-SHA256 (310k iterations) password hashing.
+5. **Recommended hardening:** run containers as non-root, give PostgreSQL its own strong password, and avoid mounting system-critical paths as library/downloads roots.
 
 ## Documentation
 
