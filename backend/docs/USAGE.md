@@ -113,7 +113,7 @@ and back/forward work without server round-trips.
   favorite gallery (normalized title + artist, e.g. the same work in `[DL版]`,
   `[無修正]` or language re-uploads) and groups duplicates with a progress bar.
   Each group shows the full title; every row shows the cover, local/cloud,
-  folder name, favorite date, size and translated tags. Filter with
+  folder name, posted date, size and translated tags. Filter with
   **全部 / 只显示本地 / 只显示云端**, then **取消收藏** (remove from favorites)
   or **取消收藏并删除已下载** (also delete the local copies).
 - Gallery detail pages show a **取消收藏** button whenever the gallery is in a
