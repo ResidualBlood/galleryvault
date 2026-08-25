@@ -1863,6 +1863,23 @@ async def _favorite_size_sync(favcat: int) -> None:
             logger.info(
                 "favorite metadata synced", extra=log_extra(favcat=favcat, cached=total_cached)
             )
+        # Apply the fresh metadata (tags, category, title, posted, sizes) to the
+        # on-disk galleries of this folder, so local tags stay in sync without
+        # any per-gallery ExHentai fetch.  Skipped automatically when the cache
+        # is unchanged since the last apply.
+        applied = 0
+        for _apply_round in range(100):
+            async with _settings_session() as session, session.begin():
+                applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
+                    favcat, 200
+                )
+            if not applied_round:
+                break
+            applied += applied_round
+        if applied:
+            logger.info(
+                "favorite metadata applied", extra=log_extra(favcat=favcat, applied=applied)
+            )
     except Exception as exc:  # noqa: BLE001 - background task must not crash
         logger.warning(
             "favorite metadata sync failed",

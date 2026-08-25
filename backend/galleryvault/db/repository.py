@@ -665,6 +665,19 @@ class GalleryRepository:
                     "tags": statement.excluded.tags,
                     "updated_at": statement.excluded.updated_at,
                 },
+                # Only advance updated_at when the content actually changed, so a
+                # later metadata-apply pass can tell "fresh" from "same as last
+                # time" without rewriting local galleries every check.
+                where=or_(
+                    GalleryMetadata.tags.is_distinct_from(statement.excluded.tags),
+                    GalleryMetadata.category.is_distinct_from(statement.excluded.category),
+                    GalleryMetadata.title.is_distinct_from(statement.excluded.title),
+                    GalleryMetadata.title_jpn.is_distinct_from(statement.excluded.title_jpn),
+                    GalleryMetadata.posted_at.is_distinct_from(statement.excluded.posted_at),
+                    GalleryMetadata.file_size.is_distinct_from(statement.excluded.file_size),
+                    GalleryMetadata.file_count.is_distinct_from(statement.excluded.file_count),
+                    GalleryMetadata.rating.is_distinct_from(statement.excluded.rating),
+                ),
             )
             result = await self.session.execute(statement)
             written += result.rowcount or 0
@@ -769,6 +782,95 @@ class GalleryRepository:
             .limit(limit)
         )
         return [(int(row[0]), str(row[1])) for row in rows]
+
+    async def apply_metadata_to_galleries(self, favcat: int, limit: int = 200) -> int:
+        """Apply fresh cached metadata to local galleries of a favorite folder.
+
+        For every on-disk gallery in the folder whose metadata cache is newer
+        than its last tag sync, updates tags (replacing ``gallery_tags``),
+        category, title, title_jpn, posted_at, file_size, file_count, rating,
+        uploader and stamps ``tags_synced_at``.  Returns the number processed.
+        """
+        rows = await self.session.execute(
+            select(Gallery, GalleryMetadata)
+            .select_from(FavoriteItem)
+            .join(Gallery, Gallery.gid == FavoriteItem.gid)
+            .join(GalleryMetadata, GalleryMetadata.gid == Gallery.gid)
+            .where(
+                FavoriteItem.favcat == favcat,
+                Gallery.expunged.is_(False),
+                or_(
+                    Gallery.tags_synced_at.is_(None),
+                    GalleryMetadata.updated_at > Gallery.tags_synced_at,
+                ),
+            )
+            .limit(limit)
+        )
+        pairs = [(gallery, meta) for gallery, meta in rows]
+        if not pairs:
+            return 0
+        now = datetime.now(UTC)
+        tag_keys: set[tuple[str, str]] = set()
+        for gallery, meta in pairs:
+            gallery.category = meta.category or gallery.category
+            gallery.title = meta.title or gallery.title
+            gallery.title_jpn = meta.title_jpn or gallery.title_jpn
+            gallery.uploader = meta.uploader or gallery.uploader
+            gallery.file_count = meta.file_count or gallery.file_count
+            gallery.file_size = meta.file_size or gallery.file_size
+            gallery.rating = meta.rating or gallery.rating
+            gallery.posted_at = meta.posted_at or gallery.posted_at
+            gallery.tags_synced_at = now
+            for tag in meta.tags or []:
+                namespace = str(tag[0] or "misc").strip() or "misc"
+                name = str(tag[1] or "").strip()
+                if name:
+                    tag_keys.add((namespace, name))
+        await self.session.flush()
+        gallery_ids = [gallery.id for gallery, _ in pairs]
+        await self.session.execute(
+            delete(GalleryTag).where(GalleryTag.gallery_id.in_(gallery_ids))
+        )
+        if tag_keys:
+            tag_rows = list(
+                (
+                    await self.session.scalars(
+                        select(Tag).where(tuple_(Tag.namespace, Tag.name).in_(tag_keys))
+                    )
+                ).all()
+            )
+            tag_map = {(tag.namespace, tag.name): tag for tag in tag_rows}
+            missing = [
+                Tag(namespace=ns, name=name) for ns, name in tag_keys if (ns, name) not in tag_map
+            ]
+            if missing:
+                await self.session.execute(
+                    pg_insert(Tag)
+                    .values([{"namespace": tag.namespace, "name": tag.name} for tag in missing])
+                    .on_conflict_do_nothing(index_elements=["namespace", "name"])
+                )
+                tag_rows = list(
+                    (
+                        await self.session.scalars(
+                            select(Tag).where(tuple_(Tag.namespace, Tag.name).in_(tag_keys))
+                        )
+                    ).all()
+                )
+                tag_map = {(tag.namespace, tag.name): tag for tag in tag_rows}
+            self.session.add_all(
+                GalleryTag(gallery_id=gallery.id, tag_id=tag_map[key].id)
+                for gallery, meta in pairs
+                for key in {
+                    (
+                        str(tag[0] or "misc").strip() or "misc",
+                        str(tag[1] or "").strip(),
+                    )
+                    for tag in meta.tags or []
+                    if str(tag[1] or "").strip()
+                }
+                if key in tag_map
+            )
+        return len(pairs)
 
 
     async def replace_tags(
