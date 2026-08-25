@@ -44,7 +44,7 @@ from ..logging import configure_logging, log_extra
 from ..scanners import registry
 from ..scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
-from ..services.duplicates import find_duplicate_groups, mark_likely_false_positive
+from ..services.duplicates import find_duplicate_groups
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
 from ..services.favorites import FavoritesService
 from ..services.ingest import GalleryIngestService
@@ -1750,9 +1750,7 @@ async def _run_duplicates_scan() -> None:
                         await FavoritesRepository(session).update_posted_at(local_write)
             ignored_keys = await FavoritesRepository(session).ignored_duplicate_keys()
             groups = [g for g in groups if g["key"] not in ignored_keys]
-            for group in groups:
-                group["likely_false_positive"] = mark_likely_false_positive(group)
-            groups.sort(key=lambda g: (g.get("likely_false_positive"), -len(g["items"])))
+            groups.sort(key=lambda g: -len(g["items"]))
             duplicates_state["groups"] = groups
             duplicates_state["ignored"] = await FavoritesRepository(session).ignored_duplicates()
             duplicates_state["done"] = len(items)

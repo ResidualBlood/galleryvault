@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from datetime import datetime
 from typing import Any
 
 _VERSION_TAG = re.compile(r"\[([^\]]*)\]")
@@ -91,39 +90,3 @@ def find_duplicate_groups(
         )
     groups.sort(key=lambda g: (-len(g["items"]), g["items"][0]["title"]))
     return groups
-
-
-def mark_likely_false_positive(group: dict[str, Any]) -> bool:
-    """Heuristically flag a group that is probably same-name, different works.
-
-    A genuine re-upload (DL / uncensored / translated version of the same work)
-    shares parody/character tags and was posted within a short window.  Groups
-    whose posted dates span many months, or whose items share no parody or
-    character tag at all, are almost certainly distinct galleries that merely
-    share a title — the manager shows those demoted so they do not dominate.
-    """
-    posted: list[datetime] = []
-    for item in group["items"]:
-        value = item.get("posted_at")
-        if not value:
-            continue
-        try:
-            posted.append(datetime.fromisoformat(str(value)))
-        except (ValueError, TypeError):
-            continue
-    if len(posted) >= 2 and (max(posted) - min(posted)).days > 180:
-        return True
-    frames: list[set[tuple[str, str]]] = []
-    for item in group["items"]:
-        frame = {
-            (tag.get("namespace", ""), tag.get("name", ""))
-            for tag in (item.get("tags") or [])
-            if tag.get("namespace") in ("parody", "character") and tag.get("name")
-        }
-        if frame:
-            frames.append(frame)
-    for i in range(len(frames)):
-        for j in range(i + 1, len(frames)):
-            if not (frames[i] & frames[j]):
-                return True
-    return False
