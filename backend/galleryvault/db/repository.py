@@ -1394,6 +1394,71 @@ class FavoritesRepository:
         rows = await self.session.scalars(select(DuplicateIgnore.key))
         return set(rows.all())
 
+    async def favorite_items_detail_by_gids(self, gids: list[int]) -> dict[int, dict]:
+        """Duplicate-scan style item detail for favorite gids (local-join aware)."""
+        if not gids:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(FavoriteItem, Gallery)
+                .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+                .where(FavoriteItem.gid.in_(list(dict.fromkeys(gids))))
+            )
+        ).all()
+        pairs = [(item, gallery) for item, gallery in rows]
+        local_ids = [
+            int(gallery.id)
+            for _, gallery in pairs
+            if gallery is not None and gallery.id is not None
+        ]
+        tag_map: dict[int, list[tuple[str, str]]] = {}
+        if local_ids:
+            tag_rows = await self.session.execute(
+                select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
+                .join(Tag, Tag.id == GalleryTag.tag_id)
+                .where(GalleryTag.gallery_id.in_(list(dict.fromkeys(local_ids))))
+            )
+            for gallery_id, namespace, name in tag_rows:
+                tag_map.setdefault(int(gallery_id), []).append((namespace, name))
+        result: dict[int, dict] = {}
+        for item, gallery in pairs:
+            if gallery is not None:
+                result[int(item.gid)] = {
+                    "gid": item.gid,
+                    "favcat": item.favcat,
+                    "token": item.token,
+                    "title": item.title or gallery.title or "",
+                    "url": item.url,
+                    "gallery_id": gallery.id,
+                    "category": gallery.category or "other",
+                    "page_count": gallery.page_count or 0,
+                    "cover_url": f"/api/galleries/{gallery.id}/thumb/0" if gallery.page_count else None,
+                    "file_size": gallery.file_size,
+                    "first_seen_at": item.first_seen_at,
+                    "posted_at": gallery.posted_at,
+                    "tags": [
+                        {"namespace": ns, "name": name}
+                        for ns, name in tag_map.get(gallery.id, [])
+                    ],
+                }
+            else:
+                result[int(item.gid)] = {
+                    "gid": item.gid,
+                    "favcat": item.favcat,
+                    "token": item.token,
+                    "title": item.title,
+                    "url": item.url,
+                    "gallery_id": None,
+                    "category": None,
+                    "page_count": None,
+                    "cover_url": None,
+                    "file_size": item.file_size,
+                    "first_seen_at": item.first_seen_at,
+                    "posted_at": None,
+                    "tags": [],
+                }
+        return result
+
     async def ignored_duplicates(self) -> list[dict[str, object]]:
         rows = await self.session.scalars(
             select(DuplicateIgnore).order_by(DuplicateIgnore.created_at.desc())

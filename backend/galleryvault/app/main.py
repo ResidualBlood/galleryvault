@@ -1694,7 +1694,39 @@ async def duplicates_status() -> dict[str, object]:
 async def duplicates_ignored_list() -> list[dict[str, object]]:
     try:
         async with _settings_session() as session:
-            return await FavoritesRepository(session).ignored_duplicates()
+            ignores = await FavoritesRepository(session).ignored_duplicates()
+            all_gids = [gid for entry in ignores for gid in (entry.get("gids") or [])]
+            items: dict[int, dict] = {}
+            if all_gids:
+                items = await FavoritesRepository(session).favorite_items_detail_by_gids(all_gids)
+                cloud_pairs = [
+                    (gid, str(detail.get("token") or ""))
+                    for gid, detail in items.items()
+                    if detail.get("gallery_id") is None and detail.get("token")
+                ]
+                gmeta: dict[int, dict[str, object]] = {}
+                if cloud_pairs and app.state.eh_client is not None:
+                    try:
+                        gmeta = await app.state.eh_client.fetch_gmetadata(cloud_pairs)
+                    except Exception:  # noqa: BLE001 - best-effort
+                        gmeta = {}
+                cover_map = await _remote_cover_data_batch(cloud_pairs, gmeta)
+                for gid, detail in items.items():
+                    if detail.get("gallery_id") is not None:
+                        continue
+                    meta = gmeta.get(gid, {})
+                    detail["cover_data"] = cover_map.get(gid)
+                    detail["file_size"] = detail.get("file_size") or meta.get("file_size")
+                    detail["posted_at"] = detail.get("posted_at") or _unix_to_iso(meta.get("posted"))
+                    if meta.get("tags"):
+                        detail["tags"] = [
+                            {"namespace": ns, "name": name}
+                            for ns, name in _parse_gdata_tags(meta.get("tags", []))
+                        ]
+            return [
+                {**entry, "items": [items.get(gid) for gid in (entry.get("gids") or []) if gid in items]}
+                for entry in ignores
+            ]
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
 
