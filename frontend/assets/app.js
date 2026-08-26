@@ -2121,6 +2121,7 @@ async function welcomeChangePassword() {
     await api("POST", "/api/auth/change-password", { current, new: next });
     app.session.must_change_password = false;
     toast(t("changePwOk"));
+    updateBanner();
     renderWelcome();
   } catch (e) { toast(e.message); }
 }
