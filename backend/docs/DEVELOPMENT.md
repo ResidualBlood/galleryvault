@@ -158,7 +158,7 @@ moved coordinate-less galleries to `deleted`, `0011` added
 `download_tasks.max_pages` so partial/sample downloads survive the worker, and
 `0012` added `favorite_items.file_size` for exact cloud-size estimates.
 
-## Thumbnails (缩略图)
+## Thumbnails
 
 `services/thumbnails.py` renders static JPEG thumbnails (max 240px wide) into
 a dedicated cache dir (`thumbnail_cache_dir`, default `/gv-cache/thumbs`, a
@@ -169,7 +169,7 @@ generates every page for queued galleries; progress is exposed via
 `GET /api/thumbs/status`. Gallery cover art and the detail-page thumbnail grid
 load `/api/galleries/{id}/thumb/{page}` instead of the full-size page.
 
-## Favorites (收藏夹)
+## Favorites
 
 - `fetch_favorites` walks ExHentai's `next` cursor (not `page=`), calling a
   `progress` callback with the walked count; per-folder check progress lives in
@@ -182,7 +182,7 @@ load `/api/galleries/{id}/thumb/{page}` instead of the full-size page.
   (`favorite_items.file_size`, via `_favorite_size_sync`) + an average estimate
   for the unfetched tail.
 
-## Building & deploying (生产)
+## Building & deploying
 
 This is a local deployment: build the two images locally (fast, dependency
 layer is cached), then `docker compose up -d` — no need to wait for CI.
@@ -197,46 +197,54 @@ cd /mnt/ehviewer && docker compose up -d backend frontend
 other machines. Runtime containers are authoritative: `docker cp` edits do not
 persist across recreation.
 
-## Tag translations (标签翻译)
+## Tag translations
 
-**是后端实现的**，前端只负责按语言切换显示。
+**Implemented in the backend**; the frontend only switches the display by
+language.
 
-- 后端模块 `galleryvault/services/tag_translation.py` 在启动时调用
-  `load_translations()` 将翻译库加载到内存 `_TRANSLATIONS`。
-- 加载顺序（后者覆盖前者）：
-  1. 镜像内捆绑的 `galleryvault/data/tag_translations.json`（约 2.1 MB，来自
-     EhTagTranslation / ehsyringe 导出的 `{"data":[{"namespace","data":[{"key","name"}]}]}` 格式）
-  2. 用户覆盖文件 `galleryvault/tag_translations.json`（若存在）
-  3. 环境变量 `TAG_TRANSLATIONS_FILE` 指向的外部文件（推荐在 Docker 下使用，
-     例如挂载宿主机文件）
-  4. 显式传入的 `path` 参数（单元测试使用）
-- `translate_tag()` / `translated_tag()` 查询内存表，命中则通过
-  `clean_display()` 去掉翻译文本里可能嵌套的 markdown 图标语法
-  `![alt](https://...webp)`（注射器数据库里有 69 条此类记录，例如
-  `![贝合图标](...tribadism.webp)贝合` → `贝合`），并截断至 60 字符。
-- API 在三个地方返回中文 `display` 字段：`GET /api/galleries` 每项的 `tags[]`、
-  `GET /api/galleries/{id}` 的 `tags[]`、`GET /api/tags/search` 的 `items[]`。
-- 前端 `frontend/assets/app.js` 的 `tagText(tag)` 在 `localStorage.gv_lang==='zh'`
-  时显示 `tag.display`，否则显示 `tag.name`；命名空间标签
-  `NAMESPACE_LABELS_ZH` 同样来自后端常量。
+- The backend module `galleryvault/services/tag_translation.py` calls
+  `load_translations()` at startup to load the translation database into the
+  in-memory `_TRANSLATIONS` dict.
+- Load order (later sources override earlier ones):
+  1. The bundled `galleryvault/data/tag_translations.json` (~2.1 MB, exported
+     from EhTagTranslation / ehsyringe in the
+     `{"data":[{"namespace","data":[{"key","name"}]}]}` format).
+  2. A user override file `galleryvault/tag_translations.json` (if present).
+  3. An external file pointed to by the `TAG_TRANSLATIONS_FILE` environment
+     variable (recommended under Docker, e.g. by mounting a host file).
+  4. An explicit `path` argument (used by the unit tests).
+- `translate_tag()` / `translated_tag()` query the in-memory table; on a hit,
+  `clean_display()` strips any nested markdown icon syntax
+  `![alt](https://...webp)` the translation database may contain (69 such
+  records, e.g. `![贝合图标](...tribadism.webp)贝合` → `贝合`) and truncates
+  the result to 60 characters.
+- The API returns Chinese `display` fields in three places: `GET /api/galleries`
+  per-item `tags[]`, `GET /api/galleries/{id}` `tags[]`, and
+  `GET /api/tags/search` `items[]`.
+- The frontend `frontend/assets/app.js` `tagText(tag)` shows `tag.display`
+  when `localStorage.gv_lang==='zh'` and `tag.name` otherwise; the namespace
+  labels `NAMESPACE_LABELS_ZH` also come from the backend constants.
 
-与 **e 站注射器（EhTagTranslation / ehsyringe）同步**：
+**Syncing with EhTagTranslation / ehsyringe**:
 
-- **内置自动更新（推荐）**：后端后台任务每
-  `TAG_TRANSLATION_UPDATE_INTERVAL_MINUTES`（默认 720，`0` 关闭）解析
+- **Built-in auto-update (recommended)**: a backend background task parses the
+  latest `db.text.json` asset from the
   [`EhTagTranslation/Database`](https://github.com/EhTagTranslation/Database)
-  最新 release 的 `db.text.json` 资产并热加载（`load_translations(reset=True)`）。
-  可在 Settings 里“立即更新”或查看状态。注意 `db.text.json` 内部 `data` 是
-  `{name: zh}` 字典、值为 `{name,intro,links}` 对象，`merge_translation_data`
-  已兼容该格式与旧版 `{key,name}` 列表 / 扁平映射三种输入。
-- **手动挂载（离线环境）**：把下载好的 JSON 放到 `galleryvault/data/tag_translations.json`
-  或挂载到 `TAG_TRANSLATIONS_FILE`，重建以捆绑，或通过环境变量热加载。
+  release every `TAG_TRANSLATION_UPDATE_INTERVAL_MINUTES` (default 720, `0`
+  disables it) and hot-reloads it (`load_translations(reset=True)`). You can
+  trigger it manually with *Update now* in Settings or check its status there.
+  Note that `db.text.json`'s `data` is a `{name: zh}` dict whose values are
+  `{name,intro,links}` objects; `merge_translation_data` is compatible with
+  that format and with the older `{key,name}` list / flat mapping as well.
+- **Manual mount (offline environments)**: put the downloaded JSON in
+  `galleryvault/data/tag_translations.json` or mount it at
+  `TAG_TRANSLATIONS_FILE`; rebuild to bundle it, or hot-load it via the env var.
 
 ```bash
-# 手动获取最新翻译库
+# fetch the latest translation database manually
 curl -L https://github.com/EhTagTranslation/Database/releases/latest/download/db.text.json \
   -o ./tag_translations.json
-# docker-compose.yml 增加：
+# docker-compose.yml:
 #   environment:
 #     TAG_TRANSLATIONS_FILE: /app/tag_translations.json
 #   volumes:
@@ -244,7 +252,8 @@ curl -L https://github.com/EhTagTranslation/Database/releases/latest/download/db
 docker-compose up -d app
 ```
 
-可通过容器日志确认加载：`docker logs galleryvault-backend | grep "tag translations"`。
+You can confirm loading in the container logs:
+`docker logs galleryvault-backend | grep "tag translations"`.
 
 ## Conventions
 

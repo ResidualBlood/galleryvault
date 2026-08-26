@@ -33,7 +33,7 @@ and back/forward work without server round-trips.
 
 - Search by title, filter by category, and page through your indexed library.
 - Click a cover to open the gallery detail page.
-- **扫描库 (Scan library)** triggers a filesystem scan of the configured
+- **Scan library** triggers a filesystem scan of the configured
   library roots. New archives are indexed; missing ones are expired.
 
 ### Gallery detail (`#/gallery/<id>`)
@@ -61,7 +61,7 @@ and back/forward work without server round-trips.
 - Search the local tag taxonomy and see usage counts; filter by namespace with
   the pills (Tags / Artists / Characters / Parodies / Groups / Languages /
   Categories).
-- With the 中文 interface enabled, tags render their Chinese translations;
+- With the Chinese interface enabled, tags render their Chinese translations;
   markdown icon syntax from the translation database is stripped automatically.
   Multi-value tags (`A | B`) keep only their translated values — an untranslated
   English alias is dropped, so e.g. `3-gatsu no lion | march comes in like a lion`
@@ -92,16 +92,16 @@ and back/forward work without server round-trips.
 - Shows the **background tasks** (library scan, tag sync, thumbnail generation,
   and the favorites metadata sync/apply that runs after a folder check) in one
   place, split into two sections that size to their content:
-  - **进行中 (Running now)**: one row per active task with start time, task
+  - **Running now**: one row per active task with start time, task
     name, status (`running · done/total`), a live progress bar (indeterminate
-    while progress is unknown), a short description, and a **取消 (Cancel)**
+    while progress is unknown), a short description, and a **Cancel**
     button — multiple tasks can run at once, each with its own row.
-  - **已完成 (Finished)**: every finished/failed/cancelled task with start time,
+  - **Finished**: every finished/failed/cancelled task with start time,
     task name, a status badge, description, **duration** (finished − started),
     finish time, and the success/failure reason. No progress bar is shown, so a
     finished task is a stable summary rather than a flickering bar.
 - The page auto-refreshes every 2 seconds while open. The Logs link also
-  appears next to the *立即同步标签* and *立即生成* buttons in Settings.
+  appears next to the *Sync tags now* and *Generate now* buttons in Settings.
 
 ### Library & search
 
@@ -123,14 +123,14 @@ and back/forward work without server round-trips.
 ### Favorites (`#/favorites`)
 
 - Lists the ten ExHentai favorite folders with enable checkbox, mode
-  (incremental / 仅监控 monitor_only / force) and polling interval; **保存**
+  (incremental / monitor-only / force) and polling interval; **Save**
   writes them all at once.
-- **同步收藏夹名称** pulls folder names from ExHentai.
-- **立即检查** scans that folder. A **disabled** folder is check-only (records
+- **Sync folder names** pulls folder names from ExHentai.
+- **Check now** scans that folder. A **disabled** folder is check-only (records
   items and sizes, never downloads); an **enabled** folder downloads galleries
   you do not yet have. When *download favorites* is enabled in Settings this
   also runs on a schedule.
-- Each folder shows **云端/本地** gallery counts and sizes (cloud size is exact
+- Each folder shows **cloud/local** gallery counts and sizes (cloud size is exact
   once the missing galleries' sizes have been fetched). A **progress ring**
   appears next to the folder name while a check runs (hover shows walked/total),
   and disappears when the sync completes.
@@ -144,26 +144,27 @@ and back/forward work without server round-trips.
   cache, so **tag sync and ingestion need no extra ExHentai fetch** for
   galleries the monitor has already seen.
 - **Click a folder name** to open `#/favorites/<favcat>`: its galleries as a
-  grid with checkboxes, plus **下载所选** (Download selected, skipping ones
-  already local) and **移除收藏** (Remove from favorites). Cloud-only galleries
+  grid with checkboxes, plus **Download selected** (skipping ones
+  already local) and **Remove from favorites**. Cloud-only galleries
   show their cover inline (batched via the ExHentai gdata API, cached) with a
-  **云端** badge and real size; local ones use the generated thumbnail and a
-  **本地** badge. When you arrive from a gallery detail page, a **← 返回画廊**
-  link is shown next to **← 收藏夹**.
-- **收藏夹管理** (`#/favorites/manage`): **开始扫描重复画廊** compares every
+  **cloud** badge and real size; local ones use the generated thumbnail and a
+  **local** badge. When you arrive from a gallery detail page, a **← Back to gallery**
+  link is shown next to **← Favorites**.
+- **Manage favorites** (`#/favorites/manage`): **Start duplicate scan** compares every
   favorite gallery (normalized title + artist, e.g. the same work in `[DL版]`,
   `[無修正]` or language re-uploads) and groups duplicates with a progress bar.
   Each group shows the full title; every row shows the cover, local/cloud,
   folder name, posted date, size and translated tags. Filter with
-  **全部 / 只显示本地 / 只显示云端**, then **取消收藏** (remove from favorites)
-  or **取消收藏并删除已下载** (also delete the local copies). Groups that
+  **All / Local only / Cloud only**, then **Unfavorite** (remove from
+  favorites) or **Unfavorite and delete downloaded** (also delete the local
+  copies). Groups that
   merely share a title (same name, different works) are not demoted — select
-  their checkboxes and hit **忽略所选** (next to Clear selection) to hide
+  their checkboxes and hit **Ignore selected** (next to Clear selection) to hide
   them; the group is struck through in place and disappears on the next scan.
-  All ignored groups live on the **已忽略项目** page
+  All ignored groups live on the **Ignored items** page
   (`#/favorites/ignored`, button in the toolbar) where you can batch-restore
   them. The duplicate list is paginated at 20 groups per page.
-- Gallery detail pages show a **取消收藏** button whenever the gallery is in a
+- Gallery detail pages show an **Unfavorite** button whenever the gallery is in a
   favorite folder.
 
 ### Settings (`#/settings`)
@@ -171,30 +172,30 @@ and back/forward work without server round-trips.
 - **Library roots** (read-only): one filesystem path per line. In Docker these
   must be paths mounted into the container. New downloads never land here.
 - **Downloads**: root directory (where downloads are stored and scanned
-  automatically), concurrency, quality (普通/原图), H@H network, `max_pages`.
+  automatically), concurrency, quality (normal/original), H@H network, `max_pages`.
 - **Account**: toggle *Require login*. **Change password** asks for the current
   and new password; if still on the default `p1a2s3s4`, a banner prompts you to
   change it. Turning *Require login* off disables authentication entirely.
   Changing the password **revokes every active session** — you have to log in
   again on each device.
 - **ExHentai**: base URL plus `ipb_member_id` / `ipb_pass_hash` / `igneous`
-  cookies (exported from a logged-in browser session). **测试登录** validates
+  cookies (exported from a logged-in browser session). **Test login** validates
   them. Cookies are never echoed back to the UI.
 - **Proxy**: HTTP **or** SOCKS5 (not both).
-- **标签同步**: automatic tag sync after scans / startup, interval, concurrency,
-  plus a **立即同步标签** (Sync tags now) button.
-- **Thumbnails**: *Generate thumbnails* switch and **立即生成** (Generate now)
-  button; progress appears on the **日志 (Logs)** page.
-- **Telegram**: bot token, chat IDs, allowed user IDs — **发送测试消息** verifies
+- **Tag sync**: automatic tag sync after scans / startup, interval, concurrency,
+  plus a **Sync tags now** button.
+- **Thumbnails**: *Generate thumbnails* switch and **Generate now**
+  button; progress appears on the **Logs** page.
+- **Telegram**: bot token, chat IDs, allowed user IDs — **Send test message** verifies
   the bot can reach the configured chat.
-- **翻译自动更新**: interval (minutes, 0 = off) for the backend to pull the
-  latest EhTagTranslation release; **立即更新** forces a refresh.
+- **Translation auto-update**: interval (minutes, 0 = off) for the backend to pull the
+  latest EhTagTranslation release; **Update now** forces a refresh.
 
 ### Downloads (`#/downloads`)
 
 - Each task can be **cancelled** (stops the page writes and removes the partial
   temp dir), **retried**, or **deleted** (removes the task record); bulk
-  operations via **全选 / 重试所选 / 删除所选**.
+  operations via **Select all / Retry selected / Delete selected**.
 
 ## Configuration
 
