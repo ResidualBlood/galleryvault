@@ -8,4 +8,4 @@ alembic>=1.19.1,<2
 rarfile>=4.2,<5
 Pillow>=12.3.0,<13
 # At-rest encryption for sensitive settings (ENCRYPTION_KEY)
-cryptography>=42,<45
+cryptography>=50.0.0,<51
