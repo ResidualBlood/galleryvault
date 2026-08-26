@@ -32,6 +32,8 @@ and back/forward work without server round-trips.
 ### Library (`#/library`)
 
 - Search by title, filter by category, and page through your indexed library.
+- This page uses **infinite scroll**: the next page (25 galleries by default)
+  is appended as you near the bottom; the numbered pager stays as a fallback.
 - Click a cover to open the gallery detail page.
 - **Scan library** triggers a filesystem scan of the configured
   library roots. New archives are indexed; missing ones are expired.
@@ -145,11 +147,17 @@ and back/forward work without server round-trips.
   galleries the monitor has already seen.
 - **Click a folder name** to open `#/favorites/<favcat>`: its galleries as a
   grid with checkboxes, plus **Download selected** (skipping ones
-  already local) and **Remove from favorites**. Cloud-only galleries
-  show their cover inline (batched via the ExHentai gdata API, cached) with a
+  already local), **Remove from favorites** and an **All / Local only / Cloud only**
+  state filter. Cloud-only galleries show their cover inline with a
   **cloud** badge and real size; local ones use the generated thumbnail and a
-  **local** badge. When you arrive from a gallery detail page, a **← Back to gallery**
+  **local** badge. The list is paginated at **25 galleries per page** by
+  default. When you arrive from a gallery detail page, a **← Back to gallery**
   link is shown next to **← Favorites**.
+- The **Download missing items** button on the Favorites overview (`POST
+  /api/favorites/download-missing`) runs a per-folder pass that downloads cover
+  files for every gallery missing one on disk — a check captures each cover's
+  thumb URL from the listing (stored in `favorite_items.thumb`), and this pass
+  warms the disk cache without a gdata round-trip.
 - **Manage favorites** (`#/favorites/manage`): **Start duplicate scan** compares every
   favorite gallery (normalized title + artist, e.g. the same work in `[DL版]`,
   `[無修正]` or language re-uploads) and groups duplicates with a progress bar.
