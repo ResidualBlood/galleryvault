@@ -110,6 +110,7 @@ class FavoriteData:
     token: str
     title: str
     url: str
+    thumb: str | None = None
 
 
 def parse_gallery_url(value: str, base_url: str = "https://exhentai.org") -> tuple[int, str]:
@@ -678,7 +679,18 @@ class EhClient:
                     re.IGNORECASE | re.DOTALL,
                 )
                 title = _text(glink.group(1)) if glink else _text(label)
-                items.append(FavoriteData(gid, token, title, urljoin(str(response.url), href)))
+                # The gallery's cover thumbnail URL is inline in the listing;
+                # capturing it here means a favorites check can warm cover files
+                # without a separate gdata round-trip.
+                thumb_match = re.search(
+                    r'<img[^>]+src=["\']([^"\']+)["\']', label, re.IGNORECASE
+                )
+                thumb = html.unescape(thumb_match.group(1)) if thumb_match else None
+                items.append(
+                    FavoriteData(
+                        gid, token, title, urljoin(str(response.url), href), thumb
+                    )
+                )
             if not items:
                 break
             result.extend(items)

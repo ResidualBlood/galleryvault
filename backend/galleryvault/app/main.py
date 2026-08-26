@@ -1855,19 +1855,19 @@ async def _favorite_size_sync(favcat: int) -> None:
                 logger.info(
                     "favorite metadata synced", extra=log_extra(favcat=favcat, cached=total_cached)
                 )
-            # Heal missing covers: fetch gdata for folder gids whose cover file
-            # is absent, then download the cover to disk.  Already-warm files are
-            # skipped by _remote_cover_data_batch, so a folder check really pulls
-            # covers (the intended design) instead of leaving them to the lazy
-            # browsing endpoint.
+            # Heal missing covers: walk the folder's stored thumb URLs (captured
+            # from the favorites listing during the check) and download the ones
+            # missing on disk — no gdata round-trip needed.  Already-warm files
+            # are skipped, so a folder check really pulls covers (the intended
+            # design) instead of leaving them to the lazy browsing endpoint.
             metadata_sync_state["stage"] = "covers"
             try:
                 async with _settings_session() as session:
-                    folder_gids = await FavoritesRepository(session).all_gids_for_favcat(favcat)
+                    folder_items = await FavoritesRepository(session).all_gids_for_favcat(favcat)
                 cache_dir = _remote_cover_cache_dir()
                 coverless = [
-                    (gid, token)
-                    for gid, token in folder_gids
+                    (gid, token, thumb)
+                    for gid, token, thumb in folder_items
                     if not (cache_dir / f"{gid}.img").is_file()
                 ]
                 for start in range(0, len(coverless), 500):
@@ -1875,20 +1875,20 @@ async def _favorite_size_sync(favcat: int) -> None:
                         cancelled = True
                         break
                     chunk = coverless[start : start + 500]
-                    try:
-                        meta = await client.fetch_gmetadata(chunk)
-                    except Exception as exc:  # noqa: BLE001 - stop, retry next check
-                        logger.warning(
-                            "favorite cover heal round failed",
-                            extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                    meta = {
+                        gid: {"thumb": thumb}
+                        for gid, _token, thumb in chunk
+                        if thumb
+                    }
+                    if meta:
+                        await _remote_cover_data_batch(
+                            [(gid, token) for gid, token, _thumb in chunk], meta, quiet=True
                         )
-                        break
-                    await _remote_cover_data_batch(chunk, meta, quiet=True)
-                    metadata_sync_state["done"] = (
-                        int(metadata_sync_state["done"]) + len(meta)
-                    )
+                        metadata_sync_state["done"] = (
+                            int(metadata_sync_state["done"]) + len(meta)
+                        )
                     # Gentle pacing: a full folder of missing covers is a one-time
-                    # burst, and gdata/cover requests must not trip anti-abuse.
+                    # burst and must not trip anti-abuse on the thumb CDN.
                     await asyncio.sleep(1)
                 if coverless:
                     logger.info(

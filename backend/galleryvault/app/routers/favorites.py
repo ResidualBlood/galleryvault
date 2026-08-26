@@ -47,6 +47,14 @@ async def favorite_items(
         if gallery is None and item.token
     ]
     metadata = await main._favorites_metadata(cloud_pairs)
+    # Cached cloud items come back with an empty gdata thumb; fall back to the
+    # thumb URL captured from the favorites listing so a missing disk cover can
+    # still be fetched lazily while browsing.
+    for item, gallery in rows:
+        if gallery is None and item.thumb:
+            entry = metadata.setdefault(int(item.gid), {})
+            if not entry.get("thumb"):
+                entry["thumb"] = item.thumb
     cover_data = await main._remote_cover_data_batch(cloud_pairs, metadata)
     items = []
     for item, gallery in rows:

@@ -156,6 +156,7 @@ class FavoriteItem(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     file_size: Mapped[int | None] = mapped_column(BigInteger)
+    thumb: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

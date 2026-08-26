@@ -1196,14 +1196,14 @@ class FavoritesRepository:
             or 0
         )
 
-    async def all_gids_for_favcat(self, favcat: int) -> list[tuple[int, str]]:
-        """``(gid, token)`` for every item in a favorite folder (no limit)."""
+    async def all_gids_for_favcat(self, favcat: int) -> list[tuple[int, str, str | None]]:
+        """``(gid, token, thumb)`` for every item in a favorite folder."""
         rows = await self.session.execute(
-            select(FavoriteItem.gid, FavoriteItem.token).where(
+            select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.thumb).where(
                 FavoriteItem.favcat == favcat
             )
         )
-        return [(int(row[0]), str(row[1])) for row in rows]
+        return [(int(row[0]), str(row[1]), row[2]) for row in rows]
 
     async def existing_gallery_gids(self, gids: list[int]) -> set[int]:
         """gids that already exist in the local library (galleries table).
@@ -1238,12 +1238,16 @@ class FavoritesRepository:
                     token=item.token,
                     title=item.title,
                     url=item.url,
+                    thumb=getattr(item, "thumb", None),
                     first_seen_at=now,
                     last_seen_at=now,
                 )
             )
         else:
             row.token, row.title, row.url, row.last_seen_at = item.token, item.title, item.url, now
+            thumb = getattr(item, "thumb", None)
+            if thumb:
+                row.thumb = thumb
         await self.session.flush()
 
     async def remember_many(self, favcat: int, items: list[object]) -> None:
@@ -1265,6 +1269,7 @@ class FavoritesRepository:
                     "token": item.token,
                     "title": item.title,
                     "url": item.url,
+                    "thumb": getattr(item, "thumb", None),
                     "first_seen_at": now,
                     "last_seen_at": now,
                 }
@@ -1277,6 +1282,7 @@ class FavoritesRepository:
                     "token": statement.excluded.token,
                     "title": statement.excluded.title,
                     "url": statement.excluded.url,
+                    "thumb": statement.excluded.thumb,
                     "last_seen_at": statement.excluded.last_seen_at,
                 },
             )
