@@ -1,5 +1,8 @@
 # API Reference
 
+> Interactive schema: `docs/openapi.json` (auto-exported via
+> `python scripts/export_openapi.py`, viewable with any OpenAPI viewer).
+
 All endpoints (except `/healthz`, `/login`, `/logout`) require an
 authenticated session cookie. Unauthenticated `/api/*` requests receive
 `401 {"detail":"Authentication required"}`. The SPA obtains the cookie via
