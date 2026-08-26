@@ -15,6 +15,7 @@ async def settings_get() -> dict[str, object]:
     try:
         async with main._settings_session() as session:
             persisted = await SettingsRepository(session).get()
+        persisted = main._decrypt_user_settings(persisted)
         main._update_runtime_settings(persisted)
     except Exception as exc:  # noqa: BLE001 - DB down: serve in-memory settings
         # DB unavailable: serve the current in-memory settings unchanged.
@@ -112,6 +113,15 @@ async def _save_settings(body: main.SettingsRequest) -> dict[str, object]:
     except Exception:  # noqa: BLE001 - DB down: fall back to in-memory settings
         db_settings = {}
     persisted_values = {**db_settings, **values}
+    # Encrypt sensitive values for at-rest storage; values that are already
+    # stored encrypted (e.g. an unchanged bot token read from the DB) pass
+    # through untouched.
+    cookies = persisted_values.get("exhentai_cookies")
+    if isinstance(cookies, (dict, list)) and cookies:
+        persisted_values["exhentai_cookies"] = main.encrypt_json(cookies)
+    token = persisted_values.get("telegram_bot_token")
+    if isinstance(token, str) and token and not main.is_encrypted(token):
+        persisted_values["telegram_bot_token"] = main.encrypt(token)
     # All user-editable settings live in the DB (single source of truth).
     try:
         async with _settings_session() as session, session.begin():

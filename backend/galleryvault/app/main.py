@@ -42,6 +42,14 @@ from ..logging import configure_logging, log_extra
 from ..observability import request_id_middleware
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
+from ..secrets import (
+    decrypt_json_or_value,
+    decrypt_or_plain,
+    encrypt,
+    encrypt_json,
+    encryption_enabled,
+    is_encrypted,
+)
 from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
 from ..services.duplicates import find_duplicate_groups
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
@@ -374,6 +382,18 @@ async def _runtime_row() -> dict:
         return dict(row.value) if row else {}
 
 
+def _decrypt_user_settings(persisted: dict) -> dict:
+    """Turn at-rest encrypted user settings back into plaintext values."""
+    persisted = dict(persisted)
+    cookies = persisted.get("exhentai_cookies")
+    if is_encrypted(cookies):
+        persisted["exhentai_cookies"] = decrypt_json_or_value(cookies)
+    token = persisted.get("telegram_bot_token")
+    if is_encrypted(token):
+        persisted["telegram_bot_token"] = decrypt_or_plain(token)
+    return persisted
+
+
 async def _apply_persisted_settings() -> None:
     """Reload user settings + runtime secrets from the DB into app.state.
 
@@ -383,6 +403,7 @@ async def _apply_persisted_settings() -> None:
     try:
         async with _settings_session() as session:
             persisted = await SettingsRepository(session).get()
+        persisted = _decrypt_user_settings(persisted)
         runtime = await _runtime_row()
         updates: dict[str, object] = {**persisted}
         _update_runtime_settings(updates)
@@ -390,7 +411,7 @@ async def _apply_persisted_settings() -> None:
         # password hash directly so a change takes effect without a restart.
         if runtime.get("auth_password_hash"):
             app.state.settings = app.state.settings.model_copy(
-                update={"auth_password_hash": runtime["auth_password_hash"]}
+                update={"auth_password_hash": decrypt_or_plain(runtime["auth_password_hash"])}
             )
     except Exception as exc:  # noqa: BLE001 - settings load must not break the app
         logger.warning("user settings could not be loaded", extra={"error": str(exc)})
@@ -416,6 +437,11 @@ async def _bootstrap_auth() -> None:
         updates["auth_password_hash"] = _settings().auth_password_hash
     if updates:
         merged = {**runtime, **updates}
+        # Encrypt the secrets at rest; the values stay plaintext in memory.
+        if encryption_enabled():
+            for _key in ("auth_secret", "auth_password_hash"):
+                if isinstance(merged.get(_key), str):
+                    merged[_key] = encrypt(merged[_key])
         async with _settings_session() as session, session.begin():
             row = await session.get(_AppConfig, "runtime_auth")
             if row is None:
@@ -424,15 +450,58 @@ async def _bootstrap_auth() -> None:
                 row.value = merged
     # Apply the persisted secret (and any env-provided hash) to runtime settings.
     final = await _runtime_row()
-    opts: dict[str, object] = {"auth_secret": final.get("auth_secret")}
+    opts: dict[str, object] = {"auth_secret": decrypt_or_plain(final.get("auth_secret"))}
     if final.get("auth_password_hash"):
-        opts["auth_password_hash"] = final["auth_password_hash"]
+        opts["auth_password_hash"] = decrypt_or_plain(final["auth_password_hash"])
     app.state.settings = app.state.settings.model_copy(update=opts)
 
 
 async def _auth_runtime_hash() -> str | None:
     runtime = await _runtime_row()
-    return runtime.get("auth_password_hash")
+    value = runtime.get("auth_password_hash")
+    return decrypt_or_plain(value) if value else None
+
+
+async def _migrate_plaintext_secrets() -> None:
+    """Encrypt legacy plaintext secrets now that ENCRYPTION_KEY is configured.
+
+    Runs once at startup: any ``auth_secret``/``auth_password_hash`` in
+    ``runtime_auth`` and ``exhentai_cookies``/``telegram_bot_token`` in
+    ``user_settings`` still stored as plaintext are re-written encrypted.
+    """
+    if not encryption_enabled():
+        return
+    from ..db.models import AppConfig as _AppConfig
+
+    try:
+        async with _settings_session() as session, session.begin():
+            runtime_row = await session.get(_AppConfig, "runtime_auth")
+            if runtime_row is not None and isinstance(runtime_row.value, dict):
+                value = dict(runtime_row.value)
+                changed = False
+                for _key in ("auth_secret", "auth_password_hash"):
+                    v = value.get(_key)
+                    if isinstance(v, str) and v and not is_encrypted(v):
+                        value[_key] = encrypt(v)
+                        changed = True
+                if changed:
+                    runtime_row.value = value
+            user = await SettingsRepository(session).get()
+            changed = False
+            cookies = user.get("exhentai_cookies")
+            if isinstance(cookies, (dict, list)) and cookies:
+                user["exhentai_cookies"] = encrypt_json(cookies)
+                changed = True
+            token = user.get("telegram_bot_token")
+            if isinstance(token, str) and token and not is_encrypted(token):
+                user["telegram_bot_token"] = encrypt(token)
+                changed = True
+            if changed:
+                await SettingsRepository(session).save(user)
+        if encryption_enabled():
+            logger.info("at-rest secret encryption enabled; plaintext values migrated")
+    except Exception as exc:  # noqa: BLE001 - migration must not block startup
+        logger.warning("plaintext secret migration failed", extra={"error": str(exc)})
 
 
 @app.on_event("startup")
@@ -440,7 +509,7 @@ async def startup() -> None:
     try:
         async with _settings_session() as session:
             persisted = await SettingsRepository(session).get()
-        _update_runtime_settings(persisted)
+        _update_runtime_settings(_decrypt_user_settings(persisted))
     except Exception:  # noqa: BLE001 - startup must remain usable when DB is unavailable
         logger.warning("user settings could not be loaded at startup")
     # auth_secret lives in the DB so sessions survive restarts; on the very first
@@ -448,6 +517,7 @@ async def startup() -> None:
     # imported once.  Every subsequent boot reads both from the DB.
     try:
         await _bootstrap_auth()
+        await _migrate_plaintext_secrets()
     except Exception:  # noqa: BLE001
         logger.warning("auth bootstrap failed; using temporary credentials")
     client = EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency)
@@ -2314,11 +2384,12 @@ async def change_password(body: ChangePasswordRequest) -> None:
     import secrets as _secrets
 
     new_secret = _secrets.token_urlsafe(32)
+    stored = {"auth_password_hash": new_hash, "auth_secret": new_secret}
+    if encryption_enabled():
+        stored = {k: encrypt(v) for k, v in stored.items()}
     try:
         async with _settings_session() as session, session.begin():
-            await SettingsRepository(session).save_extra(
-                {"auth_password_hash": new_hash, "auth_secret": new_secret}
-            )
+            await SettingsRepository(session).save_extra(stored)
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
     # Force sync so the new hash is effective immediately.

@@ -7,3 +7,5 @@ httpx[socks]>=0.27,<1
 alembic>=1.14,<2
 rarfile>=4.2,<5
 Pillow>=10.4,<12
+# At-rest encryption for sensitive settings (ENCRYPTION_KEY)
+cryptography>=42,<45
