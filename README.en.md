@@ -23,6 +23,7 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Metadata cache & auto-sync** — Folder checks batch every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; scanned galleries reuse it with no extra fetch, and fresh metadata is applied to on-disk galleries automatically.
 - **Reader and history** — Streams one page at a time with keyboard/space/click paging, preloads the next three pages, advances to the next gallery after the last page, saves your reading position.
 - **Activity log page** — A single place for background tasks (scan, tag sync, thumbnails, favorites metadata) with running/finished sections and per-task cancel.
+- **First-run wizard** — New deployments land in a three-step `#/welcome` guide (change password → connect ExHentai → scan the library), revisit it any time.
 - **Telegram notifications** — On download success/failure, scan completion, and favorite sync.
 - **Security and privacy** — PBKDF2 auth, login rate limiting, cross-origin checks and an ExHentai domain whitelist, non-root runtime, optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM); changing the password revokes every active session.
 - **One-command deployment** — Two published Docker Hub images plus PostgreSQL run with a single `docker compose up`.
