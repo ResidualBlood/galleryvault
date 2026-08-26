@@ -1,8 +1,0 @@
-- [首页](/)
-- [部署](deployment)
-- [使用指南](usage)
-- [备份与恢复](backup)
-- [静态加密](encryption)
-- [API 参考](api)
-- [开发指南](development)
-- [常见问题](faq)

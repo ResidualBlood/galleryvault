@@ -5,9 +5,9 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 [![Backend CI](https://github.com/ResidualBlood/galleryvault-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-backend/actions)
 [![Frontend CI](https://github.com/ResidualBlood/galleryvault-frontend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-frontend/actions)
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
-[![Docs](https://img.shields.io/badge/docs-wiki-9cf?logo=readthedocs)](https://residualblood.github.io/galleryvault/)
+[![Wiki](https://img.shields.io/badge/docs-wiki-9cf?logo=github)](https://github.com/ResidualBlood/galleryvault/wiki)
 
-**中文** · [English](README.en.md) · [📖 在线文档](https://residualblood.github.io/galleryvault/)
+**中文** · [English](README.en.md) · [📖 在线文档](https://github.com/ResidualBlood/galleryvault/wiki)
 
 ---
 
