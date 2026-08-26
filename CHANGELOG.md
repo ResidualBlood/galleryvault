@@ -22,7 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Pagination**: the aggressive infinite scroll now applies only to the **gallery library** page; every other gallery list (tags browse, favorite folders) returns to numbered-page pagination with a default of **25 galleries per page** (`PAGE_SIZES` gains 25).
+- **Pagination**: the aggressive infinite scroll now applies only to the **gallery library** page; every other gallery list (tags browse, favorite folders) returns to numbered-page pagination with a default of **24 galleries per page** (`PAGE_SIZES` = 5/24/50/100/200/500).
 - **Tag chips clamped to two lines** in cards so long tag lists no longer blow up card heights.
 
 ## [1.2.0] - 2026-08-26
