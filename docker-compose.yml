@@ -1,12 +1,14 @@
 services:
   frontend:
     image: residualblood/galleryvault-frontend:latest
+    container_name: galleryvault-frontend
     ports: ["8000:80"]
     depends_on:
       - backend
 
   backend:
     image: residualblood/galleryvault-backend:latest
+    container_name: galleryvault-backend
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
@@ -34,6 +36,7 @@ services:
 
   db:
     image: postgres:16-alpine
+    container_name: galleryvault-db
     environment:
       POSTGRES_USER: galleryvault
       POSTGRES_PASSWORD: galleryvault
