@@ -203,13 +203,18 @@ def translate_tag(namespace: str | None, name: str) -> str:
             hit = table.get(name) or table.get(name.lower())
             if hit:
                 return clean_display(hit)
-    # Multi-value tags (ExHentai joins them with " | ") are stored split in the
-    # database, so look each value up separately and re-join the translations.
+    # Multi-value tags (ExHentai joins several with " | ") are stored split in
+    # the database, so look each value up separately and keep only the values
+    # that actually translated (the untranslated aliases are dropped). When no
+    # value translated, fall back to the original whole tag so nothing is lost.
     if " | " in name:
-        parts = [part.strip() for part in name.split(" | ")]
-        translated = [translate_tag(namespace, part) for part in parts]
-        if any(a != b for a, b in zip(parts, translated)):
-            return " | ".join(translated)
+        kept = []
+        for part in [p.strip() for p in name.split(" | ")]:
+            translated = translate_tag(namespace, part)
+            if translated != part:
+                kept.append(translated)
+        if kept:
+            return " | ".join(kept)
     return name
 
 
