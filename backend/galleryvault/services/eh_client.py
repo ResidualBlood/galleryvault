@@ -355,12 +355,6 @@ class EhClient:
             gid, token = parse_gallery_url(str(gid), self.settings.exhentai_base_url)
         base = f"/g/{int(gid)}/{token}/"
         response = await self._get(base)
-        # A dead session bounces /g/<id>/<token>/ through the remoteapi.php
-        # login challenge and lands on the site root — the body then contains
-        # no gallery content at all. Detect that instead of parsing the empty
-        # page into a confusing per-gallery parse error.
-        if not str(response.url.path).startswith("/g/"):
-            raise EhClientError("ExHentai authentication is required or expired")
         body = response.text
         title, title_jpn = _parse_gallery_titles(body)
         # ExHentai lists roughly 20 page links per gallery page and paginates
@@ -385,14 +379,15 @@ class EhClient:
             if offset > 0 and collected == 0:
                 break
         pages: list[GalleryPageData] = []
-        for href in page_hrefs:
+
+        async def _resolve_page(href: str) -> GalleryPageData:
             absolute = urljoin(str(response.url), html.unescape(href))
             parsed = urlparse(absolute)
             page_token = PAGE_RE.search(parsed.path)
             page_token = (
                 page_token.group("page")
                 if page_token
-                else parse_qs(parsed.query).get("p", [str(len(pages))])[0]
+                else parse_qs(parsed.query).get("p", [""])[0]
             )
             page_response = await self._get(absolute)
             image_match = None
@@ -418,16 +413,24 @@ class EhClient:
                 if origin_match
                 else None
             )
-            pages.append(
-                GalleryPageData(
-                    len(pages),
-                    absolute,
-                    page_token,
-                    image_url,
-                    origin_url,
-                    nl_match.group(1) if nl_match else None,
-                )
+            return GalleryPageData(
+                -1,
+                absolute,
+                page_token,
+                image_url,
+                origin_url,
+                nl_match.group(1) if nl_match else None,
             )
+
+        # Resolve every viewer page concurrently (bounded by the shared ExHentai
+        # semaphore): serial resolution of a 255-page gallery took minutes.
+        resolved = await asyncio.gather(*(_resolve_page(h) for h in page_hrefs))
+        pages = [
+            GalleryPageData(
+                index, r.url, r.token, r.image_url, r.origin_url, r.skip_hath_key
+            )
+            for index, r in enumerate(resolved)
+        ]
         if not title or not pages:
             raise EhParseError("gallery HTML did not contain a title and page links")
         tags = _parse_tags(body)
