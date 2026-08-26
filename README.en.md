@@ -97,6 +97,8 @@ Full docs live on the **[📖 Wiki](https://github.com/ResidualBlood/galleryvaul
 - [Development](https://github.com/ResidualBlood/galleryvault/wiki/Development)
 - [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
 
+Product planning: [roadmap](ROADMAP.md) · [target personas](PERSONA.md) · [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
+
 ## Acknowledgements
 
 - **Ehviewer_CN_SXJ** ([github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)) — reference for the export directory structure and naming conventions, concurrent page download and resume, and Chinese tag-translation reverse lookup.
