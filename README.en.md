@@ -18,7 +18,7 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Tag translations** — Pulls the latest EhTagTranslation database; Chinese input reverse-matches the translation table (typing 巨乳 suggests `big breasts`).
 - **Bilingual interface** — Full English and Chinese interface, switchable at any time; tags render their translations in the Chinese view.
 - **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery.
-- **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry.
+- **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry. Finished downloads are **ingested into the index immediately** (tags and cover included — no full library scan).
 - **Favorites monitor & management** — Watches the ten ExHentai favorite folders and auto-downloads missing galleries; per-folder lists, duplicate scan with ignore/restore.
 - **Metadata cache & auto-sync** — Folder checks batch every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; scanned galleries reuse it with no extra fetch, and fresh metadata is applied to on-disk galleries automatically.
 - **Reader and history** — Streams one page at a time with keyboard/space/click paging, preloads the next three pages, advances to the next gallery after the last page, saves your reading position.

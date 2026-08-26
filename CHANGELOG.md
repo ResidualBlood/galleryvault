@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-26
+
+### Added
+
+- **Incremental download ingest**: when a download finishes, the gallery is
+  written into the database directly from the download result (title, category,
+  tags, token and page facts) — no full library scan, no extra ExHentai fetch.
+  The stored storage signature matches the library scanner's fingerprint, so a
+  later full scan skips it instead of re-ingesting. The gallery's cover
+  thumbnail is queued for background generation (and always generated on
+  demand when first viewed).
+
 ## [1.2.1] - 2026-08-26
 
 ### Added
