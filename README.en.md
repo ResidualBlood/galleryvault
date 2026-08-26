@@ -99,6 +99,20 @@ All settings are configured in the *Settings* page and persisted to PostgreSQL â
 
 Secrets (cookies, bot token, password hash) are stored in PostgreSQL and never exposed through the API.
 
+## Backups
+
+The database is the only state that must be backed up (gallery index, settings, history; thumbnails and the gallery files themselves are rebuildable). A `scripts/backup.sh` is provided â€” run it from the directory containing `docker-compose.yml`:
+
+```bash
+./scripts/backup.sh        # writes backups/galleryvault_<timestamp>.dump, keeps the 14 most recent
+```
+
+Recommended via cron, e.g. `0 3 * * * cd /path/to/galleryvault && ./scripts/backup.sh`. Restore:
+
+```bash
+docker compose exec -T db pg_restore -U galleryvault -d galleryvault -c --if-exists < backups/galleryvault_<timestamp>.dump
+```
+
 ## Architecture
 
 The project is split into two source repositories that publish the Docker images used here:
