@@ -98,6 +98,12 @@ const I18N = {
     favCheckDesc: "Checking favorite folders", transDesc: "Updating tag translations",
     favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
     settingsSub: "Library, connection and background tasks.",
+    welcome: "Welcome", welcomeSub: "A few quick steps to get your library up and running. You can finish each one now or skip it and come back in Settings.",
+    welcomePasswordTitle: "Change the default password", welcomePasswordDesc: "Your instance is still using the built-in default password. Set a strong one now.",
+    welcomeCookieTitle: "Connect ExHentai", welcomeCookieDesc: "Paste the cookies from a logged-in ExHentai browser session to enable metadata sync and downloads.",
+    welcomeImportTitle: "Fill your library", welcomeImportDesc: "Scan the library folders, or check your ExHentai favorites to download what's missing.",
+    welcomeFinish: "Finish setup", welcomeLater: "Do this later", welcomeDone: "Done — welcome aboard!",
+    stepDone: "done", stepNotDone: "pending",
     groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages" },
     ns: { artist: "Artist", character: "Character", parody: "Parody", group: "Group", language: "Language", category: "Category", misc: "Tag", other: "Tag", female: "Female", male: "Male", mixed: "Mixed" },
   },
@@ -198,6 +204,12 @@ const I18N = {
     favCheckDesc: "正在检查收藏夹", transDesc: "正在更新标签翻译",
     favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
     settingsSub: "本地库、连接与后台任务。",
+    welcome: "欢迎使用", welcomeSub: "几步即可完成基本配置，让画廊库跑起来。现在完成或跳过，之后可随时在「设置」中补充。",
+    welcomePasswordTitle: "修改默认密码", welcomePasswordDesc: "你的实例还在使用内置的默认密码。现在设置一个强密码。",
+    welcomeCookieTitle: "连接 ExHentai", welcomeCookieDesc: "从已登录的 ExHentai 浏览器会话中粘贴 cookie，即可启用元数据同步与下载。",
+    welcomeImportTitle: "填充你的画廊库", welcomeImportDesc: "扫描库目录，或检查 ExHentai 收藏夹并下载缺失的画廊。",
+    welcomeFinish: "完成设置", welcomeLater: "稍后再说", welcomeDone: "完成，欢迎使用！",
+    stepDone: "已完成", stepNotDone: "待完成",
     groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
     ns: { artist: "作者", character: "角色", parody: "原作", group: "社团", language: "语言", category: "分类", misc: "标签", other: "标签", female: "女性", male: "男性", mixed: "男女" },
   },
@@ -262,7 +274,7 @@ function updateBanner() {
   if (!el) return;
   if (app.authenticated && app.session.must_change_password) {
     el.hidden = false;
-    el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="primary" href="#/settings">${esc(t("changePassword"))}</a>`;
+    el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="primary" href="#/welcome">${esc(t("changePassword"))}</a>`;
   } else {
     el.hidden = true;
     el.innerHTML = "";
@@ -313,7 +325,7 @@ async function checkAuth() {
       history.replaceState(null, "", "/" + location.hash);
     }
     if (!location.hash || location.hash === "#/" || location.hash === "#/login") {
-      location.hash = app.session.must_change_password ? "#/settings" : "#/browse";
+      location.hash = app.session.must_change_password ? "#/welcome" : "#/browse";
     }
     router();
   } catch (_) {
@@ -397,6 +409,7 @@ function router() {
     case "downloads": renderDownloads(); break;
     case "logs": renderLogs(); break;
     case "settings": renderSettings(); break;
+    case "welcome": renderWelcome(); break;
     case "favorites": renderFavorites(); break;
     case "favmanage": renderFavManage(); break;
     case "favignored": renderFavIgnored(); break;
@@ -405,6 +418,55 @@ function router() {
   }
   bindTagSuggest();
   bindReaderKeys();
+}
+
+async function renderWelcome() {
+  let st = {};
+  try { st = await api("GET", "/api/onboarding/status"); } catch (_) {}
+  app.onboarding = st;
+  const step = (done, body) => `
+    <li class="wizard-step${done ? " done" : ""}">
+      <div class="w-step">${done ? "✓" : "·"}</div>
+      <div class="w-body">${body}</div>
+    </li>`;
+  const passwordBlock = st.password_default ? `
+    <div class="w-form">
+      <input name="current_password" type="password" placeholder="${esc(t("currentPassword"))}" autocomplete="current-password">
+      <input name="new_password" type="password" placeholder="${esc(t("newPassword"))}" autocomplete="new-password">
+      <button class="primary" data-action="welcome-change-password" type="button">${esc(t("changePassword"))}</button>
+    </div>` : `<p class="w-ok">${esc(t("stepDone"))}</p>`;
+  const cookieBlock = st.exhentai_configured ? `<p class="w-ok">${esc(t("stepDone"))}</p>` : `
+    <div class="w-form">
+      <input name="w_base_url" placeholder="${esc(t("baseUrl"))}" value="https://exhentai.org">
+      <div class="w-grid">
+        <input name="w_ipb_member_id" placeholder="${esc(t("cookieId"))}" autocomplete="off">
+        <input name="w_ipb_pass_hash" placeholder="${esc(t("cookieHash"))}" autocomplete="off">
+        <input name="w_igneous" placeholder="${esc(t("cookieIgneous"))}" autocomplete="off">
+      </div>
+      <div class="w-btns">
+        <button class="secondary" data-action="welcome-save-cookie" type="button">${esc(t("save"))}</button>
+        <button class="secondary" data-action="welcome-test-exhentai" type="button">${esc(t("testExhentai"))}</button>
+      </div>
+    </div>`;
+  const importBlock = st.library_count > 0 ? `<p class="w-ok">${esc(t("stepDone"))} (${st.library_count})</p>` : `
+    <div class="w-btns">
+      <button class="primary" data-action="welcome-scan" type="button">${esc(t("scan"))}</button>
+      <button class="secondary" data-action="welcome-check-favs" type="button">${esc(t("checkAll"))}</button>
+    </div>`;
+  $view().innerHTML = `
+    <div class="welcome">
+      <header><p class="eyebrow">GETTING STARTED</p><h1>${esc(t("welcome"))}</h1>
+      <p class="sub">${esc(t("welcomeSub"))}</p></header>
+      <ol class="wizard">
+        ${step(!st.password_default, `<h3>${esc(t("welcomePasswordTitle"))}</h3><p>${esc(t("welcomePasswordDesc"))}</p>${passwordBlock}`)}
+        ${step(st.exhentai_configured, `<h3>${esc(t("welcomeCookieTitle"))}</h3><p>${esc(t("welcomeCookieDesc"))}</p>${cookieBlock}`)}
+        ${step(st.library_count > 0, `<h3>${esc(t("welcomeImportTitle"))}</h3><p>${esc(t("welcomeImportDesc"))}</p>${importBlock}`)}
+      </ol>
+      <div class="wizard-actions">
+        <button class="primary" data-action="welcome-finish" type="button">${esc(t("welcomeFinish"))}</button>
+        ${st.password_default ? "" : `<button class="link-button" data-action="welcome-later" type="button">${esc(t("welcomeLater"))}</button>`}
+      </div>
+    </div>`;
 }
 
 function renderLogin() {
@@ -1487,6 +1549,13 @@ function onClick(e) {
   if (action === "logout") { doLogout(); return; }
   if (action === "random") { randomGallery(); return; }
   if (action === "scan") { scanLibrary(); return; }
+  if (action === "welcome-change-password") { welcomeChangePassword(); return; }
+  if (action === "welcome-save-cookie") { welcomeSaveCookie(); return; }
+  if (action === "welcome-test-exhentai") { testExhentai(); return; }
+  if (action === "welcome-scan") { welcomeScan(); return; }
+  if (action === "welcome-check-favs") { checkAllFavorites(); return; }
+  if (action === "welcome-finish") { welcomeFinish(); return; }
+  if (action === "welcome-later") { welcomeLater(); return; }
   if (action === "cancel-task") { cancelTask(el.getAttribute("data-task")); return; }
   if (action === "clear-tag") { e.preventDefault(); location.hash = navHash("library", {}, { q: app.query.q || "", category: app.query.category || "" }); return; }
   if (action === "clear-history") { clearHistory(); return; }
@@ -2036,6 +2105,58 @@ async function changePassword() {
     updateBanner();
   } catch (e) { toast(e.message); }
 }
+
+function welcomeInputs() {
+  const form = document.querySelector(".welcome .wizard");
+  const v = n => { const el = form && form.querySelector(`[name="${n}"]`); return el ? el.value.trim() : ""; };
+  return { v, form };
+}
+
+async function welcomeChangePassword() {
+  const { v } = welcomeInputs();
+  const current = v("current_password");
+  const next = v("new_password");
+  if (!next) { toast(t("newPassword")); return; }
+  try {
+    await api("POST", "/api/auth/change-password", { current, new: next });
+    app.session.must_change_password = false;
+    toast(t("changePwOk"));
+    renderWelcome();
+  } catch (e) { toast(e.message); }
+}
+
+async function welcomeSaveCookie() {
+  const { v } = welcomeInputs();
+  const body = { exhentai_base_url: v("w_base_url") || "https://exhentai.org" };
+  for (const k of ["ipb_member_id", "ipb_pass_hash", "igneous"]) {
+    if (v("w_" + k)) body[k] = v("w_" + k);
+  }
+  try {
+    await api("POST", "/api/settings", body);
+    app.settings = null;
+    toast(t("saveOk"));
+    renderWelcome();
+  } catch (e) { toast(e.message); }
+}
+
+async function welcomeScan() {
+  try {
+    await api("POST", "/api/scan");
+    toast(t("scanning"));
+    pollLogs();
+  } catch (e) { toast(e.message); }
+}
+
+async function welcomeFinish() {
+  try {
+    const st = await api("GET", "/api/onboarding/status");
+    if (st.password_default) { toast(t("welcomePasswordTitle")); return; }
+  } catch (_) { /* fall through */ }
+  toast(t("welcomeDone"));
+  location.hash = "#/browse";
+}
+
+function welcomeLater() { location.hash = "#/browse"; }
 
 async function testTelegram() {
   try {

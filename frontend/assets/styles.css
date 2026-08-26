@@ -368,3 +368,25 @@ form fieldset legend { padding: 0 8px; color: var(--accent); font-size: .8rem; l
 .fav-ring svg { width: 20px; height: 20px; transform: rotate(-90deg); }
 .fav-ring .ring-bg { fill: none; stroke: var(--line); stroke-width: 3; }
 .fav-ring .ring-fg { fill: none; stroke: var(--accent, #4a90d9); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .3s; }
+
+.welcome { max-width: 720px; margin: 0 auto; }
+.welcome header { text-align: center; margin-bottom: 28px; }
+.wizard { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.wizard-step {
+  display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 18px;
+}
+.wizard-step.done { border-color: var(--ok); opacity: .85; }
+.w-step {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); font-weight: 700;
+}
+.wizard-step.done .w-step { background: var(--ok); color: #10231a; border-color: var(--ok); }
+.w-body h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.w-body p { margin: 0 0 12px; color: var(--muted); font-size: .9rem; }
+.w-form { display: grid; gap: 10px; max-width: 480px; }
+.w-form input { margin: 0; }
+.w-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.w-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+.w-ok { color: var(--ok); font-weight: 600; }
+.wizard-actions { display: flex; gap: 14px; align-items: center; margin-top: 26px; justify-content: center; }
