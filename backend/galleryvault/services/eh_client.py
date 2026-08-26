@@ -266,10 +266,15 @@ class EhClient:
     ) -> None:
         self.settings = settings or get_settings()
         self._owned = client is None
-        # A single shared limiter for ALL ExHentai traffic (page fetches, gdata,
-        # image downloads, favorites) so the many background workers cannot
-        # stack dozens of parallel requests and trip ExHentai's anti-abuse.
+        # A single shared limiter for ALL ExHentai page traffic (gallery pages,
+        # gdata, favorites) so the many background workers cannot stack dozens
+        # of parallel requests and trip ExHentai's anti-abuse.
         self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
+        # Image downloads go to the H@H network (hath.network) which is a
+        # distributed CDN with its own generous limits — mirroring Ehviewer's
+        # 32-thread IO pool, we give images their own, higher limiter instead of
+        # sharing the page-fetch budget.
+        self._image_semaphore = asyncio.Semaphore(max(8, max(1, max_concurrency) * 2))
         if client is not None:
             self.client = client
         else:
@@ -638,9 +643,31 @@ class EhClient:
         )
 
     async def download_image_with_metadata(self, url: str) -> tuple[bytes, str]:
-        response = await self._get(url)
+        host = (urlparse(url).hostname or "").lower()
+        # H@H image nodes (hath.network) are a distributed CDN with loose
+        # limits — use the higher image limiter. Original-quality downloads
+        # against the exhentai.org host stay on the page-fetch budget so we
+        # don't trip anti-abuse on the site itself.
+        use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
+        semaphore = self._image_semaphore if use_image_budget else self._semaphore
+        try:
+            async with semaphore:
+                response = await self.client.get(
+                    url,
+                    headers={"Referer": self.settings.exhentai_base_url.rstrip("/") + "/"},
+                )
+        except httpx.RequestError as exc:
+            logger.warning(
+                "image download request failed", extra={"error": type(exc).__name__}
+            )
+            raise EhClientError("ExHentai image download failed") from exc
+        if response.status_code in (429, 509):
+            raise EhClientError(f"ExHentai rate limited (HTTP {response.status_code})")
+        if response.status_code in (401, 403):
+            raise EhClientError("ExHentai authentication is required or expired")
+        response.raise_for_status()
         if not response.content or response.headers.get("content-type", "").lower().startswith(
             "text/"
         ):
             raise EhClientError("image response was not an image")
-        return response.content, response.headers.get("content-type", "")
+        return response.content, response.headers.get("content-type", "").split(";")[0].strip()

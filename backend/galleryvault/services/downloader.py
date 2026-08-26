@@ -86,11 +86,11 @@ class Downloader:
         root: str | Path,
         *,
         concurrency: int = 2,
-        page_concurrency: int = 4,
+        page_concurrency: int = 8,
     ) -> None:
         self.client, self.root = client, Path(root)
         self.semaphore = asyncio.Semaphore(max(1, concurrency))
-        self.page_concurrency = max(1, min(page_concurrency, 8))
+        self.page_concurrency = max(1, min(page_concurrency, 16))
         self._gids: set[int] = set()
         self._lock = asyncio.Lock()
 
