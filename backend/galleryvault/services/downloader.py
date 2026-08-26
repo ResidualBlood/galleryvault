@@ -260,14 +260,20 @@ class Downloader:
         # When a partial (sample) download was requested via ``max_pages`` the
         # metadata must reflect only the pages actually written on disk.
         page_count = len(pages)
+        # Preview metadata must match how ExHentai lays out the gallery page
+        # (20 thumbnails per page) so Ehviewer's pToken lookup computes the
+        # right preview page — with a complete pToken map it is never needed,
+        # but partial downloads still work.
+        preview_per_page = 20
+        preview_pages = max(1, (page_count + preview_per_page - 1) // preview_per_page)
         lines = [
             "VERSION2",
             "00000000",
             str(gallery.gid),
             gallery.token,
             "1",
-            "1",
-            str(page_count),
+            str(preview_pages),
+            str(preview_per_page),
             str(page_count),
         ]
         lines.extend(f"{i} {page.token}" for i, page in enumerate(pages) if page.token)

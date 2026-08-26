@@ -64,7 +64,7 @@ async def test_downloader_retries_and_writes_version2(tmp_path: Path) -> None:
     result = await Downloader(client, tmp_path).execute(DownloadTask(1, "tok", "title"))
     assert client.calls == 3
     metadata = (result.path / ".ehviewer").read_text().splitlines()
-    assert metadata[1:8] == ["00000000", "1", "tok", "1", "1", "2", "2"]
+    assert metadata[1:8] == ["00000000", "1", "tok", "1", "1", "20", "2"]
     assert (result.path / ".ehviewer").read_text().splitlines()[-2:] == ["0 p1", "1 p2"]
     assert sorted(p.name for p in result.path.glob("*.jpg")) == ["00000001.jpg", "00000002.jpg"]
     assert "/" not in result.path.name
@@ -244,14 +244,31 @@ async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
             return httpx.Response(
                 200,
                 text="""<h1 class="gm">A title</h1><div class="gt">artist: alice</div>
-                <a href="/s/7/token/page-a/">one</a><a href="/s/7/token/page-b/">two</a>""",
+                <a href="/s/91ea4b6d89/7-1">one</a><a href="/s/f12f15c685/7-2">two</a>""",
             )
-        if request.url.path.endswith("page-a/"):
+        # Current viewer URL format: /s/<pToken>/<gid>-<page>
+        if request.url.path == "/s/91ea4b6d89/7-1":
             return httpx.Response(
-                200, text='<html><img src="https://img.test/a.jpg" id="img"></html>'
+                200,
+                text='<html><img src="https://img.test/a.jpg" id="img" style="x">'
+                '<a href="https://img.test/fullimg-a.jpg">fullimg</a>'
+                "<script>var showkey=\"abc123def456\";</script>"
+                '<script>onclick="return nl(\'skipkey1\')"</script></html>',
             )
-        if request.url.path.endswith("page-b/"):
-            return httpx.Response(200, text='<img id="img" src="/images/b.jpg">')
+        if request.url.path == "/api.php" and request.method == "POST":
+            payload = request.read().decode(errors="replace")
+            # The second page is resolved through the lightweight showpage API.
+            if '"page":2' in payload:
+                return httpx.Response(
+                    200,
+                    json={
+                        "i3": '<img src="https://img.test/b.jpg" style="width: 1px; height: 1px;">',
+                        "i6": '<a href="#" onclick="prompt(\'Copy the URL below.\', \'https://img.test/orig-b.jpg\')">'
+                        "<div onclick=\"return nl('skipkey2')\">",
+                        "i7": '<a href="https://img.test/fullimg-b.jpg">fullimg</a>',
+                    },
+                )
+            raise AssertionError(request.url)
         raise AssertionError(request.url)
 
     transport = httpx.MockTransport(handler)
@@ -262,14 +279,60 @@ async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
         gallery = await client.fetch_gallery(7, "token")
     assert gallery.title == "A title"
     assert [page.url for page in gallery.pages] == [
-        "https://exhentai.org/s/7/token/page-a/",
-        "https://exhentai.org/s/7/token/page-b/",
+        "https://exhentai.org/s/91ea4b6d89/7-1",
+        "https://exhentai.org/s/f12f15c685/7-2",
     ]
+    # pTokens must be the 10-hex viewer keys written into .ehviewer (fixes the
+    # broken legacy regex that left them empty and broke Ehviewer interop).
+    assert [page.token for page in gallery.pages] == [
+        "91ea4b6d89",
+        "f12f15c685",
+    ]
+    assert [page.image_url for page in gallery.pages] == [
+        "https://img.test/a.jpg",
+        "https://img.test/b.jpg",
+    ]
+    assert [page.origin_url for page in gallery.pages] == [
+        "https://img.test/fullimg-a.jpg",
+        "https://img.test/fullimg-b.jpg",
+    ]
+    assert [page.skip_hath_key for page in gallery.pages] == ["skipkey1", "skipkey2"]
+    assert gallery.tags == [{"namespace": "artist", "name": "alice"}]
+
+
+@pytest.mark.asyncio
+async def test_fetch_gallery_falls_back_to_html_when_showpage_fails() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/g/7/token/":
+            return httpx.Response(
+                200,
+                text="""<h1 class="gm">Title</h1>
+                <a href="/s/91ea4b6d89/7-1">one</a><a href="/s/f12f15c685/7-2">two</a>""",
+            )
+        if request.url.path == "/s/91ea4b6d89/7-1":
+            return httpx.Response(
+                200,
+                text='<img src="https://img.test/a.jpg" id="img">'
+                "<script>var showkey=\"abc123def456\";</script>",
+            )
+        if request.url.path == "/s/f12f15c685/7-2":
+            return httpx.Response(200, text='<img id="img" src="/images/b.jpg">')
+        if request.url.path == "/api.php" and request.method == "POST":
+            # showpage is throttled / stale: the client must degrade to HTML.
+            return httpx.Response(200, json={"error": "Key mismatch"})
+        raise AssertionError(request.url)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.org", transport=transport
+    ) as http_client:
+        client = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=http_client)
+        gallery = await client.fetch_gallery(7, "token")
     assert [page.image_url for page in gallery.pages] == [
         "https://img.test/a.jpg",
         "https://exhentai.org/images/b.jpg",
     ]
-    assert gallery.tags == [{"namespace": "artist", "name": "alice"}]
+    assert [page.token for page in gallery.pages] == ["91ea4b6d89", "f12f15c685"]
 
 
 @pytest.mark.asyncio

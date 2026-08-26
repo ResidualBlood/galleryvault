@@ -27,12 +27,28 @@ EHVIEWER_USER_AGENT = (
 )
 
 GALLERY_RE = re.compile(r"/(?:g|gallery)/(?P<gid>\d+)/(?P<token>[A-Za-z0-9]+)/")
+# Legacy 3-segment viewer URL: /s/<gid>/<ptoken>/<page-token>/
 PAGE_RE = re.compile(r"/s/\d+/[A-Za-z0-9]+/(?P<page>[A-Za-z0-9]+)/")
+# Current ExHentai viewer URL: /s/<pToken>/<gid>-<page>  (mirrors Ehviewer_CN_SXJ's
+# GalleryPageUrlParser). The 10-hex pToken is what Ehviewer stores in .ehviewer and
+# sends as ``imgkey`` to the showpage API.
+VIEWER_HREF_RE = re.compile(
+    r"/s/(?P<ptoken>[0-9a-f]{10})/(?P<gid>\d+)-(?P<page>\d+)", re.IGNORECASE
+)
 IMAGE_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 TAG_ANCHOR_RE = re.compile(
     r'<a\b[^>]*\bid=["\']ta_(?P<namespace>[^:"\']+):[^"\']+["\'][^>]*>(?P<name>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
+# ExHentai /s/ viewer page embeds the API session key as ``var showkey="...";``.
+SHOWKEY_RE = re.compile(r'var\s+showkey\s*=\s*"([0-9a-z]+)"', re.IGNORECASE)
+# ``showpage`` API response fragments (i3 / i6 / i7) carry the resolved image HTML.
+SHOWPAGE_IMAGE_RE = re.compile(r'<img[^>]*src="([^"]+)" style', re.IGNORECASE)
+SHOWPAGE_SKIP_KEY_RE = re.compile(r"onclick=\"return nl\('([^\)]+)'\)")
+SHOWPAGE_ORIGIN_PROMPT_RE = re.compile(
+    r'<a href="#" onclick="prompt\(\'Copy the URL below\.\', \'([^\']+)\'\)'
+)
+SHOWPAGE_ORIGIN_RE = re.compile(r'<a href="([^"]+)fullimg([^"]+)">', re.IGNORECASE)
 
 
 class EhClientError(RuntimeError):
@@ -390,19 +406,30 @@ class EhClient:
             if offset > 0 and collected == 0:
                 break
         pages: list[GalleryPageData] = []
+        showkey: str | None = None
 
-        async def _resolve_page(href: str) -> GalleryPageData:
+        async def _resolve_page_html(href: str) -> GalleryPageData:
+            """Resolve one viewer page from its full HTML (also yields the showkey).
+
+            Falling back to the HTML path (instead of the showpage API) keeps the
+            client working when the API rejects or the gallery page format differs.
+            """
+            nonlocal showkey
             absolute = urljoin(str(response.url), html.unescape(href))
-            parsed = urlparse(absolute)
-            page_token = PAGE_RE.search(parsed.path)
-            page_token = (
-                page_token.group("page")
-                if page_token
-                else parse_qs(parsed.query).get("p", [""])[0]
-            )
+            viewer = VIEWER_HREF_RE.search(absolute)
+            p_token = viewer.group("ptoken") if viewer else None
+            if p_token is None:
+                parsed = urlparse(absolute)
+                legacy = PAGE_RE.search(parsed.path)
+                p_token = (
+                    legacy.group("page")
+                    if legacy
+                    else parse_qs(parsed.query).get("p", [""])[0]
+                )
             page_response = await self._get(absolute)
+            body = page_response.text
             image_match = None
-            for image_tag in IMAGE_RE.finditer(page_response.text):
+            for image_tag in IMAGE_RE.finditer(body):
                 tag = image_tag.group(0)
                 if re.search(r'\bid=["\']img["\']', tag, re.IGNORECASE):
                     image_match = re.search(r'\bsrc=["\']([^"\']+)["\']', tag, re.IGNORECASE)
@@ -412,11 +439,12 @@ class EhClient:
                 raise EhClientError(f"viewer page has no image: {absolute}")
             image_url = urljoin(str(page_response.url), html.unescape(image_match.group(1)))
             origin_match = re.search(
-                r'<a[^>]+href=["\']([^"\']+)fullimg([^"\']+)["\']', page_response.text, re.IGNORECASE
+                r'<a[^>]+href=["\']([^"\']+)fullimg([^"\']+)["\']', body, re.IGNORECASE
             )
-            nl_match = re.search(
-                r"nl\(\s*['\"]([^'\")]+)['\"]\s*\)", page_response.text
-            )
+            nl_match = re.search(r"nl\(\s*['\"]([^'\")]+)['\"]\s*\)", body)
+            showkey_match = SHOWKEY_RE.search(body)
+            if showkey_match and not showkey:
+                showkey = showkey_match.group(1)
             origin_url = (
                 urljoin(str(page_response.url), html.unescape(origin_match.group(1)))
                 + "fullimg"
@@ -427,20 +455,63 @@ class EhClient:
             return GalleryPageData(
                 -1,
                 absolute,
-                page_token,
+                p_token or "",
                 image_url,
                 origin_url,
                 nl_match.group(1) if nl_match else None,
             )
 
+        async def _resolve_page_api(href: str) -> GalleryPageData:
+            """Resolve one viewer page through the lightweight ``showpage`` API.
+
+            Mirrors Ehviewer_CN_SXJ's ``getGalleryPageApi``: one POST to api.php
+            returns JSON ``{i3, i6, i7}`` carrying the resample URL, the H@H
+            skip key and the original (fullimg) URL — far smaller and stabler to
+            parse than the whole viewer-page HTML.  Requires the pToken from the
+            gallery-page preview links plus a ``showkey`` (from the first viewer
+            page); falls back to HTML on any failure.
+            """
+            absolute = urljoin(str(response.url), html.unescape(href))
+            viewer = VIEWER_HREF_RE.search(absolute)
+            if not viewer:
+                return await _resolve_page_html(href)
+            p_token = viewer.group("ptoken")
+            page = int(viewer.group("page"))
+            if not showkey:
+                return await _resolve_page_html(href)
+            try:
+                info = await self._showpage(int(gid), page, p_token, showkey)
+            except EhClientError:
+                # API hiccup (stale showkey, throttled, changed markup): fall back
+                # to the full HTML path, which re-seeds showkey if needed.
+                return await _resolve_page_html(href)
+            return GalleryPageData(
+                -1,
+                absolute,
+                p_token,
+                info["image_url"],
+                info["origin_url"],
+                info["skip_hath_key"],
+            )
+
         # Resolve every viewer page concurrently (bounded by the shared ExHentai
-        # semaphore): serial resolution of a 255-page gallery took minutes.
-        resolved = await asyncio.gather(*(_resolve_page(h) for h in page_hrefs))
+        # semaphore): serial resolution of a 255-page gallery took minutes.  The
+        # first page is resolved via HTML first so its ``showkey`` is available
+        # for the lightweight showpage API on the remaining pages.
+        if page_hrefs:
+            first = await _resolve_page_html(page_hrefs[0])
+            pages = [first]
+            if len(page_hrefs) > 1:
+                pages.extend(
+                    await asyncio.gather(
+                        *(_resolve_page_api(h) for h in page_hrefs[1:])
+                    )
+                )
         pages = [
             GalleryPageData(
                 index, r.url, r.token, r.image_url, r.origin_url, r.skip_hath_key
             )
-            for index, r in enumerate(resolved)
+            for index, r in enumerate(pages)
         ]
         if not title or not pages:
             raise EhParseError("gallery HTML did not contain a title and page links")
@@ -448,6 +519,68 @@ class EhClient:
         return GalleryData(
             int(gid), token, title, pages, tags, _parse_category(body), title_jpn
         )
+
+    async def _showpage(
+        self, gid: int, page: int, p_token: str, showkey: str
+    ) -> dict[str, str]:
+        """Resolve one page's image URLs via the ExHentai ``showpage`` API.
+
+        ``page`` is 1-based.  Returns ``{image_url, origin_url, skip_hath_key}``
+        exactly like parsing the viewer HTML would, but from a small JSON body.
+        """
+        payload = {
+            "method": "showpage",
+            "gid": int(gid),
+            "page": int(page),
+            "imgkey": p_token,
+            "showkey": showkey,
+        }
+        response = await self._request(
+            "POST",
+            "/api.php",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        if response.status_code in (401, 403) or "login" in str(response.url).lower():
+            raise EhClientError("ExHentai authentication is required or expired")
+        response.raise_for_status()
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise EhClientError("ExHentai showpage response was not JSON") from exc
+        error = body.get("error")
+        if error:
+            raise EhClientError(f"ExHentai showpage error: {error}")
+        i3 = body.get("i3") or ""
+        i6 = body.get("i6") or ""
+        i7 = body.get("i7")
+        image_match = SHOWPAGE_IMAGE_RE.search(i3)
+        if not image_match:
+            raise EhClientError("ExHentai showpage returned no image URL")
+        image_url = urljoin(str(response.url), html.unescape(image_match.group(1)))
+        skip_match = SHOWPAGE_SKIP_KEY_RE.search(i6)
+        skip_hath_key = html.unescape(skip_match.group(1)) if skip_match else None
+        origin_url = None
+        # Prefer the i7 ``fullimg`` link (the original-quality URL), matching the
+        # HTML path and Ehviewer_CN_SXJ's preference for originImageUrl.  The i6
+        # prompt URL is only a fallback when the origin link is missing.
+        if i7 is not None:
+            origin_match = SHOWPAGE_ORIGIN_RE.search(i7)
+            if origin_match:
+                origin_url = (
+                    html.unescape(origin_match.group(1))
+                    + "fullimg"
+                    + html.unescape(origin_match.group(2))
+                )
+        if origin_url is None:
+            prompt_match = SHOWPAGE_ORIGIN_PROMPT_RE.search(i6)
+            if prompt_match:
+                origin_url = html.unescape(prompt_match.group(1))
+        return {
+            "image_url": image_url,
+            "origin_url": origin_url,
+            "skip_hath_key": skip_hath_key,
+        }
 
     async def fetch_favorites(
         self,
@@ -658,23 +791,50 @@ class EhClient:
         semaphore = self._image_semaphore if use_image_budget else self._semaphore
         try:
             async with semaphore:
-                response = await self.client.get(
+                # read=15s acts as a zero-progress watchdog (Ehviewer_CN_SXJ
+                # aborts stalled downloads after ~3s of no bytes): a hanging H@H
+                # node fails fast instead of holding the worker until the 60s
+                # overall timeout.
+                timeout = httpx.Timeout(60.0, read=15.0)
+                async with self.client.stream(
+                    "GET",
                     url,
                     headers={"Referer": self.settings.exhentai_base_url.rstrip("/") + "/"},
-                    timeout=60.0,
-                )
+                    timeout=timeout,
+                ) as response:
+                    if response.status_code in (429, 509):
+                        raise EhClientError(
+                            f"ExHentai rate limited (HTTP {response.status_code})"
+                        )
+                    if response.status_code in (401, 403):
+                        raise EhClientError(
+                            "ExHentai authentication is required or expired"
+                        )
+                    response.raise_for_status()
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        chunks.append(chunk)
+                        total += len(chunk)
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        .split(";")[0]
+                        .strip()
+                    )
+                    if not chunks or content_type.lower().startswith("text/"):
+                        raise EhClientError("image response was not an image")
+                    content_length = response.headers.get("content-length")
+                    if (
+                        content_length is not None
+                        and content_length.isdigit()
+                        and total != int(content_length)
+                    ):
+                        # Truncated by a proxy or a server hiccup — surface it as
+                        # a retryable failure instead of writing a corrupt page.
+                        raise EhClientError("image download was incomplete")
+                    return b"".join(chunks), content_type
         except httpx.RequestError as exc:
             logger.warning(
                 "image download request failed", extra={"error": type(exc).__name__}
             )
             raise EhClientError("ExHentai image download failed") from exc
-        if response.status_code in (429, 509):
-            raise EhClientError(f"ExHentai rate limited (HTTP {response.status_code})")
-        if response.status_code in (401, 403):
-            raise EhClientError("ExHentai authentication is required or expired")
-        response.raise_for_status()
-        if not response.content or response.headers.get("content-type", "").lower().startswith(
-            "text/"
-        ):
-            raise EhClientError("image response was not an image")
-        return response.content, response.headers.get("content-type", "").split(";")[0].strip()
