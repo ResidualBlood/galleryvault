@@ -790,7 +790,30 @@ async function renderTags() {
     </form>
     <div id="tag-cloud" class="cloud"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="tag-pages"></div>`;
+  // Fill the namespace pills independently of the (namespace-filtered) tag
+  // query below, so paging does not wipe the 全部/标签/作者 strip: the server
+  // only returns facets when no namespace filter is given, but the strip must
+  // persist on every page.
+  if (tagFacetCounts) {
+    const pills = document.getElementById("tag-pills");
+    if (pills) pills.innerHTML = tagNsPillsHtml(ns, tagFacetCounts);
+  }
+  loadTagPills(ns);
   await loadTags(q, ns, page);
+}
+
+let tagFacetCounts = null;
+
+async function loadTagPills(activeNs) {
+  if (!tagFacetCounts) {
+    try {
+      const data = await api("GET", "/api/tags/search?page=1&page_size=1");
+      tagFacetCounts = {};
+      for (const f of data.facets || []) tagFacetCounts[f.namespace] = f.total;
+    } catch (_) { return; }
+  }
+  const pills = document.getElementById("tag-pills");
+  if (pills) pills.innerHTML = tagNsPillsHtml(activeNs, tagFacetCounts);
 }
 
 async function loadTags(q, ns, page) {
@@ -798,12 +821,6 @@ async function loadTags(q, ns, page) {
     const url = `/api/tags/search?page=${encodeURIComponent(page)}&page_size=100`
       + `${ns ? `&namespace=${encodeURIComponent(ns)}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
     const data = await api("GET", url);
-    const pills = document.getElementById("tag-pills");
-    if (pills && (data.facets || []).length) {
-      const counts = {};
-      for (const f of data.facets) { counts[f.namespace] = f.total; }
-      pills.innerHTML = tagNsPillsHtml(ns, counts);
-    }
     const cloud = document.getElementById("tag-cloud");
     if (!cloud) return;
     const items = data.items;
