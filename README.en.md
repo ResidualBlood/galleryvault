@@ -7,29 +7,24 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
 [![Wiki](https://img.shields.io/badge/docs-wiki-9cf?logo=github)](https://github.com/ResidualBlood/galleryvault/wiki)
 
-[English](README.en.md) · [📖 Online docs](https://github.com/ResidualBlood/galleryvault/wiki)
-
-[中文](README.md) · **English**
+[中文](README.md) · **English** · [📖 Online docs](https://github.com/ResidualBlood/galleryvault/wiki)
 
 ---
 
 ## Features
 
 - **Local gallery library** — Scan Ehviewer export directories, CBZ/CBR files and plain image folders into a persistent, searchable index (PostgreSQL).
-- **Tag cloud and search** — Namespaced tags (artist, character, parody, group, language, category, misc, …), a frequency-weighted tag cloud, and instant tag autocomplete.
+- **Tag cloud and search** — Namespaced tags, a frequency-weighted tag cloud, and instant tag autocomplete.
 - **Tag translations** — Pulls the latest EhTagTranslation database; Chinese input reverse-matches the translation table (typing 巨乳 suggests `big breasts`).
 - **Bilingual interface** — Full English and Chinese interface, switchable at any time; tags render their translations in the Chinese view.
 - **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery.
-- **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry. The **Downloads** page focuses on download-task status.
-- **Activity log page** — A single place for the background tasks (library scan, tag sync, thumbnail generation, favorites metadata sync): **running** tasks on top (start time, live progress bar, per-task cancel button, multiple concurrent rows) and **finished** tasks below (status badge, duration, finish time, success/failure reason); both sections size to their content and the page auto-refreshes every 2 seconds.
-- **Enhanced pagination** — Every paginated list (Browse / Library / Tags / History / Downloads / favorite-folder lists) supports **5/20/50/100/200/500** items per page plus a **page-jump input** (type a number to jump, with `current / total` shown).
-- **Favorites monitor** — Watches the ten ExHentai favorite folders and auto-downloads galleries you do not have yet (scheduled or on demand); **Check all folders** runs them all at once.
-- **Favorites management** — Each folder gets its own gallery grid (checkboxes, bulk download / remove from favorites, inline cloud covers), a one-click Unfavorite plus folder badges on gallery detail pages, and a **duplicate scan** that groups the same work across versions (DL, uncensored, language re-uploads) for bulk unfavoriting or deleting local copies — with false-positive **ignore/restore** and pagination.
-- **Metadata cache & auto-sync** — Folder checks batch every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; galleries scanned onto disk reuse it with no extra ExHentai fetch, and fresh metadata is applied to on-disk galleries automatically after every check.
-- **Reader and history** — Streams one page at a time with keyboard/space/click paging, preloads the next three pages, advances to the next gallery after the last page, saves your reading position, and keeps a browsable history.
-- **Telegram notifications** — Get notified on download success/failure, scan completion, and favorite sync.
-- **Orphan cleanup** — Galleries deleted from ExHentai (or without usable coordinates) are automatically grouped under the Deleted category.
-- **Security and privacy** — Single-password auth (PBKDF2-SHA256, 310k iterations) with persistent sessions, login rate limiting keyed on the real client IP, cross-origin checks and an ExHentai domain whitelist, secure settings storage, and an optional no-login mode; changing the password **revokes every active session**; the backend runs as an unprivileged user; optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM) protects cookies / bot token / password hashes.
+- **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry.
+- **Favorites monitor & management** — Watches the ten ExHentai favorite folders and auto-downloads missing galleries; per-folder lists, duplicate scan with ignore/restore.
+- **Metadata cache & auto-sync** — Folder checks batch every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; scanned galleries reuse it with no extra fetch, and fresh metadata is applied to on-disk galleries automatically.
+- **Reader and history** — Streams one page at a time with keyboard/space/click paging, preloads the next three pages, advances to the next gallery after the last page, saves your reading position.
+- **Activity log page** — A single place for background tasks (scan, tag sync, thumbnails, favorites metadata) with running/finished sections and per-task cancel.
+- **Telegram notifications** — On download success/failure, scan completion, and favorite sync.
+- **Security and privacy** — PBKDF2 auth, login rate limiting, cross-origin checks and an ExHentai domain whitelist, non-root runtime, optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM); changing the password revokes every active session.
 - **One-command deployment** — Two published Docker Hub images plus PostgreSQL run with a single `docker compose up`.
 
 ## Screenshots
@@ -50,8 +45,8 @@ docker compose up -d
 ```
 
 1. Open **http://\<host\>:8000** — the web UI.
-2. Log in with the default password **`p1a2s3s4`** and change it in *Settings* (a banner reminds you until you do).
-3. **Recommended: configure your ExHentai cookies and run *Favorites → Check all folders* once before scanning the library.** The favorites monitor batches every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; galleries scanned onto disk that the monitor has already seen then reuse that cache directly — no per-gallery ExHentai fetch for tag sync — so scanning and tag sync are much faster.
+2. Log in with the default password **`p1a2s3s4`** and change it in *Settings*.
+3. **Recommended: configure your ExHentai cookies and run *Favorites → Check all folders* once before scanning the library** — the metadata cache makes later scanning and tag sync much faster.
 4. Put your galleries in `./library` (mounted at `/library`), hit *Scan library*, and start reading.
 
 > The JSON API is available at **http://\<host\>:8001**.
@@ -61,98 +56,15 @@ docker compose up -d
 | Path | Purpose |
 |------|---------|
 | `./db-data` | PostgreSQL data (index, settings, history) — survives container recreation |
-| `./library` | **Read-only library**: your existing archives (Ehviewer exports, CBZ/CBR), mounted at `/library`. New downloads never land here |
+| `./library` | **Read-only library**: your existing archives, mounted at `/library`. New downloads never land here |
 | `./downloads` | **Download directory**: galleries downloaded from ExHentai, mounted at `/downloads`, scanned automatically |
-| `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache`; never written into the galleries |
+| `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache` |
 
-The library roots and the download root are configured separately in *Settings* (`library_roots`, read-only, one path per line) and `download_root` (download target); the download directory is always scanned.
+Library roots (read-only, one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
 
-### Adding another Ehviewer download folder as a scan-only library
+## Security
 
-If you have several folders full of Ehviewer downloads and want them all scanned while **new downloads only land in `download_root`**, mount each one into the backend container (use `:ro` to be safe) and add the in-container path under *Settings → Library roots (read-only)*:
-
-```yaml
-    volumes:
-      - ./library:/library
-      - ./downloads:/downloads
-      - /mnt/your/ehviewer/download-folder:/Ehviewer2:ro   # added
-      - ./cache:/gv-cache
-```
-
-1. Add a line under `backend.volumes` in `docker-compose.yml` (host path of your choice, any in-container path such as `/Ehviewer2`).
-2. Restart the backend (`docker compose up -d backend`) so the mount takes effect.
-3. In *Settings → Library roots (read-only)* add that in-container path (one per line) and save.
-4. Click **Scan library** to index it (saving settings does not auto-scan).
-
-`library_roots` are read-only: galleries are indexed and tag-synced normally, but downloads only ever go to `download_root` and are never written into these folders. The container must be able to read the host folder (permissions ≥ `755`).
-
-## Configuration
-
-All settings are configured in the *Settings* page and persisted to PostgreSQL — there is no `config.json` or `.env` to hand-edit:
-
-- **Library roots** — one filesystem path per line.
-- **Account** — change password, toggle *Require login*.
-- **ExHentai** — base URL (e-hentai.org / exhentai.org), `ipb_member_id` / `ipb_pass_hash` / `igneous` cookies, with a *Test login* button. Cookies are never echoed back.
-- **Proxy** — HTTP or SOCKS5.
-- **Downloads** — root directory, concurrency, image quality, H@H network, `max_pages`.
-- **Tag sync** — automatic sync after scans/startup, interval and concurrency.
-- **Favorites** — auto-download toggle and polling interval.
-- **Telegram** — bot token, chat IDs, allowed user IDs, *Send test message*.
-- **Translation** — auto-update interval and *Update now* button.
-
-Secrets (cookies, bot token, password hash) are stored in PostgreSQL and never exposed through the API.
-
-### Optional at-rest encryption
-
-By default the sensitive values are stored **in plaintext** in the database — anyone who gets the database (or a backup) can read them. To enable encryption at rest, set the `ENCRYPTION_KEY` environment variable on the backend service (a long random string):
-
-```yaml
-    environment:
-      ENCRYPTION_KEY: change-me-to-a-long-random-string
-```
-
-Once enabled (takes effect on the next start):
-
-- ExHentai cookies, the Telegram bot token, `auth_secret` and the password hash are stored encrypted (**AES-256-GCM**, `enc:v1:...`);
-- existing plaintext values are **migrated automatically** at startup — no downtime;
-- without `ENCRYPTION_KEY` everything keeps working unchanged (plaintext storage).
-
-**Important**: keep the key separate from the database backup and store it safely (e.g. a password manager) — **if the key is lost, the encrypted cookies / token / password hash cannot be decrypted** (you'd need a historical backup that still holds plaintext, or the original key).
-
-#### Recovering from a lost key
-
-Once `ENCRYPTION_KEY` is lost, the old `enc:v1:` values cannot be decrypted with a new key. Cookies / the bot token can be re-entered in Settings, but `auth_secret` and the password hash have no API to reset — clear the old ciphertext so the system regenerates them:
-
-```bash
-# 1) stop the backend
-docker stop galleryvault-backend
-# 2) reset auth credentials: auth_secret is regenerated, password returns to the default p1a2s3s4
-docker exec galleryvault-db psql -U galleryvault -d galleryvault \
-  -c "DELETE FROM app_config WHERE key='runtime_auth';"
-# 3) clear the old encrypted cookies / bot token (re-enter them in Settings later)
-docker exec galleryvault-db psql -U galleryvault -d galleryvault \
-  -c "UPDATE app_config SET value = value - 'exhentai_cookies' - 'telegram_bot_token' WHERE key='user_settings';"
-# 4) set a new ENCRYPTION_KEY and start
-docker start galleryvault-backend
-```
-
-Log in with the default password `p1a2s3s4`, then change it and re-enter your ExHentai cookies / Telegram token in Settings.
-
-> If you still hold a **pre-encryption** database backup, restore it instead and then follow the steps above to set a fresh key — no clearing needed.
-
-## Backups
-
-The database is the only state that must be backed up (gallery index, settings, history; thumbnails and the gallery files themselves are rebuildable). A `scripts/backup.sh` is provided — run it from the directory containing `docker-compose.yml`:
-
-```bash
-./scripts/backup.sh        # writes backups/galleryvault_<timestamp>.dump, keeps the 14 most recent
-```
-
-Recommended via cron, e.g. `0 3 * * * cd /path/to/galleryvault && ./scripts/backup.sh`. Restore:
-
-```bash
-docker compose exec -T db pg_restore -U galleryvault -d galleryvault -c --if-exists < backups/galleryvault_<timestamp>.dump
-```
+The default password `p1a2s3s4` is for first login only — change it in Settings before exposing the instance publicly. The backend API is bound to `127.0.0.1:8001` by default; optional **encryption at rest** (`ENCRYPTION_KEY`) protects cookies / token / password hashes. The public-deployment checklist, TLS and lost-key recovery are in [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) and [Wiki → Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption).
 
 ## Architecture
 
@@ -171,48 +83,27 @@ The project is split into two source repositories that publish the Docker images
 | Backend (FastAPI + asyncpg) | [galleryvault-backend](https://github.com/ResidualBlood/galleryvault-backend) | `residualblood/galleryvault-backend` | **8001** |
 | Database | — | `postgres:16-alpine` | internal |
 
-The frontend is a dependency-free vanilla-JavaScript single-page app (no build step, no CDN). The backend runs Alembic migrations automatically on boot, so upgrading is a single `docker compose pull && docker compose up -d`.
-
-### Building from source
-
-```bash
-git clone https://github.com/ResidualBlood/galleryvault-backend
-cd galleryvault-backend
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
-```
-
-## Acknowledgements
-
-Gallery format compatibility and translation features build on the following open-source projects:
-
-- **Ehviewer_CN_SXJ** — the Chinese fork of Ehviewer ([github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)). Its export directory structure and naming conventions (`<gid>-<title>`, `.ehviewer` metadata files, `.thumb` thumbnails), concurrent page download and resume behavior, and Chinese tag-translation reverse lookup are the reference for this project.
-- **EhTagTranslation** — tag translation database and update mechanism ([github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)).
-- **ehsyringe** — curation and export format of the translation data.
-
-The backend is built on the following open-source components:
-
-- **FastAPI**, **Starlette**, **Uvicorn** — web framework and ASGI server
-- **SQLAlchemy**, **asyncpg**, **Alembic** — database ORM, driver and migrations
-- **httpx** — async HTTP client
-- **Pydantic** — data validation and configuration
-
-Infrastructure: **PostgreSQL**, **nginx**, **Docker**.
-
-## Public deployment checklist
-
-Before exposing an instance to the public internet:
-
-1. **Use a strong password.** The default `p1a2s3s4` is for first login only — change it in Settings. Login is rate-limited out of the box (10 attempts / 60 s per IP), and nginx throttles `/login` (10 r/min) and `/api` (30 r/s) per client IP.
-2. **Enable TLS.** Terminate HTTPS at a reverse proxy / Caddy in front of nginx and set `AUTH_COOKIE_SECURE=true`; otherwise the password and session cookie travel in plaintext. Add HSTS once HTTPS is live.
-3. **Only expose port 8000.** The compose file binds the backend API to `127.0.0.1:8001` (loopback only) — keep it that way and route all API traffic through the nginx frontend.
-4. **Built-in defenses (no setup needed):** login rate limiting, cross-origin checks on state-changing `/api` calls, an `exhentai_base_url` whitelist (exhentai.org / e-hentai.org only), `HttpOnly + SameSite=Lax` session cookies, and PBKDF2-SHA256 (310k iterations) password hashing.
-5. **Recommended hardening:** run containers as non-root, give PostgreSQL its own strong password, and avoid mounting system-critical paths as library/downloads roots.
+The frontend is a dependency-free vanilla-JavaScript SPA (no build step, no CDN). The backend runs Alembic migrations automatically on boot, so upgrading is a single `docker compose pull && docker compose up -d`.
 
 ## Documentation
 
-- [API reference](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/API.md)
-- [Usage guide](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/USAGE.md)
-- [Development notes](https://github.com/ResidualBlood/galleryvault-backend/blob/main/docs/DEVELOPMENT.md)
+Full docs live on the **[📖 Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**:
+
+- [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — compose, volumes, scan-only libraries, hardening, TLS, upgrades
+- [Usage guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — browse, reader, tags, downloads, favorites, logs, settings
+- [Backup & restore](https://github.com/ResidualBlood/galleryvault/wiki/Backup)
+- [Encryption at rest](https://github.com/ResidualBlood/galleryvault/wiki/Encryption) — ENCRYPTION_KEY and lost-key recovery
+- [API reference](https://github.com/ResidualBlood/galleryvault/wiki/API)
+- [Development](https://github.com/ResidualBlood/galleryvault/wiki/Development)
+- [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
+
+## Acknowledgements
+
+- **Ehviewer_CN_SXJ** ([github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)) — reference for the export directory structure and naming conventions, concurrent page download and resume, and Chinese tag-translation reverse lookup.
+- **EhTagTranslation** ([github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)) — tag translation database and update mechanism.
+- **ehsyringe** — curation and export format of the translation data.
+
+Backend built on **FastAPI / Starlette / Uvicorn**, **SQLAlchemy / asyncpg / Alembic**, **httpx**, **Pydantic**; infrastructure is **PostgreSQL, nginx, Docker**.
 
 ## Disclaimer
 
