@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- First-run welcome wizard (`#/welcome`): guided change-password → ExHentai
+  cookies → fill-the-library steps, shown while the default password is in use.
+  New endpoint `GET /api/onboarding/status`.
+
 ## [1.0.0] - 2026-08-26
 
 First tagged release. GalleryVault is a feature-complete, self-hosted local
