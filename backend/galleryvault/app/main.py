@@ -912,6 +912,12 @@ async def _run_download(task: DownloadTask) -> None:
                     # fail immediately instead of burning max_retries of
                     # pointless network round-trips against a redirect loop.
                     auth_failure = "authenticat" in str(exc)
+                    # The remoteapi.php anti-bot challenge is temporary (IP
+                    # rate-challenge); back off before retrying so the burst
+                    # passes and the download resumes.
+                    challenge = "challeng" in str(exc)
+                    if challenge:
+                        await asyncio.sleep(30)
                     row.retry_count += 1
                     row.status = (
                         "failed"

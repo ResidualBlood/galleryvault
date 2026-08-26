@@ -360,6 +360,12 @@ class EhClient:
             gid, token = parse_gallery_url(str(gid), self.settings.exhentai_base_url)
         base = f"/g/{int(gid)}/{token}/"
         response = await self._get(base)
+        # ExHentai's remoteapi.php anti-bot challenge: the /g/ URL 302s through
+        # forums.e-hentai.org/remoteapi.php?ex=… and lands on the site root
+        # (…/?poni=no). The session cookie is fine — the IP is being
+        # rate-challenged temporarily. Callers treat this as retryable.
+        if not str(response.url.path).startswith("/g/"):
+            raise EhClientError("ExHentai is challenging this client (temporary anti-abuse)")
         body = response.text
         title, title_jpn = _parse_gallery_titles(body)
         # ExHentai lists roughly 20 page links per gallery page and paginates
