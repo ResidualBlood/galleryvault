@@ -86,6 +86,11 @@ and back/forward work without server round-trips.
   are missing — pages already on disk (in the temp or final folder) are skipped.
 - Pending/active tasks can be **cancelled**; failed/cancelled/success tasks can
   be **retried**, individually or in bulk via checkboxes + Retry selected.
+- **A finished download is ingested into the index immediately** — the gallery
+  row, pages and tags are written straight from the download result (no full
+  library scan, no ExHentai round-trip), and its cover thumbnail is generated
+  on first view. The stored storage signature matches the scanner fingerprint,
+  so a later manual full scan skips it instead of re-ingesting.
 - When a Telegram bot is configured you get a notification on download
   success / failure and when a library scan finishes.
 
