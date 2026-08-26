@@ -92,6 +92,7 @@ const I18N = {
     cancelTask: "Cancel", taskCancelling: "cancelling",
     taskSuccess: "succeeded", taskFailed: "failed", taskCancelled: "cancelled", duration: "took",
     taskRunning: "running", startedAt: "started", finishedAt: "finished",
+    thumbsHint: "When enabled, thumbnails for galleries missing a cover are generated in the background.",
     scanDesc: "Scanning library folders", tagSyncDesc: "Syncing tags with ExHentai",
     thumbsDesc: "Generating thumbnails", metaDesc: "Backfilling favorite sizes & metadata",
     favCheckDesc: "Checking favorite folders", transDesc: "Updating tag translations",
@@ -191,6 +192,7 @@ const I18N = {
     cancelTask: "取消", taskCancelling: "正在取消",
     taskSuccess: "成功", taskFailed: "失败", taskCancelled: "已取消", duration: "耗时",
     taskRunning: "进行中", startedAt: "开始时间", finishedAt: "完成时间",
+    thumbsHint: "开启后，后台会自动为缺少封面的画廊生成缩略图。",
     scanDesc: "正在扫描画廊目录", tagSyncDesc: "正在同步标签",
     thumbsDesc: "正在生成缩略图", metaDesc: "正在回填收藏夹大小与元数据",
     favCheckDesc: "正在检查收藏夹", transDesc: "正在更新标签翻译",
@@ -1046,7 +1048,7 @@ async function renderSettings() {
           <button class="secondary" data-action="gen-thumbs" type="button">${esc(t("genThumbs"))}</button>
           <a class="secondary" href="#/logs" style="padding:8px 14px;border-radius:4px">${esc(t("logs"))}</a>
         </div>
-        <p class="notice">${esc(t("thumbs"))}</p>
+        <p class="notice" id="thumbs-status">${esc(t("thumbsHint"))}</p>
       </fieldset>
       <fieldset><legend>${esc(t("translationUpdate"))}</legend>
         ${field(t("translationInterval"), `<input name="tag_translation_update_interval_minutes" type="number" min="0" value="${s.tag_translation_update_interval_minutes != null ? s.tag_translation_update_interval_minutes : 720}">`)}
@@ -1073,6 +1075,21 @@ async function renderSettings() {
       el.textContent = (n > 0 ? `${n} entries, updated ${when}` : when) + err;
     }
   }).catch(() => {});
+  refreshThumbsStatus();
+}
+
+async function refreshThumbsStatus() {
+  const el = document.getElementById("thumbs-status");
+  if (!el) return;
+  try {
+    const st = await api("GET", "/api/thumbs/status");
+    if (st && st.running) el.textContent = t("thumbs");
+    else if (st && (st.completed_at || st.succeeded)) {
+      el.textContent = t("thumbsDone") + (st.succeeded ? ` (${st.succeeded})` : "");
+    } else {
+      el.textContent = t("thumbsHint");
+    }
+  } catch (_) { /* transient */ }
 }
 
 function collectSettings(form) {
