@@ -10,9 +10,9 @@ nginx). This file covers the backend.
 ```
 Browser ── :8000 ──▶ nginx (frontend repo: static SPA, proxies /api,/login,/logout)
                           │
-Browser ── :8001 ──▶ FastAPI app (galleryvault/app/main.py)  ──▶ PostgreSQL
+Browser ── :8001 ──▶ FastAPI app (galleryvault/app/main.py + app/routers)  ──▶ PostgreSQL
                           │
-                    /api/* JSON routes (galleryvault.api)
+                    /api/* JSON routes (galleryvault.app.routers)
 ```
 
 - **Frontend** (`galleryvault-frontend` repo) is a build-free vanilla-JS SPA
@@ -30,7 +30,8 @@ Key points:
   (`galleryvault/app/main.py`) returns `401` JSON for unauthenticated `/api/*`
   requests; the SPA detects the `401` and shows the login form. Login is
   performed by `POST /login` (form-encoded) which sets the session cookie, and
-  `POST /logout` clears it. `/healthz`, `/login`, `/logout` are exempt.
+  `POST /logout` clears it. `/healthz`, `/metrics`, `/login`, `/logout` are
+  exempt.
 - **CSRF**: the legacy double-submit CSRF token is only needed for browser HTML
   forms. The SPA only issues `application/json` requests to `/api/*` (excluded
   from the CSRF check), so no CSRF token is required.
@@ -41,11 +42,17 @@ Key points:
 backend/  (this git repository)
 galleryvault/
   app/
-    main.py            # FastAPI app, all JSON route handlers
-  api/                 # canonical API reference (re-exports handlers + routes)
+    main.py            # FastAPI assembly: lifespan, middleware, shared task state,
+                       #   background workers, auth routes
+    routers/           # route handlers split by domain
+      core.py tasks.py settings.py downloads.py favorites.py galleries.py tags.py
+  api/                 # package note; authoritative reference is docs/API.md
   auth/                # password hashing + session cookies
   config.py            # Settings model + DB persistence
   db/                  # SQLAlchemy models, repositories, session
+  logging.py           # structured log formatter
+  observability.py     # request-id middleware + /metrics counters
+  secrets.py           # at-rest encryption (ENCRYPTION_KEY)
   scanners/            # ehviewer / zip / rar / folder scanners + registry
   services/
     downloader.py      # ExHentai download engine (concurrent pages, resume, max_pages, cancel)
@@ -58,8 +65,7 @@ galleryvault/
     telegram.py        # TelegramNotifier (async client)
     telegram_bot.py    # long-poll bot for incoming commands
     thumbnails.py      # static JPEG thumbnail generation + on-disk cache
-  logging.py
-alembic/               # database migrations (0001..0012)
+alembic/               # database migrations (0001..0014)
 tests/                 # pytest suite
 docs/                  # this guide, USAGE.md, API.md
 Dockerfile
@@ -238,12 +244,14 @@ curl -L https://github.com/EhTagTranslation/Database/releases/latest/download/db
 docker-compose up -d app
 ```
 
-可通过容器日志确认加载：`docker logs exhentai_app_1 | grep "tag translations"`。
+可通过容器日志确认加载：`docker logs galleryvault-backend | grep "tag translations"`。
 
 ## Conventions
 
-- Keep route handlers in `galleryvault/app/main.py`. Each handler is a plain
-  `async def`; the `galleryvault/api` package documents them.
+- Keep route handlers in `galleryvault/app/routers/` (one module per domain).
+  Handlers reference the shared state / helpers on `galleryvault.app.main`
+  via `main.X` at call time — that keeps `monkeypatch.setattr(main, ...)` in
+  the tests working. Each handler is a plain `async def`.
 - All errors returned to the client are `HTTPException` (or `_db_error` for
   SQLAlchemy failures). Never leak raw exception text – secrets/cookies are
   already scrubbed in `logging.py`.

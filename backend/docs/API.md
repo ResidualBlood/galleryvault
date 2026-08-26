@@ -14,7 +14,8 @@ authenticated session cookie. Unauthenticated `/api/*` requests receive
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| GET | `/healthz` | no | `{status: "ok"}` — liveness probe (used by the compose healthcheck). |
+| GET | `/healthz` | no | `{status: "ok"}` — liveness probe (used by the compose healthcheck). `503` when the database is unreachable. |
+| GET | `/metrics` | no | Prometheus-text request counters (`gv_http_requests_total`, `gv_http_errors_total`). |
 | GET | `/api/auth/session` | yes | `{authenticated, auth_required, must_change_password}` or `401`. |
 | POST | `/login` | no | Form field `password`. Success sets the session cookie and redirects (`303`) to `/`; failure redirects to `/login?error=1`. |
 | POST | `/logout` | no | Clears the session cookie, redirects to `/login`. |
@@ -108,14 +109,18 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | POST | `/api/favorites/categories` | Body `{favcat, enabled?, mode?}` to update one folder. |
 | POST | `/api/favorites/sync-categories` | Refresh folder names from ExHentai. |
 | POST | `/api/favorites/{favcat}/check` | `202` – scan folder `favcat`. A disabled folder runs check-only (`monitor_only`): records items and sizes but never downloads; an enabled folder downloads missing galleries per its mode. |
+| POST | `/api/favorites/check-all` | `202` – check every configured folder at once (spawns one check per favcat). |
 | GET | `/api/favorites/check-status` | Per-folder check progress: `{running, categories: {favcat: {running, done, total, error}}, last_error}`. `done`/`total` track the cursor walk. |
 | POST | `/api/favorites/compute-sizes` | `202` – fetch sizes for missing galleries in the background so `cloud_size` becomes exact. |
+| GET | `/api/favorites/metadata-status` | Favorites metadata sync/apply worker status (`running`, `stage` (sync/apply), `done`, `total`, `applied`, `last_error`). |
+| GET | `/api/favorites/cover` | Query `gid` + `token`. Fetches and caches a remote gallery cover (served as the image bytes); `404` when the gallery has no usable cover. |
 | GET | `/api/favorites/{favcat}/items` | Paginated folder galleries (`page`, `page_size`): `favcat`, `gid`, `token`, `title`, `url`, `first_seen_at`, and when the gallery is local `gallery_id`, `category`, `page_count`, `cover_url`, `file_size`, `tags`. Cloud-only galleries get their metadata (real `file_size`, `title_jpn`, `tags`, category) via the batched gdata API and an inline `cover_data` base64 thumbnail, so a folder page renders with a single request. |
 | POST | `/api/favorites/remove` | Body `{gids: [...], delete_local?: bool}`. Remove galleries from ExHentai favorites (all folders, `favorites.php` `ddact=delete` like SXJ) and from local `favorite_items`; `delete_local` also deletes on-disk galleries. Returns `{cloud_ok, cloud_removed, local_removed, deleted_local_galleries}`. |
 | POST | `/api/favorites/duplicates/scan` | `202` – background scan grouping favorite items into duplicate sets (same normalized title + same artist). |
 | GET | `/api/favorites/duplicates/status` | Scan progress (`stage`, `done`, `total`) and result `groups` (`key`, `artist`, `items: [{favcat, gid, token, title, url, gallery_id, file_size, posted_at, first_seen_at, title_jpn, cover_data, tags}]`), `group_count`, `item_count`, plus `ignored` (previously hidden groups, restorable). Cloud items are enriched via the batched gdata API (cover, size, posted date, tags); local items' posted dates are persisted onto `galleries.posted_at`. |
 | POST | `/api/favorites/duplicates/ignore` | Body `{key, title?, gids?}` – hide a duplicate group from every later scan. |
 | DELETE | `/api/favorites/duplicates/ignore?key=` | Restore a previously ignored group. |
+| GET | `/api/favorites/duplicates/ignored` | List the currently ignored duplicate groups (each with `key`, `title`, `items`) so they can be restored. |
 | GET | `/api/galleries/{identifier}/favorite` | Which favorite folders a gallery is in: `{gid, favorite: bool, favcats: [...]}`.
 
 ## Galleries (local library)
@@ -161,7 +166,7 @@ refresh is available via the button in Settings. Markdown icon syntax
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/scan` | Current scan status (`running`, `last`). |
+| GET | `/api/scan` | Current scan status (`running`, `started_at`, `completed_at`, `scanned`, `persisted`, `success`, `errors`, `expunged`, `last`). |
 | POST | `/api/scan` | `202` – trigger a library scan. |
 | GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
 | POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. |

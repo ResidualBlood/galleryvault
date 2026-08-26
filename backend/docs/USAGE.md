@@ -63,7 +63,10 @@ and back/forward work without server round-trips.
   Categories).
 - With the 中文 interface enabled, tags render their Chinese translations;
   markdown icon syntax from the translation database is stripped automatically.
-- Results are paginated (100 per page).
+  Multi-value tags (`A | B`) keep only their translated values — an untranslated
+  English alias is dropped, so e.g. `3-gatsu no lion | march comes in like a lion`
+  renders as `3月的狮子`.
+- Results are paginated (100 per page, up to 500).
 
 ### History (`#/history`)
 
@@ -172,6 +175,8 @@ and back/forward work without server round-trips.
 - **Account**: toggle *Require login*. **Change password** asks for the current
   and new password; if still on the default `p1a2s3s4`, a banner prompts you to
   change it. Turning *Require login* off disables authentication entirely.
+  Changing the password **revokes every active session** — you have to log in
+  again on each device.
 - **ExHentai**: base URL plus `ipb_member_id` / `ipb_pass_hash` / `igneous`
   cookies (exported from a logged-in browser session). **测试登录** validates
   them. Cookies are never echoed back to the UI.
@@ -212,7 +217,9 @@ On a fresh install `docker compose up` works out of the box:
 
 Secrets such as ExHentai cookies, the Telegram token and the auth password hash
 are stored (cookies/token in the DB settings, the hash in `runtime_auth`) and
-never echoed back by the API.
+never echoed back by the API. When the backend runs with `ENCRYPTION_KEY` set,
+these values are encrypted at rest (AES-256-GCM); see the project README for
+enabling it and for recovering from a lost key.
 
 ## API access
 
