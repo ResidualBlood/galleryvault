@@ -50,6 +50,21 @@ class EhParseError(EhClientError):
     pass
 
 
+def _is_auth_failure_page(body: str) -> bool:
+    """Detect the ExHentai sadpanda login / IP-banned page.
+
+    These pages answer HTTP 200 with no gallery content, which callers would
+    otherwise misread as "gallery deleted". Matching them here keeps auth
+    expiry separate from genuine 404s so a dead session cannot mass-mark
+    galleries as deleted.
+    """
+    return (
+        "Sad Panda" in body
+        or "Your IP address has been banned" in body
+        or "Your IP address is temporarily banned" in body
+    )
+
+
 @dataclass(frozen=True)
 class GalleryPageData:
     index: int
@@ -282,11 +297,19 @@ class EhClient:
     async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
         try:
             response = await self.client.get(url, **kwargs)
-            if response.status_code in (401, 403) or "login" in str(response.url).lower():
+            if (
+                response.status_code in (401, 403)
+                or "login" in str(response.url).lower()
+                or _is_auth_failure_page(response.text)
+            ):
                 raise EhClientError("ExHentai authentication is required or expired")
             response.raise_for_status()
             return response
-        except (httpx.TimeoutException, httpx.ProxyError) as exc:
+        except httpx.RequestError as exc:
+            # Covers TimeoutException, ConnectError, ReadError,
+            # RemoteProtocolError, ProxyError — every transient transport
+            # failure must surface as EhClientError so callers retry instead of
+            # treating a dead proxy/DNS blip as a permanent per-gallery failure.
             logger.warning("ExHentai request failed", extra=log_extra(error=type(exc).__name__))
             raise EhClientError("ExHentai request failed") from exc
         except httpx.HTTPStatusError as exc:
@@ -296,6 +319,8 @@ class EhClient:
             )
             if status == 404:
                 raise GalleryGoneError("gallery does not exist on ExHentai (404)") from exc
+            if status in (429, 509):
+                raise EhClientError(f"ExHentai rate limited (HTTP {status})") from exc
             raise EhClientError("ExHentai returned an HTTP error") from exc
 
     async def fetch_gallery_metadata(self, gid: int, token: str) -> GalleryData:

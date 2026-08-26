@@ -22,7 +22,7 @@ from fastapi.responses import (
 )
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 from ..auth import create_session, hash_password, verify_password, verify_session
@@ -460,6 +460,20 @@ async def startup() -> None:
         client, _FavoritesRepositoryProxy(), _FavoriteDownloadQueue(), app.state.telegram
     )
     app.state.favorite_poll_task = asyncio.create_task(_favorites_poll_loop())
+    # Sweep leftover partial-download dirs from a previous run before the
+    # download worker starts; recovered pending tasks rebuild their own. A
+    # stale .gv-<gid> would otherwise be reused as "already downloaded" pages.
+    try:
+        import shutil as _shutil
+
+        _root = Path(_settings().download_root)
+        for _child in _root.glob(".gv-*"):
+            if _child.is_dir():
+                _shutil.rmtree(_child, ignore_errors=True)
+    except Exception as exc:  # noqa: BLE001 - cleaning is best-effort
+        logger.warning(
+            "partial download cleanup failed", extra=log_extra(error=type(exc).__name__)
+        )
     global download_worker_task
     download_worker_task = asyncio.create_task(_download_worker_loop())
     global tag_sync_worker_task
@@ -520,6 +534,12 @@ async def shutdown() -> None:
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
+    try:
+        async with _settings_session() as session:
+            await session.execute(select(1))
+    except Exception as exc:  # report unavailability, not the cause
+        logger.warning("health check failed", extra=log_extra(error=type(exc).__name__))
+        raise HTTPException(status_code=503, detail="database unavailable") from exc
     return {"status": "ok"}
 
 
@@ -1667,6 +1687,13 @@ async def create_download(body: DownloadRequest) -> dict[str, object]:
             )
     except HTTPException:
         raise
+    except IntegrityError as exc:
+        # Race with a concurrent enqueue of the same active gid (guarded by the
+        # partial unique index): report as a conflict, not a 503.
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail="An active download already exists for this gid"
+        ) from exc
     except Exception as exc:
         raise _db_error(exc) from exc
     downloader = app.state.downloader
@@ -1876,9 +1903,14 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
     cloud_removed = 0
     cloud_ok = True
     try:
-        client = app.state.eh_client or EhClient(_settings())
-        async with client:
+        client = app.state.eh_client
+        if client is not None:
+            # Shared global client: never enter its async context, that would
+            # close the underlying httpx client for every other worker.
             await client.remove_favorites(gids)
+        else:
+            async with EhClient(_settings()) as temp_client:
+                await temp_client.remove_favorites(gids)
         cloud_removed = len(gids)
     except Exception as exc:  # noqa: BLE001 - cloud is best-effort, keep going
         cloud_ok = False

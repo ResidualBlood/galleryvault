@@ -862,8 +862,11 @@ class GalleryRepository:
                     ).all()
                 )
                 tag_map = {(tag.namespace, tag.name): tag for tag in tag_rows}
-            self.session.add_all(
-                GalleryTag(gallery_id=gallery.id, tag_id=tag_map[key].id)
+            gallery_tag_rows = [
+                {
+                    "gallery_id": gallery.id,
+                    "tag_id": tag_map[key].id,
+                }
                 for gallery, meta in pairs
                 for key in {
                     (
@@ -874,9 +877,14 @@ class GalleryRepository:
                     if str(tag[1] or "").strip()
                 }
                 if key in tag_map
-            )
+            ]
+            if gallery_tag_rows:
+                await self.session.execute(
+                    pg_insert(GalleryTag)
+                    .values(gallery_tag_rows)
+                    .on_conflict_do_nothing(index_elements=["gallery_id", "tag_id"])
+                )
         return len(pairs)
-
 
     async def replace_tags(
         self,
@@ -917,8 +925,19 @@ class GalleryRepository:
                     select(Tag).where(tuple_(Tag.namespace, Tag.name).in_(unique_tags))
                 )
             ).all()
-            for tag in existing:
-                self.session.add(GalleryTag(gallery_id=gallery.id, tag_id=tag.id))
+            if existing:
+                await self.session.execute(
+                    pg_insert(GalleryTag)
+                    .values(
+                        [
+                            {"gallery_id": gallery.id, "tag_id": tag.id}
+                            for tag in existing
+                        ]
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=["gallery_id", "tag_id"]
+                    )
+                )
             await self.session.flush()
         if category and category != "other":
             gallery.category = category

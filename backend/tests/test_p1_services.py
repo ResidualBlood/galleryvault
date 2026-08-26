@@ -383,10 +383,24 @@ async def test_repository_replaces_tag_rows_and_reuses_tag_names() -> None:
 
         async def execute(self, statement):
             # pg_insert ... ON CONFLICT DO NOTHING: the fake has no real DB, so
-            # just record the delete statement and ignore the upsert.
+            # just record the delete statement and capture any GalleryTag
+            # inserts (replace_tags now uses a bulk ON CONFLICT insert instead
+            # of session.add) for the assertions below.
             from sqlalchemy.sql.expression import Insert
 
             if isinstance(statement, Insert):
+                if getattr(statement.table, "name", "") == "gallery_tags":
+                    multi = getattr(statement, "_multi_values", None)
+                    single = getattr(statement, "_values", None)
+                    rows = multi[0] if multi else ([single] if single else [])
+                    for row in rows:
+                        vals = {col.name: val for col, val in row.items()}
+                        self.added.append(
+                            GalleryTag(
+                                gallery_id=vals["gallery_id"],
+                                tag_id=vals["tag_id"],
+                            )
+                        )
                 return
             self.deleted.append(statement)
 
