@@ -8,7 +8,7 @@ version = "1.0.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",
-  "uvicorn[standard]>=0.52.4,<1",
+  "uvicorn>=0.52.4,<1",
   "pydantic-settings>=2.6,<3",
   "SQLAlchemy[asyncio]>=2.0,<3",
   "asyncpg>=0.30,<1",

@@ -1,6 +1,6 @@
 # Multi-arch build: python:3.12-slim ships images for amd64, arm64, arm/v7,
-# ppc64le, s390x and riscv64, but a few compiled dependencies (asyncpg, uvloop,
-# httptools, Pillow, …) only publish wheels for amd64/arm64. The builder stage
+# ppc64le, s390x and riscv64, but a few compiled dependencies (asyncpg, Pillow,
+# greenlet, cffi, …) only publish wheels for amd64/arm64. The builder stage
 # compiles those missing wheels from sdist (a C toolchain + Pillow's image
 # library headers, plus a modern Rust for cryptography on s390x/riscv64); the
 # runtime stage only installs the resulting wheels, so it stays slim and has no
@@ -52,6 +52,19 @@ COPY galleryvault ./galleryvault
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY entrypoint.sh /app/entrypoint.sh
-RUN pip install --no-cache-dir --no-deps . && chmod +x /app/entrypoint.sh
+# Slim the image a bit: the stdlib ships idle/tk modules this app never uses,
+# and __pycache__ can be dropped (Python regenerates/skips it at runtime). pip
+# is kept on purpose — the documented dev workflow reinstalls dev deps inside
+# the test container with `pip install -e ".[dev]"`.
+RUN pip install --no-cache-dir --no-deps . \
+    && chmod +x /app/entrypoint.sh \
+    && find /usr/local/lib/python3.12 -type d -name __pycache__ -prune -exec rm -rf {} + \
+    && rm -rf /usr/local/lib/python3.12/idlelib \
+              /usr/local/lib/python3.12/turtledemo \
+              /usr/local/lib/python3.12/tkinter \
+              /usr/local/lib/python3.12/test \
+              /usr/local/lib/python3.12/lib2to3 \
+    && find /usr/local/lib/python3.12/lib-dynload -name "_tkinter*" -delete \
+    && rm -f /usr/local/bin/idle3 /usr/local/bin/idle3.12
 EXPOSE 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
