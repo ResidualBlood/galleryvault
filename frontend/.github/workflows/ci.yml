@@ -50,5 +50,5 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/galleryvault-frontend:{1}', secrets.DOCKERHUB_USERNAME, github.ref_name) }}
+            ${{ github.ref_type == 'tag' && format('{0}/galleryvault-frontend:{1}', secrets.DOCKERHUB_USERNAME, github.ref_name) || '' }}
           platforms: linux/amd64,linux/arm64
