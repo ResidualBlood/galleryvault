@@ -707,8 +707,18 @@ async def _ingest_downloaded_gallery(path: str | Path) -> None:
             )
             return
         gallery = await run_in_threadpool(scanner.scan, Path(path))
+        gallery_id = None
         async with _settings_session() as session, session.begin():
             await GalleryIngestService(session).ingest([gallery])
+            if _settings().generate_thumbnails and gallery.gid is not None:
+                row = await session.execute(
+                    select(Gallery.id).where(Gallery.gid == gallery.gid)
+                )
+                gallery_id = row.scalar_one_or_none()
+        if gallery_id is not None and gallery_id not in thumb_queued:
+            thumb_queued.add(gallery_id)
+            thumb_queue.put_nowait(gallery_id)
+            thumb_state["queued"] = thumb_queue.qsize()
         logger.info(
             "download ingested",
             extra=log_extra(gid=gallery.gid, path=str(path), pages=len(gallery.pages)),
