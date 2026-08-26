@@ -4,6 +4,7 @@ import contextlib
 import hmac
 import logging
 import re
+from collections import deque
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -79,7 +80,12 @@ app.state.eh_client = None
 app.state.telegram = None
 app.state.favorite_poll_task = None
 app.state.telegram_bot_task = None
-scan_state: dict[str, object] = {"running": False, "last": None, "completed_at": None}
+scan_state: dict[str, object] = {
+    "running": False,
+    "last": None,
+    "started_at": None,
+    "completed_at": None,
+}
 scan_lock = asyncio.Lock()
 download_worker_task = None
 tag_sync_state: dict[str, object] = {
@@ -92,7 +98,9 @@ tag_sync_state: dict[str, object] = {
     "retries": 0,
     "interval": None,
     "last_error": None,
+    "started_at": None,
     "completed_at": None,
+    "history_recorded": False,
     "category_refreshed": 0,
     "category_refresh_running": False,
 }
@@ -122,6 +130,7 @@ metadata_sync_state: dict[str, object] = {
     "total": 0,
     "applied": 0,
     "last_error": None,
+    "started_at": None,
     "completed_at": None,
 }
 _metadata_sync_active = 0
@@ -140,12 +149,59 @@ thumb_state: dict[str, object] = {
     "failed": 0,
     "total": 0,
     "last_error": None,
+    "started_at": None,
     "completed_at": None,
+    "history_recorded": False,
 }
 thumb_queue: asyncio.Queue[int] = asyncio.Queue()
 thumb_queued: set[int] = set()
 thumb_worker_task = None
 thumb_service: ThumbnailService | None = None
+
+# --- Background-task log ------------------------------------------------
+# Latest-first record of finished/cancelled background tasks (scan, tag sync,
+# thumbnail generation, favorite metadata sync).  Kept in memory like the rest
+# of the task state; the Downloads page keeps its own persisted history.
+task_history: deque[dict[str, object]] = deque(maxlen=200)
+# Cancel requests, keyed by task name.  A worker checks this flag between units
+# of work and stops at the next safe point.
+_task_cancelled: set[str] = set()
+
+
+def _record_task(
+    task: str,
+    started_at: str | None,
+    completed_at: str | None,
+    status: str,
+    *,
+    reason: str = "",
+    done: int = 0,
+    total: int = 0,
+) -> None:
+    """Append one finished/cancelled task to the activity log."""
+    task_history.appendleft(
+        {
+            "task": task,
+            "started_at": started_at or completed_at,
+            "completed_at": completed_at,
+            "status": status,
+            "reason": reason,
+            "done": done,
+            "total": total,
+        }
+    )
+
+
+def _request_cancel(task: str) -> None:
+    _task_cancelled.add(task)
+
+
+def _clear_cancelled(task: str) -> None:
+    _task_cancelled.discard(task)
+
+
+def _cancelled(task: str) -> bool:
+    return task in _task_cancelled
 
 # Built-in default password used when no auth hash is configured anywhere. The
 # SPA forces a password change once you log in with it.  Documented in the
@@ -527,11 +583,13 @@ async def _run_scan() -> None:
         errors = 0
         scan_state["running"] = True
         scan_state["completed_at"] = None
+        scan_state["started_at"] = datetime.now(UTC).isoformat()
         scan_state["scanned"] = 0
         scan_state["persisted"] = 0
         scan_state["success"] = 0
         scan_state["errors"] = 0
         scan_state["last"] = None
+        _clear_cancelled("scan")
         try:
             async with _settings_session() as session:
                 known = await GalleryRepository(session).signatures(_scan_roots())
@@ -542,6 +600,8 @@ async def _run_scan() -> None:
             )
             iterator = service.scan_batches()
             while True:
+                if _cancelled("scan"):
+                    break
                 batch = await run_in_threadpool(next, iterator, None)
                 if batch is None:
                     break
@@ -562,41 +622,61 @@ async def _run_scan() -> None:
                 scan_state["persisted"] = persisted
                 scan_state["success"] = success
                 scan_state["errors"] = errors
-            async with _settings_session() as session, session.begin():
-                expunged = await GalleryRepository(session).expunge_missing(
-                    _scan_roots(), service.seen_path_hashes
-                )
-            scan_state["expunged"] = expunged
-            if _settings().auto_sync_tags:
-                try:
-                    async with _settings_session() as session:
-                        last_id = 0
-                        while True:
-                            ids = await GalleryRepository(session).pending_tag_sync_ids(
-                                1000, last_id
-                            )
-                            if not ids:
-                                break
-                            _enqueue_tag_sync(ids)
-                            last_id = ids[-1]
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "tag sync enqueue failed", extra=log_extra(error=type(exc).__name__)
+            if not _cancelled("scan"):
+                async with _settings_session() as session, session.begin():
+                    expunged = await GalleryRepository(session).expunge_missing(
+                        _scan_roots(), service.seen_path_hashes
                     )
-            counters = service.last_counters
-            scan_state["last"] = {**counters.__dict__, "persisted": persisted, "expunged": expunged}
-            logger.info("library scan persisted", extra=log_extra(**scan_state["last"]))
+                scan_state["expunged"] = expunged
+                if _settings().auto_sync_tags:
+                    try:
+                        async with _settings_session() as session:
+                            last_id = 0
+                            while True:
+                                ids = await GalleryRepository(session).pending_tag_sync_ids(
+                                    1000, last_id
+                                )
+                                if not ids:
+                                    break
+                                _enqueue_tag_sync(ids)
+                                last_id = ids[-1]
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "tag sync enqueue failed", extra=log_extra(error=type(exc).__name__)
+                        )
+                counters = service.last_counters
+                scan_state["last"] = {
+                    **counters.__dict__,
+                    "persisted": persisted,
+                    "expunged": expunged,
+                }
+                logger.info("library scan persisted", extra=log_extra(**scan_state["last"]))
         except Exception as exc:  # noqa: BLE001
             scan_state["last"] = {"error": type(exc).__name__, "persisted": persisted}
             logger.error(
                 "library scan persistence error", extra=log_extra(error=type(exc).__name__)
             )
         finally:
+            cancelled = _cancelled("scan")
+            last = scan_state["last"] or {}
             scan_state["running"] = False
             scan_state["completed_at"] = datetime.now(UTC).isoformat()
+            _record_task(
+                "scan",
+                scan_state.get("started_at"),
+                scan_state["completed_at"],
+                "cancelled" if cancelled else ("failed" if last.get("error") else "success"),
+                reason=(
+                    "cancelled"
+                    if cancelled
+                    else last.get("error") if last.get("error") else ""
+                ),
+                done=scanned,
+                total=0,
+            )
+            _clear_cancelled("scan")
             try:
-                if app.state.telegram is not None and _settings().telegram_chat_ids:
-                    last = scan_state["last"] or {}
+                if not cancelled and app.state.telegram is not None and _settings().telegram_chat_ids:
                     if last.get("error"):
                         await app.state.telegram.send_message(
                             f"Library scan failed: {last['error']}"
@@ -627,6 +707,80 @@ async def trigger_scan() -> dict[str, object]:
 @app.get("/api/scan")
 async def scan_status() -> dict[str, object]:
     return scan_state.copy()
+
+
+@app.get("/api/logs")
+async def background_task_logs() -> dict[str, object]:
+    """Aggregate live background tasks and the recent activity log."""
+    running: list[dict[str, object]] = []
+    if scan_state["running"]:
+        running.append(
+            {
+                "task": "scan",
+                "started_at": scan_state.get("started_at"),
+                "done": int(scan_state.get("scanned") or 0),
+                "total": None,
+                "stage": None,
+                "cancellable": True,
+            }
+        )
+    if tag_sync_state["running"]:
+        running.append(
+            {
+                "task": "tag-sync",
+                "started_at": tag_sync_state.get("started_at"),
+                "done": int(tag_sync_state.get("processed") or 0),
+                "total": int(tag_sync_state.get("total") or 0),
+                "stage": None,
+                "cancellable": True,
+            }
+        )
+    if thumb_state["running"]:
+        running.append(
+            {
+                "task": "thumbs",
+                "started_at": thumb_state.get("started_at"),
+                "done": int(thumb_state.get("succeeded") or 0)
+                + int(thumb_state.get("failed") or 0),
+                "total": int(thumb_state.get("total") or 0),
+                "stage": None,
+                "cancellable": True,
+            }
+        )
+    if metadata_sync_state["running"]:
+        running.append(
+            {
+                "task": "metadata",
+                "started_at": metadata_sync_state.get("started_at"),
+                "done": int(metadata_sync_state.get("done") or 0),
+                "total": int(metadata_sync_state.get("total") or 0),
+                "stage": metadata_sync_state.get("stage"),
+                "cancellable": True,
+            }
+        )
+    return {"running": running, "finished": list(task_history)}
+
+
+@app.post("/api/logs/{task}/cancel", status_code=202)
+async def cancel_background_task(task: str) -> dict[str, object]:
+    if task not in {"scan", "tag-sync", "thumbs", "metadata"}:
+        raise HTTPException(status_code=404, detail="Unknown task")
+    _request_cancel(task)
+    if task == "tag-sync":
+        while not tag_sync_queue.empty():
+            try:
+                tag_sync_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        tag_sync_queued.clear()
+    elif task == "thumbs":
+        while not thumb_queue.empty():
+            try:
+                thumb_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        thumb_queued.clear()
+    return {"task": task, "status": "cancelling"}
 
 
 @app.get("/api/tag-sync/status")
@@ -969,6 +1123,8 @@ async def _tag_sync_worker_loop() -> None:
 
     async def _worker() -> None:
         while True:
+            if _cancelled("tag-sync"):
+                break
             try:
                 gallery_id = await asyncio.wait_for(tag_sync_queue.get(), timeout=5)
             except TimeoutError:
@@ -976,8 +1132,31 @@ async def _tag_sync_worker_loop() -> None:
                 if tag_sync_queue.qsize() == 0 and tag_sync_state["running"]:
                     tag_sync_state["completed_at"] = datetime.now(UTC).isoformat()
                 tag_sync_state["running"] = tag_sync_queue.qsize() > 0
+                if (
+                    not tag_sync_state["running"]
+                    and tag_sync_state.get("started_at")
+                    and not tag_sync_state["history_recorded"]
+                ):
+                    tag_sync_state["history_recorded"] = True
+                    _record_task(
+                        "tag-sync",
+                        tag_sync_state.get("started_at"),
+                        tag_sync_state["completed_at"],
+                        "success",
+                        reason=(
+                            f"ok {tag_sync_state.get('succeeded', 0)} "
+                            f"/ fail {tag_sync_state.get('failed', 0)}"
+                        ),
+                        done=int(tag_sync_state.get("processed") or 0),
+                        total=int(tag_sync_state.get("total") or 0),
+                    )
                 continue
             tag_sync_queued.discard(gallery_id)
+            if not tag_sync_state["running"] or not tag_sync_state.get("started_at"):
+                tag_sync_state["running"] = True
+                tag_sync_state["completed_at"] = None
+                tag_sync_state["started_at"] = datetime.now(UTC).isoformat()
+                tag_sync_state["history_recorded"] = False
             async with semaphore:
                 await _sync_one(gallery_id)
             tag_sync_state["processed"] += 1
@@ -990,6 +1169,20 @@ async def _tag_sync_worker_loop() -> None:
         await asyncio.gather(*workers)
     finally:
         tag_sync_state["running"] = False
+        if _cancelled("tag-sync"):
+            tag_sync_state["completed_at"] = datetime.now(UTC).isoformat()
+            if not tag_sync_state["history_recorded"]:
+                tag_sync_state["history_recorded"] = True
+                _record_task(
+                    "tag-sync",
+                    tag_sync_state.get("started_at"),
+                    tag_sync_state["completed_at"],
+                    "cancelled",
+                    reason="cancelled",
+                    done=int(tag_sync_state.get("processed") or 0),
+                    total=int(tag_sync_state.get("total") or 0),
+                )
+            _clear_cancelled("tag-sync")
 
 
 async def _category_refresh_once() -> int:
@@ -1434,7 +1627,7 @@ async def create_download(body: DownloadRequest) -> dict[str, object]:
 async def list_downloads(
     page: int = 1, page_size: int = 24, status: str | None = None
 ) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 100:
+    if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     try:
         async with _settings_session() as session:
@@ -1542,7 +1735,7 @@ async def _cleanup_download_temp(gid: int) -> None:
 async def favorite_items(
     favcat: int, page: int = 1, page_size: int = 24
 ) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 100:
+    if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     try:
         async with _settings_session() as session:
@@ -1966,21 +2159,59 @@ async def compute_favorite_sizes() -> dict[str, object]:
 
 _FAV_COUNTS_TTL = 300.0
 _fav_counts_cache: dict[str, object] = {"ts": 0.0, "counts": {}}
+_fav_counts_refreshing = False
+
+
+async def _refresh_favorite_counts() -> None:
+    """Background refresh of the live favorite counts (stale-while-revalidate)."""
+    global _fav_counts_refreshing
+    if _fav_counts_refreshing or app.state.eh_client is None:
+        return
+    _fav_counts_refreshing = True
+    import time as _time
+
+    try:
+        async with asyncio.timeout(60):
+            counts = await app.state.eh_client.fetch_favorite_counts()
+        _fav_counts_cache["ts"] = _time.time()
+        _fav_counts_cache["counts"] = counts
+    except Exception as exc:  # noqa: BLE001 - a failed refresh keeps the stale counts
+        logger.warning(
+            "favorite counts refresh failed", extra=log_extra(error=type(exc).__name__)
+        )
+    finally:
+        _fav_counts_refreshing = False
 
 
 async def _favorite_counts_cached() -> dict[int, int]:
-    """Live per-folder gallery counts, cached for ``_FAV_COUNTS_TTL`` seconds."""
+    """Live per-folder gallery counts, cached for ``_FAV_COUNTS_TTL`` seconds.
+
+    After the TTL expires the stale counts are served immediately while a
+    background refresh happens (stale-while-revalidate), so the Favorites page
+    never blocks on a slow ExHentai fetch.  Only the very first call ever blocks,
+    and even then only briefly (10s timeout).
+    """
     import time as _time
 
     now = _time.time()
     if now - float(_fav_counts_cache["ts"]) < _FAV_COUNTS_TTL:
         return dict(_fav_counts_cache["counts"])  # type: ignore[arg-type]
-    if app.state.eh_client is not None:
-        counts = await app.state.eh_client.fetch_favorite_counts()
+    if app.state.eh_client is None:
+        return {}
+    if _fav_counts_cache["counts"]:
+        _spawn(_refresh_favorite_counts(), "favorite counts refresh")
+        return dict(_fav_counts_cache["counts"])  # type: ignore[arg-type]
+    try:
+        async with asyncio.timeout(10):
+            counts = await app.state.eh_client.fetch_favorite_counts()
         _fav_counts_cache["ts"] = now
         _fav_counts_cache["counts"] = counts
         return counts
-    return {}
+    except Exception as exc:  # noqa: BLE001 - degrade gracefully on the first call
+        logger.warning(
+            "favorite counts fetch failed", extra=log_extra(error=type(exc).__name__)
+        )
+        return {}
 
 
 def _estimate_cloud_size(cloud: int, local: int, local_size: int) -> int:
@@ -2010,6 +2241,9 @@ async def _favorite_size_sync(favcat: int) -> None:
     _metadata_sync_active += 1
     metadata_sync_state["running"] = True
     metadata_sync_state["completed_at"] = None
+    if metadata_sync_state.get("started_at") is None:
+        metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
+    cancelled = False
     try:
         try:
             client = app.state.eh_client
@@ -2020,6 +2254,9 @@ async def _favorite_size_sync(favcat: int) -> None:
             total_cached = seeded
             metadata_sync_state["stage"] = "sync"
             for _round in range(60):
+                if _cancelled("metadata"):
+                    cancelled = True
+                    break
                 async with _settings_session() as session:
                     pending = await FavoritesRepository(session).pending_size_gids(favcat, 500)
                     cold = await GalleryRepository(session).cold_metadata_gids(favcat, 500)
@@ -2066,6 +2303,9 @@ async def _favorite_size_sync(favcat: int) -> None:
             applied = 0
             metadata_sync_state["stage"] = "apply"
             for _apply_round in range(100):
+                if _cancelled("metadata"):
+                    cancelled = True
+                    break
                 async with _settings_session() as session, session.begin():
                     applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
                         favcat, 200
@@ -2084,12 +2324,30 @@ async def _favorite_size_sync(favcat: int) -> None:
                 "favorite metadata sync failed",
                 extra=log_extra(favcat=favcat, error=type(exc).__name__),
             )
+            cancelled = True
     finally:
         _metadata_sync_active -= 1
         if _metadata_sync_active <= 0:
             metadata_sync_state["running"] = False
             metadata_sync_state["completed_at"] = datetime.now(UTC).isoformat()
+            _record_task(
+                "metadata",
+                metadata_sync_state.get("started_at"),
+                metadata_sync_state["completed_at"],
+                "cancelled"
+                if cancelled
+                else ("failed" if metadata_sync_state.get("last_error") else "success"),
+                reason=(
+                    "cancelled"
+                    if cancelled
+                    else str(metadata_sync_state.get("last_error") or "")
+                ),
+                done=int(metadata_sync_state.get("done") or 0),
+                total=int(metadata_sync_state.get("total") or 0),
+            )
             metadata_sync_state["stage"] = None
+            metadata_sync_state["started_at"] = None
+            _clear_cancelled("metadata")
 
 
 @app.post("/api/favorites/categories")
@@ -2263,7 +2521,7 @@ async def gallery_list(
     tag_match: str = "exact",
     category: str | None = None,
 ) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 100:
+    if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(
             status_code=422, detail="page must be >= 1 and page_size must be between 1 and 100"
         )
@@ -2485,7 +2743,7 @@ async def save_gallery_progress(identifier: int, body: ProgressRequest) -> dict[
 
 @app.get("/api/history")
 async def history(page: int = 1, page_size: int = 24) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 100:
+    if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     async with _settings_session() as session:
         total, rows = await GalleryRepository(session).history_page(page, page_size)
@@ -2837,6 +3095,8 @@ async def _thumbnail_worker_loop() -> None:
 
     async def _worker() -> None:
         while True:
+            if _cancelled("thumbs"):
+                break
             try:
                 gallery_id = await asyncio.wait_for(thumb_queue.get(), timeout=5)
             except TimeoutError:
@@ -2846,8 +3106,32 @@ async def _thumbnail_worker_loop() -> None:
                     thumb_state["completed_at"] = datetime.now(UTC).isoformat()
                 thumb_state["running"] = thumb_queue.qsize() > 0
                 thumb_state["queued"] = thumb_queue.qsize()
+                if (
+                    not thumb_state["running"]
+                    and thumb_state.get("started_at")
+                    and not thumb_state["history_recorded"]
+                ):
+                    thumb_state["history_recorded"] = True
+                    _record_task(
+                        "thumbs",
+                        thumb_state.get("started_at"),
+                        thumb_state["completed_at"],
+                        "success",
+                        reason=(
+                            f"ok {thumb_state.get('succeeded', 0)} "
+                            f"/ fail {thumb_state.get('failed', 0)}"
+                        ),
+                        done=int(thumb_state.get("succeeded") or 0)
+                        + int(thumb_state.get("failed") or 0),
+                        total=int(thumb_state.get("total") or 0),
+                    )
                 continue
             thumb_queued.discard(gallery_id)
+            if not thumb_state["running"] or not thumb_state.get("started_at"):
+                thumb_state["running"] = True
+                thumb_state["completed_at"] = None
+                thumb_state["started_at"] = datetime.now(UTC).isoformat()
+                thumb_state["history_recorded"] = False
             try:
                 _generated, failed_pages = await _thumbnail_gallery(gallery_id)
                 if failed_pages == 0:
@@ -2870,6 +3154,22 @@ async def _thumbnail_worker_loop() -> None:
         await asyncio.gather(*workers)
     finally:
         thumb_state["running"] = thumb_queue.qsize() > 0
+        if _cancelled("thumbs"):
+            thumb_state["running"] = False
+            thumb_state["completed_at"] = datetime.now(UTC).isoformat()
+            if not thumb_state["history_recorded"]:
+                thumb_state["history_recorded"] = True
+                _record_task(
+                    "thumbs",
+                    thumb_state.get("started_at"),
+                    thumb_state["completed_at"],
+                    "cancelled",
+                    reason="cancelled",
+                    done=int(thumb_state.get("succeeded") or 0)
+                    + int(thumb_state.get("failed") or 0),
+                    total=int(thumb_state.get("total") or 0),
+                )
+            _clear_cancelled("thumbs")
 
 
 @app.get("/api/galleries/{identifier}/thumb/{page_index}")
@@ -2967,7 +3267,7 @@ async def tag_search(
     page_size: int = 60,
     zh: bool = False,
 ) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 100:
+    if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     # Chinese autocomplete: reverse-search the translation table.
     if zh and q and q.strip():

@@ -129,7 +129,8 @@ def test_tag_sync_success_and_upstream_failure_are_safe(
 def test_pagination_validation_does_not_touch_database(client: TestClient) -> None:
     client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
     assert client.get("/api/galleries?page=0").status_code == 422
-    assert client.get("/api/galleries?page_size=101").status_code == 422
+    assert client.get("/api/galleries?page_size=101").status_code == 200
+    assert client.get("/api/galleries?page_size=501").status_code == 422
 
 
 def test_settings_api_exposes_configuration_groups(client: TestClient) -> None:

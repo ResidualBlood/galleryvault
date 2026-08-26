@@ -81,17 +81,32 @@ and back/forward work without server round-trips.
   are missing — pages already on disk (in the temp or final folder) are skipped.
 - Pending/active tasks can be **cancelled**; failed/cancelled/success tasks can
   be **retried**, individually or in bulk via checkboxes + Retry selected.
-- The top of the page shows **background task progress** (library scan, tag
-  sync, thumbnails, and the favorites metadata sync/apply that runs after a
-  folder check), so you can watch the cache being built and applied.
 - When a Telegram bot is configured you get a notification on download
   success / failure and when a library scan finishes.
 
+### Logs (`#/logs`)
+
+- Shows the **background tasks** (library scan, tag sync, thumbnail generation,
+  and the favorites metadata sync/apply that runs after a folder check) in one
+  place, split into two sections that size to their content:
+  - **进行中 (Running now)**: one row per active task with start time, task
+    name, status (`running · done/total`), a live progress bar (indeterminate
+    while progress is unknown), a short description, and a **取消 (Cancel)**
+    button — multiple tasks can run at once, each with its own row.
+  - **已完成 (Finished)**: every finished/failed/cancelled task with start time,
+    task name, a status badge, description, **duration** (finished − started),
+    finish time, and the success/failure reason. No progress bar is shown, so a
+    finished task is a stable summary rather than a flickering bar.
+- The page auto-refreshes every 2 seconds while open. The Logs link also
+  appears next to the *立即同步标签* and *立即生成* buttons in Settings.
+
 ### Library & search
 
-- Gallery lists (Browse / Library) and the gallery-detail thumbnails show a
-  **page-size selector (5/20/50/100/200/500, default 20) and numbered
-  pagination** at the bottom next to the page numbers.
+- Gallery lists (Browse / Library), the gallery-detail thumbnails, History,
+  Downloads and the favorite-folder lists all share the same pager: a
+  **page-size selector (5/20/50/100/200/500, default 20)** plus numbered
+  pagination and a **page-jump box** (type a page number and press Enter /
+  blur to jump; `current / total` is shown next to it).
 - The Library search box **autocompletes tags** while you type: English matches
   tag names, and **Chinese input is reverse-matched** against the translation
   table (like Ehviewer_CN_SXJ) — typing 巨乳 suggests `big breasts` etc. Click a
@@ -164,7 +179,7 @@ and back/forward work without server round-trips.
 - **标签同步**: automatic tag sync after scans / startup, interval, concurrency,
   plus a **立即同步标签** (Sync tags now) button.
 - **Thumbnails**: *Generate thumbnails* switch and **立即生成** (Generate now)
-  button; progress appears in the Background-tasks bar.
+  button; progress appears on the **日志 (Logs)** page.
 - **Telegram**: bot token, chat IDs, allowed user IDs — **发送测试消息** verifies
   the bot can reach the configured chat.
 - **翻译自动更新**: interval (minutes, 0 = off) for the backend to pull the

@@ -89,7 +89,7 @@ derives `favorites_categories` from the enabled ones.
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. Returns `202 {id, gid, status}`. |
-| GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤100), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress and `retry_count`/`max_retries`. |
+| GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤500), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress and `retry_count`/`max_retries`. |
 | POST | `/api/downloads/{task_id}/cancel` | Cancel a pending/active task. An in-flight download is interrupted (page writes stop, the partial temp dir is removed). |
 | POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`). |
 | DELETE | `/api/downloads/{task_id}` | `204` – permanently remove a download task and its attempt log. |
@@ -146,7 +146,7 @@ curl -b cookies.txt 'http://localhost:8001/api/galleries?q=myth&page=1&page_size
 | ------ | ---- | ----------- |
 | GET | `/api/history` | Reading history (`page`, `page_size`). |
 | DELETE | `/api/history` | Clear history (`204`). |
-| GET | `/api/tags/search` | Search local tags. Query `q`, `page`, `page_size` (≤100), `namespace`. Items include `display` (Chinese translation when available) and `usage_count`. With `zh=1`, `q` is matched against Chinese translations (for the tag-autocomplete in the search box). |
+| GET | `/api/tags/search` | Search local tags. Query `q`, `page`, `page_size` (≤500), `namespace`. Items include `display` (Chinese translation when available) and `usage_count`. With `zh=1`, `q` is matched against Chinese translations (for the tag-autocomplete in the search box). |
 | GET | `/api/tags/search/status` | Tag translation auto-update status (`entries`, `last`, `last_error`, `source`, `interval_minutes`). |
 | POST | `/api/tags/search/reload` | `202` – download the latest EhTagTranslation release (`db.text.json`) and reload translations now. |
 
@@ -168,6 +168,8 @@ refresh is available via the button in Settings. Markdown icon syntax
 | POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |
 | GET | `/api/thumbs/status` | Thumbnail generation worker status (`running`, `queued`, `processed`, `succeeded`, `failed`, `total`, `last_error`). |
 | POST | `/api/thumbs/generate` | `202` – queue every gallery missing a cover thumbnail for background generation. |
+| GET | `/api/logs` | Aggregated activity log: `{running: [...], finished: [...]}`. `running` lists the live background tasks (each with `task` (scan/tag-sync/thumbs/metadata), `started_at`, `done`, `total`, `stage`, `cancellable`); `finished` is the latest-first history of completed tasks with `task`, `started_at`, `completed_at`, `status` (success/failed/cancelled), `reason`, `done`, `total`. |
+| POST | `/api/logs/{task}/cancel` | `202` – request cancellation of a running background task (`scan`, `tag-sync`, `thumbs`, `metadata`). The worker stops at the next safe point; the queue is drained for queue-based tasks. |
 
 ## Errors
 
