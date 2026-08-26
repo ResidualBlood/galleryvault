@@ -84,7 +84,7 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/galleryvault-backend:{1}', secrets.DOCKERHUB_USERNAME, github.ref_name) }}
+            ${{ github.ref_type == 'tag' && format('{0}/galleryvault-backend:{1}', secrets.DOCKERHUB_USERNAME, github.ref_name) || '' }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
