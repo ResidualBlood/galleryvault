@@ -913,10 +913,19 @@ async def _run_download(task: DownloadTask) -> None:
                     # pointless network round-trips against a redirect loop.
                     auth_failure = "authenticat" in str(exc)
                     # The remoteapi.php anti-bot challenge is temporary (IP
-                    # rate-challenge); back off before retrying so the burst
-                    # passes and the download resumes.
-                    challenge = "challeng" in str(exc)
-                    if challenge:
+                    # rate-challenge), and so are the connection resets that the
+                    # challenged node returns; back off before retrying so the
+                    # burst passes and the download resumes instead of hammering
+                    # ExHentai in a tight loop.
+                    challenge = (
+                        "challeng" in str(exc)
+                        or "disconnect" in str(exc)
+                        or "reset" in str(exc)
+                        or isinstance(
+                            exc, (EhClientError, asyncio.TimeoutError)
+                        )
+                    )
+                    if challenge and not auth_failure:
                         await asyncio.sleep(30)
                     row.retry_count += 1
                     row.status = (

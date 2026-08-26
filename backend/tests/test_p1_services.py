@@ -43,9 +43,13 @@ def test_exhentai_tag_link_markup_is_parsed() -> None:
 class FakeDownloadClient:
     def __init__(self) -> None:
         self.calls = 0
+        self.last_max_pages = None
 
-    async def fetch_gallery(self, gid: int, token: str) -> GalleryData:
+    async def fetch_gallery(
+        self, gid: int, token: str, max_pages: int | None = None
+    ) -> GalleryData:
         self.calls += 1
+        self.last_max_pages = max_pages
         if self.calls < 3:
             raise RuntimeError("temporary")
         return GalleryData(
@@ -69,6 +73,16 @@ async def test_downloader_retries_and_writes_version2(tmp_path: Path) -> None:
     assert (result.path / ".ehviewer").read_text().splitlines()[-2:] == ["0 p1", "1 p2"]
     assert sorted(p.name for p in result.path.glob("*.jpg")) == ["00000001.jpg", "00000002.jpg"]
     assert "/" not in result.path.name
+
+
+@pytest.mark.asyncio
+async def test_downloader_passes_max_pages_to_fetch_gallery(tmp_path: Path) -> None:
+    client = FakeDownloadClient()
+    client.calls = 3  # succeed immediately
+    await Downloader(client, tmp_path).execute(
+        DownloadTask(1, "tok", "title", max_pages=1)
+    )
+    assert client.last_max_pages == 1
 
 
 @pytest.mark.asyncio
@@ -495,7 +509,9 @@ async def test_tag_sync_deduplicates_and_replaces_relations() -> None:
     class Client:
         downloads = 0
 
-        async def fetch_gallery(self, gid: int, token: str):
+        async def fetch_gallery(
+            self, gid: int, token: str, max_pages: int | None = None
+        ):
             assert (gid, token) == (7, "token")
             return GalleryData(
                 7,
@@ -556,7 +572,9 @@ async def test_tag_sync_uses_cached_metadata_without_network() -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        async def fetch_gallery(self, gid: int, token: str):  # pragma: no cover
+        async def fetch_gallery(
+            self, gid: int, token: str, max_pages: int | None = None
+        ):  # pragma: no cover
             self.calls += 1
             raise AssertionError("cached metadata must avoid a network fetch")
 

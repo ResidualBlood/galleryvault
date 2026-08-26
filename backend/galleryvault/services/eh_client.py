@@ -335,6 +335,10 @@ class EhClient:
             ):
                 raise EhClientError("ExHentai authentication is required or expired")
             response.raise_for_status()
+            # Buffer the body inside the try so a connection reset while reading
+            # is wrapped as EhClientError below instead of leaking a raw
+            # RemoteProtocolError to the download worker.
+            response.read()
             return response
         except httpx.RequestError as exc:
             # Covers TimeoutException, ConnectError, ReadError,
@@ -491,7 +495,11 @@ class EhClient:
             )
             nl_match = re.search(r"nl\(\s*['\"]([^'\")]+)['\"]\s*\)", body)
             showkey_match = SHOWKEY_RE.search(body)
-            if showkey_match and not showkey:
+            if showkey_match:
+                # Always refresh from the latest viewer page: a showkey expires
+                # after a while, so HTML fallbacks must re-seed it or every
+                # remaining page pays for a failing showpage call plus its HTML
+                # fallback.
                 showkey = showkey_match.group(1)
             origin_url = (
                 urljoin(str(page_response.url), html.unescape(origin_match.group(1)))

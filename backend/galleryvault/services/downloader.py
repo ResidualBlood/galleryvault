@@ -46,7 +46,9 @@ class DownloadResult:
 
 
 class DownloadClient(Protocol):
-    async def fetch_gallery(self, gid: int, token: str) -> GalleryData: ...
+    async def fetch_gallery(
+        self, gid: int, token: str, max_pages: int | None = None
+    ) -> GalleryData: ...
     async def download_image(self, url: str) -> bytes: ...
 
 
@@ -167,7 +169,12 @@ class Downloader:
     async def _download_once(
         self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
-        gallery = await self.client.fetch_gallery(task.gid, task.token)
+        # Pass max_pages through to fetch_gallery so a sample download only
+        # resolves the pages it actually needs (otherwise every page's URL is
+        # fetched from ExHentai via showpage before the list is truncated).
+        gallery = await self.client.fetch_gallery(
+            task.gid, task.token, max_pages=task.max_pages
+        )
         pages = list(gallery.pages)
         if task.max_pages is not None and task.max_pages > 0:
             pages = pages[: task.max_pages]
