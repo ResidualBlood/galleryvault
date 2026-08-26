@@ -683,15 +683,41 @@ async def logout():
     return response
 
 
-def _maybe_scan_after_download() -> None:
-    """Ingest freshly downloaded galleries by triggering a library scan.
+def _maybe_scan_after_download(result_path: str | Path) -> None:
+    """Ingest just the freshly downloaded gallery directory.
 
-    The scan is idempotent and guarded by ``scan_lock``/``scan_state["running"]``,
-    so several downloads finishing close together only ever start one scan.
+    A full library scan walks every root (thousands of directories), so a
+    download only indexes the single directory it just wrote (the downloader
+    persists ``.ehviewer`` + ``.galleryvault.json`` with tags, so no ExHentai
+    round-trip is needed).  If a full scan is already running it will pick the
+    new gallery up anyway and this is a no-op.
     """
     if scan_state.get("running"):
         return
-    _spawn(_run_scan(), "library scan")
+    _spawn(_ingest_downloaded_gallery(result_path), "download ingest")
+
+
+async def _ingest_downloaded_gallery(path: str | Path) -> None:
+    try:
+        scanner = registry.for_path(Path(path))
+        if scanner is None:
+            logger.warning(
+                "download ingest: no scanner for path",
+                extra=log_extra(path=str(path)),
+            )
+            return
+        gallery = await run_in_threadpool(scanner.scan, Path(path))
+        async with _settings_session() as session, session.begin():
+            await GalleryIngestService(session).ingest([gallery])
+        logger.info(
+            "download ingested",
+            extra=log_extra(gid=gallery.gid, path=str(path), pages=len(gallery.pages)),
+        )
+    except Exception as exc:  # noqa: BLE001 - one bad download must not crash the worker
+        logger.warning(
+            "download ingest failed",
+            extra=log_extra(path=str(path), error=type(exc).__name__),
+        )
 
 
 async def _run_scan() -> None:
@@ -886,7 +912,7 @@ async def _run_download(task: DownloadTask) -> None:
                 f"Download succeeded: {result.title or task.gid} ({result.pages} pages)"
             )
         if completed:
-            _maybe_scan_after_download()
+            _maybe_scan_after_download(result.path)
     except DownloadCancelledError:
         # The user cancelled mid-flight: drop the partial temp dir and leave
         # the task cancelled (do not retry or mark failed).
