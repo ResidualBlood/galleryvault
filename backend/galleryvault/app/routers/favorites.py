@@ -335,9 +335,10 @@ async def favorite_cover(gid: int, token: str) -> Response:
         tmp = path.with_suffix(".tmp")
         tmp.write_bytes(data)
         tmp.replace(path)
+    body = path.read_bytes()
     return Response(
-        path.read_bytes(),
-        media_type=main._image_content_type(path.read_bytes()),
+        body,
+        media_type=main._image_content_type(body),
         headers={"Cache-Control": "public, max-age=86400"},
     )
 

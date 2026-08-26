@@ -155,8 +155,10 @@ Migrations are applied automatically on container boot (`CMD` runs
 complete upgrade. Notable migrations: `0009` added the `category_refreshed_at`
 column (one-time category backfill), `0010` merged `other` into `misc` and
 moved coordinate-less galleries to `deleted`, `0011` added
-`download_tasks.max_pages` so partial/sample downloads survive the worker, and
-`0012` added `favorite_items.file_size` for exact cloud-size estimates.
+`download_tasks.max_pages` so partial/sample downloads survive the worker,
+`0012` added `favorite_items.file_size` for exact cloud-size estimates,
+`0015` added pg_trgm title indexes, and `0018` added `favorite_items.thumb`
+(cover URLs captured from the favorites listing).
 
 ## Thumbnails
 
@@ -177,7 +179,10 @@ load `/api/galleries/{id}/thumb/{page}` instead of the full-size page.
 - A **disabled** folder runs check-only (`monitor_only`): it records items and
   fetches sizes but never downloads. Only enabled folders download.
 - `remember_many` upserts in 500-row batches (a single INSERT for a folder with
-  thousands of galleries exceeds the asyncpg parameter limit).
+  thousands of galleries exceeds the asyncpg parameter limit). A successful
+  full check also prunes `favorite_items` rows for gids no longer in the cloud
+  folder (unfavorited / expunged), keeping the recorded set in sync so the
+  scheduled "cloud count unchanged" skip keeps working.
 - `cloud_size` = local real size + fetched sizes of missing galleries
   (`favorite_items.file_size`, via `_favorite_size_sync`) + an average estimate
   for the unfetched tail.

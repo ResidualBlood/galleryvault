@@ -15,6 +15,7 @@ class FavoriteRepository(Protocol):
     async def existing_gallery_gids(self, gids: list[int]) -> set[int]: ...
     async def remember(self, favcat: int, item: FavoriteData) -> None: ...
     async def remember_many(self, favcat: int, items: list[FavoriteData]) -> None: ...
+    async def prune(self, favcat: int, current_gids: set[int]) -> int: ...
     async def checked(self, favcat: int, success: bool) -> None: ...
 
 
@@ -97,8 +98,12 @@ class FavoritesService:
                 candidates = [item for item in candidates if item.gid not in local_gids]
         # Record every folder item as seen (idempotent) so the per-folder count
         # reflects the whole ExHentai folder, including galleries already local.
-        if unique:
-            await self.repository.remember_many(favcat, list(unique.values()))
+        # Then drop rows for gids no longer in the folder (unfavorited /
+        # expunged galleries vanish from the listing) so the recorded set stays
+        # in sync with the cloud — otherwise the scheduled "count unchanged"
+        # skip never fires again and phantom cloud items linger in lists.
+        await self.repository.remember_many(favcat, list(unique.values()))
+        await self.repository.prune(favcat, set(unique))
         downloaded = failed = 0
         for item in candidates:
             if mode == "monitor_only":

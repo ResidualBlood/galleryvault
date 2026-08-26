@@ -169,6 +169,7 @@ class FakeFavoritesRepo:
         self.known = set()
         self.remembered = []
         self.local = set()
+        self.pruned = []
 
     async def known_gids(self, favcat: int) -> set[int]:
         return self.known
@@ -183,6 +184,12 @@ class FakeFavoritesRepo:
     async def remember_many(self, favcat: int, items) -> None:
         for item in items:
             await self.remember(favcat, item)
+
+    async def prune(self, favcat: int, current_gids: set[int]) -> int:
+        self.pruned.append((favcat, set(current_gids)))
+        removed = {gid for gid in self.known if gid not in current_gids}
+        self.known -= removed
+        return len(removed)
 
     async def checked(self, favcat: int, success: bool) -> None:
         pass
@@ -202,6 +209,19 @@ async def test_favorites_deduplicates_and_monitor_only_does_not_enqueue() -> Non
     )
     assert result.new == 1 and result.downloaded == 0
     assert repo.remembered == [1]
+
+
+@pytest.mark.asyncio
+async def test_favorites_prunes_stale_items_after_full_check() -> None:
+    repo = FakeFavoritesRepo()
+    repo.known = {1, 99}  # 99 was unfavorited / expunged on the cloud
+    queue = type("Queue", (), {"enqueue": lambda self, item: True})()
+    result = await FavoritesService(FakeFetcher(), repo, queue).check_category(
+        0, mode="incremental"
+    )
+    assert result.new == 0 and result.downloaded == 0
+    assert repo.pruned[-1] == (0, {1})
+    assert repo.known == {1}  # the stale gid 99 is gone
 
 
 @pytest.mark.asyncio

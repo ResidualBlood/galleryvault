@@ -1298,6 +1298,29 @@ class FavoritesRepository:
             row.last_success_at = row.last_checked_at
         await self.session.flush()
 
+    async def prune(self, favcat: int, current_gids: set[int]) -> int:
+        """Drop recorded folder items that are no longer in the ExHentai folder.
+
+        Galleries that were unfavorited or expunged vanish from the cloud
+        listing, so a successful full check must remove their recorded rows.
+        Otherwise ``count_known_gids`` drifts above the live cloud count (the
+        scheduled "cloud count unchanged → skip" heuristic never fires again)
+        and phantom cloud-only items linger in the folder list forever.
+        """
+        if current_gids:
+            result = await self.session.execute(
+                delete(FavoriteItem).where(
+                    FavoriteItem.favcat == favcat,
+                    FavoriteItem.gid.not_in(current_gids),
+                )
+            )
+        else:
+            # An empty folder on the cloud means every recorded row is stale.
+            result = await self.session.execute(
+                delete(FavoriteItem).where(FavoriteItem.favcat == favcat)
+            )
+        return result.rowcount or 0
+
     async def log_check(
         self, favcat: int, gids: list[int], attempts: int, success: bool, error: str | None = None
     ) -> None:

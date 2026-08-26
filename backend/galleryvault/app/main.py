@@ -982,6 +982,7 @@ async def _run_download(task: DownloadTask) -> None:
         logger.error(
             "download task failed", extra=log_extra(gid=task.gid, error=type(exc).__name__)
         )
+        backoff = False
         try:
             async with _settings_session() as session, session.begin():
                 row = await session.get(DownloadTaskModel, task.id)
@@ -1003,8 +1004,7 @@ async def _run_download(task: DownloadTask) -> None:
                             exc, (EhClientError, asyncio.TimeoutError)
                         )
                     )
-                    if challenge and not auth_failure:
-                        await asyncio.sleep(30)
+                    backoff = challenge and not auth_failure
                     row.retry_count += 1
                     row.status = (
                         "failed"
@@ -1017,6 +1017,10 @@ async def _run_download(task: DownloadTask) -> None:
                     await DownloadRepository(session).record_attempt(
                         task.id or 0, row.retry_count, "failed", type(exc).__name__
                     )
+            # Sleep AFTER the transaction commits so a transient challenge does
+            # not hold a connection-pool slot (and the row's lock) open for 30s.
+            if backoff:
+                await asyncio.sleep(30)
             if row is not None and row.status != "cancelled" and app.state.telegram is not None:
                 await app.state.telegram.send_message(
                     f"Download failed: {task.title or task.gid} ({type(exc).__name__})"
@@ -1086,7 +1090,6 @@ def _enqueue_tag_sync(gallery_ids: list[int]) -> int:
     if added:
         current = int(tag_sync_state["total"] or 0)
         tag_sync_state["total"] = current + added
-    return added
     return added
 
 
@@ -1638,6 +1641,9 @@ class _FavoritesRepositoryProxy:
     async def remember_many(self, favcat: int, items):
         return await self._call("remember_many", favcat, items)
 
+    async def prune(self, favcat: int, current_gids: set[int]):
+        return await self._call("prune", favcat, current_gids)
+
     async def checked(self, favcat: int, success: bool):
         return await self._call("checked", favcat, success)
 
@@ -1868,6 +1874,13 @@ async def _favorite_size_sync(favcat: int) -> None:
     metadata_sync_state["completed_at"] = None
     if metadata_sync_state.get("started_at") is None:
         metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
+    # Several favcats can be synced concurrently through the same shared state;
+    # only the first of the batch resets the counters so progress reflects the
+    # current run instead of accumulating across every folder and invocation.
+    if _metadata_sync_active == 1:
+        metadata_sync_state["total"] = 0
+        metadata_sync_state["done"] = 0
+        metadata_sync_state["applied"] = 0
     cancelled = False
     try:
         try:
