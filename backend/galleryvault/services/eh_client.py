@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import re
@@ -261,9 +262,14 @@ class EhClient:
         *,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        max_concurrency: int = 6,
     ) -> None:
         self.settings = settings or get_settings()
         self._owned = client is None
+        # A single shared limiter for ALL ExHentai traffic (page fetches, gdata,
+        # image downloads, favorites) so the many background workers cannot
+        # stack dozens of parallel requests and trip ExHentai's anti-abuse.
+        self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
         if client is not None:
             self.client = client
         else:
@@ -294,9 +300,13 @@ class EhClient:
         if self._owned:
             await self.client.aclose()
 
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        async with self._semaphore:
+            return await self.client.request(method, url, **kwargs)
+
     async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
         try:
-            response = await self.client.get(url, **kwargs)
+            response = await self._request("GET", url, **kwargs)
             if (
                 response.status_code in (401, 403)
                 or "login" in str(response.url).lower()
@@ -492,7 +502,8 @@ class EhClient:
         if not gids:
             return
         form = {"ddact": "delete", "apply": "Apply", "modifygids[]": [str(int(g)) for g in gids]}
-        response = await self.client.post(
+        response = await self._request(
+            "POST",
             "/favorites.php",
             data=form,
             headers={"Referer": urljoin(str(self.client.base_url), "/favorites.php")},
@@ -518,7 +529,8 @@ class EhClient:
                 "gidlist": [[int(gid), token] for gid, token in chunk],
                 "namespace": 1,
             }
-            response = await self.client.post(
+            response = await self._request(
+                "POST",
                 "/api.php",
                 json=payload,
                 headers={"Content-Type": "application/json"},
@@ -599,7 +611,8 @@ class EhClient:
         if not match:
             raise GalleryGoneError("gallery has no cover")
         cover_url = urljoin(str(response.url), html.unescape(match.group(1)))
-        cover_response = await self.client.get(
+        cover_response = await self._request(
+            "GET",
             cover_url,
             headers={"Referer": str(response.url)},
         )

@@ -42,6 +42,7 @@ from ..db.repository import (
 )
 from ..db.session import create_database
 from ..logging import configure_logging, log_extra
+from ..observability import render_metrics, request_id_middleware
 from ..scanners import registry
 from ..scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
@@ -305,7 +306,7 @@ def _scan_roots() -> list[str]:
 @app.middleware("http")
 async def authentication(request: Request, call_next):
     path = request.url.path
-    if path in {"/healthz", "/login", "/logout"}:
+    if path in {"/healthz", "/metrics", "/login", "/logout"}:
         return await call_next(request)
     if not _settings().auth_required:
         return await call_next(request)
@@ -362,6 +363,13 @@ async def authentication(request: Request, call_next):
         if not csrf or not supplied or not hmac.compare_digest(csrf, supplied):
             return HTMLResponse("CSRF token required", status_code=403)
     return await call_next(request)
+
+
+@app.middleware("http")
+async def request_id(request: Request, call_next):
+    # Registered after `authentication`, so it runs outermost (first): every
+    # request gets an X-Request-ID header and its logs carry the same id.
+    return await request_id_middleware(request, call_next)
 
 
 async def _runtime_row() -> dict:
@@ -449,7 +457,7 @@ async def startup() -> None:
         await _bootstrap_auth()
     except Exception:  # noqa: BLE001
         logger.warning("auth bootstrap failed; using temporary credentials")
-    client = EhClient(_settings())
+    client = EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency)
     app.state.eh_client = client
     app.state.downloader = Downloader(
         client, _settings().download_root, concurrency=_settings().download_concurrency
@@ -541,6 +549,11 @@ async def healthz() -> dict[str, str]:
         logger.warning("health check failed", extra=log_extra(error=type(exc).__name__))
         raise HTTPException(status_code=503, detail="database unavailable") from exc
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics() -> str:
+    return render_metrics()
 
 
 @app.post("/login")
@@ -962,32 +975,44 @@ async def _download_worker_loop() -> None:
             await DownloadRepository(session).recover_orphans()
     except Exception as exc:  # noqa: BLE001 - worker must survive database outages
         logger.warning("download recovery failed", extra=log_extra(error=type(exc).__name__))
-    while True:
-        try:
-            async with _settings_session() as session, session.begin():
-                row = await DownloadRepository(session).claim_pending()
+    # Run `download_concurrency` claim loops in parallel. claim_pending uses
+    # FOR UPDATE SKIP LOCKED so the workers never hand out the same task, and
+    # Downloader.semaphore keeps the actual page concurrency bounded.
+    concurrency = max(1, _settings().download_concurrency)
+
+    async def _worker() -> None:
+        while True:
+            try:
+                async with _settings_session() as session, session.begin():
+                    row = await DownloadRepository(session).claim_pending()
+                    if row is not None:
+                        task = DownloadTask(
+                            row.gid,
+                            row.token,
+                            row.title or str(row.gid),
+                            row.id,
+                            row.max_retries,
+                            row.mode,
+                            row.category or "other",
+                            max_pages=row.max_pages,
+                        )
                 if row is not None:
-                    task = DownloadTask(
-                        row.gid,
-                        row.token,
-                        row.title or str(row.gid),
-                        row.id,
-                        row.max_retries,
-                        row.mode,
-                        row.category or "other",
-                        max_pages=row.max_pages,
-                    )
-            if row is not None:
-                await _run_download(task)
-            else:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - one task must not stop the worker
-            logger.error(
-                "download worker iteration failed", extra=log_extra(error=type(exc).__name__)
-            )
-            await asyncio.sleep(2)
+                    await _run_download(task)
+                else:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - one task must not stop the worker
+                logger.error(
+                    "download worker iteration failed", extra=log_extra(error=type(exc).__name__)
+                )
+                await asyncio.sleep(2)
+
+    workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
+    try:
+        await asyncio.gather(*workers)
+    finally:
+        pass  # workers run until cancelled at shutdown
 
 
 def _enqueue_tag_sync(gallery_ids: list[int]) -> int:
@@ -1136,10 +1161,17 @@ async def _tag_sync_worker_loop() -> None:
 
     async def _sync_one(gallery_id: int) -> None:
         try:
+            # Phase 1: read the gallery row + fetch metadata, WITHOUT holding a
+            # DB transaction across the ExHentai round-trip.
+            async with _settings_session() as session:
+                plan = await TagSyncService(
+                    app.state.eh_client, GalleryRepository(session)
+                ).fetch_plan(gallery_id)
+            # Phase 2: persist in a short transaction.
             async with _settings_session() as session, session.begin():
                 await TagSyncService(
                     app.state.eh_client, GalleryRepository(session)
-                ).sync(gallery_id)
+                ).apply_plan(gallery_id, plan)
             tag_sync_state["succeeded"] += 1
             tag_sync_attempts.pop(gallery_id, None)
             success_streak[0] += 1
@@ -1566,7 +1598,7 @@ async def _refresh_services() -> None:
         await old_telegram.aclose()
     if old_client is not None:
         await old_client.aclose()
-    client = EhClient(_settings())
+    client = EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency)
     app.state.eh_client = client
     app.state.downloader = Downloader(
         client, _settings().download_root, concurrency=_settings().download_concurrency
@@ -1909,7 +1941,7 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
             # close the underlying httpx client for every other worker.
             await client.remove_favorites(gids)
         else:
-            async with EhClient(_settings()) as temp_client:
+            async with EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency) as temp_client:
                 await temp_client.remove_favorites(gids)
         cloud_removed = len(gids)
     except Exception as exc:  # noqa: BLE001 - cloud is best-effort, keep going
@@ -3503,9 +3535,17 @@ async def change_password(body: ChangePasswordRequest) -> None:
     if body.new == DEFAULT_PASSWORD and using_default:
         raise HTTPException(status_code=422, detail="New password cannot be the default")
     new_hash = hash_password(body.new)
+    # Rotate auth_secret so every previously issued session cookie is revoked
+    # immediately (a password change must invalidate old sessions). The SPA
+    # logs in again with the new secret; --must_change_password is cleared.
+    import secrets as _secrets
+
+    new_secret = _secrets.token_urlsafe(32)
     try:
         async with _settings_session() as session, session.begin():
-            await SettingsRepository(session).save_extra({"auth_password_hash": new_hash})
+            await SettingsRepository(session).save_extra(
+                {"auth_password_hash": new_hash, "auth_secret": new_secret}
+            )
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
     # Force sync so the new hash is effective immediately.

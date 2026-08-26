@@ -172,7 +172,7 @@ async def test_refresh_services_restarts_telegram_bot(monkeypatch: pytest.Monkey
             pass
 
     monkeypatch.setattr(main, "_start_telegram_bot", fake_start)
-    monkeypatch.setattr(main, "EhClient", lambda settings: FakeClient())
+    monkeypatch.setattr(main, "EhClient", lambda settings, **kwargs: FakeClient())
     monkeypatch.setattr(main, "Downloader", lambda *a, **k: object())
     monkeypatch.setattr(main, "TelegramNotifier", lambda settings: FakeNotifier())
     monkeypatch.setattr(main, "FavoritesService", lambda *a, **k: object())

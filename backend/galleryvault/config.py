@@ -33,9 +33,13 @@ class Settings(BaseSettings):
     exhentai_cookies: dict[str, str] = Field(default_factory=dict)
     http_proxy: str | None = None
     socks5_proxy: str | None = None
-    download_concurrency: int = 2
     download_quality: str = "resample"
     use_hah: bool = True
+    download_concurrency: int = 2
+    # Cap on parallel ExHentai requests across ALL background workers (tag
+    # sync, downloads, favorites, covers). Kept low to avoid tripping
+    # ExHentai's anti-abuse when several tasks run at once.
+    exhentai_max_concurrency: int = 6
     title_display: str = "japanese"
     auto_sync_tags: bool = True
     tag_sync_interval_seconds: float = 1.5

@@ -66,6 +66,95 @@ class TagSyncService:
         self.client = client
         self.repository = repository
 
+    async def fetch_plan(self, identifier: int) -> dict[str, object]:
+        """Read the gallery row and fetch its metadata WITHOUT writing anything.
+
+        Network I/O happens here so callers can keep it outside any DB
+        transaction — a transaction must not be held open across an ExHentai
+        round-trip, which pins a connection-pool slot for seconds.
+        """
+        gallery = await self.repository.get_for_tag_sync(identifier)
+        if gallery is None:
+            raise GalleryNotFound("Gallery not found")
+        if gallery.gid is None:
+            raise GalleryGidMissing("Gallery has no ExHentai gid")
+        if not gallery.token:
+            raise GalleryTokenMissing("Gallery has no ExHentai token")
+
+        cached = await self.repository.metadata_for_gid(gallery.gid)
+        if cached and cached.get("tags"):
+            return {
+                "source": "cache",
+                "gid": gallery.gid,
+                "token": gallery.token,
+                "title": cached.get("title") or gallery.title,
+                "category": cached.get("category"),
+                "tags": cached["tags"],
+            }
+
+        metadata_fetcher = getattr(self.client, "fetch_gallery_metadata", None)
+        if metadata_fetcher is None:
+            metadata = await self.client.fetch_gallery(gallery.gid, gallery.token)
+        else:
+            metadata = await metadata_fetcher(gallery.gid, gallery.token)
+        unique_tags: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for tag in metadata.tags:
+            namespace = str(tag.get("namespace", "misc")).strip() or "misc"
+            name = str(tag.get("name", "")).strip()
+            if name and (namespace, name) not in seen:
+                seen.add((namespace, name))
+                unique_tags.append({"namespace": namespace, "name": name})
+        return {
+            "source": "network",
+            "gid": metadata.gid,
+            "token": gallery.token,
+            "title": metadata.title,
+            "title_jpn": metadata.title_jpn,
+            "category": metadata.category,
+            "file_size": metadata.file_size,
+            "tags": unique_tags,
+        }
+
+    async def apply_plan(self, gallery_id: int, plan: dict[str, object]) -> int:
+        """Persist a fetched metadata plan (call inside a short transaction)."""
+        gallery = await self.repository.get_for_tag_sync(gallery_id)
+        if gallery is None:
+            return 0
+        synced_at = datetime.now(UTC)
+        count = await self.repository.replace_tags(
+            gallery,
+            plan["tags"],  # type: ignore[arg-type]
+            synced_at,
+            category=plan.get("category"),
+        )
+        if plan.get("source") == "network":
+            # Backfill the cache so sibling galleries with the same gid (or a
+            # later folder check / duplicate scan) need no further ExHentai fetch.
+            try:
+                await self.repository.upsert_metadata(
+                    [
+                        {
+                            "gid": plan["gid"],
+                            "token": plan.get("token"),
+                            "title": plan.get("title"),
+                            "title_jpn": plan.get("title_jpn"),
+                            "category": plan.get("category"),
+                            "file_size": plan.get("file_size"),
+                            "tags": [
+                                f"{tag['namespace']}:{tag['name']}"
+                                for tag in plan["tags"]  # type: ignore[union-attr]
+                                if tag.get("name")
+                            ],
+                        }
+                    ]
+                )
+            except Exception as exc:  # noqa: BLE001 - cache write must not fail the sync
+                logger.warning(
+                    "tag sync cache write failed", extra=log_extra(error=type(exc).__name__)
+                )
+        return count
+
     async def sync(self, identifier: int) -> TagSyncResult:
         gallery = await self.repository.get_for_tag_sync(identifier)
         if gallery is None:

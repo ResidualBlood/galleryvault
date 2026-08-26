@@ -1,8 +1,19 @@
+import contextvars
 import json
 import logging
 import sys
 from datetime import datetime
 from typing import Any
+
+# Per-request correlation id (set by the request_id middleware, available to
+# every log line emitted while a request is in flight).
+_request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "gv_request_id", default=""
+)
+
+
+def request_id() -> str:
+    return _request_id_var.get()
 
 
 class _Formatter(logging.Formatter):
@@ -21,6 +32,9 @@ class _Formatter(logging.Formatter):
             "message": record.getMessage(),
             **context,
         }
+        rid = _request_id_var.get()
+        if rid:
+            data["request_id"] = rid
         if self.as_json:
             return json.dumps(data, ensure_ascii=False, default=str)
         suffix = " ".join(f"{key}={value!r}" for key, value in context.items())
