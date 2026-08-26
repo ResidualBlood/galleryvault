@@ -655,6 +655,7 @@ class EhClient:
                 response = await self.client.get(
                     url,
                     headers={"Referer": self.settings.exhentai_base_url.rstrip("/") + "/"},
+                    timeout=60.0,
                 )
         except httpx.RequestError as exc:
             logger.warning(

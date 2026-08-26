@@ -180,26 +180,47 @@ class Downloader:
                 await _report_progress()
                 return
             async with worker_semaphore:
-                url = self._resolve_image_url(page, quality)
-                content_type = ""
-                fetch_with_type = getattr(self.client, "download_image_with_metadata", None)
-                if fetch_with_type is not None:
-                    data, content_type = await fetch_with_type(url)
-                else:
-                    data = await self.client.download_image(url)
-                if not data or data[:20].lstrip().lower().startswith((b"<html", b"<!doctype")):
-                    raise ValueError("image response is invalid")
-                extension = {
-                    "image/jpeg": ".jpg",
-                    "image/png": ".png",
-                    "image/gif": ".gif",
-                    "image/webp": ".webp",
-                    "image/avif": ".avif",
-                }.get(content_type.split(";", 1)[0].lower(), Path(url).suffix.lower())
-                if extension not in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}:
-                    extension = ".jpg"
-                (temp / f"{index + 1:08d}{extension}").write_bytes(data)
-                downloaded.add(index)
+                last_error: Exception | None = None
+                for attempt in range(3):
+                    try:
+                        url = self._resolve_image_url(page, quality)
+                        content_type = ""
+                        fetch_with_type = getattr(
+                            self.client, "download_image_with_metadata", None
+                        )
+                        if fetch_with_type is not None:
+                            data, content_type = await fetch_with_type(url)
+                        else:
+                            data = await self.client.download_image(url)
+                        if not data or data[:20].lstrip().lower().startswith(
+                            (b"<html", b"<!doctype")
+                        ):
+                            raise ValueError("image response is invalid")
+                        extension = {
+                            "image/jpeg": ".jpg",
+                            "image/png": ".png",
+                            "image/gif": ".gif",
+                            "image/webp": ".webp",
+                            "image/avif": ".avif",
+                        }.get(
+                            content_type.split(";", 1)[0].lower(),
+                            Path(url).suffix.lower(),
+                        )
+                        if extension not in {
+                            ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif",
+                        }:
+                            extension = ".jpg"
+                        (temp / f"{index + 1:08d}{extension}").write_bytes(data)
+                        downloaded.add(index)
+                        break
+                    except DownloadCancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - per-page retry
+                        last_error = exc
+                        if attempt < 2:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                if last_error is not None:
+                    raise last_error
             await _report_progress()
 
         async def _worker(pair: tuple[int, object]) -> None:
