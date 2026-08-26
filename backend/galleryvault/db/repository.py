@@ -1315,17 +1315,23 @@ class FavoritesRepository:
         await self.session.flush()
 
     async def list_items(
-        self, favcat: int, page: int, page_size: int
+        self, favcat: int, page: int, page_size: int, state: str = "all"
     ) -> tuple[int, list[tuple[object, object | None]]]:
         """Paginated favorite items for a folder, joined with the local gallery.
 
-        Returns ``(total, [(FavoriteItem, Gallery|None)])``.
+        ``state`` filters by whether the item exists on disk: ``local`` (has a
+        gallery row), ``cloud`` (cloud-only) or ``all``.  Returns ``(total,
+        [(FavoriteItem, Gallery|None)])``.
         """
         query = (
             select(FavoriteItem, Gallery)
             .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
             .where(FavoriteItem.favcat == favcat)
         )
+        if state == "local":
+            query = query.where(Gallery.id.is_not(None))
+        elif state == "cloud":
+            query = query.where(Gallery.id.is_(None))
         total = int(
             await self.session.scalar(
                 select(func.count()).select_from(query.subquery())

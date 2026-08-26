@@ -23,14 +23,16 @@ router = APIRouter()
 
 @router.get("/api/favorites/{favcat}/items")
 async def favorite_items(
-    favcat: int, page: int = 1, page_size: int = 24
+    favcat: int, page: int = 1, page_size: int = 24, state: str = "all"
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
+    if state not in {"all", "local", "cloud"}:
+        raise HTTPException(status_code=422, detail="invalid state")
     try:
         async with main._settings_session() as session:
             total, rows = await FavoritesRepository(session).list_items(
-                favcat, page, page_size
+                favcat, page, page_size, state
             )
             tag_map = await GalleryRepository(session).tags_for_galleries(
                 [
@@ -99,7 +101,13 @@ async def favorite_items(
                 "tags": tags,
             }
         )
-    return {"total": total, "page": page, "page_size": page_size, "items": items}
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "state": state,
+        "items": items,
+    }
 
 
 class DownloadSelectedRequest(BaseModel):
@@ -393,6 +401,26 @@ async def compute_favorite_sizes() -> dict[str, object]:
         favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
     for favcat in favcats:
         main._spawn(main._favorite_size_sync(favcat), f"favorite size sync {favcat}")
+    return {"status": "started", "favcats": favcats}
+
+
+@router.post("/api/favorites/download-missing", status_code=202)
+async def download_missing_favorites() -> dict[str, object]:
+    """Backfill missing cover files, tags and sizes for every favorite folder.
+
+    Runs the same metadata sync as a post-check pass: for each folder it warms
+    ``/gv-cache/remote-covers`` from the thumb URLs captured by the check,
+    fetches gdata for items still missing metadata, and applies it to local
+    galleries.  Progress is reported under ``/api/favorites/metadata-status``
+    (visible on the Logs page) and the task can be cancelled via
+    ``POST /api/logs/metadata/cancel``.
+    """
+    async with main._settings_session() as session:
+        favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
+    if not favcats:
+        favcats = list(range(10))
+    for favcat in favcats:
+        main._spawn(main._favorite_size_sync(favcat), f"favorite metadata sync {favcat}")
     return {"status": "started", "favcats": favcats}
 
 
