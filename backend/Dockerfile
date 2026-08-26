@@ -21,6 +21,7 @@ RUN apt-get update \
         libfreetype6-dev \
         libopenjp2-7-dev \
         libffi-dev \
+        libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 # cryptography >= 50 builds from sdist with maturin and needs a recent rustc;
 # Debian bookworm's packaged rustc (1.63) is too old, so use rustup (which has
