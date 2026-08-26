@@ -521,7 +521,7 @@ function galleryCard(it) {
 }
 
 async function galleryGrid(container, page, extraQuery) {
-  const pageSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : (app.query.page_size || 25);
+  const pageSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : (app.query.page_size || 24);
   const q = Object.assign({ page, page_size: pageSize }, extraQuery || {});
   delete q.page_size;
   q.page_size = pageSize;
@@ -566,7 +566,7 @@ function startInfinite(containerId, fetchPage, buildItem) {
       if (!items.length) { finished = true; sentinel.remove(); return; }
       page = data.page || (page + 1);
       sentinel.insertAdjacentHTML("beforebegin", items.map(buildItem).join(""));
-      if ((data.page * (data.page_size || 20)) >= (data.total || 0)) {
+      if ((data.page * (data.page_size || 24)) >= (data.total || 0)) {
         finished = true;
         sentinel.remove();
       }
@@ -580,7 +580,7 @@ function startInfinite(containerId, fetchPage, buildItem) {
   infiniteState = { observer };
 }
 
-const PAGE_SIZES = [5, 20, 25, 50, 100, 200, 500];
+const PAGE_SIZES = [5, 24, 50, 100, 200, 500];
 
 function pageSizeSelect(current, view) {
   return `<select class="page-size" data-action="page-size" data-view="${view}" aria-label="page size">
@@ -645,12 +645,12 @@ async function renderBrowse() {
     </section>`;
   try {
     const [data, tagData] = await Promise.all([
-      galleryGrid("browse-grid", app.query.page || "1", { page_size: app.query.page_size || 25 }),
+      galleryGrid("browse-grid", app.query.page || "1", { page_size: app.query.page_size || 24 }),
       api("GET", "/api/tags/search?page=1&page_size=1").catch(() => null),
     ]);
     const totalEl = document.getElementById("browse-total");
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;
-    gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 25 }));
+    gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 24 }));
     const strip = document.getElementById("browse-ns");
     if (strip && tagData) {
       const counts = {};
@@ -692,13 +692,13 @@ async function renderLibrary() {
     <div id="lib-grid"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="lib-pager"></div>`;
   try {
-    const extra = { page_size: app.query.page_size || 25 };
+    const extra = { page_size: app.query.page_size || 24 };
     if (q) extra.q = q;
     if (category) extra.category = category;
     if (tags) extra.tags = tags;
     const data = await galleryGrid("lib-grid", page, extra);
     renderCardCheckboxes();
-    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 25 }));
+    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 24 }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
@@ -720,7 +720,7 @@ async function renderGallery() {
         ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${navHash("library", {}, { tags: `${tg.namespace}:${tg.name}` })}">${esc(tagText(tg))}</a>`).join("")}
       </div></div>`).join("");
     const thumbsAll = g.pages || [];
-    const perPage = parseInt(app.query.page_size || "20", 10);
+    const perPage = parseInt(app.query.page_size || "24", 10);
     const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
     const thumbPage = Math.min(Math.max(parseInt(app.query.page || "1", 10), 1), totalPages);
     const pageStart = (thumbPage - 1) * perPage;
@@ -1010,7 +1010,7 @@ async function renderHistory() {
     <div id="hist-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="hist-pages"></div>`;
   try {
-    const pageSize = app.query.page_size || 20;
+    const pageSize = app.query.page_size || 24;
     const data = await api("GET", `/api/history?page=${encodeURIComponent(page)}&page_size=${pageSize}`);
     const el = document.getElementById("hist-list");
     const items = (data && data.items) || [];
@@ -1021,7 +1021,7 @@ async function renderHistory() {
         <span class="row-meta">${esc(t("progress"))} ${h.current_page}/${h.total_pages} · ${h.last_read_at ? esc(String(h.last_read_at).slice(0, 10)) : ""}</span>
       </a>`).join("") + `</div>`;
     const last = Math.max(1, Math.ceil(data.total / data.page_size));
-    const qp = p => navHash("history", {}, { page: p, page_size: app.query.page_size || 20 });
+    const qp = p => navHash("history", {}, { page: p, page_size: app.query.page_size || 24 });
     const pages = [];
     for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
       pages.push(p === data.page ? `<strong class="cur">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
@@ -1092,7 +1092,7 @@ function dlProgressHtml(x) {
 async function loadDownloads(filter, page) {
   try {
     const status = filter !== "all" ? `&status=${encodeURIComponent(filter)}` : "";
-    const pageSize = app.query.page_size || 20;
+    const pageSize = app.query.page_size || 24;
     const data = await api("GET", `/api/downloads?page=${encodeURIComponent(page)}&page_size=${pageSize}${status}`);
     const items = (data && data.items) || [];
     const el = document.getElementById("dl-list");
@@ -1354,7 +1354,7 @@ async function renderFavList() {
     <div id="fav-items"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="favlist-pager"></div>`;
   try {
-    const qs = `page=${encodeURIComponent(page)}&page_size=${app.query.page_size || 25}&state=${encodeURIComponent(state)}`;
+    const qs = `page=${encodeURIComponent(page)}&page_size=${app.query.page_size || 24}&state=${encodeURIComponent(state)}`;
     const data = await api("GET", `/api/favorites/${favcat}/items?${qs}`);
     const el = document.getElementById("fav-items");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
@@ -1395,7 +1395,7 @@ function renderFavPager(elId, data, page) {
   if (!el || !data) return;
   const favcat = parseInt(app.params.id, 10);
   const state = app.query.state || "all";
-  const total = data.total, pageSize = data.page_size || 20;
+  const total = data.total, pageSize = data.page_size || 24;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const cur = parseInt(page, 10) || 1;
   const qp = p => navHash("favlist", { id: favcat }, { page: p, page_size: pageSize, state });
@@ -1517,7 +1517,7 @@ function renderDupGroups(st) {
   if (!el) return;
   const groups = applyDupFilter(st.groups || []);
   if (!groups.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
-  const perPage = 20;
+  const perPage = 24;
   const totalPages = Math.max(1, Math.ceil(groups.length / perPage));
   const page = Math.max(1, Math.min(dupPage, totalPages));
   const slice = groups.slice((page - 1) * perPage, page * perPage);
