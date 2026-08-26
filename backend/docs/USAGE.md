@@ -32,7 +32,7 @@ and back/forward work without server round-trips.
 ### Library (`#/library`)
 
 - Search by title, filter by category, and page through your indexed library.
-- This page uses **infinite scroll**: the next page (25 galleries by default)
+- This page uses **infinite scroll**: the next page (24 galleries by default)
   is appended as you near the bottom; the numbered pager stays as a fallback.
 - Click a cover to open the gallery detail page.
 - **Scan library** triggers a filesystem scan of the configured
@@ -150,7 +150,7 @@ and back/forward work without server round-trips.
   already local), **Remove from favorites** and an **All / Local only / Cloud only**
   state filter. Cloud-only galleries show their cover inline with a
   **cloud** badge and real size; local ones use the generated thumbnail and a
-  **local** badge. The list is paginated at **25 galleries per page** by
+  **local** badge. The list is paginated at **24 galleries per page** by
   default. When you arrive from a gallery detail page, a **← Back to gallery**
   link is shown next to **← Favorites**.
 - The **Download missing items** button on the Favorites overview (`POST
