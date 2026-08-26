@@ -26,7 +26,7 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 - **阅读器与历史**：逐页流式加载、键盘/空格/点击翻页、预加载后三页、最后一页自动跳转下一画廊、自动保存阅读位置、可浏览的阅读历史。
 - **Telegram 通知**：下载成功/失败、扫描完成、收藏同步时发送通知。
 - **孤儿清理**：已在 ExHentai 删除的画廊（或无可关联坐标的画廊）自动归入「已删除」分类。
-- **安全与隐私**：单密码认证（PBKDF2 高强度哈希）与持久会话、登录限速防暴力破解、`/api` 跨域校验与 ExHentai 域名白名单、设置安全存储，可选的「免登录」模式。
+- **安全与隐私**：单密码认证（PBKDF2 高强度哈希）与持久会话、登录限速防暴力破解（按真实客户端 IP）、`/api` 跨域校验与 ExHentai 域名白名单、设置安全存储，可选的「免登录」模式；改密码会**立即撤销所有已登录会话**；后台以非 root 用户运行；可选的**静态加密**（`ENCRYPTION_KEY`，AES-256-GCM）保护 cookie / token / 密码哈希。
 - **一键部署**：两个发布的 Docker Hub 镜像与 PostgreSQL，单条 `docker compose up` 即可运行。
 
 ## 界面截图
@@ -115,6 +115,27 @@ docker compose up -d
 - 未设置 `ENCRYPTION_KEY` 时一切照旧（明文存储，行为不变）。
 
 **重要**：密钥必须独立于数据库妥善保管（例如密码管理器）。它与数据库备份分开放置——**密钥丢失后，已加密的 cookie / token / 密码哈希将无法解密**（需用仍含明文的历史备份或原密钥恢复）。
+
+#### 密钥丢失的恢复
+
+`ENCRYPTION_KEY` 丢失后，已加密的值（旧 `enc:v1:` 密文）用新密钥无法解密。cookies / bot token 可以在设置页重新填写覆盖，但 `auth_secret` 与密码哈希没有 API 可重置，必须清掉旧密文让系统重新生成：
+
+```bash
+# 1) 停止 backend
+docker stop galleryvault-backend
+# 2) 重置认证凭据：auth_secret 重新生成、密码回到默认 p1a2s3s4
+docker exec galleryvault-db psql -U galleryvault -d galleryvault \
+  -c "DELETE FROM app_config WHERE key='runtime_auth';"
+# 3) 清掉旧密文的 cookies / bot token（之后在设置页重新填写）
+docker exec galleryvault-db psql -U galleryvault -d galleryvault \
+  -c "UPDATE app_config SET value = value - 'exhentai_cookies' - 'telegram_bot_token' WHERE key='user_settings';"
+# 4) 换上新的 ENCRYPTION_KEY 并启动
+docker start galleryvault-backend
+```
+
+启动后使用默认密码 `p1a2s3s4` 登录，然后立即在设置中改密码并重新填写 ExHentai cookies / Telegram token。
+
+> 只要还持有**加密前**的数据库备份，就能直接恢复（还原备份后按上面的流程重新设置密钥），无需上面的清库步骤。
 
 ## 备份
 
