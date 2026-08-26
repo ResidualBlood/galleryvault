@@ -1196,6 +1196,15 @@ class FavoritesRepository:
             or 0
         )
 
+    async def all_gids_for_favcat(self, favcat: int) -> list[tuple[int, str]]:
+        """``(gid, token)`` for every item in a favorite folder (no limit)."""
+        rows = await self.session.execute(
+            select(FavoriteItem.gid, FavoriteItem.token).where(
+                FavoriteItem.favcat == favcat
+            )
+        )
+        return [(int(row[0]), str(row[1])) for row in rows]
+
     async def existing_gallery_gids(self, gids: list[int]) -> set[int]:
         """gids that already exist in the local library (galleries table).
 

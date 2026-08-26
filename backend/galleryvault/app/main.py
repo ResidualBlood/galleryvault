@@ -1855,6 +1855,48 @@ async def _favorite_size_sync(favcat: int) -> None:
                 logger.info(
                     "favorite metadata synced", extra=log_extra(favcat=favcat, cached=total_cached)
                 )
+            # Heal missing covers: fetch gdata for folder gids whose cover file
+            # is absent, then download the cover to disk.  Already-warm files are
+            # skipped by _remote_cover_data_batch, so a folder check really pulls
+            # covers (the intended design) instead of leaving them to the lazy
+            # browsing endpoint.
+            metadata_sync_state["stage"] = "covers"
+            try:
+                async with _settings_session() as session:
+                    folder_gids = await FavoritesRepository(session).all_gids_for_favcat(favcat)
+                cache_dir = _remote_cover_cache_dir()
+                coverless = [
+                    (gid, token)
+                    for gid, token in folder_gids
+                    if not (cache_dir / f"{gid}.img").is_file()
+                ]
+                for start in range(0, len(coverless), 500):
+                    if _cancelled("metadata"):
+                        cancelled = True
+                        break
+                    chunk = coverless[start : start + 500]
+                    try:
+                        meta = await client.fetch_gmetadata(chunk)
+                    except Exception as exc:  # noqa: BLE001 - stop, retry next check
+                        logger.warning(
+                            "favorite cover heal round failed",
+                            extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                        )
+                        break
+                    await _remote_cover_data_batch(chunk, meta)
+                    metadata_sync_state["done"] = (
+                        int(metadata_sync_state["done"]) + len(meta)
+                    )
+                if coverless:
+                    logger.info(
+                        "favorite covers healed",
+                        extra=log_extra(favcat=favcat, healed=len(coverless)),
+                    )
+            except Exception as exc:  # noqa: BLE001 - covers are best-effort
+                logger.warning(
+                    "favorite cover heal failed",
+                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                )
             # Apply the fresh metadata (tags, category, title, posted, sizes) to the
             # on-disk galleries of this folder, so local tags stay in sync without
             # any per-gallery ExHentai fetch.  Skipped automatically when the cache
