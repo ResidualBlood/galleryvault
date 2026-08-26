@@ -18,7 +18,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
@@ -2358,6 +2358,29 @@ async def auth_session() -> dict[str, object]:
         "authenticated": True,
         "auth_required": _settings().auth_required,
         "must_change_password": _must_change_password(),
+    }
+
+
+@app.get("/api/onboarding/status")
+async def onboarding_status() -> dict[str, object]:
+    """Setup progress used by the first-run wizard (password, ExHentai, library)."""
+    settings = _settings()
+    password_default = settings.auth_required and not (
+        settings.auth_password_hash or settings.auth_password
+    )
+    exhentai_configured = bool(settings.exhentai_cookies)
+    library_count = 0
+    try:
+        async with _settings_session() as session:
+            library_count = int(
+                await session.scalar(select(func.count()).select_from(Gallery)) or 0
+            )
+    except Exception as exc:  # noqa: BLE001 - DB down: fall back to a 0 count
+        logger.warning("onboarding status could not read library count", extra={"error": str(exc)})
+    return {
+        "password_default": password_default,
+        "exhentai_configured": exhentai_configured,
+        "library_count": library_count,
     }
 
 
