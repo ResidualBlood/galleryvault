@@ -16,7 +16,7 @@ dependencies = [
   "alembic>=1.19.1,<2",
   "rarfile>=4.2,<5",
   "httpx>=0.27,<1",
-  "Pillow>=10.4,<12",
+  "Pillow>=12.3.0,<13",
   "cryptography>=42,<45",
 ]
 
