@@ -14,15 +14,12 @@ from urllib.parse import parse_qs
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
-    FileResponse,
     HTMLResponse,
     RedirectResponse,
-    Response,
-    StreamingResponse,
 )
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 from ..auth import create_session, hash_password, verify_password, verify_session
@@ -42,9 +39,9 @@ from ..db.repository import (
 )
 from ..db.session import create_database
 from ..logging import configure_logging, log_extra
-from ..observability import render_metrics, request_id_middleware
+from ..observability import request_id_middleware
 from ..scanners import registry
-from ..scanners.base import CATEGORIES, GalleryMeta, PageInfo
+from ..scanners.base import GalleryMeta, PageInfo
 from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
 from ..services.duplicates import find_duplicate_groups
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
@@ -52,20 +49,16 @@ from ..services.favorites import FavoritesService
 from ..services.ingest import GalleryIngestService
 from ..services.library import LibraryService
 from ..services.tag_sync import (
-    GalleryGidMissing,
-    GalleryNotFound,
-    GalleryTokenMissing,
     TagSyncService,
 )
 from ..services.tag_translation import (
     load_translations,
     merge_translation_data,
     translated_tag,
-    translation_entry_count,
 )
 from ..services.telegram import TelegramNotifier
 from ..services.telegram_bot import TelegramBotService
-from ..services.thumbnails import JPEG_MIME, ThumbnailError, ThumbnailService
+from ..services.thumbnails import ThumbnailError, ThumbnailService
 
 settings = get_settings()
 configure_logging(settings.log_level, settings.log_json)
@@ -540,20 +533,6 @@ async def shutdown() -> None:
     await app.state.engine.dispose()
 
 
-@app.get("/healthz")
-async def healthz() -> dict[str, str]:
-    try:
-        async with _settings_session() as session:
-            await session.execute(select(1))
-    except Exception as exc:  # report unavailability, not the cause
-        logger.warning("health check failed", extra=log_extra(error=type(exc).__name__))
-        raise HTTPException(status_code=503, detail="database unavailable") from exc
-    return {"status": "ok"}
-
-
-@app.get("/metrics")
-async def metrics() -> str:
-    return render_metrics()
 
 
 @app.post("/login")
@@ -735,134 +714,10 @@ def _settings_session():
     return app.state.session_factory()
 
 
-@app.post("/api/scan", status_code=202)
-async def trigger_scan() -> dict[str, object]:
-    if not scan_state["running"]:
-        scan_state["running"] = True
-        _spawn(_run_scan(), "library scan")
-    return {"status": "running" if scan_state["running"] else "started"}
 
 
-@app.get("/api/scan")
-async def scan_status() -> dict[str, object]:
-    return scan_state.copy()
 
 
-@app.get("/api/logs")
-async def background_task_logs() -> dict[str, object]:
-    """Aggregate live background tasks and the recent activity log."""
-    running: list[dict[str, object]] = []
-    if scan_state["running"]:
-        running.append(
-            {
-                "task": "scan",
-                "started_at": scan_state.get("started_at"),
-                "done": int(scan_state.get("scanned") or 0),
-                "total": None,
-                "stage": None,
-                "cancellable": True,
-            }
-        )
-    if tag_sync_state["running"]:
-        running.append(
-            {
-                "task": "tag-sync",
-                "started_at": tag_sync_state.get("started_at"),
-                "done": int(tag_sync_state.get("processed") or 0),
-                "total": int(tag_sync_state.get("total") or 0),
-                "stage": None,
-                "cancellable": True,
-            }
-        )
-    if thumb_state["running"]:
-        running.append(
-            {
-                "task": "thumbs",
-                "started_at": thumb_state.get("started_at"),
-                "done": int(thumb_state.get("succeeded") or 0)
-                + int(thumb_state.get("failed") or 0),
-                "total": int(thumb_state.get("total") or 0),
-                "stage": None,
-                "cancellable": True,
-            }
-        )
-    if metadata_sync_state["running"]:
-        running.append(
-            {
-                "task": "metadata",
-                "started_at": metadata_sync_state.get("started_at"),
-                "done": int(metadata_sync_state.get("done") or 0),
-                "total": int(metadata_sync_state.get("total") or 0),
-                "stage": metadata_sync_state.get("stage"),
-                "cancellable": True,
-            }
-        )
-    if favorites_check_state["running"]:
-        running.append(
-            {
-                "task": "favcheck",
-                "started_at": favorites_check_state.get("started_at"),
-                "done": sum(
-                    int(item.get("done") or 0)
-                    for item in favorites_check_state.get("categories", {}).values()
-                    if isinstance(item, dict)
-                ),
-                "total": sum(
-                    int(item.get("total") or 0)
-                    for item in favorites_check_state.get("categories", {}).values()
-                    if isinstance(item, dict)
-                ),
-                "stage": None,
-                "cancellable": False,
-            }
-        )
-    if translation_state["running"]:
-        running.append(
-            {
-                "task": "translation",
-                "started_at": translation_state.get("started_at"),
-                "done": int(translation_state.get("entries") or 0),
-                "total": None,
-                "stage": None,
-                "cancellable": False,
-            }
-        )
-    return {"running": running, "finished": list(task_history)}
-
-
-@app.post("/api/logs/{task}/cancel", status_code=202)
-async def cancel_background_task(task: str) -> dict[str, object]:
-    if task not in {"scan", "tag-sync", "thumbs", "metadata"}:
-        raise HTTPException(status_code=404, detail="Unknown task")
-    _request_cancel(task)
-    if task == "tag-sync":
-        while not tag_sync_queue.empty():
-            try:
-                tag_sync_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        tag_sync_queued.clear()
-    elif task == "thumbs":
-        while not thumb_queue.empty():
-            try:
-                thumb_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        thumb_queued.clear()
-    return {"task": task, "status": "cancelling"}
-
-
-@app.get("/api/tag-sync/status")
-async def tag_sync_status() -> dict[str, object]:
-    return dict(tag_sync_state)
-
-
-@app.post("/api/tag-sync/refresh-categories", status_code=202)
-async def trigger_category_refresh() -> dict[str, object]:
-    """Start a one-time 大分类 backfill for galleries stuck in ``other``."""
-    if not tag_sync_state["category_refresh_running"]:
-        _spawn(_category_refresh_once(), "category refresh")
-    return {"status": "running" if tag_sync_state["category_refresh_running"] else "started"}
 
 
 def _db_error(exc: Exception) -> HTTPException:
@@ -1488,106 +1343,6 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
     app.state.settings = _settings().model_copy(update=updates)
 
 
-@app.get("/api/settings")
-async def settings_get() -> dict[str, object]:
-    try:
-        async with _settings_session() as session:
-            persisted = await SettingsRepository(session).get()
-        _update_runtime_settings(persisted)
-    except Exception as exc:  # noqa: BLE001 - DB down: serve in-memory settings
-        # DB unavailable: serve the current in-memory settings unchanged.
-        logger.warning("settings could not be re-read", extra={"error": str(exc)})
-    return _settings_public()
-
-
-async def _save_settings(body: SettingsRequest) -> dict[str, object]:
-    values = body.model_dump(exclude_none=True)
-    # A blank bot token must never clobber a configured one (older frontends /
-    # cached JS used to submit an empty value). "Leave blank to keep" semantics.
-    if "telegram_bot_token" in values and not str(values["telegram_bot_token"]).strip():
-        values.pop("telegram_bot_token", None)
-    if values.get("exhentai_base_url"):
-        from urllib.parse import urlparse as _base_parse
-
-        host = (_base_parse(str(values["exhentai_base_url"])).hostname or "").lower()
-        if host not in {"exhentai.org", "e-hentai.org"} and not host.endswith(
-            (".exhentai.org", ".e-hentai.org")
-        ):
-            raise HTTPException(
-                status_code=422, detail="exhentai_base_url must be on exhentai.org / e-hentai.org"
-            )
-    if "library_roots" in values:
-        values["library_roots"] = normalize_library_roots(values["library_roots"])
-    # An empty input means "clear this proxy"; an empty string would be sent to
-    # httpx verbatim and crash every outbound request.
-    for proxy_key in ("http_proxy", "socks5_proxy"):
-        if values.get(proxy_key) == "":
-            values[proxy_key] = None
-    if "favorites" in values:
-        favorites = values.pop("favorites")
-        def _favcat(item: dict[str, object]) -> int:
-            try:
-                return int(item.get("favcat", -1))
-            except (TypeError, ValueError):
-                return -1
-
-        if not isinstance(favorites, list) or any(
-            not isinstance(item, dict)
-            or _favcat(item) not in range(10)
-            or item.get("mode") not in {"monitor_only", "incremental", "force"}
-            for item in favorites
-        ):
-            raise HTTPException(status_code=422, detail="invalid favorites configuration")
-        values["favorites_categories"] = [
-            _favcat(item) for item in favorites if bool(item.get("enabled", True))
-        ]
-    else:
-        favorites = []
-    if "exhentai_cookies" in values:
-        values["exhentai_cookies"] = {
-            str(key): str(value)
-            for key, value in values["exhentai_cookies"].items()
-            if str(key) in {"ipb_member_id", "ipb_pass_hash", "igneous"} and str(value)
-        }
-    cookie_fields = {}
-    for key in ("ipb_member_id", "ipb_pass_hash", "igneous"):
-        value = values.pop(key, None)
-        if value:
-            cookie_fields[key] = value
-    if cookie_fields:
-        values["exhentai_cookies"] = {**_settings().exhentai_cookies, **cookie_fields}
-    _update_runtime_settings(values)
-    # Start from what is already persisted so a field the frontend did not
-    # submit (e.g. the bot token, which is never echoed and only sent when
-    # changed) is kept. save() replaces the whole dict, so this DB-read + merge
-    # is what protects the token from being dropped by an unrelated save.
-    try:
-        async with _settings_session() as session:
-            db_settings = await SettingsRepository(session).get()
-    except Exception:  # noqa: BLE001 - DB down: fall back to in-memory settings
-        db_settings = {}
-    persisted_values = {**db_settings, **values}
-    # All user-editable settings live in the DB (single source of truth).
-    try:
-        async with _settings_session() as session, session.begin():
-            await SettingsRepository(session).save(persisted_values)
-            for item in favorites:
-                favcat = _favcat(item)
-                row = await FavoritesRepository(session).category(favcat)
-                if row is None:
-                    from ..db.models import FavoritesMonitor
-
-                    row = FavoritesMonitor(favcat=favcat)
-                    session.add(row)
-                row.enabled = bool(item.get("enabled", True))
-                row.mode = str(item["mode"])
-                row.poll_interval_seconds = max(
-                    60, int(item.get("poll_interval_minutes", 720)) * 60
-                )
-    except Exception as exc:
-        raise _db_error(exc) from exc
-    await _refresh_services()
-    return _settings_public()
 
 
 async def _refresh_services() -> None:
@@ -1632,20 +1387,6 @@ def _start_telegram_bot() -> None:
         app.state.telegram_bot_task = None
 
 
-@app.post("/api/settings")
-async def settings_save(body: SettingsRequest) -> dict[str, object]:
-    return await _save_settings(body)
-
-
-@app.post("/api/settings/exhentai/test")
-async def settings_test_exhentai() -> dict[str, str]:
-    if not _settings().exhentai_cookies:
-        return {"status": "not_configured", "message": "ExHentai Cookie 未设置"}
-    try:
-        response = await app.state.eh_client._get("/")
-        return {"status": "ok", "message": f"HTTP {response.status_code}"}
-    except Exception:  # noqa: BLE001
-        return {"status": "failed", "message": "ExHentai 登录测试失败"}
 
 
 class _FavoritesRepositoryProxy:
@@ -1698,228 +1439,11 @@ def _spawn(coroutine, operation: str) -> None:
         task.add_done_callback(spawned.discard)
 
 
-@app.post("/api/downloads", status_code=202)
-async def create_download(body: DownloadRequest) -> dict[str, object]:
-    try:
-        async with _settings_session() as session, session.begin():
-            task = await DownloadRepository(session).create(
-                body.gid, body.token, body.title, body.mode, body.max_pages
-            )
-            if task is None:
-                raise HTTPException(
-                    status_code=409, detail="An active download already exists for this gid"
-                )
-            task_data = DownloadTask(
-                task.gid,
-                task.token,
-                task.title or str(task.gid),
-                task.id,
-                task.max_retries,
-                max_pages=body.max_pages,
-            )
-    except HTTPException:
-        raise
-    except IntegrityError as exc:
-        # Race with a concurrent enqueue of the same active gid (guarded by the
-        # partial unique index): report as a conflict, not a 503.
-        await session.rollback()
-        raise HTTPException(
-            status_code=409, detail="An active download already exists for this gid"
-        ) from exc
-    except Exception as exc:
-        raise _db_error(exc) from exc
-    downloader = app.state.downloader
-    if downloader is None:
-        raise HTTPException(status_code=503, detail="Downloader is unavailable")
-    return {"id": task_data.id, "gid": task_data.gid, "status": "pending"}
 
 
-@app.get("/api/downloads")
-async def list_downloads(
-    page: int = 1, page_size: int = 24, status: str | None = None
-) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(status_code=422, detail="invalid pagination")
-    try:
-        async with _settings_session() as session:
-            total, rows = await DownloadRepository(session).list_page(page, page_size, status)
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "items": [
-            {
-                "id": x.id,
-                "gid": x.gid,
-                "title": x.title,
-                "status": x.status,
-                "retry_count": x.retry_count,
-                "max_retries": x.max_retries,
-                "current_page": x.current_page or 0,
-                "total_pages": x.total_pages,
-                "error_message": x.error_message,
-            }
-            for x in rows
-        ],
-    }
 
 
-@app.post("/api/downloads/{task_id}/retry")
-async def retry_download(task_id: int) -> dict[str, object]:
-    try:
-        async with _settings_session() as session, session.begin():
-            row = await session.get(DownloadTaskModel, task_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="Download task not found")
-            if row.status not in {"failed", "cancelled", "success"}:
-                raise HTTPException(status_code=409, detail="Task is still active")
-            row.status = "pending"
-            row.retry_count = 0
-            row.error_message = None
-            row.finished_at = None
-    except HTTPException:
-        raise
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    _download_cancelled.discard(task_id)
-    return {"id": task_id, "status": "pending"}
 
-
-@app.post("/api/downloads/{task_id}/cancel")
-async def cancel_download(task_id: int) -> dict[str, object]:
-    was_downloading = False
-    try:
-        async with _settings_session() as session, session.begin():
-            row = await session.get(DownloadTaskModel, task_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="Download task not found")
-            was_downloading = row.status == "downloading"
-            if not await DownloadRepository(session).cancel(task_id):
-                raise HTTPException(status_code=404, detail="Download task not found")
-    except HTTPException:
-        raise
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    # Only a mid-flight download needs the in-flight cancel flag; a pending task
-    # is simply not claimed.  The worker discards the flag when it handles the
-    # cancellation, so the set never grows with dead ids.
-    if was_downloading:
-        _download_cancelled.add(task_id)
-    return {"id": task_id, "status": "cancelled"}
-
-
-@app.delete("/api/downloads/{task_id}", status_code=204)
-async def delete_download_task(task_id: int) -> None:
-    gid: int | None = None
-    try:
-        async with _settings_session() as session, session.begin():
-            row = await session.get(DownloadTaskModel, task_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="Download task not found")
-            gid = row.gid
-            if not await DownloadRepository(session).delete(task_id):
-                raise HTTPException(status_code=404, detail="Download task not found")
-    except HTTPException:
-        raise
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    _download_cancelled.discard(task_id)
-    if gid is not None:
-        await _cleanup_download_temp(gid)
-
-
-async def _cleanup_download_temp(gid: int) -> None:
-    """Remove a partial download directory (``.gv-{gid}``) if present."""
-    import shutil as _shutil
-
-    try:
-        temp = Path(_settings().download_root) / f".gv-{gid}"
-        if temp.exists():
-            _shutil.rmtree(temp, ignore_errors=True)
-    except OSError:
-        pass
-
-
-@app.get("/api/favorites/{favcat}/items")
-async def favorite_items(
-    favcat: int, page: int = 1, page_size: int = 24
-) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(status_code=422, detail="invalid pagination")
-    try:
-        async with _settings_session() as session:
-            total, rows = await FavoritesRepository(session).list_items(
-                favcat, page, page_size
-            )
-            tag_map = await GalleryRepository(session).tags_for_galleries(
-                [
-                    g.id
-                    for _, g in rows
-                    if (g is not None) and g.id is not None
-                ]
-            )
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    cloud_pairs = [
-        (item.gid, item.token)
-        for item, gallery in rows
-        if gallery is None and item.token
-    ]
-    metadata: dict[int, dict[str, object]] = {}
-    if cloud_pairs and app.state.eh_client is not None:
-        try:
-            metadata = await app.state.eh_client.fetch_gmetadata(cloud_pairs)
-        except Exception as exc:  # noqa: BLE001 - covers/metadata are best-effort
-            logger.warning(
-                "favorite gdata fetch failed", extra=log_extra(error=type(exc).__name__)
-            )
-    cover_data = await _remote_cover_data_batch(cloud_pairs, metadata)
-    items = []
-    for item, gallery in rows:
-        if gallery is not None:
-            title = display_title(gallery)
-            title_jpn = gallery.title_jpn
-            category = gallery.category or "other"
-            page_count = gallery.page_count or 0
-            cover_url = f"/api/galleries/{gallery.id}/thumb/0" if gallery.page_count else None
-            file_size = gallery.file_size
-            tags = [
-                {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                for ns, name in tag_map.get(gallery.id, [])
-            ]
-        else:
-            meta = metadata.get(item.gid, {})
-            title = item.title or meta.get("title") or f"gid {item.gid}"
-            title_jpn = meta.get("title_jpn")
-            category = meta.get("category")
-            page_count = meta.get("file_count")
-            cover_url = None
-            file_size = meta.get("file_size") or item.file_size
-            tags = [
-                {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                for ns, name in _parse_gdata_tags(meta.get("tags", []))
-            ]
-        items.append(
-            {
-                "favcat": item.favcat,
-                "gid": item.gid,
-                "token": item.token,
-                "title": title,
-                "title_jpn": title_jpn,
-                "url": item.url,
-                "gallery_id": gallery.id if gallery is not None else None,
-                "category": category,
-                "page_count": page_count,
-                "cover_url": cover_url,
-                "cover_data": cover_data.get(item.gid),
-                "file_size": file_size,
-                "first_seen_at": item.first_seen_at,
-                "tags": tags,
-            }
-        )
-    return {"total": total, "page": page, "page_size": page_size, "items": items}
 
 
 class FavoritesRemoveRequest(BaseModel):
@@ -1927,60 +1451,6 @@ class FavoritesRemoveRequest(BaseModel):
     delete_local: bool = False
 
 
-@app.post("/api/favorites/remove")
-async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
-    if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-    gids = list(dict.fromkeys(body.gids))
-    cloud_removed = 0
-    cloud_ok = True
-    try:
-        client = app.state.eh_client
-        if client is not None:
-            # Shared global client: never enter its async context, that would
-            # close the underlying httpx client for every other worker.
-            await client.remove_favorites(gids)
-        else:
-            async with EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency) as temp_client:
-                await temp_client.remove_favorites(gids)
-        cloud_removed = len(gids)
-    except Exception as exc:  # noqa: BLE001 - cloud is best-effort, keep going
-        cloud_ok = False
-        logger.warning(
-            "cloud favorite removal failed",
-            extra=log_extra(error=type(exc).__name__),
-        )
-    local_removed = 0
-    deleted_local_galleries = 0
-    try:
-        async with _settings_session() as session, session.begin():
-            if body.delete_local:
-                mapping = await FavoritesRepository(session).galleries_for_gids(gids)
-                for gallery_id in mapping.values():
-                    gallery = await session.get(Gallery, gallery_id)
-                    if gallery is None:
-                        continue
-                    await GalleryRepository(session).delete_ids([gallery_id])
-                    _remove_gallery_files(gallery)
-                    deleted_local_galleries += 1
-            local_removed = await FavoritesRepository(session).remove_gids(gids)
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    return {
-        "gids": gids,
-        "cloud_ok": cloud_ok,
-        "cloud_removed": cloud_removed,
-        "local_removed": local_removed,
-        "deleted_local_galleries": deleted_local_galleries,
-    }
-
-
-@app.post("/api/favorites/duplicates/scan", status_code=202)
-async def duplicates_scan() -> dict[str, object]:
-    if duplicates_state["running"]:
-        raise HTTPException(status_code=409, detail="scan already running")
-    _spawn(_run_duplicates_scan(), "duplicates scan")
-    return {"started": True}
 
 
 async def _run_duplicates_scan() -> None:
@@ -2072,62 +1542,6 @@ async def _run_duplicates_scan() -> None:
         duplicates_state["running"] = False
 
 
-@app.get("/api/favorites/duplicates/status")
-async def duplicates_status() -> dict[str, object]:
-    groups = duplicates_state.get("groups") or []
-    total_items = sum(len(g["items"]) for g in groups)
-    return {
-        "running": bool(duplicates_state["running"]),
-        "stage": duplicates_state.get("stage"),
-        "done": duplicates_state.get("done", 0),
-        "total": duplicates_state.get("total", 0),
-        "last_error": duplicates_state.get("last_error"),
-        "groups": groups,
-        "group_count": len(groups),
-        "item_count": total_items,
-        "ignored": duplicates_state.get("ignored") or [],
-    }
-
-
-@app.get("/api/favorites/duplicates/ignored")
-async def duplicates_ignored_list() -> list[dict[str, object]]:
-    try:
-        async with _settings_session() as session:
-            ignores = await FavoritesRepository(session).ignored_duplicates()
-            all_gids = [gid for entry in ignores for gid in (entry.get("gids") or [])]
-            items: dict[int, dict] = {}
-            if all_gids:
-                items = await FavoritesRepository(session).favorite_items_detail_by_gids(all_gids)
-                cloud_pairs = [
-                    (gid, str(detail.get("token") or ""))
-                    for gid, detail in items.items()
-                    if detail.get("gallery_id") is None and detail.get("token")
-                ]
-                gmeta: dict[int, dict[str, object]] = {}
-                if cloud_pairs and app.state.eh_client is not None:
-                    try:
-                        gmeta = await app.state.eh_client.fetch_gmetadata(cloud_pairs)
-                    except Exception:  # noqa: BLE001 - best-effort
-                        gmeta = {}
-                cover_map = await _remote_cover_data_batch(cloud_pairs, gmeta)
-                for gid, detail in items.items():
-                    if detail.get("gallery_id") is not None:
-                        continue
-                    meta = gmeta.get(gid, {})
-                    detail["cover_data"] = cover_map.get(gid)
-                    detail["file_size"] = detail.get("file_size") or meta.get("file_size")
-                    detail["posted_at"] = detail.get("posted_at") or _unix_to_iso(meta.get("posted"))
-                    if meta.get("tags"):
-                        detail["tags"] = [
-                            {"namespace": ns, "name": name}
-                            for ns, name in _parse_gdata_tags(meta.get("tags", []))
-                        ]
-            return [
-                {**entry, "items": [items.get(gid) for gid in (entry.get("gids") or []) if gid in items]}
-                for entry in ignores
-            ]
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
 
 
 class DuplicateIgnoreRequest(BaseModel):
@@ -2136,141 +1550,12 @@ class DuplicateIgnoreRequest(BaseModel):
     gids: list[int] = Field(default_factory=list)
 
 
-@app.post("/api/favorites/duplicates/ignore")
-async def duplicates_ignore(body: DuplicateIgnoreRequest) -> dict[str, object]:
-    if not body.key.strip():
-        raise HTTPException(status_code=422, detail="invalid key")
-    try:
-        async with _settings_session() as session, session.begin():
-            await FavoritesRepository(session).add_duplicate_ignore(
-                body.key.strip(), body.title, body.gids
-            )
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    return {"ok": True, "key": body.key.strip()}
 
 
-@app.delete("/api/favorites/duplicates/ignore")
-async def duplicates_unignore(key: str) -> dict[str, object]:
-    if not key.strip():
-        raise HTTPException(status_code=422, detail="invalid key")
-    try:
-        async with _settings_session() as session, session.begin():
-            await FavoritesRepository(session).remove_duplicate_ignore(key.strip())
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    return {"ok": True, "key": key.strip()}
 
 
-@app.get("/api/galleries/{identifier}/favorite")
-async def gallery_favorite_status(identifier: int) -> dict[str, object]:
-    try:
-        async with _settings_session() as session:
-            row, _ = await _gallery(identifier)
-            favcats = await FavoritesRepository(session).favcats_for_gid(row.gid)
-            names = await FavoritesRepository(session).category_names(favcats)
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    return {
-        "gid": row.gid,
-        "favorite": bool(favcats),
-        "favcats": favcats,
-        "favcat_names": [{"favcat": f, "name": names.get(f, "")} for f in favcats],
-    }
 
 
-@app.get("/api/favorites/cover")
-async def favorite_cover(gid: int, token: str) -> Response:
-    """Proxy an ExHentai gallery cover for a not-yet-local favorite item.
-
-    Cached under ``/gv-cache/remote-covers/{gid}.img`` so repeated lists do not
-    re-fetch ExHentai.
-    """
-    if not _settings().exhentai_cookies:
-        raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
-    if not re.fullmatch(r"[0-9a-fA-F]{8,64}", token):
-        raise HTTPException(status_code=422, detail="invalid token")
-    cache_dir = Path(_settings().thumbnail_cache_dir).parent / "remote-covers"
-    path = cache_dir / f"{int(gid)}.img"
-    if not path.is_file():
-        client = app.state.eh_client
-        if client is None:
-            raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
-        try:
-            data, _ = await client.fetch_gallery_cover(int(gid), token)
-        except (GalleryGoneError, EhClientError) as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_bytes(data)
-        tmp.replace(path)
-    return Response(
-        path.read_bytes(),
-        media_type=_image_content_type(path.read_bytes()),
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
-
-
-@app.get("/api/favorites/categories")
-async def favorite_categories() -> list[dict[str, object]]:
-    try:
-        async with _settings_session() as session:
-            rows = await FavoritesRepository(session).categories()
-            stats = await FavoritesRepository(session).counts_and_sizes()
-            breakdown = {
-                row.favcat: await FavoritesRepository(session).cloud_size_breakdown(row.favcat)
-                for row in rows
-            }
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    live_counts: dict[int, int] = {}
-    try:
-        live_counts = await _favorite_counts_cached()
-    except Exception as exc:  # noqa: BLE001 - fall back to recorded counts
-        logger.warning(
-            "could not fetch live favorite counts", extra=log_extra(error=type(exc).__name__)
-        )
-    result = []
-    for x in rows:
-        cloud, local, local_size = stats.get(x.favcat, (0, 0, 0))
-        cloud_count = live_counts.get(x.favcat, cloud)
-        known, unknown = breakdown.get(x.favcat, (0, 0))
-        if unknown > 0 and local > 0:
-            known += int((local_size / local) * unknown)  # estimate the unfetched tail
-        result.append(
-            {
-                "favcat": x.favcat,
-                "name": x.name,
-                "enabled": x.enabled,
-                "mode": x.mode,
-                "poll_interval_minutes": max(1, round(x.poll_interval_seconds / 60)),
-                "cloud_count": cloud_count,
-                "local_count": local,
-                "local_size": local_size,
-                "cloud_size": known or _estimate_cloud_size(cloud_count, local, local_size),
-            }
-        )
-    return result
-
-
-@app.get("/api/favorites/metadata-status")
-async def favorites_metadata_status() -> dict[str, object]:
-    return dict(metadata_sync_state)
-
-
-@app.get("/api/favorites/check-status")
-async def favorites_check_status() -> dict[str, object]:
-    return dict(favorites_check_state)
-
-
-@app.post("/api/favorites/compute-sizes", status_code=202)
-async def compute_favorite_sizes() -> dict[str, object]:
-    """Fetch missing gallery sizes in the background for exact cloud sizes."""
-    async with _settings_session() as session:
-        favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
-    for favcat in favcats:
-        _spawn(_favorite_size_sync(favcat), f"favorite size sync {favcat}")
-    return {"status": "started", "favcats": favcats}
 
 
 _FAV_COUNTS_TTL = 300.0
@@ -2466,80 +1751,8 @@ async def _favorite_size_sync(favcat: int) -> None:
             _clear_cancelled("metadata")
 
 
-@app.post("/api/favorites/categories")
-async def update_favorite_category(
-    body: FavoriteCategoryRequest, favcat: int = 0
-) -> dict[str, object]:
-    favcat = body.favcat if body.favcat is not None else favcat
-    if not 0 <= favcat <= 9:
-        raise HTTPException(status_code=422, detail="invalid favcat")
-    try:
-        async with _settings_session() as session, session.begin():
-            row = await FavoritesRepository(session).category(favcat)
-            if row is None:
-                from ..db.models import FavoritesMonitor
-
-                row = FavoritesMonitor(favcat=favcat)
-                session.add(row)
-            if body.enabled is not None:
-                row.enabled = body.enabled
-            if body.mode is not None:
-                row.mode = body.mode
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    return {"favcat": favcat, "enabled": row.enabled, "mode": row.mode}
 
 
-@app.post("/api/favorites/sync-categories")
-async def sync_favorite_categories() -> list[dict[str, object]]:
-    if not _settings().exhentai_cookies:
-        raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
-    try:
-        names = await app.state.eh_client.fetch_favorite_categories()
-        async with _settings_session() as session, session.begin():
-            for favcat, name in names.items():
-                row = await FavoritesRepository(session).category(favcat)
-                if row is None:
-                    from ..db.models import FavoritesMonitor
-
-                    row = FavoritesMonitor(favcat=favcat)
-                    session.add(row)
-                row.name = name
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "favorite category synchronization failed", extra=log_extra(error=type(exc).__name__)
-        )
-        raise HTTPException(status_code=503, detail="无法读取 ExHentai 收藏夹分类") from exc
-    return [{"favcat": favcat, "name": name} for favcat, name in names.items()]
-
-
-@app.post("/api/favorites/{favcat}/check", status_code=202)
-async def check_favorites(favcat: int) -> dict[str, object]:
-    if not 0 <= favcat <= 9:
-        raise HTTPException(status_code=422, detail="invalid favcat")
-    service = app.state.favorites_service
-    if service is None:
-        raise HTTPException(status_code=503, detail="Favorites service is unavailable")
-    _spawn(_run_favorites_check(favcat, service), "favorites check")
-    return {"status": "started", "favcat": favcat}
-
-
-@app.post("/api/favorites/check-all", status_code=202)
-async def check_all_favorites() -> dict[str, object]:
-    service = app.state.favorites_service
-    if service is None:
-        raise HTTPException(status_code=503, detail="Favorites service is unavailable")
-    try:
-        async with _settings_session() as session:
-            cats = await FavoritesRepository(session).categories()
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    favcats = [int(c.favcat) for c in cats] or list(range(10))
-    for favcat in favcats:
-        _spawn(_run_favorites_check(favcat, service), f"favorites check {favcat}")
-    return {"status": "started", "favcats": favcats}
 
 
 async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
@@ -2655,76 +1868,6 @@ async def _favorites_poll_loop() -> None:
                 )
 
 
-@app.get("/api/galleries")
-async def gallery_list(
-    page: int = 1,
-    page_size: int = 24,
-    q: str | None = None,
-    tags: str | None = None,
-    tag_mode: str = "or",
-    tag_match: str = "exact",
-    category: str | None = None,
-) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(
-            status_code=422, detail="page must be >= 1 and page_size must be between 1 and 100"
-        )
-    if tag_mode not in {"and", "or"} or tag_match not in {"exact", "fuzzy"}:
-        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
-    if category == "":
-        category = None
-    if category is not None and category not in CATEGORIES:
-        raise HTTPException(status_code=422, detail="invalid category")
-    parsed_tags: list[tuple[str | None, str]] = []
-    for value in (tags or "").split(","):
-        value = value.strip()
-        if not value:
-            continue
-        if ":" in value:
-            namespace, name = value.split(":", 1)
-            namespace = namespace.strip() or None
-        else:
-            namespace, name = None, value
-        if not name.strip() or len(name) > 200 or (namespace and len(namespace) > 32):
-            raise HTTPException(status_code=422, detail="invalid tag")
-        parsed_tags.append((namespace, name.strip()))
-    try:
-        async with _settings_session() as session:
-            total, rows = await GalleryRepository(session).list_page(
-                page, page_size, q, parsed_tags, tag_mode, tag_match, category
-            )
-            tag_map = await GalleryRepository(session).tags_for_galleries([row.id for row in rows])
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "q": q or "",
-        "tags": tags or "",
-        "tag_mode": tag_mode,
-        "tag_match": tag_match,
-        "category": category or "",
-        "items": [
-            {
-                "id": row.id,
-                "gid": row.gid,
-                "title": display_title(row),
-                "title_english": row.title,
-                "title_jpn": row.title_jpn,
-                "storage_type": row.storage_type,
-                "category": row.category or "other",
-                "page_count": row.page_count or 0,
-                "cover_url": f"/api/galleries/{row.id}/thumb/0" if row.page_count else None,
-                "tags": [
-                    {"namespace": namespace, "name": name, "display": translated_tag(namespace, name)[1]}
-                    for namespace, name in tag_map.get(row.id, [])
-                ],
-            }
-            for row in rows
-        ],
-    }
-
 
 async def _gallery(identifier: int) -> tuple[Gallery, list[GalleryPage]]:
     try:
@@ -2782,70 +1925,7 @@ def _meta(row: Gallery, pages: list[GalleryPage]) -> GalleryMeta:
     )
 
 
-@app.get("/api/galleries/random")
-async def gallery_random() -> dict[str, object]:
-    try:
-        async with _settings_session() as session:
-            gallery_id = await GalleryRepository(session).random_id()
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    if gallery_id is None:
-        raise HTTPException(status_code=404, detail="No galleries available")
-    return {"id": gallery_id}
 
-
-@app.get("/api/galleries/{identifier}/next")
-async def gallery_next(identifier: int) -> dict[str, object]:
-    try:
-        async with _settings_session() as session:
-            next_id = await GalleryRepository(session).next_gallery_id(identifier)
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    if next_id is None:
-        raise HTTPException(status_code=404, detail="No next gallery")
-    return {"id": next_id}
-
-
-@app.get("/api/galleries/{identifier}")
-async def gallery_detail(identifier: int) -> dict[str, object]:
-    row, pages = await _gallery(identifier)
-    tags = await _gallery_tags(row.id)
-    source_meta = row.source_meta or {}
-    spider_keys = (
-        "version",
-        "start_page",
-        "gid",
-        "token",
-        "mode",
-        "preview_pages",
-        "preview_per_page",
-        "pages",
-        "p_tokens",
-        "page_entries",
-        "warnings",
-    )
-    return {
-        "id": row.id,
-        "gid": row.gid,
-        "title": display_title(row),
-        "title_english": row.title,
-        "title_jpn": row.title_jpn,
-        "storage_type": row.storage_type,
-        "category": row.category or "other",
-        "page_count": len(pages),
-        "file_size": row.file_size,
-        "pages": [
-            {"index": p.page_index, "name": p.member_name, "media_type": p.media_type}
-            for p in pages
-        ],
-        "warnings": source_meta.get("warnings", []),
-        "spider_info": {key: source_meta[key] for key in spider_keys if key in source_meta},
-        "tags": [
-            {"namespace": namespace, "name": name, "display": translated_tag(namespace, name)[1]}
-            for namespace, name in tags
-        ],
-        "tags_synced_at": row.tags_synced_at,
-    }
 
 
 class ProgressRequest(BaseModel):
@@ -2853,78 +1933,8 @@ class ProgressRequest(BaseModel):
     total_pages: int | None = Field(default=None, ge=0)
 
 
-@app.get("/api/galleries/{identifier}/progress")
-async def gallery_progress(identifier: int) -> dict[str, object]:
-    row, pages = await _gallery(identifier)
-    async with _settings_session() as session:
-        progress = await GalleryRepository(session).progress(row.id)
-    return {
-        "gallery_id": row.id,
-        "current_page": progress.current_page if progress else 0,
-        "total_pages": progress.total_pages if progress else len(pages),
-        "updated_at": progress.updated_at if progress else None,
-    }
 
 
-@app.put("/api/galleries/{identifier}/progress")
-async def save_gallery_progress(identifier: int, body: ProgressRequest) -> dict[str, object]:
-    row, pages = await _gallery(identifier)
-    if body.current_page >= len(pages):
-        raise HTTPException(status_code=422, detail="current_page is outside gallery")
-    async with _settings_session() as session, session.begin():
-        progress = await GalleryRepository(session).upsert_progress(
-            row.id, body.current_page, body.total_pages or len(pages)
-        )
-        await GalleryRepository(session).record_history(
-            row.id, body.current_page, body.total_pages or len(pages)
-        )
-    return {
-        "gallery_id": row.id,
-        "current_page": progress.current_page,
-        "total_pages": progress.total_pages,
-    }
-
-
-@app.get("/api/history")
-async def history(page: int = 1, page_size: int = 24) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(status_code=422, detail="invalid pagination")
-    async with _settings_session() as session:
-        total, rows = await GalleryRepository(session).history_page(page, page_size)
-        galleries = (
-            {
-                row.id: row
-                for row in (
-                    await session.scalars(
-                        select(Gallery).where(Gallery.id.in_({x.gallery_id for x in rows}))
-                    )
-                ).all()
-            }
-            if rows
-            else {}
-        )
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "items": [
-            {
-                "gallery_id": x.gallery_id,
-                "current_page": x.current_page,
-                "total_pages": x.total_pages,
-                "last_read_at": x.last_read_at,
-                "title": galleries[x.gallery_id].title if x.gallery_id in galleries else None,
-                "url": f"/galleries/{x.gallery_id}",
-            }
-            for x in rows
-        ],
-    }
-
-
-@app.delete("/api/history", status_code=204)
-async def clear_history() -> None:
-    async with _settings_session() as session, session.begin():
-        await GalleryRepository(session).clear_history()
 
 
 class BulkDeleteRequest(BaseModel):
@@ -2952,78 +1962,8 @@ def _remove_gallery_files(gallery: Gallery) -> None:
         logger.warning("gallery file removal failed", extra={"path": str(path)})
 
 
-@app.delete("/api/galleries/{identifier}", status_code=204)
-async def delete_gallery(identifier: int, delete_files: bool = False) -> None:
-    try:
-        async with _settings_session() as session, session.begin():
-            gallery = await GalleryRepository(session).delete_by_identifier(identifier)
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    if gallery is None:
-        raise HTTPException(status_code=404, detail="Gallery not found")
-    if delete_files:
-        _remove_gallery_files(gallery)
 
 
-@app.post("/api/galleries/delete-bulk")
-async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
-    if not body.ids:
-        raise HTTPException(status_code=422, detail="No gallery ids provided")
-    try:
-        async with _settings_session() as session, session.begin():
-            rows = await session.scalars(
-                select(Gallery).where(Gallery.id.in_(body.ids))
-            )
-            galleries = list(rows)
-            removed = await GalleryRepository(session).delete_ids([g.id for g in galleries])
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    if body.delete_files:
-        for gallery in galleries:
-            _remove_gallery_files(gallery)
-    return {"deleted": removed}
-
-
-@app.post("/api/galleries/{identifier}/sync-tags")
-async def sync_gallery_tags(identifier: int, redirect: bool = False):
-    try:
-        async with _settings_session() as session, session.begin():
-            result = await TagSyncService(app.state.eh_client, GalleryRepository(session)).sync(
-                identifier
-            )
-    except GalleryNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except (GalleryGidMissing, GalleryTokenMissing) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    except Exception as exc:
-        logger.warning(
-            "ExHentai tag synchronization failed", extra=log_extra(error=type(exc).__name__)
-        )
-        raise HTTPException(status_code=502, detail="ExHentai metadata request failed") from exc
-    if redirect:
-        return RedirectResponse(f"/galleries/{identifier}", status_code=303)
-    return result
-
-
-@app.get("/api/galleries/{identifier}/pages/{page_index}")
-async def gallery_page(identifier: int, page_index: int) -> StreamingResponse:
-    row, pages = await _gallery(identifier)
-    page = next((item for item in pages if item.page_index == page_index), None)
-    if page is None:
-        raise HTTPException(status_code=404, detail="Page not found")
-    scanner = registry.for_path(Path(row.storage_path))
-    if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery")
-    stream = await run_in_threadpool(
-        scanner.open_page,
-        _meta(row, pages),
-        PageInfo(page.page_index, page.member_name, page.media_type),
-    )
-    return StreamingResponse(
-        _closing_stream(stream), media_type=_page_media_type(page.media_type)
-    )
 
 
 def _page_media_type(ext: str) -> str:
@@ -3316,91 +2256,8 @@ async def _thumbnail_worker_loop() -> None:
             _clear_cancelled("thumbs")
 
 
-@app.get("/api/galleries/{identifier}/thumb/{page_index}")
-async def gallery_thumbnail(identifier: int, page_index: int) -> FileResponse:
-    row, pages = await _gallery(identifier)
-    page = next((item for item in pages if item.page_index == page_index), None)
-    if page is None:
-        raise HTTPException(status_code=404, detail="Page not found")
-    scanner = registry.for_path(Path(row.storage_path))
-    if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery")
-    service = _thumb_service()
-    cached = service.cached(row.id, page_index)
-    if cached is None:
-        stream = await run_in_threadpool(
-            scanner.open_page,
-            _meta(row, pages),
-            PageInfo(page.page_index, page.member_name, page.media_type),
-        )
-        try:
-            data = await run_in_threadpool(stream.read)
-        finally:
-            try:
-                stream.close()
-            except OSError:
-                pass
-        try:
-            cached = await run_in_threadpool(
-                service.get_or_create, row.id, page_index, data
-            )
-        except ThumbnailError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return FileResponse(
-        cached,
-        media_type=JPEG_MIME,
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
 
 
-@app.get("/api/thumbs/status")
-async def thumb_status() -> dict[str, object]:
-    return dict(thumb_state)
-
-
-@app.post("/api/thumbs/generate", status_code=202)
-async def trigger_thumbnail_generation() -> dict[str, object]:
-    """Queue every gallery missing thumbnails for background generation."""
-    await _seed_thumbnails()
-    thumb_state["running"] = True
-    # Nothing to do: record a no-op completion so the manual trigger still shows
-    # up in the activity log instead of silently doing nothing.
-    if thumb_queue.qsize() == 0 and not thumb_state.get("started_at"):
-        now = datetime.now(UTC).isoformat()
-        _record_task("thumbs", now, now, "success", reason="ok 0 / fail 0", done=0, total=0)
-    return {
-        "status": "running" if thumb_queue.qsize() else "started",
-        "queued": thumb_queue.qsize(),
-    }
-
-
-@app.post("/api/tag-sync/start", status_code=202)
-async def trigger_tag_sync() -> dict[str, object]:
-    """Re-queue every gallery that still needs tag sync (manual full run)."""
-    async with _settings_session() as session:
-        last_id = 0
-        seeded = 0
-        while True:
-            ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
-            if not ids:
-                break
-            _enqueue_tag_sync(ids)
-            seeded += len(ids)
-            last_id = ids[-1]
-    # Nothing was queued: record a no-op completion so the manual trigger is
-    # still visible in the activity log.
-    if seeded == 0 and not tag_sync_state["running"]:
-        now = datetime.now(UTC).isoformat()
-        _record_task(
-            "tag-sync",
-            now,
-            now,
-            "success",
-            reason=f"ok {tag_sync_state.get('succeeded', 0)} / fail {tag_sync_state.get('failed', 0)}",
-            done=int(tag_sync_state.get("processed") or 0),
-            total=int(tag_sync_state.get("total") or 0),
-        )
-    return {"status": "started", "queued": seeded}
 
 
 _tag_facets_cache: dict[str, object] = {"ts": 0.0, "facets": []}
@@ -3421,92 +2278,8 @@ async def _tag_facets_cached() -> list[tuple[str, int]]:
     return facets
 
 
-@app.get("/api/tags/search")
-async def tag_search(
-    q: str | None = None,
-    namespace: str | None = None,
-    page: int = 1,
-    page_size: int = 60,
-    zh: bool = False,
-) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(status_code=422, detail="invalid pagination")
-    # Chinese autocomplete: reverse-search the translation table.
-    if zh and q and q.strip():
-        from ..services.tag_translation import search_zh
-
-        matched = search_zh(q, limit=page_size)
-        # Attach real usage counts for the matched (namespace, name) pairs.
-        async with _settings_session() as session:
-            repo = GalleryRepository(session)
-            rows = await repo.tag_counts_for([(ns, name) for ns, name, _ in matched])
-        counts = {(ns, name): count for ns, name, count in rows}
-        return {
-            "total": len(matched),
-            "page": 1,
-            "page_size": page_size,
-            "facets": [],
-            "items": [
-                {
-                    "namespace": ns,
-                    "name": name,
-                    "display": display,
-                    "usage_count": counts.get((ns, name), 0),
-                }
-                for ns, name, display in matched
-            ],
-        }
-    async with _settings_session() as session:
-        repo = GalleryRepository(session)
-        total, rows = await repo.search_tags(q, page, page_size, namespace)
-        facets = await _tag_facets_cached() if not namespace else []
-    facet_items = [
-        {"namespace": name, "total": count}
-        for name, count in sorted(facets, key=lambda x: -x[1])
-    ]
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "facets": facet_items,
-        "items": [
-            {"namespace": namespace, "name": name, "display": translated_tag(namespace, name)[1], "usage_count": count}
-            for namespace, name, count in rows
-        ],
-    }
 
 
-@app.get("/api/tags/search/status")
-async def tag_translation_status() -> dict[str, object]:
-    return {
-        **translation_state,
-        "entries": translation_entry_count(),
-        "source": _TRANSLATION_RELEASE_API,
-        "interval_minutes": _settings().tag_translation_update_interval_minutes,
-    }
-
-
-@app.post("/api/tags/search/reload", status_code=202)
-async def tag_translation_reload() -> dict[str, object]:
-    ok = await _translation_update_once()
-    return {"accepted": True, "ok": ok, "last_error": translation_state["last_error"]}
-
-
-@app.post("/api/telegram/test")
-async def telegram_test() -> dict[str, object]:
-    notifier = app.state.telegram
-    if notifier is None or not _settings().telegram_bot_token:
-        raise HTTPException(status_code=422, detail="Telegram bot token is not configured")
-    targets = _settings().telegram_chat_ids
-    if not targets:
-        raise HTTPException(status_code=422, detail="No Telegram chat IDs configured")
-    results: dict[str, object] = {}
-    for chat_id in targets:
-        results[str(chat_id)] = await notifier.send_message(
-            "GalleryVault: Telegram 连接测试 OK", chat_id=chat_id
-        )
-    ok = all(results.values())
-    return {"ok": ok, "results": results}
 
 
 @app.get("/api/auth/session")
@@ -3552,3 +2325,17 @@ async def change_password(body: ChangePasswordRequest) -> None:
     await _apply_persisted_settings()
     logger.info("account password changed")
 
+
+
+# Routers are wired at the very end so this module is fully initialized before
+# they import it (their handlers annotate parameters with e.g.
+# main.DownloadRequest, which must already exist).
+from .routers import core, downloads, favorites, galleries, settings, tags, tasks
+
+app.include_router(tasks.router)
+app.include_router(downloads.router)
+app.include_router(settings.router)
+app.include_router(galleries.router)
+app.include_router(favorites.router)
+app.include_router(tags.router)
+app.include_router(core.router)
