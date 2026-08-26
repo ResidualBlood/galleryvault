@@ -94,6 +94,7 @@ const I18N = {
     taskRunning: "running", startedAt: "started", finishedAt: "finished",
     scanDesc: "Scanning library folders", tagSyncDesc: "Syncing tags with ExHentai",
     thumbsDesc: "Generating thumbnails", metaDesc: "Backfilling favorite sizes & metadata",
+    favCheckDesc: "Checking favorite folders", transDesc: "Updating tag translations",
     favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
     settingsSub: "Library, connection and background tasks.",
     groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages" },
@@ -192,6 +193,7 @@ const I18N = {
     taskRunning: "进行中", startedAt: "开始时间", finishedAt: "完成时间",
     scanDesc: "正在扫描画廊目录", tagSyncDesc: "正在同步标签",
     thumbsDesc: "正在生成缩略图", metaDesc: "正在回填收藏夹大小与元数据",
+    favCheckDesc: "正在检查收藏夹", transDesc: "正在更新标签翻译",
     favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
     settingsSub: "本地库、连接与后台任务。",
     groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
@@ -1530,6 +1532,8 @@ function taskMeta(task, stage) {
       label: stage === "apply" ? t("favMetaApply") : t("favMetaSync"),
       desc: t("metaDesc"),
     };
+    case "favcheck": return { label: t("checkAll"), desc: t("favCheckDesc") };
+    case "translation": return { label: t("translationUpdate"), desc: t("transDesc") };
     default: return { label: task, desc: "" };
   }
 }
@@ -2012,6 +2016,7 @@ async function forceUpdate() {
     const el = document.getElementById("trans-status");
     if (el) el.textContent = r.ok ? t("transUpdated") : (r.last_error || "?");
     toast(t("forceUpdate") + (r.ok ? " OK" : " :: " + (r.last_error || "?")));
+    pollLogs();
   } catch (e) { toast(e.message); }
 }
 
