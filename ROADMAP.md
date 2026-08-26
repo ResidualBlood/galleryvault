@@ -19,13 +19,13 @@ The first tagged release. Core value proposition delivered:
 - Reader with history; bilingual EN/中文 UI; activity log page
 - Security: rate limiting, non-root runtime, optional AES-256-GCM at-rest
   encryption; docs on the GitHub Wiki; MIT license
+- **First-run welcome wizard** (`#/welcome`): guided change-password → ExHentai
+  cookies → fill-the-library steps, shown while the default password is in use
 
 ## Now · Growth & onboarding (next weeks)
 
 Focus: turn "works for me" into "works for a stranger".
 
-- ⚠️ **First-run wizard** (`#/welcome`): change password → configure ExHentai
-  cookies (test) → guide library scan / favorites check
 - **Empty states** on Library / Downloads / Favorites that tell the user what
   to do next
 - **Community distribution**: submit to TrueNAS / Unraid app catalogs
