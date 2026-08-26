@@ -9,13 +9,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from galleryvault.app import main
 from galleryvault.db.models import Gallery
 from galleryvault.db.repository import FavoritesRepository, GalleryRepository
 from galleryvault.logging import log_extra
-from galleryvault.services.eh_client import EhClientError, GalleryGoneError
+from galleryvault.services.eh_client import EhClientError, FavoriteData, GalleryGoneError
 from galleryvault.services.tag_translation import translated_tag
 
 router = APIRouter()
@@ -98,6 +99,52 @@ async def favorite_items(
             }
         )
     return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+class DownloadSelectedRequest(BaseModel):
+    gids: list[int]
+
+
+@router.post("/api/favorites/download-selected", status_code=202)
+async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str, object]:
+    """Enqueue downloads for the selected favorite gids directly from the DB.
+
+    Unlike the SPA's old flow (which paged through the whole folder to build
+    token metadata), this looks the items up in one query — instant even for
+    folders with thousands of cloud-only galleries.
+    """
+    gids = list(dict.fromkeys(body.gids))
+    if not gids:
+        raise HTTPException(status_code=422, detail="no galleries selected")
+    try:
+        async with main._settings_session() as session:
+            detail = await FavoritesRepository(session).favorite_items_detail_by_gids(gids)
+    except SQLAlchemyError as exc:
+        raise main._db_error(exc) from exc
+    queue = main._FavoriteDownloadQueue()
+    queued = 0
+    skipped = 0
+    for gid in gids:
+        entry = detail.get(gid)
+        if not entry or not entry.get("token") or entry.get("gallery_id") is not None:
+            skipped += 1
+            continue
+        try:
+            ok = await queue.enqueue(
+                FavoriteData(
+                    gid=gid,
+                    token=entry["token"],
+                    title=entry.get("title") or str(gid),
+                    url=entry.get("url") or "",
+                )
+            )
+        except Exception:  # noqa: BLE001 - one gid must not fail the batch
+            ok = False
+        if ok:
+            queued += 1
+        else:
+            skipped += 1
+    return {"queued": queued, "skipped": skipped}
 
 
 @router.post("/api/favorites/remove")
