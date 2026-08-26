@@ -260,6 +260,28 @@ a.row:hover { border-color: var(--accent); }
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
   padding: 10px 14px; margin-bottom: 8px;
 }
+.log-block { margin-top: 20px; }
+.log-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.log-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 14px;
+}
+.log-row .log-time { color: var(--muted); font-size: .8rem; white-space: nowrap; min-width: 150px; }
+.log-row .log-title { font-weight: 600; min-width: 130px; }
+.log-row .log-status { font-size: .82rem; white-space: nowrap; font-weight: 600; }
+.log-status.run { color: var(--accent); }
+.log-status.ok { color: #2e7d32; }
+.log-status.fail { color: var(--danger); }
+.log-status.warn { color: #b26a00; }
+.log-row .log-progress { flex: 1; min-width: 160px; max-width: 280px; }
+.log-row .log-desc { color: var(--muted); font-size: .84rem; flex: 1; min-width: 160px; }
+.log-row .log-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.page-jump-wrap { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.page-jump {
+  width: 62px; padding: 4px 6px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 4px; color: var(--ink); text-align: center;
+}
 .table { width: 100%; border-collapse: collapse; margin-top: 16px; }
 .table th, .table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .table th { color: var(--muted); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; }

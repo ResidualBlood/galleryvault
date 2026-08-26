@@ -16,8 +16,8 @@ const I18N = {
     forceUpdate: "Update now", translationStatus: "Translation status",
     transUpdated: "Translations updated",
     testTelegram: "Send test message",
-    browse: "Browse", library: "Library", tags: "Tags", downloads: "Tasks",
-    downloadsSub: "Download tasks and tag synchronization.",
+    browse: "Browse", library: "Library", tags: "Tags", downloads: "Downloads",
+    downloadsSub: "Download tasks.",
     favorites: "Favorites", history: "History", settings: "Settings", logout: "Logout",
     scan: "Scan library", random: "Random", readNow: "Read now", syncTags: "Sync tags",
     tagSection: "Tags", pagesSection: "Pages", details: "Details", prev: "Previous",
@@ -85,7 +85,15 @@ const I18N = {
     metaDone: "Metadata sync complete", completed: "done", scanned: "scanned", persisted: "persisted",
     favMetaSync: "Syncing favorite metadata", favMetaApply: "Applying favorite metadata", applied: "applied",
     tagSyncFromCache: "Tags updated from cache", tagSyncFromNetwork: "Tags synced from ExHentai",
-    noTasks: "No background tasks", dlTasks: "Download tasks",
+    noTasks: "No download tasks.", dlTasks: "Download tasks",
+    logs: "Logs", logsSub: "Background tasks and recent activity.",
+    runningTasks: "Running now", finishedTasks: "Finished",
+    noRunningTasks: "No background tasks running.", noFinishedTasks: "No finished tasks yet.",
+    cancelTask: "Cancel", taskCancelling: "cancelling",
+    taskSuccess: "succeeded", taskFailed: "failed", taskCancelled: "cancelled", duration: "took",
+    taskRunning: "running", startedAt: "started", finishedAt: "finished",
+    scanDesc: "Scanning library folders", tagSyncDesc: "Syncing tags with ExHentai",
+    thumbsDesc: "Generating thumbnails", metaDesc: "Backfilling favorite sizes & metadata",
     favcatTitle: "Favorites folders", favcatSub: "ExHentai favorites monitoring & auto download.",
     settingsSub: "Library, connection and background tasks.",
     groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages" },
@@ -106,8 +114,8 @@ const I18N = {
     forceUpdate: "立即更新", translationStatus: "翻译状态",
     transUpdated: "翻译已更新",
     testTelegram: "发送测试消息",
-    browse: "浏览", library: "画廊库", tags: "标签", downloads: "任务",
-    downloadsSub: "下载任务与标签同步。",
+    browse: "浏览", library: "画廊库", tags: "标签", downloads: "下载",
+    downloadsSub: "下载任务。",
     favorites: "收藏夹", history: "历史", settings: "设置", logout: "退出",
     scan: "扫描库", random: "随机", readNow: "开始阅读", syncTags: "同步标签",
     tagSection: "标签", pagesSection: "页面", details: "详情", prev: "上一页",
@@ -175,7 +183,15 @@ const I18N = {
     metaDone: "元数据同步完成", completed: "已完成", scanned: "扫描", persisted: "入库",
     favMetaSync: "同步收藏元数据", favMetaApply: "应用收藏元数据", applied: "已应用",
     tagSyncFromCache: "标签已从缓存更新", tagSyncFromNetwork: "标签已从 ExHentai 同步",
-    noTasks: "无后台任务", dlTasks: "下载任务",
+    noTasks: "暂无下载任务。", dlTasks: "下载任务",
+    logs: "日志", logsSub: "后台任务与最近活动。",
+    runningTasks: "进行中", finishedTasks: "已完成",
+    noRunningTasks: "当前没有后台任务在运行。", noFinishedTasks: "暂无已完成任务。",
+    cancelTask: "取消", taskCancelling: "正在取消",
+    taskSuccess: "成功", taskFailed: "失败", taskCancelled: "已取消", duration: "耗时",
+    taskRunning: "进行中", startedAt: "开始时间", finishedAt: "完成时间",
+    scanDesc: "正在扫描画廊目录", tagSyncDesc: "正在同步标签",
+    thumbsDesc: "正在生成缩略图", metaDesc: "正在回填收藏夹大小与元数据",
     favcatTitle: "收藏夹监控", favcatSub: "ExHentai 收藏夹监控与自动下载。",
     settingsSub: "本地库、连接与后台任务。",
     groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
@@ -364,6 +380,7 @@ function router() {
   if (app.view !== "library") selGalleries.clear();
   if (app.view !== "favorites" && app.view !== "favlist" && favTimer) { clearInterval(favTimer); favTimer = null; }
   if (app.view !== "downloads" && dlTimer) { clearInterval(dlTimer); dlTimer = null; }
+  if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
   switch (app.view) {
@@ -374,6 +391,7 @@ function router() {
     case "tags": renderTags(); break;
     case "history": renderHistory(); break;
     case "downloads": renderDownloads(); break;
+    case "logs": renderLogs(); break;
     case "settings": renderSettings(); break;
     case "favorites": renderFavorites(); break;
     case "favmanage": renderFavManage(); break;
@@ -441,12 +459,29 @@ async function galleryGrid(container, page, extraQuery) {
   return data;
 }
 
-const PAGE_SIZES = [5, 20, 50, 100];
+const PAGE_SIZES = [5, 20, 50, 100, 200, 500];
 
 function pageSizeSelect(current, view) {
   return `<select class="page-size" data-action="page-size" data-view="${view}" aria-label="page size">
     ${PAGE_SIZES.map(n => `<option value="${n}"${String(n) === String(current) ? " selected" : ""}>${n}</option>`).join("")}
   </select>`;
+}
+
+function jumpPage(input, last) {
+  const p = Math.max(1, Math.min(parseInt(input.value, 10) || 1, last));
+  input.value = p;
+  if (app.view === "favmanage" || app.view === "favignored") {
+    dupPage = p;
+    renderDupGroupsFromCache();
+    return;
+  }
+  location.hash = navHash(app.view, app.params, { ...app.query, page: String(p) });
+}
+
+function pagerJump(page, last) {
+  return `<span class="page-jump-wrap">
+    <input class="page-jump" type="number" min="1" max="${last}" value="${page}" aria-label="page">
+    <span class="muted">/ ${last}</span></span>`;
 }
 
 function gridPager(elId, data, buildQuery) {
@@ -456,14 +491,14 @@ function gridPager(elId, data, buildQuery) {
   const link = (p, label) =>
     `<a class="page-link" href="${navHash(app.view, {}, buildQuery(p))}">${label}</a>`;
   const parts = [];
-  if (data.page > 1) parts.push(link(data.page - 1, "<"));
+  if (data.page > 1) parts.push(link(data.page - 1, "‹"));
   for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
     parts.push(p === data.page ? `<strong class="cur">${p}</strong>` : link(p, String(p)));
   }
-  if (data.page < last) parts.push(link(data.page + 1, ">"));
+  if (data.page < last) parts.push(link(data.page + 1, "›"));
   el.innerHTML =
-    `<span class="muted">${data.page}/${last}</span> ` +
     parts.join(" ") +
+    ` ${pagerJump(data.page, last)}` +
     ` · ${pageSizeSelect(data.page_size, app.view)}`;
 }
 
@@ -482,10 +517,6 @@ async function renderBrowse() {
       <h2>${esc(t("latest"))} <span class="muted" id="browse-total"></span></h2>
       <div id="browse-grid"><p>${esc(t("loading"))}</p></div>
       <div class="pages pager" id="browse-pager"></div>
-    </section>
-    <section id="task-progress" class="task-progress" hidden>
-      <h2>${esc(t("tasks"))}</h2>
-      <div id="task-progress-body"></div>
     </section>
     <section>
       <h2>${esc(t("tags"))}</h2>
@@ -508,7 +539,6 @@ async function renderBrowse() {
         .map(g => `<a class="pill" href="${navHash("tags", {}, { ns: g.ns })}">${esc(groupLabel(g.key))} <b>${counts[g.ns]}</b></a>`)
         .join("");
     }
-    pollTaskProgress();
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
@@ -602,7 +632,7 @@ async function renderGallery() {
       <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
       <section><h2>${esc(t("pagesSection"))}</h2>
         <div class="thumbs">${thumbs}</div>
-        <div class="pages pager">${thumbPagerParts.join(" ")} <span class="muted">${thumbPage}/${totalPages}</span> · ${pageSizeSelect(perPage, "gallery")}</div>
+        <div class="pages pager">${thumbPagerParts.join(" ")} ${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
       </section>`;
     if (g.gid) {
       try {
@@ -786,11 +816,15 @@ async function loadTags(q, ns, page) {
     if (pagerEl) {
       const last = Math.max(1, Math.ceil(data.total / data.page_size));
       const qp = p => navHash("tags", {}, { ...(ns ? { ns } : {}), ...(q ? { q } : {}), ...(p > 1 ? { page: p } : {}) });
+      const pages = [];
+      for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
+        pages.push(p === data.page ? `<strong class="cur">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
+      }
       pagerEl.innerHTML =
-        `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""}
-         <strong>${data.page}/${last}</strong>
-         ${data.page < last ? `<a class="page-link" href="${qp(data.page + 1)}">&gt;</a>` : ""}
-         <span class="muted">· ${data.total}</span>`;
+        `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
+        pages.join(" ") +
+        ` ${pagerJump(data.page, last)}` +
+        `${data.page < last ? ` <a class="page-link" href="${qp(data.page + 1)}">&gt;</a>` : ""}`;
     }
   } catch (e) {
     const cloud = document.getElementById("tag-cloud");
@@ -806,7 +840,8 @@ async function renderHistory() {
     <div id="hist-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="hist-pages"></div>`;
   try {
-    const data = await api("GET", `/api/history?page=${encodeURIComponent(page)}`);
+    const pageSize = app.query.page_size || 20;
+    const data = await api("GET", `/api/history?page=${encodeURIComponent(page)}&page_size=${pageSize}`);
     const el = document.getElementById("hist-list");
     const items = (data && data.items) || [];
     if (!items.length) { el.innerHTML = `<p>${esc(t("noHistory"))}</p>`; return; }
@@ -816,9 +851,15 @@ async function renderHistory() {
         <span class="row-meta">${esc(t("progress"))} ${h.current_page}/${h.total_pages} · ${h.last_read_at ? esc(String(h.last_read_at).slice(0, 10)) : ""}</span>
       </a>`).join("") + `</div>`;
     const last = Math.max(1, Math.ceil(data.total / data.page_size));
+    const qp = p => navHash("history", {}, { page: p, page_size: app.query.page_size || 20 });
+    const pages = [];
+    for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
+      pages.push(p === data.page ? `<strong class="cur">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
+    }
     document.getElementById("hist-pages").innerHTML =
-      `${data.page > 1 ? `<a href="${navHash("history", {}, { page: data.page - 1 })}">${esc(t("prev"))}</a>` : ""}
-       <strong>${data.page}/${last}</strong> · ${data.total}`;
+      `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
+      pages.join(" ") +
+      ` ${pagerJump(data.page, last)} · ${esc(t("perPage"))} ${pageSizeSelect(data.page_size, "history")}`;
   } catch (e) { document.getElementById("hist-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
@@ -828,11 +869,8 @@ let dlTimer = null;
 async function renderDownloads() {
   const filter = app.query.filter || "all";
   $view().innerHTML = `
-    <header><p class="eyebrow">BACKGROUND TASKS</p><h1>${esc(t("downloads"))}</h1>
+    <header><p class="eyebrow">DOWNLOADS</p><h1>${esc(t("downloads"))}</h1>
     <p class="sub">${esc(t("downloadsSub"))}</p></header>
-    <section id="task-progress" class="task-progress" hidden>
-      <div id="task-progress-body"></div>
-    </section>
     <h2 style="margin-top:20px">${esc(t("dlTasks"))}</h2>
     <div class="toolbar">
       <div class="pills" style="margin:0">
@@ -845,7 +883,6 @@ async function renderDownloads() {
     <div id="dl-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="dl-pages"></div>`;
   loadDownloads(filter, app.query.page || "1");
-  pollTaskProgress();
   if (dlTimer) clearInterval(dlTimer);
   dlTimer = setInterval(() => {
     if (location.hash.startsWith("#/downloads")) loadDownloads(filter, app.query.page || "1");
@@ -871,7 +908,8 @@ function dlProgressHtml(x) {
 async function loadDownloads(filter, page) {
   try {
     const status = filter !== "all" ? `&status=${encodeURIComponent(filter)}` : "";
-    const data = await api("GET", `/api/downloads?page=${encodeURIComponent(page)}${status}`);
+    const pageSize = app.query.page_size || 20;
+    const data = await api("GET", `/api/downloads?page=${encodeURIComponent(page)}&page_size=${pageSize}${status}`);
     const items = (data && data.items) || [];
     const el = document.getElementById("dl-list");
     if (!el) return;
@@ -900,10 +938,15 @@ async function loadDownloads(filter, page) {
       }).join("") + `</div>`;
     }
     const last = Math.max(1, Math.ceil(data.total / data.page_size));
-    const qp = p => navHash("downloads", {}, filter !== "all" ? { filter, page: p } : { page: p });
+    const qp = p => navHash("downloads", {}, { ...(filter !== "all" ? { filter } : {}), page: p, page_size: pageSize });
+    const pages = [];
+    for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
+      pages.push(p === data.page ? `<strong class="cur">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
+    }
     document.getElementById("dl-pages").innerHTML =
-      `${data.page > 1 ? `<a href="${qp(data.page - 1)}">${esc(t("prev"))}</a>` : ""}
-       <strong>${data.page}/${last}</strong> · ${data.total}`;
+      `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
+      pages.join(" ") +
+      ` ${pagerJump(data.page, last)} · ${esc(t("perPage"))} ${pageSizeSelect(data.page_size, "downloads")}`;
   } catch (e) {
     const el = document.getElementById("dl-list");
     if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
@@ -975,12 +1018,14 @@ async function renderSettings() {
           ${field(t("tagSyncInterval"), `<input name="tag_sync_interval_seconds" type="number" step="0.1" min="0.1" value="${s.tag_sync_interval_seconds != null ? s.tag_sync_interval_seconds : 1}">`)}
           ${field(t("tagSyncConcurrency"), `<input name="tag_sync_concurrency" type="number" min="1" max="32" value="${s.tag_sync_concurrency != null ? s.tag_sync_concurrency : 2}">`)}
         </div>
-        <div class="toolbar"><button class="secondary" data-action="sync-all-tags" type="button">${esc(t("syncAllTags"))}</button></div>
+        <div class="toolbar"><button class="secondary" data-action="sync-all-tags" type="button">${esc(t("syncAllTags"))}</button>
+          <a class="secondary" href="#/logs" style="padding:8px 14px;border-radius:4px">${esc(t("logs"))}</a></div>
       </fieldset>
       <fieldset><legend>Thumbnails</legend>
         <label class="checkbox"><input type="checkbox" name="generate_thumbnails"${s.generate_thumbnails ? " checked" : ""}> ${esc(t("generateThumbnails"))}</label>
         <div class="toolbar">
           <button class="secondary" data-action="gen-thumbs" type="button">${esc(t("genThumbs"))}</button>
+          <a class="secondary" href="#/logs" style="padding:8px 14px;border-radius:4px">${esc(t("logs"))}</a>
         </div>
         <p class="notice">${esc(t("thumbs"))}</p>
       </fieldset>
@@ -1142,13 +1187,17 @@ function renderFavPager(elId, data, page) {
   const favcat = parseInt(app.params.id, 10);
   const total = data.total, pageSize = data.page_size || 20;
   const pages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = parseInt(page, 10) || 1;
+  const qp = p => navHash("favlist", { id: favcat }, { page: p, page_size: pageSize });
   const parts = [];
-  for (let p = Math.max(1, parseInt(page, 10) - 2); p <= Math.min(pages, parseInt(page, 10) + 2); p++) {
-    parts.push(p === parseInt(page, 10)
+  if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
+  for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) {
+    parts.push(p === cur
       ? `<strong class="cur">${p}</strong>`
-      : `<a class="page-link" href="${navHash("favlist", { id: favcat }, { page: p })}">${p}</a>`);
+      : `<a class="page-link" href="${qp(p)}">${p}</a>`);
   }
-  el.innerHTML = `${parts.join(" ")} <span class="muted">${pages}</span> · ${pageSizeSelect(pageSize, "favlist")}`;
+  if (cur < pages) parts.push(`<a class="page-link" href="${qp(cur + 1)}">&gt;</a>`);
+  el.innerHTML = `${parts.join(" ")} ${pagerJump(cur, pages)} · ${esc(t("perPage"))} ${pageSizeSelect(pageSize, "favlist")}`;
 }
 
 const selDup = new Set();
@@ -1300,7 +1349,7 @@ function renderDupGroups(st) {
       : `<a class="page-link" href="#" data-action="dup-page" data-page="${p}">${p}</a>`);
   }
   const pagerHtml = groups.length > perPage
-    ? `<div class="pages pager" style="margin-top:16px">${pageLinks.join(" ")} <span class="muted">${totalPages}</span></div>`
+    ? `<div class="pages pager" style="margin-top:16px">${pageLinks.join(" ")} ${pagerJump(page, totalPages)}</div>`
     : "";
   el.innerHTML = `
     <p class="sub">${esc(t("dupFound"))}: ${groups.length} ${esc(t("dupGroups"))} · ${groups.reduce((n, g) => n + g.items.length, 0)} ${esc(t("dupItems"))}</p>
@@ -1402,6 +1451,7 @@ function onClick(e) {
   if (action === "logout") { doLogout(); return; }
   if (action === "random") { randomGallery(); return; }
   if (action === "scan") { scanLibrary(); return; }
+  if (action === "cancel-task") { cancelTask(el.getAttribute("data-task")); return; }
   if (action === "clear-tag") { e.preventDefault(); location.hash = navHash("library", {}, { q: app.query.q || "", category: app.query.category || "" }); return; }
   if (action === "clear-history") { clearHistory(); return; }
   if (action === "cancel-download") { cancelDownload(el.getAttribute("data-id")); return; }
@@ -1469,89 +1519,112 @@ async function randomGallery() {
   catch (e) { toast(e.message); }
 }
 
-async function scanLibrary() {
-  try { await api("POST", "/api/scan"); toast("Scan started"); pollTaskProgress(); }
-  catch (e) { toast(e.message); }
+let logTimer = null;
+
+function taskMeta(task, stage) {
+  switch (task) {
+    case "scan": return { label: t("scanning"), desc: t("scanDesc") };
+    case "tag-sync": return { label: t("tagSyncing"), desc: t("tagSyncDesc") };
+    case "thumbs": return { label: t("thumbs"), desc: t("thumbsDesc") };
+    case "metadata": return {
+      label: stage === "apply" ? t("favMetaApply") : t("favMetaSync"),
+      desc: t("metaDesc"),
+    };
+    default: return { label: task, desc: "" };
+  }
 }
 
-let taskTimer = null;
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
 
-function progressHtml(label, done, total, extra) {
-  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : null;
-  return `<div class="task-row">
-    <span class="row-title">${esc(label)}</span>
-    ${pct !== null
-      ? `<div class="dl-progress"><div class="dl-progress-bar" style="width:${pct}%"></div></div>
-         <span class="row-meta">${done}/${total} · ${pct}%${extra ? " · " + esc(extra) : ""}</span>`
-      : `<div class="dl-progress dl-progress-indet"></div><span class="row-meta">${esc(extra || "…")}</span>`}
+function fmtDuration(startIso, endIso) {
+  if (!startIso || !endIso) return "";
+  const ms = new Date(endIso) - new Date(startIso);
+  if (!isFinite(ms) || ms < 0) return "";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), rem = s % 60;
+  return m < 60 ? `${m}m ${rem}s` : `${Math.floor(m / 60)}h ${m % 60}m ${rem}s`;
+}
+
+async function renderLogs() {
+  $view().innerHTML = `
+    <header><p class="eyebrow">ACTIVITY</p><h1>${esc(t("logs"))}</h1>
+    <p class="sub">${esc(t("logsSub"))}</p></header>
+    <section class="log-block">
+      <h2>${esc(t("runningTasks"))}</h2>
+      <div id="log-running"><p>${esc(t("loading"))}</p></div>
+    </section>
+    <section class="log-block">
+      <h2>${esc(t("finishedTasks"))}</h2>
+      <div id="log-finished"><p>${esc(t("loading"))}</p></div>
+    </section>`;
+  pollLogs();
+}
+
+function runningTaskRow(it) {
+  const meta = taskMeta(it.task, it.stage);
+  const pct = it.total > 0 ? Math.min(100, Math.round((it.done / it.total) * 100)) : null;
+  return `<div class="log-row">
+    <span class="log-time" title="${esc(t("startedAt"))}">${fmtDateTime(it.started_at)}</span>
+    <span class="log-title">${esc(meta.label)}</span>
+    <span class="log-status run">${esc(t("taskRunning"))}${pct !== null ? ` · ${it.done}/${it.total}` : (it.done ? ` · ${it.done}` : "")}</span>
+    <span class="log-progress">${pct !== null
+      ? `<div class="dl-progress"><div class="dl-progress-bar" style="width:${pct}%"></div></div>`
+      : `<div class="dl-progress dl-progress-indet"></div>`}</span>
+    <span class="log-desc">${esc(meta.desc)}</span>
+    ${it.cancellable ? `<button class="secondary" data-action="cancel-task" data-task="${esc(it.task)}" type="button">${esc(t("cancelTask"))}</button>` : ""}
   </div>`;
 }
 
-async function pollTaskProgress() {
-  if (taskTimer) clearInterval(taskTimer);
+function finishedTaskRow(it) {
+  const meta = taskMeta(it.task, it.stage);
+  const badge = it.status === "success" ? "ok" : (it.status === "cancelled" ? "warn" : "fail");
+  const statusText = it.status === "success" ? t("taskSuccess") : (it.status === "cancelled" ? t("taskCancelled") : t("taskFailed"));
+  const reason = it.reason ? ` <span class="muted">${esc(it.reason)}</span>` : "";
+  return `<div class="log-row">
+    <span class="log-time" title="${esc(t("startedAt"))}">${fmtDateTime(it.started_at)}</span>
+    <span class="log-title">${esc(meta.label)}</span>
+    <span class="log-status ${badge}">${esc(statusText)}</span>
+    <span class="log-desc">${esc(meta.desc)}${reason}</span>
+    <span class="log-dur">${esc(t("duration"))} ${fmtDuration(it.started_at, it.completed_at)}</span>
+    <span class="log-time" title="${esc(t("finishedAt"))}">${fmtDateTime(it.completed_at)}</span>
+  </div>`;
+}
+
+async function pollLogs() {
+  if (logTimer) clearInterval(logTimer);
   const tick = async () => {
-    const sec = document.getElementById("task-progress");
-    if (!sec) return;
+    const runEl = document.getElementById("log-running");
+    const finEl = document.getElementById("log-finished");
+    if (!runEl || !finEl) return;
     try {
-      const [scan, ts, th, md] = await Promise.all([
-        api("GET", "/api/scan").catch(() => null),
-        api("GET", "/api/tag-sync/status").catch(() => null),
-        api("GET", "/api/thumbs/status").catch(() => null),
-        api("GET", "/api/favorites/metadata-status").catch(() => null),
-      ]);
-      const rows = [];
-      const isDone = st => !!(st && !st.running && st.completed_at);
-      const tickText = "✓ " + t("completed") + " ";
-      if (scan && (scan.running || isDone(scan))) {
-        const done = isDone(scan);
-        rows.push(progressHtml(
-          done ? t("scanDone") : t("scanning"),
-          scan.scanned || 0, 0,
-          done
-            ? tickText + (scan.scanned ? `${t("scanned")} ${scan.scanned} · ` : "") + `${t("persisted")} ${scan.persisted || 0}`
-            : `${t("scanned")} ${scan.scanned || 0} · ${t("persisted")} ${scan.persisted || 0}`
-        ));
-      }
-      if (ts && (ts.running || isDone(ts))) {
-        const done = isDone(ts);
-        rows.push(progressHtml(
-          done ? t("tagSyncDone") : t("tagSyncing"),
-          ts.processed || 0, ts.total || 0,
-          (done ? tickText : "") + `ok ${ts.succeeded || 0} / fail ${ts.failed || 0}`
-        ));
-      }
-      if (th && (th.running || isDone(th))) {
-        const done = isDone(th);
-        const doneCount = (th.succeeded || 0) + (th.failed || 0);
-        rows.push(progressHtml(
-          done ? t("thumbsDone") : t("thumbs"),
-          doneCount, th.total || 0,
-          (done ? tickText : "") + `ok ${th.succeeded || 0} / fail ${th.failed || 0}`
-        ));
-      }
-      if (md && (md.running || isDone(md))) {
-        const done = isDone(md);
-        const applying = (md.stage || "") === "apply";
-        rows.push(progressHtml(
-          done ? t("metaDone") : (applying ? t("favMetaApply") : t("favMetaSync")),
-          md.done || 0, md.total || 0,
-          (done ? tickText : "") + `${t("applied")} ${md.applied || 0}`
-        ));
-      }
-      const body = document.getElementById("task-progress-body");
-      if (rows.length) {
-        sec.hidden = false;
-        body.innerHTML = rows.join("");
-      } else {
-        sec.hidden = true;
-        body.innerHTML = "";
-        clearInterval(taskTimer);
-        taskTimer = null;
-      }
+      const data = await api("GET", "/api/logs");
+      const running = data.running || [];
+      const finished = data.finished || [];
+      runEl.innerHTML = running.length
+        ? `<div class="log-rows">` + running.map(runningTaskRow).join("") + `</div>`
+        : `<p class="muted">${esc(t("noRunningTasks"))}</p>`;
+      finEl.innerHTML = finished.length
+        ? `<div class="log-rows">` + finished.map(finishedTaskRow).join("") + `</div>`
+        : `<p class="muted">${esc(t("noFinishedTasks"))}</p>`;
     } catch (_) { /* transient */ }
   };
   tick();
-  taskTimer = setInterval(tick, 2000);
+  logTimer = setInterval(tick, 2000);
+}
+
+async function cancelTask(task) {
+  try {
+    await api("POST", `/api/logs/${encodeURIComponent(task)}/cancel`);
+    toast(t("cancelTask") + " · " + task);
+    pollLogs();
+  } catch (e) { toast(e.message); }
 }
 
 async function clearHistory() {
@@ -1946,7 +2019,7 @@ async function generateThumbnails() {
   try {
     const r = await api("POST", "/api/thumbs/generate");
     toast(t("genThumbs") + (r && r.queued ? ` (${r.queued})` : ""));
-    pollTaskProgress();
+    pollLogs();
   } catch (e) { toast(e.message); }
 }
 
@@ -1954,7 +2027,7 @@ async function syncAllTags() {
   try {
     const r = await api("POST", "/api/tag-sync/start");
     toast(t("syncAllTags") + (r && r.queued ? ` (${r.queued})` : ""));
-    pollTaskProgress();
+    pollLogs();
   } catch (e) { toast(e.message); }
 }
 
@@ -1977,7 +2050,13 @@ async function saveSettings(form) {
 
 function onChange(e) {
   const el = e.target;
-  if (!el || !el.matches(".page-size")) return;
+  if (!el) return;
+  if (el.matches(".page-jump")) {
+    const last = parseInt(el.max, 10) || 1;
+    jumpPage(el, last);
+    return;
+  }
+  if (!el.matches(".page-size")) return;
   const view = el.getAttribute("data-view") || app.view;
   const params = (view === "gallery" || view === "favlist") ? { id: app.params.id } : {};
   const q = { ...app.query, page_size: el.value, page: undefined };
