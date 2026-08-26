@@ -1,0 +1,29 @@
+name: sync-docs
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest reference docs from galleryvault-backend
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/API.md -o docs/api.md
+          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/DEVELOPMENT.md -o docs/development.md
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/api.md docs/development.md
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git commit -m "docs: sync API/development reference from galleryvault-backend"
+          git push
