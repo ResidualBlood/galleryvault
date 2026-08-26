@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-08-26
+
+### Fixed
+
+- **CSRF origin check accepts IPv6 hosts**: the middleware compared the
+  `Origin` hostname against the `Host` header using `split(":", 1)[0]`, which
+  splits inside an IPv6 literal — accessing the UI over IPv6
+  (e.g. `http://[240e:...]:8000`) rejected every write API call
+  (`DELETE`/`POST`/`PUT`) with `Cross-origin request rejected` (403). The Host
+  header is now parsed with `urlparse`, so IPv6, IPv4 and hostname origins all
+  match correctly.
+
 ## [1.2.3] - 2026-08-26
 
 ### Fixed
