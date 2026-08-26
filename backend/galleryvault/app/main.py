@@ -533,13 +533,32 @@ async def startup() -> None:
     )
     app.state.favorite_poll_task = asyncio.create_task(_favorites_poll_loop())
     # Sweep leftover partial-download dirs from a previous run before the
-    # download worker starts; recovered pending tasks rebuild their own. A
-    # stale .gv-<gid> would otherwise be reused as "already downloaded" pages.
+    # download worker starts — but KEEP those that belong to pending/active
+    # download tasks, so a retry (or a container restart that recovers an
+    # interrupted task) resumes from the pages already on disk instead of
+    # re-downloading the whole gallery. Stale dirs with no task are removed.
     try:
         import shutil as _shutil
 
+        keep_gids: set[int] = set()
+        try:
+            async with _settings_session() as session:
+                rows = await session.execute(
+                    select(DownloadTaskModel.gid).where(
+                        DownloadTaskModel.status.in_(["pending", "downloading"])
+                    )
+                )
+                keep_gids = {int(row[0]) for row in rows}
+        except Exception as exc:  # noqa: BLE001 - fall back to keeping nothing
+            logger.warning(
+                "could not read active downloads for temp sweep",
+                extra=log_extra(error=type(exc).__name__),
+            )
         _root = Path(_settings().download_root)
         for _child in _root.glob(".gv-*"):
+            gid_text = _child.name[len(".gv-"):] if _child.name.startswith(".gv-") else ""
+            if gid_text.isdigit() and int(gid_text) in keep_gids:
+                continue
             if _child.is_dir():
                 _shutil.rmtree(_child, ignore_errors=True)
     except Exception as exc:  # noqa: BLE001 - cleaning is best-effort
