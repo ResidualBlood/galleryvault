@@ -43,6 +43,8 @@ class DownloadResult:
     category: str = "other"
     title: str | None = None
     title_jpn: str | None = None
+    token: str | None = None
+    tags: tuple[tuple[str, str], ...] = ()
 
 
 class DownloadClient(Protocol):
@@ -350,6 +352,12 @@ class Downloader:
             gallery.category,
             gallery.title,
             gallery.title_jpn,
+            gallery.token,
+            tuple(
+                (tag.get("namespace", "misc"), tag.get("name", ""))
+                for tag in gallery.tags
+                if tag.get("name")
+            ),
         )
 
     @staticmethod

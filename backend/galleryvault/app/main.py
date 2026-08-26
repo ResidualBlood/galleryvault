@@ -42,6 +42,7 @@ from ..logging import configure_logging, log_extra
 from ..observability import request_id_middleware
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
+from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key
 from ..secrets import (
     decrypt_json_or_value,
     decrypt_or_plain,
@@ -683,30 +684,71 @@ async def logout():
     return response
 
 
-def _maybe_scan_after_download(result_path: str | Path) -> None:
-    """Ingest just the freshly downloaded gallery directory.
+def _maybe_scan_after_download(result) -> None:
+    """Ingest just the freshly downloaded gallery.
 
     A full library scan walks every root (thousands of directories), so a
-    download only indexes the single directory it just wrote (the downloader
-    persists ``.ehviewer`` + ``.galleryvault.json`` with tags, so no ExHentai
-    round-trip is needed).  If a full scan is already running it will pick the
-    new gallery up anyway and this is a no-op.
+    download only indexes the single gallery it just wrote — the rows are built
+    straight from the download result (title/category/tags fetched from
+    ExHentai during the download), not by re-parsing the directory.  If a full
+    scan is already running it will pick the new gallery up anyway and this is
+    a no-op.
     """
     if scan_state.get("running"):
         return
-    _spawn(_ingest_downloaded_gallery(result_path), "download ingest")
+    _spawn(_ingest_downloaded_gallery(result), "download ingest")
 
 
-async def _ingest_downloaded_gallery(path: str | Path) -> None:
+async def _ingest_downloaded_gallery(result) -> None:
     try:
-        scanner = registry.for_path(Path(path))
+        path = Path(result.path)
+        scanner = registry.for_path(path)
         if scanner is None:
             logger.warning(
                 "download ingest: no scanner for path",
                 extra=log_extra(path=str(path)),
             )
             return
-        gallery = await run_in_threadpool(scanner.scan, Path(path))
+        files = sorted(
+            (
+                item
+                for item in path.iterdir()
+                if item.is_file()
+                and not item.name.startswith(".")
+                and item.suffix.casefold() in IMAGE_EXTENSIONS
+            ),
+            key=lambda item: natural_key(item.name),
+        )
+        pages = [
+            PageInfo(
+                i,
+                item.name,
+                item.suffix.casefold().lstrip("."),
+                item.stat().st_size,
+                item.stat().st_mtime_ns,
+            )
+            for i, item in enumerate(files)
+        ]
+        tags = [
+            {"namespace": ns, "name": name} for ns, name in getattr(result, "tags", ())
+        ]
+        gallery = GalleryMeta(
+            title=result.title or path.name,
+            title_jpn=result.title_jpn,
+            path=path,
+            storage_type=scanner.storage_type,
+            pages=pages,
+            gid=result.gid,
+            token=getattr(result, "token", None),
+            category=result.category,
+            file_count=len(pages),
+            file_size=sum(p.size or 0 for p in pages),
+            tags=tags,
+            source_meta={"title": result.title or path.name, "tags": tags},
+            storage_signature=scanner.storage_signature(path),
+            storage_mtime_ns=path.stat().st_mtime_ns,
+            storage_size=sum(p.size or 0 for p in pages),
+        )
         gallery_id = None
         async with _settings_session() as session, session.begin():
             await GalleryIngestService(session).ingest([gallery])
@@ -721,12 +763,12 @@ async def _ingest_downloaded_gallery(path: str | Path) -> None:
             thumb_state["queued"] = thumb_queue.qsize()
         logger.info(
             "download ingested",
-            extra=log_extra(gid=gallery.gid, path=str(path), pages=len(gallery.pages)),
+            extra=log_extra(gid=gallery.gid, path=str(path), pages=len(pages)),
         )
     except Exception as exc:  # noqa: BLE001 - one bad download must not crash the worker
         logger.warning(
             "download ingest failed",
-            extra=log_extra(path=str(path), error=type(exc).__name__),
+            extra=log_extra(path=str(result.path), error=type(exc).__name__),
         )
 
 
@@ -922,7 +964,7 @@ async def _run_download(task: DownloadTask) -> None:
                 f"Download succeeded: {result.title or task.gid} ({result.pages} pages)"
             )
         if completed:
-            _maybe_scan_after_download(result.path)
+            _maybe_scan_after_download(result)
     except DownloadCancelledError:
         # The user cancelled mid-flight: drop the partial temp dir and leave
         # the task cancelled (do not retry or mark failed).
