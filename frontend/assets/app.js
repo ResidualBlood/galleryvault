@@ -1812,28 +1812,13 @@ async function unfavoriteGallery(el) {
 }
 
 async function favListDownload(favcat) {
-  if (!selFav.size) { toast(t("select")); return; }
   const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
     .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
-  const data = await api("GET", `/api/favorites/${favcat}/items?page=1&page_size=100`);
-  const total = data.total || 0;
-  const pages = Math.max(1, Math.ceil(total / 100));
-  const byGid = new Map(data.items.map(i => [i.gid, i]));
-  for (let p = 2; p <= pages; p++) {
-    const d = await api("GET", `/api/favorites/${favcat}/items?page=${p}&page_size=100`);
-    (d.items || []).forEach(i => byGid.set(i.gid, i));
-  }
-  let queued = 0, skip = 0;
-  for (const gid of selected) {
-    const meta = byGid.get(gid);
-    if (!meta || !meta.token) { skip++; continue; }
-    if (meta.gallery_id != null) { skip++; continue; }
-    try {
-      await api("POST", "/api/downloads", { gid: meta.gid, token: meta.token, title: meta.title, mode: "favorites" });
-      queued++;
-    } catch (_) { skip++; }
-  }
-  toast(t("favDlQueued") + ": " + queued + (skip ? " · " + t("favDlSkip") + ": " + skip : ""));
+  if (!selected.length) { toast(t("select")); return; }
+  try {
+    const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected });
+    toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
+  } catch (e) { toast(e.message); }
   selFav.clear();
 }
 
