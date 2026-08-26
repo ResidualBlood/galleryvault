@@ -2213,12 +2213,17 @@ async def _favorites_metadata(pairs: list[tuple[int, str]]) -> dict[int, dict[st
         cached = {}
     merged: dict[int, dict[str, object]] = {}
     for gid, meta in cached.items():
-        tags = meta.get("tags") or []
-        gtags = [f"{ns}:{name}" if ns else str(name) for ns, name in tags if name]
+        # metadata_map returns tags as ``{"namespace": ..., "name": ...}``
+        # dicts; normalise them into the gdata ``namespace:name`` strings the
+        # caller re-parses (previously the dict keys were unpacked as the tag
+        # values, rendering every tag as ``namespace:name``).
+        gtags = _tags_to_gdata_strings(meta.get("tags"))
         posted = meta.get("posted_at")
         merged[int(gid)] = {
             "token": meta.get("token") or "",
-            "thumb": "",
+            # Persist the thumb URL so the lazy cover downloader can fetch a
+            # missing disk cover even for cached items.
+            "thumb": meta.get("thumb") or "",
             "title": meta.get("title") or "",
             "title_jpn": meta.get("title_jpn"),
             "category": meta.get("category"),
@@ -2253,6 +2258,30 @@ def _parse_gdata_tags(raw_tags: list[str]) -> list[tuple[str | None, str]]:
         else:
             namespace, name = None, value
         out.append((namespace or None, name.strip()))
+    return out
+
+
+def _tags_to_gdata_strings(raw_tags: list[object]) -> list[str]:
+    """Normalize stored metadata tags into gdata ``namespace:name`` strings.
+
+    ``gallery_metadata`` stores tags as ``[["ns", "name"], ...]`` pairs and
+    ``metadata_map`` surfaces them as ``{"namespace":..., "name":...}`` dicts;
+    either shape is accepted.  The result feeds ``_parse_gdata_tags`` which
+    re-splits them, so the round trip never yields the literal key names.
+    """
+    out: list[str] = []
+    for tag in raw_tags or []:
+        if isinstance(tag, dict):
+            ns = str(tag.get("namespace") or "")
+            name = str(tag.get("name") or "")
+        elif isinstance(tag, (list, tuple)) and len(tag) >= 2:
+            ns, name = str(tag[0] or ""), str(tag[1] or "")
+        else:
+            continue
+        name = name.strip()
+        if not name:
+            continue
+        out.append(f"{ns}:{name}" if ns else name)
     return out
 
 

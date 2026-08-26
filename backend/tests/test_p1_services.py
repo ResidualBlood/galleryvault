@@ -40,6 +40,28 @@ def test_exhentai_tag_link_markup_is_parsed() -> None:
     ]
 
 
+def test_gdata_tag_normalization_from_cache_dicts() -> None:
+    from galleryvault.app.main import _parse_gdata_tags, _tags_to_gdata_strings
+
+    # metadata_map returns {"namespace": ..., "name": ...} dicts; the favorites
+    # metadata builder must NOT unpack the dict keys as the tag values.
+    dict_tags = [
+        {"namespace": "artist", "name": "alice"},
+        {"namespace": "misc", "name": "twintails"},
+        {"namespace": "", "name": ""},
+    ]
+    gtags = _tags_to_gdata_strings(dict_tags)
+    assert gtags == ["artist:alice", "misc:twintails"]
+    assert _parse_gdata_tags(gtags) == [
+        ("artist", "alice"),
+        ("misc", "twintails"),
+    ]
+
+    # The DB-pair shape must also round-trip.
+    assert _tags_to_gdata_strings([["language", "chinese"]]) == ["language:chinese"]
+    assert _tags_to_gdata_strings(None) == []
+
+
 class FakeDownloadClient:
     def __init__(self) -> None:
         self.calls = 0

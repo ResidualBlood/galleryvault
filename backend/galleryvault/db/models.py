@@ -187,6 +187,7 @@ class GalleryMetadata(Base):
     rating: Mapped[float | None] = mapped_column(Float)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expunged: Mapped[bool] = mapped_column(Boolean, default=False)
+    thumb: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list[Any] | None] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
