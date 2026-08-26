@@ -25,6 +25,10 @@ By participating you agree to abide by its terms.
 4. Run the checks and make sure CI passes.
 5. Open a Pull Request against `main` using the PR template.
 
+Optional: install [pre-commit](https://pre-commit.com) (`pip install
+pre-commit && pre-commit install`) to run the formatting/secret hooks locally
+before committing.
+
 ## Conventions
 
 - **Python (backend)**: format/line length follows `pyproject.toml` (`ruff`,
