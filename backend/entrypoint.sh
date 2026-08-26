@@ -9,10 +9,12 @@ set -e
 export HOME=/home/app
 
 if [ "$(id -u)" = "0" ]; then
-    # Ownership of the mount roots only (not recursive), so the app user can
-    # create download/thumbnail directories. Failures (read-only mounts,
-    # restricted filesystems) are ignored.
-    chown app:app /downloads /gv-cache 2>/dev/null || true
+    # Ownership of the mount roots. The thumbnail/cache tree is chowned
+    # recursively so legacy root-owned subdirectories (remote-covers, thumbs)
+    # stay writable for the app user; the downloads tree is only chowned at the
+    # root to keep startup fast (the app creates subdirectories as it goes).
+    chown app:app /downloads 2>/dev/null || true
+    chown -R app:app /gv-cache 2>/dev/null || true
     exec setpriv --reuid=app --regid=app --init-groups "$0" "$@"
 fi
 

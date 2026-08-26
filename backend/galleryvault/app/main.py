@@ -2161,7 +2161,11 @@ async def _remote_cover_data_batch(
                 tmp.write_bytes(response.content)
                 tmp.replace(path)
                 return _img_data_uri(response.content)
-            except Exception:  # noqa: BLE001 - one cover must not fail the list
+            except Exception as exc:  # noqa: BLE001 - one cover must not fail the list
+                logger.warning(
+                    "remote cover download failed",
+                    extra=log_extra(gid=gid, error=type(exc).__name__),
+                )
                 return None
 
     results = await asyncio.gather(
