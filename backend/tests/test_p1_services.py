@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -85,6 +86,22 @@ async def test_downloader_reports_progress(tmp_path: Path) -> None:
     assert (0, 2) in progress
     assert (2, 2) in progress
     assert progress[0] == (0, 2) and progress[-1] == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_downloader_speed_stats() -> None:
+    client = FakeDownloadClient()
+    client.calls = 3
+    downloader = Downloader(client, "/tmp/gv-speed-test")
+    await downloader._record_bytes(42, 2048, 1)
+    await asyncio.sleep(0.05)
+    stats = await downloader.speed_stats(42, current_page=1, total_pages=10)
+    assert stats is not None
+    assert stats["speed"] > 0
+    assert stats["eta_seconds"] > 0
+    assert await downloader.speed_stats(999) is None
+    downloader._clear_stats(42)
+    assert await downloader.speed_stats(42) is None
 
 
 class CountingDownloadClient(FakeDownloadClient):
@@ -240,6 +257,9 @@ async def test_telegram_bot_uses_mock_transport_and_allowed_user() -> None:
 @pytest.mark.asyncio
 async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        # Any further gallery sub-page is empty: the gallery has only 2 pages.
+        if request.url.path == "/g/7/token/" and request.url.params:
+            return httpx.Response(200, text="<html>no more</html>")
         if request.url.path == "/g/7/token/":
             return httpx.Response(
                 200,
@@ -257,8 +277,18 @@ async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
             )
         if request.url.path == "/api.php" and request.method == "POST":
             payload = request.read().decode(errors="replace")
-            # The second page is resolved through the lightweight showpage API.
-            if '"page":2' in payload:
+            # gdata sizes the page enumeration; the remaining pages then use the
+            # lightweight showpage API.
+            if '"gdata"' in payload:
+                return httpx.Response(
+                    200,
+                    json={
+                        "gmetadata": [
+                            {"gid": 7, "filecount": "2", "token": "token", "title": ""}
+                        ]
+                    },
+                )
+            if '"showpage"' in payload and '"page":2' in payload:
                 return httpx.Response(
                     200,
                     json={
@@ -304,6 +334,8 @@ async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
 async def test_fetch_gallery_falls_back_to_html_when_showpage_fails() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/g/7/token/":
+            if request.url.params:
+                return httpx.Response(200, text="<html>no more</html>")
             return httpx.Response(
                 200,
                 text="""<h1 class="gm">Title</h1>
@@ -318,6 +350,16 @@ async def test_fetch_gallery_falls_back_to_html_when_showpage_fails() -> None:
         if request.url.path == "/s/f12f15c685/7-2":
             return httpx.Response(200, text='<img id="img" src="/images/b.jpg">')
         if request.url.path == "/api.php" and request.method == "POST":
+            payload = request.read().decode(errors="replace")
+            if '"gdata"' in payload:
+                return httpx.Response(
+                    200,
+                    json={
+                        "gmetadata": [
+                            {"gid": 7, "filecount": "2", "token": "token", "title": ""}
+                        ]
+                    },
+                )
             # showpage is throttled / stale: the client must degrade to HTML.
             return httpx.Response(200, json={"error": "Key mismatch"})
         raise AssertionError(request.url)
@@ -333,6 +375,59 @@ async def test_fetch_gallery_falls_back_to_html_when_showpage_fails() -> None:
         "https://exhentai.org/images/b.jpg",
     ]
     assert [page.token for page in gallery.pages] == ["91ea4b6d89", "f12f15c685"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_gallery_enumerates_long_galleries_concurrently() -> None:
+    """A 40-page gallery spans 2 gallery sub-pages; both must be collected."""
+    page1 = "".join(f'<a href="/s/{pt:010x}/7-{i}">x</a>' for i, pt in enumerate(range(20), 1))
+    page2 = "".join(f'<a href="/s/{pt:010x}/7-{i}">x</a>' for i, pt in enumerate(range(20, 40), 21))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/g/7/token/":
+            if request.url.params.get("p") == "1":
+                return httpx.Response(200, text=page2)
+            if request.url.params:
+                return httpx.Response(200, text="<html>no more</html>")
+            return httpx.Response(200, text='<h1 class="gm">Long</h1>' + page1)
+        if request.url.path.startswith("/s/"):
+            return httpx.Response(
+                200,
+                text='<img src="https://img.test/x.jpg" id="img">'
+                "<script>var showkey=\"abc123def456\";</script>",
+            )
+        if request.url.path == "/api.php" and request.method == "POST":
+            payload = request.read().decode(errors="replace")
+            if '"gdata"' in payload:
+                return httpx.Response(
+                    200,
+                    json={
+                        "gmetadata": [
+                            {"gid": 7, "filecount": "40", "token": "token", "title": ""}
+                        ]
+                    },
+                )
+            if '"showpage"' in payload:
+                return httpx.Response(
+                    200,
+                    json={
+                        "i3": '<img src="https://img.test/p.jpg" style="x">',
+                        "i6": "<div onclick=\"return nl('skipkey')\">",
+                        "i7": '<a href="https://img.test/full.jpg">fullimg</a>',
+                    },
+                )
+            raise AssertionError(request.url)
+        raise AssertionError(request.url)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.org", transport=transport
+    ) as http_client:
+        client = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=http_client)
+        gallery = await client.fetch_gallery(7, "token")
+    assert len(gallery.pages) == 40
+    assert len({p.token for p in gallery.pages}) == 40
+    assert [p.image_url for p in gallery.pages][-1] == "https://img.test/p.jpg"
 
 
 @pytest.mark.asyncio

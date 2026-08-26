@@ -63,24 +63,36 @@ async def list_downloads(
             total, rows = await DownloadRepository(session).list_page(page, page_size, status)
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
+    downloader = main.app.state.downloader
+    items = []
+    for x in rows:
+        item: dict[str, object] = {
+            "id": x.id,
+            "gid": x.gid,
+            "title": x.title,
+            "status": x.status,
+            "retry_count": x.retry_count,
+            "max_retries": x.max_retries,
+            "current_page": x.current_page or 0,
+            "total_pages": x.total_pages,
+            "error_message": x.error_message,
+        }
+        if x.status == "downloading" and downloader is not None:
+            try:
+                stats = await downloader.speed_stats(
+                    x.gid, current_page=x.current_page or 0, total_pages=x.total_pages
+                )
+            except Exception:  # noqa: BLE001 - stats are best-effort
+                stats = None
+            if stats:
+                item["speed"] = stats["speed"]
+                item["eta_seconds"] = stats["eta_seconds"]
+        items.append(item)
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": [
-            {
-                "id": x.id,
-                "gid": x.gid,
-                "title": x.title,
-                "status": x.status,
-                "retry_count": x.retry_count,
-                "max_retries": x.max_retries,
-                "current_page": x.current_page or 0,
-                "total_pages": x.total_pages,
-                "error_message": x.error_message,
-            }
-            for x in rows
-        ],
+        "items": items,
     }
 
 

@@ -1185,6 +1185,17 @@ class FavoritesRepository:
         )
         return set(rows.all())
 
+    async def count_known_gids(self, favcat: int) -> int:
+        """Number of favorite items recorded locally for a folder."""
+        return int(
+            await self.session.scalar(
+                select(func.count()).select_from(FavoriteItem).where(
+                    FavoriteItem.favcat == favcat
+                )
+            )
+            or 0
+        )
+
     async def existing_gallery_gids(self, gids: list[int]) -> set[int]:
         """gids that already exist in the local library (galleries table).
 

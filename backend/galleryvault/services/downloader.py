@@ -93,6 +93,39 @@ class Downloader:
         self.page_concurrency = max(1, min(page_concurrency, 16))
         self._gids: set[int] = set()
         self._lock = asyncio.Lock()
+        # Live speed/ETA stats per gallery, keyed by gid, fed by every page
+        # write and consumed by the downloads API (Downloader.speed_stats).
+        self._stats: dict[int, dict[str, object]] = {}
+        self._stats_lock = asyncio.Lock()
+
+    async def speed_stats(
+        self, gid: int, *, current_page: int = 0, total_pages: int | None = None
+    ) -> dict[str, object] | None:
+        """Compute download speed (bytes/s) and ETA (seconds) for ``gid``."""
+        import time as _time
+
+        stat = self._stats.get(int(gid))
+        if stat is None:
+            return None
+        elapsed = max(1.0, _time.time() - float(stat["started_at"]))
+        speed = float(stat["bytes"]) / elapsed
+        done = max(1, int(stat.get("done") or 1))
+        remaining = max(0, (int(total_pages or 0) - int(current_page)))
+        eta = remaining * (elapsed / done)
+        return {"speed": round(speed, 1), "eta_seconds": round(eta, 1)}
+
+    async def _record_bytes(self, gid: int, count: int, done: int) -> None:
+        import time as _time
+
+        async with self._stats_lock:
+            stat = self._stats.setdefault(
+                int(gid), {"bytes": 0, "started_at": _time.time(), "done": 0}
+            )
+            stat["bytes"] = int(stat["bytes"]) + count
+            stat["done"] = int(stat.get("done") or 0) + done
+
+    def _clear_stats(self, gid: int) -> None:
+        self._stats.pop(int(gid), None)
 
     async def enqueue(self, task: DownloadTask) -> bool:
         async with self._lock:
@@ -112,6 +145,7 @@ class Downloader:
         finally:
             async with self._lock:
                 self._gids.discard(task.gid)
+            self._clear_stats(task.gid)
 
     async def _execute_with_retries(
         self, task: DownloadTask, progress: ProgressCallback | None = None
@@ -177,6 +211,7 @@ class Downloader:
                     shutil.copy2(existing, temp / existing.name)
             if existing is not None:
                 downloaded.add(index)
+                await self._record_bytes(gallery.gid, 0, 1)
                 await _report_progress()
                 return
             async with worker_semaphore:
@@ -212,6 +247,7 @@ class Downloader:
                             extension = ".jpg"
                         (temp / f"{index + 1:08d}{extension}").write_bytes(data)
                         downloaded.add(index)
+                        await self._record_bytes(gallery.gid, len(data), 1)
                         break
                     except DownloadCancelledError:
                         raise

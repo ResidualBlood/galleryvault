@@ -389,21 +389,65 @@ class EhClient:
         # galleries are downloaded, not just the first screenful.
         page_hrefs: list[str] = []
         seen: set[str] = set()
-        for offset in range(512):
-            page_body = body if offset == 0 else None
-            if page_body is None:
-                page_response = await self._get(f"{base}?p={offset}")
-                page_body = page_response.text
+
+        def _collect_hrefs(page_body: str, limit: int | None = None) -> int:
+            """Collect viewer hrefs from one gallery page; returns count added."""
             collected = 0
-            for href in re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', page_body, re.IGNORECASE):
+            for href in re.findall(
+                r'<a[^>]+href=["\']([^"\']+)["\']', page_body, re.IGNORECASE
+            ):
                 if re.search(r"/s/", href) and href not in seen:
                     seen.add(href)
                     page_hrefs.append(href)
                     collected += 1
-            if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
-                page_hrefs = page_hrefs[:max_pages]
+            if limit is not None and limit > 0 and len(page_hrefs) >= limit:
+                del page_hrefs[limit:]
+                seen.clear()
+                seen.update(page_hrefs)
+            return collected
+
+        # Size the enumeration with gdata's filecount so the gallery sub-pages
+        # can be fetched concurrently instead of serially (a 255-page gallery
+        # previously walked 13 pages one at a time).
+        estimate = 0
+        try:
+            gdata = await self.fetch_gmetadata([(int(gid), token)])
+            info = gdata.get(int(gid)) or {}
+            estimate = int(info.get("file_count") or 0)
+        except Exception:  # noqa: BLE001 - fall back to sequential enumeration
+            estimate = 0
+        gallery_pages = max(1, (estimate + 19) // 20) if estimate > 0 else 0
+        _collect_hrefs(body, max_pages)
+        start = 1
+        if gallery_pages > 1:
+            offsets = list(range(1, min(gallery_pages, 512)))
+
+            async def _fetch_page(offset: int) -> tuple[int, str]:
+                page_response = await self._get(f"{base}?p={offset}")
+                return offset, page_response.text
+
+            fetched: dict[int, str] = {}
+            try:
+                for offset, text in await asyncio.gather(
+                    *(_fetch_page(o) for o in offsets)
+                ):
+                    fetched[offset] = text
+            except Exception:  # noqa: BLE001 - redo the range serially below
+                fetched = {}
+            if fetched:
+                for offset in sorted(fetched):
+                    if _collect_hrefs(fetched[offset], max_pages) == 0:
+                        break
+                    if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
+                        break
+                # The gdata filecount may be stale or undercount: keep walking
+                # from the end of the concurrent batch until a page is empty.
+                start = max(offsets) + 1
+        for offset in range(start, 512):
+            page_response = await self._get(f"{base}?p={offset}")
+            if _collect_hrefs(page_response.text, max_pages) == 0:
                 break
-            if offset > 0 and collected == 0:
+            if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
                 break
         pages: list[GalleryPageData] = []
         showkey: str | None = None
@@ -811,6 +855,19 @@ class EhClient:
                             "ExHentai authentication is required or expired"
                         )
                     response.raise_for_status()
+                    # Anti-hijack guard (Ehviewer_CN_SXJ mirrors this): if a
+                    # redirect or a MITM sent us to a host outside ExHentai's own
+                    # CDN/infra, the response is not the requested image.
+                    final_host = (urlparse(str(response.url)).hostname or "").lower()
+                    if (
+                        final_host != host
+                        and not final_host.endswith("hath.network")
+                        and not final_host.endswith(".ehgt.org")
+                        and final_host not in {"exhentai.org", "e-hentai.org"}
+                    ):
+                        raise EhClientError(
+                            f"image download redirected to unexpected host: {final_host}"
+                        )
                     chunks: list[bytes] = []
                     total = 0
                     async for chunk in response.aiter_bytes():

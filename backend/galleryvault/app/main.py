@@ -1892,7 +1892,9 @@ async def _favorite_size_sync(favcat: int) -> None:
 
 
 
-async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
+async def _run_favorites_check(
+    favcat: int, service: FavoritesService, *, scheduled: bool = False
+) -> None:
     entry: dict[str, object] = {
         "running": True,
         "started": datetime.now(UTC).isoformat(),
@@ -1917,11 +1919,37 @@ async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
                 extra=log_extra(favcat=favcat, error=type(exc).__name__),
             )
 
+        async with _settings_session() as session:
+            category = await FavoritesRepository(session).category(favcat)
+        # Scheduled polls skip the full re-list when the folder count on the
+        # cloud matches the galleries we already recorded from a previous
+        # successful check.  A big folder (several thousand items) otherwise
+        # re-walks every favorites page every poll for no new data.  Manual
+        # "check now" always does a full pass.
+        live_count = int(entry.get("total") or 0)
+        if scheduled and category is not None and category.last_success_at is not None:
+            try:
+                async with _settings_session() as session:
+                    known = await FavoritesRepository(session).count_known_gids(favcat)
+                if live_count > 0 and known == live_count:
+                    entry["done"] = entry["total"] = live_count
+                    entry["skipped"] = True
+                    async with _settings_session() as session, session.begin():
+                        await FavoritesRepository(session).checked(favcat, True)
+                    logger.info(
+                        "favorites check skipped (cloud count unchanged)",
+                        extra=log_extra(favcat=favcat, cloud=live_count, known=known),
+                    )
+                    return
+            except Exception as exc:  # noqa: BLE001 - fall through to a full check
+                logger.warning(
+                    "favorites skip heuristic failed",
+                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                )
+
         def _progress(done: int) -> None:
             entry["done"] = done
 
-        async with _settings_session() as session:
-            category = await FavoritesRepository(session).category(favcat)
         # A disabled folder is check-only: record entries but never download. It
         # only starts downloading once the user enables the folder.
         if category is not None and not category.enabled:
@@ -1996,7 +2024,10 @@ async def _favorites_poll_loop() -> None:
                     elapsed = (datetime.now(UTC) - category.last_checked_at).total_seconds()
                     if elapsed < max(60, category.poll_interval_seconds):
                         continue
-                _spawn(_run_favorites_check(favcat, service), "scheduled favorites check")
+                _spawn(
+                    _run_favorites_check(favcat, service, scheduled=True),
+                    "scheduled favorites check",
+                )
                 logger.info("scheduled favorites check", extra=log_extra(favcat=favcat))
             except Exception as exc:  # noqa: BLE001 - one category must not stop the scheduler
                 logger.error(
