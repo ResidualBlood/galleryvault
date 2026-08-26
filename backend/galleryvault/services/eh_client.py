@@ -658,6 +658,21 @@ class EhClient:
         params: dict[str, object] = {"favcat": int(favcat)}
         while True:
             response = await self._get(url, params=params)
+            # The cover thumbnail lives in a SEPARATE link (the glthumb cell)
+            # from the title link the loop below matches, so map gid -> thumb
+            # from the whole page once and look it up per item.
+            thumbs: dict[int, str] = {}
+            for tm in re.finditer(
+                r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>'
+                r'\s*<img[^>]+src=["\']([^"\']+)["\']',
+                response.text,
+                re.IGNORECASE | re.DOTALL,
+            ):
+                try:
+                    tgid, _ = parse_gallery_url(tm.group(1), self.settings.exhentai_base_url)
+                except ValueError:
+                    continue
+                thumbs[tgid] = html.unescape(tm.group(2))
             items: list[FavoriteData] = []
             for href, label in re.findall(
                 r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>(?![^<]*<img)(.*?)</a>',
@@ -679,16 +694,13 @@ class EhClient:
                     re.IGNORECASE | re.DOTALL,
                 )
                 title = _text(glink.group(1)) if glink else _text(label)
-                # The gallery's cover thumbnail URL is inline in the listing;
-                # capturing it here means a favorites check can warm cover files
-                # without a separate gdata round-trip.
-                thumb_match = re.search(
-                    r'<img[^>]+src=["\']([^"\']+)["\']', label, re.IGNORECASE
-                )
-                thumb = html.unescape(thumb_match.group(1)) if thumb_match else None
                 items.append(
                     FavoriteData(
-                        gid, token, title, urljoin(str(response.url), href), thumb
+                        gid,
+                        token,
+                        title,
+                        urljoin(str(response.url), href),
+                        thumbs.get(gid),
                     )
                 )
             if not items:
