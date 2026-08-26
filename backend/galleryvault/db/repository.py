@@ -646,7 +646,6 @@ class GalleryRepository:
                     "rating": e.get("rating"),
                     "posted_at": posted_at,
                     "expunged": bool(e.get("expunged")),
-                    "thumb": e.get("thumb") or None,
                     "tags": tags,
                     "updated_at": now,
                 }
@@ -714,7 +713,6 @@ class GalleryRepository:
                 "rating": row.rating,
                 "posted_at": row.posted_at,
                 "expunged": row.expunged,
-                "thumb": row.thumb,
                 "tags": tags,
             }
         return result
@@ -780,20 +778,12 @@ class GalleryRepository:
         return result.rowcount or 0
 
     async def cold_metadata_gids(self, favcat: int, limit: int = 500) -> list[tuple[int, str]]:
-        """``(gid, token)`` for folder galleries missing metadata OR its thumb.
-
-        Including thumb-less rows lets the metadata sync re-fetch gdata for
-        items whose cover file is missing, so the lazily-downloaded favorites
-        covers can heal themselves on the next check.
-        """
+        """``(gid, token)`` for folder galleries missing from the metadata cache."""
         rows = await self.session.execute(
             select(FavoriteItem.gid, FavoriteItem.token)
             .select_from(FavoriteItem)
             .outerjoin(GalleryMetadata, GalleryMetadata.gid == FavoriteItem.gid)
-            .where(
-                FavoriteItem.favcat == favcat,
-                (GalleryMetadata.gid.is_(None)) | (GalleryMetadata.thumb.is_(None)),
-            )
+            .where(FavoriteItem.favcat == favcat, GalleryMetadata.gid.is_(None))
             .limit(limit)
         )
         return [(int(row[0]), str(row[1])) for row in rows]

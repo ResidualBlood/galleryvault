@@ -1834,6 +1834,18 @@ async def _favorite_size_sync(favcat: int) -> None:
                     await GalleryRepository(session).upsert_metadata(
                         [{"gid": gid, **meta} for gid, meta in metadata.items()]
                     )
+                # Warm the folder's cover files on disk while the fresh gdata
+                # response still carries the thumb URLs (a favorites check is
+                # meant to pull covers, tags and sizes together).  Already-cached
+                # files are skipped; failures are best-effort — the lazy items
+                # endpoint still fetches stragglers from disk-first.
+                try:
+                    await _remote_cover_data_batch(pairs, metadata)
+                except Exception as exc:  # noqa: BLE001 - covers are best-effort
+                    logger.warning(
+                        "favorite cover download failed",
+                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                    )
                 total_cached += len(metadata)
                 metadata_sync_state["total"] = int(metadata_sync_state["total"]) + len(pairs)
                 metadata_sync_state["done"] = int(metadata_sync_state["done"]) + len(metadata)
@@ -2221,9 +2233,7 @@ async def _favorites_metadata(pairs: list[tuple[int, str]]) -> dict[int, dict[st
         posted = meta.get("posted_at")
         merged[int(gid)] = {
             "token": meta.get("token") or "",
-            # Persist the thumb URL so the lazy cover downloader can fetch a
-            # missing disk cover even for cached items.
-            "thumb": meta.get("thumb") or "",
+            "thumb": "",
             "title": meta.get("title") or "",
             "title_jpn": meta.get("title_jpn"),
             "category": meta.get("category"),
