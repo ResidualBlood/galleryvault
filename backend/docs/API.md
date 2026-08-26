@@ -20,6 +20,7 @@ authenticated session cookie. Unauthenticated `/api/*` requests receive
 | GET | `/healthz` | no | `{status: "ok"}` — liveness probe (used by the compose healthcheck). `503` when the database is unreachable. |
 | GET | `/metrics` | no | Prometheus-text request counters (`gv_http_requests_total`, `gv_http_errors_total`). |
 | GET | `/api/auth/session` | yes | `{authenticated, auth_required, must_change_password}` or `401`. |
+| GET | `/api/onboarding/status` | yes | `{password_default, exhentai_configured, library_count}` — setup progress for the first-run wizard. |
 | POST | `/login` | no | Form field `password`. Success sets the session cookie and redirects (`303`) to `/`; failure redirects to `/login?error=1`. |
 | POST | `/logout` | no | Clears the session cookie, redirects to `/login`. |
 | POST | `/api/auth/change-password` | yes | JSON `{current, new}`. `403` if current is wrong; `204` on success. Persists the new hash in the DB so it survives restarts. |
