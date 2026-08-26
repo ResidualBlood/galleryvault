@@ -102,6 +102,7 @@ const I18N = {
     welcomePasswordTitle: "Change the default password", welcomePasswordDesc: "Your instance is still using the built-in default password. Set a strong one now.",
     welcomeCookieTitle: "Connect ExHentai", welcomeCookieDesc: "Paste the cookies from a logged-in ExHentai browser session to enable metadata sync and downloads.",
     welcomeImportTitle: "Fill your library", welcomeImportDesc: "Scan the library folders, or check your ExHentai favorites to download what's missing.",
+    welcomeImportHint: "Tip: check your ExHentai favorites first — it caches metadata (tags, sizes, posted dates) so the library scan and tag sync are much faster afterwards.",
     welcomeFinish: "Finish setup", welcomeLater: "Do this later", welcomeDone: "Done — welcome aboard!",
     stepDone: "done", stepNotDone: "pending",
     groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages" },
@@ -208,6 +209,7 @@ const I18N = {
     welcomePasswordTitle: "修改默认密码", welcomePasswordDesc: "你的实例还在使用内置的默认密码。现在设置一个强密码。",
     welcomeCookieTitle: "连接 ExHentai", welcomeCookieDesc: "从已登录的 ExHentai 浏览器会话中粘贴 cookie，即可启用元数据同步与下载。",
     welcomeImportTitle: "填充你的画廊库", welcomeImportDesc: "扫描库目录，或检查 ExHentai 收藏夹并下载缺失的画廊。",
+    welcomeImportHint: "提示：建议先「检查所有收藏夹」——它会缓存元数据（标签/大小/发布时间），之后扫描库和标签同步会快得多。",
     welcomeFinish: "完成设置", welcomeLater: "稍后再说", welcomeDone: "完成，欢迎使用！",
     stepDone: "已完成", stepNotDone: "待完成",
     groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
@@ -449,9 +451,10 @@ async function renderWelcome() {
       </div>
     </div>`;
   const importBlock = st.library_count > 0 ? `<p class="w-ok">${esc(t("stepDone"))} (${st.library_count})</p>` : `
+    <p>${esc(t("welcomeImportHint"))}</p>
     <div class="w-btns">
-      <button class="primary" data-action="welcome-scan" type="button">${esc(t("scan"))}</button>
-      <button class="secondary" data-action="welcome-check-favs" type="button">${esc(t("checkAll"))}</button>
+      <button class="primary" data-action="welcome-check-favs" type="button">${esc(t("checkAll"))}</button>
+      <button class="secondary" data-action="welcome-scan" type="button">${esc(t("scan"))}</button>
     </div>`;
   $view().innerHTML = `
     <div class="welcome">
