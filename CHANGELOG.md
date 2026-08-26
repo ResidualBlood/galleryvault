@@ -12,6 +12,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cookies → fill-the-library steps, shown while the default password is in use.
   New endpoint `GET /api/onboarding/status`.
 
+### Changed
+
+- Tag sync now **waits for a running favorites check**: galleries whose
+  metadata cache entry isn't populated yet are re-queued and retried (bounded,
+  so non-favorites galleries still sync) instead of doing a redundant
+  one-by-one ExHentai fetch that the gdata batch is about to cover.
+
 ## [1.0.0] - 2026-08-26
 
 First tagged release. GalleryVault is a feature-complete, self-hosted local
