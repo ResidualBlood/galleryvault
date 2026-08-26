@@ -1570,16 +1570,8 @@ async def _run_duplicates_scan() -> None:
             cloud_pairs = [
                 (it["gid"], it["token"]) for it in group_items if it["gallery_id"] is None
             ]
-            gmeta: dict[int, dict[str, object]] = {}
             duplicates_state["stage"] = "enriching"
-            if cloud_pairs and app.state.eh_client is not None:
-                try:
-                    gmeta = await app.state.eh_client.fetch_gmetadata(cloud_pairs)
-                except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
-                    logger.warning(
-                        "duplicate gdata enrichment failed",
-                        extra=log_extra(error=type(exc).__name__),
-                    )
+            gmeta = await _favorites_metadata(cloud_pairs) if cloud_pairs else {}
             for it in group_items:
                 if it["gallery_id"] is not None:
                     it["title_jpn"] = (gallery_titles.get(it["gid"], (None, None)))[1]
@@ -2112,6 +2104,59 @@ def _unix_to_iso(value: object) -> str | None:
         return None
 
 
+async def _favorites_metadata(pairs: list[tuple[int, str]]) -> dict[int, dict[str, object]]:
+    """DB-first metadata for cloud favorite pairs, in the gdata response shape.
+
+    A favorites check warms the ``gallery_metadata`` cache for the whole folder,
+    so browsing/managing favorites must read the database, not ExHentai — only
+    gids that have never been cached are fetched from ExHentai. Keeps the
+    thumbnails on disk (already downloaded during the check) working because the
+    cover loader checks the filesystem cache first.
+    """
+    if not pairs:
+        return {}
+    gids = [gid for gid, _ in pairs]
+    try:
+        async with _settings_session() as session:
+            cached = await GalleryRepository(session).metadata_map(gids)
+    except Exception as exc:  # noqa: BLE001 - DB down: fall through to cloud
+        logger.warning(
+            "favorites metadata cache read failed",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        cached = {}
+    merged: dict[int, dict[str, object]] = {}
+    for gid, meta in cached.items():
+        tags = meta.get("tags") or []
+        gtags = [f"{ns}:{name}" if ns else str(name) for ns, name in tags if name]
+        posted = meta.get("posted_at")
+        merged[int(gid)] = {
+            "token": meta.get("token") or "",
+            "thumb": "",
+            "title": meta.get("title") or "",
+            "title_jpn": meta.get("title_jpn"),
+            "category": meta.get("category"),
+            "file_count": meta.get("file_count") or 0,
+            "file_size": meta.get("file_size"),
+            "tags": gtags,
+            "posted": int(posted.timestamp()) if posted else 0,
+            "expunged": bool(meta.get("expunged")),
+            "uploader": meta.get("uploader"),
+            "rating": float(meta.get("rating") or 0),
+        }
+    missing = [(gid, token) for gid, token in pairs if gid not in merged]
+    if missing and app.state.eh_client is not None:
+        try:
+            gmeta = await app.state.eh_client.fetch_gmetadata(missing)
+            merged.update({int(gid): dict(m) for gid, m in gmeta.items()})
+        except Exception as exc:  # noqa: BLE001 - best-effort
+            logger.warning(
+                "favorites gdata fetch failed",
+                extra=log_extra(error=type(exc).__name__),
+            )
+    return merged
+
+
 def _parse_gdata_tags(raw_tags: list[str]) -> list[tuple[str | None, str]]:
     out = []
     for value in raw_tags:
@@ -2143,11 +2188,11 @@ async def _remote_cover_data_batch(
     semaphore = asyncio.Semaphore(8)
 
     async def fetch_one(gid: int, thumb_url: str) -> str | None:
-        if not thumb_url:
-            return None
         path = cache_dir / f"{gid}.img"
         if path.is_file():
             return _img_data_uri(path.read_bytes())
+        if not thumb_url:
+            return None
         async with semaphore:
             try:
                 response = await client.client.get(

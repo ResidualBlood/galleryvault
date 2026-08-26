@@ -46,14 +46,7 @@ async def favorite_items(
         for item, gallery in rows
         if gallery is None and item.token
     ]
-    metadata: dict[int, dict[str, object]] = {}
-    if cloud_pairs and main.app.state.eh_client is not None:
-        try:
-            metadata = await main.app.state.eh_client.fetch_gmetadata(cloud_pairs)
-        except Exception as exc:  # noqa: BLE001 - covers/metadata are best-effort
-            main.logger.warning(
-                "favorite gdata fetch failed", extra=log_extra(error=type(exc).__name__)
-            )
+    metadata = await main._favorites_metadata(cloud_pairs)
     cover_data = await main._remote_cover_data_batch(cloud_pairs, metadata)
     items = []
     for item, gallery in rows:
@@ -236,12 +229,7 @@ async def duplicates_ignored_list() -> list[dict[str, object]]:
                     for gid, detail in items.items()
                     if detail.get("gallery_id") is None and detail.get("token")
                 ]
-                gmeta: dict[int, dict[str, object]] = {}
-                if cloud_pairs and main.app.state.eh_client is not None:
-                    try:
-                        gmeta = await main.app.state.eh_client.fetch_gmetadata(cloud_pairs)
-                    except Exception:  # noqa: BLE001 - best-effort
-                        gmeta = {}
+                gmeta = await main._favorites_metadata(cloud_pairs) if cloud_pairs else {}
                 cover_map = await main._remote_cover_data_batch(cloud_pairs, gmeta)
                 for gid, detail in items.items():
                     if detail.get("gallery_id") is not None:
