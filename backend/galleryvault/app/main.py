@@ -1107,7 +1107,8 @@ async def _tag_sync_worker_loop() -> None:
                             cached_tags = bool(cached and cached.get("tags"))
                     if not cached_tags:
                         tag_sync_holds[gallery_id] = holds + 1
-                        _enqueue_tag_sync([gallery_id])
+                        tag_sync_queued.add(gallery_id)
+                        tag_sync_queue.put_nowait(gallery_id)
                         tag_sync_state["queued"] = tag_sync_queue.qsize()
                         await asyncio.sleep(interval[0])
                         return False
