@@ -17,4 +17,6 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 alembic upgrade head
-exec uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001
+# --proxy-headers: trust the nginx reverse proxy's X-Forwarded-* so login rate
+# limiting keys on the real client IP instead of the shared proxy IP.
+exec uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips="*"
