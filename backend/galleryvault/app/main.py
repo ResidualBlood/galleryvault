@@ -340,7 +340,7 @@ async def authentication(request: Request, call_next):
             from urllib.parse import urlparse as _origin_parse
 
             origin_host = _origin_parse(origin).hostname
-            request_hostname = request.headers.get("host", "").split(":", 1)[0]
+            request_hostname = _origin_parse("//" + request.headers.get("host", "")).hostname
             if origin_host and origin_host != request_hostname:
                 return HTMLResponse(
                     '{"detail":"Cross-origin request rejected"}',
