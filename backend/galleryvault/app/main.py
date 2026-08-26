@@ -1883,10 +1883,13 @@ async def _favorite_size_sync(favcat: int) -> None:
                             extra=log_extra(favcat=favcat, error=type(exc).__name__),
                         )
                         break
-                    await _remote_cover_data_batch(chunk, meta)
+                    await _remote_cover_data_batch(chunk, meta, quiet=True)
                     metadata_sync_state["done"] = (
                         int(metadata_sync_state["done"]) + len(meta)
                     )
+                    # Gentle pacing: a full folder of missing covers is a one-time
+                    # burst, and gdata/cover requests must not trip anti-abuse.
+                    await asyncio.sleep(1)
                 if coverless:
                     logger.info(
                         "favorite covers healed",
@@ -2338,13 +2341,17 @@ def _tags_to_gdata_strings(raw_tags: list[object]) -> list[str]:
 
 
 async def _remote_cover_data_batch(
-    pairs: list[tuple[int, str]], metadata: dict[int, dict[str, object]]
+    pairs: list[tuple[int, str]],
+    metadata: dict[int, dict[str, object]],
+    *,
+    quiet: bool = False,
 ) -> dict[int, str]:
     """Download (and cache) ExHentai cover thumbnails, returning base64 data URIs.
 
     One gdata metadata fetch already resolved the thumb URLs in bulk; this only
     downloads the small images, concurrently and cached under
-    ``/gv-cache/remote-covers/{gid}.img``.
+    ``/gv-cache/remote-covers/{gid}.img``.  ``quiet`` silences the per-cover
+    failure log, used when warming a whole folder (thousands of covers).
     """
     if not pairs:
         return {}
@@ -2374,9 +2381,10 @@ async def _remote_cover_data_batch(
                 tmp.replace(path)
                 return _img_data_uri(response.content)
             except Exception as exc:  # noqa: BLE001 - one cover must not fail the list
-                logger.warning(
-                    "remote cover download failed",
-                    extra=log_extra(gid=gid, error=type(exc).__name__),
+                if not quiet:
+                    logger.warning(
+                        "remote cover download failed",
+                        extra=log_extra(gid=gid, error=type(exc).__name__),
                 )
                 return None
 
