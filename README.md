@@ -99,6 +99,20 @@ docker compose up -d
 
 敏感信息（cookie、bot token、密码哈希）存储于 PostgreSQL，绝不通过 API 暴露。
 
+## 备份
+
+数据库是唯一必须备份的状态（画廊索引、设置、历史；缩略图与画廊文件本身可重建）。项目提供 `scripts/backup.sh`，在 `docker-compose.yml` 所在目录运行：
+
+```bash
+./scripts/backup.sh        # 生成 backups/galleryvault_<时间戳>.dump，保留最近 14 份
+```
+
+推荐通过 cron 每日执行，例如 `0 3 * * * cd /path/to/galleryvault && ./scripts/backup.sh`。恢复：
+
+```bash
+docker compose exec -T db pg_restore -U galleryvault -d galleryvault -c --if-exists < backups/galleryvault_<时间戳>.dump
+```
+
 ## 架构
 
 项目分为两个源码仓库，分别发布本仓库使用的 Docker 镜像：
