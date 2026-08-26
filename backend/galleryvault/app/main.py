@@ -109,6 +109,7 @@ tag_sync_state: dict[str, object] = {
 tag_sync_queue: asyncio.Queue[int] = asyncio.Queue()
 tag_sync_queued: set[int] = set()
 tag_sync_attempts: dict[int, int] = {}
+tag_sync_holds: dict[int, int] = {}
 tag_sync_worker_task = None
 translation_update_task = None
 _download_cancelled: set[int] = set()
@@ -1083,9 +1084,34 @@ async def _tag_sync_worker_loop() -> None:
     success_streak = [0]
     MAX_BACKOFF = 60.0
     MAX_ATTEMPTS = 8
+    MAX_TAG_SYNC_HOLDS = 120
 
-    async def _sync_one(gallery_id: int) -> None:
+    async def _sync_one(gallery_id: int) -> bool | None:
         try:
+            # Coordination with the favorites check: while a folder check is
+            # running, its gdata batches are populating the metadata cache. A
+            # gallery that isn't cached yet would otherwise be fetched one by
+            # one from ExHentai — a redundant network call the batch is about
+            # to cover. Hold such galleries (re-queue, retry shortly) until the
+            # check finishes; give up after MAX_TAG_SYNC_HOLDS so galleries
+            # that simply aren't in any favorite folder still sync.
+            if favorites_check_state.get("running"):
+                holds = tag_sync_holds.get(gallery_id, 0)
+                cached_tags = False
+                if holds < MAX_TAG_SYNC_HOLDS:
+                    async with _settings_session() as session:
+                        repo = GalleryRepository(session)
+                        gallery = await repo.get_for_tag_sync(gallery_id)
+                        if gallery is not None and gallery.gid is not None:
+                            cached = await repo.metadata_for_gid(gallery.gid)
+                            cached_tags = bool(cached and cached.get("tags"))
+                    if not cached_tags:
+                        tag_sync_holds[gallery_id] = holds + 1
+                        _enqueue_tag_sync([gallery_id])
+                        tag_sync_state["queued"] = tag_sync_queue.qsize()
+                        await asyncio.sleep(interval[0])
+                        return False
+                tag_sync_holds.pop(gallery_id, None)
             # Phase 1: read the gallery row + fetch metadata, WITHOUT holding a
             # DB transaction across the ExHentai round-trip.
             async with _settings_session() as session:
@@ -1102,6 +1128,7 @@ async def _tag_sync_worker_loop() -> None:
             success_streak[0] += 1
             if success_streak[0] >= 10 and interval[0] > base_interval:
                 interval[0] = max(base_interval, interval[0] / 2)
+            return True
         except GalleryGoneError as exc:
             # The gallery was deleted from ExHentai; nothing can be synced.
             # Mark it done so it stops cluttering the pending queue, without
@@ -1187,8 +1214,9 @@ async def _tag_sync_worker_loop() -> None:
                 tag_sync_state["started_at"] = datetime.now(UTC).isoformat()
                 tag_sync_state["history_recorded"] = False
             async with semaphore:
-                await _sync_one(gallery_id)
-            tag_sync_state["processed"] += 1
+                done = await _sync_one(gallery_id)
+            if done is not False:
+                tag_sync_state["processed"] += 1
             tag_sync_state["queued"] = tag_sync_queue.qsize()
             tag_sync_state["interval"] = interval[0]
             await asyncio.sleep(interval[0])
