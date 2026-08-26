@@ -62,7 +62,26 @@ docker compose up -d
 | `./downloads` | **下载目录**：从 ExHentai 下载的画廊存放于此，挂载至 `/downloads`，自动纳入扫描 |
 | `./cache` | **缩略图缓存**（自动生成），挂载至 `/gv-cache`，不会写入画廊目录 |
 
-库目录与下载目录在「设置」中分开配置：`library_roots`（只读，每行一个路径）与 `download_root`（下载目标）；下载目录始终会被扫描。更多库目录需在 `docker-compose.yml` 中挂载进容器。
+库目录与下载目录在「设置」中分开配置：`library_roots`（只读，每行一个路径）与 `download_root`（下载目标）；下载目录始终会被扫描。
+
+### 将其他 Ehviewer 下载目录作为「仅扫描不下载」的库
+
+如果你有多个存放 Ehviewer 下载内容的目录，想让它们都被扫描、但**新下载只写入** `download_root`，把它们挂载进 backend 容器（建议 `:ro` 只读，防止误写），再在「设置 → 库根目录（只读）」中把容器内路径加进去即可：
+
+```yaml
+    volumes:
+      - ./library:/library
+      - ./downloads:/downloads
+      - /mnt/你的/ehviewer下载目录:/Ehviewer2:ro   # 新增
+      - ./cache:/gv-cache
+```
+
+1. 在 `docker-compose.yml` 的 `backend.volumes` 下追加一行（宿主路径换成你的目录，容器内路径任取，如 `/Ehviewer2`）。
+2. 重启 backend（`docker compose up -d backend`）让挂载生效。
+3. 在「设置 → 库根目录（只读）」加入该容器内路径（每行一个）并保存。
+4. 点击「扫描库」开始索引（保存设置不会自动触发扫描）。
+
+`library_roots` 是只读库根：画廊会被索引、标签同步正常进行，但新下载只会落到 `download_root`，绝不会写入这些目录。容器需能读取宿主目录（权限 ≥ `755`）。
 
 ## 配置
 

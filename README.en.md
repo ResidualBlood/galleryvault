@@ -62,7 +62,26 @@ docker compose up -d
 | `./downloads` | **Download directory**: galleries downloaded from ExHentai, mounted at `/downloads`, scanned automatically |
 | `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache`; never written into the galleries |
 
-The library roots and the download root are configured separately in *Settings* (`library_roots`, read-only, one path per line) and `download_root` (download target); the download directory is always scanned. Additional library paths must be mounted into the container in `docker-compose.yml`.
+The library roots and the download root are configured separately in *Settings* (`library_roots`, read-only, one path per line) and `download_root` (download target); the download directory is always scanned.
+
+### Adding another Ehviewer download folder as a scan-only library
+
+If you have several folders full of Ehviewer downloads and want them all scanned while **new downloads only land in `download_root`**, mount each one into the backend container (use `:ro` to be safe) and add the in-container path under *Settings → Library roots (read-only)*:
+
+```yaml
+    volumes:
+      - ./library:/library
+      - ./downloads:/downloads
+      - /mnt/your/ehviewer/download-folder:/Ehviewer2:ro   # added
+      - ./cache:/gv-cache
+```
+
+1. Add a line under `backend.volumes` in `docker-compose.yml` (host path of your choice, any in-container path such as `/Ehviewer2`).
+2. Restart the backend (`docker compose up -d backend`) so the mount takes effect.
+3. In *Settings → Library roots (read-only)* add that in-container path (one per line) and save.
+4. Click **Scan library** to index it (saving settings does not auto-scan).
+
+`library_roots` are read-only: galleries are indexed and tag-synced normally, but downloads only ever go to `download_root` and are never written into these folders. The container must be able to read the host folder (permissions ≥ `755`).
 
 ## Configuration
 
