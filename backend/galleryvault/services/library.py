@@ -70,11 +70,21 @@ class LibraryService:
                 or (item.is_file() and item.suffix.casefold() in {".cbz", ".zip", ".cbr", ".rar"})
             )
 
-    def scan_batches(self) -> Iterator[list[GalleryMeta]]:
+    def scan_batches(self, should_stop=None) -> Iterator[list[GalleryMeta]]:
+        """Yield galleries in bounded batches.
+
+        ``should_stop`` (optional callable) is checked before every gallery so a
+        long scan can be cancelled between individual galleries instead of only
+        between batches. When it returns ``True`` the scan stops early and the
+        remaining galleries are skipped.
+        """
         counters = ScanCounters()
         batch: list[GalleryMeta] = []
         logger.info("library scan start", extra=log_extra(roots=[str(r) for r in self.roots]))
         for path in self.candidates():
+            if should_stop is not None and should_stop():
+                logger.info("library scan cancelled", extra=log_extra(processed=counters.scanned))
+                break
             counters.scanned += 1
             try:
                 key = hashlib.sha256(str(path.resolve()).encode()).hexdigest()

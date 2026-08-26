@@ -114,6 +114,9 @@ favorites_check_state: dict[str, object] = {
     "running": False,
     "categories": {},
     "last_error": None,
+    "started_at": None,
+    "completed_at": None,
+    "history_recorded": False,
 }
 duplicates_state: dict[str, object] = {
     "running": False,
@@ -139,6 +142,9 @@ translation_state: dict[str, object] = {
     "last": None,
     "last_error": None,
     "entries": 0,
+    "started_at": None,
+    "completed_at": None,
+    "history_recorded": False,
 }
 CSRF_COOKIE = "galleryvault_csrf"
 thumb_state: dict[str, object] = {
@@ -598,7 +604,7 @@ async def _run_scan() -> None:
                 batch_size=_settings().scan_batch_size,
                 known_signatures=known,
             )
-            iterator = service.scan_batches()
+            iterator = service.scan_batches(should_stop=lambda: _cancelled("scan"))
             while True:
                 if _cancelled("scan"):
                     break
@@ -756,6 +762,36 @@ async def background_task_logs() -> dict[str, object]:
                 "total": int(metadata_sync_state.get("total") or 0),
                 "stage": metadata_sync_state.get("stage"),
                 "cancellable": True,
+            }
+        )
+    if favorites_check_state["running"]:
+        running.append(
+            {
+                "task": "favcheck",
+                "started_at": favorites_check_state.get("started_at"),
+                "done": sum(
+                    int(item.get("done") or 0)
+                    for item in favorites_check_state.get("categories", {}).values()
+                    if isinstance(item, dict)
+                ),
+                "total": sum(
+                    int(item.get("total") or 0)
+                    for item in favorites_check_state.get("categories", {}).values()
+                    if isinstance(item, dict)
+                ),
+                "stage": None,
+                "cancellable": False,
+            }
+        )
+    if translation_state["running"]:
+        running.append(
+            {
+                "task": "translation",
+                "started_at": translation_state.get("started_at"),
+                "done": int(translation_state.get("entries") or 0),
+                "total": None,
+                "stage": None,
+                "cancellable": False,
             }
         )
     return {"running": running, "finished": list(task_history)}
@@ -980,7 +1016,11 @@ async def _fetch_translation_db() -> object:
 
 async def _translation_update_once() -> bool:
     """Download, merge and reset the live translation table. Returns success."""
+    if not translation_state["running"]:
+        translation_state["started_at"] = datetime.now(UTC).isoformat()
+        translation_state["history_recorded"] = False
     translation_state["running"] = True
+    ok = False
     try:
         data = await _fetch_translation_db()
         load_translations(reset=True)
@@ -989,15 +1029,27 @@ async def _translation_update_once() -> bool:
         translation_state["last"] = datetime.now(UTC).isoformat()
         translation_state["last_error"] = None
         logger.info("tag translations updated", extra=log_extra(entries=entries))
-        return True
+        ok = True
     except Exception as exc:  # noqa: BLE001 - a failed refresh must not stop the loop
         translation_state["last_error"] = f"{type(exc).__name__}: {exc}"
         logger.warning(
             "tag translation update failed", extra=log_extra(error=type(exc).__name__)
         )
-        return False
     finally:
         translation_state["running"] = False
+        translation_state["completed_at"] = datetime.now(UTC).isoformat()
+        if not translation_state["history_recorded"]:
+            translation_state["history_recorded"] = True
+            _record_task(
+                "translation",
+                translation_state.get("started_at"),
+                translation_state["completed_at"],
+                "success" if ok else "failed",
+                reason=translation_state.get("last_error") or "",
+                done=int(translation_state.get("entries") or 0),
+                total=0,
+            )
+    return ok
 
 
 async def _translation_update_loop() -> None:
@@ -2438,6 +2490,9 @@ async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
     assert isinstance(categories, dict)
     categories[str(favcat)] = entry
     favorites_check_state["running"] = True
+    if favorites_check_state.get("started_at") is None:
+        favorites_check_state["started_at"] = datetime.now(UTC).isoformat()
+        favorites_check_state["history_recorded"] = False
     try:
         try:
             counts = await _favorite_counts_cached()
@@ -2475,6 +2530,31 @@ async def _run_favorites_check(favcat: int, service: FavoritesService) -> None:
         favorites_check_state["running"] = any(
             item.get("running") for item in categories.values()
         )
+        if (
+            not favorites_check_state["running"]
+            and favorites_check_state.get("started_at")
+            and not favorites_check_state["history_recorded"]
+        ):
+            favorites_check_state["history_recorded"] = True
+            favorites_check_state["completed_at"] = datetime.now(UTC).isoformat()
+            _record_task(
+                "favcheck",
+                favorites_check_state.get("started_at"),
+                favorites_check_state["completed_at"],
+                "failed" if favorites_check_state.get("last_error") else "success",
+                reason=str(favorites_check_state.get("last_error") or ""),
+                done=sum(
+                    int(item.get("done") or 0)
+                    for item in categories.values()
+                    if isinstance(item, dict)
+                ),
+                total=sum(
+                    int(item.get("total") or 0)
+                    for item in categories.values()
+                    if isinstance(item, dict)
+                ),
+            )
+            favorites_check_state["started_at"] = None
 
 
 async def _favorites_poll_loop() -> None:
@@ -3219,6 +3299,11 @@ async def trigger_thumbnail_generation() -> dict[str, object]:
     """Queue every gallery missing thumbnails for background generation."""
     await _seed_thumbnails()
     thumb_state["running"] = True
+    # Nothing to do: record a no-op completion so the manual trigger still shows
+    # up in the activity log instead of silently doing nothing.
+    if thumb_queue.qsize() == 0 and not thumb_state.get("started_at"):
+        now = datetime.now(UTC).isoformat()
+        _record_task("thumbs", now, now, "success", reason="ok 0 / fail 0", done=0, total=0)
     return {
         "status": "running" if thumb_queue.qsize() else "started",
         "queued": thumb_queue.qsize(),
@@ -3238,6 +3323,19 @@ async def trigger_tag_sync() -> dict[str, object]:
             _enqueue_tag_sync(ids)
             seeded += len(ids)
             last_id = ids[-1]
+    # Nothing was queued: record a no-op completion so the manual trigger is
+    # still visible in the activity log.
+    if seeded == 0 and not tag_sync_state["running"]:
+        now = datetime.now(UTC).isoformat()
+        _record_task(
+            "tag-sync",
+            now,
+            now,
+            "success",
+            reason=f"ok {tag_sync_state.get('succeeded', 0)} / fail {tag_sync_state.get('failed', 0)}",
+            done=int(tag_sync_state.get("processed") or 0),
+            total=int(tag_sync_state.get("total") or 0),
+        )
     return {"status": "started", "queued": seeded}
 
 
