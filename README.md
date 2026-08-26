@@ -97,6 +97,8 @@ docker compose up -d
 - [开发指南](https://github.com/ResidualBlood/galleryvault/wiki/Development)
 - [常见问题](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
 
+产品规划与目标用户：[产品路线图](ROADMAP.md) · [目标用户画像](PERSONA.md) · [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
+
 ## 致谢
 
 - **Ehviewer_CN_SXJ**（[github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)）：画廊导出目录结构与命名约定、并发分页下载与断点续传、中文标签翻译反向检索的实现参考。
