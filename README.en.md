@@ -5,9 +5,9 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 [![Backend CI](https://github.com/ResidualBlood/galleryvault-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-backend/actions)
 [![Frontend CI](https://github.com/ResidualBlood/galleryvault-frontend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-frontend/actions)
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
-[![Docs](https://img.shields.io/badge/docs-wiki-9cf?logo=readthedocs)](https://residualblood.github.io/galleryvault/)
+[![Wiki](https://img.shields.io/badge/docs-wiki-9cf?logo=github)](https://github.com/ResidualBlood/galleryvault/wiki)
 
-[English](README.en.md) · [📖 Online docs](https://residualblood.github.io/galleryvault/)
+[English](README.en.md) · [📖 Online docs](https://github.com/ResidualBlood/galleryvault/wiki)
 
 [中文](README.md) · **English**
 

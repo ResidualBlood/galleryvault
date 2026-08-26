@@ -6,24 +6,28 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout wiki
+        uses: actions/checkout@v4
+        with:
+          repository: ResidualBlood/galleryvault.wiki
+          token: ${{ secrets.SYNC_TOKEN }}
 
       - name: Pull latest reference docs from galleryvault-backend
         run: |
-          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/API.md -o docs/api.md
-          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/DEVELOPMENT.md -o docs/development.md
+          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/API.md -o API.md
+          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/DEVELOPMENT.md -o Development.md
 
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/api.md docs/development.md
+          git add API.md Development.md
           git diff --cached --quiet && echo "no changes" && exit 0
           git commit -m "docs: sync API/development reference from galleryvault-backend"
           git push
