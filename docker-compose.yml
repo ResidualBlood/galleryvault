@@ -13,6 +13,13 @@ services:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
       TZ: Asia/Shanghai
+      # Optional at-rest encryption for ExHentai cookies / Telegram bot token /
+      # auth secrets. Set it ONCE to a long random string to enable; on an
+      # existing install, plaintext values are encrypted automatically at
+      # startup. Keep it OUT of the database backup and store it safely —
+      # losing it makes the encrypted values unrecoverable. Leave unset to
+      # keep storing them as plaintext.
+      # ENCRYPTION_KEY: change-me-to-a-long-random-string
     # The JSON API is only reachable through the frontend proxy; bind it to the
     # loopback interface so it is never exposed straight to the public network.
     ports: ["127.0.0.1:8001:8001"]

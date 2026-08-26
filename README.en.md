@@ -99,6 +99,23 @@ All settings are configured in the *Settings* page and persisted to PostgreSQL �
 
 Secrets (cookies, bot token, password hash) are stored in PostgreSQL and never exposed through the API.
 
+### Optional at-rest encryption
+
+By default the sensitive values are stored **in plaintext** in the database — anyone who gets the database (or a backup) can read them. To enable encryption at rest, set the `ENCRYPTION_KEY` environment variable on the backend service (a long random string):
+
+```yaml
+    environment:
+      ENCRYPTION_KEY: change-me-to-a-long-random-string
+```
+
+Once enabled (takes effect on the next start):
+
+- ExHentai cookies, the Telegram bot token, `auth_secret` and the password hash are stored encrypted (**AES-256-GCM**, `enc:v1:...`);
+- existing plaintext values are **migrated automatically** at startup — no downtime;
+- without `ENCRYPTION_KEY` everything keeps working unchanged (plaintext storage).
+
+**Important**: keep the key separate from the database backup and store it safely (e.g. a password manager) — **if the key is lost, the encrypted cookies / token / password hash cannot be decrypted** (you'd need a historical backup that still holds plaintext, or the original key).
+
 ## Backups
 
 The database is the only state that must be backed up (gallery index, settings, history; thumbnails and the gallery files themselves are rebuildable). A `scripts/backup.sh` is provided — run it from the directory containing `docker-compose.yml`:

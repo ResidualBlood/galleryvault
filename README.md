@@ -99,6 +99,23 @@ docker compose up -d
 
 敏感信息（cookie、bot token、密码哈希）存储于 PostgreSQL，绝不通过 API 暴露。
 
+### 静态加密（可选）
+
+默认情况下敏感信息在数据库中是**明文**存储的——任何拿到数据库（或备份）的人都能读到。要启用静态加密，为 backend 设置 `ENCRYPTION_KEY` 环境变量（一个足够长的随机串）：
+
+```yaml
+    environment:
+      ENCRYPTION_KEY: 请改成足够长的随机字符串
+```
+
+启用后（下次启动即生效）：
+
+- ExHentai cookies、Telegram bot token、`auth_secret`、密码哈希以 **AES-256-GCM** 加密存储（`enc:v1:...`）；
+- 已有明文值在启动时**自动迁移**为密文，无需停机；
+- 未设置 `ENCRYPTION_KEY` 时一切照旧（明文存储，行为不变）。
+
+**重要**：密钥必须独立于数据库妥善保管（例如密码管理器）。它与数据库备份分开放置——**密钥丢失后，已加密的 cookie / token / 密码哈希将无法解密**（需用仍含明文的历史备份或原密钥恢复）。
+
 ## 备份
 
 数据库是唯一必须备份的状态（画廊索引、设置、历史；缩略图与画廊文件本身可重建）。项目提供 `scripts/backup.sh`，在 `docker-compose.yml` 所在目录运行：
