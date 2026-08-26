@@ -1424,24 +1424,6 @@ async function loadFavNames() {
   } catch (_) {}
 }
 
-function dupThumbHtml(it) {
-  const src = it.gallery_id != null
-    ? `/api/galleries/${it.gallery_id}/thumb/0`
-    : (it.gid && it.token ? `/api/favorites/cover?gid=${it.gid}&token=${encodeURIComponent(it.token)}` : null);
-  return src ? `<img class="dup-thumb" loading="lazy" src="${src}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`;
-}
-
-function dupItemState(it) {
-  return it.gallery_id != null ? "local" : "cloud";
-}
-
-function applyDupFilter(groups) {
-  if (dupFilter === "all") return groups;
-  return groups
-    .map(g => ({ ...g, items: g.items.filter(it => dupItemState(it) === dupFilter) }))
-    .filter(g => g.items.length >= 1);
-}
-
 async function renderFavManage() {
   await loadFavNames();
   const filterBtn = (val, label) =>
@@ -1510,6 +1492,17 @@ function dupThumbHtml(it) {
     ? `/api/galleries/${it.gallery_id}/thumb/0`
     : (it.cover_data || null);
   return src ? `<img class="dup-thumb" loading="lazy" src="${src}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`;
+}
+
+function dupItemState(it) {
+  return it.gallery_id != null ? "local" : "cloud";
+}
+
+function applyDupFilter(groups) {
+  if (dupFilter === "all") return groups;
+  return groups
+    .map(g => ({ ...g, items: g.items.filter(it => dupItemState(it) === dupFilter) }))
+    .filter(g => g.items.length >= 1);
 }
 
 function renderDupGroups(st) {
