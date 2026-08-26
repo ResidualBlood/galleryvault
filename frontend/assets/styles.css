@@ -139,7 +139,12 @@ button:disabled { opacity: .5; cursor: default; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .gc:hover .gc-title { color: var(--accent); }
-.gc-tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; min-height: 16px; }
+.gc-tags {
+  margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; min-height: 16px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  max-height: 2.6em;
+}
+.gc-tags .nst { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* namespace colors (nhentai-like) */
 :root {
@@ -325,6 +330,7 @@ a.row:hover { border-color: var(--accent); }
 .fav-state.cloud { background: #24456e; color: #cfe3ff; }
 .gc-cover { position: relative; }
 .active-pill { border-color: var(--accent); color: var(--accent); background: rgba(88,101,242,.12); }
+.fav-state-filter { display: inline-flex; gap: 6px; margin-left: auto; }
 /* ---- Mobile ---- */
 @media (max-width: 900px) {
   .topbar { gap: 10px; padding: 0 10px; }

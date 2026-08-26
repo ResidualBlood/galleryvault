@@ -39,6 +39,8 @@ const I18N = {
     favManageSub: "Scan favorite folders for duplicate galleries (same work in different versions, e.g. DL / uncensored / language re-uploads).",
     favListSub: "Galleries in this favorite folder. Select and download or remove from favorites.",
     favDl: "Download selected", favDlQueued: "Download queued", favDlSkip: "already local/skipped",
+    downloadMissing: "Download missing items", downloadMissingStarted: "Backfilling covers & tags…",
+    favStateAll: "Show all", favStateLocal: "Local only", favStateCloud: "Cloud only",
     favRemove: "Remove from favorites", confirmFavRemove: "Remove selected from favorites?",
     dupScan: "Scan duplicates", dupUnfav: "Unfavorite", dupUnfavDelete: "Unfavorite & delete local",
     dupFilterAll: "All", dupFilterLocal: "Local only", dupFilterCloud: "Cloud only",
@@ -174,6 +176,8 @@ const I18N = {
     favcatTag: "收藏夹", favDate: "收藏", backToGallery: "返回画廊", postedDate: "发布于",
     favListSub: "该收藏夹内的画廊。勾选后可下载或从收藏移除。",
     favDl: "下载所选", favDlQueued: "已加入下载", favDlSkip: "已本地/跳过",
+    downloadMissing: "下载缺失项目", downloadMissingStarted: "正在补拉封面与标签…",
+    favStateAll: "全部显示", favStateLocal: "仅显示本地", favStateCloud: "仅显示云端",
     favRemove: "移除收藏", confirmFavRemove: "将所选从收藏夹移除？",
     dupScan: "开始扫描重复画廊", dupUnfav: "取消收藏", dupUnfavDelete: "取消收藏并删除已下载",
     dupFilterAll: "全部", dupFilterLocal: "只显示本地", dupFilterCloud: "只显示云端",
@@ -1296,6 +1300,7 @@ async function renderFavorites() {
       <button class="primary" data-action="favcats-save" type="button">${esc(t("save"))}</button>
       <button class="secondary" data-action="favcats-sync" type="button">${esc(t("syncFavcats"))}</button>
       <button class="secondary" data-action="favcats-check-all" type="button">${esc(t("checkAll"))}</button>
+      <button class="secondary" data-action="favcats-download-missing" type="button">${esc(t("downloadMissing"))}</button>
       <a class="secondary" href="#/favorites/manage" style="padding:8px 14px;border-radius:4px;margin-left:auto">${esc(t("favManage"))}</a>
     </div>
     <div id="fav-list"><p>${esc(t("loading"))}</p></div>`;
@@ -1328,10 +1333,13 @@ async function renderFavList() {
   const favcat = parseInt(app.params.id, 10);
   if (isNaN(favcat)) { location.hash = "#/favorites"; return; }
   const page = app.query.page || "1";
+  const state = app.query.state || "all";
   const selCount = selFav.size;
   const from = app.query.from;
   const backLinks = `<a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>`
     + (from ? ` <a class="link-button" href="#/gallery/${esc(from)}">← ${esc(t("backToGallery"))}</a>` : "");
+  const stateBtn = (s, label) =>
+    `<button class="secondary${state === s ? " active-pill" : ""}" data-action="favlist-state" data-state="${s}" type="button">${esc(label)}</button>`;
   $view().innerHTML = `
     <div class="toolbar" style="margin-bottom:0">
       ${backLinks}
@@ -1342,11 +1350,17 @@ async function renderFavList() {
       <button class="primary" data-action="favlist-download" data-favcat="${favcat}" type="button">${esc(t("favDl"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary danger" data-action="favlist-unfav" data-favcat="${favcat}" type="button">${esc(t("favRemove"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-clear" type="button">${esc(t("clearSel"))}</button>
+      <span class="fav-state-filter">
+        ${stateBtn("all", t("favStateAll"))}
+        ${stateBtn("local", t("favStateLocal"))}
+        ${stateBtn("cloud", t("favStateCloud"))}
+      </span>
     </div>
     <div id="fav-items"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="favlist-pager"></div>`;
   try {
-    const data = await api("GET", `/api/favorites/${favcat}/items?page=${encodeURIComponent(page)}&page_size=${app.query.page_size || 20}`);
+    const qs = `page=${encodeURIComponent(page)}&page_size=${app.query.page_size || 20}&state=${encodeURIComponent(state)}`;
+    const data = await api("GET", `/api/favorites/${favcat}/items?${qs}`);
     const el = document.getElementById("fav-items");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
     else {
@@ -1359,7 +1373,7 @@ async function renderFavList() {
     renderFavPager("favlist-pager", data, page);
     startInfinite(
       "fav-items",
-      p => api("GET", `/api/favorites/${favcat}/items?page=${encodeURIComponent(p)}&page_size=${app.query.page_size || 20}`),
+      p => api("GET", `/api/favorites/${favcat}/items?page=${encodeURIComponent(p)}&page_size=${app.query.page_size || 20}&state=${encodeURIComponent(state)}`),
       favCard,
     );
   } catch (e) { document.getElementById("fav-items").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
@@ -1390,10 +1404,11 @@ function renderFavPager(elId, data, page) {
   const el = document.getElementById(elId);
   if (!el || !data) return;
   const favcat = parseInt(app.params.id, 10);
+  const state = app.query.state || "all";
   const total = data.total, pageSize = data.page_size || 20;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const cur = parseInt(page, 10) || 1;
-  const qp = p => navHash("favlist", { id: favcat }, { page: p, page_size: pageSize });
+  const qp = p => navHash("favlist", { id: favcat }, { page: p, page_size: pageSize, state });
   const parts = [];
   if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
   for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) {
@@ -1648,6 +1663,15 @@ async function checkAllFavorites() {
   } catch (e) { toast(e.message); }
 }
 
+async function downloadMissingFavorites() {
+  try {
+    await api("POST", "/api/favorites/download-missing");
+    toast(t("downloadMissingStarted"));
+    if (app.view === "favorites") pollFavoriteRings();
+    else location.hash = "#/logs";
+  } catch (e) { toast(e.message); }
+}
+
 function onClick(e) {
   const el = e.target.closest("[data-action]");
   if (!el) return;
@@ -1676,6 +1700,8 @@ function onClick(e) {
   if (action === "favcats-save") { saveFavoriteCategories(); return; }
   if (action === "favcats-sync") { syncFavoriteCategories(); return; }
   if (action === "favcats-check-all") { checkAllFavorites(); return; }
+  if (action === "favcats-download-missing") { downloadMissingFavorites(); return; }
+  if (action === "favlist-state") { e.preventDefault(); location.hash = navHash("favlist", { id: app.params.id }, { ...app.query, state: el.getAttribute("data-state") || "all", page: undefined }); return; }
   if (action === "favcat-check") { checkFavoriteCategory(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-download") { favListDownload(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-unfav") { favListUnfavorite(el.getAttribute("data-favcat")); return; }
