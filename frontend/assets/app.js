@@ -75,6 +75,7 @@ const I18N = {
     retry: "Retry", retrySelected: "Retry selected", selectAll: "Select all",
     deleteDl: "Delete",
     downloading: "downloading", perPage: "per page",
+    readerFit: "Fit", readerFullscreen: "Fullscreen",
     delete: "Delete", deleteGallery: "Delete gallery", deleteFiltered: "Delete filtered",
     deleteFiles: "Also delete files on disk", confirmDelete: "Delete this gallery?",
     confirmDeleteFiltered: "Delete all matching galleries?", deleted: "Deleted",
@@ -163,6 +164,7 @@ const I18N = {
     retry: "重试", retrySelected: "重试所选", selectAll: "全选",
     deleteDl: "删除",
     downloading: "下载中", perPage: "每页",
+    readerFit: "适应", readerFullscreen: "全屏",
     delete: "删除", deleteGallery: "删除画廊", deleteFiltered: "删除筛选结果",
     unfavorite: "取消收藏", unfavoriteFail: "无法取消收藏", unfavorited: "已取消收藏",
     unfavoritedLocal: "云端移除失败，仅移除本地记录", confirmUnfavorite: "确定从收藏夹移除该画廊？",
@@ -401,6 +403,7 @@ function router() {
   if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
+  stopInfinite();
   switch (app.view) {
     case "browse": renderBrowse(); break;
     case "library": renderLibrary(); break;
@@ -528,6 +531,56 @@ async function galleryGrid(container, page, extraQuery) {
   return data;
 }
 
+// --- Infinite scroll -------------------------------------------------------
+// Appends later pages to a grid as the user nears the bottom. The existing
+// server-side pager stays as a fallback; navigation always re-renders.
+let infiniteState = null;
+function stopInfinite() {
+  if (infiniteState && infiniteState.observer) infiniteState.observer.disconnect();
+  infiniteState = null;
+}
+
+function startInfinite(containerId, fetchPage, buildItem) {
+  stopInfinite();
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const grid = container.querySelector(".grid.gc-grid");
+  if (!grid) return;
+  let page = parseInt((app.query.page || "1"), 10) || 1;
+  let loading = false;
+  let finished = false;
+  const sentinel = document.createElement("div");
+  sentinel.className = "inf-scroll-sentinel";
+  grid.appendChild(sentinel);
+  const observer = new IntersectionObserver(async (entries) => {
+    if (finished || loading) return;
+    if (!(entries[0] && entries[0].isIntersecting)) return;
+    loading = true;
+    try {
+      const data = await fetchPage(page + 1);
+      const items = (data && data.items) || [];
+      if (!items.length) { finished = true; sentinel.remove(); return; }
+      page = data.page || (page + 1);
+      sentinel.insertAdjacentHTML("beforebegin", items.map(buildItem).join(""));
+      if ((data.page * (data.page_size || 20)) >= (data.total || 0)) {
+        finished = true;
+        sentinel.remove();
+      }
+      if (containerId === "lib-grid") {
+        renderCardCheckboxes();
+      } else if (containerId === "fav-items") {
+        document.querySelectorAll('#fav-items input[data-fav-gid]').forEach(cb => {
+          cb.checked = selFav.has(parseInt(cb.dataset.favGid, 10));
+        });
+        renderCardCheckboxes();
+      }
+    } catch (_) { finished = true; sentinel.remove(); }
+    finally { loading = false; }
+  }, { rootMargin: "900px" });
+  observer.observe(sentinel);
+  infiniteState = { observer };
+}
+
 const PAGE_SIZES = [5, 20, 50, 100, 200, 500];
 
 function pageSizeSelect(current, view) {
@@ -648,6 +701,7 @@ async function renderLibrary() {
     renderCardCheckboxes();
     gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 20 }));
     bindTagSuggest();
+    startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
@@ -737,6 +791,10 @@ async function renderReader() {
         <div class="reader-bar toolbar">
           <a class="link-button" href="${navHash("gallery", { id })}">← ${esc(t("details"))}</a>
           <span>${page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
+          <span class="reader-actions">
+            <button class="secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
+            <button class="secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
+          </span>
         </div>
         ${preload}
         <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-next="${page + 1 < total ? page + 1 : ""}">
@@ -785,10 +843,37 @@ function bindReaderKeys() {
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) });
+    } else if (e.key === "f" || e.key === "F") {
+      e.preventDefault();
+      toggleReaderFullscreen();
     }
   };
   document.addEventListener("keydown", readerKeyHandler);
   document.addEventListener("click", readerKeyHandler);
+}
+
+function toggleReaderFullscreen() {
+  const root = document.documentElement;
+  try {
+    if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); }
+    else if (root.requestFullscreen) { root.requestFullscreen().catch(() => {}); }
+  } catch (_) { /* unsupported */ }
+}
+
+function toggleReaderFit() {
+  const img = document.getElementById("reader-img");
+  if (!img) return;
+  const fitted = img.classList.toggle("reader-fit");
+  if (fitted) {
+    // Refit the current page once to the new mode.
+    img.style.maxWidth = "none";
+    img.style.width = "100%";
+    img.style.height = "auto";
+  } else {
+    img.style.width = "";
+    img.style.maxWidth = "";
+    img.style.height = "";
+  }
 }
 
 async function goReaderNext(id) {
@@ -975,14 +1060,28 @@ async function renderDownloads() {
   }, 2000);
 }
 
+function fmtDur(seconds) {
+  const s = Math.max(0, Math.round(seconds || 0));
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60), rem = s % 60;
+  if (m < 60) return m + "m" + (rem ? " " + rem + "s" : "");
+  const h = Math.floor(m / 60), rm = m % 60;
+  return h + "h" + (rm ? " " + rm + "m" : "");
+}
+
 function dlProgressHtml(x) {
   const cur = x.current_page || 0;
   const total = x.total_pages;
   if (x.status === "downloading") {
+    let speed = "";
+    if (x.speed != null && x.speed > 0) {
+      speed = ` · ${fmtSize(Math.round(x.speed))}/s`;
+      if (x.eta_seconds != null && x.eta_seconds > 0) speed += ` · ETA ${fmtDur(x.eta_seconds)}`;
+    }
     if (total) {
       const pct = Math.min(100, Math.round((cur / total) * 100));
       return `<div class="dl-progress"><div class="dl-progress-bar" style="width:${pct}%"></div></div>
-        <span class="row-meta">${cur}/${total} · ${pct}%</span>`;
+        <span class="row-meta">${cur}/${total} · ${pct}%${speed}</span>`;
     }
     // Still enumerating the gallery / waiting to start: indeterminate bar.
     return `<div class="dl-progress dl-progress-indet"></div>
@@ -1258,6 +1357,11 @@ async function renderFavList() {
       renderCardCheckboxes();
     }
     renderFavPager("favlist-pager", data, page);
+    startInfinite(
+      "fav-items",
+      p => api("GET", `/api/favorites/${favcat}/items?page=${encodeURIComponent(p)}&page_size=${app.query.page_size || 20}`),
+      favCard,
+    );
   } catch (e) { document.getElementById("fav-items").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
@@ -1600,6 +1704,8 @@ function onClick(e) {
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
   if (action === "tag-ns") { e.preventDefault(); selectTagNamespace(el.getAttribute("data-ns")); return; }
+  if (action === "reader-fit") { toggleReaderFit(); return; }
+  if (action === "reader-fullscreen") { toggleReaderFullscreen(); return; }
 }
 
 function onSubmit(e) {
