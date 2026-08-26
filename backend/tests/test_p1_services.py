@@ -378,6 +378,45 @@ async def test_fetch_gallery_falls_back_to_html_when_showpage_fails() -> None:
 
 
 @pytest.mark.asyncio
+async def test_download_image_streams_with_content_length_check() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"\xff\xd8\xff" + b"x" * 500, headers={"content-type": "image/jpeg"})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        eh = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=client)
+        data, ctype = await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")
+        assert data.startswith(b"\xff\xd8\xff") and ctype == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_download_image_rejects_truncated_and_hijacked() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "redirect.jpg" in request.url.path:
+            return httpx.Response(302, headers={"location": "https://evil.example/x.jpg"})
+        if request.url.host == "evil.example":
+            return httpx.Response(200, content=b"\xff\xd8\xff" + b"y" * 100)
+        # Content-Length promises 500 bytes but only 10 arrive.
+        return httpx.Response(
+            200,
+            content=b"\xff\xd8\xff" + b"x" * 7,
+            headers={"content-type": "image/jpeg", "content-length": "500"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
+        eh = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=client)
+        from galleryvault.services.eh_client import EhClientError
+
+        with pytest.raises(EhClientError, match="redirected to unexpected host"):
+            await eh.download_image_with_metadata(
+                "https://node.hath.network/h/redirect.jpg"
+            )
+        with pytest.raises(EhClientError, match="incomplete"):
+            await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")
+
+
+@pytest.mark.asyncio
 async def test_fetch_gallery_enumerates_long_galleries_concurrently() -> None:
     """A 40-page gallery spans 2 gallery sub-pages; both must be collected."""
     page1 = "".join(f'<a href="/s/{pt:010x}/7-{i}">x</a>' for i, pt in enumerate(range(20), 1))

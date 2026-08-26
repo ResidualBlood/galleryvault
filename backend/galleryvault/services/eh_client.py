@@ -419,7 +419,10 @@ class EhClient:
         gallery_pages = max(1, (estimate + 19) // 20) if estimate > 0 else 0
         _collect_hrefs(body, max_pages)
         start = 1
-        if gallery_pages > 1:
+        truncated_by_limit = (
+            max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages
+        )
+        if gallery_pages > 1 and not truncated_by_limit:
             offsets = list(range(1, min(gallery_pages, 512)))
 
             async def _fetch_page(offset: int) -> tuple[int, str]:
@@ -443,12 +446,13 @@ class EhClient:
                 # The gdata filecount may be stale or undercount: keep walking
                 # from the end of the concurrent batch until a page is empty.
                 start = max(offsets) + 1
-        for offset in range(start, 512):
-            page_response = await self._get(f"{base}?p={offset}")
-            if _collect_hrefs(page_response.text, max_pages) == 0:
-                break
-            if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
-                break
+        if not truncated_by_limit:
+            for offset in range(start, 512):
+                page_response = await self._get(f"{base}?p={offset}")
+                if _collect_hrefs(page_response.text, max_pages) == 0:
+                    break
+                if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
+                    break
         pages: list[GalleryPageData] = []
         showkey: str | None = None
 
