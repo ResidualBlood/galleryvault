@@ -64,7 +64,7 @@ docker compose up -d
 
 ## 安全
 
-默认密码 `p1a2s3s4` 只供内网首次使用，公网部署前请在「设置」修改。后端 API 默认仅绑定 `127.0.0.1:8001`；可选启用**静态加密**（`ENCRYPTION_KEY`，保护 cookie / token / 密码哈希）。公网部署检查清单、TLS 与密钥丢失恢复见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) 与 [Wiki → 静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。
+默认密码 `p1a2s3s4` 只供内网首次使用，公网部署前请在「设置」修改。后端 API 默认仅绑定 `127.0.0.1:8001`；可选启用**静态加密**（`ENCRYPTION_KEY`，保护 cookie / token / 密码哈希）。给 PostgreSQL 设置独立强口令（`.env` 中 `POSTGRES_PASSWORD`）并妥善保管 `ENCRYPTION_KEY`。公网部署检查清单、TLS 与密钥丢失恢复见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) 与 [Wiki → 静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。
 
 ## 架构
 

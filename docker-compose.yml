@@ -10,7 +10,7 @@ services:
     image: residualblood/galleryvault-backend:latest
     container_name: galleryvault-backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
+      DATABASE_URL: postgresql+asyncpg://galleryvault:${POSTGRES_PASSWORD:-galleryvault}@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
       TZ: Asia/Shanghai
       # Optional at-rest encryption for ExHentai cookies / Telegram bot token /
@@ -46,7 +46,7 @@ services:
     container_name: galleryvault-db
     environment:
       POSTGRES_USER: galleryvault
-      POSTGRES_PASSWORD: galleryvault
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-galleryvault}
       POSTGRES_DB: galleryvault
       TZ: Asia/Shanghai
     volumes:
