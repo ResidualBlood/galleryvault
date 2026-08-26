@@ -6,6 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-08-26
+
+### Fixed
+
+- **Transient ExHentai challenge backoff no longer holds a database
+  connection**: the 30s pause before retrying a rate-challenged / reset
+  download used to run *inside* the status-update transaction, pinning a
+  connection-pool slot and the task row's lock for 30s. With concurrent
+  download failures this could exhaust the pool; the backoff now happens after
+  the transaction commits.
+- **Favorites folder rows are pruned when galleries leave the cloud folder**:
+  a successful full check now removes `favorite_items` rows for gids that were
+  unfavorited or expunged (they vanish from the ExHentai listing). Previously
+  those rows accumulated forever — the scheduled "cloud count unchanged → skip
+  re-list" heuristic stopped firing (every poll re-walked the folder) and
+  phantom cloud-only items lingered in lists.
+- **Favorites metadata-sync progress resets per run**: `total`/`done`/`applied`
+  counters accumulated across folders and invocations; the first sync of a
+  batch now starts them from zero so the Logs page shows the current run.
+- Removed a dead duplicate `return` in the tag-sync enqueue helper.
+- `/api/favorites/cover` reads the cached cover file once instead of twice.
+- **CI**: the backend image build now waits for the gitleaks secrets-scan job
+  before pushing to Docker Hub (previously only the test job gated it).
+
 ## [1.2.2] - 2026-08-26
 
 ### Added
@@ -154,7 +178,10 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.3
+[1.2.2]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.2
+[1.2.1]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.1
 [1.2.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.0.0
