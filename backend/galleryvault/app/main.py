@@ -664,6 +664,17 @@ async def logout():
     return response
 
 
+def _maybe_scan_after_download() -> None:
+    """Ingest freshly downloaded galleries by triggering a library scan.
+
+    The scan is idempotent and guarded by ``scan_lock``/``scan_state["running"]``,
+    so several downloads finishing close together only ever start one scan.
+    """
+    if scan_state.get("running"):
+        return
+    _spawn(_run_scan(), "library scan")
+
+
 async def _run_scan() -> None:
     async with scan_lock:
         persisted = 0
@@ -855,6 +866,8 @@ async def _run_download(task: DownloadTask) -> None:
             await app.state.telegram.send_message(
                 f"Download succeeded: {result.title or task.gid} ({result.pages} pages)"
             )
+        if completed:
+            _maybe_scan_after_download()
     except DownloadCancelledError:
         # The user cancelled mid-flight: drop the partial temp dir and leave
         # the task cancelled (do not retry or mark failed).
@@ -876,8 +889,16 @@ async def _run_download(task: DownloadTask) -> None:
             async with _settings_session() as session, session.begin():
                 row = await session.get(DownloadTaskModel, task.id)
                 if row and row.status != "cancelled":
+                    # A dead ExHentai session is not going to heal on its own;
+                    # fail immediately instead of burning max_retries of
+                    # pointless network round-trips against a redirect loop.
+                    auth_failure = "authenticat" in str(exc)
                     row.retry_count += 1
-                    row.status = "pending" if row.retry_count < row.max_retries else "failed"
+                    row.status = (
+                        "failed"
+                        if auth_failure or row.retry_count >= row.max_retries
+                        else "pending"
+                    )
                     row.error_message = f"{type(exc).__name__}: {exc}"
                     if row.status == "failed":
                         row.finished_at = datetime.now(UTC)

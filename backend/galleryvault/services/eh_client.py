@@ -355,6 +355,12 @@ class EhClient:
             gid, token = parse_gallery_url(str(gid), self.settings.exhentai_base_url)
         base = f"/g/{int(gid)}/{token}/"
         response = await self._get(base)
+        # A dead session bounces /g/<id>/<token>/ through the remoteapi.php
+        # login challenge and lands on the site root — the body then contains
+        # no gallery content at all. Detect that instead of parsing the empty
+        # page into a confusing per-gallery parse error.
+        if not str(response.url.path).startswith("/g/"):
+            raise EhClientError("ExHentai authentication is required or expired")
         body = response.text
         title, title_jpn = _parse_gallery_titles(body)
         # ExHentai lists roughly 20 page links per gallery page and paginates

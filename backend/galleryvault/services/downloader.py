@@ -153,6 +153,15 @@ class Downloader:
         downloaded: set[int] = set()
         first_error: Exception | None = None
         first_error_lock = asyncio.Lock()
+        done_count = 0
+        done_lock = asyncio.Lock()
+
+        async def _report_progress() -> None:
+            nonlocal done_count
+            async with done_lock:
+                done_count += 1
+            if progress is not None:
+                await progress(done_count, len(pages))
 
         async def _download_page(index: int, page: object) -> None:
             nonlocal first_error
@@ -168,6 +177,7 @@ class Downloader:
                     shutil.copy2(existing, temp / existing.name)
             if existing is not None:
                 downloaded.add(index)
+                await _report_progress()
                 return
             async with worker_semaphore:
                 url = self._resolve_image_url(page, quality)
@@ -190,6 +200,7 @@ class Downloader:
                     extension = ".jpg"
                 (temp / f"{index + 1:08d}{extension}").write_bytes(data)
                 downloaded.add(index)
+            await _report_progress()
 
         async def _worker(pair: tuple[int, object]) -> None:
             nonlocal first_error
@@ -212,6 +223,7 @@ class Downloader:
         )
         if first_error is not None:
             raise first_error
+        # Final pass writes the resume manifest (progress is reported live above).
         done = 0
         for index, page in enumerate(pages):
             if index not in downloaded:
@@ -223,8 +235,6 @@ class Downloader:
             (temp / ".download-manifest.json").write_text(
                 json.dumps({"gid": gallery.gid, "pages": done}), encoding="utf-8"
             )
-            if progress is not None:
-                await progress(done, len(pages))
         # Ehviewer VERSION2 reserves line 2 for the eight-digit start page.
         # When a partial (sample) download was requested via ``max_pages`` the
         # metadata must reflect only the pages actually written on disk.
