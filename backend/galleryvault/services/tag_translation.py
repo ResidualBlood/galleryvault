@@ -1,13 +1,19 @@
 """Chinese tag translation for ExHentai namespaces and tag names.
 
-Mirrors the behaviour of Ehviewer's bundled translation database and the
-ehsyringe/ehtagtranslation project: each tag is rendered as
-``<namespace label>: <translated name>`` where a translation is available.
+Mirrors the behaviour of Ehviewer's bundled translation database: each tag is
+rendered as ``<namespace label>: <translated name>`` where a translation is
+available.  The data source is the **EhTagTranslation/Database** project (the
+same one Ehviewer and 注射器 use):
 
-The bundled database lives in ``data/tag_translations.json`` and is generated
-from the EhTagTranslation/Database project (the source Ehviewer and 注射器 use).
-Namespace *labels* follow Ehviewer's CN convention; tag *names* come from the
-ehsyringe translation database.
+- The bundled ``data/tag_translations.json`` is generated from the project's
+  latest ``db.text.json`` release asset, so it works offline.
+- The runtime auto-updater refreshes from the same release on a schedule
+  (``tag_translation_update_interval_minutes``).
+
+Multi-value tags (ExHentai joins several with `` | ``) are looked up as a
+whole first and then value-by-value, so ``a | b`` renders as the re-joined
+translations when the whole string has no entry.  Namespace *labels* follow
+Ehviewer's CN convention; tag *names* come from the translation database.
 """
 
 from __future__ import annotations
@@ -197,6 +203,13 @@ def translate_tag(namespace: str | None, name: str) -> str:
             hit = table.get(name) or table.get(name.lower())
             if hit:
                 return clean_display(hit)
+    # Multi-value tags (ExHentai joins them with " | ") are stored split in the
+    # database, so look each value up separately and re-join the translations.
+    if " | " in name:
+        parts = [part.strip() for part in name.split(" | ")]
+        translated = [translate_tag(namespace, part) for part in parts]
+        if any(a != b for a, b in zip(parts, translated)):
+            return " | ".join(translated)
     return name
 
 
