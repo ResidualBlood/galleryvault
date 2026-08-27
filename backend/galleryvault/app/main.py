@@ -780,6 +780,24 @@ async def _ingest_downloaded_gallery(result) -> None:
         )
 
 
+def _scan_summary_message(last: dict, duplicates: int, duplicate_gids: list[int]) -> str:
+    """Human-readable scan completion message for Telegram notifications."""
+    parts = [
+        (
+            "Library scan complete: "
+            f"{last.get('persisted', 0)} new, {last.get('expunged', 0)} removed"
+        )
+    ]
+    if duplicates:
+        gids = duplicate_gids or []
+        suffix = ""
+        if gids:
+            shown = ", ".join(str(gid) for gid in gids[:5])
+            suffix = f" ({shown}{', …' if len(gids) > 5 else ''})"
+        parts.append(f"{duplicates} duplicate-copy group(s) found{suffix}")
+    return ", ".join(parts)
+
+
 async def _run_scan() -> None:
     async with scan_lock:
         persisted = 0
@@ -862,6 +880,7 @@ async def _run_scan() -> None:
                         "duplicate sync failed", extra=log_extra(error=type(exc).__name__)
                     )
                 scan_state["duplicates"] = len(service.last_duplicates)
+                scan_state["duplicate_gids"] = [group.gid for group in service.last_duplicates]
                 if _settings().auto_sync_tags:
                     try:
                         async with _settings_session() as session:
@@ -917,8 +936,11 @@ async def _run_scan() -> None:
                         )
                     else:
                         await app.state.telegram.send_message(
-                            "Library scan complete: "
-                            f"{last.get('persisted', 0)} new, {last.get('expunged', 0)} removed"
+                            _scan_summary_message(
+                                last,
+                                int(scan_state.get("duplicates") or 0),
+                                list(scan_state.get("duplicate_gids") or []),
+                            )
                         )
             except Exception as exc:  # noqa: BLE001 - notification must not break the scan
                 logger.warning(

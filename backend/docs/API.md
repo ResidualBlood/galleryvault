@@ -185,7 +185,7 @@ refresh is available via the button in Settings. Markdown icon syntax
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/scan` | Current scan status (`running`, `started_at`, `completed_at`, `scanned`, `persisted`, `success`, `errors`, `expunged`, `duplicates`, `last`). |
+| GET | `/api/scan` | Current scan status (`running`, `started_at`, `completed_at`, `scanned`, `persisted`, `success`, `errors`, `expunged`, `duplicates`, `duplicate_gids`, `last`). |
 | POST | `/api/scan` | `202` – trigger a library scan. |
 | GET | `/api/scan/duplicates` | Duplicate-copy groups found by the last scan. Each group (`gid`, `status` (`open`/`dismissed`), `policy`, `winner_path`) lists every physical copy with `path`, `key`, `gallery_id`, `storage_type`, `title`, `page_count`, `file_size`, `posted_at`, `is_current`, `tags`. |
 | POST | `/api/scan/duplicates/{gid}/resolve` | Body `{path, delete_others?}` – make `path` the stored copy (the gallery row is re-pointed at it). With `delete_others=true` the other copies are deleted from disk (paths must be inside the scan roots and listed in the group) and the group is dropped. |

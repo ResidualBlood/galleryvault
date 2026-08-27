@@ -153,3 +153,16 @@ def test_scan_manual_policy_ingests_nothing(tmp_path) -> None:
     assert galleries == []
     assert len(svc.last_duplicates) == 1
     assert svc.last_duplicates[0].winner is None
+
+
+def test_scan_summary_message_mentions_duplicates() -> None:
+    from galleryvault.app.main import _scan_summary_message
+
+    base = {"persisted": 6, "expunged": 0}
+    plain = _scan_summary_message(base, 0, [])
+    assert plain == "Library scan complete: 6 new, 0 removed"
+    with_dup = _scan_summary_message(base, 2, [1665763, 2862805])
+    assert "2 duplicate-copy group(s) found" in with_dup
+    assert "1665763" in with_dup and "2862805" in with_dup
+    capped = _scan_summary_message(base, 6, list(range(1, 7)))
+    assert "…" in capped and "1, 2, 3, 4, 5" in capped
