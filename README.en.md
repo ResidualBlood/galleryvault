@@ -14,7 +14,9 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 ## Features
 
 - **Local gallery library** — Scan Ehviewer export directories, CBZ/CBR files and plain image folders into a persistent, searchable index (PostgreSQL).
-- **Tag cloud and search** — Namespaced tags, a frequency-weighted tag cloud, and instant tag autocomplete.
+- **Tag cloud and search** — namespaced tags, a frequency-weighted tag cloud and
+  live search suggestions; **click any tag (in the tag cloud or on the gallery
+  detail page) to filter the library to every gallery carrying it**.
 - **Tag translations** — Pulls the latest EhTagTranslation database; Chinese input reverse-matches the translation table (typing 巨乳 suggests `big breasts`).
 - **Bilingual interface** — Full English and Chinese interface, switchable at any time; tags render their translations in the Chinese view.
 - **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery.
