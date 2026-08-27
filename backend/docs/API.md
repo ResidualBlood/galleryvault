@@ -79,6 +79,7 @@ curl -b cookies.txt http://localhost:8001/api/settings
   "telegram_chat_ids": ["12345"],
   "telegram_allowed_user_ids": [67890],
   "telegram_notify_level": "summary",
+  "duplicate_policy": "keep_first",
   "auth_required": true,
   "tag_translation_update_interval_minutes": 720,
   "favorites": [
@@ -94,6 +95,13 @@ derives `favorites_categories` from the enabled ones.
 buffers terminal download events into a single digest flushed when the queue is
 idle), `immediate` (one message per event, the legacy behaviour),
 `failures_only` (only final failures), or `off` (no automatic notifications).
+
+`duplicate_policy` decides how the library scan resolves a gallery (same gid)
+found under more than one scan root: `keep_first` (default, the already-stored
+copy wins), `prefer_more_pages`, `prefer_newer`, `prefer_larger`,
+`prefer_smaller`, or `manual` (never auto-resolve — everything is reported for
+manual cleanup on the *Duplicate copies* page). All duplicates are recorded in
+`duplicate_records` regardless of policy.
 
 ## Downloads
 
@@ -177,8 +185,13 @@ refresh is available via the button in Settings. Markdown icon syntax
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/scan` | Current scan status (`running`, `started_at`, `completed_at`, `scanned`, `persisted`, `success`, `errors`, `expunged`, `last`). |
+| GET | `/api/scan` | Current scan status (`running`, `started_at`, `completed_at`, `scanned`, `persisted`, `success`, `errors`, `expunged`, `duplicates`, `last`). |
 | POST | `/api/scan` | `202` – trigger a library scan. |
+| GET | `/api/scan/duplicates` | Duplicate-copy groups found by the last scan. Each group (`gid`, `status` (`open`/`dismissed`), `policy`, `winner_path`) lists every physical copy with `path`, `key`, `gallery_id`, `storage_type`, `title`, `page_count`, `file_size`, `posted_at`, `is_current`, `tags`. |
+| POST | `/api/scan/duplicates/{gid}/resolve` | Body `{path, delete_others?}` – make `path` the stored copy (the gallery row is re-pointed at it). With `delete_others=true` the other copies are deleted from disk (paths must be inside the scan roots and listed in the group) and the group is dropped. |
+| POST | `/api/scan/duplicates/{gid}/dismiss` | Hide a duplicate group (survives rescans until the copies actually change). |
+| POST | `/api/scan/duplicates/{gid}/restore` | Bring a dismissed group back. |
+| GET | `/api/scan/duplicates/thumb/{key}` | Lazily-generated JPEG cover thumbnail for one copy (cached under `/gv-cache/thumbs/dup/{key}/0.jpg`). |
 | GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
 | POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. |
 | POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |
