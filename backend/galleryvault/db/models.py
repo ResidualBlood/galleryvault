@@ -210,6 +210,28 @@ class DuplicateIgnore(Base):
     )
 
 
+class DuplicateRecord(Base):
+    """One duplicate-copy group detected by a library scan (one row per gid).
+
+    ``copies`` holds every physical copy of the gallery (path, title, page
+    count, size, posted date, tags...) so the cleanup page can show them all and
+    let the user pick which copy to keep.
+    """
+
+    __tablename__ = "duplicate_records"
+    gid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open | dismissed | resolved
+    policy: Mapped[str] = mapped_column(String(24), default="keep_first")
+    winner_path: Mapped[str | None] = mapped_column(Text)
+    copies: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)

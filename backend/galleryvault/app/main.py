@@ -797,11 +797,12 @@ async def _run_scan() -> None:
         _clear_cancelled("scan")
         try:
             async with _settings_session() as session:
-                known = await GalleryRepository(session).signatures(_scan_roots())
+                known = await GalleryRepository(session).existing_rows(_scan_roots())
             service = LibraryService(
                 _scan_roots(),
                 batch_size=_settings().scan_batch_size,
-                known_signatures=known,
+                existing=known,
+                duplicate_policy=_settings().duplicate_policy,
             )
             iterator = service.scan_batches(should_stop=lambda: _cancelled("scan"))
             while True:
@@ -833,6 +834,34 @@ async def _run_scan() -> None:
                         _scan_roots(), service.seen_path_hashes
                     )
                 scan_state["expunged"] = expunged
+                # Persist duplicate-copy groups found by this scan, enriching
+                # each copy's tags from the gdata cache so the cleanup page can
+                # show them alongside size / page count / posted date.
+                try:
+                    if service.last_duplicates:
+                        async with _settings_session() as session:
+                            meta = await GalleryRepository(session).metadata_map(
+                                [group.gid for group in service.last_duplicates]
+                            )
+                            for group in service.last_duplicates:
+                                tags = (meta.get(group.gid) or {}).get("tags") or []
+                                for copy in group.all_copies():
+                                    copy.tags = [
+                                        {"namespace": t["namespace"], "name": t["name"]}
+                                        for t in tags
+                                    ]
+                        async with _settings_session() as session, session.begin():
+                            await GalleryRepository(session).sync_duplicates(
+                                service.last_duplicates
+                            )
+                    else:
+                        async with _settings_session() as session, session.begin():
+                            await GalleryRepository(session).sync_duplicates([])
+                except Exception as exc:  # noqa: BLE001 - reporting must not fail the scan
+                    logger.warning(
+                        "duplicate sync failed", extra=log_extra(error=type(exc).__name__)
+                    )
+                scan_state["duplicates"] = len(service.last_duplicates)
                 if _settings().auto_sync_tags:
                     try:
                         async with _settings_session() as session:
@@ -1550,6 +1579,7 @@ class SettingsRequest(BaseModel):
     tag_sync_interval_seconds: float | None = Field(default=None, gt=0)
     tag_sync_concurrency: int | None = Field(default=None, ge=1, le=32)
     generate_thumbnails: bool | None = None
+    duplicate_policy: str | None = None
 
     @model_validator(mode="after")
     def validate_values(self) -> "SettingsRequest":
@@ -1567,6 +1597,12 @@ class SettingsRequest(BaseModel):
         }:
             raise ValueError(
                 "telegram_notify_level must be 'summary', 'immediate', 'failures_only', or 'off'"
+            )
+        from ..services.duplicate_resolver import DUPLICATE_POLICIES
+
+        if self.duplicate_policy is not None and self.duplicate_policy not in DUPLICATE_POLICIES:
+            raise ValueError(
+                f"duplicate_policy must be one of {', '.join(DUPLICATE_POLICIES)}"
             )
         return self
 
@@ -1598,6 +1634,7 @@ def _settings_public() -> dict[str, object]:
         "tag_sync_interval_seconds": current.tag_sync_interval_seconds,
         "tag_sync_concurrency": current.tag_sync_concurrency,
         "generate_thumbnails": current.generate_thumbnails,
+        "duplicate_policy": current.duplicate_policy,
         "thumbnail_cache_dir": current.thumbnail_cache_dir,
         "auth_required": current.auth_required,
         "auth_hash_configured": _auth_hash_configured(),
@@ -1638,6 +1675,7 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "auth_required",
         "tag_translation_update_interval_minutes",
         "generate_thumbnails",
+        "duplicate_policy",
     }
     updates = {key: value for key, value in values.items() if key in allowed}
     if "library_roots" in updates:
@@ -2841,9 +2879,10 @@ async def change_password(body: ChangePasswordRequest) -> None:
 # Routers are wired at the very end so this module is fully initialized before
 # they import it (their handlers annotate parameters with e.g.
 # main.DownloadRequest, which must already exist).
-from .routers import core, downloads, favorites, galleries, settings, tags, tasks
+from .routers import core, downloads, duplicates, favorites, galleries, settings, tags, tasks
 
 app.include_router(tasks.router)
+app.include_router(duplicates.router)
 app.include_router(downloads.router)
 app.include_router(settings.router)
 app.include_router(galleries.router)

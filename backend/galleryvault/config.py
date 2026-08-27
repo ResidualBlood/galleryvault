@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     telegram_notify_level: str = "summary"
     favorites_categories: list[int] = Field(default_factory=lambda: list(range(8)))
     download_favorites_enabled: bool = False
+    duplicate_policy: str = "keep_first"
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
 
     @field_validator("library_roots", mode="before")
@@ -107,6 +108,10 @@ class Settings(BaseSettings):
             raise ValueError(
                 "telegram_notify_level must be 'summary', 'immediate', 'failures_only', or 'off'"
             )
+        from .services.duplicate_resolver import DUPLICATE_POLICIES
+
+        if self.duplicate_policy not in DUPLICATE_POLICIES:
+            raise ValueError(f"duplicate_policy must be one of {', '.join(DUPLICATE_POLICIES)}")
         return self
 
     @classmethod
@@ -180,6 +185,7 @@ EDITABLE_SETTINGS = {
     "auth_required",
     "tag_translation_update_interval_minutes",
     "generate_thumbnails",
+    "duplicate_policy",
 }
 
 

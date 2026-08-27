@@ -7,12 +7,13 @@ from sqlalchemy import and_, delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..scanners.base import GalleryMeta, normalize_category
+from ..scanners.base import ExistingGallery, GalleryMeta, normalize_category
 from .models import (
     AppConfig,
     DownloadAttempt,
     DownloadTask,
     DuplicateIgnore,
+    DuplicateRecord,
     FavoriteItem,
     FavoritesMonitor,
     Gallery,
@@ -261,27 +262,144 @@ class GalleryRepository:
             )
         await self.session.flush()
 
-    async def signatures(self, roots: Sequence[str | Path]) -> dict[str, tuple[str, str]]:
-        """Return path hash -> (signature, path) for roots, without scanning page data.
+    async def existing_rows(self, roots: Sequence[str | Path]) -> dict[str, ExistingGallery]:
+        """Return path hash -> gallery row for non-expunged rows under ``roots``.
 
-        Streams rows with ``yield_per`` so a library of hundreds of thousands of
-        galleries never materialises every ``Gallery`` ORM object at once; only
-        the three needed columns are fetched.
+        The richer payload (gid, title, size, posted date...) lets the library
+        scanner both skip unchanged copies by signature and fold already-ingested
+        copies into duplicate-copy resolution.  Streams with ``yield_per`` so a
+        library of hundreds of thousands of galleries never materialises every
+        ``Gallery`` ORM object at once.
         """
         if not roots:
             return {}
         normalized = [str(Path(root).resolve()) for root in roots]
         result = await self.session.stream(
-            select(Gallery.path_hash, Gallery.storage_signature, Gallery.storage_path).where(
-                Gallery.expunged.is_(False)
-            )
+            select(
+                Gallery.path_hash,
+                Gallery.storage_signature,
+                Gallery.storage_path,
+                Gallery.gid,
+                Gallery.id,
+                Gallery.storage_type,
+                Gallery.title,
+                Gallery.file_count,
+                Gallery.file_size,
+                Gallery.posted_at,
+            ).where(Gallery.expunged.is_(False))
         )
-        out: dict[str, tuple[str, str]] = {}
+        out: dict[str, ExistingGallery] = {}
         async for row in result:
-            storage_path = row._mapping["storage_path"]
-            if any(Path(storage_path).resolve().is_relative_to(root) for root in normalized):
-                out[row._mapping["path_hash"]] = (row._mapping["storage_signature"], storage_path)
+            m = row._mapping
+            path = m["storage_path"]
+            if any(Path(path).resolve().is_relative_to(root) for root in normalized):
+                out[m["path_hash"]] = ExistingGallery(
+                    path=path,
+                    signature=m["storage_signature"],
+                    gid=m["gid"],
+                    gallery_id=m["id"],
+                    storage_type=m["storage_type"],
+                    title=m["title"],
+                    file_count=m["file_count"],
+                    file_size=m["file_size"],
+                    posted_at=m["posted_at"],
+                )
         return out
+
+    async def sync_duplicates(self, groups) -> int:
+        """Persist the duplicate groups a scan just produced.
+
+        Open records are refreshed with the current copies; records the user
+        dismissed or resolved are left alone (their decision wins).  Records
+        whose gid is no longer duplicated (copy removed on disk, or resolved
+        for real) are deleted.
+        """
+        from ..services.duplicate_resolver import ResolvedGroup
+
+        groups = [group for group in groups if isinstance(group, ResolvedGroup)]
+        current = {group.gid for group in groups}
+        rows = list((await self.session.scalars(select(DuplicateRecord))).all())
+        by_gid = {row.gid: row for row in rows}
+        # Reconcile each copy against the row the gallery currently points at, so
+        # the cleanup page can show which copy is the ingested one (thumbnail /
+        # "current" badge) even when the winner was ingested mid-scan.
+        live_rows = list(
+            (
+                await self.session.scalars(
+                    select(Gallery).where(Gallery.gid.in_(list(current)))
+                )
+            ).all()
+        )
+        live_by_gid = {row.gid: row for row in live_rows}
+        changed = 0
+        for group in groups:
+            payload = group.record()
+            live = live_by_gid.get(group.gid)
+            for copy in payload["copies"]:
+                copy["is_current"] = live is not None and copy["path"] == live.storage_path
+                copy["gallery_id"] = live.id if live is not None and copy["path"] == live.storage_path else copy.get("gallery_id")
+            record = by_gid.get(group.gid)
+            if record is None:
+                self.session.add(
+                    DuplicateRecord(
+                        gid=group.gid,
+                        status="open",
+                        policy=payload["policy"],
+                        winner_path=payload["winner_path"],
+                        copies=payload["copies"],
+                    )
+                )
+                changed += 1
+            elif record.status == "open":
+                record.policy = payload["policy"]
+                record.winner_path = payload["winner_path"]
+                record.copies = payload["copies"]
+                record.updated_at = datetime.now(UTC)
+                changed += 1
+        for gid, record in by_gid.items():
+            if gid not in current:
+                await self.session.delete(record)
+                changed += 1
+        await self.session.flush()
+        return changed
+
+    async def list_duplicates(self) -> list[dict[str, object]]:
+        rows = list(
+            (
+                await self.session.scalars(
+                    select(DuplicateRecord).order_by(DuplicateRecord.updated_at.desc())
+                )
+            ).all()
+        )
+        return [
+            {
+                "gid": row.gid,
+                "status": row.status,
+                "policy": row.policy,
+                "winner_path": row.winner_path,
+                "copies": row.copies or [],
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            }
+            for row in rows
+        ]
+
+    async def set_duplicate_status(self, gid: int, status: str) -> bool:
+        row = await self.session.get(DuplicateRecord, gid)
+        if row is None:
+            return False
+        row.status = status
+        row.updated_at = datetime.now(UTC)
+        await self.session.flush()
+        return True
+
+    async def delete_duplicate(self, gid: int) -> bool:
+        row = await self.session.get(DuplicateRecord, gid)
+        if row is None:
+            return False
+        await self.session.delete(row)
+        await self.session.flush()
+        return True
 
     async def expunge_missing(self, roots: Sequence[str | Path], seen: set[str]) -> int:
         normalized = [str(Path(root).resolve()) for root in roots]

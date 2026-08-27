@@ -60,6 +60,20 @@ class ThumbnailService:
             if not (root / f"{i}.jpg").is_file()
         ]
 
+    def get_or_create_dup(self, key: str, page_bytes: bytes) -> Path:
+        """Cached thumbnail for a duplicate copy, keyed by its path hash.
+
+        Duplicate copies are not (yet) gallery rows, so they cannot use the
+        id-based cache; the key keeps them under ``<root>/dup/<key>/0.jpg``.
+        """
+        path = self.root / "dup" / key / "0.jpg"
+        if path.is_file():
+            return path
+        data = self._render(page_bytes)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
     @staticmethod
     def _render(page_bytes: bytes) -> bytes:
         from PIL import Image, UnidentifiedImageError

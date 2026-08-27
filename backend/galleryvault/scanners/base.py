@@ -55,6 +55,27 @@ class PageInfo:
     mtime_ns: int | None = None
 
 
+@dataclass(frozen=True)
+class ExistingGallery:
+    """A gallery row already in the DB, folded into a scan as a known copy.
+
+    Lets duplicate-copy resolution compare freshly scanned paths against the
+    rows that are already ingested (and skipped by signature), so the same gid
+    found under several roots can be merged deterministically instead of being
+    silently re-pointed by scan order.
+    """
+
+    path: str
+    signature: str
+    gid: int | None
+    gallery_id: int
+    storage_type: str
+    title: str
+    file_count: int | None
+    file_size: int | None
+    posted_at: datetime | None
+
+
 @dataclass
 class GalleryMeta:
     title: str
