@@ -2,13 +2,20 @@ services:
   frontend:
     image: residualblood/galleryvault-frontend:latest
     container_name: galleryvault-frontend
+    restart: always
     ports: ["8000:80"]
     depends_on:
       - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   backend:
     image: residualblood/galleryvault-backend:latest
     container_name: galleryvault-backend
+    restart: always
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:${POSTGRES_PASSWORD:-galleryvault}@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
@@ -40,10 +47,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   db:
     image: postgres:16-alpine
     container_name: galleryvault-db
+    restart: always
     environment:
       POSTGRES_USER: galleryvault
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-galleryvault}
@@ -56,3 +69,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
