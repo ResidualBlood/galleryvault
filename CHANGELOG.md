@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-08-27
+
+### Fixed
+
+- **Telegram auto-notifications were silently dropped**: `send_message` required
+  an explicit `chat_id`, so the automatic notifications for download success /
+  failure and library-scan completion (which don't pass one) were rejected as
+  "chat is not allowed" and never delivered. When no `chat_id` is given the
+  message now fans out to **every** configured `telegram_chat_ids` chat; the
+  "test message" button and the interactive bot behaviour are unchanged.
+
 ## [1.2.5] - 2026-08-26
 
 ### Changed
