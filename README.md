@@ -40,8 +40,8 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 ## 快速开始
 
 ```bash
-git clone https://github.com/ResidualBlood/galleryvault
-cd galleryvault
+mkdir galleryvault && cd galleryvault
+curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 

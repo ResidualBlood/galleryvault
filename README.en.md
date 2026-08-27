@@ -40,8 +40,8 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 ## Quick start
 
 ```bash
-git clone https://github.com/ResidualBlood/galleryvault
-cd galleryvault
+mkdir galleryvault && cd galleryvault
+curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
