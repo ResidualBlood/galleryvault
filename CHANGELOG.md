@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scan counters no longer double-count skipped galleries**: a full scan of an
+  unchanged library reported `skipped ≈ 2 × galleries` because already-ingested
+  single copies were counted in both scan phases. They are now counted once.
+
 ## [1.2.9] - 2026-08-27
 
 ### Added
