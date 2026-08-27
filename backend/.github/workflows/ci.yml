@@ -9,9 +9,9 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
-  # Multi-arch image manifest. All of these have a python:3.12-slim base image;
-  # missing compiled wheels are built from sdist in the builder stage.
-  PLATFORMS: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x,linux/riscv64
+  # Multi-arch image manifest. All deps have wheels for these two platforms, so
+  # the Dockerfile stays single-stage (no source compiles).
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   secrets-scan:
