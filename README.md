@@ -114,7 +114,7 @@ docker compose up -d
 - [常见问题](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
 - [界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots) — 各主要页面中英文界面一览
 
-产品规划与目标用户：[产品路线图](ROADMAP.md) · [目标用户画像](PERSONA.md) · [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
+产品讨论与反馈：[Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
 
 ## 致谢
 
