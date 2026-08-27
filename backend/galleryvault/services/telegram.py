@@ -30,13 +30,22 @@ class TelegramNotifier:
         self, text: str, chat_id: str | int | None = None, force: bool = False
     ) -> bool:
         token = self.settings.telegram_bot_token
-        allowed = {str(x) for x in self.settings.telegram_chat_ids}
-        target = str(chat_id) if chat_id is not None else None
         if not token:
             logger.debug("Telegram notification skipped: not configured")
             return False
-        if target is None or (not force and target not in allowed):
-            logger.warning("Telegram notification skipped: chat is not allowed")
+        allowed = {str(x) for x in self.settings.telegram_chat_ids}
+        if chat_id is None:
+            # Automatic notifications (download success/failure, scan done)
+            # fan out to every configured chat instead of being dropped.
+            targets = sorted(allowed)
+        else:
+            target = str(chat_id)
+            if not force and target not in allowed:
+                logger.warning("Telegram notification skipped: chat is not allowed")
+                return False
+            targets = [target]
+        if not targets:
+            logger.warning("Telegram notification skipped: no chat IDs configured")
             return False
         # Reuse the shared client when present (the Telegram bot polls through
         # the same one), otherwise open a short-lived client for this call.
@@ -45,12 +54,15 @@ class TelegramNotifier:
             timeout=15, proxy=self.settings.socks5_proxy or self.settings.http_proxy
         )
         try:
-            response = await client.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": target, "text": text},
-            )
-            response.raise_for_status()
-            return True
+            sent = False
+            for target in targets:
+                response = await client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": target, "text": text},
+                )
+                response.raise_for_status()
+                sent = True
+            return sent
         except httpx.HTTPError as exc:
             logger.warning(
                 "Telegram notification failed", extra=log_extra(error=type(exc).__name__)

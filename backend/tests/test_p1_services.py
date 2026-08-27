@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -246,6 +247,30 @@ async def test_favorites_skip_galleries_already_in_local_library() -> None:
     assert result.new == 0
     assert result.downloaded == 0
     assert queued == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_notification_fans_out_to_all_allowed_chats() -> None:
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    settings = Settings(telegram_bot_token="secret", telegram_chat_ids=["8", "7"])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        notifier = TelegramNotifier(settings, client=client)
+        assert await notifier.send_message("auto notice")
+        assert len(bodies) == 2
+        assert {"chat_id": "7", "text": "auto notice"} in bodies
+        assert {"chat_id": "8", "text": "auto notice"} in bodies
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_notification_without_chats_is_noop() -> None:
+    settings = Settings(telegram_bot_token="secret")
+    notifier = TelegramNotifier(settings)
+    assert not await notifier.send_message("auto notice")
 
 
 @pytest.mark.asyncio
