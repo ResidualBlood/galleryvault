@@ -153,16 +153,17 @@ class LibraryService:
                 if copies[0].meta is not None:
                     winners.append(copies[0].meta)
                     counters.success += 1
-                else:
-                    counters.skipped += 1
+                # An existing-only single copy was already counted as skipped in
+                # phase 1; do not double-count it here.
                 continue
             resolved = resolve_group(gid, copies, self.duplicate_policy)
             self.last_duplicates.append(resolved)
             if resolved.winner is not None and resolved.winner.meta is not None:
                 winners.append(resolved.winner.meta)
                 counters.success += 1
-            else:
-                counters.skipped += 1
+            # Losers that were freshly scanned are counted as skipped here;
+            # existing losers were already counted in phase 1.
+            counters.skipped += sum(1 for copy in resolved.losers if copy.meta is not None)
         batch: list[GalleryMeta] = []
         for gallery in winners:
             batch.append(gallery)
