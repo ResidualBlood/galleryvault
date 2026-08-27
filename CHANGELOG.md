@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.10] - 2026-08-27
+
+### Added
+
+- **Scan completion Telegram notification reports duplicate copies**: the
+  message now appends `N duplicate-copy group(s) found (gid …)` when a scan
+  detects the same gallery under more than one scan root, pointing the operator
+  at the *Duplicate copies* page. `GET /api/scan` exposes `duplicate_gids`.
+
 ### Fixed
 
 - **Scan counters no longer double-count skipped galleries**: a full scan of an
