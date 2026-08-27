@@ -1036,6 +1036,17 @@ class DownloadRepository:
             row.updated_at = row.started_at
         return row
 
+    async def count_active(self) -> int:
+        """Number of download tasks still pending or in progress."""
+        return int(
+            await self.session.scalar(
+                select(func.count())
+                .select_from(DownloadTask)
+                .where(DownloadTask.status.in_(["pending", "downloading"]))
+            )
+            or 0
+        )
+
     async def record_attempt(
         self, task_id: int, attempt: int, status: str, error: str | None = None
     ) -> None:

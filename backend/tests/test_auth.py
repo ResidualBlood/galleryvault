@@ -167,6 +167,9 @@ async def test_refresh_services_restarts_telegram_bot(monkeypatch: pytest.Monkey
         async def aclose(self):
             pass
 
+        async def flush_summary(self) -> bool:
+            return False
+
     class FakeClient:
         async def aclose(self):
             pass

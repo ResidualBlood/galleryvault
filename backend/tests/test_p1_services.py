@@ -274,6 +274,105 @@ async def test_telegram_auto_notification_without_chats_is_noop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_telegram_summary_buffers_until_flush() -> None:
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    settings = Settings(
+        telegram_bot_token="secret",
+        telegram_chat_ids=["7"],
+        telegram_notify_level="summary",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        notifier = TelegramNotifier(settings, client=client)
+        await notifier.record_download_outcome("ok", "A", "3 页")
+        await notifier.record_download_outcome("ok", "B", "5 页")
+        await notifier.record_download_outcome("fail", "C", "Timeout")
+        # Nothing sent while the digest is buffered.
+        assert not bodies
+        assert notifier.pending_events
+        assert await notifier.flush_summary()
+        assert len(bodies) == 1
+        text = bodies[0]["text"]
+        assert "完成 2，失败 1" in text
+        assert "C" in text and "Timeout" in text
+        assert not notifier.pending_events
+
+
+@pytest.mark.asyncio
+async def test_telegram_summary_single_event_is_immediate_on_flush() -> None:
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    settings = Settings(
+        telegram_bot_token="secret",
+        telegram_chat_ids=["7"],
+        telegram_notify_level="summary",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        notifier = TelegramNotifier(settings, client=client)
+        await notifier.record_download_outcome("ok", "A", "3 页")
+        assert await notifier.flush_summary()
+        assert bodies[0]["text"] == "✅ 下载完成：A（3 页）"
+
+
+@pytest.mark.asyncio
+async def test_telegram_immediate_level_sends_per_event() -> None:
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    settings = Settings(
+        telegram_bot_token="secret",
+        telegram_chat_ids=["7"],
+        telegram_notify_level="immediate",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        notifier = TelegramNotifier(settings, client=client)
+        await notifier.record_download_outcome("ok", "A", "3 页")
+        await notifier.record_download_outcome("fail", "B", "Timeout")
+        assert len(bodies) == 2
+
+
+@pytest.mark.asyncio
+async def test_telegram_failures_only_and_off_levels() -> None:
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    settings = Settings(
+        telegram_bot_token="secret",
+        telegram_chat_ids=["7"],
+        telegram_notify_level="failures_only",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        notifier = TelegramNotifier(settings, client=client)
+        await notifier.record_download_outcome("ok", "A", "3 页")
+        await notifier.record_download_outcome("fail", "B", "Timeout")
+        assert len(bodies) == 1
+        assert "B" in bodies[0]["text"]
+
+    off_settings = Settings(
+        telegram_bot_token="secret",
+        telegram_chat_ids=["7"],
+        telegram_notify_level="off",
+    )
+    off_notifier = TelegramNotifier(off_settings)
+    await off_notifier.record_download_outcome("fail", "B", "Timeout")
+    assert not off_notifier.pending_events
+
+
+@pytest.mark.asyncio
 async def test_telegram_shared_client_survives_send_message() -> None:
     calls = []
 

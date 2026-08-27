@@ -113,6 +113,7 @@ tag_sync_attempts: dict[int, int] = {}
 tag_sync_holds: dict[int, int] = {}
 tag_sync_worker_task = None
 translation_update_task = None
+telegram_flush_task = None
 _download_cancelled: set[int] = set()
 favorites_check_state: dict[str, object] = {
     "running": False,
@@ -568,6 +569,8 @@ async def startup() -> None:
         )
     global download_worker_task
     download_worker_task = asyncio.create_task(_download_worker_loop())
+    global telegram_flush_task
+    telegram_flush_task = asyncio.create_task(_telegram_flush_loop())
     global tag_sync_worker_task
     tag_sync_worker_task = asyncio.create_task(_tag_sync_worker_loop())
     app.state.spawned_tasks = set()
@@ -617,7 +620,12 @@ async def shutdown() -> None:
         thumb_worker_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await thumb_worker_task
+    if telegram_flush_task is not None:
+        telegram_flush_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await telegram_flush_task
     if app.state.telegram is not None:
+        await app.state.telegram.flush_summary()
         await app.state.telegram.aclose()
     if app.state.eh_client is not None:
         await app.state.eh_client.aclose()
@@ -959,11 +967,8 @@ async def _run_download(task: DownloadTask) -> None:
                 task.id or 0, row.retry_count + 1, "success"
             )
             completed = True
-        if completed and app.state.telegram is not None:
-            await app.state.telegram.send_message(
-                f"Download succeeded: {result.title or task.gid} ({result.pages} pages)"
-            )
         if completed:
+            await _record_download_notification("ok", result.title or task.gid, f"{result.pages} 页")
             _maybe_scan_after_download(result)
     except DownloadCancelledError:
         # The user cancelled mid-flight: drop the partial temp dir and leave
@@ -1021,14 +1026,61 @@ async def _run_download(task: DownloadTask) -> None:
             # not hold a connection-pool slot (and the row's lock) open for 30s.
             if backoff:
                 await asyncio.sleep(30)
-            if row is not None and row.status != "cancelled" and app.state.telegram is not None:
-                await app.state.telegram.send_message(
-                    f"Download failed: {task.title or task.gid} ({type(exc).__name__})"
+            if row is not None and row.status == "failed":
+                await _record_download_notification(
+                    "fail", task.title or task.gid, type(exc).__name__
                 )
         except SQLAlchemyError as db_exc:
             logger.error(
                 "download status persistence failed", extra=log_extra(error=type(db_exc).__name__)
             )
+
+
+_TELEGRAM_FLUSH_INTERVAL = 60.0
+
+
+async def _record_download_notification(
+    kind: str, title: str, detail: str | None = None
+) -> None:
+    """Record a download terminal event for Telegram.
+
+    In ``summary`` mode the event is buffered and flushed as a digest as soon as
+    the download queue is idle (so a single download still reports immediately,
+    while a bulk run collapses into one message instead of one per gallery).
+    """
+    notifier = app.state.telegram
+    if notifier is None:
+        return
+    await notifier.record_download_outcome(kind, title, detail)
+    if _settings().telegram_notify_level != "summary" or not notifier.pending_events:
+        return
+    try:
+        async with _settings_session() as session:
+            active = await DownloadRepository(session).count_active()
+        if active == 0:
+            await notifier.flush_summary()
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "telegram summary flush check failed", extra=log_extra(error=type(exc).__name__)
+        )
+
+
+async def _telegram_flush_loop() -> None:
+    """Flush a non-empty Telegram download digest on a timer as a fallback.
+
+    The primary trigger is the queue going idle; this catches long continuous
+    download runs (or a task stuck in ``downloading``) so a digest still lands.
+    """
+    while True:
+        await asyncio.sleep(_TELEGRAM_FLUSH_INTERVAL)
+        notifier = app.state.telegram
+        if notifier is not None:
+            try:
+                await notifier.flush_summary()
+            except Exception as exc:  # noqa: BLE001 - timer must not crash the app
+                logger.warning(
+                    "telegram summary flush failed", extra=log_extra(error=type(exc).__name__)
+                )
 
 
 async def _download_worker_loop() -> None:
@@ -1490,6 +1542,7 @@ class SettingsRequest(BaseModel):
     telegram_bot_token: str | None = None
     telegram_chat_ids: list[str] | None = None
     telegram_allowed_user_ids: list[int] | None = None
+    telegram_notify_level: str | None = None
     auto_sync_tags: bool | None = None
     tag_sync_interval_seconds: float | None = Field(default=None, gt=0)
     tag_sync_concurrency: int | None = Field(default=None, ge=1, le=32)
@@ -1503,6 +1556,15 @@ class SettingsRequest(BaseModel):
             category not in range(10) for category in self.favorites_categories
         ):
             raise ValueError("favorites categories must be between 0 and 9")
+        if self.telegram_notify_level is not None and self.telegram_notify_level not in {
+            "summary",
+            "immediate",
+            "failures_only",
+            "off",
+        }:
+            raise ValueError(
+                "telegram_notify_level must be 'summary', 'immediate', 'failures_only', or 'off'"
+            )
         return self
 
 
@@ -1528,6 +1590,7 @@ def _settings_public() -> dict[str, object]:
         "telegram_bot_configured": bool(current.telegram_bot_token),
         "telegram_chat_ids": current.telegram_chat_ids,
         "telegram_allowed_user_ids": current.telegram_allowed_user_ids,
+        "telegram_notify_level": current.telegram_notify_level,
         "auto_sync_tags": current.auto_sync_tags,
         "tag_sync_interval_seconds": current.tag_sync_interval_seconds,
         "tag_sync_concurrency": current.tag_sync_concurrency,
@@ -1564,6 +1627,7 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "telegram_bot_token",
         "telegram_chat_ids",
         "telegram_allowed_user_ids",
+        "telegram_notify_level",
         "auto_sync_tags",
         "tag_sync_interval_seconds",
         "tag_sync_concurrency",
@@ -1585,6 +1649,7 @@ async def _refresh_services() -> None:
     old_client = app.state.eh_client
     old_telegram = app.state.telegram
     if old_telegram is not None:
+        await old_telegram.flush_summary()
         await old_telegram.aclose()
     if old_client is not None:
         await old_client.aclose()

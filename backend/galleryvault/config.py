@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_chat_ids: list[str] = Field(default_factory=list)
     telegram_allowed_user_ids: list[int] = Field(default_factory=list)
+    telegram_notify_level: str = "summary"
     favorites_categories: list[int] = Field(default_factory=lambda: list(range(8)))
     download_favorites_enabled: bool = False
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
@@ -102,6 +103,10 @@ class Settings(BaseSettings):
             raise ValueError("download_quality must be 'original' or 'resample'")
         if self.title_display not in {"japanese", "english", "directory"}:
             raise ValueError("title_display must be 'japanese', 'english', or 'directory'")
+        if self.telegram_notify_level not in {"summary", "immediate", "failures_only", "off"}:
+            raise ValueError(
+                "telegram_notify_level must be 'summary', 'immediate', 'failures_only', or 'off'"
+            )
         return self
 
     @classmethod
@@ -171,6 +176,7 @@ EDITABLE_SETTINGS = {
     "telegram_bot_token",
     "telegram_chat_ids",
     "telegram_allowed_user_ids",
+    "telegram_notify_level",
     "auth_required",
     "tag_translation_update_interval_minutes",
     "generate_thumbnails",

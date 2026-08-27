@@ -7,6 +7,12 @@ from ..logging import log_extra
 
 logger = logging.getLogger(__name__)
 
+# Single downloads list their title; larger batches only show counts for the
+# success side (failures are always listed, capped to the Telegram 4096 limit).
+_LIST_TITLES_LIMIT = 5
+_BUFFER_CAP = 50
+_MAX_MESSAGE_CHARS = 4096
+
 
 class TelegramNotifier:
     def __init__(
@@ -21,10 +27,71 @@ class TelegramNotifier:
             if self._owned
             else None
         )
+        self._ok: list[str] = []
+        self._fail: list[str] = []
 
     async def aclose(self) -> None:
         if self._owned and self.client is not None:
             await self.client.aclose()
+
+    @property
+    def pending_events(self) -> bool:
+        """Whether a download digest is buffered and waiting to be flushed."""
+        return bool(self._ok or self._fail)
+
+    async def record_download_outcome(
+        self, kind: str, title: str, detail: str | None = None
+    ) -> None:
+        """Record a download terminal event for Telegram.
+
+        ``kind`` is ``"ok"`` or ``"fail"``. Behaviour follows
+        ``telegram_notify_level``:
+
+        - ``immediate``: send right away (old per-event behaviour);
+        - ``summary`` (default): buffer into a digest, flushed by the caller
+          when the download queue is idle (plus a timer and buffer cap);
+        - ``failures_only``: only failures are sent, immediately;
+        - ``off``: nothing is sent.
+        """
+        token = self.settings.telegram_bot_token
+        if not token or self.settings.telegram_notify_level == "off":
+            return
+        if kind == "ok":
+            if self.settings.telegram_notify_level == "failures_only":
+                return
+            self._ok.append(f"{title}" + (f"（{detail}）" if detail else ""))
+            immediate = self.settings.telegram_notify_level == "immediate"
+        else:
+            self._fail.append(f"{title}" + (f"：{detail}" if detail else ""))
+            immediate = self.settings.telegram_notify_level in {"immediate", "failures_only"}
+        if immediate or len(self._ok) + len(self._fail) >= _BUFFER_CAP:
+            await self.flush_summary()
+
+    async def flush_summary(self) -> bool:
+        """Send the buffered download digest and clear it."""
+        if not (self._ok or self._fail):
+            return False
+        ok, fail = len(self._ok), len(self._fail)
+        if ok == 1 and fail == 0:
+            text = f"✅ 下载完成：{self._ok[0]}"
+        elif ok == 0 and fail == 1:
+            text = f"❌ 下载失败：{self._fail[0]}"
+        else:
+            text = f"📊 下载汇总：完成 {ok}，失败 {fail}"
+            if ok and ok <= _LIST_TITLES_LIMIT:
+                text += "\n✅ " + "、".join(self._ok)
+            if fail:
+                lines: list[str] = []
+                budget = _MAX_MESSAGE_CHARS - len(text) - 100
+                for entry in self._fail:
+                    if sum(len(line) for line in lines) + len(entry) + 2 > budget:
+                        lines.append(f"… 还有 {len(self._fail) - len(lines)} 个失败未列出")
+                        break
+                    lines.append(entry)
+                text += "\n❌ " + "\n".join(lines)
+        self._ok.clear()
+        self._fail.clear()
+        return await self.send_message(text)
 
     async def send_message(
         self, text: str, chat_id: str | int | None = None, force: bool = False
