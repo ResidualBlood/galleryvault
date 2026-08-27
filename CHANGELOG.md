@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-08-27
+
+### Changed
+
+- **Telegram download notifications are now a digest by default**: a bulk
+  download used to fire one message per gallery success/failure. A new
+  `telegram_notify_level` setting (`summary` / `immediate` / `failures_only` /
+  `off`, default `summary`) controls this. In `summary` mode terminal download
+  events are buffered and flushed as a single "download summary" message as
+  soon as the download queue is idle (60s timer + 50-event buffer cap as
+  fallbacks); `immediate` keeps the old per-event behaviour; `failures_only`
+  sends only final failures; `off` disables automatic notifications while
+  keeping the test button and interactive bot. Only final (non-retryable)
+  download failures are reported. Scan and favorites notifications are
+  unchanged.
+
 ## [1.2.6] - 2026-08-27
 
 ### Fixed
