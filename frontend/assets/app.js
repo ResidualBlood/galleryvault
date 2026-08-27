@@ -68,6 +68,7 @@ const I18N = {
     useHah: "Use H@H", titleDisplay: "Title display",
     botToken: "Bot token (leave blank to keep)", chatIds: "Chat IDs (comma separated)",
     allowedIds: "Allowed user IDs (comma separated)",
+    notifyLevel: "Notification level", notifyLevelSummary: "Summary (batch digest)", notifyLevelImmediate: "Immediate (every event)", notifyLevelFailuresOnly: "Failures only", notifyLevelOff: "Off",
     autoSyncTags: "Auto sync tags", tagSyncInterval: "Tag sync interval (seconds)",
     tagSyncConcurrency: "Tag sync concurrency",
     generateThumbnails: "Generate thumbnails", genThumbs: "Generate now", syncAllTags: "Sync tags now",
@@ -157,6 +158,7 @@ const I18N = {
     useHah: "使用 H@H", titleDisplay: "标题显示",
     botToken: "Bot Token（留空保持不变）", chatIds: "Chat ID（逗号分隔）",
     allowedIds: "允许的用户 ID（逗号分隔）",
+    notifyLevel: "通知级别", notifyLevelSummary: "汇总（批量摘要）", notifyLevelImmediate: "即时（每条都发）", notifyLevelFailuresOnly: "仅失败", notifyLevelOff: "关闭",
     autoSyncTags: "自动同步标签", tagSyncInterval: "标签同步间隔（秒）",
     tagSyncConcurrency: "标签同步并发",
     generateThumbnails: "生成缩略图", genThumbs: "立即生成", syncAllTags: "立即同步标签",
@@ -1223,6 +1225,9 @@ async function renderSettings() {
         <div class="form-grid">
           ${field(t("chatIds"), `<input name="telegram_chat_ids" value="${esc((s.telegram_chat_ids || []).join(","))}">`)}
           ${field(t("allowedIds"), `<input name="telegram_allowed_user_ids" value="${esc((s.telegram_allowed_user_ids || []).join(","))}">`)}
+          ${field(t("notifyLevel"), `<select name="telegram_notify_level">
+            ${[["summary", t("notifyLevelSummary")], ["immediate", t("notifyLevelImmediate")], ["failures_only", t("notifyLevelFailuresOnly")], ["off", t("notifyLevelOff")]].map(([o, label]) => `<option value="${o}"${o === (s.telegram_notify_level || "summary") ? " selected" : ""}>${esc(label)}</option>`).join("")}
+          </select>`)}
         </div>
         <button class="secondary" data-action="test-telegram" type="button">${esc(t("testTelegram"))}</button>
       </fieldset>
@@ -1276,6 +1281,7 @@ function collectSettings(form) {
     tag_sync_concurrency: Math.min(32, Math.max(1, num("tag_sync_concurrency", 2))),
     telegram_chat_ids: lines(val("telegram_chat_ids")),
     telegram_allowed_user_ids: lines(val("telegram_allowed_user_ids")).map(Number).filter(Number.isFinite),
+    telegram_notify_level: val("telegram_notify_level") || "summary",
     auth_required: form.auth_required.checked,
     tag_translation_update_interval_minutes: Math.max(0, num("tag_translation_update_interval_minutes", 720)),
   };
