@@ -8,8 +8,8 @@ on:
     branches: [main]
 
 env:
-  # Multi-arch image manifest; nginx:1.27-alpine ships all of these.
-  PLATFORMS: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x,linux/riscv64
+  # Multi-arch image manifest; nginx:1.27-alpine ships both.
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   secrets-scan:
