@@ -36,6 +36,8 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 | <img src="docs/screenshots/library_zh.png" alt="画廊库界面" width="420"> | <img src="docs/screenshots/library_en.png" alt="Library UI" width="420"> |
 | **标签云** | **Tag cloud** |
 | <img src="docs/screenshots/tags_zh.png" alt="标签云页面" width="420"> | <img src="docs/screenshots/tags_en.png" alt="Tag cloud page" width="420"> |
+| **收藏夹查重** | **Favorites dedupe** |
+| <img src="docs/screenshots/fav_dedupe_zh.png" alt="收藏夹查重页面" width="420"> | <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorites dedupe page" width="420"> |
 
 ## 快速开始
 
@@ -110,6 +112,7 @@ docker compose up -d
 - [API 参考](https://github.com/ResidualBlood/galleryvault/wiki/API)
 - [开发指南](https://github.com/ResidualBlood/galleryvault/wiki/Development)
 - [常见问题](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
+- [界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots) — 各主要页面中英文界面一览
 
 产品规划与目标用户：[产品路线图](ROADMAP.md) · [目标用户画像](PERSONA.md) · [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
 

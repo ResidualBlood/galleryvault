@@ -36,6 +36,8 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 | <img src="docs/screenshots/library_en.png" alt="Library UI" width="420"> | <img src="docs/screenshots/library_zh.png" alt="Chinese library UI" width="420"> |
 | **Tag cloud** | **Tag cloud** |
 | <img src="docs/screenshots/tags_en.png" alt="Tag cloud page" width="420"> | <img src="docs/screenshots/tags_zh.png" alt="Chinese tag cloud page" width="420"> |
+| **Favorites dedupe** | **收藏夹查重** |
+| <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorites dedupe page" width="420"> | <img src="docs/screenshots/fav_dedupe_zh.png" alt="Chinese favorites dedupe page" width="420"> |
 
 ## Quick start
 
@@ -116,6 +118,7 @@ Full docs live on the **[📖 Wiki](https://github.com/ResidualBlood/galleryvaul
 - [API reference](https://github.com/ResidualBlood/galleryvault/wiki/API)
 - [Development](https://github.com/ResidualBlood/galleryvault/wiki/Development)
 - [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
+- [Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots) — overview of the main UI pages (EN & 中文)
 
 Product planning: [roadmap](ROADMAP.md) · [target personas](PERSONA.md) · [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
 
