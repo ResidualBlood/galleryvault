@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-08-27
+
+### Fixed
+
+- **Telegram digest is no longer split during active batches**: the 60-second
+  fallback timer used to flush a partial digest while a download batch was still
+  running (e.g. "2 completed" mid-batch). It now only flushes buffers that have
+  received no new events for the interval, so a bulk run still collapses into a
+  single summary when the queue goes idle.
+- **Settings re-validation**: merged user settings are now re-validated instead
+  of copied with `model_copy`, which skipped pydantic validation. Without
+  `ENCRYPTION_KEY`, ExHentai cookies are stored as a plaintext JSON string that
+  used to survive loading as a string and crash the backend at startup after
+  any settings save.
+
 ## [1.2.7] - 2026-08-27
 
 ### Changed
