@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.9] - 2026-08-27
+
+### Added
+
+- **Duplicate-copy resolution on library scans**: when the same gallery (same
+  gid) exists under more than one scan root (an EhViewer download directory, a
+  CBZ archive, a manual copy), the scan now collects every copy, picks a winner
+  per the new `duplicate_policy` setting and records the rest for review.
+  Previously the DB row was silently re-pointed at whichever copy happened to be
+  scanned last.
+  - `duplicate_policy` (Settings): `keep_first` (default — the already-stored
+    copy wins), `prefer_more_pages`, `prefer_newer`, `prefer_larger`,
+    `prefer_smaller`, or `manual` (never auto-resolve).
+  - New **Duplicate copies** page (`#/duplicates`): lists every physical copy of
+    a duplicated gid with cover thumbnail, tags, page count, size and posted
+    date, and lets you keep one copy, keep & delete the other copies from disk,
+    or dismiss the group (restorable). A scan refreshes the list.
+  - Persisted in a new `duplicate_records` table; only gid-bearing copies
+    participate (a CBZ whose ExHentai id lives in an external sidecar still
+    needs that metadata wired up — see backend roadmap).
+
 ## [1.2.8] - 2026-08-27
 
 ### Fixed
