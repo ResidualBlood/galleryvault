@@ -50,6 +50,10 @@ docker compose up -d
 3. **Recommended: configure your ExHentai cookies and run *Favorites → Check all folders* once before scanning the library** — the metadata cache makes later scanning and tag sync much faster.
 4. Put your galleries in `./library` (mounted at `/library`), hit *Scan library*, and start reading.
 
+> On first start Docker creates the `./library`, `./downloads`, `./cache` and
+> `./db-data` directories automatically; the downloaded `docker-compose.yml`
+> can be customized (ports, volume mounts, `ENCRYPTION_KEY`, …).
+
 > The JSON API is available at **http://\<host\>:8001**.
 
 ## Data and volumes
@@ -62,6 +66,21 @@ docker compose up -d
 | `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache` |
 
 Library roots (read-only, one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
+
+## Upgrading
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Database migrations (Alembic) run automatically when the backend starts. Images
+use the `:latest` tag, so `pull` fetches new releases.
+
+> Do **not** overwrite your local `docker-compose.yml` with
+> `curl -o docker-compose.yml` — it likely contains your customizations (ports,
+> volume mounts, `ENCRYPTION_KEY`, …). If you need a newer compose template,
+> back it up first and merge the changes by hand.
 
 ## Security
 
