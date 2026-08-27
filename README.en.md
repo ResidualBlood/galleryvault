@@ -120,7 +120,7 @@ Full docs live on the **[📖 Wiki](https://github.com/ResidualBlood/galleryvaul
 - [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
 - [Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots) — overview of the main UI pages (EN & 中文)
 
-Product planning: [roadmap](ROADMAP.md) · [target personas](PERSONA.md) · [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
+Product discussions & feedback: [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
 
 ## Acknowledgements
 
