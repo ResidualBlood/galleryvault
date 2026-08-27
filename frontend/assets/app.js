@@ -72,6 +72,19 @@ const I18N = {
     autoSyncTags: "Auto sync tags", tagSyncInterval: "Tag sync interval (seconds)",
     tagSyncConcurrency: "Tag sync concurrency",
     generateThumbnails: "Generate thumbnails", genThumbs: "Generate now", syncAllTags: "Sync tags now",
+    dupPolicy: "Duplicate-copy policy", dupPolicyHint: "When the same gallery (gid) exists under several scan roots, this decides which copy is kept automatically. All duplicates are still listed on the “Duplicate copies” page.",
+    dupPolicyKeepFirst: "Keep first (already-stored copy wins)",
+    dupPolicyMorePages: "Prefer more pages", dupPolicyNewer: "Prefer newer posted date",
+    dupPolicyLarger: "Prefer larger size", dupPolicySmaller: "Prefer smaller size",
+    dupPolicyManual: "Manual (never auto-resolve)",
+    dupGalTitle: "Duplicate copies", dupGalSub: "The same gallery (gid) found under more than one scan root. Pick which copy to keep, or change the auto policy in Settings.",
+    dupGalScan: "Scan library", dupGalRefresh: "Refresh",
+    dupGalNone: "No duplicate copies found.", dupGalFound: "Found", dupGalGroups: "groups",
+    dupGalAll: "All", dupGalOpen: "Pending", dupGalDismissed: "Dismissed",
+    dupGalCurrent: "current", dupGalKeep: "Keep this copy", dupGalKeepDel: "Keep & delete others",
+    dupGalDismiss: "Dismiss group", dupGalRestore: "Restore group",
+    dupGalConfirmDel: "Keep this copy and DELETE the other copies from disk?",
+    dupGalConfirmKeep: "Make this copy the stored one?",
     pollDefault: "Default poll interval (minutes)",
     favHint: "Enable folders to monitor; per-folder settings below.",
     testExhentai: "Test ExHentai login", cancelDl: "Cancel", error: "Error",
@@ -162,6 +175,19 @@ const I18N = {
     autoSyncTags: "自动同步标签", tagSyncInterval: "标签同步间隔（秒）",
     tagSyncConcurrency: "标签同步并发",
     generateThumbnails: "生成缩略图", genThumbs: "立即生成", syncAllTags: "立即同步标签",
+    dupPolicy: "重复副本策略", dupPolicyHint: "同一画廊（gid）出现在多个扫描目录时，自动保留哪个副本。所有重复仍会列在「重复副本」页。",
+    dupPolicyKeepFirst: "保留优先（已入库的副本优先）",
+    dupPolicyMorePages: "保留页数多的", dupPolicyNewer: "保留发布日期新的",
+    dupPolicyLarger: "保留体积大的", dupPolicySmaller: "保留体积小的",
+    dupPolicyManual: "手动（不自动处理）",
+    dupGalTitle: "重复副本", dupGalSub: "同一画廊（gid）出现在多个扫描目录中。选择要保留的副本，或在设置中更改自动策略。",
+    dupGalScan: "扫描库", dupGalRefresh: "刷新",
+    dupGalNone: "未发现重复副本。", dupGalFound: "发现", dupGalGroups: "组重复",
+    dupGalAll: "全部", dupGalOpen: "待处理", dupGalDismissed: "已忽略",
+    dupGalCurrent: "当前保留", dupGalKeep: "保留此副本", dupGalKeepDel: "保留并删除其他副本",
+    dupGalDismiss: "忽略该组", dupGalRestore: "恢复该组",
+    dupGalConfirmDel: "保留此副本并删除磁盘上的其他副本？",
+    dupGalConfirmKeep: "将此副本设为保留副本？",
     pollDefault: "默认轮询间隔（分钟）",
     favHint: "勾选要监控的收藏夹；各收藏夹设置见下表。",
     testExhentai: "测试 ExHentai 登录", cancelDl: "取消任务", error: "错误",
@@ -420,6 +446,7 @@ function router() {
     case "downloads": renderDownloads(); break;
     case "logs": renderLogs(); break;
     case "settings": renderSettings(); break;
+    case "duplicates": renderDuplicates(); break;
     case "welcome": renderWelcome(); break;
     case "favorites": renderFavorites(); break;
     case "favmanage": renderFavManage(); break;
@@ -1215,6 +1242,13 @@ async function renderSettings() {
         </div>
         <p class="notice" id="thumbs-status">${esc(t("thumbsHint"))}</p>
       </fieldset>
+      <fieldset><legend>${esc(t("dupPolicy"))}</legend>
+        <p class="notice">${esc(t("dupPolicyHint"))}</p>
+        ${field(t("dupPolicy"), `<select name="duplicate_policy">
+          ${[["keep_first", t("dupPolicyKeepFirst")], ["prefer_more_pages", t("dupPolicyMorePages")], ["prefer_newer", t("dupPolicyNewer")], ["prefer_larger", t("dupPolicyLarger")], ["prefer_smaller", t("dupPolicySmaller")], ["manual", t("dupPolicyManual")]].map(([o, label]) => `<option value="${o}"${o === (s.duplicate_policy || "keep_first") ? " selected" : ""}>${esc(label)}</option>`).join("")}
+        </select>`)}
+        <div class="toolbar"><a class="secondary" href="#/duplicates" style="padding:8px 14px;border-radius:4px">${esc(t("dupGalTitle"))}</a></div>
+      </fieldset>
       <fieldset><legend>${esc(t("translationUpdate"))}</legend>
         ${field(t("translationInterval"), `<input name="tag_translation_update_interval_minutes" type="number" min="0" value="${s.tag_translation_update_interval_minutes != null ? s.tag_translation_update_interval_minutes : 720}">`)}
         <div class="toolbar"><button class="secondary" data-action="force-update" type="button">${esc(t("forceUpdate"))}</button></div>
@@ -1282,6 +1316,7 @@ function collectSettings(form) {
     telegram_chat_ids: lines(val("telegram_chat_ids")),
     telegram_allowed_user_ids: lines(val("telegram_allowed_user_ids")).map(Number).filter(Number.isFinite),
     telegram_notify_level: val("telegram_notify_level") || "summary",
+    duplicate_policy: val("duplicate_policy") || "keep_first",
     auth_required: form.auth_required.checked,
     tag_translation_update_interval_minutes: Math.max(0, num("tag_translation_update_interval_minutes", 720)),
   };
@@ -1707,6 +1742,13 @@ function onClick(e) {
   if (action === "dup-unignore-selected") { dupUnignoreSelected(); return; }
   if (action === "dup-ignored-clear") { document.querySelectorAll('#ignored-list input[data-ignore-key]').forEach(cb => cb.checked = false); renderFavIgnored(); return; }
   if (action === "dup-page") { e.preventDefault(); dupPage = parseInt(el.getAttribute("data-page"), 10) || 1; renderDupGroupsFromCache(); return; }
+  if (action === "dupgal-scan") { scanLibrary(); return; }
+  if (action === "dupgal-refresh") { loadDuplicates().then(renderDuplicatesList); return; }
+  if (action === "dupgal-filter") { dupGalFilter = el.getAttribute("data-value") || "all"; renderDuplicatesList(); return; }
+  if (action === "dupgal-keep") { dupGalResolve(el.getAttribute("data-gid"), el.getAttribute("data-path"), false); return; }
+  if (action === "dupgal-keep-del") { dupGalResolve(el.getAttribute("data-gid"), el.getAttribute("data-path"), true); return; }
+  if (action === "dupgal-dismiss") { dupGalSetStatus(el.getAttribute("data-gid"), "dismiss"); return; }
+  if (action === "dupgal-restore") { dupGalSetStatus(el.getAttribute("data-gid"), "restore"); return; }
   if (action === "sync-tags") { syncTags(el.getAttribute("data-id")); return; }
   if (action === "change-password") { e.preventDefault(); changePassword(); return; }
   if (action === "test-telegram") { testTelegram(); return; }
@@ -2092,6 +2134,122 @@ function updateDupButtons() {
   document.querySelectorAll('[data-action="dup-unfav"], [data-action="dup-unfav-delete"]').forEach(b => {
     b.textContent = (b.getAttribute("data-action") === "dup-unfav" ? t("dupUnfav") : t("dupUnfavDelete")) + (selDup.size ? ` (${selDup.size})` : "");
   });
+}
+
+// --- Duplicate copies (library scan) --------------------------------------
+let dupGalFilter = "all";
+let dupGalCache = null;
+const DUPGAL_STATUSES = { open: "dupGalOpen", dismissed: "dupGalDismissed" };
+
+function storageLabel(type) {
+  return { ehviewer_dir: "EhViewer", cbz: "CBZ", cbr: "CBR", folder: "Folder" }[type] || type || "";
+}
+
+function dupGalThumb(c) {
+  const src = c.gallery_id != null
+    ? `/api/galleries/${c.gallery_id}/thumb/0`
+    : `/api/scan/duplicates/thumb/${encodeURIComponent(c.key)}`;
+  return `<img class="dup-thumb" loading="lazy" src="${src}" alt="">`;
+}
+
+async function loadDuplicates(showLoading = true) {
+  const el = document.getElementById("dupgal-groups");
+  if (showLoading && el) el.innerHTML = `<p>${esc(t("loading"))}</p>`;
+  try {
+    const data = await api("GET", "/api/scan/duplicates");
+    dupGalCache = (data && data.groups) || [];
+  } catch (e) {
+    if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    return false;
+  }
+  return true;
+}
+
+function renderDuplicatesList() {
+  const el = document.getElementById("dupgal-groups");
+  if (!el) return;
+  const groups = (dupGalCache || []).filter(g => dupGalFilter === "all" || g.status === dupGalFilter);
+  if (!groups.length) {
+    el.innerHTML = `<p class="muted">${esc(t("dupGalNone"))}</p>`;
+    return;
+  }
+  const open = dupGalCache.filter(g => g.status === "open").length;
+  const renderCopy = (c, g) => {
+    const isCurrent = !!c.gallery_id;
+    return `
+      <div class="dup-row">
+        <span class="dup-thumb-wrap">${dupGalThumb(c)}</span>
+        <span class="dup-body">
+          <span class="dup-title">${esc(c.title || c.path)}</span>
+          <span class="dup-meta">
+            ${isCurrent ? `<span class="badge dup-badge-local">${esc(t("dupGalCurrent"))}</span>` : `<span class="badge dup-badge-cloud">${esc(storageLabel(c.storage_type))}</span>`}
+            ${c.page_count != null ? `<span class="badge">${c.page_count} P</span>` : ""}
+            ${c.file_size ? `<span class="badge">${fmtSize(c.file_size)}</span>` : ""}
+            ${fmtDate(c.posted_at) ? `<span class="badge">${esc(t("postedDate"))} ${fmtDate(c.posted_at)}</span>` : ""}
+          </span>
+          ${(c.tags || []).length ? `<span class="dup-tags">${c.tags.map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</span>` : ""}
+          <span class="dup-meta" style="margin-top:6px">
+            <button class="secondary" data-action="dupgal-keep" data-gid="${g.gid}" data-path="${encodeURIComponent(c.path)}" type="button">${esc(t("dupGalKeep"))}</button>
+            <button class="secondary danger" data-action="dupgal-keep-del" data-gid="${g.gid}" data-path="${encodeURIComponent(c.path)}" type="button">${esc(t("dupGalKeepDel"))}</button>
+          </span>
+        </span>
+      </div>`;
+  };
+  el.innerHTML = `
+    <p class="sub">${esc(t("dupGalFound"))}: ${groups.length} ${esc(t("dupGalGroups"))}${open ? ` · ${open} ${esc(t("dupGalOpen"))}` : ""}</p>
+    ${groups.map(g => `
+      <div class="panel dup-group" style="margin-top:14px">
+        <div class="dup-group-head">
+          <span class="dup-count">#${g.gid}</span>
+          <span class="dup-main-title">${esc((g.copies && g.copies[0] && g.copies[0].title) || ("gid " + g.gid))}</span>
+          <span class="badge">${esc(g.policy || "")}</span>
+          <span class="badge">${esc(t(DUPGAL_STATUSES[g.status] || "dupGalOpen"))}</span>
+          <span class="dup-head-actions">
+            ${g.status === "open"
+              ? `<button class="secondary" data-action="dupgal-dismiss" data-gid="${g.gid}" type="button">${esc(t("dupGalDismiss"))}</button>`
+              : `<button class="secondary" data-action="dupgal-restore" data-gid="${g.gid}" type="button">${esc(t("dupGalRestore"))}</button>`}
+          </span>
+        </div>
+        ${(g.copies || []).map(c => renderCopy(c, g)).join("")}
+      </div>`).join("")}`;
+}
+
+async function renderDuplicates() {
+  const filterBtn = (val, label) =>
+    `<button class="secondary${dupGalFilter === val ? " active-pill" : ""}" data-action="dupgal-filter" data-value="${val}" type="button">${esc(label)}</button>`;
+  $view().innerHTML = `
+    <header><p class="eyebrow">DUPLICATE COPIES</p><h1>${esc(t("dupGalTitle"))}</h1>
+    <p class="sub">${esc(t("dupGalSub"))}</p></header>
+    <div class="toolbar">
+      <button class="primary" data-action="dupgal-scan" type="button">${esc(t("dupGalScan"))}</button>
+      <button class="secondary" data-action="dupgal-refresh" type="button">${esc(t("dupGalRefresh"))}</button>
+      ${filterBtn("all", t("dupGalAll"))}
+      ${filterBtn("open", t("dupGalOpen"))}
+      ${filterBtn("dismissed", t("dupGalDismissed"))}
+    </div>
+    <div id="dupgal-groups"><p class="muted">${esc(t("loading"))}</p></div>`;
+  await loadDuplicates();
+  renderDuplicatesList();
+}
+
+async function dupGalResolve(gid, path, deleteOthers) {
+  if (!path) return;
+  if (deleteOthers && !window.confirm(t("dupGalConfirmDel"))) return;
+  if (!deleteOthers && !window.confirm(t("dupGalConfirmKeep"))) return;
+  try {
+    await api("POST", `/api/scan/duplicates/${gid}/resolve`, { path: decodeURIComponent(path), delete_others: deleteOthers });
+    toast(deleteOthers ? t("deleted") : t("saveOk"));
+    await loadDuplicates(false);
+    renderDuplicatesList();
+  } catch (e) { toast(e.message); }
+}
+
+async function dupGalSetStatus(gid, status) {
+  try {
+    await api("POST", `/api/scan/duplicates/${gid}/${status}`);
+    await loadDuplicates(false);
+    renderDuplicatesList();
+  } catch (e) { toast(e.message); }
 }
 
 async function renderDupGroupsFromCache() {
