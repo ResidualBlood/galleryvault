@@ -1068,15 +1068,18 @@ async def _record_download_notification(
 async def _telegram_flush_loop() -> None:
     """Flush a non-empty Telegram download digest on a timer as a fallback.
 
-    The primary trigger is the queue going idle; this catches long continuous
-    download runs (or a task stuck in ``downloading``) so a digest still lands.
+    The primary trigger is the queue going idle; this catches a long run where
+    a task is stuck in ``downloading`` (so no idle event ever fires) without
+    splitting an active batch into premature partial digests: only buffers that
+    have received **no new events** for the interval are flushed.
     """
     while True:
         await asyncio.sleep(_TELEGRAM_FLUSH_INTERVAL)
         notifier = app.state.telegram
         if notifier is not None:
             try:
-                await notifier.flush_summary()
+                if notifier.events_stale(_TELEGRAM_FLUSH_INTERVAL):
+                    await notifier.flush_summary()
             except Exception as exc:  # noqa: BLE001 - timer must not crash the app
                 logger.warning(
                     "telegram summary flush failed", extra=log_extra(error=type(exc).__name__)
@@ -1639,7 +1642,12 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
     updates = {key: value for key, value in values.items() if key in allowed}
     if "library_roots" in updates:
         updates["library_roots"] = normalize_library_roots(updates["library_roots"])
-    app.state.settings = _settings().model_copy(update=updates)
+    current = _settings()
+    # model_copy(update=...) skips pydantic validation, so a stored value like a
+    # plaintext JSON string in exhentai_cookies would stay a string and crash
+    # EhClient's dict(cookies). Re-validate the merged settings instead so
+    # strings are parsed back into their typed values (no ENCRYPTION_KEY case).
+    app.state.settings = type(current).model_validate({**current.model_dump(), **updates})
 
 
 

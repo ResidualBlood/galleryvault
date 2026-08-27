@@ -1,4 +1,5 @@
 import logging
+import time
 
 import httpx
 
@@ -29,6 +30,7 @@ class TelegramNotifier:
         )
         self._ok: list[str] = []
         self._fail: list[str] = []
+        self._last_event_at: float = 0.0
 
     async def aclose(self) -> None:
         if self._owned and self.client is not None:
@@ -38,6 +40,12 @@ class TelegramNotifier:
     def pending_events(self) -> bool:
         """Whether a download digest is buffered and waiting to be flushed."""
         return bool(self._ok or self._fail)
+
+    def events_stale(self, interval: float) -> bool:
+        """Whether the buffered digest has received no new events for ``interval``."""
+        return bool(self._ok or self._fail) and (
+            time.monotonic() - self._last_event_at
+        ) >= interval
 
     async def record_download_outcome(
         self, kind: str, title: str, detail: str | None = None
@@ -64,6 +72,8 @@ class TelegramNotifier:
         else:
             self._fail.append(f"{title}" + (f"：{detail}" if detail else ""))
             immediate = self.settings.telegram_notify_level in {"immediate", "failures_only"}
+        if not immediate:
+            self._last_event_at = time.monotonic()
         if immediate or len(self._ok) + len(self._fail) >= _BUFFER_CAP:
             await self.flush_summary()
 

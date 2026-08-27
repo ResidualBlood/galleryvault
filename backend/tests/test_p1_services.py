@@ -274,6 +274,18 @@ async def test_telegram_auto_notification_without_chats_is_noop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_telegram_summary_events_are_stale_after_interval() -> None:
+    settings = Settings(telegram_bot_token="secret", telegram_chat_ids=["7"])
+    notifier = TelegramNotifier(settings)
+    assert not notifier.events_stale(60)
+    await notifier.record_download_outcome("ok", "A", "3 页")
+    # Freshly recorded events are not stale, so an active batch is not split
+    # into premature partial digests by the timer.
+    assert not notifier.events_stale(60)
+    assert notifier.events_stale(0)
+
+
+@pytest.mark.asyncio
 async def test_telegram_summary_buffers_until_flush() -> None:
     bodies = []
 
