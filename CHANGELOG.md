@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-08-26
+
+### Changed
+
+- **Smaller backend image**: dropped the never-used `uvicorn[standard]` extras
+  (uvloop/httptools/watchfiles/websockets/PyYAML are not imported anywhere),
+  trimmed the idle/tk stdlib modules and bytecode caches. The image is roughly
+  25MB smaller while remaining a single-stage build for `linux/amd64` and
+  `linux/arm64`.
+
 ## [1.2.4] - 2026-08-26
 
 ### Fixed
