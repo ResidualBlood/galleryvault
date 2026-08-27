@@ -50,6 +50,8 @@ docker compose up -d
 3. **建议先配置 ExHentai cookie 并跑一次「收藏夹 → 立即检查所有」**，把收藏过的画廊的元数据缓存进数据库，之后扫描入库会直接复用缓存，标签同步快得多。
 4. 将画廊放入 `./library` 目录（挂载至 `/library`），点击「扫描库」即可开始使用。
 
+> 首次启动时 Docker 会自动创建 `./library`、`./downloads`、`./cache`、`./db-data` 目录；下载的 `docker-compose.yml` 可按需定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。
+
 > JSON API 位于 **http://\<主机地址\>:8001**。
 
 ## 数据与目录
@@ -62,6 +64,17 @@ docker compose up -d
 | `./cache` | **缩略图缓存**（自动生成），挂载至 `/gv-cache` |
 
 库目录（只读，每行一个路径）与下载目录在「设置」中分开配置；把其他 Ehviewer 下载目录挂载为**仅扫描不下载**的库，见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
+
+## 升级
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+数据库迁移在 backend 启动时自动执行（alembic），无需手动操作；镜像使用 `:latest` 标签，`pull` 即可获得新版本。
+
+> **不要**用 `curl -o docker-compose.yml` 覆盖本地 compose——它可能含有你的定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。如需获取更新的 compose 模板，先备份本地文件，再手动比对合并修改。
 
 ## 安全
 
