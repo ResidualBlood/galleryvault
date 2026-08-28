@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Telegram notifications are now language-selectable and consistently
+  formatted**. A new `telegram_notify_lang` setting (中文 / English, default
+  `zh`) drives the language of *all* automatic notifications — download
+  success/failure/digest, library scan summary and failure, favorites folder
+  checks, Telegram bot replies and the test message — instead of the previous
+  mixed Chinese/English copy. Messages are sent with Telegram HTML formatting
+  (bold titles, `<code>` gids, uniform emoji prefixes); gallery titles stay
+  untranslated. The download digest keeps its 4096-character budget, now
+  measured against the rendered text length.
+
 ## [1.2.11] - 2026-08-28
 
 ### Added
