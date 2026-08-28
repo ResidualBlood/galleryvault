@@ -59,6 +59,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Gallery-page delete and bulk delete share the same code path and now also
   delete single-file (CBZ/CBR) archives, which the previous directory-only
   removal never touched.
+- **Library roots are no longer labeled "read-only"**: the Settings label and
+  hint were updated, since deletion now removes files under a library root when
+  the mount is writable (a read-only mount reports the failure instead of
+  silently succeeding). New downloads still never land in library roots.
 
 ## [1.2.10] - 2026-08-27
 

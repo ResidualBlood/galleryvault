@@ -61,11 +61,11 @@ docker compose up -d
 | 路径 | 说明 |
 |------|------|
 | `./db-data` | PostgreSQL 数据（索引、设置、历史），容器重建后保留 |
-| `./library` | **只读库目录**：已有画廊归档，挂载至 `/library`，新下载不会写入 |
+| `./library` | **库目录**：已有画廊归档，挂载至 `/library`，新下载不会写入；删除画廊时若挂载可写会一并删除这里对应文件 |
 | `./downloads` | **下载目录**：从 ExHentai 下载的画廊，挂载至 `/downloads`，自动纳入扫描 |
 | `./cache` | **缩略图缓存**（自动生成），挂载至 `/gv-cache` |
 
-库目录（只读，每行一个路径）与下载目录在「设置」中分开配置；把其他 Ehviewer 下载目录挂载为**仅扫描不下载**的库，见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
+库目录（每行一个路径）与下载目录在「设置」中分开配置；把其他 Ehviewer 下载目录挂载为**仅扫描不下载**的库，见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
 
 ## 升级
 
@@ -105,7 +105,7 @@ docker compose up -d
 
 完整文档见 **[📖 Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**：
 
-- [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — compose、数据目录、只读库挂载、安全加固、TLS、升级
+- [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — compose、数据目录、库挂载、安全加固、TLS、升级
 - [使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — 浏览、阅读器、标签、下载、收藏夹、日志、设置
 - [备份与恢复](https://github.com/ResidualBlood/galleryvault/wiki/Backup)
 - [静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption) — ENCRYPTION_KEY 与密钥丢失恢复
