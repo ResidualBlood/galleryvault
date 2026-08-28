@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Docs
+
+- **Favorites modes documented**: the docs (wiki Usage CN/EN, backend
+  `docs/USAGE.md`, `docs/API.md`) now explain the difference between
+  *incremental* / *watch only* / *force* folder modes, and how to pull down the
+  backlog of an already-checked folder (incremental only follows new additions,
+  so existing favorites need a one-time **force** check or **Download
+  selected**).
+
 ### Fixed
 
 - **Library "Scan library" button works again**: the button on the Library page
