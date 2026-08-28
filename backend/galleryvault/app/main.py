@@ -2511,14 +2511,25 @@ def _page_media_type(ext: str) -> str:
     )
 
 
-def _closing_stream(stream: BinaryIO) -> Iterator[bytes]:
-    """Yield a sync page stream, closing the underlying file when exhausted.
+_PAGE_STREAM_CHUNK = 256 * 1024
 
-    StreamingResponse iterates sync iterators in a threadpool but never closes
-    a raw file object, so every served page would leak a file descriptor.
+
+def _closing_stream(stream: BinaryIO) -> Iterator[bytes]:
+    """Yield a sync page stream in 256KB chunks, closing the file when exhausted.
+
+    StreamingResponse iterates sync iterators in a threadpool round-trip per
+    chunk. A plain ``yield from stream`` iterates in the file's 8KB buffer size,
+    which caps large-page throughput near ~1MB/s (painful for big animated WebP
+    pages). Reading 256KB per chunk removes the per-chunk overhead. The finally
+    block closes a raw file object so every served page leaves no descriptor
+    behind.
     """
     try:
-        yield from stream
+        while True:
+            chunk = stream.read(_PAGE_STREAM_CHUNK)
+            if not chunk:
+                break
+            yield chunk
     finally:
         try:
             stream.close()
