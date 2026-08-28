@@ -66,24 +66,25 @@ docker compose up -d
 1. **Log in to ExHentai**: Settings → ExHentai, fill in `ipb_member_id` /
    `ipb_pass_hash` / `igneous` and verify with *Test login* (cookies are stored
    encrypted, never in the compose file).
-2. **Read your favorites**: on the Favorites page run *Sync folder names*, then
-   *Check all folders* — this caches the galleries' metadata (title, tags,
-   cover, size) and records the favorite set (the basis for later downloads).
+2. **Read your favorites without downloading**: on the Favorites page set the
+   folder mode to *watch only*, then run *Sync folder names* and *Check all
+   folders* — metadata (title, tags, cover, size) is cached and the favorite
+   set recorded, but **nothing is downloaded**.
 3. **Scan the library**: put your existing galleries under a library root
    (`./library`, `./downloads`, …) and hit *Scan library*. The metadata cache
    from step 2 is reused, so tag sync is much faster.
-4. **Deduplicate**: group different versions of the same work (DL /
+4. **Deduplicate first**: group different versions of the same work (DL /
    uncensored / language re-uploads) with *Manage favorites → Scan for
-   duplicates*; clean up same-gid copies across scan roots on the *Duplicate
-   copies* page.
-5. **Enable auto-download**: turn on the **download favorites** master switch
-   in Settings; on the Favorites page tick the folders to watch, pick
-   *incremental* mode and an interval (e.g. 10 minutes). Newly favorited
-   galleries are then downloaded automatically.
-6. **Backfill existing favorites (optional)**: to pull down favorites you do
-   not have locally yet, switch the folder to *force* mode once and run *Check
-   now* (already-local galleries are skipped), then switch back to
-   *incremental*.
+   duplicates* (cloud and local items are compared together, so duplicates can
+   be unfavorited/ignored before they are downloaded); clean up same-gid copies
+   across scan roots on the *Duplicate copies* page.
+5. **Start downloading**: switch the folder mode to *force* and run *Check
+   now* — every folder gallery **not in the local library** is queued once
+   (already-local galleries are skipped, nothing is re-downloaded).
+6. **Switch to incremental + schedule**: once the backlog is down, switch the
+   mode back to *incremental* and turn on the **download favorites** master
+   switch with an interval (e.g. 10 minutes). Newly favorited galleries are
+   then downloaded automatically.
 
 ## Data and volumes
 
