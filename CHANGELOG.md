@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Downloads: `showpage` network errors are now wrapped as retryable
+  failures**. A raw `httpx.ConnectTimeout`/`ReadTimeout` from the page-URL
+  resolution API used to leak to the download worker as a cryptic
+  `ConnectTimeout:` error and — worse — bypassed the 30s challenge backoff, so
+  the retries fired back-to-back. Transport errors now surface as
+  `EhClientError` (retryable with backoff) and reuse the existing HTML fallback.
+- **Log context fields (e.g. `[error='ReadTimeout']`) now actually appear**. The
+  `log_extra` helper built a nested `{"extra": {...}}` dict, which set
+  `record.extra` instead of `record.context`; the log formatter never read it,
+  so every structured field (`error`, `gid`, `page`, …) was silently dropped
+  from all log lines. Fixed so failure diagnosis via `docker logs` works.
+
 ## [1.2.13] - 2026-08-28
 
 ### Added
