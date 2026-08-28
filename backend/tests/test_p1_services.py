@@ -8,8 +8,9 @@ import httpx
 import pytest
 
 from galleryvault.config import Settings
-from galleryvault.db.models import GalleryTag, Tag
+from galleryvault.db.models import Gallery, GalleryPage, GalleryTag, Tag
 from galleryvault.db.repository import GalleryRepository
+from galleryvault.scanners.base import GalleryMeta, PageInfo
 from galleryvault.services.downloader import Downloader, DownloadTask
 from galleryvault.services.eh_client import (
     EhClient,
@@ -974,3 +975,65 @@ def test_thumbnail_service_rejects_corrupt_input(tmp_path: Path) -> None:
     service = ThumbnailService(tmp_path / "thumbs")
     with pytest.raises(ThumbnailError):
         service.get_or_create(1, 0, b"not-an-image")
+
+
+@pytest.mark.asyncio
+async def test_upsert_many_all_gidless_batch_does_not_crash() -> None:
+    """A scan batch of only gid-less galleries must not raise TypeError.
+
+    The existing-row lookup used ``(col.in_(gids) if gids else False) | ...``;
+    with ``gids`` empty that compiled to ``False | ColumnElement`` which raises
+    ``TypeError`` (a Python bool has no reflected ``__or__``).  Regression: the
+    condition is now assembled conditionally, so all-gid-less batches (e.g.
+    calibre CBZ exports) ingest instead of crashing the whole scan batch.
+    """
+    next_id = iter(range(1, 10**6))
+
+    class _EmptyRows:
+        def all(self):
+            return []
+
+    class _ExecResult:
+        rowcount = 0
+
+    class Session:
+        def __init__(self):
+            self.added = []
+
+        async def scalars(self, statement):
+            return _EmptyRows()
+
+        async def execute(self, statement):
+            return _ExecResult()
+
+        def add(self, value):
+            if isinstance(value, Gallery):
+                value.id = next(next_id)
+            self.added.append(value)
+
+        def add_all(self, values):
+            for value in values:
+                self.add(value)
+
+        async def flush(self):
+            pass
+
+    session = Session()
+    pages = [PageInfo(0, "1.jpg", "jpg", 100, 1)]
+    galleries = [
+        GalleryMeta(
+            title=f"no-gid-{i}",
+            path=Path(f"/tmp/gidless-{i}"),
+            storage_type="folder",
+            pages=pages,
+            file_count=1,
+            file_size=100,
+            storage_signature=f"sig-{i}",
+            storage_mtime_ns=1,
+            storage_size=100,
+        )
+        for i in range(2)
+    ]
+    await GalleryRepository(session).upsert_many(galleries)
+    assert len([item for item in session.added if isinstance(item, Gallery)]) == 2
+    assert len([item for item in session.added if isinstance(item, GalleryPage)]) == 2

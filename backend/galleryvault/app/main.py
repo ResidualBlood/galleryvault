@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
+    Response,
 )
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
@@ -1006,17 +1007,20 @@ async def _run_download(task: DownloadTask) -> None:
         completed = False
         async with _settings_session() as session, session.begin():
             row = await session.get(DownloadTaskModel, task.id)
-            if row and row.status != "cancelled":
-                row.status, row.target_path, row.category = (
-                    "success",
-                    str(result.path),
-                    result.category,
+            if row is not None:
+                if row.status != "cancelled":
+                    row.status, row.target_path, row.category = (
+                        "success",
+                        str(result.path),
+                        result.category,
+                    )
+                    row.error_message = None
+                    row.finished_at = datetime.now(UTC)
+                # Skip the attempt log when the task row was deleted mid-flight
+                # (writing one would violate the FK on download_tasks.id).
+                await DownloadRepository(session).record_attempt(
+                    task.id or 0, row.retry_count + 1, "success"
                 )
-                row.error_message = None
-                row.finished_at = datetime.now(UTC)
-            await DownloadRepository(session).record_attempt(
-                task.id or 0, row.retry_count + 1, "success"
-            )
             completed = True
         if completed:
             await _record_download_notification("ok", result.title or task.gid, f"{result.pages} 页")
@@ -2881,9 +2885,11 @@ async def change_password(body: ChangePasswordRequest) -> None:
     if body.new == DEFAULT_PASSWORD and using_default:
         raise HTTPException(status_code=422, detail="New password cannot be the default")
     new_hash = hash_password(body.new)
-    # Rotate auth_secret so every previously issued session cookie is revoked
-    # immediately (a password change must invalidate old sessions). The SPA
-    # logs in again with the new secret; --must_change_password is cleared.
+    # Rotate auth_secret so every previously issued session cookie is revoked.
+    # The secret must be applied to the RUNNING process (not just persisted):
+    # ``_apply_persisted_settings`` only re-applies the password hash, so
+    # without the model_copy below revocation would silently wait for the next
+    # restart while the DB already held the new secret.
     import secrets as _secrets
 
     new_secret = _secrets.token_urlsafe(32)
@@ -2895,9 +2901,23 @@ async def change_password(body: ChangePasswordRequest) -> None:
             await SettingsRepository(session).save_extra(stored)
     except SQLAlchemyError as exc:
         raise _db_error(exc) from exc
-    # Force sync so the new hash is effective immediately.
-    await _apply_persisted_settings()
+    app.state.settings = app.state.settings.model_copy(
+        update={"auth_secret": new_secret, "auth_password_hash": new_hash}
+    )
+    # Hand the current user a fresh cookie signed with the new secret so their
+    # own password change does not log them out while everyone else's old
+    # sessions are revoked immediately.
+    response = Response(status_code=204)
+    response.set_cookie(
+        _settings().auth_cookie_name,
+        create_session(new_secret, _settings().auth_session_ttl),
+        httponly=True,
+        samesite="lax",
+        secure=_settings().auth_cookie_secure,
+        max_age=_settings().auth_session_ttl,
+    )
     logger.info("account password changed")
+    return response
 
 
 

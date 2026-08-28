@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import and_, delete, func, or_, select, tuple_, update
+from sqlalchemy import and_, delete, false, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -165,16 +165,20 @@ class GalleryRepository:
         }
         gids = [gallery.gid for gallery in unique.values() if gallery.gid is not None]
         hashes = [path_hash(gallery.path) for gallery in unique.values()]
-        existing = list(
-            (
-                await self.session.scalars(
-                    select(Gallery).where(
-                        (Gallery.gid.in_(gids) if gids else False)
-                        | (Gallery.path_hash.in_(hashes) if hashes else False)
-                    )
-                )
-            ).all()
+        # Build the lookup conditionally: ``False | column.in_(...)`` raises
+        # ``TypeError`` (a Python bool has no ``__ror__``), so a batch of only
+        # gid-less galleries (e.g. calibre CBZ exports) must not produce one.
+        where: list[object] = []
+        if gids:
+            where.append(Gallery.gid.in_(gids))
+        if hashes:
+            where.append(Gallery.path_hash.in_(hashes))
+        stmt = (
+            select(Gallery).where(or_(*where))
+            if where
+            else select(Gallery).where(false())
         )
+        existing = list((await self.session.scalars(stmt)).all())
         by_key = {
             ("gid", row.gid) if row.gid is not None else ("path", row.path_hash): row
             for row in existing

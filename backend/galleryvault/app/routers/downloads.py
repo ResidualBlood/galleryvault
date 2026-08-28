@@ -32,7 +32,8 @@ async def create_download(body: main.DownloadRequest) -> dict[str, object]:
                 task.token,
                 task.title or str(task.gid),
                 task.id,
-                task.max_retries,
+                max_retries=task.max_retries,
+                mode=task.mode,
                 max_pages=body.max_pages,
             )
     except HTTPException:
