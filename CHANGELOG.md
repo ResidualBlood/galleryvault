@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.12] - 2026-08-28
+
 ### Changed
 
 - **Telegram notifications are now language-selectable and consistently
@@ -379,7 +381,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.11...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.12...HEAD
+[1.2.12]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.12
 [1.2.11]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.11
 [1.2.3]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.3
 [1.2.2]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.2
