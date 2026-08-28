@@ -31,8 +31,10 @@ services:
     # loopback interface so it is never exposed straight to the public network.
     ports: ["127.0.0.1:8001:8001"]
     volumes:
-      # Read-only library: put your existing archives (Ehviewer exports, CBZ…)
-      # here. New downloads never land in this directory.
+      # Library: put your existing archives (Ehviewer exports, CBZ…) here.
+      # New downloads never land in this directory; deleting a gallery removes
+      # its files here when the mount is writable (a read-only mount reports
+      # the failure on the Logs page instead of silently succeeding).
       - ./library:/library
       # Download directory: galleries downloaded from ExHentai are stored here
       # and scanned automatically.

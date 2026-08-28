@@ -66,11 +66,11 @@ docker compose up -d
 | Path | Purpose |
 |------|---------|
 | `./db-data` | PostgreSQL data (index, settings, history) — survives container recreation |
-| `./library` | **Read-only library**: your existing archives, mounted at `/library`. New downloads never land here |
+| `./library` | **Library**: your existing archives, mounted at `/library`. New downloads never land here; deleting a gallery removes its files here when the mount is writable |
 | `./downloads` | **Download directory**: galleries downloaded from ExHentai, mounted at `/downloads`, scanned automatically |
 | `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache` |
 
-Library roots (read-only, one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
+Library roots (one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
 
 ## Upgrading
 
