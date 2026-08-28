@@ -61,6 +61,30 @@ docker compose up -d
 
 > The JSON API is available at **http://\<host\>:8001**.
 
+### Recommended workflow
+
+1. **Log in to ExHentai**: Settings → ExHentai, fill in `ipb_member_id` /
+   `ipb_pass_hash` / `igneous` and verify with *Test login* (cookies are stored
+   encrypted, never in the compose file).
+2. **Read your favorites**: on the Favorites page run *Sync folder names*, then
+   *Check all folders* — this caches the galleries' metadata (title, tags,
+   cover, size) and records the favorite set (the basis for later downloads).
+3. **Scan the library**: put your existing galleries under a library root
+   (`./library`, `./downloads`, …) and hit *Scan library*. The metadata cache
+   from step 2 is reused, so tag sync is much faster.
+4. **Deduplicate**: group different versions of the same work (DL /
+   uncensored / language re-uploads) with *Manage favorites → Scan for
+   duplicates*; clean up same-gid copies across scan roots on the *Duplicate
+   copies* page.
+5. **Enable auto-download**: turn on the **download favorites** master switch
+   in Settings; on the Favorites page tick the folders to watch, pick
+   *incremental* mode and an interval (e.g. 10 minutes). Newly favorited
+   galleries are then downloaded automatically.
+6. **Backfill existing favorites (optional)**: to pull down favorites you do
+   not have locally yet, switch the folder to *force* mode once and run *Check
+   now* (already-local galleries are skipped), then switch back to
+   *incremental*.
+
 ## Data and volumes
 
 | Path | Purpose |
