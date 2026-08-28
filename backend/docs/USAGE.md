@@ -185,8 +185,11 @@ and back/forward work without server round-trips.
 
 ### Settings (`#/settings`)
 
-- **Library roots** (read-only): one filesystem path per line. In Docker these
-  must be paths mounted into the container. New downloads never land here.
+- **Library roots**: one filesystem path per line. In Docker these
+  must be paths mounted into the container. New downloads never land here, but
+  deleting a gallery does remove its files under these roots when the mount is
+  writable (a read-only mount reports the failure instead of silently
+  succeeding).
 - **Downloads**: root directory (where downloads are stored and scanned
   automatically), concurrency, quality (normal/original), H@H network, `max_pages`.
 - **Account**: toggle *Require login*. **Change password** asks for the current
