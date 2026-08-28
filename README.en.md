@@ -86,6 +86,35 @@ docker compose up -d
    switch with an interval (e.g. 10 minutes). Newly favorited galleries are
    then downloaded automatically.
 
+### Scope
+
+GalleryVault is built **primarily for galleries downloaded by
+[Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)**: a
+`<gid>-<title>/` image folder plus a **`.ehviewer`** metadata file (SpiderInfo
+VERSION1/VERSION2 carrying the gid/token and a per-page pToken). The scanner
+parses it to **restore the gallery identity exactly** — enabling download,
+dedupe and offline-resume positioning.
+
+The `.ehviewer` format originates from Hippo Seven's EhViewer
+(`com.hippo.ehviewer.spider.SpiderInfo`), so **any EhViewer-family client
+writes a compatible file** and can be ingested directly:
+
+- **Original EhViewer** ([seven332/EhViewer](https://github.com/seven332/EhViewer),
+  deprecated); current active branches **FooIbar/EhViewer** (Material Design 3),
+  **Ehviewer-Overhauled/Ehviewer**, **EhViewer-NekoInverter/EhViewer**,
+  **exzhawk/EhViewer**, **AdNotFound/EhViewer** and other forks.
+- Cross-platform ports: **EhViewer-Apple** (iOS/macOS), **Ehviewer_OHOS**
+  (HarmonyOS).
+- Companion tools that generate/read `.ehviewer`: **LRReader** (Android, a
+  LANraragi client), **exhentai-manga-manager**, **ehviewer_manga_manager**
+  (Python CLI), LANraragi's `Ehviewer.pm` metadata plugin.
+
+Other formats are supported at reduced fidelity: plain image folders named
+`<gid>-<title>` **without** an `.ehviewer` file (the gid is inferred from the
+directory name) and **CBZ/CBR** archives (gid must prefix the file name,
+metadata from ComicInfo.xml). Galleries without a gid can be browsed but
+**cannot take part in downloads, dedupe or duplicate-copy resolution**.
+
 ## Data and volumes
 
 | Path | Purpose |

@@ -19,6 +19,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in *watch only* mode (no downloads yet) → scan library → **deduplicate
   before downloading** → start with a *force* check to pull the backlog →
   switch to *incremental* + schedule.
+- **Scope declared**: README (CN/EN) and wiki Home (CN/EN) now state the
+  project's primary target — galleries downloaded by **Ehviewer_CN_SXJ** with
+  a `.ehviewer` (SpiderInfo) metadata file — and list compatible EhViewer-family
+  clients (FooIbar/EhViewer, Ehviewer-Overhauled, EhViewer-Apple,
+  Ehviewer_OHOS, LRReader, …) plus the reduced-fidelity support for bare image
+  folders and CBZ/CBR.
 
 ### Fixed
 

@@ -65,6 +65,18 @@ docker compose up -d
 5. **开始下载**：收藏夹页把模式切到「强制下载」→「立即检查」，把文件夹里**不在本地库**的画廊一次性排队下载（已在库的自动跳过，不会重复下）。
 6. **切回增量 + 定时**：存量下完后把模式切回「增量下载」，设置里打开 **download favorites** 总开关、间隔按需（如 10 分钟）。之后**新加进收藏夹的画廊会自动下载**。
 
+### 适用范围
+
+本项目**首要面向 [Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ) 下载的画廊**：下载目录为 `<gid>-<标题>/` 图片文件夹 + `.ehviewer` 元数据文件（SpiderInfo VERSION1/VERSION2，内含 gid/token 与每页 pToken），扫描器据此**精确还原画廊身份**，支持下载/查重/离线续读定位。
+
+`.ehviewer` 源自 Hippo Seven 的 EhViewer（`com.hippo.ehviewer.spider.SpiderInfo`），**同源客户端写出的格式完全兼容**，可直接入库：
+
+- **EhViewer 原版**（[seven332/EhViewer](https://github.com/seven332/EhViewer)，已弃用）；当前主流分支 **FooIbar/EhViewer**（MD3 重写）、**Ehviewer-Overhauled/Ehviewer**、**EhViewer-NekoInverter/EhViewer**、**exzhawk/EhViewer**、**AdNotFound/EhViewer** 等。
+- 跨平台移植：**EhViewer-Apple**（iOS/macOS）、**Ehviewer_OHOS**（鸿蒙）。
+- 周边工具（生成/读取 `.ehviewer`）：**LRReader**（Android·LANraragi 客户端）、**exhentai-manga-manager**、**ehviewer_manga_manager**（Python CLI）、**LANraragi** 的 `Ehviewer.pm` 元数据插件。
+
+其余格式按能力降级支持：符合 `<gid>-<标题>` 命名的**无 `.ehviewer` 图片文件夹**（gid 只能从目录名推断）、**CBZ/CBR**（gid 需在文件名开头，元数据取 ComicInfo.xml）。无 gid 的画廊可入库浏览，但**无法参与下载/查重/重复副本解析**。
+
 ## 数据与目录
 
 | 路径 | 说明 |
