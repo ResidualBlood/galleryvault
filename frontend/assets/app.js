@@ -67,6 +67,9 @@ const I18N = {
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
     catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted",
     useHah: "Use H@H", titleDisplay: "Title display",
+    imageTimeout: "Image max time (seconds)", imageWarmup: "Image slow warmup (seconds)", imageMinSpeed: "Image min speed (KB/s)",
+    imageTimeoutHint: "A single image is aborted after this many seconds total. ",
+    imageSlowHint: "After the warm-up window, an image averaging below the minimum speed is treated as a throttled H@H node and retried with backoff.",
     botToken: "Bot token (leave blank to keep)", chatIds: "Chat IDs (comma separated)",
     allowedIds: "Allowed user IDs (comma separated)",
     notifyLevel: "Notification level", notifyLevelSummary: "Summary (batch digest)", notifyLevelImmediate: "Immediate (every event)", notifyLevelFailuresOnly: "Failures only", notifyLevelOff: "Off", notifyLang: "Notification language", langZh: "中文", langEn: "English",
@@ -171,6 +174,9 @@ const I18N = {
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
     catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除",
     useHah: "使用 H@H", titleDisplay: "标题显示",
+    imageTimeout: "单图最大耗时（秒）", imageWarmup: "慢速预热窗口（秒）", imageMinSpeed: "单图最低速度（KB/s）",
+    imageTimeoutHint: "单张图片下载超过该总时长即中断。",
+    imageSlowHint: "超过预热窗口后，若单图平均速度低于下限，判定为 H@H 限流节点，退避后重试。",
     botToken: "Bot Token（留空保持不变）", chatIds: "Chat ID（逗号分隔）",
     allowedIds: "允许的用户 ID（逗号分隔）",
     notifyLevel: "通知级别", notifyLevelSummary: "汇总（批量摘要）", notifyLevelImmediate: "即时（每条都发）", notifyLevelFailuresOnly: "仅失败", notifyLevelOff: "关闭", notifyLang: "通知语言", langZh: "中文", langEn: "English",
@@ -1226,6 +1232,13 @@ async function renderSettings() {
           </select>`)}
           ${field(t("titleDisplay"), `<select name="title_display">${["japanese", "english", "directory"].map(o => `<option value="${o}"${o === (s.title_display || "japanese") ? " selected" : ""}>${o}</option>`).join("")}</select>`)}
         </div>
+        <p class="notice">${esc(t("imageTimeoutHint"))}</p>
+        <div class="form-grid">
+          ${field(t("imageTimeout"), `<input name="image_download_timeout_seconds" type="number" min="1" value="${s.image_download_timeout_seconds != null ? s.image_download_timeout_seconds : 120}">`)}
+          ${field(t("imageWarmup"), `<input name="image_slow_warmup_seconds" type="number" min="1" value="${s.image_slow_warmup_seconds != null ? s.image_slow_warmup_seconds : 10}">`)}
+          ${field(t("imageMinSpeed"), `<input name="image_min_speed_kb_s" type="number" min="1" value="${s.image_min_speed_kb_s != null ? s.image_min_speed_kb_s : 50}">`)}
+        </div>
+        <p class="notice">${esc(t("imageSlowHint"))}</p>
         <label class="checkbox"><input type="checkbox" name="use_hah"${s.use_hah ? " checked" : ""}> ${esc(t("useHah"))}</label>
         <label class="checkbox"><input type="checkbox" name="download_favorites_enabled"${s.download_favorites_enabled ? " checked" : ""}> download favorites</label>
       </fieldset>
@@ -1314,6 +1327,9 @@ function collectSettings(form) {
     download_concurrency: Math.min(32, Math.max(1, num("download_concurrency", 2))),
     download_quality: val("download_quality") || "resample",
     title_display: val("title_display") || "japanese",
+    image_download_timeout_seconds: Math.max(1, Math.round(num("image_download_timeout_seconds", 120))),
+    image_slow_warmup_seconds: Math.max(1, Math.round(num("image_slow_warmup_seconds", 10))),
+    image_min_speed_kb_s: Math.max(1, Math.round(num("image_min_speed_kb_s", 50))),
     use_hah: form.use_hah.checked,
     download_favorites_enabled: form.download_favorites_enabled.checked,
     auto_sync_tags: form.auto_sync_tags.checked,
