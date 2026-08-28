@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.13] - 2026-08-28
+
 ### Added
 
 - **Slow H@H node watchdogs for image downloads**. New settings
@@ -403,9 +405,17 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.12...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.13...HEAD
+[1.2.13]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.13
 [1.2.12]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.12
 [1.2.11]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.11
+[1.2.10]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.10
+[1.2.9]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.9
+[1.2.8]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.8
+[1.2.7]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.7
+[1.2.6]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.6
+[1.2.5]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.5
+[1.2.4]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.4
 [1.2.3]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.3
 [1.2.2]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.2
 [1.2.1]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.1
