@@ -52,4 +52,8 @@ def configure_logging(level: str = "INFO", as_json: bool = False) -> None:
 
 
 def log_extra(**context: Any) -> dict[str, Any]:
-    return {"extra": {"context": context}}
+    # Returned dict is passed as ``extra=`` to a logging call; logging merges it
+    # into the LogRecord. ``_Formatter`` then reads ``record.context`` for the
+    # ``[key=value ...]`` suffix / JSON object. (A nested ``{"extra": {...}}``
+    # here would set ``record.extra`` and silently drop every field.)
+    return {"context": context}

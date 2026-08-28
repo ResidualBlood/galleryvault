@@ -604,12 +604,23 @@ class EhClient:
             "imgkey": p_token,
             "showkey": showkey,
         }
-        response = await self._request(
-            "POST",
-            "/api.php",
-            json=payload,
-            headers={"Content-Type": "application/json"},
-        )
+        try:
+            response = await self._request(
+                "POST",
+                "/api.php",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+        except httpx.RequestError as exc:
+            # Raw transport errors (e.g. ConnectTimeout) must surface as
+            # EhClientError: callers treat it as retryable-with-backoff, whereas
+            # a leaked httpx exception would retry immediately without the 30s
+            # challenge backoff.
+            logger.warning(
+                "ExHentai showpage request failed",
+                extra=log_extra(error=type(exc).__name__),
+            )
+            raise EhClientError("ExHentai request failed") from exc
         if response.status_code in (401, 403) or "login" in str(response.url).lower():
             raise EhClientError("ExHentai authentication is required or expired")
         response.raise_for_status()
@@ -967,6 +978,7 @@ class EhClient:
                     return b"".join(chunks), content_type
         except httpx.RequestError as exc:
             logger.warning(
-                "image download request failed", extra={"error": type(exc).__name__}
+                "image download request failed",
+                extra=log_extra(error=type(exc).__name__),
             )
             raise EhClientError("ExHentai image download failed") from exc
