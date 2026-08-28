@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     telegram_chat_ids: list[str] = Field(default_factory=list)
     telegram_allowed_user_ids: list[int] = Field(default_factory=list)
     telegram_notify_level: str = "summary"
+    telegram_notify_lang: str = "zh"
     favorites_categories: list[int] = Field(default_factory=lambda: list(range(8)))
     download_favorites_enabled: bool = False
     duplicate_policy: str = "keep_first"
@@ -108,6 +109,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "telegram_notify_level must be 'summary', 'immediate', 'failures_only', or 'off'"
             )
+        if self.telegram_notify_lang not in {"zh", "en"}:
+            raise ValueError("telegram_notify_lang must be 'zh' or 'en'")
         from .services.duplicate_resolver import DUPLICATE_POLICIES
 
         if self.duplicate_policy not in DUPLICATE_POLICIES:
@@ -182,6 +185,7 @@ EDITABLE_SETTINGS = {
     "telegram_chat_ids",
     "telegram_allowed_user_ids",
     "telegram_notify_level",
+    "telegram_notify_lang",
     "auth_required",
     "tag_translation_update_interval_minutes",
     "generate_thumbnails",

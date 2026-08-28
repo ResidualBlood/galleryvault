@@ -217,7 +217,10 @@ and back/forward work without server round-trips.
 - **Thumbnails**: *Generate thumbnails* switch and **Generate now**
   button; progress appears on the **Logs** page.
 - **Telegram**: bot token, chat IDs, allowed user IDs — **Send test message** verifies
-  the bot can reach the configured chat.
+  the bot can reach the configured chat. **Notification level** (summary /
+  immediate / failures-only / off) and **notification language** (中文 /
+  English) shape the automatic messages; download, scan, favorites and bot-reply
+  notifications are all formatted as Telegram HTML (bold titles, mono gids).
 - **Translation auto-update**: interval (minutes, 0 = off) for the backend to pull the
   latest EhTagTranslation release; **Update now** forces a refresh.
 

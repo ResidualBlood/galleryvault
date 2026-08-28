@@ -11,6 +11,7 @@ from typing import Any
 
 from ..config import Settings
 from ..services.eh_client import parse_gallery_url
+from ..services.messages import bot_paused, bot_queued, bot_resumed, bot_status
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +48,15 @@ class TelegramBotService:
         message = update.get("message", {})
         text = str(message.get("text", "")).strip()
         chat_id = message.get("chat", {}).get("id")
+        lang = self.settings.telegram_notify_lang
         if text == "/pause":
             self.paused = True
-            await self.notifier.send_message("Downloads paused", chat_id, force=True)
+            await self.notifier.send_message(bot_paused(lang), chat_id, force=True)
         elif text == "/resume":
             self.paused = False
-            await self.notifier.send_message("Downloads resumed", chat_id, force=True)
+            await self.notifier.send_message(bot_resumed(lang), chat_id, force=True)
         elif text == "/status":
-            await self.notifier.send_message(
-                "GalleryVault downloads are " + ("paused" if self.paused else "running"), chat_id
-            )
+            await self.notifier.send_message(bot_status(self.paused, lang), chat_id)
         else:
             try:
                 gid, token = parse_gallery_url(text, self.settings.exhentai_base_url)
@@ -66,7 +66,7 @@ class TelegramBotService:
                 await self.queue.enqueue(
                     type("TelegramGallery", (), {"gid": gid, "token": token, "title": text})()
                 )
-                await self.notifier.send_message(f"Queued gallery {gid}", chat_id, force=True)
+                await self.notifier.send_message(bot_queued(gid, lang), chat_id, force=True)
 
     async def run(self) -> None:
         while True:

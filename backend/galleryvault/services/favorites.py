@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .eh_client import FavoriteData
+from .messages import (
+    favorites_check_failed,
+    favorites_enqueue_failed,
+    favorites_summary,
+)
 
 logger = logging.getLogger(__name__)
 MODES = {"monitor_only", "incremental", "force"}
@@ -51,11 +56,8 @@ class FavoritesService:
         if mode not in MODES:
             raise ValueError("mode must be monitor_only, incremental, or force")
         cat = await self.repository.category(favcat)
-        cat_label = (
-            f"Favorites category {favcat} ({cat.name})"
-            if cat is not None and getattr(cat, "name", None)
-            else f"Favorites category {favcat}"
-        )
+        cat_name = getattr(cat, "name", None) if cat is not None else None
+        lang = getattr(self.notifier, "message_lang", "zh") if self.notifier else "zh"
         items: list[FavoriteData] = []
         last: Exception | None = None
         fetched = False
@@ -84,7 +86,7 @@ class FavoritesService:
                 await log_check(favcat, [], attempts, False, type(last).__name__ if last else None)
             if self.notifier:
                 await self.notifier.send_message(
-                    f"{cat_label}: check failed after {attempts} attempts"
+                    favorites_check_failed(favcat, cat_name, attempts, lang)
                 )
             raise RuntimeError(f"favorites check failed after {attempts} attempts") from last
         known = await self.repository.known_gids(favcat)
@@ -131,7 +133,7 @@ class FavoritesService:
                 )
                 if self.notifier:
                     await self.notifier.send_message(
-                        f"{cat_label}: download failed for {item.gid}"
+                        favorites_enqueue_failed(favcat, cat_name, item.gid, lang)
                     )
         await self.repository.checked(favcat, failed == 0)
         log_check = getattr(self.repository, "log_check", None)
@@ -139,6 +141,6 @@ class FavoritesService:
             await log_check(favcat, sorted(item.gid for item in candidates), attempts, failed == 0)
         if self.notifier and candidates:
             await self.notifier.send_message(
-                f"{cat_label}: {len(candidates)} new galleries, {downloaded} queued"
+                favorites_summary(favcat, cat_name, len(candidates), downloaded, lang)
             )
         return FavoritesCheckResult(favcat, len(unique), len(candidates), downloaded, failed)

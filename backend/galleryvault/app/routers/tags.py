@@ -94,10 +94,9 @@ async def telegram_test() -> dict[str, object]:
     if not targets:
         raise HTTPException(status_code=422, detail="No Telegram chat IDs configured")
     results: dict[str, object] = {}
+    message = main.messages.test_message(main._settings().telegram_notify_lang)
     for chat_id in targets:
-        results[str(chat_id)] = await notifier.send_message(
-            "GalleryVault: Telegram 连接测试 OK", chat_id=chat_id
-        )
+        results[str(chat_id)] = await notifier.send_message(message, chat_id=chat_id)
     ok = all(results.values())
     return {"ok": ok, "results": results}
 

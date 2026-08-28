@@ -160,9 +160,9 @@ def test_scan_summary_message_mentions_duplicates() -> None:
 
     base = {"persisted": 6, "expunged": 0}
     plain = _scan_summary_message(base, 0, [])
-    assert plain == "Library scan complete: 6 new, 0 removed"
+    assert plain == "🔎 扫库完成：新增 <b>6</b>，移除 <b>0</b>"
     with_dup = _scan_summary_message(base, 2, [1665763, 2862805])
-    assert "2 duplicate-copy group(s) found" in with_dup
+    assert "2</b> 组重复副本" in with_dup
     assert "1665763" in with_dup and "2862805" in with_dup
     capped = _scan_summary_message(base, 6, list(range(1, 7)))
     assert "…" in capped and "1, 2, 3, 4, 5" in capped

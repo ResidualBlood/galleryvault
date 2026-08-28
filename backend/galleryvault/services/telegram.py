@@ -5,14 +5,16 @@ import httpx
 
 from ..config import Settings, get_settings
 from ..logging import log_extra
+from .messages import (
+    download_fail,
+    download_ok,
+    download_summary,
+    normalize_lang,
+)
 
 logger = logging.getLogger(__name__)
 
-# Single downloads list their title; larger batches only show counts for the
-# success side (failures are always listed, capped to the Telegram 4096 limit).
-_LIST_TITLES_LIMIT = 5
 _BUFFER_CAP = 50
-_MAX_MESSAGE_CHARS = 4096
 
 
 class TelegramNotifier:
@@ -28,9 +30,17 @@ class TelegramNotifier:
             if self._owned
             else None
         )
-        self._ok: list[str] = []
-        self._fail: list[str] = []
+        # Buffered download outcomes as ``(title, detail)`` pairs so the digest
+        # is rendered with the *current* language at flush time (a language
+        # switch mid-buffer never leaks stale wording into a summary).
+        self._ok: list[tuple[str, str | None]] = []
+        self._fail: list[tuple[str, str | None]] = []
         self._last_event_at: float = 0.0
+
+    @property
+    def message_lang(self) -> str:
+        """Language used for Telegram notification copy (``telegram_notify_lang``)."""
+        return normalize_lang(getattr(self.settings, "telegram_notify_lang", "zh"))
 
     async def aclose(self) -> None:
         if self._owned and self.client is not None:
@@ -67,10 +77,10 @@ class TelegramNotifier:
         if kind == "ok":
             if self.settings.telegram_notify_level == "failures_only":
                 return
-            self._ok.append(f"{title}" + (f"（{detail}）" if detail else ""))
+            self._ok.append((title, detail))
             immediate = self.settings.telegram_notify_level == "immediate"
         else:
-            self._fail.append(f"{title}" + (f"：{detail}" if detail else ""))
+            self._fail.append((title, detail))
             immediate = self.settings.telegram_notify_level in {"immediate", "failures_only"}
         if not immediate:
             self._last_event_at = time.monotonic()
@@ -81,24 +91,14 @@ class TelegramNotifier:
         """Send the buffered download digest and clear it."""
         if not (self._ok or self._fail):
             return False
-        ok, fail = len(self._ok), len(self._fail)
-        if ok == 1 and fail == 0:
-            text = f"✅ 下载完成：{self._ok[0]}"
-        elif ok == 0 and fail == 1:
-            text = f"❌ 下载失败：{self._fail[0]}"
+        ok, fail = self._ok, self._fail
+        lang = self.message_lang
+        if len(ok) == 1 and len(fail) == 0:
+            text = download_ok(*ok[0], lang)
+        elif len(ok) == 0 and len(fail) == 1:
+            text = download_fail(*fail[0], lang)
         else:
-            text = f"📊 下载汇总：完成 {ok}，失败 {fail}"
-            if ok and ok <= _LIST_TITLES_LIMIT:
-                text += "\n✅ " + "、".join(self._ok)
-            if fail:
-                lines: list[str] = []
-                budget = _MAX_MESSAGE_CHARS - len(text) - 100
-                for entry in self._fail:
-                    if sum(len(line) for line in lines) + len(entry) + 2 > budget:
-                        lines.append(f"… 还有 {len(self._fail) - len(lines)} 个失败未列出")
-                        break
-                    lines.append(entry)
-                text += "\n❌ " + "\n".join(lines)
+            text = download_summary(ok, fail, lang)
         self._ok.clear()
         self._fail.clear()
         return await self.send_message(text)
@@ -135,7 +135,11 @@ class TelegramNotifier:
             for target in targets:
                 response = await client.post(
                     f"https://api.telegram.org/bot{token}/sendMessage",
-                    json={"chat_id": target, "text": text},
+                    json={
+                        "chat_id": target,
+                        "text": text,
+                        "parse_mode": "HTML",
+                    },
                 )
                 response.raise_for_status()
                 sent = True

@@ -259,6 +259,7 @@ async def test_favorites_tg_message_includes_category_name() -> None:
     class RecordingNotifier:
         def __init__(self) -> None:
             self.messages: list[str] = []
+            self.message_lang = "en"
 
         async def send_message(self, text, **kwargs):
             self.messages.append(text)
@@ -293,8 +294,8 @@ async def test_telegram_auto_notification_fans_out_to_all_allowed_chats() -> Non
         notifier = TelegramNotifier(settings, client=client)
         assert await notifier.send_message("auto notice")
         assert len(bodies) == 2
-        assert {"chat_id": "7", "text": "auto notice"} in bodies
-        assert {"chat_id": "8", "text": "auto notice"} in bodies
+        assert {"chat_id": "7", "text": "auto notice", "parse_mode": "HTML"} in bodies
+        assert {"chat_id": "8", "text": "auto notice", "parse_mode": "HTML"} in bodies
 
 
 @pytest.mark.asyncio
@@ -340,7 +341,7 @@ async def test_telegram_summary_buffers_until_flush() -> None:
         assert await notifier.flush_summary()
         assert len(bodies) == 1
         text = bodies[0]["text"]
-        assert "完成 2，失败 1" in text
+        assert "📊 下载汇总：完成 <b>2</b>，失败 <b>1</b>" == text.split("\n")[0]
         assert "C" in text and "Timeout" in text
         assert not notifier.pending_events
 
@@ -360,9 +361,9 @@ async def test_telegram_summary_single_event_is_immediate_on_flush() -> None:
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         notifier = TelegramNotifier(settings, client=client)
-        await notifier.record_download_outcome("ok", "A", "3 页")
+        await notifier.record_download_outcome("ok", "A", "3")
         assert await notifier.flush_summary()
-        assert bodies[0]["text"] == "✅ 下载完成：A（3 页）"
+        assert bodies[0]["text"] == "✅ 下载完成 <b>A</b>（3 页）"
 
 
 @pytest.mark.asyncio
@@ -464,7 +465,9 @@ async def test_telegram_bot_uses_mock_transport_and_allowed_user() -> None:
             self.messages.append((text, chat_id))
 
     queue, notifier = Queue(), Notifier()
-    settings = Settings(telegram_bot_token="secret", telegram_allowed_user_ids=[7])
+    settings = Settings(
+        telegram_bot_token="secret", telegram_allowed_user_ids=[7], telegram_notify_lang="en"
+    )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         bot = TelegramBotService(settings, client=client, queue=queue, notifier=notifier)
         await bot.handle_update(
@@ -474,7 +477,7 @@ async def test_telegram_bot_uses_mock_transport_and_allowed_user() -> None:
             {"message": {"from": {"id": 7}, "text": "/pause", "chat": {"id": 7}}}
         )
         assert not requests
-        assert notifier.messages == [("Downloads paused", 7)]
+        assert notifier.messages == [("⏸ Downloads paused", 7)]
 
 
 @pytest.mark.asyncio

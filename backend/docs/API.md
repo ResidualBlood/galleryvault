@@ -79,6 +79,7 @@ curl -b cookies.txt http://localhost:8001/api/settings
   "telegram_chat_ids": ["12345"],
   "telegram_allowed_user_ids": [67890],
   "telegram_notify_level": "summary",
+  "telegram_notify_lang": "zh",
   "duplicate_policy": "keep_first",
   "auth_required": true,
   "tag_translation_update_interval_minutes": 720,
@@ -95,6 +96,11 @@ derives `favorites_categories` from the enabled ones.
 buffers terminal download events into a single digest flushed when the queue is
 idle), `immediate` (one message per event, the legacy behaviour),
 `failures_only` (only final failures), or `off` (no automatic notifications).
+
+`telegram_notify_lang` selects the language of Telegram notification copy:
+`zh` (default) or `en`. All notifications (downloads, library scans, favorites
+checks and the Telegram bot replies) share this language; gallery titles are
+always shown untranslated.
 
 `duplicate_policy` decides how the library scan resolves a gallery (same gid)
 found under more than one scan root: `keep_first` (default, the already-stored

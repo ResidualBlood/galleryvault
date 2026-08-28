@@ -52,6 +52,7 @@ from ..secrets import (
     encryption_enabled,
     is_encrypted,
 )
+from ..services import messages
 from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
 from ..services.duplicates import find_duplicate_groups
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
@@ -781,22 +782,17 @@ async def _ingest_downloaded_gallery(result) -> None:
         )
 
 
-def _scan_summary_message(last: dict, duplicates: int, duplicate_gids: list[int]) -> str:
+def _scan_summary_message(
+    last: dict, duplicates: int, duplicate_gids: list[int], lang: str = "zh"
+) -> str:
     """Human-readable scan completion message for Telegram notifications."""
-    parts = [
-        (
-            "Library scan complete: "
-            f"{last.get('persisted', 0)} new, {last.get('expunged', 0)} removed"
-        )
-    ]
-    if duplicates:
-        gids = duplicate_gids or []
-        suffix = ""
-        if gids:
-            shown = ", ".join(str(gid) for gid in gids[:5])
-            suffix = f" ({shown}{', …' if len(gids) > 5 else ''})"
-        parts.append(f"{duplicates} duplicate-copy group(s) found{suffix}")
-    return ", ".join(parts)
+    return messages.scan_summary(
+        last.get("persisted", 0),
+        last.get("expunged", 0),
+        duplicates,
+        duplicate_gids,
+        lang,
+    )
 
 
 async def _run_scan() -> None:
@@ -933,7 +929,7 @@ async def _run_scan() -> None:
                 if not cancelled and app.state.telegram is not None and _settings().telegram_chat_ids:
                     if last.get("error"):
                         await app.state.telegram.send_message(
-                            f"Library scan failed: {last['error']}"
+                            messages.scan_failed(last["error"], _settings().telegram_notify_lang)
                         )
                     else:
                         await app.state.telegram.send_message(
@@ -941,6 +937,7 @@ async def _run_scan() -> None:
                                 last,
                                 int(scan_state.get("duplicates") or 0),
                                 list(scan_state.get("duplicate_gids") or []),
+                                _settings().telegram_notify_lang,
                             )
                         )
             except Exception as exc:  # noqa: BLE001 - notification must not break the scan
@@ -1023,7 +1020,7 @@ async def _run_download(task: DownloadTask) -> None:
                 )
             completed = True
         if completed:
-            await _record_download_notification("ok", result.title or task.gid, f"{result.pages} 页")
+            await _record_download_notification("ok", result.title or task.gid, str(result.pages))
             _maybe_scan_after_download(result)
     except DownloadCancelledError:
         # The user cancelled mid-flight: drop the partial temp dir and leave
@@ -1601,6 +1598,7 @@ class SettingsRequest(BaseModel):
     telegram_chat_ids: list[str] | None = None
     telegram_allowed_user_ids: list[int] | None = None
     telegram_notify_level: str | None = None
+    telegram_notify_lang: str | None = None
     auto_sync_tags: bool | None = None
     tag_sync_interval_seconds: float | None = Field(default=None, gt=0)
     tag_sync_concurrency: int | None = Field(default=None, ge=1, le=32)
@@ -1624,6 +1622,8 @@ class SettingsRequest(BaseModel):
             raise ValueError(
                 "telegram_notify_level must be 'summary', 'immediate', 'failures_only', or 'off'"
             )
+        if self.telegram_notify_lang is not None and self.telegram_notify_lang not in {"zh", "en"}:
+            raise ValueError("telegram_notify_lang must be 'zh' or 'en'")
         from ..services.duplicate_resolver import DUPLICATE_POLICIES
 
         if self.duplicate_policy is not None and self.duplicate_policy not in DUPLICATE_POLICIES:
@@ -1656,6 +1656,7 @@ def _settings_public() -> dict[str, object]:
         "telegram_chat_ids": current.telegram_chat_ids,
         "telegram_allowed_user_ids": current.telegram_allowed_user_ids,
         "telegram_notify_level": current.telegram_notify_level,
+        "telegram_notify_lang": current.telegram_notify_lang,
         "auto_sync_tags": current.auto_sync_tags,
         "tag_sync_interval_seconds": current.tag_sync_interval_seconds,
         "tag_sync_concurrency": current.tag_sync_concurrency,
@@ -1694,6 +1695,7 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "telegram_chat_ids",
         "telegram_allowed_user_ids",
         "telegram_notify_level",
+        "telegram_notify_lang",
         "auto_sync_tags",
         "tag_sync_interval_seconds",
         "tag_sync_concurrency",
