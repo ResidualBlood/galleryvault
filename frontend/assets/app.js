@@ -609,7 +609,7 @@ function startInfinite(containerId, fetchPage, buildItem) {
   infiniteState = { observer };
 }
 
-const PAGE_SIZES = [5, 24, 50, 100, 200, 500];
+const PAGE_SIZES = [5, 30, 50, 100, 200, 500];
 
 function pageSizeSelect(current, view) {
   return `<select class="page-size" data-action="page-size" data-view="${view}" aria-label="page size">
@@ -749,7 +749,7 @@ async function renderGallery() {
         ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${navHash("library", {}, { tags: `${tg.namespace}:${tg.name}` })}">${esc(tagText(tg))}</a>`).join("")}
       </div></div>`).join("");
     const thumbsAll = g.pages || [];
-    const perPage = parseInt(app.query.page_size || "24", 10);
+    const perPage = parseInt(app.query.page_size || "30", 10);
     const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
     const thumbPage = Math.min(Math.max(parseInt(app.query.page || "1", 10), 1), totalPages);
     const pageStart = (thumbPage - 1) * perPage;
