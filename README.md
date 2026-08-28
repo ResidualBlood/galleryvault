@@ -71,9 +71,9 @@ docker compose up -d
 
 `.ehviewer` 源自 Hippo Seven 的 EhViewer（`com.hippo.ehviewer.spider.SpiderInfo`），**同源客户端写出的格式完全兼容**，可直接入库：
 
-- **EhViewer 原版**（[seven332/EhViewer](https://github.com/seven332/EhViewer)，已弃用）；当前主流分支 **FooIbar/EhViewer**（MD3 重写）、**Ehviewer-Overhauled/Ehviewer**、**EhViewer-NekoInverter/EhViewer**、**exzhawk/EhViewer**、**AdNotFound/EhViewer** 等。
-- 跨平台移植：**EhViewer-Apple**（iOS/macOS）、**Ehviewer_OHOS**（鸿蒙）。
-- 周边工具（生成/读取 `.ehviewer`）：**LRReader**（Android·LANraragi 客户端）、**exhentai-manga-manager**、**ehviewer_manga_manager**（Python CLI）、**LANraragi** 的 `Ehviewer.pm` 元数据插件。
+- **EhViewer 原版**（[seven332/EhViewer](https://github.com/seven332/EhViewer)，已弃用）；当前主流分支 [**FooIbar/EhViewer**](https://github.com/FooIbar/EhViewer)（MD3 重写）、[**Ehviewer-Overhauled/Ehviewer**](https://github.com/Ehviewer-Overhauled/Ehviewer)、[**EhViewer-NekoInverter/EhViewer**](https://github.com/EhViewer-NekoInverter/EhViewer)、[**exzhawk/EhViewer**](https://github.com/exzhawk/EhViewer)、[**AdNotFound/EhViewer**](https://github.com/AdNotFound/EhViewer)、[**WarnError/Ehviewer-NekoWhite**](https://github.com/WarnError/Ehviewer-NekoWhite)、[**NotFaceGUI/EhViewer-Auto-Translation-Ver**](https://github.com/NotFaceGUI/EhViewer-Auto-Translation-Ver)、[**axlecho/MHViewer**](https://github.com/axlecho/MHViewer) 等。
+- 跨平台移植：[**EhViewer-Apple**](https://github.com/felixchaos/EhViewer-Apple)（iOS/macOS）、[**Ehviewer_OHOS**](https://github.com/suibianqwe/Ehviewer_OHOS)（鸿蒙）。
+- 周边工具（生成/读取 `.ehviewer`）：[**LRReader**](https://github.com/Xslx98/LRReader)（Android·LANraragi 客户端）、[**exhentai-manga-manager**](https://github.com/SchneeHertz/exhentai-manga-manager)、[**ehviewer_manga_manager**](https://github.com/Schweik7/ehviewer_manga_manager)（Python CLI）、[**LANraragi**](https://github.com/Difegue/LANraragi) 的 `Ehviewer.pm` 元数据插件。
 
 其余格式按能力降级支持：符合 `<gid>-<标题>` 命名的**无 `.ehviewer` 图片文件夹**（gid 只能从目录名推断）、**CBZ/CBR**（gid 需在文件名开头，元数据取 ComicInfo.xml）。无 gid 的画廊可入库浏览，但**无法参与下载/查重/重复副本解析**。
 
