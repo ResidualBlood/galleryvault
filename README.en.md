@@ -100,14 +100,24 @@ The `.ehviewer` format originates from Hippo Seven's EhViewer
 writes a compatible file** and can be ingested directly:
 
 - **Original EhViewer** ([seven332/EhViewer](https://github.com/seven332/EhViewer),
-  deprecated); current active branches **FooIbar/EhViewer** (Material Design 3),
-  **Ehviewer-Overhauled/Ehviewer**, **EhViewer-NekoInverter/EhViewer**,
-  **exzhawk/EhViewer**, **AdNotFound/EhViewer** and other forks.
-- Cross-platform ports: **EhViewer-Apple** (iOS/macOS), **Ehviewer_OHOS**
+  deprecated); current active branches
+  [**FooIbar/EhViewer**](https://github.com/FooIbar/EhViewer) (Material Design 3),
+  [**Ehviewer-Overhauled/Ehviewer**](https://github.com/Ehviewer-Overhauled/Ehviewer),
+  [**EhViewer-NekoInverter/EhViewer**](https://github.com/EhViewer-NekoInverter/EhViewer),
+  [**exzhawk/EhViewer**](https://github.com/exzhawk/EhViewer),
+  [**AdNotFound/EhViewer**](https://github.com/AdNotFound/EhViewer),
+  [**WarnError/Ehviewer-NekoWhite**](https://github.com/WarnError/Ehviewer-NekoWhite),
+  [**NotFaceGUI/EhViewer-Auto-Translation-Ver**](https://github.com/NotFaceGUI/EhViewer-Auto-Translation-Ver),
+  [**axlecho/MHViewer**](https://github.com/axlecho/MHViewer) and other forks.
+- Cross-platform ports: [**EhViewer-Apple**](https://github.com/felixchaos/EhViewer-Apple)
+  (iOS/macOS), [**Ehviewer_OHOS**](https://github.com/suibianqwe/Ehviewer_OHOS)
   (HarmonyOS).
-- Companion tools that generate/read `.ehviewer`: **LRReader** (Android, a
-  LANraragi client), **exhentai-manga-manager**, **ehviewer_manga_manager**
-  (Python CLI), LANraragi's `Ehviewer.pm` metadata plugin.
+- Companion tools that generate/read `.ehviewer`:
+  [**LRReader**](https://github.com/Xslx98/LRReader) (Android, a LANraragi
+  client), [**exhentai-manga-manager**](https://github.com/SchneeHertz/exhentai-manga-manager),
+  [**ehviewer_manga_manager**](https://github.com/Schweik7/ehviewer_manga_manager)
+  (Python CLI), [**LANraragi**](https://github.com/Difegue/LANraragi)'s
+  `Ehviewer.pm` metadata plugin.
 
 Other formats are supported at reduced fidelity: plain image folders named
 `<gid>-<title>` **without** an `.ehviewer` file (the gid is inferred from the
