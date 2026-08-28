@@ -203,6 +203,11 @@ and back/forward work without server round-trips.
   succeeding).
 - **Downloads**: root directory (where downloads are stored and scanned
   automatically), concurrency, quality (normal/original), H@H network, `max_pages`.
+  Slow-H@H-node watchdogs: **image max time** (seconds; a single image is
+  aborted past this wall-clock budget), **image slow warmup** (seconds), and
+  **image min speed** (KB/s; after the warm-up, an image averaging below this
+  throughput is treated as a throttled node and retried with backoff instead of
+  holding the worker indefinitely).
 - **Account**: toggle *Require login*. **Change password** asks for the current
   and new password; if still on the default `p1a2s3s4`, a banner prompts you to
   change it. Turning *Require login* off disables authentication entirely.

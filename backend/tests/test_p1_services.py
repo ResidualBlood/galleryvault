@@ -642,6 +642,94 @@ async def test_download_image_rejects_truncated_and_hijacked() -> None:
             await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")
 
 
+class _TrickleStream(httpx.AsyncByteStream):
+    """Async body that yields small chunks with real delays (a slow H@H node)."""
+
+    def __init__(self, chunks: int = 4, chunk_size: int = 32, delay: float = 0.1) -> None:
+        self._chunks, self._chunk_size, self._delay = chunks, chunk_size, delay
+
+    async def __aiter__(self):
+        for _ in range(self._chunks):
+            await asyncio.sleep(self._delay)
+            yield b"x" * self._chunk_size
+
+
+@pytest.mark.asyncio
+async def test_download_image_aborts_on_throttled_hah_node() -> None:
+    """A node trickling below the minimum throughput must fail fast instead of
+    holding the worker forever (the 15s read timeout never fires because bytes
+    keep arriving)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            stream=_TrickleStream(chunks=15, chunk_size=32, delay=0.1),
+            headers={"content-type": "image/jpeg"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        eh = EhClient(
+            Settings(
+                exhentai_base_url="https://exhentai.org",
+                image_slow_warmup_seconds=1,
+                image_download_timeout_seconds=60,
+                image_min_speed_kb_s=100000,
+            ),
+            client=client,
+        )
+        from galleryvault.services.eh_client import EhImageSlowError
+
+        with pytest.raises(EhImageSlowError, match="throttled"):
+            await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")
+
+
+@pytest.mark.asyncio
+async def test_download_image_aborts_on_total_time_budget() -> None:
+    """Even a healthy-speed-but-endless transfer must respect the wall-clock
+    budget so a single page can never monopolise a worker slot."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            stream=_TrickleStream(chunks=5, chunk_size=10 * 1024, delay=0.6),
+            headers={"content-type": "image/jpeg"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        eh = EhClient(
+            Settings(
+                exhentai_base_url="https://exhentai.org",
+                image_slow_warmup_seconds=2,
+                image_download_timeout_seconds=1,
+                image_min_speed_kb_s=1,
+            ),
+            client=client,
+        )
+        from galleryvault.services.eh_client import EhImageSlowError
+
+        with pytest.raises(EhImageSlowError, match="budget"):
+            await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")
+
+
+@pytest.mark.asyncio
+async def test_download_image_rejects_509_placeholder_url() -> None:
+    """ExHentai answers throttled image requests with a 509 placeholder that
+    must never be saved as a page (mirrors Ehviewer_CN_SXJ's suffix check)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no request should be sent for a 509 placeholder URL")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        eh = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=client)
+        from galleryvault.services.eh_client import EhImageSlowError
+
+        with pytest.raises(EhImageSlowError, match="509"):
+            await eh.download_image_with_metadata("https://node.hath.network/h/509.gif")
+
+
 @pytest.mark.asyncio
 async def test_fetch_gallery_enumerates_long_galleries_concurrently() -> None:
     """A 40-page gallery spans 2 gallery sub-pages; both must be collected."""

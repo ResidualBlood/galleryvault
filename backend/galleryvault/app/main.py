@@ -1586,6 +1586,9 @@ class SettingsRequest(BaseModel):
     download_concurrency: int | None = Field(default=None, ge=1, le=32)
     download_quality: str | None = None
     use_hah: bool | None = None
+    image_download_timeout_seconds: int | None = Field(default=None, ge=1)
+    image_slow_warmup_seconds: int | None = Field(default=None, ge=1)
+    image_min_speed_kb_s: int | None = Field(default=None, ge=1)
     title_display: str | None = None
     favorites_categories: list[int] | None = None
     download_favorites_enabled: bool | None = None
@@ -1647,6 +1650,9 @@ def _settings_public() -> dict[str, object]:
         "download_concurrency": current.download_concurrency,
         "download_quality": current.download_quality,
         "use_hah": current.use_hah,
+        "image_download_timeout_seconds": current.image_download_timeout_seconds,
+        "image_slow_warmup_seconds": current.image_slow_warmup_seconds,
+        "image_min_speed_kb_s": current.image_min_speed_kb_s,
         "title_display": current.title_display,
         "download_max_retries": 3,
         "favorites_categories": current.favorites_categories,
@@ -1688,6 +1694,9 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "download_concurrency",
         "download_quality",
         "use_hah",
+        "image_download_timeout_seconds",
+        "image_slow_warmup_seconds",
+        "image_min_speed_kb_s",
         "title_display",
         "favorites_categories",
         "favorites_poll_interval_minutes",

@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     download_quality: str = "resample"
     use_hah: bool = True
     download_concurrency: int = 2
+    # Watchdogs for slow H@H image nodes: a total wall-clock budget per image,
+    # a minimum average throughput enforced after a short warm-up window, and
+    # the warm-up itself.  A node that trickles a few KB/s without ever going
+    # fully idle would otherwise hold a download worker for many minutes.
+    image_download_timeout_seconds: int = 120
+    image_slow_warmup_seconds: int = 10
+    image_min_speed_kb_s: int = 50
     # Cap on parallel ExHentai requests across ALL background workers (tag
     # sync, downloads, favorites, covers). Kept low to avoid tripping
     # ExHentai's anti-abuse when several tasks run at once.
@@ -111,6 +118,12 @@ class Settings(BaseSettings):
             )
         if self.telegram_notify_lang not in {"zh", "en"}:
             raise ValueError("telegram_notify_lang must be 'zh' or 'en'")
+        if self.image_download_timeout_seconds < 1:
+            raise ValueError("image_download_timeout_seconds must be >= 1")
+        if self.image_slow_warmup_seconds < 1:
+            raise ValueError("image_slow_warmup_seconds must be >= 1")
+        if self.image_min_speed_kb_s < 1:
+            raise ValueError("image_min_speed_kb_s must be >= 1")
         from .services.duplicate_resolver import DUPLICATE_POLICIES
 
         if self.duplicate_policy not in DUPLICATE_POLICIES:
@@ -174,6 +187,9 @@ EDITABLE_SETTINGS = {
         "download_concurrency",
         "download_quality",
         "use_hah",
+        "image_download_timeout_seconds",
+        "image_slow_warmup_seconds",
+        "image_min_speed_kb_s",
         "title_display",
         "auto_sync_tags",
         "tag_sync_interval_seconds",

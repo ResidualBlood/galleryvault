@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
-from .eh_client import GalleryData
+from .eh_client import EhImageSlowError, GalleryData
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,13 @@ class Downloader:
                         await self._record_bytes(gallery.gid, len(data), 1)
                         break
                     except DownloadCancelledError:
+                        raise
+                    except EhImageSlowError:
+                        # A throttled/slow H@H node will not heal in the
+                        # sub-second window of the per-page retry — re-hitting
+                        # it three times only burns slots. Surface it now so the
+                        # persistent DownloadManager applies its 30s backoff and
+                        # retries just the failed page later.
                         raise
                     except Exception as exc:  # noqa: BLE001 - per-page retry
                         last_error = exc

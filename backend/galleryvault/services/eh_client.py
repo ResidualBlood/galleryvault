@@ -6,6 +6,7 @@ import asyncio
 import html
 import logging
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Self
@@ -53,6 +54,17 @@ SHOWPAGE_ORIGIN_RE = re.compile(r'<a href="([^"]+)fullimg([^"]+)">', re.IGNORECA
 
 class EhClientError(RuntimeError):
     pass
+
+
+class EhImageSlowError(EhClientError):
+    """A single image download was aborted because its H@H node was too slow.
+
+    Raised when a transfer never reaches a usable throughput (or exceeds the
+    total wall-clock budget) but the connection stayed alive — a trickling node
+    that would otherwise hold a download worker for many minutes.  Callers
+    should back off and retry the page rather than re-hitting the node in a
+    tight loop.
+    """
 
 
 class GalleryGoneError(EhClientError):
@@ -873,9 +885,15 @@ class EhClient:
             async with semaphore:
                 # read=15s acts as a zero-progress watchdog (Ehviewer_CN_SXJ
                 # aborts stalled downloads after ~3s of no bytes): a hanging H@H
-                # node fails fast instead of holding the worker until the 60s
+                # node fails fast instead of holding the worker until the
                 # overall timeout.
                 timeout = httpx.Timeout(60.0, read=15.0)
+                # A throttled H@H node answers image requests with a tiny
+                # "509" placeholder instead of the real file. Ehviewer_CN_SXJ
+                # detects it by URL suffix; without the check the placeholder
+                # would be saved as a legit page.
+                if urlparse(url).path.rstrip("/").endswith(("/509.gif", "/509s.gif")):
+                    raise EhImageSlowError("ExHentai rate limited (509 placeholder)")
                 async with self.client.stream(
                     "GET",
                     url,
@@ -906,9 +924,30 @@ class EhClient:
                         )
                     chunks: list[bytes] = []
                     total = 0
+                    started = time.monotonic()
+                    # Watchdogs for a slow-but-alive H@H node: the 15s read
+                    # timeout only fires when no bytes arrive at all, so a node
+                    # trickling a few KB/s would otherwise hold the worker
+                    # indefinitely.  Enforce a total wall-clock budget plus a
+                    # minimum average throughput once past the warm-up window.
+                    budget = max(1, int(self.settings.image_download_timeout_seconds))
+                    warmup = max(1, int(self.settings.image_slow_warmup_seconds))
+                    min_speed = max(1, int(self.settings.image_min_speed_kb_s)) * 1024
                     async for chunk in response.aiter_bytes():
                         chunks.append(chunk)
                         total += len(chunk)
+                        elapsed = time.monotonic() - started
+                        if elapsed > budget:
+                            raise EhImageSlowError(
+                                f"image download exceeded {budget}s budget "
+                                f"({total / max(elapsed, 1e-6) / 1024:.0f} KB/s)"
+                            )
+                        if elapsed > warmup and total / elapsed < min_speed:
+                            raise EhImageSlowError(
+                                "H@H node throttled "
+                                f"({total / elapsed / 1024:.0f} KB/s < "
+                                f"{int(self.settings.image_min_speed_kb_s)} KB/s)"
+                            )
                     content_type = (
                         response.headers.get("content-type", "")
                         .split(";")[0]

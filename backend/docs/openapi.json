@@ -72,6 +72,27 @@
         }
       }
     },
+    "/api/onboarding/status": {
+      "get": {
+        "summary": "Onboarding Status",
+        "description": "Setup progress used by the first-run wizard (password, ExHentai, library).",
+        "operationId": "onboarding_status_api_onboarding_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Onboarding Status Api Onboarding Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/change-password": {
       "post": {
         "summary": "Change Password",
@@ -299,6 +320,200 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Trigger Tag Sync Api Tag Sync Start Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/duplicates": {
+      "get": {
+        "summary": "List Duplicates",
+        "operationId": "list_duplicates_api_scan_duplicates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Duplicates Api Scan Duplicates Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/duplicates/{gid}/resolve": {
+      "post": {
+        "summary": "Resolve Duplicate",
+        "operationId": "resolve_duplicate_api_scan_duplicates__gid__resolve_post",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Resolve Duplicate Api Scan Duplicates  Gid  Resolve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/duplicates/{gid}/dismiss": {
+      "post": {
+        "summary": "Dismiss Duplicate",
+        "operationId": "dismiss_duplicate_api_scan_duplicates__gid__dismiss_post",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Dismiss Duplicate Api Scan Duplicates  Gid  Dismiss Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/duplicates/{gid}/restore": {
+      "post": {
+        "summary": "Restore Duplicate",
+        "operationId": "restore_duplicate_api_scan_duplicates__gid__restore_post",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Restore Duplicate Api Scan Duplicates  Gid  Restore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/duplicates/thumb/{key}": {
+      "get": {
+        "summary": "Duplicate Thumb",
+        "operationId": "duplicate_thumb_api_scan_duplicates_thumb__key__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1231,6 +1446,16 @@
               "default": 24,
               "title": "Page Size"
             }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "all",
+              "title": "State"
+            }
           }
         ],
         "responses": {
@@ -1242,6 +1467,47 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Favorite Items Api Favorites  Favcat  Items Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/favorites/download-selected": {
+      "post": {
+        "summary": "Favorites Download Selected",
+        "description": "Enqueue downloads for the selected favorite gids directly from the DB.\n\nUnlike the SPA's old flow (which paged through the whole folder to build\ntoken metadata), this looks the items up in one query \u2014 instant even for\nfolders with thousands of cloud-only galleries.",
+        "operationId": "favorites_download_selected_api_favorites_download_selected_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadSelectedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Favorites Download Selected Api Favorites Download Selected Post"
                 }
               }
             }
@@ -1663,6 +1929,27 @@
         }
       }
     },
+    "/api/favorites/download-missing": {
+      "post": {
+        "summary": "Download Missing Favorites",
+        "description": "Backfill missing cover files, tags and sizes for every favorite folder.\n\nRuns the same metadata sync as a post-check pass: for each folder it warms\n``/gv-cache/remote-covers`` from the thumb URLs captured by the check,\nfetches gdata for items still missing metadata, and applies it to local\ngalleries.  Progress is reported under ``/api/favorites/metadata-status``\n(visible on the Logs page) and the task can be cancelled via\n``POST /api/logs/metadata/cancel``.",
+        "operationId": "download_missing_favorites_api_favorites_download_missing_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Download Missing Favorites Api Favorites Download Missing Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/favorites/sync-categories": {
       "post": {
         "summary": "Sync Favorite Categories",
@@ -2057,6 +2344,22 @@
         "type": "object",
         "title": "DownloadRequest"
       },
+      "DownloadSelectedRequest": {
+        "properties": {
+          "gids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Gids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "gids"
+        ],
+        "title": "DownloadSelectedRequest"
+      },
       "DuplicateIgnoreRequest": {
         "properties": {
           "key": {
@@ -2087,6 +2390,24 @@
           "key"
         ],
         "title": "DuplicateIgnoreRequest"
+      },
+      "DuplicateResolveRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "delete_others": {
+            "type": "boolean",
+            "title": "Delete Others",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "DuplicateResolveRequest"
       },
       "FavoriteCategoryRequest": {
         "properties": {
@@ -2301,6 +2622,42 @@
             ],
             "title": "Use Hah"
           },
+          "image_download_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Download Timeout Seconds"
+          },
+          "image_slow_warmup_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Slow Warmup Seconds"
+          },
+          "image_min_speed_kb_s": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Min Speed Kb S"
+          },
           "title_display": {
             "anyOf": [
               {
@@ -2436,6 +2793,28 @@
             ],
             "title": "Telegram Allowed User Ids"
           },
+          "telegram_notify_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telegram Notify Level"
+          },
+          "telegram_notify_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telegram Notify Lang"
+          },
           "auto_sync_tags": {
             "anyOf": [
               {
@@ -2482,6 +2861,17 @@
               }
             ],
             "title": "Generate Thumbnails"
+          },
+          "duplicate_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Policy"
           }
         },
         "type": "object",
