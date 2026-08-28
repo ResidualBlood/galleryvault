@@ -2407,13 +2407,15 @@ async function welcomeSaveCookie() {
   } catch (e) { toast(e.message); }
 }
 
-async function welcomeScan() {
+async function scanLibrary() {
   try {
     await api("POST", "/api/scan");
     toast(t("scanning"));
     pollLogs();
   } catch (e) { toast(e.message); }
 }
+
+function welcomeScan() { return scanLibrary(); }
 
 async function welcomeFinish() {
   try {
