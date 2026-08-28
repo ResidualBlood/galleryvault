@@ -69,7 +69,7 @@ const I18N = {
     useHah: "Use H@H", titleDisplay: "Title display",
     botToken: "Bot token (leave blank to keep)", chatIds: "Chat IDs (comma separated)",
     allowedIds: "Allowed user IDs (comma separated)",
-    notifyLevel: "Notification level", notifyLevelSummary: "Summary (batch digest)", notifyLevelImmediate: "Immediate (every event)", notifyLevelFailuresOnly: "Failures only", notifyLevelOff: "Off",
+    notifyLevel: "Notification level", notifyLevelSummary: "Summary (batch digest)", notifyLevelImmediate: "Immediate (every event)", notifyLevelFailuresOnly: "Failures only", notifyLevelOff: "Off", notifyLang: "Notification language", langZh: "中文", langEn: "English",
     autoSyncTags: "Auto sync tags", tagSyncInterval: "Tag sync interval (seconds)",
     tagSyncConcurrency: "Tag sync concurrency",
     generateThumbnails: "Generate thumbnails", genThumbs: "Generate now", syncAllTags: "Sync tags now",
@@ -173,7 +173,7 @@ const I18N = {
     useHah: "使用 H@H", titleDisplay: "标题显示",
     botToken: "Bot Token（留空保持不变）", chatIds: "Chat ID（逗号分隔）",
     allowedIds: "允许的用户 ID（逗号分隔）",
-    notifyLevel: "通知级别", notifyLevelSummary: "汇总（批量摘要）", notifyLevelImmediate: "即时（每条都发）", notifyLevelFailuresOnly: "仅失败", notifyLevelOff: "关闭",
+    notifyLevel: "通知级别", notifyLevelSummary: "汇总（批量摘要）", notifyLevelImmediate: "即时（每条都发）", notifyLevelFailuresOnly: "仅失败", notifyLevelOff: "关闭", notifyLang: "通知语言", langZh: "中文", langEn: "English",
     autoSyncTags: "自动同步标签", tagSyncInterval: "标签同步间隔（秒）",
     tagSyncConcurrency: "标签同步并发",
     generateThumbnails: "生成缩略图", genThumbs: "立即生成", syncAllTags: "立即同步标签",
@@ -1266,6 +1266,9 @@ async function renderSettings() {
           ${field(t("notifyLevel"), `<select name="telegram_notify_level">
             ${[["summary", t("notifyLevelSummary")], ["immediate", t("notifyLevelImmediate")], ["failures_only", t("notifyLevelFailuresOnly")], ["off", t("notifyLevelOff")]].map(([o, label]) => `<option value="${o}"${o === (s.telegram_notify_level || "summary") ? " selected" : ""}>${esc(label)}</option>`).join("")}
           </select>`)}
+          ${field(t("notifyLang"), `<select name="telegram_notify_lang">
+            ${[["zh", t("langZh")], ["en", t("langEn")]].map(([o, label]) => `<option value="${o}"${o === (s.telegram_notify_lang || app.lang) ? " selected" : ""}>${esc(label)}</option>`).join("")}
+          </select>`)}
         </div>
         <button class="secondary" data-action="test-telegram" type="button">${esc(t("testTelegram"))}</button>
       </fieldset>
@@ -1320,6 +1323,7 @@ function collectSettings(form) {
     telegram_chat_ids: lines(val("telegram_chat_ids")),
     telegram_allowed_user_ids: lines(val("telegram_allowed_user_ids")).map(Number).filter(Number.isFinite),
     telegram_notify_level: val("telegram_notify_level") || "summary",
+    telegram_notify_lang: val("telegram_notify_lang") || app.lang,
     duplicate_policy: val("duplicate_policy") || "keep_first",
     auth_required: form.auth_required.checked,
     tag_translation_update_interval_minutes: Math.max(0, num("tag_translation_update_interval_minutes", 720)),
