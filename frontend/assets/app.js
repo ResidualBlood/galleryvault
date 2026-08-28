@@ -2189,8 +2189,8 @@ function renderDuplicatesList() {
           </span>
           ${(c.tags || []).length ? `<span class="dup-tags">${c.tags.map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</span>` : ""}
           <span class="dup-meta" style="margin-top:6px">
-            <button class="secondary" data-action="dupgal-keep" data-gid="${g.gid}" data-path="${encodeURIComponent(c.path)}" type="button">${esc(t("dupGalKeep"))}</button>
-            <button class="secondary danger" data-action="dupgal-keep-del" data-gid="${g.gid}" data-path="${encodeURIComponent(c.path)}" type="button">${esc(t("dupGalKeepDel"))}</button>
+            <button class="secondary" data-action="dupgal-keep" data-gid="${g.gid}" data-path="${esc(c.path)}" type="button">${esc(t("dupGalKeep"))}</button>
+            <button class="secondary danger" data-action="dupgal-keep-del" data-gid="${g.gid}" data-path="${esc(c.path)}" type="button">${esc(t("dupGalKeepDel"))}</button>
           </span>
         </span>
       </div>`;
@@ -2237,7 +2237,7 @@ async function dupGalResolve(gid, path, deleteOthers) {
   if (deleteOthers && !window.confirm(t("dupGalConfirmDel"))) return;
   if (!deleteOthers && !window.confirm(t("dupGalConfirmKeep"))) return;
   try {
-    await api("POST", `/api/scan/duplicates/${gid}/resolve`, { path: decodeURIComponent(path), delete_others: deleteOthers });
+    await api("POST", `/api/scan/duplicates/${gid}/resolve`, { path, delete_others: deleteOthers });
     toast(deleteOthers ? t("deleted") : t("saveOk"));
     await loadDuplicates(false);
     renderDuplicatesList();
