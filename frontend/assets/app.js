@@ -48,6 +48,7 @@ const I18N = {
     dupNone: "No duplicate groups found.",
     dupFound: "Found", dupGroups: "groups", dupItems: "items",
     confirmDupUnfav: "Remove selected from favorites?", confirmDupDelete: "Remove from favorites and delete local copies?",
+    dupDeleteFail: "Local delete failed (read-only or permission): ",
     dupIgnore: "Ignore", dupUnignore: "Restore", dupIgnored: "Ignored", dupIgnoredOk: "Group ignored",
     dupUnignoredOk: "Group restored",
     dupIgnoreSel: "Ignore selected", dupIgnoredPage: "Ignored items", dupIgnoredSub: "Groups you marked as not-duplicates. Select and restore to re-enable them.",
@@ -101,6 +102,7 @@ const I18N = {
     scanDone: "Scan complete", tagSyncDone: "Tag sync complete", thumbsDone: "Thumbnails complete",
     metaDone: "Metadata sync complete", completed: "done", scanned: "scanned", persisted: "persisted",
     favMetaSync: "Syncing favorite metadata", favMetaApply: "Applying favorite metadata", applied: "applied",
+    deleteGalleryLog: "Delete gallery", favoritesRemoveLog: "Remove from favorites",
     tagSyncFromCache: "Tags updated from cache", tagSyncFromNetwork: "Tags synced from ExHentai",
     noTasks: "No download tasks.", dlTasks: "Download tasks",
     logs: "Logs", logsSub: "Background tasks and recent activity.",
@@ -213,6 +215,7 @@ const I18N = {
     dupNone: "未发现重复画廊。",
     dupFound: "发现", dupGroups: "组重复", dupItems: "项",
     confirmDupUnfav: "将所选从收藏夹移除？", confirmDupDelete: "将所选从收藏夹移除并删除本地副本？",
+    dupDeleteFail: "本地删除失败（只读或权限不足）：",
     dupIgnore: "忽略", dupUnignore: "恢复", dupIgnored: "已忽略", dupIgnoredOk: "已忽略该组",
     dupUnignoredOk: "已恢复该组",
     dupIgnoreSel: "忽略所选", dupIgnoredPage: "已忽略项目", dupIgnoredSub: "你标记为不重复的组。勾选后点击「恢复所选」重新纳入查重。",
@@ -225,6 +228,7 @@ const I18N = {
     scanDone: "扫描完成", tagSyncDone: "标签同步完成", thumbsDone: "缩略图完成",
     metaDone: "元数据同步完成", completed: "已完成", scanned: "扫描", persisted: "入库",
     favMetaSync: "同步收藏元数据", favMetaApply: "应用收藏元数据", applied: "已应用",
+    deleteGalleryLog: "删除画廊", favoritesRemoveLog: "取消收藏",
     tagSyncFromCache: "标签已从缓存更新", tagSyncFromNetwork: "标签已从 ExHentai 同步",
     noTasks: "暂无下载任务。", dlTasks: "下载任务",
     logs: "日志", logsSub: "后台任务与最近活动。",
@@ -1803,6 +1807,8 @@ function taskMeta(task, stage) {
     };
     case "favcheck": return { label: t("checkAll"), desc: t("favCheckDesc") };
     case "translation": return { label: t("translationUpdate"), desc: t("transDesc") };
+    case "gallery-delete": return { label: t("deleteGalleryLog"), desc: t("deleteFiles") };
+    case "favorites-remove": return { label: t("favoritesRemoveLog"), desc: t("confirmDupDelete") };
     default: return { label: task, desc: "" };
   }
 }
@@ -2008,8 +2014,13 @@ async function dupAction(deleteLocal) {
   if (!window.confirm(msg + " " + items.length)) return;
   try {
     const r = await api("POST", "/api/favorites/remove", { gids: items, delete_local: deleteLocal });
-    toast(t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal"))
-      + (r.deleted_local_galleries ? " · " + t("deleted") + " " + r.deleted_local_galleries : ""));
+    let msg = t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal"))
+      + (r.deleted_local_galleries ? " · " + t("deleted") + " " + r.deleted_local_galleries : "");
+    if (r.failed_deletions && r.failed_deletions.length) {
+      msg += " · " + t("dupDeleteFail") + r.failed_deletions.length;
+      console.warn("local delete failed:", r.failed_deletions);
+    }
+    toast(msg);
     selDup.clear();
     runDupScan();
   } catch (e) { toast(e.message); }
@@ -2280,8 +2291,9 @@ async function deleteFiltered() {
       page += 1;
     }
     if (!allIds.length) { toast(t("noGalleries")); return; }
-    await api("POST", "/api/galleries/delete-bulk", { ids: allIds, delete_files: deleteFiles });
-    toast(t("deleted") + ": " + allIds.length);
+    const r = await api("POST", "/api/galleries/delete-bulk", { ids: allIds, delete_files: deleteFiles });
+    toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : allIds.length)
+      + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
     location.hash = navHash("library");
   } catch (e) { toast(e.message); }
 }
@@ -2292,9 +2304,10 @@ async function deleteSelected() {
   if (!window.confirm(t("confirmDeleteSel") + " (" + ids.length + ")")) return;
   const deleteFiles = window.confirm(t("deleteFiles"));
   try {
-    await api("POST", "/api/galleries/delete-bulk", { ids, delete_files: deleteFiles });
+    const r = await api("POST", "/api/galleries/delete-bulk", { ids, delete_files: deleteFiles });
     selGalleries.clear();
-    toast(t("deleted") + ": " + ids.length);
+    toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : ids.length)
+      + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
     router();
   } catch (e) { toast(e.message); }
 }
