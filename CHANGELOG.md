@@ -15,6 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `POST /api/scan`, shows a toast and refreshes the task logs); the first-run
   welcome wizard's scan button now shares the same code path.
 
+### Changed
+
+- **Favorites-check Telegram messages show the folder name**: notifications for
+  a favorites check (summary, check-failed, per-gallery download-failed) now
+  read `Favorites category 3 (folder name): …` when the folder has a name,
+  falling back to the bare number otherwise.
+
 ## [1.2.10] - 2026-08-27
 
 ### Added
