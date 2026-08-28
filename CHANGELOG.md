@@ -15,9 +15,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so existing favorites need a one-time **force** check or **Download
   selected**).
 - **Recommended workflow added**: README (CN/EN) quick start and wiki Home
-  (CN/EN) now show the end-to-end flow — log in to ExHentai → read favorites →
-  scan library → deduplicate → enable *download favorites* (incremental/force
-  download).
+  (CN/EN) now show the end-to-end flow — log in to ExHentai → read favorites
+  in *watch only* mode (no downloads yet) → scan library → **deduplicate
+  before downloading** → start with a *force* check to pull the backlog →
+  switch to *incremental* + schedule.
 
 ### Fixed
 
