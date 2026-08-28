@@ -46,6 +46,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   read `Favorites category 3 (folder name): …` when the folder has a name,
   falling back to the bare number otherwise.
 
+### Changed
+
+- **"Unfavorite and delete downloaded" deletes every copy and reports failures**:
+  the favorites dedup action now removes **all** physical copies of a gid across
+  the scan roots (including duplicate-copy losers in `duplicate_records`), not
+  just the DB row's own path. A gallery row is only deleted when every copy was
+  removed successfully — a copy that cannot be deleted (e.g. a read-only mount,
+  or an archive file) keeps the row so the next scan cannot resurrect the gallery
+  as if it were fresh. Failed paths are reported in the toast **and** recorded on
+  the Logs page (new `favorites-remove` / `gallery-delete` activity entries).
+  Gallery-page delete and bulk delete share the same code path and now also
+  delete single-file (CBZ/CBR) archives, which the previous directory-only
+  removal never touched.
+
 ## [1.2.10] - 2026-08-27
 
 ### Added
