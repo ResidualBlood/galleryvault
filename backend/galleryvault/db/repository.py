@@ -405,6 +405,11 @@ class GalleryRepository:
         await self.session.flush()
         return True
 
+    async def duplicate_copies_for_gid(self, gid: int) -> list[dict[str, object]]:
+        """Return the on-disk copy paths recorded for a duplicate group."""
+        row = await self.session.get(DuplicateRecord, gid)
+        return row.copies or [] if row is not None else []
+
     async def expunge_missing(self, roots: Sequence[str | Path], seen: set[str]) -> int:
         normalized = [str(Path(root).resolve()) for root in roots]
         result = await self.session.stream(
@@ -706,16 +711,11 @@ class GalleryRepository:
         )
         return int(rows or 0)
 
-    async def delete_by_identifier(self, identifier: int) -> Gallery | None:
-        """Remove a gallery (cascading to pages, tags links, progress, history)."""
-        model = await self.session.scalar(
+    async def get_by_identifier(self, identifier: int) -> Gallery | None:
+        """Fetch a gallery by ``id`` or ``gid`` without deleting it."""
+        return await self.session.scalar(
             select(Gallery).where((Gallery.id == identifier) | (Gallery.gid == identifier))
         )
-        if model is None:
-            return None
-        await self.session.delete(model)
-        await self.session.flush()
-        return model
 
     async def delete_ids(self, ids: list[int]) -> int:
         """Bulk delete galleries by primary key; returns the number removed."""

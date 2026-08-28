@@ -170,7 +170,10 @@ and back/forward work without server round-trips.
   folder name, posted date, size and translated tags. Filter with
   **All / Local only / Cloud only**, then **Unfavorite** (remove from
   favorites) or **Unfavorite and delete downloaded** (also delete the local
-  copies). Groups that
+  copies — every physical copy of the gid under the library roots; a copy that
+  cannot be deleted, e.g. a read-only mount, is reported in the toast and the
+  Logs page, and the gallery row is kept so it is not resurrected as fresh on
+  the next scan). Groups that
   merely share a title (same name, different works) are not demoted — select
   their checkboxes and hit **Ignore selected** (next to Clear selection) to hide
   them; the group is struck through in place and disappears on the next scan.

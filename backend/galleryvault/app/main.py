@@ -2407,24 +2407,86 @@ class BulkDeleteRequest(BaseModel):
     delete_files: bool = False
 
 
-def _remove_gallery_files(gallery: Gallery) -> None:
-    """Delete the on-disk gallery directory if we own it (storage_path under a root)."""
-    path_text = getattr(gallery, "storage_path", None)
-    if not path_text:
-        return
-    path = Path(path_text)
+def _in_scan_roots(path: Path) -> bool:
+    """True when ``path`` (resolved) sits under one of the configured scan roots."""
     try:
-        owned = False
-        try:
-            owned = any(path.is_relative_to(root) for root in _scan_roots())
-        except (ValueError, TypeError):
-            owned = False
-        if path.is_dir() and owned:
+        resolved = path.resolve()
+    except (ValueError, TypeError, OSError):
+        return False
+    return any(resolved.is_relative_to(root) for root in _scan_roots())
+
+
+def _delete_local_copy(path: Path) -> bool:
+    """Delete one on-disk copy (directory or single file). Returns success."""
+    try:
+        if path.is_dir():
             import shutil as _shutil
 
-            _shutil.rmtree(path, ignore_errors=True)
+            _shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+        return True
     except OSError:
         logger.warning("gallery file removal failed", extra={"path": str(path)})
+        return False
+
+
+async def delete_galleries_local(
+    session,
+    galleries: list[Gallery],
+    *,
+    delete_files: bool,
+    delete_all_copies: bool,
+) -> list[dict]:
+    """Delete galleries (DB rows + optional on-disk copies) via a shared path.
+
+    ``delete_files`` controls whether on-disk files are removed.  ``delete_all_copies``
+    extends deletion to every physical copy of a gid recorded in ``duplicate_records``
+    (used by the favorites dedup page, where one gid may live under several roots).
+
+    A gallery row is only deleted when every target path was removed successfully
+    (or ``delete_files`` is False); a partial failure keeps the row so a later
+    scan cannot resurrect a half-deleted gallery as if it were fresh.  Returned per
+    gallery: ``{gallery_id, gid, db_removed, deleted_paths, failed_paths}``.
+    """
+    results: list[dict] = []
+    for gallery in galleries:
+        gid = gallery.gid
+        targets = [Path(gallery.storage_path)] if gallery.storage_path else []
+        if delete_all_copies and gid is not None:
+            copies = await GalleryRepository(session).duplicate_copies_for_gid(gid)
+            for copy in copies:
+                p = Path(str(copy.get("path") or ""))
+                if p not in targets:
+                    targets.append(p)
+        deleted_paths: list[str] = []
+        failed_paths: list[str] = []
+        if delete_files:
+            for target in targets:
+                if not _in_scan_roots(target):
+                    continue
+                if _delete_local_copy(target):
+                    deleted_paths.append(str(target))
+                else:
+                    failed_paths.append(str(target))
+        if not delete_files or not failed_paths:
+            await session.delete(gallery)
+            if delete_all_copies and gid is not None and not failed_paths:
+                await GalleryRepository(session).delete_duplicate(gid)
+            db_removed = True
+        else:
+            db_removed = False
+        results.append(
+            {
+                "gallery_id": gallery.id,
+                "gid": gid,
+                "db_removed": db_removed,
+                "deleted_paths": deleted_paths,
+                "failed_paths": failed_paths,
+            }
+        )
+    await session.flush()
+    return results
 
 
 

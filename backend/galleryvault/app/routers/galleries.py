@@ -239,13 +239,15 @@ async def clear_history() -> None:
 async def delete_gallery(identifier: int, delete_files: bool = False) -> None:
     try:
         async with main._settings_session() as session, session.begin():
-            gallery = await GalleryRepository(session).delete_by_identifier(identifier)
+            gallery = await GalleryRepository(session).get_by_identifier(identifier)
+            if gallery is None:
+                raise HTTPException(status_code=404, detail="Gallery not found")
+            results = await main.delete_galleries_local(
+                session, [gallery], delete_files=delete_files, delete_all_copies=False
+            )
+            _record_gallery_delete_log(results)
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
-    if gallery is None:
-        raise HTTPException(status_code=404, detail="Gallery not found")
-    if delete_files:
-        main._remove_gallery_files(gallery)
 
 
 @router.post("/api/galleries/delete-bulk")
@@ -258,13 +260,31 @@ async def delete_galleries_bulk(body: main.BulkDeleteRequest) -> dict[str, objec
                 select(Gallery).where(Gallery.id.in_(body.ids))
             )
             galleries = list(rows)
-            removed = await GalleryRepository(session).delete_ids([g.id for g in galleries])
+            results = await main.delete_galleries_local(
+                session, galleries, delete_files=body.delete_files, delete_all_copies=False
+            )
+            _record_gallery_delete_log(results)
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
-    if body.delete_files:
-        for gallery in galleries:
-            main._remove_gallery_files(gallery)
-    return {"deleted": removed}
+    deleted = sum(1 for r in results if r["db_removed"])
+    failed_deletions = [p for r in results for p in r["failed_paths"]]
+    return {"deleted": deleted, "failed_deletions": failed_deletions}
+
+
+def _record_gallery_delete_log(results: list[dict]) -> None:
+    """Append a gallery-delete entry to the activity log (Logs page)."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    deleted = sum(1 for r in results if r["db_removed"])
+    failed = [p for r in results for p in r["failed_paths"]]
+    reason = f"deleted {deleted}/{len(results)}"
+    if failed:
+        reason += f", delete failed {len(failed)}: {', '.join(failed[:3])}"
+        if len(failed) > 3:
+            reason += f" (+{len(failed) - 3} more)"
+    status = "failed" if failed else "success"
+    main._record_task("gallery-delete", now, now, status, reason=reason, done=deleted, total=len(results))
 
 
 @router.post("/api/galleries/{identifier}/sync-tags")

@@ -183,26 +183,34 @@ async def favorites_remove(body: main.FavoritesRemoveRequest) -> dict[str, objec
         )
     local_removed = 0
     deleted_local_galleries = 0
+    failed_deletions: list[str] = []
     try:
         async with main._settings_session() as session, session.begin():
             if body.delete_local:
                 mapping = await FavoritesRepository(session).galleries_for_gids(gids)
+                galleries: list[Gallery] = []
                 for gallery_id in mapping.values():
                     gallery = await session.get(Gallery, gallery_id)
-                    if gallery is None:
-                        continue
-                    await GalleryRepository(session).delete_ids([gallery_id])
-                    main._remove_gallery_files(gallery)
-                    deleted_local_galleries += 1
+                    if gallery is not None:
+                        galleries.append(gallery)
+                results = await main.delete_galleries_local(
+                    session, galleries, delete_files=True, delete_all_copies=True
+                )
+                deleted_local_galleries = sum(1 for r in results if r["db_removed"])
+                for r in results:
+                    failed_deletions.extend(r["failed_paths"])
             local_removed = await FavoritesRepository(session).remove_gids(gids)
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
+    if body.delete_local:
+        _record_favorites_remove_log(gids, deleted_local_galleries, failed_deletions)
     return {
         "gids": gids,
         "cloud_ok": cloud_ok,
         "cloud_removed": cloud_removed,
         "local_removed": local_removed,
         "deleted_local_galleries": deleted_local_galleries,
+        "failed_deletions": failed_deletions,
     }
 
 
@@ -499,4 +507,29 @@ async def check_all_favorites() -> dict[str, object]:
     for favcat in favcats:
         main._spawn(main._run_favorites_check(favcat, service), f"favorites check {favcat}")
     return {"status": "started", "favcats": favcats}
+
+
+def _record_favorites_remove_log(
+    gids: list[int], deleted_local_galleries: int, failed_deletions: list[str]
+) -> None:
+    """Append a favorites-remove entry to the activity log (Logs page)."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    reason = f"unfavorited {len(gids)}"
+    if deleted_local_galleries:
+        reason += f", deleted local {deleted_local_galleries}"
+    if failed_deletions:
+        reason += f", delete failed {len(failed_deletions)}: {', '.join(failed_deletions[:3])}"
+        if len(failed_deletions) > 3:
+            reason += f" (+{len(failed_deletions) - 3} more)"
+    main._record_task(
+        "favorites-remove",
+        now,
+        now,
+        "failed" if failed_deletions else "success",
+        reason=reason,
+        done=deleted_local_galleries,
+        total=len(gids),
+    )
 
