@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Library "Scan library" button works again**: the button on the Library page
+  (and the "Scan again" button on the *Duplicate copies* page) silently did
+  nothing — the `scanLibrary()` handler they call was removed during the Logs
+  page refactor and never restored. Re-added the handler (it triggers
+  `POST /api/scan`, shows a toast and refreshes the task logs); the first-run
+  welcome wizard's scan button now shares the same code path.
+
 ## [1.2.10] - 2026-08-27
 
 ### Added
