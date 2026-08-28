@@ -137,6 +137,16 @@ and back/forward work without server round-trips.
   items and sizes, never downloads); an **enabled** folder downloads galleries
   you do not yet have. When *download favorites* is enabled in Settings this
   also runs on a schedule.
+- **Mode semantics**: every check records all folder galleries into the local
+  set (`favorite_items`). *Incremental* downloads only gids never recorded
+  before (newly added to the folder) — after the first check the existing
+  favorites are no longer candidates. *Watch only* records counts/sizes and
+  never downloads. *Force* skips the recorded-set filter and queues every folder
+  gallery that is not already in the local library (`galleries` table); both
+  incremental and force skip already-local galleries, so nothing is
+  re-downloaded. To pull down the backlog of an already-checked folder, switch
+  its mode to **force** once and **Check now** (or use **Download selected**
+  inside the folder), then switch back to **incremental**.
 - Each folder shows **cloud/local** gallery counts and sizes (cloud size is exact
   once the missing galleries' sizes have been fetched). A **progress ring**
   appears next to the folder name while a check runs (hover shows walked/total),
