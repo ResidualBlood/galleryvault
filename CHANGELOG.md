@@ -19,6 +19,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ExHentai's `509.gif` rate-limit placeholder is now also detected by URL and
   treated as a retryable failure instead of being saved as a page.
 
+### Fixed
+
+- **Reader downloads large pages (e.g. animated WebP) up to ~500× faster**. Page
+  images were streamed to the browser in the file's default 8KB buffer chunks,
+  and each chunk crosses a threadpool boundary inside the streaming response —
+  capping throughput near ~1MB/s. Pages are now read in 256KB chunks, removing
+  the per-chunk overhead (measured ~466MB/s vs ~918KB/s on the same file).
+  Small images are unaffected.
+
 ## [1.2.12] - 2026-08-28
 
 ### Changed
