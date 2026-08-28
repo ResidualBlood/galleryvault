@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Slow H@H node watchdogs for image downloads**. New settings
+  `image_download_timeout_seconds` (default 120), `image_slow_warmup_seconds`
+  (default 10) and `image_min_speed_kb_s` (default 50). A single image is
+  aborted once it exceeds the total wall-clock budget, or once it averages below
+  the minimum throughput after the warm-up window — so a node that trickles a
+  few KB/s no longer holds a download worker (and the whole gallery) hostage for
+  many minutes. Aborted pages are retried through the existing per-page retry
+  plus the persistent worker's 30s backoff, re-downloading only the failed page.
+  ExHentai's `509.gif` rate-limit placeholder is now also detected by URL and
+  treated as a retryable failure instead of being saved as a page.
+
 ## [1.2.12] - 2026-08-28
 
 ### Changed
