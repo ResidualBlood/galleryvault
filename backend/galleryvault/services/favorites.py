@@ -17,6 +17,7 @@ class FavoriteRepository(Protocol):
     async def remember_many(self, favcat: int, items: list[FavoriteData]) -> None: ...
     async def prune(self, favcat: int, current_gids: set[int]) -> int: ...
     async def checked(self, favcat: int, success: bool) -> None: ...
+    async def category(self, favcat: int) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,12 @@ class FavoritesService:
     ) -> FavoritesCheckResult:
         if mode not in MODES:
             raise ValueError("mode must be monitor_only, incremental, or force")
+        cat = await self.repository.category(favcat)
+        cat_label = (
+            f"Favorites category {favcat} ({cat.name})"
+            if cat is not None and getattr(cat, "name", None)
+            else f"Favorites category {favcat}"
+        )
         items: list[FavoriteData] = []
         last: Exception | None = None
         fetched = False
@@ -77,7 +84,7 @@ class FavoritesService:
                 await log_check(favcat, [], attempts, False, type(last).__name__ if last else None)
             if self.notifier:
                 await self.notifier.send_message(
-                    f"Favorites category {favcat}: check failed after {attempts} attempts"
+                    f"{cat_label}: check failed after {attempts} attempts"
                 )
             raise RuntimeError(f"favorites check failed after {attempts} attempts") from last
         known = await self.repository.known_gids(favcat)
@@ -124,7 +131,7 @@ class FavoritesService:
                 )
                 if self.notifier:
                     await self.notifier.send_message(
-                        f"Favorites category {favcat}: download failed for {item.gid}"
+                        f"{cat_label}: download failed for {item.gid}"
                     )
         await self.repository.checked(favcat, failed == 0)
         log_check = getattr(self.repository, "log_check", None)
@@ -132,6 +139,6 @@ class FavoritesService:
             await log_check(favcat, sorted(item.gid for item in candidates), attempts, failed == 0)
         if self.notifier and candidates:
             await self.notifier.send_message(
-                f"Favorites category {favcat}: {len(candidates)} new galleries, {downloaded} queued"
+                f"{cat_label}: {len(candidates)} new galleries, {downloaded} queued"
             )
         return FavoritesCheckResult(favcat, len(unique), len(candidates), downloaded, failed)

@@ -1780,6 +1780,9 @@ class _FavoritesRepositoryProxy:
     async def checked(self, favcat: int, success: bool):
         return await self._call("checked", favcat, success)
 
+    async def category(self, favcat: int):
+        return await self._call("category", favcat)
+
 
 class _FavoriteDownloadQueue:
     async def enqueue(self, item) -> bool:

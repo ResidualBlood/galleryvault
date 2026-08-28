@@ -171,6 +171,7 @@ class FakeFavoritesRepo:
         self.remembered = []
         self.local = set()
         self.pruned = []
+        self.cat_name = None
 
     async def known_gids(self, favcat: int) -> set[int]:
         return self.known
@@ -194,6 +195,9 @@ class FakeFavoritesRepo:
 
     async def checked(self, favcat: int, success: bool) -> None:
         pass
+
+    async def category(self, favcat: int):
+        return type("Cat", (), {"name": self.cat_name})()
 
 
 class FakeFetcher:
@@ -247,6 +251,32 @@ async def test_favorites_skip_galleries_already_in_local_library() -> None:
     assert result.new == 0
     assert result.downloaded == 0
     assert queued == []
+
+
+@pytest.mark.asyncio
+async def test_favorites_tg_message_includes_category_name() -> None:
+    class RecordingNotifier:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        async def send_message(self, text, **kwargs):
+            self.messages.append(text)
+            return True
+
+    repo = FakeFavoritesRepo()
+    repo.cat_name = "R18"
+    notifier = RecordingNotifier()
+
+    async def enqueue(item):
+        return True
+
+    queue = type("Queue", (), {"enqueue": enqueue})()
+    await FavoritesService(FakeFetcher(), repo, queue, notifier).check_category(
+        3, mode="incremental"
+    )
+    assert notifier.messages, "expected a summary message"
+    assert "Favorites category 3 (R18)" in notifier.messages[-1]
+    assert "new galleries" in notifier.messages[-1]
 
 
 @pytest.mark.asyncio
