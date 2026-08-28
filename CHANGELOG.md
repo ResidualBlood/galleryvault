@@ -38,6 +38,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Gallery detail page defaults to 30 thumbnails per page**: the page-size
+  default on the gallery detail page is now 30 (was 24) and the per-page
+  selector's `24` option became `30` (`PAGE_SIZES` = 5/30/50/100/200/500).
 - **Favorites-check Telegram messages show the folder name**: notifications for
   a favorites check (summary, check-failed, per-gallery download-failed) now
   read `Favorites category 3 (folder name): …` when the folder has a name,
