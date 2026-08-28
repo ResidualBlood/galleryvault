@@ -14,6 +14,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   page refactor and never restored. Re-added the handler (it triggers
   `POST /api/scan`, shows a toast and refreshes the task logs); the first-run
   welcome wizard's scan button now shares the same code path.
+- **Full scan crashed on batches of only gid-less galleries**: the ingest
+  lookup built its WHERE clause as `False | column.in_(…)` when a batch had no
+  galleries carrying an ExHentai gid (e.g. calibre CBZ exports), which raises
+  `TypeError` and failed the whole batch. The condition is now assembled
+  explicitly, so gid-less copies ingest correctly.
+- **Password change did not actually revoke old sessions**: `change_password`
+  rotated `auth_secret` in the database but never applied it to the running
+  process (only the password hash was re-synced), so previously issued session
+  cookies stayed valid until the next container restart. The new secret is now
+  applied immediately and the current user receives a fresh session cookie, so
+  their own change does not log them out while all other sessions die at once.
+- **"Keep / Keep & delete" on the *Duplicate copies* page failed for paths
+  containing an apostrophe**: the copy path was inserted into `data-path` via
+  `encodeURIComponent`, which does not escape single quotes, truncating the
+  attribute and making the buttons silently no-op. The raw path is now HTML-
+  escaped and sent unencoded in the resolve request.
+- **A download deleted mid-flight misreported as failed**: if the task row was
+  removed while pages were downloading, the completion handler dereferenced
+  `None` and logged the download as failed, skipping ingest and the Telegram
+  notification even though the gallery was fully written to disk. It now skips
+  the (now-orphaned) DB write but still ingests the completed gallery.
 
 ### Changed
 
