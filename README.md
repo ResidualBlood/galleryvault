@@ -77,7 +77,7 @@ docker compose up -d
 
 其余格式：
 
-- **[JHenTai](https://github.com/jiangtian616/JHenTai)**（桌面端 Flutter）下载目录**原生支持**：`<gid> - <标题>/` + `metadata` JSON（含 gid/token/标签/分类/uploader/发布时间），扫描直接还原完整身份。
+- **[JHenTai](https://github.com/jiangtian616/JHenTai)**（全平台 Flutter，Android/iOS/Windows/macOS/Linux）下载目录**原生支持**：`<gid> - <标题>/` + `metadata` JSON（含 gid/token/标签/分类/uploader/发布时间），扫描直接还原完整身份。**该格式支持较新，尚未被大量真实数据验证**，如遇解析异常请提交 issue 附上样例 `metadata`。
 - 按能力降级支持：符合 `<gid>-<标题>` 命名的**无 `.ehviewer` 图片文件夹**（gid 只能从目录名推断）、**CBZ/CBR**（gid 需在文件名开头，元数据取 ComicInfo.xml）。无 gid 的画廊可入库浏览，但**无法参与下载/查重/重复副本解析**。
 
 ## 数据与目录

@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.11] - 2026-08-28
+
 ### Added
 
 - **JHenTai download directories are scanned natively**: a new
@@ -15,7 +17,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   category, uploader, published time and tags. It is registered ahead of the
   bare-image-folder scanner so the richer metadata wins. Without the metadata
   the same folders already matched the bare scanner (gid inferred from the
-  directory name only).
+  directory name only). **This support is new and not yet validated against
+  much real-world data**.
 
 ### Docs
 
@@ -76,9 +79,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a favorites check (summary, check-failed, per-gallery download-failed) now
   read `Favorites category 3 (folder name): …` when the folder has a name,
   falling back to the bare number otherwise.
-
-### Changed
-
 - **"Unfavorite and delete downloaded" deletes every copy and reports failures**:
   the favorites dedup action now removes **all** physical copies of a gid across
   the scan roots (including duplicate-copy losers in `duplicate_records`), not
@@ -367,7 +367,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.11...HEAD
+[1.2.11]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.11
 [1.2.3]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.3
 [1.2.2]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.2
 [1.2.1]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.1

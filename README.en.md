@@ -121,10 +121,13 @@ writes a compatible file** and can be ingested directly:
 
 Other formats:
 
-- **[JHenTai](https://github.com/jiangtian616/JHenTai)** (desktop Flutter app)
-  download directories are **natively supported**: `<gid> - <title>/` plus a
-  `metadata` JSON (gid/token/tags/category/uploader/published time), so the
-  full gallery identity is restored on scan.
+- **[JHenTai](https://github.com/jiangtian616/JHenTai)** (cross-platform Flutter,
+  Android/iOS/Windows/macOS/Linux) download directories are **natively
+  supported**: `<gid> - <title>/` plus a `metadata` JSON
+  (gid/token/tags/category/uploader/published time), so the full gallery
+  identity is restored on scan. **This format support is new and not yet
+  validated against much real data** — please file an issue with a sample
+  `metadata` file if you hit a parsing problem.
 - Reduced fidelity: plain image folders named `<gid>-<title>` **without** an
   `.ehviewer` file (the gid is inferred from the directory name) and **CBZ/CBR**
   archives (gid must prefix the file name, metadata from ComicInfo.xml).
