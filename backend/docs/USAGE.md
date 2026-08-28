@@ -1,8 +1,9 @@
 # Usage Guide
 
 GalleryVault is a private, self-hosted manager for local gallery archives
-(Ehviewer exports, CBZ/CBR, plain folders) with optional ExHentai download and
-metadata synchronisation. This guide covers day-to-day use of the web UI.
+(Ehviewer exports, JHenTai downloads, CBZ/CBR, plain folders) with optional
+ExHentai download and metadata synchronisation. This guide covers day-to-day
+use of the web UI.
 
 ## First start
 

@@ -3,6 +3,7 @@ from .base import GalleryMeta, GalleryScanner, PageInfo, ScannerRegistry
 from .ehviewer import (
     BareImageDirScanner,
     EhviewerDirScanner,
+    JhentaiDirScanner,
     SpiderInfo,
     SpiderPageEntry,
     parse_spider_info,
@@ -10,6 +11,7 @@ from .ehviewer import (
 
 registry = ScannerRegistry()
 registry.register(EhviewerDirScanner())
+registry.register(JhentaiDirScanner())
 registry.register(CbzZipScanner())
 registry.register(CbrRarScanner())
 registry.register(BareImageDirScanner())

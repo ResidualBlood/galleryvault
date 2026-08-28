@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
@@ -138,6 +139,51 @@ def natural_key(name: str) -> list[object]:
     return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name)]
 
 
+_JHENTAI_TAG = re.compile(r"^([^:]*):(.*)$")
+
+
+def parse_jhentai_tags(raw: object) -> list[dict[str, str]]:
+    """Parse JHenTai's comma-joined ``namespace:key`` tag string."""
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    tags: list[dict[str, str]] = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        match = _JHENTAI_TAG.match(chunk)
+        if match:
+            namespace, name = match.group(1), match.group(2).strip()
+        else:
+            namespace, name = "misc", chunk
+        if name:
+            tags.append({"namespace": namespace, "name": name})
+    return tags
+
+
+def parse_jhentai_posted(value: object) -> datetime | None:
+    """Parse JHenTai's ``publishTime`` string into a UTC-aware datetime.
+
+    The ``publishTime`` string carries no timezone, so it is assumed to be UTC
+    (matching the timezone-aware ``galleries.posted_at`` column).
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
 class EhviewerDirScanner(GalleryScanner):
     storage_type = "ehviewer_dir"
 
@@ -222,6 +268,134 @@ class EhviewerDirScanner(GalleryScanner):
         )
         metadata_stat = (path / ".ehviewer").stat()
         digest.update(f".ehviewer\0{metadata_stat.st_size}\0{metadata_stat.st_mtime_ns}".encode())
+        for item in files:
+            stat = item.stat()
+            digest.update(f"{item.name}\0{stat.st_size}\0{stat.st_mtime_ns}".encode())
+        return digest.hexdigest()
+
+    def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
+        return (gallery.path / page.name).open("rb")
+
+
+class JhentaiDirScanner(GalleryScanner):
+    """Scanner for JHenTai (https://github.com/jiangtian616/JHenTai) downloads.
+
+    JHenTai stores each gallery as ``<gid> - <sanitizedTitle>/`` with the page
+    images named ``<serial>.<ext>`` plus a ``metadata`` JSON file holding a
+    ``gallery`` object (gid/token/title/category/uploader/publishTime/tags) and
+    a JSON-encoded ``images`` list. Parsing the metadata restores the full
+    gallery identity (token, tags, category, uploader, posted date) that a bare
+    folder-name match alone cannot provide.
+    """
+
+    storage_type = "jhentai_dir"
+    _METADATA_NAME = "metadata"
+
+    def matches(self, path: Path) -> bool:
+        if not path.is_dir() or (path / ".ehviewer").is_file():
+            return False
+        metadata = path / self._METADATA_NAME
+        if not metadata.is_file():
+            return False
+        try:
+            with metadata.open("r", encoding="utf-8") as fh:
+                head = fh.read(4096)
+        except OSError:
+            return False
+        return '"gallery"' in head
+
+    def scan(self, path: Path) -> GalleryMeta:
+        metadata_path = path / self._METADATA_NAME
+        try:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{path}: invalid JHenTai metadata") from exc
+        gallery = payload.get("gallery") if isinstance(payload, dict) else None
+        if not isinstance(gallery, dict):
+            raise TypeError(f"{path}: JHenTai metadata 'gallery' must be an object")
+        gid = gallery.get("gid")
+        if not isinstance(gid, int):
+            raise TypeError(f"{path}: JHenTai gid must be an integer")
+        if gid <= 0:
+            raise ValueError(f"{path}: invalid JHenTai gid")
+        token = gallery.get("token")
+        if not isinstance(token, str) or not token:
+            token = None
+        title = str(gallery.get("title") or path.name)
+        category = infer_category(path, {"category": gallery.get("category")})
+        uploader = gallery.get("uploader")
+        if not isinstance(uploader, str):
+            uploader = None
+        posted_at = parse_jhentai_posted(gallery.get("publishTime"))
+        tags = parse_jhentai_tags(gallery.get("tags"))
+        declared_pages = gallery.get("pageCount")
+        files = sorted(
+            (
+                item
+                for item in path.iterdir()
+                if item.is_file()
+                and not item.name.startswith(".")
+                and item.suffix.casefold() in IMAGE_EXTENSIONS
+            ),
+            key=lambda item: natural_key(item.name),
+        )
+        warnings: list[str] = []
+        if (
+            isinstance(declared_pages, int)
+            and declared_pages > 0
+            and len(files) != declared_pages
+        ):
+            warnings.append(f"page count mismatch: metadata={declared_pages}, images={len(files)}")
+        pages = [
+            PageInfo(
+                i,
+                item.name,
+                item.suffix.casefold().lstrip("."),
+                item.stat().st_size,
+                item.stat().st_mtime_ns,
+            )
+            for i, item in enumerate(files)
+        ]
+        return GalleryMeta(
+            title=title,
+            title_jpn=None,
+            path=path,
+            storage_type=self.storage_type,
+            pages=pages,
+            gid=gid,
+            token=token,
+            file_count=len(pages),
+            file_size=sum(p.size or 0 for p in pages),
+            warnings=warnings,
+            category=category,
+            uploader=uploader,
+            posted_at=posted_at,
+            tags=tags,
+            source_meta={"jhentai": {"gallery": gallery}},
+            storage_signature=self.storage_signature(path),
+            storage_mtime_ns=path.stat().st_mtime_ns,
+            storage_size=sum(p.size or 0 for p in pages),
+        )
+
+    def fingerprint(self, path: Path) -> str:
+        return self.storage_signature(path)
+
+    def storage_signature(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        files = sorted(
+            (
+                item
+                for item in path.iterdir()
+                if item.is_file()
+                and not item.name.startswith(".")
+                and item.suffix.casefold() in IMAGE_EXTENSIONS
+            ),
+            key=lambda item: natural_key(item.name),
+        )
+        metadata_stat = (path / self._METADATA_NAME).stat()
+        digest.update(
+            f"{self._METADATA_NAME}\0{metadata_stat.st_size}\0{metadata_stat.st_mtime_ns}".encode()
+        )
         for item in files:
             stat = item.stat()
             digest.update(f"{item.name}\0{stat.st_size}\0{stat.st_mtime_ns}".encode())
