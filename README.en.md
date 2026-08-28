@@ -119,11 +119,17 @@ writes a compatible file** and can be ingested directly:
   (Python CLI), [**LANraragi**](https://github.com/Difegue/LANraragi)'s
   `Ehviewer.pm` metadata plugin.
 
-Other formats are supported at reduced fidelity: plain image folders named
-`<gid>-<title>` **without** an `.ehviewer` file (the gid is inferred from the
-directory name) and **CBZ/CBR** archives (gid must prefix the file name,
-metadata from ComicInfo.xml). Galleries without a gid can be browsed but
-**cannot take part in downloads, dedupe or duplicate-copy resolution**.
+Other formats:
+
+- **[JHenTai](https://github.com/jiangtian616/JHenTai)** (desktop Flutter app)
+  download directories are **natively supported**: `<gid> - <title>/` plus a
+  `metadata` JSON (gid/token/tags/category/uploader/published time), so the
+  full gallery identity is restored on scan.
+- Reduced fidelity: plain image folders named `<gid>-<title>` **without** an
+  `.ehviewer` file (the gid is inferred from the directory name) and **CBZ/CBR**
+  archives (gid must prefix the file name, metadata from ComicInfo.xml).
+  Galleries without a gid can be browsed but **cannot take part in downloads,
+  dedupe or duplicate-copy resolution**.
 
 ## Data and volumes
 

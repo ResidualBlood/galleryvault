@@ -75,7 +75,10 @@ docker compose up -d
 - 跨平台移植：[**EhViewer-Apple**](https://github.com/felixchaos/EhViewer-Apple)（iOS/macOS）、[**Ehviewer_OHOS**](https://github.com/suibianqwe/Ehviewer_OHOS)（鸿蒙）。
 - 周边工具（生成/读取 `.ehviewer`）：[**LRReader**](https://github.com/Xslx98/LRReader)（Android·LANraragi 客户端）、[**exhentai-manga-manager**](https://github.com/SchneeHertz/exhentai-manga-manager)、[**ehviewer_manga_manager**](https://github.com/Schweik7/ehviewer_manga_manager)（Python CLI）、[**LANraragi**](https://github.com/Difegue/LANraragi) 的 `Ehviewer.pm` 元数据插件。
 
-其余格式按能力降级支持：符合 `<gid>-<标题>` 命名的**无 `.ehviewer` 图片文件夹**（gid 只能从目录名推断）、**CBZ/CBR**（gid 需在文件名开头，元数据取 ComicInfo.xml）。无 gid 的画廊可入库浏览，但**无法参与下载/查重/重复副本解析**。
+其余格式：
+
+- **[JHenTai](https://github.com/jiangtian616/JHenTai)**（桌面端 Flutter）下载目录**原生支持**：`<gid> - <标题>/` + `metadata` JSON（含 gid/token/标签/分类/uploader/发布时间），扫描直接还原完整身份。
+- 按能力降级支持：符合 `<gid>-<标题>` 命名的**无 `.ehviewer` 图片文件夹**（gid 只能从目录名推断）、**CBZ/CBR**（gid 需在文件名开头，元数据取 ComicInfo.xml）。无 gid 的画廊可入库浏览，但**无法参与下载/查重/重复副本解析**。
 
 ## 数据与目录
 

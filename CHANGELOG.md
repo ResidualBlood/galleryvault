@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **JHenTai download directories are scanned natively**: a new
+  `JhentaiDirScanner` (storage type `jhentai_dir`) recognizes
+  `jiangtian616/JHenTai` download folders — `<gid> - <title>/` with a `metadata`
+  JSON — and restores the full gallery identity from it: gid, token, title,
+  category, uploader, published time and tags. It is registered ahead of the
+  bare-image-folder scanner so the richer metadata wins. Without the metadata
+  the same folders already matched the bare scanner (gid inferred from the
+  directory name only).
+
 ### Docs
 
 - **Favorites modes documented**: the docs (wiki Usage CN/EN, backend
