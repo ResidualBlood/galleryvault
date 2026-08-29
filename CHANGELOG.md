@@ -20,6 +20,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sweep re-activates older `failed` tasks that still have retry budget left,
   so the manual retry button is rarely needed. The per-task `retry_count`
   resets once a download succeeds.
+- **Downloads: lazy per-page URL resolution**. Image URLs are no longer
+  pre-fetched for the whole gallery in one go — every page resolves its own
+  fresh keystamp URL right before downloading, and a `403` from an expired
+  keystamp (H@H rejects stale signatures) is healed by re-resolving the page
+  in place (up to 5 rounds, mirroring Ehviewer_CN_SXJ). Long galleries now
+  download continuously instead of failing every 15–20 minutes when the
+  batch of pre-signed URLs expired. Persistent failures still escalate to
+  the task-level retry so galleries stay complete.
 
 ### Changed
 
