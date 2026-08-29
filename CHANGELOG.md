@@ -31,12 +31,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **ExHentai login test no longer false-negatives on a valid session** — the
-  probe now requests `/home.php` (a logged-out session is redirected to the
-  forums login page there) and a complete cookie set (`ipb_member_id` +
-  `ipb_pass_hash`) counts as authenticated on any non-rejection 200 page. A
-  valid session is no longer reported as "cookie invalid or expired" when the
-  bare home page answers 200 without its login markers (ExHentai anti-bot
-  challenge) while downloads with the same cookies succeed.
+  probe now requests the member-only `/uconfig.php` page and classifies the
+  response body, because ExHentai answers every session state with HTTP 200
+  and the public home page carries no login markers: a full page means logged
+  in, ExHentai's own `expired login session` body (or an empty anti-bot
+  response) means not logged in. A valid session is no longer reported as
+  "cookie invalid or expired" while downloads with the same cookies succeed.
 - **Manual retry now starts immediately** — retrying a failed/cancelled
   download clears the stale exponential-backoff timestamp, so the task is
   claimed right away instead of waiting out the previous backoff delay.
