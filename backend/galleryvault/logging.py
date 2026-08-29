@@ -1,6 +1,7 @@
 import contextvars
 import json
 import logging
+import re
 import sys
 from datetime import datetime
 from typing import Any
@@ -43,9 +44,28 @@ class _Formatter(logging.Formatter):
         )
 
 
+class _HttpAccessFilter(logging.Filter):
+    """Suppress httpx access logs for successful (2xx/3xx) requests.
+
+    httpx logs one INFO line per request ("HTTP Request: GET <url> \"HTTP/1.1
+    200 OK\""). Download-heavy workloads flood stdout with thousands of 200s.
+    Keep 4xx/5xx (real failures worth diagnosing) while dropping 2xx/3xx.
+    """
+
+    _STATUS = re.compile(r'"HTTP/\d(?:\.\d)? (\d{3})')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "httpx" and record.levelno <= logging.INFO:
+            match = self._STATUS.search(record.getMessage())
+            if match and match.group(1)[0] in "23":
+                return False
+        return True
+
+
 def configure_logging(level: str = "INFO", as_json: bool = False) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(_Formatter(as_json))
+    handler.addFilter(_HttpAccessFilter())
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper())

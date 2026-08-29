@@ -25,7 +25,7 @@ class TelegramNotifier:
         self._owned = client is None and bool(self.settings.telegram_bot_token)
         self.client = client or (
             httpx.AsyncClient(
-                timeout=15, proxy=self.settings.socks5_proxy or self.settings.http_proxy
+                timeout=httpx.Timeout(45.0), proxy=self.settings.socks5_proxy or self.settings.http_proxy
             )
             if self._owned
             else None

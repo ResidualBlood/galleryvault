@@ -33,7 +33,7 @@ class TelegramBotService:
             return 0
         response = await self.client.get(
             f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/getUpdates",
-            params={"offset": self.offset, "timeout": 1},
+            params={"offset": self.offset, "timeout": 30},
         )
         response.raise_for_status()
         updates = response.json().get("result", [])
