@@ -27,6 +27,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `record.extra` instead of `record.context`; the log formatter never read it,
   so every structured field (`error`, `gid`, `page`, …) was silently dropped
   from all log lines. Fixed so failure diagnosis via `docker logs` works.
+- **Settings: the "require login" (`auth_required`) toggle can now be saved**.
+  `SettingsRequest` never declared the field, so pydantic silently dropped the
+  submitted value and the Settings-page checkbox was dead UI since v1.0.0
+  (defaults kept login always on, so it went unnoticed). The toggle now
+  persists to `user_settings` and takes effect immediately.
 
 ## [1.2.13] - 2026-08-28
 
