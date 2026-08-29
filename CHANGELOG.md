@@ -6,8 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`title_display` now applies everywhere**. Cloud-only favorite items,
+  favorites-duplicate groups and the duplicate-copies page used to always show
+  the English/raw title; they now resolve the display title from the same
+  `title_display` preference (Japanese / English / directory) as the library,
+  gallery detail and local favorites. Duplicate-copy records carry the
+  Japanese title too, so the page falls back to it after a re-scan.
+
 ### Fixed
 
+- **Custom ExHentai base URL input was hidden by CSP**. The Settings / welcome
+  "Custom" base-URL choice toggled a URL input via an inline `onchange`
+  handler, which the nginx `Content-Security-Policy` (`script-src 'self'`)
+  blocked — selecting Custom never revealed the input. The toggle now runs
+  through the existing global change delegation, so proxy subdomains (e.g.
+  `https://proxy.exhentai.org`) can be entered again.
 - **Reader pagination keeps the library search filter**. Thumbnail links,
   prev/next buttons, keyboard/click paging and the next-gallery jump in the
   reader dropped the `q`/`tags`/`tag_mode`/`category` query string, so
