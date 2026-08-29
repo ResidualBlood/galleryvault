@@ -219,6 +219,11 @@ async def gallery_detail(identifier: int) -> dict[str, object]:
         "category": row.category or "other",
         "page_count": len(pages),
         "file_size": row.file_size,
+        "eh_url": (
+            f"{main._settings().exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
+            if row.gid and row.token
+            else ""
+        ),
         "pages": [
             {"index": p.page_index, "name": p.member_name, "media_type": p.media_type}
             for p in pages
