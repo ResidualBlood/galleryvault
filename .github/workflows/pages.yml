@@ -2,7 +2,7 @@ name: pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "docs/wiki/**"
       - "docs-site/**"
