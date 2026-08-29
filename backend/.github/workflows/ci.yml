@@ -88,9 +88,11 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}
+            ${{ github.ref == 'refs/heads/main' && format('{0}/galleryvault-backend:latest', secrets.DOCKERHUB_USERNAME) || '' }}
+            ${{ github.ref == 'refs/heads/dev' && format('{0}/galleryvault-backend:dev', secrets.DOCKERHUB_USERNAME) || '' }}
             ${{ github.ref_type == 'tag' && format('{0}/galleryvault-backend:{1}', secrets.DOCKERHUB_USERNAME, github.ref_name) || '' }}
+            ${{ github.ref_type == 'tag' && format('{0}/galleryvault-backend:latest', secrets.DOCKERHUB_USERNAME) || '' }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}
           platforms: ${{ env.PLATFORMS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
