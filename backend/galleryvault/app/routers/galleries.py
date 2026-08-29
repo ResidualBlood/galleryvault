@@ -99,6 +99,11 @@ async def gallery_list(
         raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
     if category == "":
         category = None
+    exclude_favorited = False
+    if category == "__not_fav__":
+        # Pseudo-category for "local galleries not in any favorite folder".
+        exclude_favorited = True
+        category = None
     if category is not None and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail="invalid category")
     parsed_tags = _parse_tag_filter(tags)
@@ -115,7 +120,8 @@ async def gallery_list(
                     parsed_tags = _dedupe_tags(parsed_tags)
                     resolved_q = keywords
             total, rows = await repo.list_page(
-                page, page_size, resolved_q, parsed_tags, tag_mode, tag_match, category
+                page, page_size, resolved_q, parsed_tags, tag_mode, tag_match, category,
+                exclude_favorited,
             )
             tag_map = await repo.tags_for_galleries([row.id for row in rows])
     except SQLAlchemyError as exc:
@@ -129,7 +135,7 @@ async def gallery_list(
         "resolved": resolved,
         "tag_mode": tag_mode,
         "tag_match": tag_match,
-        "category": category or "",
+        "category": "__not_fav__" if exclude_favorited else (category or ""),
         "items": [
             {
                 "id": row.id,
@@ -347,6 +353,10 @@ async def delete_galleries_filtered(body: main.FilteredDeleteRequest) -> dict[st
     if body.tag_mode not in {"and", "or"} or body.tag_match not in {"exact", "fuzzy"}:
         raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
     category = body.category or None
+    exclude_favorited = False
+    if category == "__not_fav__":
+        exclude_favorited = True
+        category = None
     if category is not None and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail="invalid category")
     parsed_tags = _parse_tag_filter(body.tags)
@@ -364,7 +374,8 @@ async def delete_galleries_filtered(body: main.FilteredDeleteRequest) -> dict[st
             page = 1
             while True:
                 _, rows = await repo.list_page(
-                    page, 500, resolved_q, parsed_tags, body.tag_mode, body.tag_match, category
+                    page, 500, resolved_q, parsed_tags, body.tag_mode, body.tag_match,
+                    category, exclude_favorited,
                 )
                 if not rows:
                     break

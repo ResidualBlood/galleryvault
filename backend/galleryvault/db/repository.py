@@ -373,6 +373,7 @@ class GalleryRepository:
         tag_mode: str = "or",
         tag_match: str = "exact",
         category: str | None = None,
+        exclude_favorited: bool = False,
     ) -> tuple[int, list[Gallery]]:
         query = select(Gallery)
         if q and q.strip():
@@ -384,6 +385,11 @@ class GalleryRepository:
                 query = query.where(Gallery.title.ilike(pattern) | Gallery.title_jpn.ilike(pattern))
         if category:
             query = query.where(Gallery.category == category)
+        if exclude_favorited:
+            # Local galleries whose gid is not in any favorite folder; gid-less
+            # galleries (e.g. calibre CBZ exports) can never be favorited.
+            fav_gids = select(FavoriteItem.gid)
+            query = query.where(Gallery.gid.is_(None) | Gallery.gid.not_in(fav_gids))
         if tags:
             tag_conditions = []
             for namespace, name in tags:

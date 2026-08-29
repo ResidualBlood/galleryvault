@@ -85,3 +85,20 @@ async def test_list_page_no_query_has_no_ilike():
     rows = [_gallery(1, "anything")]
     sql = await _list_sql(1, rows, q="")
     assert "ilike" not in sql.lower()
+
+
+async def test_list_page_exclude_favorited_adds_not_in_subquery():
+    rows = [_gallery(1, "anything")]
+    session = _ListPageSession(1, rows)
+    repo = GalleryRepository(session)
+    await repo.list_page(1, 24, q="", exclude_favorited=True)
+    sql = session.sql[-1].lower()
+    assert "not in" in sql and "favorite_items" in sql
+
+
+async def test_list_page_without_exclude_favorited_has_no_favorites_filter():
+    rows = [_gallery(1, "anything")]
+    session = _ListPageSession(1, rows)
+    repo = GalleryRepository(session)
+    await repo.list_page(1, 24, q="")
+    assert "favorite_items" not in session.sql[-1].lower()

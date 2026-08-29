@@ -350,8 +350,8 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
         def __init__(self, session):
             self.session = session
 
-        async def list_page(self, page, page_size, q, tags, tag_mode, tag_match, category):
-            page_calls.append((page, page_size, q, tags, tag_mode, tag_match, category))
+        async def list_page(self, page, page_size, q, tags, tag_mode, tag_match, category, exclude_favorited=False):
+            page_calls.append((page, page_size, q, tags, tag_mode, tag_match, category, exclude_favorited))
             start = (page - 1) * page_size
             return len(galleries), galleries[start : start + page_size]
 
@@ -372,3 +372,56 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
     assert result["deleted"] == 1200
     assert len(page_calls) == 3  # 1200 rows / 500 per page
     assert deleted_batches == [500, 500, 200]
+
+
+async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monkeypatch):
+    """delete-filtered with the pseudo-category ``__not_fav__`` must translate it
+    into ``exclude_favorited=True`` and a ``None`` category before paging."""
+    from galleryvault.app import main
+    from galleryvault.app.routers import galleries as galleries_module
+    from galleryvault.app.routers.galleries import delete_galleries_filtered
+
+    calls = []
+
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        def begin(self):
+            return self
+
+        async def scalars(self, statement):
+            return Result([])
+
+    session = Session()
+    main._settings_session = lambda: session
+
+    class Repo:
+        def __init__(self, session):
+            self.session = session
+
+        async def list_page(self, page, page_size, q, tags, tag_mode, tag_match, category, exclude_favorited=False):
+            calls.append((category, exclude_favorited))
+            return 0, []
+
+    monkeypatch.setattr(galleries_module, "GalleryRepository", Repo)
+
+    async def fake_delete(session, batch, *, delete_files, delete_all_copies):
+        return []
+
+    monkeypatch.setattr(main, "delete_galleries_local", fake_delete)
+
+    body = main.FilteredDeleteRequest(q="", category="__not_fav__", tags="", tag_mode="or", delete_files=False)
+    result = await delete_galleries_filtered(body)
+    assert result["matched"] == 0
+    assert calls and calls[0] == (None, True)

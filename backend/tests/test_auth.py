@@ -310,6 +310,34 @@ def test_gallery_search_and_pagination_api(
     assert body["items"][0]["title"] == "A <title>"
 
 
+def test_gallery_list_category_not_fav_forwards_exclude_favorited(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from galleryvault.app import main
+
+    calls = []
+
+    async def list_page(self, page: int, page_size: int, q: str | None = None,
+                        tags=(), tag_mode="or", tag_match="exact", category=None,
+                        exclude_favorited=False):
+        calls.append((category, exclude_favorited))
+        return 0, []
+
+    monkeypatch.setattr(main.GalleryRepository, "list_page", list_page)
+    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+    response = client.get("/api/galleries?category=__not_fav__")
+    assert response.status_code == 200
+    assert calls[-1] == (None, True)
+    assert response.json()["category"] == "__not_fav__"
+
+
+def test_gallery_list_not_fav_with_real_category_still_rejects_unknown(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+    assert client.get("/api/galleries?category=bogus").status_code == 422
+
+
 def test_gallery_detail_includes_spider_info(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
