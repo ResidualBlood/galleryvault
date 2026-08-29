@@ -128,7 +128,8 @@ manually to revisit it.
   page append the same way.
 - In the Chinese UI, tags show their translations; multi-value tags (`A | B`)
   only show the translated part (untranslated English aliases are hidden).
-- Results are capped at 500 per page.
+- Results are fixed at 100 per page (no page-size selector; the API ceiling is
+  500).
 
 ## Downloads (`#/downloads`)
 
@@ -258,8 +259,12 @@ additions again.
   title preferred) / `english` / `directory` (folder name). The library,
   browse, gallery detail, favorites (including cloud-only items),
   favorites-duplicates and duplicate-copies pages all show titles according to
-  this setting; downloaded folder names stay `gid-<japanese title>` and are
-  unaffected.
+  this setting.
+- **Download title** (in the Downloads group): controls how downloaded folders
+  are named — `japanese` (default, `gid-<Japanese title>`) or `english`
+  (`gid-<English title>`). Independent of the display *Title display* setting;
+  existing download folders are reused as-is, switching never renames or
+  re-downloads them.
 - **Account**: change password (this **revokes every logged-in session**) and
   toggle *Require login*.
 - **ExHentai**: base URL and `ipb_member_id` / `ipb_pass_hash` / `igneous`
@@ -275,4 +280,9 @@ additions again.
   notifications all use the selected language, formatted as Telegram HTML
   (bold titles, mono gids); gallery titles are never translated. A **Send test
   message** button verifies the bot can reach the chat.
+- **Telegram bot control commands** (send from an **allowed user ID**):
+  `/pause` pauses the queue (nothing is enqueued while paused), `/resume`
+  resumes, `/status` shows the pause state; **pasting a gallery URL** (e.g.
+  `https://exhentai.org/g/2325283/d3722b6aa8/`) parses the gid/token and
+  enqueues it for download immediately, replying with a confirmation.
 - **Translation auto-update**: interval (minutes, 0 = off) and **Update now**.
