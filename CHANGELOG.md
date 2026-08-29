@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Open the original gallery on ExHentai**. The gallery detail page has an
+  "Open on ExHentai" button that deep-links to `{base_url}/g/{gid}/{token}/`
+  (built from the configured `exhentai_base_url`; hidden for local galleries
+  without a token). The Settings/welcome forms now offer the base URL as a
+  selector — ExHentai (里站) / E-Hentai (外站) / Custom with a fallback input
+  for proxy subdomains — while saving the same `exhentai_base_url` field.
 - **Smart search box: mixed tag + text queries**. The library search box now
   accepts free-form combos like `动图 中国` and splits them automatically:
   explicit `ns:name` tokens, Chinese words that map one-to-one onto a tag
