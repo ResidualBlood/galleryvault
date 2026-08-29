@@ -1032,6 +1032,10 @@ class GalleryRepository:
             return 0
         now = datetime.now(UTC)
         tag_keys: set[tuple[str, str]] = set()
+        # Only galleries whose cached metadata actually carries tags get their
+        # tags replaced; an empty tags list (stale/partial gdata response)
+        # must not wipe out the already-synced local tags.
+        tag_gallery_ids: list[int] = []
         for gallery, meta in pairs:
             gallery.category = meta.category or gallery.category
             gallery.title = meta.title or gallery.title
@@ -1042,16 +1046,19 @@ class GalleryRepository:
             gallery.rating = meta.rating or gallery.rating
             gallery.posted_at = meta.posted_at or gallery.posted_at
             gallery.tags_synced_at = now
-            for tag in meta.tags or []:
-                namespace = str(tag[0] or "misc").strip() or "misc"
-                name = str(tag[1] or "").strip()
-                if name:
-                    tag_keys.add((namespace, name))
+            meta_tags = meta.tags or []
+            if meta_tags:
+                tag_gallery_ids.append(gallery.id)
+                for tag in meta_tags:
+                    namespace = str(tag[0] or "misc").strip() or "misc"
+                    name = str(tag[1] or "").strip()
+                    if name:
+                        tag_keys.add((namespace, name))
         await self.session.flush()
-        gallery_ids = [gallery.id for gallery, _ in pairs]
-        await self.session.execute(
-            delete(GalleryTag).where(GalleryTag.gallery_id.in_(gallery_ids))
-        )
+        if tag_gallery_ids:
+            await self.session.execute(
+                delete(GalleryTag).where(GalleryTag.gallery_id.in_(tag_gallery_ids))
+            )
         if tag_keys:
             tag_rows = list(
                 (
