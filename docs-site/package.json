@@ -1,0 +1,14 @@
+{
+  "name": "galleryvault-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "bash scripts/sync-pages.sh",
+    "dev": "vitepress dev .",
+    "build": "vitepress build .",
+    "preview": "vitepress preview ."
+  },
+  "devDependencies": {
+    "vitepress": "^1.3.4"
+  }
+}
