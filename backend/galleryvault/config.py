@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     # the warm-up itself.  A node that trickles a few KB/s without ever going
     # fully idle would otherwise hold a download worker for many minutes.
     image_download_timeout_seconds: int = 120
-    image_slow_warmup_seconds: int = 10
-    image_min_speed_kb_s: int = 50
+    image_slow_warmup_seconds: int = 30
+    image_min_speed_kb_s: int = 20
     # Cap on parallel ExHentai requests across ALL background workers (tag
     # sync, downloads, favorites, covers). Kept low to avoid tripping
     # ExHentai's anti-abuse when several tasks run at once.
