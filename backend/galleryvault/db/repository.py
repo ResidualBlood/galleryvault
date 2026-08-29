@@ -695,9 +695,12 @@ class GalleryRepository:
         return model, list(pages)
 
     async def get_for_tag_sync(self, identifier: int) -> Gallery | None:
-        return await self.session.scalar(
-            select(Gallery).where((Gallery.id == identifier) | (Gallery.gid == identifier))
-        )
+        # Two-pass lookup: ``or_`` + ``scalar_one_or_none`` raises
+        # MultipleResultsFound when one gallery's id equals another's gid.
+        row = await self.session.scalar(select(Gallery).where(Gallery.id == identifier))
+        if row is not None:
+            return row
+        return await self.session.scalar(select(Gallery).where(Gallery.gid == identifier))
 
     async def mark_tag_not_visible(self, gallery_id: int) -> None:
         """Suspend tag sync for a gallery the current site cannot see.
@@ -800,9 +803,12 @@ class GalleryRepository:
 
     async def get_by_identifier(self, identifier: int) -> Gallery | None:
         """Fetch a gallery by ``id`` or ``gid`` without deleting it."""
-        return await self.session.scalar(
-            select(Gallery).where((Gallery.id == identifier) | (Gallery.gid == identifier))
-        )
+        # Two-pass lookup: ``or_`` + ``scalar_one_or_none`` raises
+        # MultipleResultsFound when one gallery's id equals another's gid.
+        row = await self.session.scalar(select(Gallery).where(Gallery.id == identifier))
+        if row is not None:
+            return row
+        return await self.session.scalar(select(Gallery).where(Gallery.gid == identifier))
 
     async def delete_ids(self, ids: list[int]) -> int:
         """Bulk delete galleries by primary key; returns the number removed."""

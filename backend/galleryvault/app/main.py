@@ -2578,10 +2578,13 @@ async def _favorites_poll_loop() -> None:
 async def _gallery(identifier: int) -> tuple[Gallery, list[GalleryPage]]:
     try:
         async with _settings_session() as session:
-            result = await session.execute(
-                select(Gallery).where((Gallery.gid == identifier) | (Gallery.id == identifier))
-            )
-            row = result.scalar_one_or_none()
+            # Two-pass lookup: a gallery whose ``id`` equals another gallery's
+            # ``gid`` would make ``or_`` + ``scalar_one_or_none`` raise
+            # MultipleResultsFound.  Query by primary key first, fall back to
+            # gid only when that misses.
+            row = await session.scalar(select(Gallery).where(Gallery.id == identifier))
+            if row is None:
+                row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
             if row is None:
                 raise HTTPException(status_code=404, detail="Gallery not found")
             pages = (
