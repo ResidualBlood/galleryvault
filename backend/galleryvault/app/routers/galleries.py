@@ -444,7 +444,9 @@ async def gallery_page(identifier: int, page_index: int) -> StreamingResponse:
         PageInfo(page.page_index, page.member_name, page.media_type),
     )
     return StreamingResponse(
-        main._closing_stream(stream), media_type=main._page_media_type(page.media_type)
+        main._closing_stream(stream),
+        media_type=main._page_media_type(page.media_type),
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
