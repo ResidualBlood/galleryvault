@@ -16,9 +16,7 @@ class ArchiveScanner(GalleryScanner):
 
     def storage_signature(self, path: Path) -> str:
         stat = path.stat()
-        return hashlib.sha256(
-            f"{path.resolve()}\0{stat.st_mtime_ns}\0{stat.st_size}".encode()
-        ).hexdigest()
+        return hashlib.sha256(f"{stat.st_size}\0{stat.st_mtime_ns}".encode()).hexdigest()
 
     def _pages(self, names: list[str], sizes: dict[str, int]) -> list[PageInfo]:
         images = sorted(

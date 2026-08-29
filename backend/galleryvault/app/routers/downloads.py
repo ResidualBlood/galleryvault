@@ -113,6 +113,9 @@ async def retry_download(task_id: int) -> dict[str, object]:
             row.retry_at = None
             row.error_message = None
             row.finished_at = None
+            # Reset the retry budget: a task that exhausted its automatic
+            # retries (max_retries=0) would otherwise stay stuck forever.
+            row.max_retries = 10
     except HTTPException:
         raise
     except SQLAlchemyError as exc:

@@ -73,6 +73,45 @@ _USER_PATH = Path(__file__).resolve().parent.parent / "tag_translations.json"
 
 _TRANSLATIONS: dict[str, dict[str, str]] = {}
 
+# Exact-match reverse index: casefolded display -> (namespace, name, display).
+# Built by :func:`_rebuild_zh_exact_index` after every table mutation so
+# :func:`search_zh_exact` is an O(1) lookup instead of a full table walk.
+_ZH_EXACT: dict[str, tuple[str, str, str]] = {}
+
+# Namespace walk order for reverse lookups: high-traffic namespaces first so
+# ties resolve deterministically (shared by search_zh and the exact index).
+_ZH_ORDER = [
+    "parody",
+    "character",
+    "group",
+    "artist",
+    "female",
+    "male",
+    "language",
+    "misc",
+    "other",
+]
+
+
+def _rebuild_zh_exact_index() -> None:
+    """Rebuild ``_ZH_EXACT`` from the active translation table.
+
+    First match wins, matching the pre-index ``search_zh_exact`` behaviour:
+    namespaces in ``_ZH_ORDER`` priority order, entries in insertion order
+    within a namespace.  Aliases (e.g. misc/other both storing the same
+    translation) resolve to whichever namespace the original table kept.
+    """
+    _ZH_EXACT.clear()
+    for ns in sorted(
+        _TRANSLATIONS, key=lambda ns: _ZH_ORDER.index(ns) if ns in _ZH_ORDER else len(_ZH_ORDER)
+    ):
+        for name, zh in _TRANSLATIONS[ns].items():
+            display = clean_display(str(zh)) if zh else ""
+            if display:
+                key = display.casefold()
+                if key not in _ZH_EXACT:
+                    _ZH_EXACT[key] = ns, name, display
+
 
 def load_translations(path: str | Path | None = None, *, reset: bool = False) -> int:
     """Merge an ehsyringe-style translation database into the active table.
@@ -114,6 +153,7 @@ def load_translations(path: str | Path | None = None, *, reset: bool = False) ->
             logger.warning("failed to read tag translations", extra={"error": str(exc)})
             continue
         merge_translation_data(data)
+    _rebuild_zh_exact_index()
     return translation_entry_count()
 
 
@@ -152,6 +192,7 @@ def merge_translation_data(data: object) -> int:
                 _TRANSLATIONS.setdefault(ns, {}).update(
                     {str(k): str(v) for k, v in tags.items()}
                 )
+    _rebuild_zh_exact_index()
     return translation_entry_count()
 
 
@@ -170,10 +211,9 @@ def search_zh(query: str, limit: int = 20) -> list[tuple[str, str, str]]:
     needle = query.casefold().strip()
     if not needle:
         return []
-    order = ["parody", "character", "group", "artist", "female", "male", "language", "misc", "other"]
     scored: list[tuple[int, str, str, str]] = []
     for ns, table in _TRANSLATIONS.items():
-        rank = order.index(ns) if ns in order else len(order)
+        rank = _ZH_ORDER.index(ns) if ns in _ZH_ORDER else len(_ZH_ORDER)
         for name, zh in table.items():
             display = clean_display(str(zh)) if zh else ""
             if needle in display.casefold():
@@ -189,20 +229,14 @@ def search_zh_exact(query: str) -> tuple[str, str, str] | None:
     Used by the smart search-box parsing: a Chinese token is only promoted to a
     tag filter when it maps one-to-one onto a tag translation (e.g. ``动图`` →
     ``other:animated``), avoiding false positives where a word merely contains
-    a translation.  Namespaces are walked in the same high-traffic order as
-    :func:`search_zh` so ties resolve consistently.
+    a translation.  The reverse index rebuilt after each table load makes this
+    an O(1) lookup; ties resolve in ``_ZH_ORDER`` priority order (same as
+    :func:`search_zh`).
     """
     needle = query.casefold().strip()
     if not needle:
         return None
-    order = ["parody", "character", "group", "artist", "female", "male", "language", "misc", "other"]
-    namespaces = sorted(_TRANSLATIONS, key=lambda ns: order.index(ns) if ns in order else len(order))
-    for ns in namespaces:
-        for name, zh in _TRANSLATIONS[ns].items():
-            display = clean_display(str(zh)) if zh else ""
-            if display.casefold() == needle:
-                return ns, name, display
-    return None
+    return _ZH_EXACT.get(needle)
 
 
 def translate_namespace(namespace: str | None) -> str:

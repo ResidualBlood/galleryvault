@@ -93,7 +93,7 @@ async def gallery_list(
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(
-            status_code=422, detail="page must be >= 1 and page_size must be between 1 and 100"
+            status_code=422, detail="page must be >= 1 and page_size must be between 1 and 500"
         )
     if tag_mode not in {"and", "or"} or tag_match not in {"exact", "fuzzy"}:
         raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")

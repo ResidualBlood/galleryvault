@@ -581,6 +581,10 @@ async def startup() -> None:
         client, _FavoritesRepositoryProxy(), _FavoriteDownloadQueue(), app.state.telegram
     )
     app.state.favorite_poll_task = asyncio.create_task(_favorites_poll_loop())
+    # Warm the favorite-count cache in the background so the first Favorites
+    # page request (and the scheduled poll) never blocks on a slow ExHentai
+    # fetch: _favorite_counts_cached returns {} immediately until this lands.
+    _spawn(_refresh_favorite_counts(), "favorite counts startup warmup")
     # Sweep leftover partial-download dirs from a previous run before the
     # download worker starts — but KEEP those that belong to pending/active
     # download tasks, so a retry (or a container restart that recovers an
@@ -1109,6 +1113,11 @@ async def _run_download(task: DownloadTask) -> None:
         async def _on_progress(current: int, total: int) -> None:
             if task.id is not None and task.id in _download_cancelled:
                 raise DownloadCancelledError("download was cancelled")
+            # Cancel latency is intentionally bounded by the progress ticks:
+            # the flag is only polled here, so a single page can still finish
+            # writing before the task aborts (up to one page's fetch time,
+            # typically well under the 30s per-read watchdog).  Polling mid-page
+            # would risk tearing the archive mid-write, so this stays as-is.
             # Batch the DB writes: at most one commit per page on short
             # galleries, throttled to one every 20 pages / 5s on long ones.
             # The first write always lands so the UI shows progress at once.
@@ -2225,8 +2234,8 @@ async def _favorite_counts_cached() -> dict[int, int]:
 
     After the TTL expires the stale counts are served immediately while a
     background refresh happens (stale-while-revalidate), so the Favorites page
-    never blocks on a slow ExHentai fetch.  Only the very first call ever blocks,
-    and even then only briefly (10s timeout).
+    never blocks on a slow ExHentai fetch.  The first call is warmed up
+    asynchronously at startup and never blocks synchronously on the network.
     """
     import time as _time
 
@@ -2238,17 +2247,8 @@ async def _favorite_counts_cached() -> dict[int, int]:
     if _fav_counts_cache["counts"]:
         _spawn(_refresh_favorite_counts(), "favorite counts refresh")
         return dict(_fav_counts_cache["counts"])  # type: ignore[arg-type]
-    try:
-        async with asyncio.timeout(10):
-            counts = await app.state.eh_client.fetch_favorite_counts()
-        _fav_counts_cache["ts"] = now
-        _fav_counts_cache["counts"] = counts
-        return counts
-    except Exception as exc:  # noqa: BLE001 - degrade gracefully on the first call
-        logger.warning(
-            "favorite counts fetch failed", extra=log_extra(error=type(exc).__name__)
-        )
-        return {}
+    _spawn(_refresh_favorite_counts(), "favorite counts warmup")
+    return {}
 
 
 def _estimate_cloud_size(cloud: int, local: int, local_size: int) -> int:

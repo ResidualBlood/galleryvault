@@ -46,97 +46,6 @@ class GalleryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def upsert(self, gallery: GalleryMeta) -> Gallery:
-        key = (
-            Gallery.gid == gallery.gid
-            if gallery.gid is not None
-            else Gallery.path_hash == path_hash(gallery.path)
-        )
-        model = await self.session.scalar(select(Gallery).where(key))
-        values = {
-            "gid": gallery.gid,
-            "token": gallery.token,
-            "title": gallery.title,
-            "title_jpn": gallery.title_jpn,
-            "category": gallery.category,
-            "uploader": gallery.uploader,
-            "file_count": gallery.file_count,
-            "file_size": gallery.file_size,
-            "rating": gallery.rating,
-            "storage_type": gallery.storage_type,
-            "storage_path": str(gallery.path),
-            "path_hash": path_hash(gallery.path),
-            "storage_mtime_ns": gallery.storage_mtime_ns,
-            "storage_size": gallery.storage_size,
-            "storage_signature": gallery.storage_signature,
-            "expunged": False,
-            "cover_path": gallery.pages[0].name if gallery.pages else None,
-            "page_count": len(gallery.pages),
-            "source_meta": {**gallery.source_meta, "warnings": gallery.warnings},
-            "updated_at": datetime.now(UTC),
-        }
-        if model is None:
-            model = Gallery(**values)
-            self.session.add(model)
-            await self.session.flush()
-        else:
-            # The scanner signature covers metadata and every image member. Avoid
-            # rebuilding relations for an unchanged gallery during full scans.
-            if model.storage_signature == gallery.storage_signature and not model.expunged:
-                return model
-            for name, value in values.items():
-                setattr(model, name, value)
-            await self.session.flush()
-
-        await self.session.execute(delete(GalleryPage).where(GalleryPage.gallery_id == model.id))
-        self.session.add_all(
-            [
-                GalleryPage(
-                    gallery_id=model.id,
-                    page_index=page.index,
-                    member_name=page.name,
-                    media_type=page.media_type,
-                    manifest={"size": page.size, "mtime_ns": page.mtime_ns},
-                )
-                for page in gallery.pages
-            ]
-        )
-        await self.session.execute(delete(GalleryTag).where(GalleryTag.gallery_id == model.id))
-        unique_tags = {
-            (
-                str(item.get("namespace", "misc")).strip() or "misc",
-                str(item.get("name", "")).strip(),
-            )
-            for item in gallery.tags
-            if str(item.get("name", "")).strip()
-        }
-        existing = (
-            list(
-                (
-                    await self.session.scalars(
-                        select(Tag).where(tuple_(Tag.namespace, Tag.name).in_(unique_tags))
-                    )
-                ).all()
-            )
-            if unique_tags
-            else []
-        )
-        by_name = {(tag.namespace, tag.name): tag for tag in existing}
-        missing = [
-            Tag(namespace=namespace, name=name)
-            for namespace, name in unique_tags
-            if (namespace, name) not in by_name
-        ]
-        self.session.add_all(missing)
-        if missing:
-            await self.session.flush()
-            by_name.update({(tag.namespace, tag.name): tag for tag in missing})
-        self.session.add_all(
-            [GalleryTag(gallery_id=model.id, tag_id=by_name[key].id) for key in unique_tags]
-        )
-        await self.session.flush()
-        return model
-
     async def upsert_many(self, galleries: Sequence[GalleryMeta]) -> None:
         """Ingest one scanner batch with one flush and set-based relation writes."""
         if not galleries:
@@ -290,6 +199,9 @@ class GalleryRepository:
         if not roots:
             return {}
         normalized = [str(Path(root).resolve()) for root in roots]
+        # Coarse SQL prefilter: only stream rows whose stored path could live
+        # under one of the roots, instead of pulling the whole non-expunged
+        # table.  The resolved ``is_relative_to`` check below stays authoritative.
         result = await self.session.stream(
             select(
                 Gallery.path_hash,
@@ -302,7 +214,12 @@ class GalleryRepository:
                 Gallery.file_count,
                 Gallery.file_size,
                 Gallery.posted_at,
-            ).where(Gallery.expunged.is_(False))
+            ).where(
+                and_(
+                    Gallery.expunged.is_(False),
+                    or_(*(Gallery.storage_path.startswith(root) for root in normalized)),
+                )
+            )
         )
         out: dict[str, ExistingGallery] = {}
         async for row in result:
