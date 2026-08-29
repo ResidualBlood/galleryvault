@@ -28,6 +28,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   login markers instead of treating any HTTP 200 as success. A transient
   anti-bot challenge is retried once before reporting a failure.
 
+### Fixed
+
+- **ExHentai login test no longer false-negatives on a valid session** — the
+  probe now requests `/home.php` (a logged-out session is redirected to the
+  forums login page there) and a complete cookie set (`ipb_member_id` +
+  `ipb_pass_hash`) counts as authenticated on any non-rejection 200 page. A
+  valid session is no longer reported as "cookie invalid or expired" when the
+  bare home page answers 200 without its login markers (ExHentai anti-bot
+  challenge) while downloads with the same cookies succeed.
+- **Manual retry now starts immediately** — retrying a failed/cancelled
+  download clears the stale exponential-backoff timestamp, so the task is
+  claimed right away instead of waiting out the previous backoff delay.
+- **Deleting an in-flight download is safe** — deleting a downloading task now
+  signals the running worker before removing its partial folder, instead of
+  racing its writes (which could fail page writes and leave error noise).
+
 ## [1.2.15] - 2026-08-29
 
 ### Added
