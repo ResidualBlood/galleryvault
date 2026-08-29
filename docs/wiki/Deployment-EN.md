@@ -78,7 +78,8 @@ does not re-import it as a fresh gallery).
 
 The backend binds `127.0.0.1:8001` by default and is only reachable through
 the nginx frontend proxy; login is rate-limited per real client IP (10 attempts
-/ 60 s) and `/api` is throttled at 30 r/s.
+/ 60 s) and `/api` is throttled at 30 r/s (implemented by the frontend nginx
+`limit_req`).
 
 ### TLS (optional)
 
