@@ -67,7 +67,7 @@ galleryvault/
     thumbnails.py      # static JPEG thumbnail generation + on-disk cache
 alembic/               # database migrations (0001..0014)
 tests/                 # pytest suite
-docs/                  # this guide, USAGE.md, API.md
+docs/                  # this guide, API.md
 Dockerfile
 docker-compose.yml     # frontend (:8000) + backend (:8001) + db (./db-data)
 pyproject.toml
