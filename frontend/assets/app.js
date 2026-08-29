@@ -545,8 +545,9 @@ function catLabel(c) { return t(CATEGORY_LABELS[c] || "catMisc"); }
 
 function galleryCard(it) {
   const cat = esc(catLabel(it.category));
+  const ctx = app.view === "library" ? libraryContext() : {};
   return `<div class="gc-wrap">
-    <a class="gc" href="${navHash("gallery", { id: it.id })}">
+    <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}">
       <div class="gc-cover">
         ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<span class="badge">no cover</span>`}
         <span class="gc-cat">${cat}</span>
@@ -664,6 +665,14 @@ function gridPager(elId, data, buildQuery) {
 
 function parseTags(s) {
   return (s || "").split(",").map(t => t.trim()).filter(Boolean);
+}
+
+function libraryContext() {
+  const c = {};
+  for (const k of ["q", "tags", "tag_mode", "category"]) {
+    if (app.query[k]) c[k] = app.query[k];
+  }
+  return c;
 }
 
 function tagFilterHash(tagsArr) {
@@ -806,22 +815,22 @@ async function renderGallery() {
       </a>`).join("");
     const thumbPagerParts = [];
     if (thumbPage > 1) {
-      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { page: thumbPage - 1, page_size: perPage })}">&lt;</a>`);
+      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: thumbPage - 1, page_size: perPage })}">&lt;</a>`);
     }
     for (let p = Math.max(1, thumbPage - 2); p <= Math.min(totalPages, thumbPage + 2); p++) {
       thumbPagerParts.push(p === thumbPage
         ? `<strong class="cur">${p}</strong>`
-        : `<a class="page-link" href="${navHash("gallery", { id }, { page: p, page_size: perPage })}">${p}</a>`);
+        : `<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: p, page_size: perPage })}">${p}</a>`);
     }
     if (thumbPage < totalPages) {
-      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
+      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
     }
     $view().innerHTML = `
-      <a class="link-button" href="${navHash("library")}">← ${esc(t("library"))}</a>
+      <a class="link-button" href="${navHash("library", {}, libraryContext())}">← ${esc(t("library"))}</a>
       <header style="margin-top:16px"><p class="eyebrow">${esc(g.storage_type)} · LOCAL GALLERY</p><h1>${esc(g.title)}</h1>
       <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span></p></header>
       <div class="toolbar">
-        <a class="primary" href="${navHash("reader", { id, page: progress.current_page })}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
+        <a class="primary" href="${navHash("reader", { id, page: progress.current_page }, libraryContext())}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
         <button class="secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
         <button class="secondary" data-action="unfavorite-gallery" data-id="${id}" type="button" hidden>${esc(t("unfavorite"))}</button>
         <button class="secondary danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
@@ -863,7 +872,7 @@ async function renderReader() {
     $view().innerHTML = `
       <div class="reader">
         <div class="reader-bar toolbar">
-          <a class="link-button" href="${navHash("gallery", { id })}">← ${esc(t("details"))}</a>
+          <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
           <span>${page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
           <span class="reader-actions">
             <button class="secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
@@ -874,7 +883,7 @@ async function renderReader() {
         <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-next="${page + 1 < total ? page + 1 : ""}">
         <div class="nav">
           ${page > 0 ? `<a class="secondary" href="${navHash("reader", { id, page: page - 1 })}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
-          <a class="secondary" href="${navHash("gallery", { id })}">${esc(t("allPages"))}</a>
+          <a class="secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>
           ${page + 1 < total ? `<a class="secondary" href="${navHash("reader", { id, page: page + 1 })}">${esc(t("next"))}</a>` : `<span>${esc(t("next"))}</span>`}
         </div>
       </div>`;
