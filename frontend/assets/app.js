@@ -27,7 +27,7 @@ const I18N = {
     save: "Save", testLogin: "Test login", cookieSet: "set (not shown)", cookieUnset: "not set",
     filterAll: "All", filterPending: "Pending", filterSuccess: "Success", filterFailed: "Failed",
     cancel: "Cancel", noTasks: "No download tasks.", noGalleries: "No matching galleries, click Scan.",
-    noHistory: "No reading history.", noTags: "No local tags found.", clearAll: "clear all",
+    noHistory: "No reading history.", noTags: "No local tags found.", clearAll: "clear all", search: "Search",
     progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
@@ -156,7 +156,7 @@ const I18N = {
     save: "保存", testLogin: "测试登录", cookieSet: "已设置（不回显）", cookieUnset: "未设置",
     filterAll: "全部", filterPending: "进行中", filterSuccess: "成功", filterFailed: "失败",
     cancel: "取消", noTasks: "暂无下载任务。", noGalleries: "没有匹配的画廊，请点击扫描。",
-    noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", clearAll: "清空标签",
+    noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", clearAll: "清空标签", search: "搜索",
     progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
     enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
     syncFavcats: "同步收藏夹名称", checkNow: "立即检查", saveOk: "已保存",
@@ -703,7 +703,7 @@ async function renderBrowse() {
         <input name="q" value="" placeholder="${esc(t("searchPlaceholder"))}" autocomplete="off">
         <div id="tag-suggest" class="tag-suggest" hidden></div>
       </div>
-      <button class="primary" type="submit">${esc(t("library"))}</button>
+      <button class="primary" type="submit">${esc(t("search"))}</button>
       <button class="secondary big" data-action="random" type="button">🎲 ${esc(t("random"))}</button>
     </form>
     <section>
@@ -753,7 +753,7 @@ async function renderLibrary() {
         <option value="">All categories</option>
         ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
       </select>
-      <button class="primary" type="submit">${esc(t("library"))}</button>
+      <button class="primary" type="submit">${esc(t("search"))}</button>
       <button class="secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
       <button class="secondary" data-action="sel-clear" type="button">${esc(t("clearSel"))}</button>
       <button class="secondary danger" data-action="sel-delete" type="button">${esc(t("deleteSel"))}${selCount ? ` (${selCount})` : ""}</button>
