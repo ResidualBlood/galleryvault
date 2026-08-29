@@ -96,6 +96,12 @@ const I18N = {
     testExhentai: "Test ExHentai login", cancelDl: "Cancel", error: "Error",
     retry: "Retry", retrySelected: "Retry selected", selectAll: "Select all",
     deleteDl: "Delete",
+    galleryUpdates: "Gallery updates", galleryUpdatesSub: "Local galleries that ExHentai re-uploaded under a new gid. Select them and download the newest version (the old local copy is removed after the new one finishes).",
+    updateSelected: "Update selected", scanNow: "Scan now", ignoreSelected: "Ignore selected",
+    updStateActive: "Active", updStateAll: "All", updStatePending: "Pending", updStateDownloading: "Downloading", updStateFailed: "Failed",
+    updPending: "Update available", updDownloading: "Downloading", updFailed: "Failed", updIgnored: "Ignored",
+    updToNewer: "→ new gid", updIgnoredPage: "Ignored updates", updNoUpdates: "No galleries with updates.",
+    updScanning: "Scanning for updates", updDetectedAt: "Last scan", updUnignore: "Unignore", updUnignoreSel: "Restore selected", updNone: "No ignored updates.",
     downloading: "downloading", perPage: "per page",
     readerFit: "Fit", readerFullscreen: "Fullscreen",
     delete: "Delete", deleteGallery: "Delete gallery", deleteFiltered: "Delete filtered",
@@ -205,6 +211,12 @@ const I18N = {
     testExhentai: "测试 ExHentai 登录", cancelDl: "取消任务", error: "错误",
     retry: "重试", retrySelected: "重试所选", selectAll: "全选",
     deleteDl: "删除",
+    galleryUpdates: "更新画廊", galleryUpdatesSub: "这些本地画廊被 ExHentai 重传（换了新 gid）。勾选后下载最新版本（新版下载完成后自动删除旧版本地文件）。",
+    updateSelected: "更新选中", scanNow: "立即检测", ignoreSelected: "忽略选中",
+    updStateActive: "待处理", updStateAll: "全部", updStatePending: "待更新", updStateDownloading: "下载中", updStateFailed: "失败",
+    updPending: "有新版", updDownloading: "下载中", updFailed: "失败", updIgnored: "已忽略",
+    updToNewer: "→ 新 gid", updIgnoredPage: "已忽略的更新", updNoUpdates: "没有检测到有更新的画廊。",
+    updScanning: "正在检测更新", updDetectedAt: "上次检测", updUnignore: "取消忽略", updUnignoreSel: "恢复选中", updNone: "没有已忽略的更新。",
     downloading: "下载中", perPage: "每页",
     readerFit: "适应", readerFullscreen: "全屏",
     delete: "删除", deleteGallery: "删除画廊", deleteFiltered: "删除筛选结果",
@@ -427,6 +439,9 @@ function parseHash() {
     else if (parts[1] === "ignored") { app.view = "favignored"; }
     else if (/^\d+$/.test(parts[1] || "")) { app.view = "favlist"; app.params.id = parts[1]; }
   }
+  if (app.view === "updates") {
+    if (parts[1] === "ignored") { app.view = "updignored"; }
+  }
   app.query = {};
   if (qs) for (const kv of qs.split("&")) {
     const [k, v] = kv.split("=");
@@ -452,6 +467,7 @@ function router() {
   if (!app.authenticated) { renderLogin(); return; }
   if (app.view !== "library") selGalleries.clear();
   if (app.view !== "favorites" && app.view !== "favlist" && favTimer) { clearInterval(favTimer); favTimer = null; }
+  if (app.view !== "updates" && app.view !== "updignored" && updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; }
   if (app.view !== "downloads" && dlTimer) { clearInterval(dlTimer); dlTimer = null; }
   if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
   if (app.view !== "favlist") selFav.clear();
@@ -474,6 +490,8 @@ function router() {
     case "favmanage": renderFavManage(); break;
     case "favignored": renderFavIgnored(); break;
     case "favlist": renderFavList(); break;
+    case "updates": renderUpdates(); break;
+    case "updignored": renderUpdateIgnored(); break;
     default: renderBrowse();
   }
   bindTagSuggest();
@@ -1525,6 +1543,7 @@ async function renderFavorites() {
       <button class="secondary" data-action="favcats-sync" type="button">${esc(t("syncFavcats"))}</button>
       <button class="secondary" data-action="favcats-check-all" type="button">${esc(t("checkAll"))}</button>
       <button class="secondary" data-action="favcats-download-missing" type="button">${esc(t("downloadMissing"))}</button>
+      <a class="secondary" href="#/updates" style="padding:8px 14px;border-radius:4px">${esc(t("galleryUpdates"))}</a>
       <a class="secondary" href="#/favorites/manage" style="padding:8px 14px;border-radius:4px;margin-left:auto">${esc(t("favManage"))}</a>
     </div>
     <div id="fav-list"><p>${esc(t("loading"))}</p></div>`;
@@ -1919,6 +1938,13 @@ function onClick(e) {
   if (action === "favlist-download") { favListDownload(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-unfav") { favListUnfavorite(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-clear") { selFav.clear(); router(); return; }
+  if (action === "upd-scan") { updScan(); return; }
+  if (action === "upd-state") { e.preventDefault(); location.hash = navHash("updates", {}, { state: el.getAttribute("data-state") || "active", page: undefined }); return; }
+  if (action === "upd-update") { updRunSelected(); return; }
+  if (action === "upd-ignore") { updIgnoreSelected(); return; }
+  if (action === "upd-retry") { updRunIds([parseInt(el.getAttribute("data-id"), 10)]); return; }
+  if (action === "upd-unignore") { updUnignore([parseInt(el.getAttribute("data-id"), 10)]); return; }
+  if (action === "upd-unignore-selected") { updUnignoreSelected(); return; }
   if (action === "dup-scan") { runDupScan(); return; }
   if (action === "dup-unfav") { dupAction(false); return; }
   if (action === "dup-unfav-delete") { dupAction(true); return; }
@@ -2262,6 +2288,202 @@ async function dupUnignore(key) {
     if (app.view === "favignored") { renderFavIgnored(); }
     else { dupLocallyIgnored.delete(key); renderDupGroupsFromCache(); }
   } catch (e) { toast(e.message); }
+}
+
+// --- Gallery updates (re-uploaded / new-version tracking) ------------------
+
+let updatesTimer = null;
+const selUpdate = new Set();
+
+const UPD_STATUS_KEYS = {
+  pending: "updPending", downloading: "updDownloading", failed: "updFailed", ignored: "updIgnored",
+};
+
+function updStatusKey(st) { return UPD_STATUS_KEYS[st] || st; }
+
+function updateUpdSelBtn() {
+  const n = selUpdate.size;
+  const btn = document.querySelector('[data-action="upd-update"]');
+  if (btn) btn.textContent = t("updateSelected") + (n ? ` (${n})` : "");
+}
+
+async function renderUpdates() {
+  const page = app.query.page || "1";
+  const state = app.query.state || "active";
+  const selCount = selUpdate.size;
+  const stateBtn = (s, label) =>
+    `<button class="secondary${state === s ? " active-pill" : ""}" data-action="upd-state" data-state="${s}" type="button">${esc(label)}</button>`;
+  $view().innerHTML = `
+    <a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>
+    <header style="margin-top:16px"><p class="eyebrow">GALLERY UPDATES</p><h1>${esc(t("galleryUpdates"))}</h1>
+    <p class="sub"><span id="upd-status">…</span></p></header>
+    <div class="toolbar">
+      <button class="primary" data-action="upd-update" type="button">${esc(t("updateSelected"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="upd-ignore" type="button">${esc(t("ignoreSelected"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="upd-scan" type="button">${esc(t("scanNow"))}</button>
+      <label class="checkbox" style="margin-left:12px"><input type="checkbox" data-action="upd-select-all"> ${esc(t("selectAll"))}</label>
+      <a class="link-button" href="#/updates/ignored" style="margin-left:auto">${esc(t("updIgnoredPage"))}</a>
+    </div>
+    <div class="fav-state-filter">
+      ${stateBtn("active", t("updStateActive"))}
+      ${stateBtn("pending", t("updStatePending"))}
+      ${stateBtn("downloading", t("updStateDownloading"))}
+      ${stateBtn("failed", t("updStateFailed"))}
+      ${stateBtn("all", t("updStateAll"))}
+    </div>
+    <div id="upd-list"><p>${esc(t("loading"))}</p></div>
+    <div class="pages pager" id="upd-pager"></div>`;
+  pollUpdatesStatus();
+  try {
+    const qs = `page=${encodeURIComponent(page)}&page_size=${prefPageSize()}&state=${encodeURIComponent(state)}`;
+    const data = await api("GET", `/api/updates?${qs}`);
+    const el = document.getElementById("upd-list");
+    if (!data.items.length) { el.innerHTML = `<p>${esc(t("updNoUpdates"))}</p>`; }
+    else {
+      el.innerHTML = `<table class="table"><thead><tr><th></th><th></th><th>${esc(t("gallery"))}</th><th>${esc(t("gid"))}</th><th>${esc(t("favorites"))}</th><th>${esc(t("status"))}</th></tr></thead><tbody>`
+        + data.items.map(updRow).join("") + `</tbody></table>`;
+      document.querySelectorAll('#upd-list input[data-upd-id]').forEach(cb => {
+        cb.checked = selUpdate.has(parseInt(cb.dataset.updId, 10));
+        cb.addEventListener("change", () => {
+          const id = parseInt(cb.dataset.updId, 10);
+          if (cb.checked) selUpdate.add(id); else selUpdate.delete(id);
+          updateUpdSelBtn();
+        });
+      });
+      const allBtn = document.querySelector('[data-action="upd-select-all"]');
+      if (allBtn) allBtn.addEventListener("change", e => updSelectAll(e.target.checked));
+    }
+    updPager("upd-pager", data, page, state);
+  } catch (e) { document.getElementById("upd-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+function updRow(u) {
+  const cover = u.cover_url ? `<img loading="lazy" src="${u.cover_url}" alt="">` : `<span class="badge">no cover</span>`;
+  const retry = u.status === "failed"
+    ? ` <button class="secondary" data-action="upd-retry" data-id="${u.id}" type="button">${esc(t("retry"))}</button>`
+    : "";
+  return `<tr data-upd-id="${u.id}">
+    <td><input type="checkbox" data-upd-id="${u.id}" aria-label="${esc(t("select"))}"></td>
+    <td><a class="upd-cover" href="${navHash("gallery", { id: u.gallery_id })}">${cover}</a></td>
+    <td><a href="${navHash("gallery", { id: u.gallery_id })}">${esc(u.title)}</a></td>
+    <td class="muted">${u.old_gid} <span class="muted">${esc(t("updToNewer"))}</span> ${u.new_gid}</td>
+    <td><a class="badge" href="#/favorites/${u.favcat}">#${u.favcat}${u.favcat_name ? " " + esc(u.favcat_name) : ""}</a></td>
+    <td><span class="badge upd-st-${u.status}">${esc(t(updStatusKey(u.status)))}</span>${retry}${u.error_message ? `<p class="muted">${esc(u.error_message)}</p>` : ""}</td>
+  </tr>`;
+}
+
+function updPager(elId, data, page, state) {
+  const el = document.getElementById(elId);
+  if (!el || !data) return;
+  const total = data.total, pageSize = data.page_size || 24;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = parseInt(page, 10) || 1;
+  const qp = p => navHash("updates", {}, { page: p, page_size: pageSize, state });
+  const parts = [];
+  if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
+  for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) {
+    parts.push(p === cur
+      ? `<strong class="cur">${p}</strong>`
+      : `<a class="page-link" href="${qp(p)}">${p}</a>`);
+  }
+  if (cur < pages) parts.push(`<a class="page-link" href="${qp(cur + 1)}">&gt;</a>`);
+  el.innerHTML = `${parts.join(" ")} ${pagerJump(cur, pages)} · ${esc(t("perPage"))} ${pageSizeSelect(pageSize, "updates")}`;
+}
+
+async function pollUpdatesStatus() {
+  if (updatesTimer) clearInterval(updatesTimer);
+  const tick = async () => {
+    try {
+      const st = await api("GET", "/api/updates/status");
+      const el = document.getElementById("upd-status");
+      if (!el) return;
+      const counts = st.counts || {};
+      const total = (counts.pending || 0) + (counts.downloading || 0) + (counts.failed || 0);
+      const parts = [];
+      if (st.detecting) parts.push(`<b>${esc(t("updScanning"))}</b>`);
+      if (st.last_detected_at) parts.push(`${esc(t("updDetectedAt"))} ${fmtDate(st.last_detected_at)}`);
+      if (st.last_error) parts.push(`<span class="error">${esc(st.last_error)}</span>`);
+      parts.push(`<b>${total}</b>`);
+      el.innerHTML = parts.join(" · ");
+    } catch (_) { /* transient */ }
+  };
+  tick();
+  updatesTimer = setInterval(tick, 5000);
+}
+
+function updSelectAll(checked) {
+  selUpdate.clear();
+  document.querySelectorAll('#upd-list input[data-upd-id]').forEach(cb => {
+    cb.checked = checked;
+    if (checked) selUpdate.add(parseInt(cb.dataset.updId, 10));
+  });
+  updateUpdSelBtn();
+}
+
+async function updScan() {
+  try {
+    await api("POST", "/api/updates/scan");
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+async function updRunIds(ids) {
+  if (!ids.length) { toast(t("select")); return; }
+  try {
+    const r = await api("POST", "/api/updates/update", { ids });
+    selUpdate.clear();
+    toast(t("updateSelected") + ": " + (r.started || 0) + (r.skipped ? ` (skip ${r.skipped})` : ""));
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+async function updRunSelected() {
+  await updRunIds([...selUpdate]);
+}
+
+async function updIgnoreSelected() {
+  const ids = [...selUpdate];
+  if (!ids.length) { toast(t("select")); return; }
+  try {
+    await api("POST", "/api/updates/ignore", { ids });
+    selUpdate.clear();
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+async function updUnignore(ids) {
+  if (!ids.length) { toast(t("select")); return; }
+  try {
+    await api("POST", "/api/updates/unignore", { ids });
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+async function updUnignoreSelected() {
+  const ids = [...document.querySelectorAll('#upd-ignored input[data-upd-id]:checked')]
+    .map(cb => parseInt(cb.dataset.updId, 10));
+  await updUnignore(ids);
+}
+
+async function renderUpdateIgnored() {
+  let data;
+  try { data = await api("GET", "/api/updates/ignored?page=1&page_size=500"); }
+  catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  $view().innerHTML = `
+    <a class="link-button" href="#/updates">← ${esc(t("galleryUpdates"))}</a>
+    <header style="margin-top:16px"><p class="eyebrow">GALLERY UPDATES</p><h1>${esc(t("updIgnoredPage"))}</h1></header>
+    <div class="toolbar">
+      <button class="primary" data-action="upd-unignore-selected" type="button">${esc(t("updUnignoreSel"))}</button>
+    </div>
+    <div id="upd-ignored">${(data.items || []).length ? "" : `<p class="muted">${esc(t("updNone"))}</p>`}</div>`;
+  const el = document.getElementById("upd-ignored");
+  if (!(data.items || []).length) return;
+  el.innerHTML = data.items.map(u => `
+    <div class="panel" style="margin-top:10px;padding:10px 14px">
+      <label class="checkbox" style="margin:0"><input type="checkbox" data-upd-id="${u.id}"> <a href="${navHash("gallery", { id: u.gallery_id })}">${esc(u.title)}</a></label>
+      <span class="badge">${u.old_gid} → ${u.new_gid}</span>
+      <button class="secondary" data-action="upd-unignore" data-id="${u.id}" type="button">${esc(t("updUnignore"))}</button>
+    </div>`).join("");
 }
 
 async function renderFavIgnored() {
