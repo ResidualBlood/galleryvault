@@ -30,6 +30,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Deleting a filter's results no longer breaks on huge libraries.** The
+  library's "delete filtered" action used to resolve the whole filter into an
+  id list on the client and POST it to `delete-bulk`, which could exceed
+  asyncpg's ~32767 parameter limit when thousands of galleries matched. There
+  is now a server-side `POST /api/galleries/delete-filtered` endpoint that
+  pages the filter itself and deletes in 500-row batches; `delete-bulk` and
+  the favorites-remove lookups also chunk their `in_` queries the same way.
 - **ExHentai login test no longer false-negatives on a valid session** — the
   probe now requests the member-only `/uconfig.php` page and classifies the
   response body, because ExHentai answers every session state with HTTP 200
