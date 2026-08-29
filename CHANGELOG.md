@@ -4,15 +4,14 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2026-08-30
 
 ### Added
 
 - **GitHub Pages docs site (`docs-site/`)** — a VitePress site renders the
   canonical `docs/wiki/` pages into a website with a sidebar table of contents
   (中文 + English nav), deployed automatically by the `pages` workflow to
-  https://ResidualBlood.github.io/galleryvault/ (enable it in the repo
-  Settings → Pages → Source: GitHub Actions). Canonical sources stay in
+  https://hugo.lwnlh.com/galleryvault/. Canonical sources stay in
   `docs/wiki/`; the site is generated per build.
 - **Canonical wiki source (`docs/wiki/`)** — the GitHub wiki pages now have a
   canonical, versioned copy in this repo (`docs/wiki/`). `scripts/sync-wiki.sh`
