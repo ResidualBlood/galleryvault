@@ -35,6 +35,14 @@ Key points:
 - **CSRF**: the legacy double-submit CSRF token is only needed for browser HTML
   forms. The SPA only issues `application/json` requests to `/api/*` (excluded
   from the CSRF check), so no CSRF token is required.
+- **Observability**: `GET /metrics` (exempt from auth) exposes Prometheus-style
+  counters (requests, download/scan/tag-sync activity); every request carries a
+  `X-Request-ID` correlation header (echoed in responses and structured logs),
+  so a failing request can be traced across the nginx / backend / DB boundary.
+- **Favorites skip heuristic**: `FAVORITES_SKIP_LIMIT` (default 5) — after five
+  consecutive checks report an unchanged cloud folder count, the full re-scan
+  is skipped (count-only checks continue); the first changed count re-enables
+  full checks.
 
 ## Project layout
 
