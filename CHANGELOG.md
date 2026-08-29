@@ -49,6 +49,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`check_login` no longer misreports an anti-bot challenge as a dead
+  session.** ExHentai answers an empty body (no cookies / anti-bot challenge)
+  with HTTP 200; `parse_login_state` previously classified it `not_logged_in`,
+  prompting a pointless cookie reset. It now returns `failed` so the settings
+  test shows "请求失败或反爬挑战" and the operator retries instead of
+  re-entering cookies.
 - **Telegram bot `/status` is no longer swallowed by the chat allowlist.** The
   real `TelegramNotifier` drops non-forced messages to chats that are not in
   `telegram_chat_ids`; `/pause`, `/resume` and gallery enqueue already passed
