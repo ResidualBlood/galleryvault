@@ -29,6 +29,7 @@ const I18N = {
     cancel: "Cancel", noTasks: "No download tasks.", noGalleries: "No matching galleries, click Scan.",
     noHistory: "No reading history.", noTags: "No local tags found.", clearAll: "clear all", search: "Search",
     openEh: "Open on ExHentai", ehLoginNote: "Requires ExHentai login in your browser", custom: "Custom",
+    ehPublicNotice: "Public E-Hentai: ExHentai-only galleries pause tag sync and are not reclassified; switching back to exhentai.org resumes them automatically.",
     progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
@@ -159,6 +160,7 @@ const I18N = {
     cancel: "取消", noTasks: "暂无下载任务。", noGalleries: "没有匹配的画廊，请点击扫描。",
     noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", clearAll: "清空标签", search: "搜索",
     openEh: "打开原站", ehLoginNote: "需浏览器已登录 ExHentai", custom: "自定义",
+    ehPublicNotice: "外站 E-Hentai：里站专属画廊会暂停标签同步（不会被误判为已删除），切回 exhentai.org 后自动恢复。",
     progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
     enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
     syncFavcats: "同步收藏夹名称", checkNow: "立即检查", saveOk: "已保存",
@@ -1270,6 +1272,7 @@ async function renderSettings() {
       </fieldset>
       <fieldset><legend>ExHentai</legend>
         ${field(t("baseUrl"), ehBaseUrlControl(s.exhentai_base_url || "", ""))}
+        ${/e-hentai\.org/i.test(s.exhentai_base_url || "") ? `<p class="notice">${esc(t("ehPublicNotice"))}</p>` : ""}
         <p class="notice">Cookie: <strong>${s.exhentai_cookie_configured ? esc(t("cookieSet")) : esc(t("cookieUnset"))}</strong> · ${esc(t("cookiesNote"))}</p>
         <div class="form-grid">
           <input name="ipb_member_id" placeholder="${esc(t("cookieId"))}" autocomplete="off">
