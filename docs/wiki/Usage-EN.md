@@ -233,6 +233,16 @@ Update translations now" buttons in Settings also leave a trace here.
   so the next scan does not re-import it as a fresh gallery; false positives
   can be hidden with **Ignore selected**, and ignored items can be restored
   from a separate page.
+- **Gallery updates** (`#/updates`, linked from the top row of the Favorites
+  page): when ExHentai **re-uploads** a gallery it moves it to a new gid and the
+  favorites entry follows the new version, leaving the old-gid copy on disk.
+  This page lists those "local copy is the old version" galleries (detected by
+  "local gid not in any favorite folder, but normalized title matches a
+  favorite item"), showing `old gid → new gid` per row. Check rows and hit
+  **Update selected**: the new version downloads first, then the old local copy
+  is removed (its reading progress resets). Detection runs automatically after
+  every favorites check and can be triggered with **Scan now**; false positives
+  can be ignored, and ignored items are restored from `#/updates/ignored`.
 
 ### "download favorites" vs. "enabled"
 
