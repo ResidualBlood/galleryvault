@@ -57,6 +57,14 @@ docker compose up -d
 
 > JSON API 位于 **http://\<主机地址\>:8001**。
 
+### 获取 ExHentai cookie（ipb_member_id / ipb_pass_hash / igneous）
+
+1. 用浏览器登录 **e-hentai.org**（需要 e-hentai 账户）。
+2. 按 `F12` 打开开发者工具 → **Application / 应用程序 → Storage → Cookies → https://e-hentai.org**。
+3. 复制 **`ipb_member_id`**（用户 ID）与 **`ipb_pass_hash`**（会话哈希）的值。
+4. 需要访问 **exhentai.org 里站**（未和谐画廊、部分专区）时，再从 `https://exhentai.org` 的 Cookies 里复制 **`igneous`**（该 cookie 只对已获得里站权限的账户存在；仅用外站则无需填写）。
+5. 把三个值填入「设置 → ExHentai」（或首次运行向导）并「测试登录」验证；cookie 加密存库、不会回显。
+
 ### 推荐使用流程
 
 1. **登录 ExHentai**：设置 → ExHentai，填入 `ipb_member_id` / `ipb_pass_hash` / `igneous` 并「测试登录」验证（cookie 加密存库，不要写进 compose）。
@@ -91,6 +99,8 @@ docker compose up -d
 | `./cache` | **缩略图缓存**（自动生成），挂载至 `/gv-cache` |
 
 库目录（每行一个路径）与下载目录在「设置」中分开配置；把其他 Ehviewer 下载目录挂载为**仅扫描不下载**的库，见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
+
+> **权限**：backend 容器内以 `app` 用户（uid **10001**）运行。把已有目录挂载进 compose 或把归档放进 `./library` / `./downloads` 之前，请确保宿主目录对 10001 **可读**（要支持删除画廊则需**可写**）：在首次 `docker compose up` 前执行 `chown -R 10001:10001 ./library ./downloads`。`./cache` 后端启动时自动处理；**`./db-data` 属于 postgres（uid 999），切勿 chown**。
 
 ## 升级
 
