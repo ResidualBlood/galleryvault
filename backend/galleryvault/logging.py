@@ -74,10 +74,16 @@ class _HttpAccessFilter(logging.Filter):
 def configure_logging(level: str = "INFO", as_json: bool = False) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(_Formatter(as_json))
-    handler.addFilter(_HttpAccessFilter())
+    access_filter = _HttpAccessFilter()
+    handler.addFilter(access_filter)
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper())
+    # uvicorn installs its own handler on the "uvicorn.access" logger (with
+    # propagate=False), so access-log records never pass through the root
+    # handler's filter. Attach the filter to the logger as well so /healthz
+    # heartbeats are silenced regardless of which handler uvicorn uses.
+    logging.getLogger("uvicorn.access").addFilter(access_filter)
 
 
 def log_extra(**context: Any) -> dict[str, Any]:
