@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Canonical wiki source (`docs/wiki/`)** — the GitHub wiki pages now have a
+  canonical, versioned copy in this repo (`docs/wiki/`). `scripts/sync-wiki.sh`
+  and the new `sync-wiki` workflow mirror it to the wiki repository;
+  `API.md` / `Development.md` / `openapi.json` remain owned by the `sync-docs`
+  workflow.
 - **Download-title setting (`download_title`)** — chooses which title seeds
   the on-disk download folder name (`<gid>-<title>`): `japanese` (default,
   Ehviewer-style) or `english`. Independent of the display `title_display`
