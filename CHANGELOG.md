@@ -4,7 +4,7 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.14] - 2026-08-29
 
 ### Added
 
@@ -527,7 +527,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.13...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.14...HEAD
+[1.2.14]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.14
 [1.2.13]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.13
 [1.2.12]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.12
 [1.2.11]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.11
