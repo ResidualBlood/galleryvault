@@ -233,7 +233,14 @@ and back/forward work without server round-trips.
 
 - Each task can be **cancelled** (stops the page writes and removes the partial
   temp dir), **retried**, or **deleted** (removes the task record); bulk
-  operations via **Select all / Retry selected / Delete selected**.
+  operations via **Select all / Retry selected / Delete selected`.
+- Failed tasks **self-heal**: a transient failure (image timeout, ExHentai
+  challenge, throttled H@H node) re-queues the task automatically with an
+  exponential backoff (30s → 2m → 8m → 30m → 1h → … up to 6h) and only the
+  missing pages are re-fetched. Up to `max_retries` (default 10) attempts are
+  made before a task is marked `failed`; a periodic sweep re-activates older
+  `failed` tasks that still have retry budget left, so a manual retry is rarely
+  needed.
 
 ## Configuration
 

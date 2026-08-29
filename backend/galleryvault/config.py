@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # fully idle would otherwise hold a download worker for many minutes.
     image_download_timeout_seconds: int = 120
     image_slow_warmup_seconds: int = 30
-    image_min_speed_kb_s: int = 20
+    image_min_speed_kb_s: int = 10
     # Cap on parallel ExHentai requests across ALL background workers (tag
     # sync, downloads, favorites, covers). Kept low to avoid tripping
     # ExHentai's anti-abuse when several tasks run at once.

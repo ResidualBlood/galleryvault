@@ -894,11 +894,13 @@ class EhClient:
         semaphore = self._image_semaphore if use_image_budget else self._semaphore
         try:
             async with semaphore:
-                # read=15s acts as a zero-progress watchdog (Ehviewer_CN_SXJ
+                # read=30s acts as a zero-progress watchdog (Ehviewer_CN_SXJ
                 # aborts stalled downloads after ~3s of no bytes): a hanging H@H
                 # node fails fast instead of holding the worker until the
-                # overall timeout.
-                timeout = httpx.Timeout(60.0, read=15.0)
+                # overall timeout. 30s gives large images (GIF/animated) room
+                # to resume after a node hiccup; the total budget below still
+                # bounds the whole transfer.
+                timeout = httpx.Timeout(120.0, read=30.0)
                 # A throttled H@H node answers image requests with a tiny
                 # "509" placeholder instead of the real file. Ehviewer_CN_SXJ
                 # detects it by URL suffix; without the check the placeholder

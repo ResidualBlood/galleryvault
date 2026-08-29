@@ -50,6 +50,7 @@ def db_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     for _name in (
         "_favorites_poll_loop",
         "_download_worker_loop",
+        "_download_retry_sweep_loop",
         "_tag_sync_worker_loop",
     ):
         monkeypatch.setattr(main, _name, _noop)

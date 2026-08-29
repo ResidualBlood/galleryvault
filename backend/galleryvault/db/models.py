@@ -110,7 +110,8 @@ class DownloadTask(Base):
     mode: Mapped[str | None] = mapped_column(String(16))
     category: Mapped[str | None] = mapped_column(String(32))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
-    max_retries: Mapped[int] = mapped_column(Integer, default=3)
+    max_retries: Mapped[int] = mapped_column(Integer, default=10)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     max_pages: Mapped[int | None] = mapped_column(Integer)
     current_page: Mapped[int] = mapped_column(Integer, default=0)
     total_pages: Mapped[int | None] = mapped_column(Integer)
@@ -131,7 +132,7 @@ class DownloadTask(Base):
             "status IN ('pending', 'downloading', 'success', 'failed', 'cancelled')",
             name="ck_download_task_status",
         ),
-        CheckConstraint("max_retries BETWEEN 0 AND 3", name="ck_download_task_max_retries"),
+        CheckConstraint("max_retries BETWEEN 0 AND 10", name="ck_download_task_max_retries"),
     )
 
 

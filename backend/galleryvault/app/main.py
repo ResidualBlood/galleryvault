@@ -6,7 +6,7 @@ import logging
 import re
 from collections import deque
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import parse_qs
@@ -93,6 +93,7 @@ scan_state: dict[str, object] = {
 }
 scan_lock = asyncio.Lock()
 download_worker_task = None
+download_retry_sweep_task = None
 tag_sync_state: dict[str, object] = {
     "running": False,
     "total": 0,
@@ -574,6 +575,8 @@ async def startup() -> None:
         )
     global download_worker_task
     download_worker_task = asyncio.create_task(_download_worker_loop())
+    global download_retry_sweep_task
+    download_retry_sweep_task = asyncio.create_task(_download_retry_sweep_loop())
     global telegram_flush_task
     telegram_flush_task = asyncio.create_task(_telegram_flush_loop())
     global tag_sync_worker_task
@@ -1015,6 +1018,8 @@ async def _run_download(task: DownloadTask) -> None:
                         result.category,
                     )
                     row.error_message = None
+                    row.retry_count = 0
+                    row.retry_at = None
                     row.finished_at = datetime.now(UTC)
                 # Skip the attempt log when the task row was deleted mid-flight
                 # (writing one would violate the FK on download_tasks.id).
@@ -1042,20 +1047,20 @@ async def _run_download(task: DownloadTask) -> None:
         logger.error(
             "download task failed", extra=log_extra(gid=task.gid, error=type(exc).__name__)
         )
-        backoff = False
         try:
             async with _settings_session() as session, session.begin():
                 row = await session.get(DownloadTaskModel, task.id)
                 if row and row.status != "cancelled":
+                    now = datetime.now(UTC)
                     # A dead ExHentai session is not going to heal on its own;
                     # fail immediately instead of burning max_retries of
                     # pointless network round-trips against a redirect loop.
                     auth_failure = "authenticat" in str(exc)
                     # The remoteapi.php anti-bot challenge is temporary (IP
                     # rate-challenge), and so are the connection resets that the
-                    # challenged node returns; back off before retrying so the
-                    # burst passes and the download resumes instead of hammering
-                    # ExHentai in a tight loop.
+                    # challenged node returns; schedule the retry with an
+                    # exponential backoff so the burst passes and the download
+                    # resumes instead of hammering ExHentai in a tight loop.
                     challenge = (
                         "challeng" in str(exc)
                         or "disconnect" in str(exc)
@@ -1064,23 +1069,25 @@ async def _run_download(task: DownloadTask) -> None:
                             exc, (EhClientError, asyncio.TimeoutError)
                         )
                     )
-                    backoff = challenge and not auth_failure
                     row.retry_count += 1
-                    row.status = (
-                        "failed"
-                        if auth_failure or row.retry_count >= row.max_retries
-                        else "pending"
-                    )
+                    if auth_failure or row.retry_count >= row.max_retries:
+                        row.status = "failed"
+                        row.retry_at = None
+                        row.finished_at = now
+                    else:
+                        # Backoff is enforced by the claim worker via retry_at,
+                        # so concurrent workers cannot steal a task early.
+                        row.status = "pending"
+                        row.retry_at = (
+                            now + timedelta(seconds=_retry_backoff(row.retry_count))
+                            if challenge
+                            else now
+                        )
                     row.error_message = f"{type(exc).__name__}: {exc}"
-                    if row.status == "failed":
-                        row.finished_at = datetime.now(UTC)
+                    row.updated_at = now
                     await DownloadRepository(session).record_attempt(
                         task.id or 0, row.retry_count, "failed", type(exc).__name__
                     )
-            # Sleep AFTER the transaction commits so a transient challenge does
-            # not hold a connection-pool slot (and the row's lock) open for 30s.
-            if backoff:
-                await asyncio.sleep(30)
             if row is not None and row.status == "failed":
                 await _record_download_notification(
                     "fail", task.title or task.gid, type(exc).__name__
@@ -1186,6 +1193,43 @@ async def _download_worker_loop() -> None:
         await asyncio.gather(*workers)
     finally:
         pass  # workers run until cancelled at shutdown
+
+
+_RETRY_BACKOFFS = (
+    30, 120, 480, 1800, 3600, 7200, 10800, 14400, 18000, 21600,
+)
+# 30s, 2m, 8m, 30m, 1h, 2h, 3h, 4h, 5h, 6h — one slot per retry_count (1-based).
+
+
+def _retry_backoff(retry_count: int) -> int:
+    """Return the backoff delay (seconds) for the given failed attempt count."""
+    return _RETRY_BACKOFFS[min(max(1, retry_count) - 1, len(_RETRY_BACKOFFS) - 1)]
+
+
+_DOWNLOAD_RETRY_SWEEP_INTERVAL = 60.0
+
+
+async def _download_retry_sweep_loop() -> None:
+    """Auto-requeue failed downloads that still have retry budget left.
+
+    A failed task re-enters the queue on its own via ``retry_at`` until the
+    budget is exhausted; this sweep catches tasks that failed before the
+    scheduling logic existed (or that were manually retried and re-failed), so
+    they are not stuck waiting for a user click.
+    """
+    while True:
+        await asyncio.sleep(_DOWNLOAD_RETRY_SWEEP_INTERVAL)
+        try:
+            async with _settings_session() as session, session.begin():
+                rearmed = await DownloadRepository(session).rearm_failed()
+            if rearmed:
+                logger.info(
+                    "rearmed failed download tasks", extra=log_extra(count=rearmed)
+                )
+        except Exception as exc:  # noqa: BLE001 - sweep must not crash the app
+            logger.warning(
+                "download retry sweep failed", extra=log_extra(error=type(exc).__name__)
+            )
 
 
 def _enqueue_tag_sync(gallery_ids: list[int]) -> int:
@@ -1660,7 +1704,7 @@ def _settings_public() -> dict[str, object]:
         "image_slow_warmup_seconds": current.image_slow_warmup_seconds,
         "image_min_speed_kb_s": current.image_min_speed_kb_s,
         "title_display": current.title_display,
-        "download_max_retries": 3,
+        "download_max_retries": 10,
         "favorites_categories": current.favorites_categories,
         "download_favorites_enabled": current.download_favorites_enabled,
         "favorites_poll_interval_minutes": current.favorites_poll_interval_minutes,

@@ -1126,7 +1126,7 @@ class DownloadRepository:
             mode=mode,
             status="pending",
             retry_count=0,
-            max_retries=3,
+            max_retries=10,
             max_pages=max_pages,
         )
         self.session.add(task)
@@ -1142,11 +1142,14 @@ class DownloadRepository:
         return int(result.rowcount or 0)
 
     async def claim_pending(self) -> DownloadTask | None:
+        now = datetime.now(UTC)
         row = await self.session.scalar(
             select(DownloadTask)
             .where(
                 DownloadTask.status == "pending",
                 DownloadTask.retry_count < DownloadTask.max_retries,
+                (DownloadTask.retry_at.is_(None))
+                | (DownloadTask.retry_at <= now),
             )
             .order_by(DownloadTask.id)
             .with_for_update(skip_locked=True)
@@ -1157,6 +1160,23 @@ class DownloadRepository:
             row.started_at = datetime.now(UTC)
             row.updated_at = row.started_at
         return row
+
+    async def rearm_failed(self) -> int:
+        """Requeue failed tasks that still have retry budget left.
+
+        Called by the periodic sweep so a download that exhausted its immediate
+        attempts is tried again later instead of waiting for a manual retry.
+        """
+        now = datetime.now(UTC)
+        result = await self.session.execute(
+            update(DownloadTask)
+            .where(
+                DownloadTask.status == "failed",
+                DownloadTask.retry_count < DownloadTask.max_retries,
+            )
+            .values(status="pending", retry_at=now, updated_at=now)
+        )
+        return int(result.rowcount or 0)
 
     async def count_active(self) -> int:
         """Number of download tasks still pending or in progress."""

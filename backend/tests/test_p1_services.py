@@ -444,6 +444,20 @@ async def test_persistent_downloader_does_not_retry_inside_downloader(tmp_path: 
     assert client.calls == 1
 
 
+def test_retry_backoff_progression() -> None:
+    from galleryvault.app import main as app_main
+
+    assert app_main._retry_backoff(1) == 30
+    assert app_main._retry_backoff(2) == 120
+    assert app_main._retry_backoff(3) == 480
+    assert app_main._retry_backoff(4) == 1800
+    assert app_main._retry_backoff(5) == 3600
+    assert app_main._retry_backoff(10) == 21600
+    # Beyond the table the last (longest) backoff is reused.
+    assert app_main._retry_backoff(99) == 21600
+    assert app_main._retry_backoff(0) == 30
+
+
 @pytest.mark.asyncio
 async def test_telegram_bot_uses_mock_transport_and_allowed_user() -> None:
     requests = []
