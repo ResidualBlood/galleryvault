@@ -21,6 +21,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Reader fullscreen is now image-only.** The fullscreen button (and the `F`
+  key) now fullscreens the page image instead of the whole page: the image
+  fills the screen (`object-fit: contain`, black background) and the toolbar
+  and page navigation are hidden. While fullscreen, paging via `→`/`←`/space
+  or clicking the image swaps the image in place instead of re-rendering the
+  page (which would drop fullscreen); on the last/first page the reader exits
+  fullscreen first. Pressing `Esc` restores the previous fit state and syncs
+  the URL to the current page.
 - **ExHentai login test now really verifies the session** — `POST
   /api/settings/exhentai/test` answers with meaningful HTTP status codes (200
   logged in, 400 no cookies configured, 401 cookie expired/invalid, 403 no
