@@ -131,6 +131,10 @@ writes a compatible file** and can be ingested directly:
   (Python CLI), [**LANraragi**](https://github.com/Difegue/LANraragi)'s
   `Ehviewer.pm` metadata plugin.
 
+The downloader additionally writes a `.galleryvault.json` sidecar
+(category/title/tags) into each downloaded folder, readable on scan and rebuild
+without affecting `.ehviewer` compatibility.
+
 Other formats:
 
 - **[JHenTai](https://github.com/jiangtian616/JHenTai)** (cross-platform Flutter,

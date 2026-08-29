@@ -3,6 +3,24 @@
 The SPA uses hash routing (`#/library`, `#/gallery/7`, …), so browser refresh
 and back/forward need no server round trip.
 
+## Browse (`#/browse`)
+
+- The default landing page (an empty hash / unspecified route also lands
+  here): a grid of the newest galleries, reverse-chronological, with numbered
+  pagination.
+- The **tag namespace strip** on top (Tag / Artist / Character / Parody /
+  Group / Female / Male / Language) and a **random gallery** button (🎲, opens
+  a random gallery's detail page).
+- The **global search box** in the top bar jumps to the library and runs the
+  title search on Enter.
+
+## History (`#/history`)
+
+- Lists reading history per gallery (last reading position and time); clear it
+  whenever you like.
+- The reading position is saved automatically by the reader and restored when
+  you reopen a gallery / reader.
+
 ## First-run wizard (`#/welcome`)
 
 Right after a fresh deploy (while the default password is still in use) the
@@ -111,6 +129,10 @@ manually to revisit it.
   **keeps fullscreen active**; paging past the last page or back to the first
   exits fullscreen first. `Esc` exits and restores the previous fit mode,
   syncing the URL to the current page.
+- **Fit-mode toggle**: the "Fit" button in the reader toolbar cycles through
+  the display modes (default: scale to page width), which helps with pages of
+  unusual aspect ratios; leaving fullscreen restores the mode that was active
+  before entering.
 - Galleries opened from a **searched library keep the search context throughout
   the reader**: after paging (arrows / space / click / thumbnail links /
   auto-advance to the next gallery) the back-to-details and back-to-library
@@ -183,6 +205,10 @@ Update translations now" buttons in Settings also leave a trace here.
   size) into the database and **applies the fresh metadata** to already
   downloaded galleries (tag replacement, category/title/posted/size refresh),
   skipping when nothing changed, so repeated checks are cheap.
+- **Skip heuristic**: after several consecutive checks (5) report an unchanged
+  folder count, the full re-scan is skipped (count-only checks continue) to
+  avoid needless network traffic and missed-detection risk; the moment the
+  count changes, full checks resume automatically.
 - Click a folder name to open `#/favorites/<favcat>`: that folder's gallery
   grid (checkboxes, **download selected**, **remove from favorites**, and an
   **All / local only / cloud only** state filter), with inline cloud covers
