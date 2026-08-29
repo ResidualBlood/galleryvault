@@ -459,8 +459,12 @@ class GalleryRepository:
     ) -> tuple[int, list[Gallery]]:
         query = select(Gallery)
         if q and q.strip():
-            pattern = f"%{q.strip()}%"
-            query = query.where(Gallery.title.ilike(pattern) | Gallery.title_jpn.ilike(pattern))
+            # Multiple free-form tokens are ANDed as separate substrings rather
+            # than one contiguous pattern, so "mimu gif" matches any title that
+            # contains both words anywhere (order- and position-independent).
+            for token in q.split():
+                pattern = f"%{token}%"
+                query = query.where(Gallery.title.ilike(pattern) | Gallery.title_jpn.ilike(pattern))
         if category:
             query = query.where(Gallery.category == category)
         if tags:
