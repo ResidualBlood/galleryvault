@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **GitHub Pages docs site (`docs-site/`)** — a VitePress site renders the
+  canonical `docs/wiki/` pages into a website with a sidebar table of contents
+  (中文 + English nav), deployed automatically by the `pages` workflow to
+  https://ResidualBlood.github.io/galleryvault/ (enable it in the repo
+  Settings → Pages → Source: GitHub Actions). Canonical sources stay in
+  `docs/wiki/`; the site is generated per build.
 - **Canonical wiki source (`docs/wiki/`)** — the GitHub wiki pages now have a
   canonical, versioned copy in this repo (`docs/wiki/`). `scripts/sync-wiki.sh`
   and the new `sync-wiki` workflow mirror it to the wiki repository;
