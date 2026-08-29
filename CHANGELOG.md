@@ -4,6 +4,17 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Reader pagination keeps the library search filter**. Thumbnail links,
+  prev/next buttons, keyboard/click paging and the next-gallery jump in the
+  reader dropped the `q`/`tags`/`tag_mode`/`category` query string, so
+  returning to the library after reading lost the active tag filter. All
+  reader navigation hashes now carry the search context like the Read button
+  already did.
+
 ## [1.2.14] - 2026-08-29
 
 ### Added
