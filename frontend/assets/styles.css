@@ -237,6 +237,9 @@ button.danger:hover { background: #ed8b8322; }
 .tag-x:hover { color: var(--danger); }
 .filters { margin: 10px 0; }
 .filters .tag { display: inline-flex; align-items: center; }
+.filters .mode { color: var(--muted); margin-right: 8px; font-size: .72rem; letter-spacing: .08em; }
+.filters .clear-all { color: var(--muted); margin-left: 10px; font-size: .8rem; }
+.filters .clear-all:hover { color: var(--danger); }
 .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
 .pill {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px;

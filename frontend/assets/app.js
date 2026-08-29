@@ -27,7 +27,7 @@ const I18N = {
     save: "Save", testLogin: "Test login", cookieSet: "set (not shown)", cookieUnset: "not set",
     filterAll: "All", filterPending: "Pending", filterSuccess: "Success", filterFailed: "Failed",
     cancel: "Cancel", noTasks: "No download tasks.", noGalleries: "No matching galleries, click Scan.",
-    noHistory: "No reading history.", noTags: "No local tags found.",
+    noHistory: "No reading history.", noTags: "No local tags found.", clearAll: "clear all",
     progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
@@ -156,7 +156,7 @@ const I18N = {
     save: "保存", testLogin: "测试登录", cookieSet: "已设置（不回显）", cookieUnset: "未设置",
     filterAll: "全部", filterPending: "进行中", filterSuccess: "成功", filterFailed: "失败",
     cancel: "取消", noTasks: "暂无下载任务。", noGalleries: "没有匹配的画廊，请点击扫描。",
-    noHistory: "暂无阅读历史。", noTags: "未找到本地标签。",
+    noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", clearAll: "清空标签",
     progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
     enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
     syncFavcats: "同步收藏夹名称", checkNow: "立即检查", saveOk: "已保存",
@@ -662,6 +662,39 @@ function gridPager(elId, data, buildQuery) {
     ` · ${pageSizeSelect(data.page_size, app.view)}`;
 }
 
+function parseTags(s) {
+  return (s || "").split(",").map(t => t.trim()).filter(Boolean);
+}
+
+function tagFilterHash(tagsArr) {
+  const query = { tag_mode: "and" };
+  if (app.query.q) query.q = app.query.q;
+  if (app.query.category) query.category = app.query.category;
+  if (tagsArr && tagsArr.length) query.tags = tagsArr.join(",");
+  return navHash("library", {}, query);
+}
+
+function addTagHash(ns, name) {
+  const key = `${ns}:${name}`;
+  const cur = parseTags(app.query.tags);
+  if (!cur.includes(key)) cur.push(key);
+  return tagFilterHash(cur);
+}
+
+function removeTagHash(tag) {
+  const cur = parseTags(app.query.tags).filter(t => t !== tag);
+  return tagFilterHash(cur);
+}
+
+function tagFilterPills(tags) {
+  const arr = parseTags(tags);
+  if (!arr.length) return "";
+  const pills = arr.map(t => {
+    return `<span class="tag" title="${esc(t)}">${esc(t)} <a class="tag-x" data-action="remove-tag" data-tag="${esc(t)}" href="#">×</a></span>`;
+  }).join("");
+  return `<span class="mode">AND</span>${pills} <a class="clear-all" data-action="clear-tag" href="#">${esc(t("clearAll"))}</a>`;
+}
+
 async function renderBrowse() {
   $view().innerHTML = `
     <header><p class="eyebrow">GALLERYVAULT</p><h1>${esc(t("browse"))}</h1></header>
@@ -707,8 +740,7 @@ async function renderLibrary() {
   const q = app.query.q || "";
   const category = app.query.category || "";
   const tags = app.query.tags || "";
-  const filterPill = tags
-    ? `<span class="tag">${esc(tags)} <a class="tag-x" data-action="clear-tag" href="#">×</a></span>` : "";
+  const filterPill = tagFilterPills(tags);
   const selCount = selGalleries.size;
   $view().innerHTML = `
     <header><p class="eyebrow">LOCAL LIBRARY</p><h1>${esc(t("library"))}</h1></header>
@@ -734,10 +766,10 @@ async function renderLibrary() {
     const extra = { page_size: app.query.page_size || 24 };
     if (q) extra.q = q;
     if (category) extra.category = category;
-    if (tags) extra.tags = tags;
+    if (tags) { extra.tags = tags; extra.tag_mode = "and"; }
     const data = await galleryGrid("lib-grid", page, extra);
     renderCardCheckboxes();
-    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 24 }));
+    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 24 }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
@@ -756,7 +788,7 @@ async function renderGallery() {
     const nsList = Object.keys(byNs).sort((a, b) => order.indexOf(a) - order.indexOf(b));
     const tagHtml = nsList.map(ns => `
       <div class="tag-group"><strong>${esc(nsLabel(ns))}</strong><div class="tag-list">
-        ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${navHash("library", {}, { tags: `${tg.namespace}:${tg.name}` })}">${esc(tagText(tg))}</a>`).join("")}
+        ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${addTagHash(tg.namespace, tg.name)}">${esc(tagText(tg))}</a>`).join("")}
       </div></div>`).join("");
     const thumbsAll = g.pages || [];
     const perPage = parseInt(app.query.page_size || "30", 10);
@@ -1018,7 +1050,7 @@ async function loadTags(q, ns, page) {
     else {
       const max = items.reduce((m, it) => Math.max(m, it.usage_count), 0);
       cloud.innerHTML = items
-        .map(it => `<a class="cloud-tag ${nsClass(it.namespace)} ${cloudSizeClass(it.usage_count, max)}" href="${navHash("library", {}, { tags: `${it.namespace}:${it.name}` })}">${esc(tagText(it))}<small>${it.usage_count}</small></a>`)
+        .map(it => `<a class="cloud-tag ${nsClass(it.namespace)} ${cloudSizeClass(it.usage_count, max)}" href="${addTagHash(it.namespace, it.name)}">${esc(tagText(it))}<small>${it.usage_count}</small></a>`)
         .join("");
     }
     const pagerEl = document.getElementById("tag-pages");
@@ -1739,6 +1771,7 @@ function onClick(e) {
   if (action === "welcome-later") { welcomeLater(); return; }
   if (action === "cancel-task") { cancelTask(el.getAttribute("data-task")); return; }
   if (action === "clear-tag") { e.preventDefault(); location.hash = navHash("library", {}, { q: app.query.q || "", category: app.query.category || "" }); return; }
+  if (action === "remove-tag") { e.preventDefault(); location.hash = removeTagHash(el.getAttribute("data-tag")); return; }
   if (action === "clear-history") { clearHistory(); return; }
   if (action === "cancel-download") { cancelDownload(el.getAttribute("data-id")); return; }
   if (action === "retry-download") { retryDownload(el.getAttribute("data-id")); return; }
@@ -1798,7 +1831,7 @@ function onSubmit(e) {
   if (action === "login") { e.preventDefault(); doLogin(form.password.value); return; }
   if (action === "change-password") { e.preventDefault(); changePassword(form); return; }
   if (action === "search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
-  if (action === "library-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim(), category: form.category.value }); return; }
+  if (action === "library-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim(), category: form.category.value, ...(app.query.tags ? { tags: app.query.tags, tag_mode: "and" } : {}) }); return; }
   if (action === "tags-search") { e.preventDefault(); location.hash = navHash("tags", {}, { ns: app.query.ns || "", q: form.q.value.trim() }); return; }
   if (action === "browse-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
   if (action === "settings-save") { e.preventDefault(); saveSettings(form); return; }
@@ -2381,8 +2414,9 @@ async function loadTagSuggest(q, box) {
     box.querySelectorAll(".suggest-item").forEach(item => {
       item.addEventListener("click", () => {
         box.hidden = true;
-        const tags = item.getAttribute("data-tags");
-        location.hash = navHash("library", {}, { tags });
+        const tag = item.getAttribute("data-tags");
+        const i = tag.indexOf(":");
+        location.hash = addTagHash(tag.slice(0, i), tag.slice(i + 1));
       });
     });
   } catch (_) { box.hidden = true; }
