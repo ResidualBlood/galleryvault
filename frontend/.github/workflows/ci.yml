@@ -55,7 +55,9 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.sha }}
+            ${{ github.ref == 'refs/heads/main' && format('{0}/galleryvault-frontend:latest', secrets.DOCKERHUB_USERNAME) || '' }}
+            ${{ github.ref == 'refs/heads/dev' && format('{0}/galleryvault-frontend:dev', secrets.DOCKERHUB_USERNAME) || '' }}
             ${{ github.ref_type == 'tag' && format('{0}/galleryvault-frontend:{1}', secrets.DOCKERHUB_USERNAME, github.ref_name) || '' }}
+            ${{ github.ref_type == 'tag' && format('{0}/galleryvault-frontend:latest', secrets.DOCKERHUB_USERNAME) || '' }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.sha }}
           platforms: ${{ env.PLATFORMS }}
