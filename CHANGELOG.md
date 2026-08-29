@@ -37,7 +37,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`/healthz` heartbeat access logs are silenced**. The docker healthcheck
   polls `/healthz` every ~10s, so uvicorn emitted one line per poll (~8.6k
   lines/day). The filter now drops those while keeping all other uvicorn
-  access logs (real API traffic).
+  access logs (real API traffic). The filter is attached both to the root
+  handler (covers httpx/`galleryvault.*` loggers) **and** to the
+  `uvicorn.access` logger itself, because uvicorn installs its own handler
+  there with `propagate=False` — access-log records otherwise never reach the
+  root handler's filter.
 - **Slow-H@H-node watchdog defaults relaxed further** (`image_min_speed_kb_s`
   20 → 10) and the image transfer **read timeout is now 30s (was 15s) with a
   120s total budget**, so large GIFs / animated images survive a slow or
