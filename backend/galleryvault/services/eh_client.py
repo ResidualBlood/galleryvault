@@ -109,7 +109,9 @@ def _is_auth_failure_page(body: str) -> bool:
     )
 
 
-def parse_login_state(body: str, member_id: str = "") -> str:
+def parse_login_state(
+    body: str, member_id: str = "", has_cookies: bool = False
+) -> str:
     """Classify an ExHentai home-page response into a login state.
 
     Returns one of:
@@ -120,6 +122,11 @@ def parse_login_state(body: str, member_id: str = "") -> str:
     ``_is_auth_failure_page`` covers the Sad-Panda / banned pages; the rest is
     the normal homepage where a logged-out session still answers 200 (the case
     a plain reachability check would wrongly report as "ok").
+
+    ``has_cookies`` marks a *complete* session (``ipb_member_id`` + ``ipb_pass_hash``):
+    ExHentai can answer an anti-bot challenge with HTTP 200 and none of the
+    navigation markers, so a fully configured session that is not rejected with
+    a Sad-Panda page counts as logged in rather than a false negative.
     """
     if _is_auth_failure_page(body):
         return "no_exhentai_access"
@@ -128,6 +135,8 @@ def parse_login_state(body: str, member_id: str = "") -> str:
     if "home.php" in body or "My Home" in body:
         return "ok"
     if member_id and member_id in body:
+        return "ok"
+    if has_cookies:
         return "ok"
     return "not_logged_in"
 
@@ -429,22 +438,29 @@ class EhClient:
 
         ``state`` is one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
         ``failed``; ``detail`` carries the HTTP status or exception type for the
-        failure message. Retries once because ExHentai's occasional anti-bot
-        challenge (a 302 through remoteapi.php) is a transient glitch, not a
-        login failure.
+        failure message. Probes ``/home.php`` because a logged-out session is
+        redirected to the forums login page there, while the bare home page can
+        answer 200 with none of the logged-in markers (an anti-bot challenge).
+        Retries once because ExHentai's occasional anti-bot challenge (a 302
+        through remoteapi.php) is a transient glitch, not a login failure.
         """
-        member_id = str((self.settings.exhentai_cookies or {}).get("ipb_member_id", ""))
+        cookies = self.settings.exhentai_cookies or {}
+        member_id = str(cookies.get("ipb_member_id", ""))
+        # A full session (member id + pass hash) is the minimum for a real
+        # login; a 200 challenge page may carry no "My Home" marker, so treat a
+        # complete cookie set as authenticated unless the page is a rejection.
+        has_cookies = bool(member_id and cookies.get("ipb_pass_hash"))
         last_error: Exception | None = None
         for _ in range(2):
             try:
-                response = await self._request("GET", "/")
+                response = await self._request("GET", "/home.php")
             except httpx.RequestError as exc:
                 last_error = exc
                 continue
             if response.status_code in (401, 403) or "login" in str(response.url).lower():
                 return "not_logged_in", f"HTTP {response.status_code}"
             return (
-                parse_login_state(response.text, member_id),
+                parse_login_state(response.text, member_id, has_cookies),
                 f"HTTP {response.status_code}",
             )
         return "failed", type(last_error).__name__

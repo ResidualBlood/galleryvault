@@ -108,6 +108,9 @@ async def retry_download(task_id: int) -> dict[str, object]:
                 raise HTTPException(status_code=409, detail="Task is still active")
             row.status = "pending"
             row.retry_count = 0
+            # A manual retry must start immediately: clear the stale backoff
+            # timestamp or the claim worker would wait for it to pass.
+            row.retry_at = None
             row.error_message = None
             row.finished_at = None
     except HTTPException:
@@ -144,19 +147,30 @@ async def cancel_download(task_id: int) -> dict[str, object]:
 @router.delete("/api/downloads/{task_id}", status_code=204)
 async def delete_download_task(task_id: int) -> None:
     gid: int | None = None
+    was_downloading = False
     try:
         async with main._settings_session() as session, session.begin():
             row = await session.get(DownloadTaskModel, task_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="Download task not found")
             gid = row.gid
+            was_downloading = row.status == "downloading"
             if not await DownloadRepository(session).delete(task_id):
                 raise HTTPException(status_code=404, detail="Download task not found")
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
-    main._download_cancelled.discard(task_id)
+    # A mid-flight worker must not keep writing into the partial directory we
+    # are about to remove. Signal it so the in-flight download aborts on its
+    # next progress check (the worker cleans up the temp dir and discards the
+    # flag); the cleanup below is idempotent. Dead ids never linger: a worker
+    # that never handled the task is one that was claimed, and it always
+    # discards the flag on completion or cancellation.
+    if was_downloading:
+        main._download_cancelled.add(task_id)
+    else:
+        main._download_cancelled.discard(task_id)
     if gid is not None:
         await _cleanup_download_temp(gid)
 
