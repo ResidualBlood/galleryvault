@@ -52,6 +52,21 @@ SHOWPAGE_ORIGIN_PROMPT_RE = re.compile(
 SHOWPAGE_ORIGIN_RE = re.compile(r'<a href="([^"]+)fullimg([^"]+)">', re.IGNORECASE)
 
 
+def _page_token_from_href(absolute: str) -> str | None:
+    """Extract the 10-hex pToken from a viewer URL (mirrors Ehviewer_CN_SXJ).
+
+    Tries the current ``/s/<pToken>/<gid>-<page>`` format, then the legacy
+    3-segment format, then the query ``p`` parameter.
+    """
+    viewer = VIEWER_HREF_RE.search(absolute)
+    if viewer:
+        return viewer.group("ptoken")
+    legacy = PAGE_RE.search(urlparse(absolute).path)
+    if legacy:
+        return legacy.group("page")
+    return parse_qs(urlparse(absolute).query).get("p", [""])[0] or None
+
+
 class EhClientError(RuntimeError):
     pass
 
@@ -102,6 +117,21 @@ class GalleryPageData:
     image_url: str | None = None
     origin_url: str | None = None
     skip_hath_key: str | None = None
+
+
+class ShowkeyState:
+    """Mutable holder for the ExHentai ``showkey`` shared by page resolutions.
+
+    The showkey is per-gallery (seeded from the first viewer HTML and refreshed
+    by later ones) and must outlive any single ``fetch_gallery`` call so the
+    lazy per-page URL resolution in the downloader keeps working without
+    re-fetching the gallery metadata.
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self) -> None:
+        self.value: str | None = None
 
 
 @dataclass(frozen=True)
@@ -387,7 +417,12 @@ class EhClient:
         )
 
     async def fetch_gallery(
-        self, gid: int | str, token: str | None = None, max_pages: int | None = None
+        self,
+        gid: int | str,
+        token: str | None = None,
+        max_pages: int | None = None,
+        *,
+        resolve_urls: bool = True,
     ) -> GalleryData:
         if token is None:
             gid, token = parse_gallery_url(str(gid), self.settings.exhentai_base_url)
@@ -470,27 +505,48 @@ class EhClient:
                     break
                 if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
                     break
-        pages: list[GalleryPageData] = []
-        showkey: str | None = None
+        if not page_hrefs:
+            raise EhParseError("gallery HTML did not contain a title and page links")
+        if resolve_urls:
+            pages = await self._resolve_gallery_pages(int(gid), str(response.url), page_hrefs)
+        else:
+            # Lazy mode: return index + viewer URL + pToken only, leaving
+            # image_url empty.  The downloader resolves each page's URL right
+            # before fetching (see resolve_page) so a long download never
+            # serves a keystamp that has already expired.
+            pages = [
+                GalleryPageData(
+                    index,
+                    urljoin(str(response.url), html.unescape(href)),
+                    _page_token_from_href(
+                        urljoin(str(response.url), html.unescape(href))
+                    ),
+                )
+                for index, href in enumerate(page_hrefs)
+            ]
+        if not title:
+            raise EhParseError("gallery HTML did not contain a title and page links")
+        tags = _parse_tags(body)
+        return GalleryData(
+            int(gid), token, title, pages, tags, _parse_category(body), title_jpn
+        )
+
+    async def _resolve_gallery_pages(
+        self, gid: int, base_url: str, page_hrefs: list[str]
+    ) -> list[GalleryPageData]:
+        """Resolve every viewer href to its image URL (mirrors Ehviewer_CN_SXJ).
+
+        The first page is resolved via full HTML so its ``showkey`` is available
+        for the lightweight ``showpage`` API on the remaining pages.  All pages
+        resolve concurrently (bounded by the shared ExHentai semaphore): serial
+        resolution of a 255-page gallery took minutes.
+        """
+        showkey = ShowkeyState()
 
         async def _resolve_page_html(href: str) -> GalleryPageData:
-            """Resolve one viewer page from its full HTML (also yields the showkey).
-
-            Falling back to the HTML path (instead of the showpage API) keeps the
-            client working when the API rejects or the gallery page format differs.
-            """
-            nonlocal showkey
-            absolute = urljoin(str(response.url), html.unescape(href))
-            viewer = VIEWER_HREF_RE.search(absolute)
-            p_token = viewer.group("ptoken") if viewer else None
-            if p_token is None:
-                parsed = urlparse(absolute)
-                legacy = PAGE_RE.search(parsed.path)
-                p_token = (
-                    legacy.group("page")
-                    if legacy
-                    else parse_qs(parsed.query).get("p", [""])[0]
-                )
+            """Resolve one viewer page from its full HTML (also yields the showkey)."""
+            absolute = urljoin(base_url, html.unescape(href))
+            p_token = _page_token_from_href(absolute)
             page_response = await self._get(absolute)
             body = page_response.text
             image_match = None
@@ -513,7 +569,7 @@ class EhClient:
                 # after a while, so HTML fallbacks must re-seed it or every
                 # remaining page pays for a failing showpage call plus its HTML
                 # fallback.
-                showkey = showkey_match.group(1)
+                showkey.value = showkey_match.group(1)
             origin_url = (
                 urljoin(str(page_response.url), html.unescape(origin_match.group(1)))
                 + "fullimg"
@@ -540,16 +596,16 @@ class EhClient:
             gallery-page preview links plus a ``showkey`` (from the first viewer
             page); falls back to HTML on any failure.
             """
-            absolute = urljoin(str(response.url), html.unescape(href))
+            absolute = urljoin(base_url, html.unescape(href))
             viewer = VIEWER_HREF_RE.search(absolute)
             if not viewer:
                 return await _resolve_page_html(href)
             p_token = viewer.group("ptoken")
             page = int(viewer.group("page"))
-            if not showkey:
+            if not showkey.value:
                 return await _resolve_page_html(href)
             try:
-                info = await self._showpage(int(gid), page, p_token, showkey)
+                info = await self._showpage(gid, page, p_token, showkey.value)
             except EhClientError:
                 # API hiccup (stale showkey, throttled, changed markup): fall back
                 # to the full HTML path, which re-seeds showkey if needed.
@@ -563,10 +619,6 @@ class EhClient:
                 info["skip_hath_key"],
             )
 
-        # Resolve every viewer page concurrently (bounded by the shared ExHentai
-        # semaphore): serial resolution of a 255-page gallery took minutes.  The
-        # first page is resolved via HTML first so its ``showkey`` is available
-        # for the lightweight showpage API on the remaining pages.
         if page_hrefs:
             first = await _resolve_page_html(page_hrefs[0])
             pages = [first]
@@ -576,17 +628,90 @@ class EhClient:
                         *(_resolve_page_api(h) for h in page_hrefs[1:])
                     )
                 )
-        pages = [
+        return [
             GalleryPageData(
                 index, r.url, r.token, r.image_url, r.origin_url, r.skip_hath_key
             )
             for index, r in enumerate(pages)
         ]
-        if not title or not pages:
-            raise EhParseError("gallery HTML did not contain a title and page links")
-        tags = _parse_tags(body)
-        return GalleryData(
-            int(gid), token, title, pages, tags, _parse_category(body), title_jpn
+
+    async def resolve_page(
+        self, gid: int, page: GalleryPageData, showkey: ShowkeyState | None = None
+    ) -> GalleryPageData:
+        """Resolve one page's fresh image URLs right before downloading.
+
+        Called by the downloader per page so the keystamp is never stale (a
+        long gallery would otherwise serve URLs signed 20 minutes earlier,
+        which H@H nodes reject with 403).  Prefers the lightweight showpage
+        API when a showkey is known and falls back to full HTML otherwise.
+        """
+        if showkey is None:
+            showkey = ShowkeyState()
+        absolute = page.url
+        viewer = VIEWER_HREF_RE.search(absolute)
+        p_token = viewer.group("ptoken") if viewer else (page.token or "")
+        page_num = int(viewer.group("page")) if viewer else page.index + 1
+        if showkey.value:
+            try:
+                info = await self._showpage(gid, page_num, p_token, showkey.value)
+            except EhClientError:
+                # Stale showkey / throttled API: fall back to HTML, which
+                # re-seeds the showkey (same as fetch_gallery does).
+                return await self._resolve_page_from_html(gid, page, showkey)
+            return GalleryPageData(
+                page.index,
+                absolute,
+                p_token,
+                info["image_url"],
+                info["origin_url"],
+                info["skip_hath_key"],
+            )
+        return await self._resolve_page_from_html(gid, page, showkey)
+
+    async def _resolve_page_from_html(
+        self, gid: int, page: GalleryPageData, showkey: ShowkeyState | None = None
+    ) -> GalleryPageData:
+        """Full-HTML resolution for a single page (mirrors ``_resolve_page_html``).
+
+        Used by ``resolve_page`` when no showkey is available or the showpage
+        API rejects.  Reuses the fresh viewer HTML so the image URL, origin URL
+        and H@H skip key are all current.
+        """
+        absolute = page.url
+        p_token = _page_token_from_href(absolute)
+        page_response = await self._get(absolute)
+        body = page_response.text
+        image_match = None
+        for image_tag in IMAGE_RE.finditer(body):
+            tag = image_tag.group(0)
+            if re.search(r'\bid=["\']img["\']', tag, re.IGNORECASE):
+                image_match = re.search(r'\bsrc=["\']([^"\']+)["\']', tag, re.IGNORECASE)
+                if image_match:
+                    break
+        if not image_match:
+            raise EhClientError(f"viewer page has no image: {absolute}")
+        image_url = urljoin(str(page_response.url), html.unescape(image_match.group(1)))
+        origin_match = re.search(
+            r'<a[^>]+href=["\']([^"\']+)fullimg([^"\']+)["\']', body, re.IGNORECASE
+        )
+        nl_match = re.search(r"nl\(\s*['\"]([^'\")]+)['\"]\s*\)", body)
+        showkey_match = SHOWKEY_RE.search(body)
+        if showkey_match and showkey is not None:
+            showkey.value = showkey_match.group(1)
+        origin_url = (
+            urljoin(str(page_response.url), html.unescape(origin_match.group(1)))
+            + "fullimg"
+            + html.unescape(origin_match.group(2))
+            if origin_match
+            else None
+        )
+        return GalleryPageData(
+            page.index,
+            absolute,
+            p_token or "",
+            image_url,
+            origin_url,
+            nl_match.group(1) if nl_match else None,
         )
 
     async def _showpage(

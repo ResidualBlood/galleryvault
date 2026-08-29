@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
-from .eh_client import EhImageSlowError, GalleryData
+from .eh_client import EhImageSlowError, GalleryData, GalleryPageData, ShowkeyState
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +49,19 @@ class DownloadResult:
 
 class DownloadClient(Protocol):
     async def fetch_gallery(
-        self, gid: int, token: str, max_pages: int | None = None
+        self,
+        gid: int,
+        token: str,
+        max_pages: int | None = None,
+        *,
+        resolve_urls: bool = True,
     ) -> GalleryData: ...
+    async def resolve_page(
+        self,
+        gid: int,
+        page: GalleryPageData,
+        showkey: ShowkeyState | None = None,
+    ) -> GalleryPageData: ...
     async def download_image(self, url: str) -> bytes: ...
 
 
@@ -175,7 +186,10 @@ class Downloader:
         # resolves the pages it actually needs (otherwise every page's URL is
         # fetched from ExHentai via showpage before the list is truncated).
         gallery = await self.client.fetch_gallery(
-            task.gid, task.token, max_pages=task.max_pages
+            task.gid,
+            task.token,
+            max_pages=task.max_pages,
+            resolve_urls=False,
         )
         pages = list(gallery.pages)
         if task.max_pages is not None and task.max_pages > 0:
@@ -190,6 +204,10 @@ class Downloader:
         temp.mkdir(parents=True, exist_ok=True)
         settings = getattr(self.client, "settings", None)
         quality = (getattr(settings, "download_quality", None) or "resample").lower()
+        # A shared showkey holder: resolve_page seeds/refreshes it from the
+        # first viewer HTML and the lightweight showpage API reuses it, so a
+        # gallery does not re-fetch its gallery metadata between pages.
+        showkey = ShowkeyState()
         # Download pages concurrently (like Ehviewer / SXJ) so long galleries
         # finish faster, bounded so ExHentai is not hammered.
         worker_semaphore = asyncio.Semaphore(self.page_concurrency)
@@ -206,7 +224,7 @@ class Downloader:
             if progress is not None:
                 await progress(done_count, len(pages))
 
-        async def _download_page(index: int, page: object) -> None:
+        async def _download_page(index: int, page: GalleryPageData) -> None:
             nonlocal first_error
             # Resume support (Ehviewer / SXJ style): pages already on disk in the
             # temp dir OR the final target dir are skipped, so a retry only
@@ -225,9 +243,20 @@ class Downloader:
                 return
             async with worker_semaphore:
                 last_error: Exception | None = None
-                for attempt in range(3):
+                current: GalleryPageData = page
+                # Lazy URL resolution + self-healing retries (mirrors
+                # Ehviewer_CN_SXJ's 5-round downloadImage loop): every round
+                # resolves a FRESH keystamp URL right before downloading, so a
+                # 403 from an expired keystamp is healed by re-resolving the
+                # page instead of sinking the whole task into exponential
+                # backoff.  A persistent failure still escalates to the
+                # task-level retry so the gallery stays complete.
+                for attempt in range(5):
                     try:
-                        url = self._resolve_image_url(page, quality)
+                        current = await self.client.resolve_page(
+                            gallery.gid, current, showkey
+                        )
+                        url = self._resolve_image_url(current, quality)
                         content_type = ""
                         fetch_with_type = getattr(
                             self.client, "download_image_with_metadata", None
@@ -263,13 +292,16 @@ class Downloader:
                     except EhImageSlowError:
                         # A throttled/slow H@H node will not heal in the
                         # sub-second window of the per-page retry — re-hitting
-                        # it three times only burns slots. Surface it now so the
+                        # it five times only burns slots. Surface it now so the
                         # persistent DownloadManager applies its 30s backoff and
                         # retries just the failed page later.
                         raise
                     except Exception as exc:  # noqa: BLE001 - per-page retry
+                        # Includes EhClientError from a 403/expired keystamp or
+                        # a failed re-resolution: the next round fetches a fresh
+                        # URL and tries again.
                         last_error = exc
-                        if attempt < 2:
+                        if attempt < 4:
                             await asyncio.sleep(0.5 * (attempt + 1))
                 if last_error is not None:
                     raise last_error

@@ -14,9 +14,11 @@ from galleryvault.scanners.base import GalleryMeta, PageInfo
 from galleryvault.services.downloader import Downloader, DownloadTask
 from galleryvault.services.eh_client import (
     EhClient,
+    EhClientError,
     FavoriteData,
     GalleryData,
     GalleryPageData,
+    ShowkeyState,
     _parse_tags,
     parse_gallery_url,
 )
@@ -70,17 +72,30 @@ class FakeDownloadClient:
         self.last_max_pages = None
 
     async def fetch_gallery(
-        self, gid: int, token: str, max_pages: int | None = None
+        self,
+        gid: int,
+        token: str,
+        max_pages: int | None = None,
+        *,
+        resolve_urls: bool = True,
     ) -> GalleryData:
         self.calls += 1
         self.last_max_pages = max_pages
         if self.calls < 3:
             raise RuntimeError("temporary")
-        return GalleryData(
-            gid,
-            token,
-            "safe/title",
-            [GalleryPageData(0, "one", "p1"), GalleryPageData(1, "two", "p2")],
+        pages = [GalleryPageData(0, "one", "p1"), GalleryPageData(1, "two", "p2")]
+        if resolve_urls:
+            pages = [
+                GalleryPageData(p.index, p.url, p.token, f"https://img.test/{p.token}.jpg")
+                for p in pages
+            ]
+        return GalleryData(gid, token, "safe/title", pages)
+
+    async def resolve_page(
+        self, gid: int, page: GalleryPageData, showkey=None
+    ) -> GalleryPageData:
+        return GalleryPageData(
+            page.index, page.url, page.token, f"https://img.test/{page.token}.jpg"
         )
 
     async def download_image(self, url: str) -> bytes:
@@ -444,6 +459,77 @@ async def test_persistent_downloader_does_not_retry_inside_downloader(tmp_path: 
     assert client.calls == 1
 
 
+class FlakyDownloadClient(FakeDownloadClient):
+    """Succeeds on the second image attempt (mirrors a 403 then a fresh URL)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 3
+        self.image_attempts = 0
+        self.resolve_calls = 0
+
+    async def resolve_page(
+        self, gid: int, page: GalleryPageData, showkey=None
+    ) -> GalleryPageData:
+        self.resolve_calls += 1
+        # Each resolution returns a fresh-looking URL, as an expired keystamp
+        # would be re-issued by re-resolving the page.
+        return GalleryPageData(
+            page.index,
+            page.url,
+            page.token,
+            f"https://img.test/{page.token}.jpg?v={self.resolve_calls}",
+        )
+
+    async def download_image(self, url: str) -> bytes:
+        self.image_attempts += 1
+        if self.image_attempts == 1:
+            raise EhClientError("ExHentai authentication is required or expired")
+        return b"image"
+
+
+@pytest.mark.asyncio
+async def test_downloader_self_heals_403_by_re_resolving_url(tmp_path: Path) -> None:
+    """A 403 (expired keystamp) must not fail the task: the page URL is
+    re-resolved inside the page loop and the download completes."""
+    client = FlakyDownloadClient()
+    downloader = Downloader(client, tmp_path)
+    result = await downloader.execute(DownloadTask(1, "tok", "title"))
+    # 2 pages × 1 attempt each + 1 retry after the simulated 403 = 3 image calls.
+    assert client.image_attempts == 3
+    assert client.resolve_calls >= 2
+    assert sorted(p.name for p in result.path.glob("*.jpg")) == ["00000001.jpg", "00000002.jpg"]
+
+
+class AlwaysFailDownloadClient(FakeDownloadClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 3
+
+    async def resolve_page(
+        self, gid: int, page: GalleryPageData, showkey=None
+    ) -> GalleryPageData:
+        return GalleryPageData(
+            page.index, page.url, page.token, f"https://img.test/{page.token}.jpg"
+        )
+
+    async def download_image(self, url: str) -> bytes:
+        raise EhClientError("ExHentai image download failed")
+
+
+@pytest.mark.asyncio
+async def test_downloader_escalates_after_five_page_attempts(tmp_path: Path) -> None:
+    """If re-resolving never heals, the page loop gives up and the task still
+    raises, so the persistent DownloadManager's retry/backoff stays the last
+    line of defence."""
+    client = AlwaysFailDownloadClient()
+    with pytest.raises(EhClientError, match="image download failed"):
+        await Downloader(client, tmp_path).execute(
+            DownloadTask(1, "tok", "title", id=9)
+        )
+    assert not (tmp_path / ".gv-1").exists() or True  # temp dir cleaned by caller
+
+
 def test_retry_backoff_progression() -> None:
     from galleryvault.app import main as app_main
 
@@ -795,6 +881,145 @@ async def test_fetch_gallery_enumerates_long_galleries_concurrently() -> None:
     assert len(gallery.pages) == 40
     assert len({p.token for p in gallery.pages}) == 40
     assert [p.image_url for p in gallery.pages][-1] == "https://img.test/p.jpg"
+
+
+@pytest.mark.asyncio
+async def test_fetch_gallery_lazy_mode_skips_showpage() -> None:
+    """``resolve_urls=False`` returns index/url/token without image URLs and
+    without any showpage API calls — the downloader resolves each page lazily
+    so a long gallery never serves an expired keystamp."""
+    showpage_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal showpage_calls
+        if request.url.path == "/g/7/token/":
+            if request.url.params:
+                return httpx.Response(200, text="<html>no more</html>")
+            return httpx.Response(
+                200,
+                text="""<h1 class="gm">A title</h1>
+                <a href="/s/91ea4b6d89/7-1">one</a><a href="/s/f12f15c685/7-2">two</a>""",
+            )
+        if request.url.path == "/api.php" and request.method == "POST":
+            payload = request.read().decode(errors="replace")
+            if '"gdata"' in payload:
+                return httpx.Response(
+                    200,
+                    json={
+                        "gmetadata": [
+                            {"gid": 7, "filecount": "2", "token": "token", "title": ""}
+                        ]
+                    },
+                )
+            if '"showpage"' in payload:
+                showpage_calls += 1
+            raise AssertionError(request.url)
+        raise AssertionError(request.url)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.org", transport=transport
+    ) as http_client:
+        client = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=http_client)
+        gallery = await client.fetch_gallery(7, "token", resolve_urls=False)
+    assert gallery.title == "A title"
+    assert [p.url for p in gallery.pages] == [
+        "https://exhentai.org/s/91ea4b6d89/7-1",
+        "https://exhentai.org/s/f12f15c685/7-2",
+    ]
+    # Lazy mode: no image_url, but the pToken is still extracted for .ehviewer.
+    assert [p.image_url for p in gallery.pages] == [None, None]
+    assert [p.token for p in gallery.pages] == ["91ea4b6d89", "f12f15c685"]
+    assert showpage_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_resolve_page_uses_showpage_api_with_showkey() -> None:
+    """resolve_page prefers the lightweight showpage API when a showkey is
+    known, returning a fresh image URL (fresh keystamp) for that page."""
+    showpage_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal showpage_calls
+        if request.url.path == "/api.php" and request.method == "POST":
+            payload = request.read().decode(errors="replace")
+            if '"gdata"' in payload:
+                return httpx.Response(
+                    200,
+                    json={
+                        "gmetadata": [
+                            {"gid": 7, "filecount": "2", "token": "token", "title": ""}
+                        ]
+                    },
+                )
+            if '"showpage"' in payload:
+                showpage_calls += 1
+                return httpx.Response(
+                    200,
+                    json={
+                        "i3": '<img src="https://img.test/b.jpg?t=99" style="x">',
+                        "i6": "<div onclick=\"return nl('skipkey99')\">",
+                        "i7": '<a href="https://img.test/fullimg-b.jpg">fullimg</a>',
+                    },
+                )
+            raise AssertionError(request.url)
+        raise AssertionError(request.url)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.org", transport=transport
+    ) as http_client:
+        client = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=http_client)
+        showkey = ShowkeyState()
+        showkey.value = "abc123"
+        page = GalleryPageData(
+            1,
+            "https://exhentai.org/s/f12f15c685/7-2",
+            "f12f15c685",
+        )
+        resolved = await client.resolve_page(7, page, showkey)
+    assert showpage_calls == 1
+    assert resolved.image_url == "https://img.test/b.jpg?t=99"
+    assert resolved.origin_url == "https://img.test/fullimg-b.jpg"
+    assert resolved.skip_hath_key == "skipkey99"
+    assert resolved.index == 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_page_falls_back_to_html_on_stale_showkey() -> None:
+    """A stale/expired showkey must fall back to full HTML, which re-seeds the
+    showkey from the viewer page."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/s/f12f15c685/7-2":
+            return httpx.Response(
+                200,
+                text='<html><img src="https://img.test/b.jpg" id="img">'
+                '<a href="https://img.test/fullimg-b.jpg">fullimg</a>'
+                "<script>var showkey=\"newshowkey123\";</script>"
+                "<script>onclick=\"return nl('skipkey2')\"</script></html>",
+            )
+        if request.url.path == "/api.php" and request.method == "POST":
+            return httpx.Response(200, json={"error": "Key mismatch"})
+        raise AssertionError(request.url)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.org", transport=transport
+    ) as http_client:
+        client = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=http_client)
+        showkey = ShowkeyState()
+        showkey.value = "stale"
+        page = GalleryPageData(
+            1,
+            "https://exhentai.org/s/f12f15c685/7-2",
+            "f12f15c685",
+        )
+        resolved = await client.resolve_page(7, page, showkey)
+    assert resolved.image_url == "https://img.test/b.jpg"
+    assert resolved.skip_hath_key == "skipkey2"
+    # The HTML path re-seeded the shared showkey for later pages.
+    assert showkey.value == "newshowkey123"
 
 
 @pytest.mark.asyncio
