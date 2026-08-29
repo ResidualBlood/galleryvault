@@ -118,13 +118,13 @@ async def test_check_login_classifies_response_and_retries() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal requests
-        assert request.url.path == "/home.php"
+        assert request.url.path == "/uconfig.php"
         requests += 1
         if requests == 1:
             # Transient transport failure: must be retried, not reported as a
-            # login failure (ExHentai's occasional remoteapi.php challenge).
+            # login failure (ExHentai's occasional anti-bot challenge).
             raise httpx.ConnectError("boom", request=request)
-        return httpx.Response(200, text='<a href="https://exhentai.test/home.php">My Home</a>')
+        return httpx.Response(200, text="<html>User Control Panel</html>")
 
     async with httpx.AsyncClient(
         base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
@@ -142,9 +142,11 @@ async def test_check_login_classifies_response_and_retries() -> None:
 
 @pytest.mark.asyncio
 async def test_check_login_reports_not_logged_in() -> None:
+    """A dead session answers the member page with exactly ``expired login session``."""
+
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/home.php"
-        return httpx.Response(200, text="<html><body>Welcome</body></html>")
+        assert request.url.path == "/uconfig.php"
+        return httpx.Response(200, text="expired login session")
 
     async with httpx.AsyncClient(
         base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
@@ -159,17 +161,12 @@ async def test_check_login_reports_not_logged_in() -> None:
 
 
 @pytest.mark.asyncio
-async def test_check_login_full_session_accepts_challenge_page() -> None:
-    """A complete cookie set must not be a false negative on a 200 challenge page.
-
-    Regression: a valid session whose home page answers HTTP 200 without any
-    ``My Home`` marker (ExHentai anti-bot challenge) was reported as
-    ``not_logged_in`` although downloads with the same cookies succeed.
-    """
+async def test_check_login_empty_body_is_not_logged_in() -> None:
+    """An empty HTTP 200 (anti-bot challenge / no cookies) is not a login."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/home.php"
-        return httpx.Response(200, text="<html><body>Welcome</body></html>")
+        assert request.url.path == "/uconfig.php"
+        return httpx.Response(200, text="")
 
     async with httpx.AsyncClient(
         base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
@@ -183,27 +180,6 @@ async def test_check_login_full_session_accepts_challenge_page() -> None:
                 },
             ),
         )
-        state, _ = await client.check_login()
-        assert state == "ok"
-
-
-@pytest.mark.asyncio
-async def test_check_login_redirect_to_forum_login_is_not_logged_in() -> None:
-    """A logged-out /home.php session redirects to the forums login page (200 form)."""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/home.php"
-        # follow_redirects lands on the forums login page; the final URL is the
-        # signal even though the page itself answers HTTP 200.
-        login_url = httpx.Request(
-            "GET", "https://forums.e-hentai.org/index.php?act=Login"
-        )
-        return httpx.Response(200, text="<form>Login</form>", request=login_url)
-
-    async with httpx.AsyncClient(
-        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
-    ) as http_client:
-        client = EhClient(client=http_client, settings=Settings())
         state, _ = await client.check_login()
         assert state == "not_logged_in"
 
@@ -278,23 +254,15 @@ def test_gallery_dirname_truncates_utf8_bytes() -> None:
 def test_parse_login_state() -> None:
     from galleryvault.services.eh_client import parse_login_state
 
-    logged_in_home = '<a href="https://e-hentai.org/home.php">My Home</a>'
-    assert parse_login_state(logged_in_home, "12345") == "ok"
-    # The configured member id appearing in the body also means logged in.
+    # A member page with real content means a valid session.
+    assert parse_login_state("<html>User Control Panel</html>", "12345") == "ok"
     assert parse_login_state("user id 12345 logged in", "12345") == "ok"
-    # A plain homepage with no login markers is served but not authenticated.
-    assert parse_login_state("<html><body>Welcome</body></html>", "12345") == (
-        "not_logged_in"
-    )
-    # A complete session (member id + pass hash) counts even when the 200 page
-    # carries no navigation markers (ExHentai anti-bot challenge page).
-    assert parse_login_state(
-        "<html><body>Welcome</body></html>", "12345", has_cookies=True
-    ) == "ok"
-    # A bare member id without the pass hash is NOT enough for the relaxed rule.
-    assert parse_login_state(
-        "<html><body>Welcome</body></html>", "12345", has_cookies=False
-    ) == "not_logged_in"
+    # ExHentai's own expired-session marker answers HTTP 200 with this body.
+    assert parse_login_state("expired login session", "12345") == "not_logged_in"
+    # An empty body (anti-bot challenge / no cookies) is not logged in.
+    assert parse_login_state("", "12345") == "not_logged_in"
+    # has_cookies no longer overrides the body classification.
+    assert parse_login_state("", "12345", has_cookies=True) == "not_logged_in"
     # Sad-Panda / banned pages carry no content.
     assert parse_login_state("Sad Panda\n", "12345") == "no_exhentai_access"
 
