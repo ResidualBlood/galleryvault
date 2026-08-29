@@ -51,6 +51,15 @@ async def _scan_copy(path: Path):
 async def list_duplicates() -> dict[str, object]:
     async with main._settings_session() as session:
         groups = await GalleryRepository(session).list_duplicates()
+    for group in groups:
+        for copy in group.get("copies") or []:
+            directory = str(Path(str(copy.get("path") or "")).name)
+            copy["display_title"] = (
+                main.resolve_display_title(
+                    copy.get("title"), copy.get("title_jpn"), directory
+                )
+                or copy.get("title") or str(group.get("gid") or "")
+            )
     return {"groups": groups, "count": len(groups)}
 
 

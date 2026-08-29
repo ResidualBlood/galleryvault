@@ -291,18 +291,16 @@ def _auth_hash_configured() -> bool:
 _LEADING_NUMBER = re.compile(r"^\s*\d+[\s\-]+")
 
 
-def display_title(gallery: object) -> str:
-    """Resolve the gallery title shown in the UI from the configured preference.
-
-    Mirrors Ehviewer's ``getSuitableTitle``: Japanese by default, falling back
-    to the romaji/English title, then to the directory name with any leading
-    gallery id stripped.
+def resolve_display_title(title: str | None, title_jpn: str | None, directory: str = "") -> str:
+    """Resolve a display title from raw title fields according to the configured
+    ``title_display`` preference. Mirrors Ehviewer's ``getSuitableTitle`` and
+    accepts ``title``/``title_jpn``/directory-name independently of any ORM
+    object, so cloud-only favorite rows and duplicate-copy records can share the
+    same logic as ``display_title``.
     """
     mode = (_settings().title_display or "japanese").lower()
-    title = getattr(gallery, "title", None) or ""
-    title_jpn = getattr(gallery, "title_jpn", None) or ""
-    storage_path = getattr(gallery, "storage_path", "") or ""
-    directory = Path(storage_path).name if storage_path else ""
+    title = title or ""
+    title_jpn = title_jpn or ""
     if mode == "english":
         source = title or title_jpn or directory
     elif mode == "directory":
@@ -310,9 +308,26 @@ def display_title(gallery: object) -> str:
     else:
         source = title_jpn or title or directory
     if not source:
-        source = title or title_jpn or directory or str(getattr(gallery, "gid", "") or "")
+        source = title or title_jpn or directory
     stripped = _LEADING_NUMBER.sub("", source).lstrip("-").strip()
-    return stripped or source or str(getattr(gallery, "gid", "") or "")
+    return stripped or source
+
+
+def display_title(gallery: object) -> str:
+    """Resolve the gallery title shown in the UI from the configured preference.
+
+    Mirrors Ehviewer's ``getSuitableTitle``: Japanese by default, falling back
+    to the romaji/English title, then to the directory name with any leading
+    gallery id stripped.
+    """
+    storage_path = getattr(gallery, "storage_path", "") or ""
+    directory = Path(storage_path).name if storage_path else ""
+    resolved = resolve_display_title(
+        getattr(gallery, "title", None),
+        getattr(gallery, "title_jpn", None),
+        directory,
+    )
+    return resolved or str(getattr(gallery, "gid", "") or "")
 
 
 def _scan_roots() -> list[str]:
@@ -2067,7 +2082,12 @@ async def _run_duplicates_scan() -> None:
             gmeta = await _favorites_metadata(cloud_pairs) if cloud_pairs else {}
             for it in group_items:
                 if it["gallery_id"] is not None:
-                    it["title_jpn"] = (gallery_titles.get(it["gid"], (None, None)))[1]
+                    en_title, jp_title = gallery_titles.get(it["gid"], (None, None))
+                    it["title_jpn"] = jp_title
+                    it["display_title"] = (
+                        resolve_display_title(en_title or it.get("title"), jp_title)
+                        or it.get("title") or f"gid {it['gid']}"
+                    )
                     it["tags"] = [
                         {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
                         for ns, name in tag_map.get(it["gallery_id"], [])
@@ -2076,6 +2096,10 @@ async def _run_duplicates_scan() -> None:
                     meta = gmeta.get(it["gid"], {})
                     it["file_size"] = it["file_size"] or meta.get("file_size")
                     it["title_jpn"] = meta.get("title_jpn")
+                    it["display_title"] = (
+                        resolve_display_title(it["title"] or meta.get("title"), meta.get("title_jpn"))
+                        or it["title"] or f"gid {it['gid']}"
+                    )
                     it["posted_at"] = _unix_to_iso(meta.get("posted"))
                     it["tags"] = [
                         {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}

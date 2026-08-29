@@ -1367,3 +1367,24 @@ async def test_upsert_many_all_gidless_batch_does_not_crash() -> None:
     await GalleryRepository(session).upsert_many(galleries)
     assert len([item for item in session.added if isinstance(item, Gallery)]) == 2
     assert len([item for item in session.added if isinstance(item, GalleryPage)]) == 2
+
+
+def test_resolve_display_title_modes(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from galleryvault.app import main
+
+    def with_mode(mode: str):
+        monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(title_display=mode))
+
+    with_mode("japanese")
+    assert main.resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "フー・バー"
+    with_mode("english")
+    assert main.resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "Foo Bar"
+    with_mode("directory")
+    assert main.resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "dir"
+
+    with_mode("japanese")
+    assert main.resolve_display_title(None, None, "") == ""
+    assert main.resolve_display_title("en", None) == "en"
+    assert main.resolve_display_title("", "jp") == "jp"

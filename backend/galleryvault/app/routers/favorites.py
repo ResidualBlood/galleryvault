@@ -73,7 +73,10 @@ async def favorite_items(
             ]
         else:
             meta = metadata.get(item.gid, {})
-            title = item.title or meta.get("title") or f"gid {item.gid}"
+            title = main.resolve_display_title(
+                item.title or meta.get("title") or "",
+                meta.get("title_jpn"),
+            ) or f"gid {item.gid}"
             title_jpn = meta.get("title_jpn")
             category = meta.get("category")
             page_count = meta.get("file_count")

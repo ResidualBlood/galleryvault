@@ -51,6 +51,7 @@ class Copy:
     gallery_id: int | None = None  # DB row id when this copy is already ingested
     storage_type: str = ""
     title: str = ""
+    title_jpn: str = ""
     page_count: int | None = None
     file_size: int | None = None
     posted_at: datetime | None = None
@@ -67,6 +68,7 @@ class Copy:
             gid=gallery.gid or 0,
             storage_type=gallery.storage_type,
             title=gallery.title,
+            title_jpn=gallery.title_jpn or "",
             page_count=gallery.file_count,
             file_size=gallery.file_size,
             posted_at=gallery.posted_at,
@@ -84,6 +86,7 @@ class Copy:
             gallery_id=row.gallery_id,
             storage_type=row.storage_type,
             title=row.title,
+            title_jpn=getattr(row, "title_jpn", None) or "",
             page_count=row.file_count,
             file_size=row.file_size,
             posted_at=row.posted_at,
@@ -99,6 +102,7 @@ class Copy:
             "gallery_id": self.gallery_id,
             "storage_type": self.storage_type,
             "title": self.title,
+            "title_jpn": self.title_jpn,
             "page_count": self.page_count,
             "file_size": self.file_size,
             "posted_at": self.posted_at.isoformat() if self.posted_at else None,
