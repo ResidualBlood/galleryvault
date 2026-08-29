@@ -66,6 +66,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unchanged) was never caught. Consecutive skips are now counted per folder:
   the poll that would be the 5th consecutive skip forces a full re-list and
   resets the counter.
+- **The Favorites page never blocks on a cold favorite-count fetch.** The
+  first `_favorite_counts_cached()` call used to await ExHentai synchronously
+  (up to 10s). The cache is now warmed asynchronously at startup and the first
+  request returns immediately, with the real counts arriving via the
+  background refresh.
+- **A manual download retry resets the retry budget.** `max_retries` is
+  restored to 10 on `POST /api/downloads/{id}/retry`, so a task that exhausted
+  its automatic budget (`max_retries=0`) can be re-queued instead of staying
+  stuck forever.
 - **`check_login` no longer misreports an anti-bot challenge as a dead
   session.** ExHentai answers an empty body (no cookies / anti-bot challenge)
   with HTTP 200; `parse_login_state` previously classified it `not_logged_in`,
