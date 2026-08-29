@@ -2374,26 +2374,15 @@ async function deleteFiltered() {
   const q = app.query.q || "";
   const category = app.query.category || "";
   const tags = app.query.tags || "";
+  const tag_mode = app.query.tag_mode || "or";
   if (!window.confirm(t("confirmDeleteFiltered"))) return;
   const deleteFiles = window.confirm(t("deleteFiles"));
   try {
-    // Resolve the current filter to a list of gallery ids (all pages), then bulk delete.
-    const allIds = [];
-    let page = 1, total = Infinity;
-    while (allIds.length < total) {
-      const extra = { page, page_size: 100 };
-      if (q) extra.q = q;
-      if (category) extra.category = category;
-      if (tags) extra.tags = tags;
-      const data = await galleryGrid(null, page, extra);
-      if (!data || !data.items.length) break;
-      allIds.push(...data.items.map(it => it.id));
-      total = data.total;
-      page += 1;
-    }
-    if (!allIds.length) { toast(t("noGalleries")); return; }
-    const r = await api("POST", "/api/galleries/delete-bulk", { ids: allIds, delete_files: deleteFiles });
-    toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : allIds.length)
+    // Server-side filtered delete: pass the filter, not a resolved id list.
+    const r = await api("POST", "/api/galleries/delete-filtered", {
+      q, category, tags, tag_mode, delete_files: deleteFiles
+    });
+    toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : (r.matched || 0))
       + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
     location.hash = navHash("library");
   } catch (e) { toast(e.message); }
