@@ -21,6 +21,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Search no longer guesses tags from free-form text.** Typing an unrelated
+  word used to be auto-promoted into a tag filter when it happened to match a
+  local tag name (English) or a tag translation (Chinese), which could drop
+  galleries whose titles contain the word but lack the tag. Free-form tokens
+  now search titles only; a tag filter is applied only for explicit
+  `ns:name` syntax, the tag cloud, or clicking a tag suggestion in the search
+  box (which consumes the clicked word from the query).
+- **Page size is remembered.** The "per page" selector now persists your
+  choice in the browser and carries `page_size` through the gallery → reader
+  → gallery round trip, instead of resetting to the default when you come
+  back from reading.
 - **Reader fullscreen is now image-only.** The fullscreen button (and the `F`
   key) now fullscreens the page image instead of the whole page: the image
   fills the screen (`object-fit: contain`, black background) and the toolbar
