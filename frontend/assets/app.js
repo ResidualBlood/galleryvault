@@ -67,7 +67,7 @@ const I18N = {
     qualityOriginal: "Original (原图)", qualityResample: "Resample (普通)",
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
-    catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted",
+    catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted", notFavorited: "Not in favorites",
     useHah: "Use H@H", titleDisplay: "Title display", downloadTitle: "Download title (folder name)",
     imageTimeout: "Image max time (seconds)", imageWarmup: "Image slow warmup (seconds)", imageMinSpeed: "Image min speed (KB/s)",
     imageTimeoutHint: "A single image is aborted after this many seconds total. ",
@@ -176,7 +176,7 @@ const I18N = {
     qualityOriginal: "原图 (Original)", qualityResample: "重采样 (Resample)",
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
-    catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除",
+    catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除", notFavorited: "不在收藏夹",
     useHah: "使用 H@H", titleDisplay: "标题显示", downloadTitle: "下载标题（目录命名）",
     imageTimeout: "单图最大耗时（秒）", imageWarmup: "慢速预热窗口（秒）", imageMinSpeed: "单图最低速度（KB/s）",
     imageTimeoutHint: "单张图片下载超过该总时长即中断。",
@@ -780,6 +780,7 @@ async function renderLibrary() {
       <select name="category">
         <option value="">All categories</option>
         ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
+        <option value="__not_fav__" ${"__not_fav__" === category ? "selected" : ""}>${esc(t("notFavorited"))}</option>
       </select>
       <button class="primary" type="submit">${esc(t("search"))}</button>
       <button class="secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
