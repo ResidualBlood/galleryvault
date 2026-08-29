@@ -127,6 +127,9 @@ Other formats:
   watch-only / force modes), auto-downloads missing galleries, per-folder
   lists, a skip heuristic to save bandwidth, and duplicate scan with
   ignore/restore.
+- **Gallery updates** (`#/updates`) — detects local copies of galleries that
+  ExHentai has re-uploaded (a new gid); one click downloads the new version and
+  deletes the old local copy.
 - **Open on ExHentai** — a one-click link to the original gallery from the
   detail page (built from the configured base URL).
 
