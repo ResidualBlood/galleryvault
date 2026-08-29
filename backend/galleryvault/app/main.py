@@ -32,12 +32,13 @@ from ..config import (
     normalize_library_roots,
 )
 from ..db.models import DownloadTask as DownloadTaskModel
-from ..db.models import Gallery, GalleryPage, GalleryTag, Tag
+from ..db.models import FavoriteItem, Gallery, GalleryPage, GalleryTag, Tag
 from ..db.repository import (
     BackgroundJobsRepository,
     DownloadRepository,
     FavoritesRepository,
     GalleryRepository,
+    GalleryUpdatesRepository,
     SettingsRepository,
 )
 from ..db.session import create_database
@@ -133,6 +134,13 @@ duplicates_state: dict[str, object] = {
     "total": 0,
     "last_error": None,
     "groups": [],
+}
+gallery_updates_state: dict[str, object] = {
+    "detecting": False,
+    "last_detected_at": None,
+    "found": 0,
+    "last_error": None,
+    "last_run": None,
 }
 metadata_sync_state: dict[str, object] = {
     "running": False,
@@ -622,6 +630,8 @@ async def startup() -> None:
     download_worker_task = asyncio.create_task(_download_worker_loop())
     global download_retry_sweep_task
     download_retry_sweep_task = asyncio.create_task(_download_retry_sweep_loop())
+    global gallery_updates_finalize_task
+    gallery_updates_finalize_task = asyncio.create_task(_gallery_updates_finalize_loop())
     global telegram_flush_task
     telegram_flush_task = asyncio.create_task(_telegram_flush_loop())
     global tag_sync_worker_task
@@ -2600,6 +2610,8 @@ async def _run_favorites_check(
                 ),
             )
             favorites_check_state["started_at"] = None
+        if not favorites_check_state["running"]:
+            _spawn(_detect_gallery_updates(), "gallery updates detect")
 
 
 async def _favorites_poll_loop() -> None:
@@ -2637,6 +2649,225 @@ async def _favorites_poll_loop() -> None:
                     "scheduled favorites check failed",
                     extra=log_extra(favcat=favcat, error=type(exc).__name__),
                 )
+
+
+# --- Gallery updates (re-uploaded / new-version tracking) -------------------
+
+
+_UPDATE_TITLE_VARIANTS = (
+    "中国翻訳", "中文翻譯", "中文", "english", "dl版", "無修正", "デジタル版",
+    "デジタル", "digital", "colorized", "color", "スキャナー", "修正版",
+    "未修正", "翻訳版", "アニメ", "実写", "総集編",
+)
+
+
+def _normalize_update_title(title: str) -> str:
+    """Normalize a gallery title for re-upload matching.
+
+    Strips the ``gid-`` folder prefix, common translation/version markers
+    (``[中国翻訳]``, ``[DL版]``, ...), whitespace, punctuation and case, so a
+    local copy whose ExHentai upload was replaced by a new gid still matches
+    the favorites entry (which usually keeps the title body).
+    """
+    import re
+
+    text = title.strip().lower()
+    text = re.sub(r"^\d+-", "", text)
+    variants = "|".join(_UPDATE_TITLE_VARIANTS)
+    text = re.sub(rf"\[(?:{variants})\]", "", text)
+    text = re.sub(r"[\s\[\](){}“”\"'`,.。、:：;；!！?？\-—_/\\|·・〜～]+", "", text)
+    return text
+
+
+async def _detect_gallery_updates() -> None:
+    """Find local galleries superseded by a re-uploaded (new-gid) ExHentai copy.
+
+    A local gallery whose gid is not in any favorite folder but whose
+    normalized title matches a favorite item is treated as the old version of
+    that favorite (ExHentai re-uploads move the favorites entry to the new gid).
+    Rows are written as ``pending`` and repeated scans stay idempotent via
+    ``GalleryUpdatesRepository.detect_many`` (tracked gallery_ids are skipped).
+    """
+    if bool(gallery_updates_state["detecting"]):
+        return
+    gallery_updates_state.update({"detecting": True, "last_error": None})
+    detected: list[dict] = []
+    found = 0
+    try:
+        async with _settings_session() as session:
+            fav_rows = await session.execute(
+                select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.title, FavoriteItem.favcat)
+            )
+            fav_gids: set[int] = set()
+            by_title: dict[str, tuple[int, str, int]] = {}
+            for gid, token, title, favcat in fav_rows:
+                gid = int(gid)
+                fav_gids.add(gid)
+                nt = _normalize_update_title(title or "")
+                if nt and nt not in by_title:
+                    by_title[nt] = (gid, str(token), int(favcat))
+            repo = GalleryUpdatesRepository(session)
+            tracked = await repo.tracked_gallery_ids()
+            page = 1
+            while True:
+                rows = await session.execute(
+                    select(Gallery.id, Gallery.gid, Gallery.title)
+                    .where(Gallery.expunged.is_(False))
+                    .order_by(Gallery.id)
+                    .offset((page - 1) * 500)
+                    .limit(500)
+                )
+                batch = rows.all()
+                if not batch:
+                    break
+                for gallery_id, gid, title in batch:
+                    if gallery_id in tracked or gid is None or gid in fav_gids:
+                        continue
+                    nt = _normalize_update_title(title or "")
+                    match = by_title.get(nt)
+                    if match:
+                        new_gid, new_token, favcat = match
+                        detected.append(
+                            {
+                                "gallery_id": int(gallery_id),
+                                "old_gid": int(gid),
+                                "new_gid": new_gid,
+                                "new_token": new_token,
+                                "title": title,
+                                "favcat": favcat,
+                            }
+                        )
+                if len(batch) < 500:
+                    break
+                page += 1
+        if detected:
+            async with _settings_session() as session, session.begin():
+                found = await GalleryUpdatesRepository(session).detect_many(
+                    detected, known_gallery_ids=tracked
+                )
+        gallery_updates_state.update(
+            {"found": found, "last_detected_at": datetime.now(UTC).isoformat()}
+        )
+        if found:
+            logger.info(
+                "gallery update scan found new-version candidates",
+                extra=log_extra(found=found),
+            )
+    except Exception as exc:  # noqa: BLE001 - surface in the UI, never crash a worker
+        gallery_updates_state["last_error"] = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "gallery update detection failed", extra=log_extra(error=type(exc).__name__)
+        )
+    finally:
+        gallery_updates_state["detecting"] = False
+        gallery_updates_state["last_run"] = datetime.now(UTC).isoformat()
+
+
+async def _run_gallery_updates(ids: list[int]) -> dict[str, int]:
+    """Enqueue the new-version download for each pending update row."""
+    started = 0
+    skipped = 0
+    try:
+        async with _settings_session() as session, session.begin():
+            repo = GalleryUpdatesRepository(session)
+            for update_id in list(dict.fromkeys(ids)):
+                row = await repo.get(update_id)
+                if row is None or row.status != "pending":
+                    skipped += 1
+                    continue
+                task = await DownloadRepository(session).create(
+                    row.new_gid, row.new_token, row.title or str(row.new_gid), "favorite"
+                )
+                if task is None:
+                    skipped += 1
+                    continue
+                await repo.mark_downloading(update_id, task.id)
+                started += 1
+    except SQLAlchemyError as exc:
+        raise _db_error(exc) from exc
+    return {"started": started, "skipped": skipped}
+
+
+async def _gallery_updates_finalize_loop() -> None:
+    """Finish updates whose new-version download completed.
+
+    A finished download deletes the superseded local copy (files + row), which
+    cascade-deletes the update row so the page entry disappears.  A failed
+    download marks the update ``failed`` so the user can retry or ignore it.
+    """
+    while True:
+        await asyncio.sleep(30)
+        try:
+            async with _settings_session() as session:
+                updating = await GalleryUpdatesRepository(session).downloading()
+            for row in updating:
+                if row.download_task_id is None:
+                    continue
+                async with _settings_session() as session:
+                    task = await session.get(DownloadTaskModel, row.download_task_id)
+                if task is None:
+                    continue
+                if task.status == "success":
+                    await _finalize_gallery_update(row)
+                elif task.status in {"failed", "cancelled"}:
+                    async with _settings_session() as session, session.begin():
+                        await GalleryUpdatesRepository(session).mark_failed(
+                            row.id, task.error_message
+                        )
+        except Exception as exc:  # noqa: BLE001 - the loop must survive transient DB errors
+            logger.warning(
+                "gallery update finalize failed", extra=log_extra(error=type(exc).__name__)
+            )
+            await asyncio.sleep(60)
+
+
+async def _finalize_gallery_update(row) -> None:
+    """Delete the superseded local copy after its replacement downloaded."""
+    try:
+        async with _settings_session() as session, session.begin():
+            gallery = await session.get(Gallery, row.gallery_id)
+            if gallery is None:
+                return
+            results = await delete_galleries_local(
+                session, [gallery], delete_files=True, delete_all_copies=False
+            )
+        _record_gallery_update_log(results)
+    except Exception as exc:  # noqa: BLE001 - keep the update visible for a retry
+        logger.warning(
+            "gallery update finalize failed",
+            extra=log_extra(update_id=row.id, error=type(exc).__name__),
+        )
+        try:
+            async with _settings_session() as session, session.begin():
+                await GalleryUpdatesRepository(session).mark_failed(row.id, str(exc))
+        except Exception as exc2:  # noqa: BLE001 - best effort
+            logger.warning(
+                "could not record gallery update failure",
+                extra=log_extra(update_id=row.id, error=type(exc2).__name__),
+            )
+
+
+def _record_gallery_update_log(results: list[dict]) -> None:
+    """Append a gallery-update entry to the activity log (Logs page)."""
+    from datetime import UTC as _UTC
+
+    now = datetime.now(_UTC).isoformat()
+    deleted = sum(1 for r in results if r["db_removed"])
+    failed = [p for r in results for p in r["failed_paths"]]
+    reason = f"updated to new version, removed old copy {deleted}/{len(results)}"
+    if failed:
+        reason += f", delete failed {len(failed)}: {', '.join(failed[:3])}"
+        if len(failed) > 3:
+            reason += f" (+{len(failed) - 3} more)"
+    _record_task(
+        "gallery-update",
+        now,
+        now,
+        "failed" if failed else "success",
+        reason=reason,
+        done=deleted,
+        total=len(results),
+    )
 
 
 
@@ -3339,7 +3570,17 @@ async def change_password(body: ChangePasswordRequest) -> None:
 # Routers are wired at the very end so this module is fully initialized before
 # they import it (their handlers annotate parameters with e.g.
 # main.DownloadRequest, which must already exist).
-from .routers import core, downloads, duplicates, favorites, galleries, settings, tags, tasks
+from .routers import (
+    core,
+    downloads,
+    duplicates,
+    favorites,
+    galleries,
+    settings,
+    tags,
+    tasks,
+    updates,
+)
 
 app.include_router(tasks.router)
 app.include_router(duplicates.router)
@@ -3347,5 +3588,6 @@ app.include_router(downloads.router)
 app.include_router(settings.router)
 app.include_router(galleries.router)
 app.include_router(favorites.router)
+app.include_router(updates.router)
 app.include_router(tags.router)
 app.include_router(core.router)

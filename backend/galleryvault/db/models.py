@@ -148,6 +148,42 @@ class FavoritesMonitor(Base):
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=43200)
 
 
+class GalleryUpdate(Base):
+    """A local gallery superseded by a re-uploaded (newer) ExHentai version.
+
+    ExHentai re-uploads move a gallery to a new gid and the favorites entry
+    follows it; the older local copy is detected by matching its normalized
+    title against the favorites list.  ``status``: ``pending`` -> ``downloading``
+    -> ``failed``/``ignored``.  Rows cascade-delete with their gallery, so a
+    finished update disappears from the page automatically.  ``failed`` and
+    ``ignored`` rows stay and make re-scans idempotent.
+    """
+
+    __tablename__ = "gallery_updates"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    gallery_id: Mapped[int] = mapped_column(
+        ForeignKey("galleries.id", ondelete="CASCADE"), nullable=False
+    )
+    old_gid: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    new_gid: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    new_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    favcat: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    download_task_id: Mapped[int | None] = mapped_column(BigInteger)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    __table_args__ = (
+        UniqueConstraint("gallery_id", "new_gid"),
+        Index("idx_gallery_updates_status", "status", "id"),
+    )
+
+
 class FavoriteItem(Base):
     __tablename__ = "favorite_items"
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

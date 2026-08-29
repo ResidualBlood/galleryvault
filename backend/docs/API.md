@@ -152,6 +152,18 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | GET | `/api/favorites/duplicates/ignored` | List the currently ignored duplicate groups (each with `key`, `title`, `items`) so they can be restored. |
 | GET | `/api/galleries/{identifier}/favorite` | Which favorite folders a gallery is in: `{gid, favorite: bool, favcats: [...]}`.
 
+## Gallery updates (re-uploaded versions)
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/updates` | Re-upload tracking. Query `page`, `page_size`, `state` (`active` = everything except ignored, `all`, `pending`, `downloading`, `failed`, `ignored`). Each row: `id`, `gallery_id` (old local copy), `old_gid`, `new_gid`, `title`, `favcat`, `favcat_name`, `status` (`pending`/`downloading`/`failed`/`ignored`), `error_message`, `detected_at`, `updated_at`, `cover_url`. Detection: a local gallery whose gid is not in any favorite folder but whose normalized title matches a favorite item. |
+| POST | `/api/updates/scan` | `202` – trigger a detection scan now (also runs automatically after every favorites check). |
+| GET | `/api/updates/status` | Detection/update status: `{detecting, last_detected_at, last_run, last_error, last_found, counts: {pending, downloading, failed, ignored}}`. |
+| POST | `/api/updates/update` | Body `{ids: [...]}` – `202`; enqueues the new-gid download for each pending row (`{started, skipped}`). When the download finishes, the old local copy is deleted (files + row, cascade-deleting the update row). |
+| POST | `/api/updates/ignore` | Body `{ids: [...]}` – mark rows ignored (hidden from the active list, restorable). |
+| POST | `/api/updates/unignore` | Body `{ids: [...]}` – restore ignored rows to `pending`. |
+| GET | `/api/updates/ignored` | Paginated list of currently ignored rows (for the restore page). |
+
 ## Galleries (local library)
 
 | Method | Path | Description |

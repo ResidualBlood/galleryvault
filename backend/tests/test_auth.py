@@ -51,6 +51,7 @@ def db_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
         "_favorites_poll_loop",
         "_download_worker_loop",
         "_download_retry_sweep_loop",
+        "_gallery_updates_finalize_loop",
         "_tag_sync_worker_loop",
         "_thumbnail_worker_loop",
     ):
