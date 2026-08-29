@@ -82,6 +82,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Public E-Hentai no longer misclassifies ExHentai-only galleries as
+  deleted**. A gallery that only ExHentai exposes returns the same 404/empty
+  page on e-hentai.org as a deleted one, which the tag-sync worker used to
+  treat as a deletion — reclassifying the gallery as `deleted` and never
+  retrying. On the public mirror the worker now suspends such galleries
+  instead (category untouched) and switching the base URL back to
+  `exhentai.org` in Settings resumes them automatically.
 - **Returning from a searched gallery keeps the library filter**. Opening a
   gallery from the library grid carried no query, so the back-to-library link
   dumped you on the unfiltered library. Cover links now pass the active
