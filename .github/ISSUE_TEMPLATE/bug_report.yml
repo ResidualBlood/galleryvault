@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a bug in GalleryVault
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report. Please check the
+        [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ) first.
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Which version (Docker image tag or git commit) are you running?
+      placeholder: e.g. v1.0.0 or 0211f78
+    validations:
+      required: true
+  - type: input
+    id: deployment
+    attributes:
+      label: Deployment
+      description: Docker compose? Which port setup? Any proxy/TLS?
+      placeholder: e.g. docker compose on Ubuntu 22.04, port 8000, behind Caddy
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug.
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / screenshots
+      description: Backend logs, browser console output, or screenshots (redact cookies/tokens).
+    validations:
+      required: false

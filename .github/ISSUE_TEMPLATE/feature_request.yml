@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an idea for GalleryVault
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement! Please check the
+        [wiki](https://github.com/ResidualBlood/galleryvault/wiki) in case it is
+        already covered.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem / use case?
+      description: A clear description of what you are trying to do.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you imagine it should work.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Any workarounds or other approaches.
+    validations:
+      required: false
