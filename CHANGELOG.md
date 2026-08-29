@@ -49,6 +49,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Telegram bot `/status` is no longer swallowed by the chat allowlist.** The
+  real `TelegramNotifier` drops non-forced messages to chats that are not in
+  `telegram_chat_ids`; `/pause`, `/resume` and gallery enqueue already passed
+  `force=True` but `/status` did not, so an operator whose chat was only in
+  `telegram_allowed_user_ids` got no reply. `/status` now forces its reply too.
 - **Cloud favorite-removal failures now surface on the Logs page.** Previously
   `remove_favorites` sent every gid in one POST and raised on any non-2xx, so a
   partial failure left no trace of which gids failed. It now chunks requests
