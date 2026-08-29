@@ -13,15 +13,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   connections per source IP (~4–6), so a high value tripped the cap on lossy
   proxy paths and flooded logs with `ConnectError`; lowering it keeps downloads
   stable on any line. Exposed in the Settings page under Downloads.
+- **Downloads: self-healing retries**. Failed tasks now re-enter the queue
+  automatically with an exponential backoff (30s → 2m → 8m → 30m → 1h → …
+  up to 6h) instead of dying after three attempts; the retry cap is raised to
+  `max_retries` = 10 and only the missing pages are re-fetched. A periodic
+  sweep re-activates older `failed` tasks that still have retry budget left,
+  so the manual retry button is rarely needed. The per-task `retry_count`
+  resets once a download succeeds.
 
 ### Changed
 
-- **Slow-H@H-node watchdog defaults relaxed**. `image_slow_warmup_seconds` is
-  now 30 (was 10) and `image_min_speed_kb_s` is now 20 (was 50). The old 10s
-  warm-up was too short for slow-starting connections over a proxy tunnel and
-  the 50 KB/s floor falsely aborted pages that would have completed; 6 KB/s
-  throttles are still caught. A throttled H@H node no longer fails a whole
-  gallery with a single page left.
+- **Slow-H@H-node watchdog defaults relaxed further** (`image_min_speed_kb_s`
+  20 → 10) and the image transfer **read timeout is now 30s (was 15s) with a
+  120s total budget**, so large GIFs / animated images survive a slow or
+  hiccuping H@H node instead of aborting the whole gallery.
 
 ### Fixed
 
