@@ -76,6 +76,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Returning from a searched gallery keeps the library filter**. Opening a
+  gallery from the library grid carried no query, so the back-to-library link
+  dumped you on the unfiltered library. Cover links now pass the active
+  `q`/`tags`/`tag_mode`/`category` along, and the back link, Read button,
+  thumbnail pager and the reader's back/all-pages links all preserve it.
 - **Browse/library search buttons now say "Search"**. They used the library
   page label ("Library" / 画廊库), which read as a navigation button instead of
   the action it performs. The page heading and back-links keep the library
