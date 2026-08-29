@@ -814,7 +814,7 @@ async function renderGallery() {
     const pageStart = (thumbPage - 1) * perPage;
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbs = thumbsVisible.map(p => `
-      <a class="thumb" href="${navHash("reader", { id, page: p.index })}">
+      <a class="thumb" href="${navHash("reader", { id, page: p.index }, libraryContext())}">
         <img loading="lazy" src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
       </a>`).join("");
     const thumbPagerParts = [];
@@ -887,9 +887,9 @@ async function renderReader() {
         ${preload}
         <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-next="${page + 1 < total ? page + 1 : ""}">
         <div class="nav">
-          ${page > 0 ? `<a class="secondary" href="${navHash("reader", { id, page: page - 1 })}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
+          ${page > 0 ? `<a class="secondary" href="${navHash("reader", { id, page: page - 1 }, libraryContext())}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
           <a class="secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>
-          ${page + 1 < total ? `<a class="secondary" href="${navHash("reader", { id, page: page + 1 })}">${esc(t("next"))}</a>` : `<span>${esc(t("next"))}</span>`}
+          ${page + 1 < total ? `<a class="secondary" href="${navHash("reader", { id, page: page + 1 }, libraryContext())}">${esc(t("next"))}</a>` : `<span>${esc(t("next"))}</span>`}
         </div>
       </div>`;
     try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
@@ -910,14 +910,14 @@ function bindReaderKeys() {
   const advance = () => {
     const n = current() + 1;
     if (app.readerTotal && n >= app.readerTotal) { goReaderNext(id); return; }
-    location.hash = navHash("reader", { id, page: n });
+    location.hash = navHash("reader", { id, page: n }, libraryContext());
   };
   readerKeyHandler = (e) => {
     if (e.type === "click") {
       const img = e.target.closest && e.target.closest("#reader-img");
       if (!img) return;
       if (img.dataset.next) {
-        location.hash = navHash("reader", { id, page: parseInt(img.dataset.next, 10) });
+        location.hash = navHash("reader", { id, page: parseInt(img.dataset.next, 10) }, libraryContext());
       } else {
         goReaderNext(id);
       }
@@ -930,7 +930,7 @@ function bindReaderKeys() {
       advance();
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) });
+      location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) }, libraryContext());
     } else if (e.key === "f" || e.key === "F") {
       e.preventDefault();
       toggleReaderFullscreen();
@@ -967,7 +967,7 @@ function toggleReaderFit() {
 async function goReaderNext(id) {
   try {
     const r = await api("GET", `/api/galleries/${id}/next`);
-    location.hash = navHash("reader", { id: r.id, page: 0 });
+    location.hash = navHash("reader", { id: r.id, page: 0 }, libraryContext());
   } catch (_) { /* no next gallery */ }
 }
 
