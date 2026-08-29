@@ -672,11 +672,11 @@ function parseTags(s) {
   return (s || "").split(",").map(t => t.trim()).filter(Boolean);
 }
 
-function prefPageSize() {
+function prefPageSize(fallback = 24) {
   const fromUrl = parseInt(app.query.page_size, 10);
   if (fromUrl > 0) return fromUrl;
   const saved = parseInt(localStorage.getItem("gv_page_size") || "", 10);
-  return saved > 0 ? saved : 24;
+  return saved > 0 ? saved : fallback;
 }
 
 function libraryContext() {
@@ -816,9 +816,17 @@ async function renderGallery() {
         ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${addTagHash(tg.namespace, tg.name)}">${esc(tagText(tg))}</a>`).join("")}
       </div></div>`).join("");
     const thumbsAll = g.pages || [];
-    const perPage = prefPageSize();
+    const perPage = prefPageSize(30);
     const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
-    const thumbPage = Math.min(Math.max(parseInt(app.query.page || "1", 10), 1), totalPages);
+    const explicitPage = parseInt(app.query.page || "", 10);
+    let thumbPage;
+    if (explicitPage > 0) {
+      thumbPage = Math.min(explicitPage, totalPages);
+    } else if (progress.current_page > 0) {
+      thumbPage = Math.min(Math.floor(progress.current_page / perPage) + 1, totalPages);
+    } else {
+      thumbPage = 1;
+    }
     const pageStart = (thumbPage - 1) * perPage;
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbs = thumbsVisible.map(p => `
