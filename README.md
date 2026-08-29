@@ -41,8 +41,8 @@ docker compose up -d
 
 1. 打开 **http://\<主机地址\>:8000** 访问 Web 界面。
 2. 使用默认密码 **`p1a2s3s4`** 登录，并在「设置」中修改密码。
-3. **建议先配置 ExHentai cookie 并跑一次「收藏夹 → 立即检查所有」**，把收藏过的画廊的元数据缓存进数据库，之后扫描入库会直接复用缓存，标签同步快得多。
-4. 将画廊放入 `./library` 目录（挂载至 `/library`），点击「扫描库」即可开始使用。
+3. （可选）先配置 ExHentai cookie 并「收藏夹 → 立即检查所有」，把收藏元数据缓存进库，之后扫描快得多。
+4. 将画廊放入 `./library`（挂载至 `/library`），点击「扫描库」即可开始使用。
 
 > 首次启动时 Docker 会自动创建 `./library`、`./downloads`、`./cache`、`./db-data` 目录；下载的 `docker-compose.yml` 可按需定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。
 
@@ -50,37 +50,18 @@ docker compose up -d
 
 ### 获取 ExHentai cookie（ipb_member_id / ipb_pass_hash / igneous）
 
-1. 用浏览器登录 **e-hentai.org**（需要 e-hentai 账户）。
-2. 按 `F12` 打开开发者工具 → **Application / 应用程序 → Storage → Cookies → https://e-hentai.org**。
-3. 复制 **`ipb_member_id`**（用户 ID）与 **`ipb_pass_hash`**（会话哈希）的值。
-4. 需要访问 **exhentai.org 里站**（未和谐画廊、部分专区）时，再从 `https://exhentai.org` 的 Cookies 里复制 **`igneous`**（该 cookie 只对已获得里站权限的账户存在；仅用外站则无需填写）。
-5. 把三个值填入「设置 → ExHentai」（或首次运行向导）并「测试登录」验证；cookie 加密存库、不会回显。
+1. 浏览器登录 **e-hentai.org**（需 e-hentai 账户），按 `F12` → **Application → Storage → Cookies**，从 `https://e-hentai.org` 复制 **`ipb_member_id`** 与 **`ipb_pass_hash`**。
+2. 需要访问 **exhentai.org 里站**（未和谐画廊/部分专区）时，再从 `https://exhentai.org` 的 Cookies 复制 **`igneous`**（仅已获里站权限的账户存在；只用外站可跳过）。
+3. 填入「设置 → ExHentai」（或首次运行向导）并「测试登录」验证；cookie 加密存库、不会回显。
 
 ### 推荐使用流程
 
-1. **登录 ExHentai**：设置 → ExHentai，填入 `ipb_member_id` / `ipb_pass_hash` / `igneous` 并「测试登录」验证（cookie 加密存库，不要写进 compose）。
-2. **只读收藏夹（不下载）**：「收藏夹」页先把文件夹模式设为「仅监控」，再「同步收藏夹名称」+「立即检查所有」——只把收藏的元数据（标题/标签/封面/大小）缓存进数据库并记录收藏集合，**不下任何画廊**。
-3. **扫描库**：把已有画廊放进库目录（`./library`、`./downloads` 等），点「扫描库」入库。步骤 2 的元数据缓存会被直接复用，标签同步快得多。
-4. **先查重**：同一作品多版本（DL 版/无修正/不同语言）用「收藏夹管理 → 扫描重复画廊」分组处理（云端与本地项一起比较，可先取消收藏/忽略重复），避免下载后再去重；多目录里的同 gid 副本用「重复副本」页按策略清理。
-5. **开始下载**：收藏夹页把模式切到「强制下载」→「立即检查」，把文件夹里**不在本地库**的画廊一次性排队下载（已在库的自动跳过，不会重复下）。
-6. **切回增量 + 定时**：存量下完后把模式切回「增量下载」，设置里打开 **download favorites** 总开关、间隔按需（如 10 分钟）。之后**新加进收藏夹的画廊会自动下载**。
+先缓存收藏元数据（「仅监控」+「立即检查所有」）→ 扫描库 → 收藏夹查重 → 强制下载补齐 → 切回增量自动跟进。完整步骤见 [Wiki → 使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)。
 
 ### 适用范围
 
-本项目**首要面向 [Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ) 下载的画廊**：下载目录为 `<gid>-<标题>/` 图片文件夹 + `.ehviewer` 元数据文件（SpiderInfo VERSION1/VERSION2，内含 gid/token 与每页 pToken），扫描器据此**精确还原画廊身份**，支持下载/查重/离线续读定位。
-
-`.ehviewer` 源自 Hippo Seven 的 EhViewer（`com.hippo.ehviewer.spider.SpiderInfo`），**同源客户端写出的格式完全兼容**，可直接入库：
-
-- **EhViewer 原版**（[seven332/EhViewer](https://github.com/seven332/EhViewer)，已弃用）；当前主流分支 [**FooIbar/EhViewer**](https://github.com/FooIbar/EhViewer)（MD3 重写）、[**Ehviewer-Overhauled/Ehviewer**](https://github.com/Ehviewer-Overhauled/Ehviewer)、[**EhViewer-NekoInverter/EhViewer**](https://github.com/EhViewer-NekoInverter/EhViewer)、[**exzhawk/EhViewer**](https://github.com/exzhawk/EhViewer)、[**AdNotFound/EhViewer**](https://github.com/AdNotFound/EhViewer)、[**WarnError/Ehviewer-NekoWhite**](https://github.com/WarnError/Ehviewer-NekoWhite)、[**NotFaceGUI/EhViewer-Auto-Translation-Ver**](https://github.com/NotFaceGUI/EhViewer-Auto-Translation-Ver)、[**axlecho/MHViewer**](https://github.com/axlecho/MHViewer) 等。
-- 跨平台移植：[**EhViewer-Apple**](https://github.com/felixchaos/EhViewer-Apple)（iOS/macOS）、[**Ehviewer_OHOS**](https://github.com/suibianqwe/Ehviewer_OHOS)（鸿蒙）。
-- 周边工具（生成/读取 `.ehviewer`）：[**LRReader**](https://github.com/Xslx98/LRReader)（Android·LANraragi 客户端）、[**exhentai-manga-manager**](https://github.com/SchneeHertz/exhentai-manga-manager)、[**ehviewer_manga_manager**](https://github.com/Schweik7/ehviewer_manga_manager)（Python CLI）、[**LANraragi**](https://github.com/Difegue/LANraragi) 的 `Ehviewer.pm` 元数据插件。
-
-下载器写画廊目录时还会额外生成 `.galleryvault.json`（category/title/tags）作为元数据 sidecar，扫描与重建可读取，不影响 `.ehviewer` 兼容格式。
-
-其余格式：
-
-- **[JHenTai](https://github.com/jiangtian616/JHenTai)**（全平台 Flutter，Android/iOS/Windows/macOS/Linux）下载目录**原生支持**：`<gid> - <标题>/` + `metadata` JSON（含 gid/token/标签/分类/uploader/发布时间），扫描直接还原完整身份。**该格式支持较新，尚未被大量真实数据验证**，如遇解析异常请提交 issue 附上样例 `metadata`。
-- 按能力降级支持：符合 `<gid>-<标题>` 命名的**无 `.ehviewer` 图片文件夹**（gid 只能从目录名推断）、**CBZ/CBR**（gid 需在文件名开头，元数据取 ComicInfo.xml）。无 gid 的画廊可入库浏览，但**无法参与下载/查重/重复副本解析**。
+- **原生支持** Ehviewer 家族客户端（`.ehviewer` 格式，含各主流 Fork，完全兼容）与 [JHenTai](https://github.com/jiangtian616/JHenTai)（`metadata`）的下载目录，扫描即精确还原画廊身份；CBZ/CBR 与无 `.ehviewer` 的图片文件夹降级支持（无 gid 的画廊可浏览，但无法参与下载/查重）。完整兼容列表见 [Wiki → 首页](https://github.com/ResidualBlood/galleryvault/wiki/Home)。
+- 下载器写目录时还会额外生成 `.galleryvault.json`（category/title/tags）sidecar，扫描与重建可读取。
 
 ## 数据与目录
 
@@ -93,7 +74,7 @@ docker compose up -d
 
 库目录（每行一个路径）与下载目录在「设置」中分开配置；把其他 Ehviewer 下载目录挂载为**仅扫描不下载**的库，见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
 
-> **权限**：backend 容器内以 `app` 用户（uid **10001**）运行。把已有目录挂载进 compose 或把归档放进 `./library` / `./downloads` 之前，请确保宿主目录对 10001 **可读**（要支持删除画廊则需**可写**）：在首次 `docker compose up` 前执行 `chown -R 10001:10001 ./library ./downloads`。`./cache` 后端启动时自动处理；**`./db-data` 属于 postgres（uid 999），切勿 chown**。
+> **权限**：backend 容器内以 `app` 用户（uid **10001**）运行。挂载已有目录或放入归档前，确保宿主目录对 10001 **可读**（删除画廊需**可写**）：首次启动前 `chown -R 10001:10001 ./library ./downloads`。`./cache` 自动处理；**`./db-data` 属 postgres（uid 999），切勿 chown**。
 
 ## 升级
 
@@ -108,7 +89,7 @@ docker compose up -d
 
 ## 安全
 
-默认密码 `p1a2s3s4` 只供内网首次使用，公网部署前请在「设置」修改。后端 API 默认仅绑定 `127.0.0.1:8001`；可选启用**静态加密**（`ENCRYPTION_KEY`，保护 cookie / token / 密码哈希）。给 PostgreSQL 设置独立强口令（`.env` 中 `POSTGRES_PASSWORD`）并妥善保管 `ENCRYPTION_KEY`。公网部署检查清单、TLS 与密钥丢失恢复见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) 与 [Wiki → 静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。
+默认密码 `p1a2s3s4` 仅供内网首次使用，公网部署前请在「设置」修改。后端 API 默认仅绑定 `127.0.0.1:8001`；可选**静态加密**（`ENCRYPTION_KEY`，AES-256-GCM）保护 cookie / token / 密码哈希，密钥请与数据库备份分开保管。公网部署检查清单、TLS 与密钥丢失恢复见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) 与 [Wiki → 静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。
 
 ## 架构
 

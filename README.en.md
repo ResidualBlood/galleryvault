@@ -50,7 +50,7 @@ docker compose up -d
 
 1. Open **http://\<host\>:8000** — the web UI.
 2. Log in with the default password **`p1a2s3s4`** and change it in *Settings*.
-3. **Recommended: configure your ExHentai cookies and run *Favorites → Check all folders* once before scanning the library** — the metadata cache makes later scanning and tag sync much faster.
+3. (Optional) Configure your ExHentai cookies and run *Favorites → Check all folders* once — the cached metadata makes scanning much faster.
 4. Put your galleries in `./library` (mounted at `/library`), hit *Scan library*, and start reading.
 
 > On first start Docker creates the `./library`, `./downloads`, `./cache` and
@@ -61,88 +61,29 @@ docker compose up -d
 
 ### Obtaining the ExHentai cookies (`ipb_member_id` / `ipb_pass_hash` / `igneous`)
 
-1. Log in to **e-hentai.org** in your browser (an e-hentai account is required).
-2. Press `F12` → **Application → Storage → Cookies → https://e-hentai.org**.
-3. Copy the values of **`ipb_member_id`** (your user id) and **`ipb_pass_hash`** (your session hash).
-4. To also access **exhentai.org** (the "里站": unhidden galleries / restricted areas), copy **`igneous`** from the Cookies of `https://exhentai.org` in a session that has exhentai access — this cookie only exists for accounts granted access; skip it if you only use the public mirror.
-5. Enter the three values in *Settings → ExHentai* (or the first-run wizard) and verify with *Test login*; cookies are stored encrypted and never echoed back.
+1. Log in to **e-hentai.org** in your browser (an e-hentai account is required), press `F12` → **Application → Storage → Cookies**, and copy **`ipb_member_id`** and **`ipb_pass_hash`** from `https://e-hentai.org`.
+2. To also access **exhentai.org** (the "里站"), copy **`igneous`** from the Cookies of `https://exhentai.org` — this cookie only exists for accounts granted exhentai access; skip it if you only use the public mirror.
+3. Enter the three values in *Settings → ExHentai* (or the first-run wizard) and verify with *Test login*; cookies are stored encrypted and never echoed back.
 
 ### Recommended workflow
 
-1. **Log in to ExHentai**: Settings → ExHentai, fill in `ipb_member_id` /
-   `ipb_pass_hash` / `igneous` and verify with *Test login* (cookies are stored
-   encrypted, never in the compose file).
-2. **Read your favorites without downloading**: on the Favorites page set the
-   folder mode to *watch only*, then run *Sync folder names* and *Check all
-   folders* — metadata (title, tags, cover, size) is cached and the favorite
-   set recorded, but **nothing is downloaded**.
-3. **Scan the library**: put your existing galleries under a library root
-   (`./library`, `./downloads`, …) and hit *Scan library*. The metadata cache
-   from step 2 is reused, so tag sync is much faster.
-4. **Deduplicate first**: group different versions of the same work (DL /
-   uncensored / language re-uploads) with *Manage favorites → Scan for
-   duplicates* (cloud and local items are compared together, so duplicates can
-   be unfavorited/ignored before they are downloaded); clean up same-gid copies
-   across scan roots on the *Duplicate copies* page.
-5. **Start downloading**: switch the folder mode to *force* and run *Check
-   now* — every folder gallery **not in the local library** is queued once
-   (already-local galleries are skipped, nothing is re-downloaded).
-6. **Switch to incremental + schedule**: once the backlog is down, switch the
-   mode back to *incremental* and turn on the **download favorites** master
-   switch with an interval (e.g. 10 minutes). Newly favorited galleries are
-   then downloaded automatically.
+Cache your favorite metadata first (*watch only* + *Check all folders*), scan
+the library, dedupe, download the backlog with *force*, then switch back to
+incremental for automatic follow-ups. Full steps in the
+[Wiki → Usage guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage).
 
 ### Scope
 
-GalleryVault is built **primarily for galleries downloaded by
-[Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)**: a
-`<gid>-<title>/` image folder plus a **`.ehviewer`** metadata file (SpiderInfo
-VERSION1/VERSION2 carrying the gid/token and a per-page pToken). The scanner
-parses it to **restore the gallery identity exactly** — enabling download,
-dedupe and offline-resume positioning.
-
-The `.ehviewer` format originates from Hippo Seven's EhViewer
-(`com.hippo.ehviewer.spider.SpiderInfo`), so **any EhViewer-family client
-writes a compatible file** and can be ingested directly:
-
-- **Original EhViewer** ([seven332/EhViewer](https://github.com/seven332/EhViewer),
-  deprecated); current active branches
-  [**FooIbar/EhViewer**](https://github.com/FooIbar/EhViewer) (Material Design 3),
-  [**Ehviewer-Overhauled/Ehviewer**](https://github.com/Ehviewer-Overhauled/Ehviewer),
-  [**EhViewer-NekoInverter/EhViewer**](https://github.com/EhViewer-NekoInverter/EhViewer),
-  [**exzhawk/EhViewer**](https://github.com/exzhawk/EhViewer),
-  [**AdNotFound/EhViewer**](https://github.com/AdNotFound/EhViewer),
-  [**WarnError/Ehviewer-NekoWhite**](https://github.com/WarnError/Ehviewer-NekoWhite),
-  [**NotFaceGUI/EhViewer-Auto-Translation-Ver**](https://github.com/NotFaceGUI/EhViewer-Auto-Translation-Ver),
-  [**axlecho/MHViewer**](https://github.com/axlecho/MHViewer) and other forks.
-- Cross-platform ports: [**EhViewer-Apple**](https://github.com/felixchaos/EhViewer-Apple)
-  (iOS/macOS), [**Ehviewer_OHOS**](https://github.com/suibianqwe/Ehviewer_OHOS)
-  (HarmonyOS).
-- Companion tools that generate/read `.ehviewer`:
-  [**LRReader**](https://github.com/Xslx98/LRReader) (Android, a LANraragi
-  client), [**exhentai-manga-manager**](https://github.com/SchneeHertz/exhentai-manga-manager),
-  [**ehviewer_manga_manager**](https://github.com/Schweik7/ehviewer_manga_manager)
-  (Python CLI), [**LANraragi**](https://github.com/Difegue/LANraragi)'s
-  `Ehviewer.pm` metadata plugin.
-
-The downloader additionally writes a `.galleryvault.json` sidecar
-(category/title/tags) into each downloaded folder, readable on scan and rebuild
-without affecting `.ehviewer` compatibility.
-
-Other formats:
-
-- **[JHenTai](https://github.com/jiangtian616/JHenTai)** (cross-platform Flutter,
-  Android/iOS/Windows/macOS/Linux) download directories are **natively
-  supported**: `<gid> - <title>/` plus a `metadata` JSON
-  (gid/token/tags/category/uploader/published time), so the full gallery
-  identity is restored on scan. **This format support is new and not yet
-  validated against much real data** — please file an issue with a sample
-  `metadata` file if you hit a parsing problem.
-- Reduced fidelity: plain image folders named `<gid>-<title>` **without** an
-  `.ehviewer` file (the gid is inferred from the directory name) and **CBZ/CBR**
-  archives (gid must prefix the file name, metadata from ComicInfo.xml).
-  Galleries without a gid can be browsed but **cannot take part in downloads,
-  dedupe or duplicate-copy resolution**.
+- **Natively supported** are download directories from the Ehviewer family
+  (`.ehviewer`, fully compatible across the main forks) and
+  [JHenTai](https://github.com/jiangtian616/JHenTai) (`metadata`); scanning
+  restores the full gallery identity. CBZ/CBR archives and plain image folders
+  without `.ehviewer` are supported with reduced fidelity (galleries without a
+  gid can be browsed but take no part in downloads/dedupe). The full
+  compatibility list lives on the
+  [Wiki → Home](https://github.com/ResidualBlood/galleryvault/wiki/Home).
+- The downloader additionally writes a `.galleryvault.json` sidecar
+  (category/title/tags), readable on scan and rebuild.
 
 ## Data and volumes
 
@@ -155,7 +96,7 @@ Other formats:
 
 Library roots (one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
 
-> **Permissions**: the backend container runs as the `app` user (uid **10001**). Before mounting an existing directory into compose or putting archives into `./library` / `./downloads`, make sure the host directory is **readable** by uid 10001 (writable too if you want gallery deletion to remove files): run `chown -R 10001:10001 ./library ./downloads` before the first `docker compose up`. `./cache` is handled automatically at startup; **`./db-data` belongs to postgres (uid 999) — never chown it**.
+> **Permissions**: the backend container runs as the `app` user (uid **10001**). Before mounting an existing directory or adding archives, make sure the host directory is **readable** by uid 10001 (writable too for gallery deletion): run `chown -R 10001:10001 ./library ./downloads` before the first `docker compose up`. `./cache` is handled automatically; **`./db-data` belongs to postgres (uid 999) — never chown it**.
 
 ## Upgrading
 
@@ -174,7 +115,7 @@ use the `:latest` tag, so `pull` fetches new releases.
 
 ## Security
 
-The default password `p1a2s3s4` is for first login only — change it in Settings before exposing the instance publicly. The backend API is bound to `127.0.0.1:8001` by default; optional **encryption at rest** (`ENCRYPTION_KEY`) protects cookies / token / password hashes. The public-deployment checklist, TLS and lost-key recovery are in [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) and [Wiki → Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption).
+The default password `p1a2s3s4` is for first login only — change it before exposing the instance publicly. The backend API binds `127.0.0.1:8001` by default; optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM) protects cookies / token / password hashes — keep the key separate from the database backup. The public-deployment checklist, TLS and lost-key recovery are in [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) and [Wiki → Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption).
 
 ## Architecture
 
