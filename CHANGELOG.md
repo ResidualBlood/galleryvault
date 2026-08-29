@@ -76,6 +76,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Browse/library search buttons now say "Search"**. They used the library
+  page label ("Library" / 画廊库), which read as a navigation button instead of
+  the action it performs. The page heading and back-links keep the library
+  label.
 - **Downloads: `showpage` network errors are now wrapped as retryable
   failures**. A raw `httpx.ConnectTimeout`/`ReadTimeout` from the page-URL
   resolution API used to leak to the download worker as a cryptic
