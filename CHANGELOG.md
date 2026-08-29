@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Reader page images are cached by the browser for an hour.** The page-image
+  endpoint (`/api/galleries/{id}/pages/{n}`) used to stream every image fresh
+  on each request; it now sends `Cache-Control: public, max-age=3600` so back
+  navigation and re-reads reuse the browser cache (thumbnails already had 24 h
+  caching). Safe because galleries are read-only and page bytes never change.
 - **Multi-word search matches each word independently.** A query such as
   `mimu gif` used to become a single contiguous `%mimu gif%` pattern, so a
   gallery whose title contains both words separately (or in the other order)
