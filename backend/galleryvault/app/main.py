@@ -1797,6 +1797,7 @@ class SettingsRequest(BaseModel):
     download_concurrency: int | None = Field(default=None, ge=1, le=32)
     page_concurrency: int | None = Field(default=None, ge=1, le=16)
     download_quality: str | None = None
+    download_title: str | None = None
     use_hah: bool | None = None
     image_download_timeout_seconds: int | None = Field(default=None, ge=1)
     image_slow_warmup_seconds: int | None = Field(default=None, ge=1)
@@ -1863,6 +1864,7 @@ def _settings_public() -> dict[str, object]:
         "download_concurrency": current.download_concurrency,
         "page_concurrency": current.page_concurrency,
         "download_quality": current.download_quality,
+        "download_title": current.download_title,
         "use_hah": current.use_hah,
         "image_download_timeout_seconds": current.image_download_timeout_seconds,
         "image_slow_warmup_seconds": current.image_slow_warmup_seconds,
@@ -1908,6 +1910,7 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "download_concurrency",
         "page_concurrency",
         "download_quality",
+        "download_title",
         "use_hah",
         "image_download_timeout_seconds",
         "image_slow_warmup_seconds",

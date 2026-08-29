@@ -109,6 +109,29 @@ def _is_auth_failure_page(body: str) -> bool:
     )
 
 
+def parse_login_state(body: str, member_id: str = "") -> str:
+    """Classify an ExHentai home-page response into a login state.
+
+    Returns one of:
+    - ``ok``: the page carries an authenticated session
+    - ``not_logged_in``: the page is served (HTTP 200) but shows no login state
+    - ``no_exhentai_access``: a Sad-Panda / IP-banned page with no content
+
+    ``_is_auth_failure_page`` covers the Sad-Panda / banned pages; the rest is
+    the normal homepage where a logged-out session still answers 200 (the case
+    a plain reachability check would wrongly report as "ok").
+    """
+    if _is_auth_failure_page(body):
+        return "no_exhentai_access"
+    # Logged-in pages carry the My Home link; the configured member id is the
+    # strongest signal that this specific account is authenticated.
+    if "home.php" in body or "My Home" in body:
+        return "ok"
+    if member_id and member_id in body:
+        return "ok"
+    return "not_logged_in"
+
+
 @dataclass(frozen=True)
 class GalleryPageData:
     index: int
@@ -400,6 +423,31 @@ class EhClient:
             if status in (429, 509):
                 raise EhClientError(f"ExHentai rate limited (HTTP {status})") from exc
             raise EhClientError("ExHentai returned an HTTP error") from exc
+
+    async def check_login(self) -> tuple[str, str]:
+        """Probe ExHentai and return ``(state, detail)``.
+
+        ``state`` is one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
+        ``failed``; ``detail`` carries the HTTP status or exception type for the
+        failure message. Retries once because ExHentai's occasional anti-bot
+        challenge (a 302 through remoteapi.php) is a transient glitch, not a
+        login failure.
+        """
+        member_id = str((self.settings.exhentai_cookies or {}).get("ipb_member_id", ""))
+        last_error: Exception | None = None
+        for _ in range(2):
+            try:
+                response = await self._request("GET", "/")
+            except httpx.RequestError as exc:
+                last_error = exc
+                continue
+            if response.status_code in (401, 403) or "login" in str(response.url).lower():
+                return "not_logged_in", f"HTTP {response.status_code}"
+            return (
+                parse_login_state(response.text, member_id),
+                f"HTTP {response.status_code}",
+            )
+        return "failed", type(last_error).__name__
 
     async def fetch_gallery_metadata(self, gid: int, token: str) -> GalleryData:
         """Fetch only gallery metadata; tag sync must not enumerate or download pages."""

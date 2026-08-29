@@ -181,6 +181,71 @@ async def test_downloader_resumes_without_refetching_existing_pages(tmp_path: Pa
     assert (result2.path / "00000002.jpg").exists()
 
 
+@pytest.mark.asyncio
+async def test_downloader_reuses_existing_gid_directory(tmp_path: Path) -> None:
+    from galleryvault.services.downloader import Downloader
+
+    class TitleShiftingClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+            self.titles = iter(["first title", "second title"])
+
+        async def fetch_gallery(self, gid, token, max_pages=None, *, resolve_urls=True):
+            title = next(self.titles)
+            pages = [GalleryPageData(0, "one", "p1"), GalleryPageData(1, "two", "p2")]
+            if resolve_urls:
+                pages = [
+                    GalleryPageData(p.index, p.url, p.token, f"https://img.test/{p.token}.jpg")
+                    for p in pages
+                ]
+            return GalleryData(gid, token, title, pages)
+
+    downloader = Downloader(TitleShiftingClient(), tmp_path)
+    first = await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert first.path.name == "1-first title"
+    # Re-download of the same gid with a different title must reuse the existing
+    # folder instead of creating a second one or deleting the previous one.
+    second = await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert second.path == first.path
+    assert second.path.name == "1-first title"
+    assert sorted(p.name for p in second.path.glob("*.jpg")) == [
+        "00000001.jpg",
+        "00000002.jpg",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_downloader_uses_download_title_setting(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from galleryvault.services.downloader import Downloader
+
+    class SettingsClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+            self.settings = SimpleNamespace(
+                download_title="english", download_quality="resample"
+            )
+
+        async def fetch_gallery(self, gid, token, max_pages=None, *, resolve_urls=True):
+            pages = [GalleryPageData(0, "one", "p1"), GalleryPageData(1, "two", "p2")]
+            if resolve_urls:
+                pages = [
+                    GalleryPageData(p.index, p.url, p.token, f"https://img.test/{p.token}.jpg")
+                    for p in pages
+                ]
+            return GalleryData(
+                gid, token, "English Title", pages, title_jpn="日本語タイトル"
+            )
+
+    result = await Downloader(SettingsClient(), tmp_path).execute(
+        DownloadTask(1, "tok", "title")
+    )
+    assert result.path.name == "1-English Title"
+
+
 class FakeFavoritesRepo:
     def __init__(self) -> None:
         self.known = set()

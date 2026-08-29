@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 
 from galleryvault.app import main
 from galleryvault.db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
@@ -29,14 +30,28 @@ async def settings_save(body: main.SettingsRequest) -> dict[str, object]:
 
 
 @router.post("/api/settings/exhentai/test")
-async def settings_test_exhentai() -> dict[str, str]:
+async def settings_test_exhentai() -> JSONResponse:
     if not main._settings().exhentai_cookies:
-        return {"status": "not_configured", "message": "ExHentai Cookie 未设置"}
-    try:
-        response = await main.app.state.eh_client._get("/")
-        return {"status": "ok", "message": f"HTTP {response.status_code}"}
-    except Exception:  # noqa: BLE001
-        return {"status": "failed", "message": "ExHentai 登录测试失败"}
+        return JSONResponse(
+            {"status": "not_configured", "message": "ExHentai Cookie 未设置"},
+            status_code=400,
+        )
+    state, detail = await main.app.state.eh_client.check_login()
+    if state == "ok":
+        return JSONResponse({"status": "ok", "message": "登录成功"}, status_code=200)
+    if state == "no_exhentai_access":
+        return JSONResponse(
+            {"status": "failed", "message": f"无法访问里站：缺少有效的 igneous cookie（{detail}）"},
+            status_code=403,
+        )
+    if state == "failed":
+        return JSONResponse(
+            {"status": "failed", "message": f"ExHentai 请求失败：{detail}"}, status_code=502
+        )
+    return JSONResponse(
+        {"status": "failed", "message": f"登录失败：cookie 无效或已过期（{detail}）"},
+        status_code=401,
+    )
 
 
 async def _save_settings(body: main.SettingsRequest) -> dict[str, object]:

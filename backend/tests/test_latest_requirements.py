@@ -112,6 +112,81 @@ async def test_exhentai_404_raises_gallery_gone() -> None:
             await client.fetch_gallery_metadata(12345, "sometoken")
 
 
+@pytest.mark.asyncio
+async def test_check_login_classifies_response_and_retries() -> None:
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            # Transient transport failure: must be retried, not reported as a
+            # login failure (ExHentai's occasional remoteapi.php challenge).
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, text='<a href="https://exhentai.test/home.php">My Home</a>')
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(
+            client=http_client,
+            settings=Settings(
+                exhentai_cookies={"ipb_member_id": "12345"}
+            ),
+        )
+        state, _ = await client.check_login()
+        assert state == "ok"
+        assert requests == 2  # first attempt failed, retry succeeded
+
+
+@pytest.mark.asyncio
+async def test_check_login_reports_not_logged_in() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html><body>Welcome</body></html>")
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(
+            client=http_client,
+            settings=Settings(
+                exhentai_cookies={"ipb_member_id": "12345"},
+            ),
+        )
+        assert (await client.check_login())[0] == "not_logged_in"
+
+
+@pytest.mark.asyncio
+async def test_check_login_reports_no_exhentai_access() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="Sad Panda\n")
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(
+            client=http_client,
+            settings=Settings(
+                exhentai_cookies={"ipb_member_id": "12345"},
+            ),
+        )
+        assert (await client.check_login())[0] == "no_exhentai_access"
+
+
+@pytest.mark.asyncio
+async def test_check_login_fails_after_two_transport_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("down", request=request)
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(client=http_client, settings=Settings())
+        state, detail = await client.check_login()
+        assert state == "failed"
+        assert "ConnectError" in detail
+
+
 def test_gallery_dirname_matches_ehviewer_style() -> None:
     from galleryvault.services.downloader import gallery_dirname
 
@@ -120,6 +195,47 @@ def test_gallery_dirname_matches_ehviewer_style() -> None:
     )
     # Without a Japanese title it falls back to the display title.
     assert gallery_dirname(560135, None, "Some English Title") == "560135-Some English Title"
+
+
+def test_gallery_dirname_download_title_modes() -> None:
+    from galleryvault.services.downloader import gallery_dirname
+
+    title_jpn = "(COMIC1☆5) [TIES (タケイオーキ)] 標題"
+    title = "Some English Title"
+    # Default and explicit japanese prefer the Japanese title.
+    assert gallery_dirname(1, title_jpn, title) == f"1-{title_jpn}"
+    assert gallery_dirname(1, title_jpn, title, mode="japanese") == f"1-{title_jpn}"
+    # english prefers the romaji/English title.
+    assert gallery_dirname(1, title_jpn, title, mode="english") == "1-Some English Title"
+    # No title at all falls back to the bare gid.
+    assert gallery_dirname(1, None, None, mode="english") == "1"
+
+
+def test_gallery_dirname_truncates_utf8_bytes() -> None:
+    from galleryvault.services.downloader import _truncate_utf8, gallery_dirname
+
+    # 90 CJK chars = 270 UTF-8 bytes (> 255); must be cut at a char boundary.
+    long_title = "啊" * 90
+    name = gallery_dirname(7, long_title, None)
+    assert name.startswith("7-")
+    assert len(name.encode("utf-8")) <= 255
+    # The suffix stays decodable (no trailing partial multibyte char).
+    _truncate_utf8("啊" * 100, 10).encode("utf-8").decode("utf-8")
+
+
+def test_parse_login_state() -> None:
+    from galleryvault.services.eh_client import parse_login_state
+
+    logged_in_home = '<a href="https://e-hentai.org/home.php">My Home</a>'
+    assert parse_login_state(logged_in_home, "12345") == "ok"
+    # The configured member id appearing in the body also means logged in.
+    assert parse_login_state("user id 12345 logged in", "12345") == "ok"
+    # A plain homepage with no login markers is served but not authenticated.
+    assert parse_login_state("<html><body>Welcome</body></html>", "12345") == (
+        "not_logged_in"
+    )
+    # Sad-Panda / banned pages carry no content.
+    assert parse_login_state("Sad Panda\n", "12345") == "no_exhentai_access"
 
 
 def test_tag_translation_namespace_and_name() -> None:

@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     http_proxy: str | None = None
     socks5_proxy: str | None = None
     download_quality: str = "resample"
+    # Which title seeds the on-disk download folder name (``<gid>-<title>``).
+    # Independent of the display-title setting; ``japanese`` (default) keeps
+    # Ehviewer-style naming, ``english`` prefers the romaji/English title.
+    download_title: str = "japanese"
     use_hah: bool = True
     download_concurrency: int = 2
     # Pages fetched in parallel per gallery. H@H nodes limit concurrent
@@ -114,6 +118,8 @@ class Settings(BaseSettings):
             raise ValueError("configure only one proxy")
         if self.download_quality not in {"original", "resample"}:
             raise ValueError("download_quality must be 'original' or 'resample'")
+        if self.download_title not in {"japanese", "english"}:
+            raise ValueError("download_title must be 'japanese' or 'english'")
         if self.title_display not in {"japanese", "english", "directory"}:
             raise ValueError("title_display must be 'japanese', 'english', or 'directory'")
         if self.telegram_notify_level not in {"summary", "immediate", "failures_only", "off"}:
@@ -191,6 +197,7 @@ EDITABLE_SETTINGS = {
         "download_concurrency",
         "page_concurrency",
         "download_quality",
+        "download_title",
         "use_hah",
         "image_download_timeout_seconds",
         "image_slow_warmup_seconds",

@@ -67,19 +67,63 @@ class DownloadClient(Protocol):
 
 def safe_title(title: str) -> str:
     value = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", title).strip(" .")
-    return value[:180] or "gallery"
+    return value or "gallery"
 
 
-def gallery_dirname(gid: int, title_jpn: str | None, title: str | None) -> str:
-    """Ehviewer-style download folder: ``<gid>-<japanese title>``.
+def _truncate_utf8(value: str, limit: int = 255) -> str:
+    """Truncate ``value`` to at most ``limit`` UTF-8 bytes (filename limit).
 
-    Matches Ehviewer's ``gid + "-" + getSuitableTitle`` default so downloaded
-    directories look like the examples in ``TEMP``.
+    Drops a trailing partial multibyte character so the result is always a
+    valid, decodable string (CJK titles can otherwise exceed the filesystem
+    filename limit).
     """
-    suitable = (title_jpn or title or "").strip()
+    data = value.encode("utf-8")
+    if len(data) <= limit:
+        return value
+    return data[:limit].decode("utf-8", "ignore")
+
+
+def gallery_dirname(
+    gid: int, title_jpn: str | None, title: str | None, mode: str = "japanese"
+) -> str:
+    """Ehviewer-style download folder: ``<gid>-<title>``.
+
+    ``mode`` follows the download-title setting: ``japanese`` picks the
+    Japanese title first (the default, matching Ehviewer's ``getSuitableTitle``
+    default), ``english`` the romaji/English title first. The whole name is
+    byte-truncated to 255 UTF-8 bytes so long CJK titles cannot overflow the
+    filesystem filename limit.
+    """
+    mode = (mode or "japanese").lower()
+    if mode == "english":
+        suitable = (title or title_jpn or "").strip()
+    else:
+        suitable = (title_jpn or title or "").strip()
     if suitable:
-        return f"{gid}-{safe_title(suitable)}"
+        return _truncate_utf8(f"{gid}-{safe_title(suitable)}")
     return str(gid)
+
+
+def _find_existing_dirname(root: Path, gid: int) -> str | None:
+    """Return the existing download dir for ``gid`` (longest ``<gid>-`` name), or None.
+
+    Mirrors Ehviewer_CN_SXJ's ``findDownloadDirname``: reusing the on-disk
+    folder keeps one directory per gid even when the title setting changes,
+    instead of orphaning or deleting the previous one.
+    """
+    prefix = f"{gid}-"
+    best: str | None = None
+    try:
+        for child in root.iterdir():
+            if (
+                child.is_dir()
+                and child.name.startswith(prefix)
+                and (best is None or len(child.name) > len(best))
+            ):
+                best = child.name
+    except OSError:
+        return None
+    return best
 
 
 def _existing_page_file(directory: Path, index: int) -> Path | None:
@@ -196,14 +240,24 @@ class Downloader:
             pages = pages[: task.max_pages]
         if progress is not None:
             await progress(0, len(pages))
-        self.root.mkdir(parents=True, exist_ok=True)
-        target = self.root / gallery_dirname(
-            gallery.gid, gallery.title_jpn, gallery.title
-        )
-        temp = self.root / f".gv-{task.gid}"
-        temp.mkdir(parents=True, exist_ok=True)
         settings = getattr(self.client, "settings", None)
         quality = (getattr(settings, "download_quality", None) or "resample").lower()
+        self.root.mkdir(parents=True, exist_ok=True)
+        # Reuse an existing `<gid>-` directory so re-downloads and download-title
+        # changes never orphan (or worse, delete) the previous folder — keeping
+        # one on-disk directory per gid like Ehviewer does.
+        existing = _find_existing_dirname(self.root, gallery.gid)
+        if existing is not None:
+            target = self.root / existing
+        else:
+            target = self.root / gallery_dirname(
+                gallery.gid,
+                gallery.title_jpn,
+                gallery.title,
+                mode=getattr(settings, "download_title", None) or "japanese",
+            )
+        temp = self.root / f".gv-{task.gid}"
+        temp.mkdir(parents=True, exist_ok=True)
         # A shared showkey holder: resolve_page seeds/refreshes it from the
         # first viewer HTML and the lightweight showpage API reuses it, so a
         # gallery does not re-fetch its gallery metadata between pages.
@@ -382,8 +436,13 @@ class Downloader:
         if manifest.exists():
             manifest.unlink()
         if target.exists():
-            shutil.rmtree(target)
-        temp.rename(target)
+            # Merge into the existing directory (already-downloaded pages were
+            # copied into temp during resume) instead of deleting it, so files
+            # a previous run or the user left behind are preserved.
+            shutil.copytree(temp, target, dirs_exist_ok=True)
+            shutil.rmtree(temp)
+        else:
+            temp.rename(target)
         return DownloadResult(
             gallery.gid,
             target,

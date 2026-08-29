@@ -144,6 +144,53 @@ def test_settings_api_exposes_configuration_groups(client: TestClient) -> None:
         key in data
         for key in ("library_roots", "exhentai_base_url", "download_root", "favorites_categories")
     )
+    assert data.get("download_title") == "japanese"
+
+
+def test_exhentai_test_endpoint_maps_status_codes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The login-test endpoint must answer with meaningful HTTP status codes."""
+    from galleryvault.app import main
+
+    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+
+    class FakeLogin:
+        def __init__(self) -> None:
+            self.result: tuple[str, str] = ("ok", "HTTP 200")
+
+        async def check_login(self) -> tuple[str, str]:
+            return self.result
+
+        async def aclose(self) -> None:
+            pass
+
+    fake = FakeLogin()
+    monkeypatch.setattr(main.app.state, "eh_client", fake)
+    real_settings = main._settings()
+    monkeypatch.setattr(
+        main,
+        "_settings",
+        lambda: real_settings.model_copy(
+            update={"exhentai_cookies": {"ipb_member_id": "12345"}}
+        ),
+    )
+
+    assert client.post("/api/settings/exhentai/test").status_code == 200
+    fake.result = ("not_logged_in", "HTTP 200")
+    assert client.post("/api/settings/exhentai/test").status_code == 401
+    fake.result = ("no_exhentai_access", "HTTP 200")
+    assert client.post("/api/settings/exhentai/test").status_code == 403
+    fake.result = ("failed", "ConnectError")
+    assert client.post("/api/settings/exhentai/test").status_code == 502
+
+    # No cookies configured → 400, never reaching the client.
+    monkeypatch.setattr(
+        main,
+        "_settings",
+        lambda: real_settings.model_copy(update={"exhentai_cookies": {}}),
+    )
+    assert client.post("/api/settings/exhentai/test").status_code == 400
 
 
 def test_settings_save_persists_auth_required(
