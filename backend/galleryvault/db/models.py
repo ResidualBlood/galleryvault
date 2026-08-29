@@ -286,3 +286,30 @@ class DownloadAttempt(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (Index("idx_download_attempts_task", "task_id"),)
+
+
+class BackgroundJob(Base):
+    """Persistent background-work queue (thumbnail generation, tag sync).
+
+    Replaces the in-memory ``asyncio.Queue`` workers so queued work survives a
+    restart and (later) multiple processes can safely claim jobs.  One row per
+    (``job_type``, ``gallery_id``); ``status`` is ``pending`` or ``claimed``.
+    ``lease_until`` expires a claimed row back into ``pending`` when the worker
+    that took it died.  ``attempts`` counts tag-sync network retries; completed
+    rows are deleted to keep the table small.
+    """
+
+    __tablename__ = "background_jobs"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    job_type: Mapped[str] = mapped_column(String(32))
+    gallery_id: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("job_type", "gallery_id"),
+        Index("idx_background_jobs_claim", "job_type", "status", "next_attempt_at", "id"),
+    )

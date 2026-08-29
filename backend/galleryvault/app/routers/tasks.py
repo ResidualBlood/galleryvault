@@ -7,15 +7,19 @@ suite's ``monkeypatch.setattr(main, ...)`` still takes effect).
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
 from galleryvault.app import main
-from galleryvault.db.repository import GalleryRepository
+from galleryvault.db.repository import BackgroundJobsRepository, GalleryRepository
 
 router = APIRouter()
+
+
+async def _clear_jobs(job_type: str) -> None:
+    async with main._settings_session() as session, session.begin():
+        await BackgroundJobsRepository(session).clear(job_type)
 
 
 @router.post("/api/scan", status_code=202)
@@ -125,19 +129,9 @@ async def cancel_background_task(task: str) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="Unknown task")
     main._request_cancel(task)
     if task == "tag-sync":
-        while not main.tag_sync_queue.empty():
-            try:
-                main.tag_sync_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        main.tag_sync_queued.clear()
+        await _clear_jobs("tag-sync")
     elif task == "thumbs":
-        while not main.thumb_queue.empty():
-            try:
-                main.thumb_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        main.thumb_queued.clear()
+        await _clear_jobs("thumbs")
     return {"task": task, "status": "cancelling"}
 
 
@@ -165,16 +159,14 @@ async def thumb_status() -> dict[str, object]:
 async def trigger_thumbnail_generation() -> dict[str, object]:
     """Queue every gallery missing thumbnails for background generation."""
     await main._seed_thumbnails()
+    queued = await main._jobs_count("thumb")
     main.thumb_state["running"] = True
     # Nothing to do: record a no-op completion so the manual trigger still shows
     # up in the activity log instead of silently doing nothing.
-    if main.thumb_queue.qsize() == 0 and not main.thumb_state.get("started_at"):
+    if queued == 0 and not main.thumb_state.get("started_at"):
         now = datetime.now(UTC).isoformat()
         main._record_task("thumbs", now, now, "success", reason="ok 0 / fail 0", done=0, total=0)
-    return {
-        "status": "running" if main.thumb_queue.qsize() else "started",
-        "queued": main.thumb_queue.qsize(),
-    }
+    return {"status": "running" if queued else "started", "queued": queued}
 
 
 @router.post("/api/tag-sync/start", status_code=202)
@@ -187,7 +179,7 @@ async def trigger_tag_sync() -> dict[str, object]:
             ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
             if not ids:
                 break
-            main._enqueue_tag_sync(ids)
+            await main._enqueue_tag_sync(ids)
             seeded += len(ids)
             last_id = ids[-1]
     # Nothing was queued: record a no-op completion so the manual trigger is

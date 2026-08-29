@@ -139,7 +139,8 @@ SPA fallback page. `test_scanners.py`, `test_p1_services.py`, and
 `test_latest_requirements.py` cover the library/scanning services. The tests
 run against a real PostgreSQL (the container's `DATABASE_URL`); the
 `db_isolated` autouse fixture stubs the DB-backed auth bootstrap and disables
-the background worker loops so they don't interfere with the test event loop.
+the background worker loops (including `_thumbnail_worker_loop`) so they
+don't interfere with the test event loop.
 
 ## Database migrations
 
@@ -158,7 +159,28 @@ moved coordinate-less galleries to `deleted`, `0011` added
 `download_tasks.max_pages` so partial/sample downloads survive the worker,
 `0012` added `favorite_items.file_size` for exact cloud-size estimates,
 `0015` added pg_trgm title indexes, and `0018` added `favorite_items.thumb`
-(cover URLs captured from the favorites listing).
+(cover URLs captured from the favorites listing). `0021` added the
+`background_jobs` table backing the thumbnail / tag-sync queues (see below).
+
+## Background job queues
+
+Thumbnail generation and tag sync use a **persistent queue** (`background_jobs`,
+one row per `(job_type, gallery_id)` with a `pending`/`claimed` status) instead
+of an in-memory `asyncio.Queue`, so queued work survives a restart and a future
+multi-process deployment can claim safely. `BackgroundJobsRepository` exposes
+`enqueue`/`enqueue_many` (idempotent via a unique constraint),
+`claim` (`FOR UPDATE SKIP LOCKED` + a `lease_until` that expires a row back to
+`pending` when the claiming worker died — recovered at worker start by
+`mark_stale`), `requeue` (retry, bumping `attempts`; `next_attempt_at` defers),
+`complete` (deletes the row) and `clear` (used by the cancel API). Tag-sync
+network-failure retries count down against the persisted `attempts` column, so
+a restart does not reset a poisoned gallery's retry budget.
+
+Related throughput improvements: download progress is batched to at most one
+`download_tasks` write every 20 pages / 5 s instead of once per page, the
+Chinese tag autocomplete (`search_zh`) and translation-table rebuilds run off
+the event loop, and the library scan's heavy work already runs in the
+threadpool via `run_in_threadpool`.
 
 ## Thumbnails
 
@@ -166,8 +188,9 @@ moved coordinate-less galleries to `deleted`, `0011` added
 a dedicated cache dir (`thumbnail_cache_dir`, default `/gv-cache/thumbs`, a
 volume mounted at `/gv-cache`) keyed by gallery id + page index. Animated
 formats become static first frames. Nothing is ever written into the gallery
-archives. A background worker (`_thumbnail_worker_loop`, 4 concurrent)
-generates every page for queued galleries; progress is exposed via
+archives. A background worker (`_thumbnail_worker_loop`, 4 concurrent) claims
+galleries from `background_jobs` (seeded at boot and after each download) and
+generates every missing page; progress is exposed via
 `GET /api/thumbs/status`. Gallery cover art and the detail-page thumbnail grid
 load `/api/galleries/{id}/thumb/{page}` instead of the full-size page.
 

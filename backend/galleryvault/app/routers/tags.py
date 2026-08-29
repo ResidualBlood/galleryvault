@@ -5,6 +5,7 @@ Tag search and translation endpoints.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from galleryvault.app import main
 from galleryvault.db.repository import GalleryRepository
@@ -26,9 +27,10 @@ async def tag_search(
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
-    # Chinese autocomplete: reverse-search the translation table.
+    # Chinese autocomplete: reverse-search the translation table.  This scans
+    # the whole table per request, so run it off the event loop.
     if zh and q and q.strip():
-        matched = search_zh(q, limit=page_size)
+        matched = await run_in_threadpool(search_zh, q, page_size)
         # Attach real usage counts for the matched (namespace, name) pairs.
         async with main._settings_session() as session:
             repo = GalleryRepository(session)

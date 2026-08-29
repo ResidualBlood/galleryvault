@@ -4,6 +4,7 @@ import contextlib
 import hmac
 import logging
 import re
+import time as _time
 from collections import deque
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,7 @@ from ..config import (
 from ..db.models import DownloadTask as DownloadTaskModel
 from ..db.models import Gallery, GalleryPage, GalleryTag, Tag
 from ..db.repository import (
+    BackgroundJobsRepository,
     DownloadRepository,
     FavoritesRepository,
     GalleryRepository,
@@ -110,9 +112,6 @@ tag_sync_state: dict[str, object] = {
     "category_refreshed": 0,
     "category_refresh_running": False,
 }
-tag_sync_queue: asyncio.Queue[int] = asyncio.Queue()
-tag_sync_queued: set[int] = set()
-tag_sync_attempts: dict[int, int] = {}
 tag_sync_holds: dict[int, int] = {}
 tag_sync_worker_task = None
 translation_update_task = None
@@ -167,8 +166,6 @@ thumb_state: dict[str, object] = {
     "completed_at": None,
     "history_recorded": False,
 }
-thumb_queue: asyncio.Queue[int] = asyncio.Queue()
-thumb_queued: set[int] = set()
 thumb_worker_task = None
 thumb_service: ThumbnailService | None = None
 
@@ -592,7 +589,7 @@ async def startup() -> None:
                 "thumbnail seeding failed", extra=log_extra(error=type(exc).__name__)
             )
     _ensure_translation_updater()
-    load_translations()
+    await asyncio.to_thread(load_translations)
     logger.info("GalleryVault started", extra=log_extra(library_roots=_settings().library_roots))
 
 
@@ -773,10 +770,9 @@ async def _ingest_downloaded_gallery(result) -> None:
                     select(Gallery.id).where(Gallery.gid == gallery.gid)
                 )
                 gallery_id = row.scalar_one_or_none()
-        if gallery_id is not None and gallery_id not in thumb_queued:
-            thumb_queued.add(gallery_id)
-            thumb_queue.put_nowait(gallery_id)
-            thumb_state["queued"] = thumb_queue.qsize()
+        if gallery_id is not None and _settings().generate_thumbnails:
+            await _enqueue_job(JOB_THUMB, gallery_id)
+            thumb_state["queued"] = await _jobs_count(JOB_THUMB)
         logger.info(
             "download ingested",
             extra=log_extra(gid=gallery.gid, path=str(path), pages=len(pages)),
@@ -894,7 +890,7 @@ async def _run_scan() -> None:
                                 )
                                 if not ids:
                                     break
-                                _enqueue_tag_sync(ids)
+                                await _enqueue_tag_sync(ids)
                                 last_id = ids[-1]
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
@@ -956,10 +952,85 @@ def _settings_session():
     return app.state.session_factory()
 
 
+# --- Persistent background-job queue (thumbnails, tag sync) ---------------
+# The queue itself lives in ``background_jobs`` so queued work survives a
+# restart and (later) multiple processes can claim safely.  These helpers wrap
+# the repository with a short transaction per operation.
+JOB_THUMB = BackgroundJobsRepository.JOB_THUMB
+JOB_TAG_SYNC = BackgroundJobsRepository.JOB_TAG_SYNC
 
 
+async def _jobs_count(job_type: str) -> int:
+    try:
+        async with _settings_session() as session:
+            return await BackgroundJobsRepository(session).count(job_type)
+    except Exception:  # noqa: BLE001 - stats must never break callers
+        return 0
 
 
+async def _claim_jobs(
+    job_type: str, limit: int = 1, *, lease_seconds: int = 600
+) -> list[tuple[int, int]]:
+    try:
+        async with _settings_session() as session, session.begin():
+            return await BackgroundJobsRepository(session).claim(
+                job_type, limit, lease_seconds=lease_seconds
+            )
+    except Exception as exc:  # noqa: BLE001 - one DB hiccup must not stop a worker
+        logger.warning(
+            "background job claim failed",
+            extra=log_extra(job_type=job_type, error=type(exc).__name__),
+        )
+        return []
+
+
+async def _complete_job(job_type: str, gallery_id: int) -> None:
+    try:
+        async with _settings_session() as session, session.begin():
+            await BackgroundJobsRepository(session).complete(job_type, gallery_id)
+    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+        logger.warning(
+            "background job completion failed",
+            extra=log_extra(job_type=job_type, gallery_id=gallery_id, error=type(exc).__name__),
+        )
+
+
+async def _requeue_job(
+    job_type: str, gallery_id: int, *, next_attempt_at: datetime | None = None
+) -> None:
+    try:
+        async with _settings_session() as session, session.begin():
+            await BackgroundJobsRepository(session).requeue(
+                job_type, gallery_id, next_attempt_at=next_attempt_at
+            )
+    except Exception as exc:  # noqa: BLE001 - a requeue loss is not fatal
+        logger.warning(
+            "background job requeue failed",
+            extra=log_extra(job_type=job_type, gallery_id=gallery_id, error=type(exc).__name__),
+        )
+
+
+async def _enqueue_job(job_type: str, gallery_id: int) -> bool:
+    try:
+        async with _settings_session() as session, session.begin():
+            return await BackgroundJobsRepository(session).enqueue(job_type, gallery_id)
+    except Exception as exc:  # noqa: BLE001 - enqueue must not break its caller
+        logger.warning(
+            "background job enqueue failed",
+            extra=log_extra(job_type=job_type, gallery_id=gallery_id, error=type(exc).__name__),
+        )
+        return False
+
+
+# --- Download progress batching -------------------------------------------
+# Persist progress at most every N pages or T seconds instead of once per page,
+# cutting download_tasks writes on long galleries by an order of magnitude.
+_PROGRESS_FLUSH_STEP = 20
+_PROGRESS_FLUSH_INTERVAL = 5.0
+
+# --- Background-job worker pacing -----------------------------------------
+_THUMB_POLL_INTERVAL = 1.0
+_THUMB_IDLE_SECONDS = 5.0
 
 
 def _db_error(exc: Exception) -> HTTPException:
@@ -989,10 +1060,24 @@ async def _run_download(task: DownloadTask) -> None:
             row.started_at = datetime.now(UTC)
         # Retry ownership lives in the persistent worker. The downloader makes
         # exactly one network attempt per claimed task attempt.
+        progress_state = {"last_persisted": 0, "last_flush": 0.0}
+
         async def _on_progress(current: int, total: int) -> None:
             if task.id is not None and task.id in _download_cancelled:
                 raise DownloadCancelledError("download was cancelled")
-            await _download_progress(task.id, current, total)
+            # Batch the DB writes: at most one commit per page on short
+            # galleries, throttled to one every 20 pages / 5s on long ones.
+            # The first write always lands so the UI shows progress at once.
+            now = _time.monotonic()
+            if (
+                current >= total
+                or progress_state["last_persisted"] == 0
+                or current - progress_state["last_persisted"] >= _PROGRESS_FLUSH_STEP
+                or now - progress_state["last_flush"] >= _PROGRESS_FLUSH_INTERVAL
+            ):
+                await _download_progress(task.id, current, total)
+                progress_state["last_persisted"] = current
+                progress_state["last_flush"] = now
 
         result = await app.state.downloader.execute(
             DownloadTask(
@@ -1232,18 +1317,17 @@ async def _download_retry_sweep_loop() -> None:
             )
 
 
-def _enqueue_tag_sync(gallery_ids: list[int]) -> int:
+async def _enqueue_tag_sync(gallery_ids: list[int]) -> int:
     """Queue gallery ids for background tag synchronization, de-duplicating."""
     added = 0
-    for gallery_id in gallery_ids:
-        if gallery_id not in tag_sync_queued:
-            tag_sync_queued.add(gallery_id)
-            tag_sync_queue.put_nowait(gallery_id)
-            added += 1
-    tag_sync_state["queued"] = tag_sync_queue.qsize()
+    for start in range(0, len(gallery_ids), 500):
+        chunk = gallery_ids[start : start + 500]
+        async with _settings_session() as session, session.begin():
+            added += await BackgroundJobsRepository(session).enqueue_many(JOB_TAG_SYNC, chunk)
     if added:
         current = int(tag_sync_state["total"] or 0)
         tag_sync_state["total"] = current + added
+        tag_sync_state["queued"] = await _jobs_count(JOB_TAG_SYNC)
     return added
 
 
@@ -1284,8 +1368,13 @@ async def _translation_update_once() -> bool:
     ok = False
     try:
         data = await _fetch_translation_db()
-        load_translations(reset=True)
-        entries = merge_translation_data(data)
+        # Building the translation table is regex/JSON heavy: run it off the
+        # event loop so an update never stalls API responses.
+        def _apply_translations() -> int:
+            load_translations(reset=True)
+            return merge_translation_data(data)
+
+        entries = await asyncio.to_thread(_apply_translations)
         translation_state["entries"] = entries
         translation_state["last"] = datetime.now(UTC).isoformat()
         translation_state["last_error"] = None
@@ -1350,6 +1439,14 @@ async def _tag_sync_worker_loop() -> None:
     avoid a ban instead of hammering a rate-limited endpoint.
     """
     logger.info("tag sync worker started")
+    # Reopen jobs whose claiming worker died before completing them.
+    try:
+        async with _settings_session() as session, session.begin():
+            await BackgroundJobsRepository(session).mark_stale()
+    except Exception as exc:  # noqa: BLE001 - recovery must not kill the worker
+        logger.warning(
+            "tag sync stale-recovery failed", extra=log_extra(error=type(exc).__name__)
+        )
     try:
         async with _settings_session() as session:
             last_id = 0
@@ -1358,13 +1455,14 @@ async def _tag_sync_worker_loop() -> None:
                 ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
                 if not ids:
                     break
-                _enqueue_tag_sync(ids)
+                await _enqueue_tag_sync(ids)
                 seeded += len(ids)
                 last_id = ids[-1]
             tag_sync_state["total"] = seeded + tag_sync_state["processed"]
     except Exception as exc:  # noqa: BLE001 - seeding must not kill the worker
         logger.warning("tag sync seeding failed", extra=log_extra(error=type(exc).__name__))
-    logger.info("tag sync seeded", extra=log_extra(queued=tag_sync_queue.qsize()))
+    tag_sync_state["queued"] = await _jobs_count(JOB_TAG_SYNC)
+    logger.info("tag sync seeded", extra=log_extra(queued=tag_sync_state["queued"]))
     tag_sync_state["running"] = True
     tag_sync_state["completed_at"] = None
     concurrency = max(1, _settings().tag_sync_concurrency)
@@ -1372,11 +1470,13 @@ async def _tag_sync_worker_loop() -> None:
     base_interval = max(0.1, float(_settings().tag_sync_interval_seconds))
     interval = [base_interval]
     success_streak = [0]
+    last_activity = [_time.monotonic()]
     MAX_BACKOFF = 60.0
     MAX_ATTEMPTS = 8
     MAX_TAG_SYNC_HOLDS = 120
+    _TAG_SYNC_IDLE_SECONDS = 5.0
 
-    async def _sync_one(gallery_id: int) -> bool | None:
+    async def _sync_one(gallery_id: int, attempts: int) -> bool | None:
         try:
             # Coordination with the favorites check: while a folder check is
             # running, its gdata batches are populating the metadata cache. A
@@ -1397,9 +1497,12 @@ async def _tag_sync_worker_loop() -> None:
                             cached_tags = bool(cached and cached.get("tags"))
                     if not cached_tags:
                         tag_sync_holds[gallery_id] = holds + 1
-                        tag_sync_queued.add(gallery_id)
-                        tag_sync_queue.put_nowait(gallery_id)
-                        tag_sync_state["queued"] = tag_sync_queue.qsize()
+                        await _requeue_job(
+                            JOB_TAG_SYNC,
+                            gallery_id,
+                            next_attempt_at=datetime.now(UTC) + timedelta(seconds=60),
+                        )
+                        tag_sync_state["queued"] = await _jobs_count(JOB_TAG_SYNC)
                         await asyncio.sleep(interval[0])
                         return False
                 tag_sync_holds.pop(gallery_id, None)
@@ -1415,7 +1518,7 @@ async def _tag_sync_worker_loop() -> None:
                     app.state.eh_client, GalleryRepository(session)
                 ).apply_plan(gallery_id, plan)
             tag_sync_state["succeeded"] += 1
-            tag_sync_attempts.pop(gallery_id, None)
+            await _complete_job(JOB_TAG_SYNC, gallery_id)
             success_streak[0] += 1
             if success_streak[0] >= 10 and interval[0] > base_interval:
                 interval[0] = max(base_interval, interval[0] / 2)
@@ -1434,8 +1537,8 @@ async def _tag_sync_worker_loop() -> None:
                     "could not mark deleted gallery synced",
                     extra=log_extra(gallery_id=gallery_id),
                 )
+            await _complete_job(JOB_TAG_SYNC, gallery_id)
             tag_sync_state["failed"] += 1
-            tag_sync_attempts.pop(gallery_id, None)
             logger.warning(
                 "tag sync skipped (gallery gone)",
                 extra=log_extra(gallery_id=gallery_id, error=str(exc)),
@@ -1450,13 +1553,12 @@ async def _tag_sync_worker_loop() -> None:
             if isinstance(exc, (EhClientError, asyncio.TimeoutError)):
                 interval[0] = min(MAX_BACKOFF, interval[0] * 2)
                 success_streak[0] = 0
-                attempts = tag_sync_attempts.get(gallery_id, 0) + 1
-                if attempts <= MAX_ATTEMPTS:
-                    tag_sync_attempts[gallery_id] = attempts
+                if attempts < MAX_ATTEMPTS:
                     tag_sync_state["retries"] += 1
-                    _enqueue_tag_sync([gallery_id])
+                    # attempt counter lives in the job row, so a restart does
+                    # not reset it and a poisoned gallery stops retrying.
+                    await _requeue_job(JOB_TAG_SYNC, gallery_id)
                     return
-            tag_sync_attempts.pop(gallery_id, None)
             # Retries are exhausted for a persistently failing gallery; mark it
             # attempted so it stops re-seeding the queue on every restart.
             try:
@@ -1467,48 +1569,54 @@ async def _tag_sync_worker_loop() -> None:
                     "could not mark failed gallery synced",
                     extra=log_extra(gallery_id=gallery_id),
                 )
+            await _complete_job(JOB_TAG_SYNC, gallery_id)
 
     async def _worker() -> None:
         while True:
             if _cancelled("tag-sync"):
                 break
-            try:
-                gallery_id = await asyncio.wait_for(tag_sync_queue.get(), timeout=5)
-            except TimeoutError:
-                tag_sync_state["queued"] = tag_sync_queue.qsize()
-                if tag_sync_queue.qsize() == 0 and tag_sync_state["running"]:
-                    tag_sync_state["completed_at"] = datetime.now(UTC).isoformat()
-                tag_sync_state["running"] = tag_sync_queue.qsize() > 0
+            claimed = await _claim_jobs(JOB_TAG_SYNC, 1)
+            if not claimed:
+                # Queue empty: reflect idle once the queue has been empty for a
+                # few seconds (mirrors the old wait_for(5s) timeouts).
                 if (
-                    not tag_sync_state["running"]
-                    and tag_sync_state.get("started_at")
-                    and not tag_sync_state["history_recorded"]
+                    _time.monotonic() - last_activity[0] >= _TAG_SYNC_IDLE_SECONDS
+                    and tag_sync_state["running"]
                 ):
-                    tag_sync_state["history_recorded"] = True
-                    _record_task(
-                        "tag-sync",
-                        tag_sync_state.get("started_at"),
-                        tag_sync_state["completed_at"],
-                        "success",
-                        reason=(
-                            f"ok {tag_sync_state.get('succeeded', 0)} "
-                            f"/ fail {tag_sync_state.get('failed', 0)}"
-                        ),
-                        done=int(tag_sync_state.get("processed") or 0),
-                        total=int(tag_sync_state.get("total") or 0),
-                    )
+                    tag_sync_state["completed_at"] = datetime.now(UTC).isoformat()
+                    tag_sync_state["queued"] = await _jobs_count(JOB_TAG_SYNC)
+                    tag_sync_state["running"] = False
+                    if (
+                        tag_sync_state.get("started_at")
+                        and not tag_sync_state["history_recorded"]
+                    ):
+                        tag_sync_state["history_recorded"] = True
+                        _record_task(
+                            "tag-sync",
+                            tag_sync_state.get("started_at"),
+                            tag_sync_state["completed_at"],
+                            "success",
+                            reason=(
+                                f"ok {tag_sync_state.get('succeeded', 0)} "
+                                f"/ fail {tag_sync_state.get('failed', 0)}"
+                            ),
+                            done=int(tag_sync_state.get("processed") or 0),
+                            total=int(tag_sync_state.get("total") or 0),
+                        )
+                await asyncio.sleep(1)
                 continue
-            tag_sync_queued.discard(gallery_id)
+            gallery_id, attempts = claimed[0]
+            last_activity[0] = _time.monotonic()
             if not tag_sync_state["running"] or not tag_sync_state.get("started_at"):
                 tag_sync_state["running"] = True
                 tag_sync_state["completed_at"] = None
                 tag_sync_state["started_at"] = datetime.now(UTC).isoformat()
                 tag_sync_state["history_recorded"] = False
             async with semaphore:
-                done = await _sync_one(gallery_id)
+                done = await _sync_one(gallery_id, attempts)
             if done is not False:
                 tag_sync_state["processed"] += 1
-            tag_sync_state["queued"] = tag_sync_queue.qsize()
+            tag_sync_state["queued"] = await _jobs_count(JOB_TAG_SYNC)
             tag_sync_state["interval"] = interval[0]
             await asyncio.sleep(interval[0])
 
@@ -2844,19 +2952,21 @@ async def _seed_thumbnails() -> None:
         )
         pairs = [(int(row[0]), int(row[1])) for row in rows if row[1]]
     service = _thumb_service()
-    added = 0
+    missing: list[int] = []
     missing_total = 0
     for gallery_id, page_count in pairs:
         if service.cached(gallery_id, 0) is not None:
             continue
         missing_total += 1
-        if gallery_id in thumb_queued:
-            continue
-        thumb_queued.add(gallery_id)
-        thumb_queue.put_nowait(gallery_id)
-        added += 1
+        missing.append(gallery_id)
+    added = 0
+    for start in range(0, len(missing), 500):
+        async with _settings_session() as session, session.begin():
+            added += await BackgroundJobsRepository(session).enqueue_many(
+                JOB_THUMB, missing[start : start + 500]
+            )
     thumb_state["total"] = missing_total
-    thumb_state["queued"] = thumb_queue.qsize()
+    thumb_state["queued"] = await _jobs_count(JOB_THUMB)
     if added:
         thumb_state["running"] = True
         thumb_state["completed_at"] = None
@@ -2868,41 +2978,54 @@ async def _seed_thumbnails() -> None:
 async def _thumbnail_worker_loop() -> None:
     concurrency = 4
     thumb_state["running"] = True
+    last_activity = [_time.monotonic()]
+    # Reopen jobs whose claiming worker died before completing them.
+    try:
+        async with _settings_session() as session, session.begin():
+            await BackgroundJobsRepository(session).mark_stale()
+    except Exception as exc:  # noqa: BLE001 - recovery must not kill the worker
+        logger.warning(
+            "thumbnail stale-recovery failed", extra=log_extra(error=type(exc).__name__)
+        )
 
     async def _worker() -> None:
         while True:
             if _cancelled("thumbs"):
                 break
-            try:
-                gallery_id = await asyncio.wait_for(thumb_queue.get(), timeout=5)
-            except TimeoutError:
-                # Queue drained: reflect idle so the task-progress UI hides, but
-                # keep the finished progress visible.
-                if thumb_queue.qsize() == 0 and thumb_state["running"]:
-                    thumb_state["completed_at"] = datetime.now(UTC).isoformat()
-                thumb_state["running"] = thumb_queue.qsize() > 0
-                thumb_state["queued"] = thumb_queue.qsize()
+            claimed = await _claim_jobs(JOB_THUMB, 1)
+            if not claimed:
+                # Queue drained: reflect idle once it has been empty for a few
+                # seconds (mirrors the old wait_for(5s) timeout) so the
+                # task-progress UI hides, but keep the finished progress visible.
                 if (
-                    not thumb_state["running"]
-                    and thumb_state.get("started_at")
-                    and not thumb_state["history_recorded"]
+                    _time.monotonic() - last_activity[0] >= _THUMB_IDLE_SECONDS
+                    and thumb_state["running"]
                 ):
-                    thumb_state["history_recorded"] = True
-                    _record_task(
-                        "thumbs",
-                        thumb_state.get("started_at"),
-                        thumb_state["completed_at"],
-                        "success",
-                        reason=(
-                            f"ok {thumb_state.get('succeeded', 0)} "
-                            f"/ fail {thumb_state.get('failed', 0)}"
-                        ),
-                        done=int(thumb_state.get("succeeded") or 0)
-                        + int(thumb_state.get("failed") or 0),
-                        total=int(thumb_state.get("total") or 0),
-                    )
+                    thumb_state["completed_at"] = datetime.now(UTC).isoformat()
+                    thumb_state["queued"] = await _jobs_count(JOB_THUMB)
+                    thumb_state["running"] = False
+                    if (
+                        thumb_state.get("started_at")
+                        and not thumb_state["history_recorded"]
+                    ):
+                        thumb_state["history_recorded"] = True
+                        _record_task(
+                            "thumbs",
+                            thumb_state.get("started_at"),
+                            thumb_state["completed_at"],
+                            "success",
+                            reason=(
+                                f"ok {thumb_state.get('succeeded', 0)} "
+                                f"/ fail {thumb_state.get('failed', 0)}"
+                            ),
+                            done=int(thumb_state.get("succeeded") or 0)
+                            + int(thumb_state.get("failed") or 0),
+                            total=int(thumb_state.get("total") or 0),
+                        )
+                await asyncio.sleep(_THUMB_POLL_INTERVAL)
                 continue
-            thumb_queued.discard(gallery_id)
+            gallery_id = claimed[0][0]
+            last_activity[0] = _time.monotonic()
             if not thumb_state["running"] or not thumb_state.get("started_at"):
                 thumb_state["running"] = True
                 thumb_state["completed_at"] = None
@@ -2923,13 +3046,12 @@ async def _thumbnail_worker_loop() -> None:
                     extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
                 )
             thumb_state["processed"] += 1
-            thumb_state["queued"] = thumb_queue.qsize()
+            await _complete_job(JOB_THUMB, gallery_id)
 
     workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
     try:
         await asyncio.gather(*workers)
     finally:
-        thumb_state["running"] = thumb_queue.qsize() > 0
         if _cancelled("thumbs"):
             thumb_state["running"] = False
             thumb_state["completed_at"] = datetime.now(UTC).isoformat()

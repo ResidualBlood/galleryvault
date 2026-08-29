@@ -52,6 +52,7 @@ def db_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
         "_download_worker_loop",
         "_download_retry_sweep_loop",
         "_tag_sync_worker_loop",
+        "_thumbnail_worker_loop",
     ):
         monkeypatch.setattr(main, _name, _noop)
     monkeypatch.setattr(main, "_ensure_translation_updater", lambda: None)
