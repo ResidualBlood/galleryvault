@@ -30,6 +30,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Login rate limiting no longer trusts the socket peer, which a client could
+  rewrite via `X-Forwarded-For` to rotate buckets and bypass the limit.** The
+  bucket now keys on the `X-Real-IP` header — nginx unconditionally overwrites
+  it with `$remote_addr`, so it cannot be spoofed through the proxy — and falls
+  back to the socket peer only for direct (header-less) access.
+  `forwarded-allow-ips` is narrowed to the private docker range
+  (`172.16.0.0/12,127.0.0.1`) so only the proxy can rewrite forwarded headers.
 - **Empty cached tags no longer wipe a gallery's local tags.** When the gdata
   metadata cache for a gallery had an empty `tags` list (stale or partial
   response), `apply_metadata_to_galleries` still ran the `delete(GalleryTag)`
