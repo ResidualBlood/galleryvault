@@ -387,11 +387,18 @@ async function checkAuth() {
 }
 
 async function doLogin(password) {
-  await fetch("/login", {
+  const res = await fetch("/login", {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: "password=" + encodeURIComponent(password || ""),
   });
+  if (!res.ok) {
+    app.authenticated = false;
+    $topbar().hidden = true;
+    toast(t("wrong"));
+    renderLogin();
+    return;
+  }
   await checkAuth();
   if (!app.authenticated) toast(t("wrong"));
 }
