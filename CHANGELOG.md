@@ -30,6 +30,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Looking up a gallery by id/gid no longer 500s when the two collide.** A
+  gallery is addressable by both its DB `id` and its ExHentai `gid`. When one
+  gallery's `id` numerically equalled another gallery's `gid`, the old
+  `OR`-combined `scalar_one_or_none()` lookup raised `MultipleResultsFound`
+  (HTTP 500). The identifier lookups (`_gallery`, `get_by_identifier`,
+  `get_for_tag_sync`) now query the primary key first and fall back to `gid`
+  only on a miss.
 - **Deleting a filter's results no longer breaks on huge libraries.** The
   library's "delete filtered" action used to resolve the whole filter into an
   id list on the client and POST it to `delete-bulk`, which could exceed
