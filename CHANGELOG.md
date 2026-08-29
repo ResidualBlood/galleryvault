@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Background work survives restarts**. Thumbnail generation and tag sync now
+  run off a persistent job queue in the database instead of in-memory lists, so
+  a container restart continues the remaining work instead of starting over.
+  Download progress is persisted in batches too (at most every 20 pages / 5 s)
+  instead of once per image, cutting database writes on long galleries by an
+  order of magnitude — the Downloads page still shows live progress.
 - **Downloads: pages-in-parallel is now a tunable setting**. `page_concurrency`
   (default 4, range 1–16) replaces the hardcoded 8. H@H nodes cap concurrent
   connections per source IP (~4–6), so a high value tripped the cap on lossy
