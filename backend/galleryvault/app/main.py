@@ -124,6 +124,7 @@ favorites_check_state: dict[str, object] = {
     "started_at": None,
     "completed_at": None,
     "history_recorded": False,
+    "skip_counts": {},
 }
 duplicates_state: dict[str, object] = {
     "running": False,
@@ -2454,6 +2455,36 @@ async def _favorite_size_sync(favcat: int) -> None:
 
 
 
+FAVORITES_SKIP_LIMIT = 5
+
+
+def _favorites_skip_decision(
+    skip_count: int,
+    *,
+    scheduled: bool,
+    category_ready: bool,
+    live_count: int,
+    known: int,
+) -> tuple[bool, int]:
+    """Pure decision + next counter for the scheduled favorites skip heuristic.
+
+    Returns ``(should_skip, next_skip_count)``.  A scheduled poll of a folder
+    that was previously checked successfully skips the full re-list while the
+    cloud count equals the locally known gid count — but only
+    ``FAVORITES_SKIP_LIMIT - 1`` times in a row.  The poll that would be the
+    Nth consecutive skip instead forces a full pass and resets the counter, so
+    an equal-count favorite replacement (remove one favorite, add another,
+    cloud count unchanged) is still detected.  Manual "check now" and any count
+    mismatch always run a full pass (counter reset).
+    """
+    if not scheduled or not category_ready or live_count <= 0 or known != live_count:
+        return False, 0
+    next_count = skip_count + 1
+    if next_count >= FAVORITES_SKIP_LIMIT:
+        return False, 0
+    return True, next_count
+
+
 async def _run_favorites_check(
     favcat: int, service: FavoritesService, *, scheduled: bool = False
 ) -> None:
@@ -2493,7 +2524,17 @@ async def _run_favorites_check(
             try:
                 async with _settings_session() as session:
                     known = await FavoritesRepository(session).count_known_gids(favcat)
-                if live_count > 0 and known == live_count:
+                skip_counts = favorites_check_state["skip_counts"]
+                assert isinstance(skip_counts, dict)
+                should_skip, next_skip = _favorites_skip_decision(
+                    int(skip_counts.get(str(favcat), 0)),
+                    scheduled=True,
+                    category_ready=True,
+                    live_count=live_count,
+                    known=known,
+                )
+                skip_counts[str(favcat)] = next_skip
+                if should_skip:
                     entry["done"] = entry["total"] = live_count
                     entry["skipped"] = True
                     async with _settings_session() as session, session.begin():
