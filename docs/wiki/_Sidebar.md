@@ -1,0 +1,10 @@
+**📖 GalleryVault**
+- [首页](Home) · [English](Home-EN)
+- [部署](Deployment) · [Deployment](Deployment-EN)
+- [使用指南](Usage) · [Usage](Usage-EN)
+- [备份与恢复](Backup) · [Backup](Backup-EN)
+- [静态加密](Encryption) · [Encryption](Encryption-EN)
+- [API 参考](API) · [API (EN)](API)
+- [开发指南](Development) · [Development (EN)](Development)
+- [常见问题](FAQ) · [FAQ](FAQ-EN)
+- [界面截图](Screenshots) · [Screenshots](Screenshots-EN)
