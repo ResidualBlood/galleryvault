@@ -65,6 +65,14 @@ docker compose up -d
 
 > The JSON API is available at **http://\<host\>:8001**.
 
+### Obtaining the ExHentai cookies (`ipb_member_id` / `ipb_pass_hash` / `igneous`)
+
+1. Log in to **e-hentai.org** in your browser (an e-hentai account is required).
+2. Press `F12` → **Application → Storage → Cookies → https://e-hentai.org**.
+3. Copy the values of **`ipb_member_id`** (your user id) and **`ipb_pass_hash`** (your session hash).
+4. To also access **exhentai.org** (the "里站": unhidden galleries / restricted areas), copy **`igneous`** from the Cookies of `https://exhentai.org` in a session that has exhentai access — this cookie only exists for accounts granted access; skip it if you only use the public mirror.
+5. Enter the three values in *Settings → ExHentai* (or the first-run wizard) and verify with *Test login*; cookies are stored encrypted and never echoed back.
+
 ### Recommended workflow
 
 1. **Log in to ExHentai**: Settings → ExHentai, fill in `ipb_member_id` /
@@ -148,6 +156,8 @@ Other formats:
 | `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache` |
 
 Library roots (one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
+
+> **Permissions**: the backend container runs as the `app` user (uid **10001**). Before mounting an existing directory into compose or putting archives into `./library` / `./downloads`, make sure the host directory is **readable** by uid 10001 (writable too if you want gallery deletion to remove files): run `chown -R 10001:10001 ./library ./downloads` before the first `docker compose up`. `./cache` is handled automatically at startup; **`./db-data` belongs to postgres (uid 999) — never chown it**.
 
 ## Upgrading
 
