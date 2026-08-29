@@ -41,6 +41,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   submitted value and the Settings-page checkbox was dead UI since v1.0.0
   (defaults kept login always on, so it went unnoticed). The toggle now
   persists to `user_settings` and takes effect immediately.
+- **Frontend proxy: the backend is now resolved over IPv4 only**. The compose
+  network can carry IPv6 while the backend listens on IPv4 only (uvicorn
+  `--host 0.0.0.0`); the nginx `proxy_pass http://backend:8001` resolved the
+  service name once at startup and tried the container's IPv6 address first,
+  failing until nginx fell back to IPv4. After every container upgrade/restart
+  this produced a burst of `connect() failed` in the nginx logs and intermittent
+  502s on the login page — which the SPA reported as "wrong password" even for
+  a correct one, because `doLogin` never checks the `/login` response status
+  (a failed POST means no session cookie, so the follow-up session check
+  returns 401 and the UI shows the "wrong password" toast). The proxy now
+  re-resolves the backend per request through Docker's DNS with
+  `resolver 127.0.0.11 ipv6=off valid=5s` plus a variable `proxy_pass`, so it
+  always uses the reachable IPv4 address.
 
 ## [1.2.13] - 2026-08-28
 
