@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Smart search box: mixed tag + text queries**. The library search box now
+  accepts free-form combos like `动图 中国` and splits them automatically:
+  explicit `ns:name` tokens, Chinese words that map one-to-one onto a tag
+  translation (e.g. `动图` → `misc:animated`), and English words that are exact
+  tag names all become tag filters (AND), while the rest stays a title keyword.
+  The API normalizes the query and the UI adopts the canonical `q`+`tags` form.
 - **Multi-tag library search**. The library now supports filtering by several
   tags at once (all must match, `tag_mode=and`). Tag suggestions, tags on the
   gallery detail page and tags in the tag cloud all **append** to the active
