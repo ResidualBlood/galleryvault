@@ -84,6 +84,8 @@ docker compose up -d
 - 跨平台移植：[**EhViewer-Apple**](https://github.com/felixchaos/EhViewer-Apple)（iOS/macOS）、[**Ehviewer_OHOS**](https://github.com/suibianqwe/Ehviewer_OHOS)（鸿蒙）。
 - 周边工具（生成/读取 `.ehviewer`）：[**LRReader**](https://github.com/Xslx98/LRReader)（Android·LANraragi 客户端）、[**exhentai-manga-manager**](https://github.com/SchneeHertz/exhentai-manga-manager)、[**ehviewer_manga_manager**](https://github.com/Schweik7/ehviewer_manga_manager)（Python CLI）、[**LANraragi**](https://github.com/Difegue/LANraragi) 的 `Ehviewer.pm` 元数据插件。
 
+下载器写画廊目录时还会额外生成 `.galleryvault.json`（category/title/tags）作为元数据 sidecar，扫描与重建可读取，不影响 `.ehviewer` 兼容格式。
+
 其余格式：
 
 - **[JHenTai](https://github.com/jiangtian616/JHenTai)**（全平台 Flutter，Android/iOS/Windows/macOS/Linux）下载目录**原生支持**：`<gid> - <标题>/` + `metadata` JSON（含 gid/token/标签/分类/uploader/发布时间），扫描直接还原完整身份。**该格式支持较新，尚未被大量真实数据验证**，如遇解析异常请提交 issue 附上样例 `metadata`。
