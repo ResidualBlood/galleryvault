@@ -17,9 +17,13 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Tag cloud and search** — namespaced tags, a frequency-weighted tag cloud and
   live search suggestions; **click any tag (in the tag cloud or on the gallery
   detail page) to filter the library to every gallery carrying it**.
+- **Multi-tag & mixed search** — clicking tags **stacks** the filter (all must
+  match, AND); the search box accepts a free-form combo such as `动图 中国` and
+  splits it automatically (tag `animated` + keyword); the gallery detail page
+  offers a one-click **Open on ExHentai** link built from the configured base URL.
 - **Tag translations** — Pulls the latest EhTagTranslation database; Chinese input reverse-matches the translation table (typing 巨乳 suggests `big breasts`).
 - **Bilingual interface** — Full English and Chinese interface, switchable at any time; tags render their translations in the Chinese view.
-- **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery.
+- **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery. With the **public mirror** (`e-hentai.org`) configured, ExHentai-only galleries *pause* tag sync instead of being misclassified as deleted, and resume automatically when the base URL switches back to `exhentai.org`.
 - **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry. Failed tasks **self-heal with an exponential backoff** (30s → 6h, up to 10 attempts), so a long gallery interrupted by network flakiness resumes on its own. Finished downloads are **ingested into the index immediately** (tags and cover included — no full library scan).
 - **Duplicate-copy cleanup** — When the same gallery (gid) exists under several scan roots, a `duplicate_policy` (keep-first / more pages / newer / larger / smaller / manual) keeps one copy automatically and lists every other copy on a *Duplicate copies* page (thumbnail, tags, page count, size, posted date) where you can keep one or keep-and-delete the rest from disk.
 - **Favorites monitor & management** — Watches the ten ExHentai favorite folders and auto-downloads missing galleries; per-folder lists, duplicate scan with ignore/restore.
