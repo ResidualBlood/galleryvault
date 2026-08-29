@@ -122,13 +122,17 @@ def parse_login_state(
     - a request without cookies returns an empty body (anti-bot challenge)
     - a Sad-Panda / IP-banned page has no content at all
 
-    Returns one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access``.
-    ``member_id`` / ``has_cookies`` are kept for signature compatibility but
-    are no longer part of the classification.
+    Returns one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
+    ``failed``.  An empty body is an anti-bot challenge or a transient glitch,
+    not a dead session, so it is classified ``failed`` (a retry, not a cookie
+    reset).  ``member_id`` / ``has_cookies`` are kept for signature
+    compatibility but are no longer part of the classification.
     """
     if _is_auth_failure_page(body):
         return "no_exhentai_access"
-    if body and "expired login session" not in body:
+    if not body:
+        return "failed"
+    if "expired login session" not in body:
         return "ok"
     return "not_logged_in"
 

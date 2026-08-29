@@ -161,8 +161,9 @@ async def test_check_login_reports_not_logged_in() -> None:
 
 
 @pytest.mark.asyncio
-async def test_check_login_empty_body_is_not_logged_in() -> None:
-    """An empty HTTP 200 (anti-bot challenge / no cookies) is not a login."""
+async def test_check_login_empty_body_reports_failed() -> None:
+    """An empty HTTP 200 (anti-bot challenge) is a retryable failure, not a
+    dead session: it must surface as ``failed``, never ``not_logged_in``."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/uconfig.php"
@@ -181,7 +182,7 @@ async def test_check_login_empty_body_is_not_logged_in() -> None:
             ),
         )
         state, _ = await client.check_login()
-        assert state == "not_logged_in"
+        assert state == "failed"
 
 
 @pytest.mark.asyncio
@@ -259,10 +260,11 @@ def test_parse_login_state() -> None:
     assert parse_login_state("user id 12345 logged in", "12345") == "ok"
     # ExHentai's own expired-session marker answers HTTP 200 with this body.
     assert parse_login_state("expired login session", "12345") == "not_logged_in"
-    # An empty body (anti-bot challenge / no cookies) is not logged in.
-    assert parse_login_state("", "12345") == "not_logged_in"
+    # An empty body is an anti-bot challenge / transient glitch: retry, don't
+    # report a dead session (which would prompt a pointless cookie reset).
+    assert parse_login_state("", "12345") == "failed"
     # has_cookies no longer overrides the body classification.
-    assert parse_login_state("", "12345", has_cookies=True) == "not_logged_in"
+    assert parse_login_state("", "12345", has_cookies=True) == "failed"
     # Sad-Panda / banned pages carry no content.
     assert parse_login_state("Sad Panda\n", "12345") == "no_exhentai_access"
 

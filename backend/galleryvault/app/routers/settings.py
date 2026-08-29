@@ -46,7 +46,8 @@ async def settings_test_exhentai() -> JSONResponse:
         )
     if state == "failed":
         return JSONResponse(
-            {"status": "failed", "message": f"ExHentai 请求失败：{detail}"}, status_code=502
+            {"status": "failed", "message": f"ExHentai 请求失败或反爬挑战（{detail}）"},
+            status_code=502,
         )
     return JSONResponse(
         {"status": "failed", "message": f"登录失败：cookie 无效或已过期（{detail}）"},
