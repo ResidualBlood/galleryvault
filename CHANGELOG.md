@@ -14,6 +14,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   proxy paths and flooded logs with `ConnectError`; lowering it keeps downloads
   stable on any line. Exposed in the Settings page under Downloads.
 
+### Changed
+
+- **Slow-H@H-node watchdog defaults relaxed**. `image_slow_warmup_seconds` is
+  now 30 (was 10) and `image_min_speed_kb_s` is now 20 (was 50). The old 10s
+  warm-up was too short for slow-starting connections over a proxy tunnel and
+  the 50 KB/s floor falsely aborted pages that would have completed; 6 KB/s
+  throttles are still caught. A throttled H@H node no longer fails a whole
+  gallery with a single page left.
+
 ### Fixed
 
 - **Downloads: `showpage` network errors are now wrapped as retryable
