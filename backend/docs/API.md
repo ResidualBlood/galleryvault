@@ -66,6 +66,7 @@ curl -b cookies.txt http://localhost:8001/api/settings
   "http_proxy": null, "socks5_proxy": null,
   "download_root": "/downloads",
   "download_concurrency": 2,
+  "page_concurrency": 4,
   "download_quality": "resample",
   "use_hah": false,
   "image_download_timeout_seconds": 120,
