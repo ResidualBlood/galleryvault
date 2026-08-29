@@ -30,6 +30,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Cloud favorite-removal failures now surface on the Logs page.** Previously
+  `remove_favorites` sent every gid in one POST and raised on any non-2xx, so a
+  partial failure left no trace of which gids failed. It now chunks requests
+  (25/batch, ExHentai's cap), degrades a failed batch to per-gid retries, and
+  returns the list of gids that could not be removed; the API response gains a
+  `cloud_failed` field and the Logs entry appends `cloud remove failed N:
+  gid1,…` with a `failed` status when any gid (cloud or local) fails.
 - **Login rate limiting no longer trusts the socket peer, which a client could
   rewrite via `X-Forwarded-For` to rotate buckets and bypass the limit.** The
   bucket now keys on the `X-Real-IP` header — nginx unconditionally overwrites
