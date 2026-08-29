@@ -646,6 +646,39 @@ async def test_telegram_bot_uses_mock_transport_and_allowed_user() -> None:
 
 
 @pytest.mark.asyncio
+async def test_telegram_bot_status_reply_uses_force() -> None:
+    """/status must force the reply through the chat_ids allowlist.
+
+    The real TelegramNotifier drops non-forced messages to chats that are not
+    listed in telegram_chat_ids, so /pause, /resume, /queued and /status all
+    pass force=True — a bot reply must never be swallowed by the notify
+    allowlist even when the operator did not add their chat to it.
+    """
+
+    class Notifier:
+        def __init__(self):
+            self.calls: list[tuple[str, int, bool]] = []
+
+        async def send_message(self, text, chat_id=None, force=False):
+            self.calls.append((text, chat_id, force))
+
+    queue = type("Queue", (), {"enqueue": None})()
+    notifier = Notifier()
+    settings = Settings(
+        telegram_bot_token="secret", telegram_allowed_user_ids=[7], telegram_notify_lang="en"
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: None)) as client:
+        bot = TelegramBotService(settings, client=client, queue=queue, notifier=notifier)
+        await bot.handle_update({"message": {"from": {"id": 7}, "text": "/status", "chat": {"id": 7}}})
+        await bot.handle_update({"message": {"from": {"id": 7}, "text": "/resume", "chat": {"id": 7}}})
+        assert [c[2] for c in notifier.calls] == [True, True]
+        assert [c[0] for c in notifier.calls] == [
+            "📋 GalleryVault downloads are running",
+            "▶️ Downloads resumed",
+        ]
+
+
+@pytest.mark.asyncio
 async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         # Any further gallery sub-page is empty: the gallery has only 2 pages.

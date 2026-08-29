@@ -56,7 +56,7 @@ class TelegramBotService:
             self.paused = False
             await self.notifier.send_message(bot_resumed(lang), chat_id, force=True)
         elif text == "/status":
-            await self.notifier.send_message(bot_status(self.paused, lang), chat_id)
+            await self.notifier.send_message(bot_status(self.paused, lang), chat_id, force=True)
         else:
             try:
                 gid, token = parse_gallery_url(text, self.settings.exhentai_base_url)
