@@ -1,0 +1,34 @@
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends unrar-free tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+# Run the server as an unprivileged user (see entrypoint.sh, which chowns the
+# writable mount roots and drops privileges before starting uvicorn).
+RUN useradd --uid 10001 --create-home app
+# Dependencies first: this layer is cached unless requirements.txt changes,
+# so code-only edits rebuild in seconds instead of re-installing everything.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml README.md ./
+COPY galleryvault ./galleryvault
+COPY alembic.ini ./
+COPY alembic ./alembic
+COPY entrypoint.sh /app/entrypoint.sh
+# Slim the image: the stdlib ships idle/tk modules this app never uses, and
+# __pycache__ can be dropped (Python regenerates/skips it at runtime). pip is
+# kept on purpose — the documented dev workflow reinstalls dev deps inside the
+# test container with `pip install -e ".[dev]"`.
+RUN pip install --no-cache-dir --no-deps . \
+    && chmod +x /app/entrypoint.sh \
+    && find /usr/local/lib/python3.12 -type d -name __pycache__ -prune -exec rm -rf {} + \
+    && rm -rf /usr/local/lib/python3.12/idlelib \
+              /usr/local/lib/python3.12/turtledemo \
+              /usr/local/lib/python3.12/tkinter \
+              /usr/local/lib/python3.12/test \
+              /usr/local/lib/python3.12/lib2to3 \
+    && find /usr/local/lib/python3.12/lib-dynload -name "_tkinter*" -delete \
+    && rm -f /usr/local/bin/idle3 /usr/local/bin/idle3.12
+EXPOSE 8001
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,0 +1,96 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, dev]
+
+env:
+  PYTHON_VERSION: "3.12"
+  # Multi-arch image manifest. All deps have wheels for these two platforms, so
+  # the Dockerfile stays single-stage (no source compiles).
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: galleryvault
+          POSTGRES_PASSWORD: galleryvault
+          POSTGRES_DB: galleryvault
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U galleryvault -d galleryvault"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Migrate database
+        env:
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: alembic upgrade head
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test (with coverage gate)
+        env:
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: pytest -q -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
+
+  build-push:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    needs: [secrets-scan, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch builds under emulation)
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}
+            ${{ github.ref_type == 'tag' && format('{0}/galleryvault-backend:{1}', secrets.DOCKERHUB_USERNAME, github.ref_name) || '' }}
+          platforms: ${{ env.PLATFORMS }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
