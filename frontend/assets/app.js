@@ -61,7 +61,7 @@ const I18N = {
     downloadRootHint: "Download directory: newly downloaded ExHentai galleries are stored here and scanned automatically.",
     cookiesNote: "Cookies are never displayed after saving.",
     proxyHttp: "HTTP proxy", proxySocks5: "SOCKS5 proxy",
-    downloadRoot: "Download root", concurrency: "Concurrency", quality: "Quality",
+    downloadRoot: "Download root", concurrency: "Concurrency", pageConcurrency: "Pages in parallel", quality: "Quality",
     qualityOriginal: "Original (原图)", qualityResample: "Resample (普通)",
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
@@ -168,7 +168,7 @@ const I18N = {
     downloadRootHint: "下载目录：新从 ExHentai 下载的画廊存放于此，并自动纳入扫描。",
     cookiesNote: "Cookie 保存后不会回显。",
     proxyHttp: "HTTP 代理", proxySocks5: "SOCKS5 代理",
-    downloadRoot: "下载根目录", concurrency: "并发数", quality: "画质",
+    downloadRoot: "下载根目录", concurrency: "并发数", pageConcurrency: "单画廊并发页数", quality: "画质",
     qualityOriginal: "原图 (Original)", qualityResample: "重采样 (Resample)",
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
@@ -1226,6 +1226,7 @@ async function renderSettings() {
           ${field(t("downloadRoot"), `<input name="download_root" value="${esc(s.download_root || "")}">`)}
           <p class="notice">${esc(t("downloadRootHint"))}</p>
           ${field(t("concurrency"), `<input name="download_concurrency" type="number" min="1" max="32" value="${s.download_concurrency != null ? s.download_concurrency : 2}">`)}
+          ${field(t("pageConcurrency"), `<input name="page_concurrency" type="number" min="1" max="16" value="${s.page_concurrency != null ? s.page_concurrency : 4}">`)}
           ${field(t("quality"), `<select name="download_quality">
             <option value="original"${(s.download_quality || "resample") === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
             <option value="resample"${(s.download_quality || "resample") === "resample" ? " selected" : ""}>${esc(t("qualityResample"))}</option>
@@ -1325,6 +1326,7 @@ function collectSettings(form) {
     socks5_proxy: val("socks5_proxy"),
     download_root: val("download_root"),
     download_concurrency: Math.min(32, Math.max(1, num("download_concurrency", 2))),
+    page_concurrency: Math.min(16, Math.max(1, num("page_concurrency", 4))),
     download_quality: val("download_quality") || "resample",
     title_display: val("title_display") || "japanese",
     image_download_timeout_seconds: Math.max(1, Math.round(num("image_download_timeout_seconds", 120))),
