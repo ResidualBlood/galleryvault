@@ -71,7 +71,7 @@ curl -b cookies.txt http://localhost:8001/api/settings
   "use_hah": false,
   "image_download_timeout_seconds": 120,
   "image_slow_warmup_seconds": 30,
-  "image_min_speed_kb_s": 20,
+  "image_min_speed_kb_s": 10,
   "title_display": "japanese",
   "favorites_categories": [0, 5],
   "download_favorites_enabled": false,
