@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Downloads: pages-in-parallel is now a tunable setting**. `page_concurrency`
+  (default 4, range 1–16) replaces the hardcoded 8. H@H nodes cap concurrent
+  connections per source IP (~4–6), so a high value tripped the cap on lossy
+  proxy paths and flooded logs with `ConnectError`; lowering it keeps downloads
+  stable on any line. Exposed in the Settings page under Downloads.
+
 ### Fixed
 
 - **Downloads: `showpage` network errors are now wrapped as retryable
