@@ -21,6 +21,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Multi-word search matches each word independently.** A query such as
+  `mimu gif` used to become a single contiguous `%mimu gif%` pattern, so a
+  gallery whose title contains both words separately (or in the other order)
+  was missed. Free-form text is now split on whitespace and every word must
+  appear in the title (each as its own substring, anywhere); single-token and
+  CJK-sentence searches behave as before.
+- **Gallery detail opens at your reading position.** Without an explicit
+  `?page=`, the page thumbnails now start on the pager page containing your
+  last reading progress (instead of always page 1), so returning from the
+  reader lands on the page you were viewing. An explicit `?page=` is still
+  honored; the detail thumbnails keep their default of 30 per page.
 - **Search no longer guesses tags from free-form text.** Typing an unrelated
   word used to be auto-promoted into a tag filter when it happened to match a
   local tag name (English) or a tag translation (Chinese), which could drop
