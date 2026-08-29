@@ -27,6 +27,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now offers "Not in favorites", showing local galleries whose gid is not in any
   ExHentai favorite folder (gid-less local archives count as not favorited).
   Pseudo-category `category=__not_fav__`; also honored by the filtered delete.
+- **Gallery updates (`#/updates`)** — detects local galleries that ExHentai
+  re-uploaded under a new gid (the favorites entry follows the new version, the
+  old local copy stays behind). A local gallery whose gid is not favorited but
+  whose normalized title matches a favorite item is listed with a check-box
+  row showing `old gid → new gid`; selecting rows and hitting "Update selected"
+  downloads the new version first, then removes the old local copy. Runs
+  automatically after every favorites check and can be triggered manually.
+  False positives can be ignored (like the duplicate-copy scan).
 
 ### Changed
 
