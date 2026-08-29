@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     download_quality: str = "resample"
     use_hah: bool = True
     download_concurrency: int = 2
+    # Pages fetched in parallel per gallery. H@H nodes limit concurrent
+    # connections per source IP (roughly 4-6), so defaulting low avoids a
+    # connect-error storm on lossy proxy paths; user-tunable via settings.
+    page_concurrency: int = 4
     # Watchdogs for slow H@H image nodes: a total wall-clock budget per image,
     # a minimum average throughput enforced after a short warm-up window, and
     # the warm-up itself.  A node that trickles a few KB/s without ever going
@@ -185,6 +189,7 @@ EDITABLE_SETTINGS = {
     "socks5_proxy",
         "download_root",
         "download_concurrency",
+        "page_concurrency",
         "download_quality",
         "use_hah",
         "image_download_timeout_seconds",

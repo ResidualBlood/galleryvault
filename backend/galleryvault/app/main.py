@@ -528,7 +528,10 @@ async def startup() -> None:
     client = EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency)
     app.state.eh_client = client
     app.state.downloader = Downloader(
-        client, _settings().download_root, concurrency=_settings().download_concurrency
+        client,
+        _settings().download_root,
+        concurrency=_settings().download_concurrency,
+        page_concurrency=_settings().page_concurrency,
     )
     app.state.telegram = TelegramNotifier(_settings())
     _start_telegram_bot()
@@ -1584,6 +1587,7 @@ class SettingsRequest(BaseModel):
     socks5_proxy: str | None = None
     download_root: str | None = None
     download_concurrency: int | None = Field(default=None, ge=1, le=32)
+    page_concurrency: int | None = Field(default=None, ge=1, le=16)
     download_quality: str | None = None
     use_hah: bool | None = None
     image_download_timeout_seconds: int | None = Field(default=None, ge=1)
@@ -1648,6 +1652,7 @@ def _settings_public() -> dict[str, object]:
         "socks5_proxy": current.socks5_proxy,
         "download_root": current.download_root,
         "download_concurrency": current.download_concurrency,
+        "page_concurrency": current.page_concurrency,
         "download_quality": current.download_quality,
         "use_hah": current.use_hah,
         "image_download_timeout_seconds": current.image_download_timeout_seconds,
@@ -1692,6 +1697,7 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "socks5_proxy",
         "download_root",
         "download_concurrency",
+        "page_concurrency",
         "download_quality",
         "use_hah",
         "image_download_timeout_seconds",
@@ -1739,7 +1745,10 @@ async def _refresh_services() -> None:
     client = EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency)
     app.state.eh_client = client
     app.state.downloader = Downloader(
-        client, _settings().download_root, concurrency=_settings().download_concurrency
+        client,
+        _settings().download_root,
+        concurrency=_settings().download_concurrency,
+        page_concurrency=_settings().page_concurrency,
     )
     app.state.telegram = TelegramNotifier(_settings())
     _start_telegram_bot()
