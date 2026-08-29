@@ -1236,8 +1236,8 @@ async function renderSettings() {
         <p class="notice">${esc(t("imageTimeoutHint"))}</p>
         <div class="form-grid">
           ${field(t("imageTimeout"), `<input name="image_download_timeout_seconds" type="number" min="1" value="${s.image_download_timeout_seconds != null ? s.image_download_timeout_seconds : 120}">`)}
-          ${field(t("imageWarmup"), `<input name="image_slow_warmup_seconds" type="number" min="1" value="${s.image_slow_warmup_seconds != null ? s.image_slow_warmup_seconds : 10}">`)}
-          ${field(t("imageMinSpeed"), `<input name="image_min_speed_kb_s" type="number" min="1" value="${s.image_min_speed_kb_s != null ? s.image_min_speed_kb_s : 50}">`)}
+          ${field(t("imageWarmup"), `<input name="image_slow_warmup_seconds" type="number" min="1" value="${s.image_slow_warmup_seconds != null ? s.image_slow_warmup_seconds : 30}">`)}
+          ${field(t("imageMinSpeed"), `<input name="image_min_speed_kb_s" type="number" min="1" value="${s.image_min_speed_kb_s != null ? s.image_min_speed_kb_s : 20}">`)}
         </div>
         <p class="notice">${esc(t("imageSlowHint"))}</p>
         <label class="checkbox"><input type="checkbox" name="use_hah"${s.use_hah ? " checked" : ""}> ${esc(t("useHah"))}</label>
@@ -1330,8 +1330,8 @@ function collectSettings(form) {
     download_quality: val("download_quality") || "resample",
     title_display: val("title_display") || "japanese",
     image_download_timeout_seconds: Math.max(1, Math.round(num("image_download_timeout_seconds", 120))),
-    image_slow_warmup_seconds: Math.max(1, Math.round(num("image_slow_warmup_seconds", 10))),
-    image_min_speed_kb_s: Math.max(1, Math.round(num("image_min_speed_kb_s", 50))),
+    image_slow_warmup_seconds: Math.max(1, Math.round(num("image_slow_warmup_seconds", 30))),
+    image_min_speed_kb_s: Math.max(1, Math.round(num("image_min_speed_kb_s", 20))),
     use_hah: form.use_hah.checked,
     download_favorites_enabled: form.download_favorites_enabled.checked,
     auto_sync_tags: form.auto_sync_tags.checked,
