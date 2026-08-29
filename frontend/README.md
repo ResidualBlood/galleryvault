@@ -10,7 +10,7 @@ dependency) for GalleryVault. Served by nginx on port 8000; nginx reverse-proxie
 
 - `index.html` — SPA shell
 - `assets/app.js` — the app (i18n EN/中文, browse, library, tags, downloads,
-  favorites, settings, reader)
+  favorites, gallery updates, settings, reader)
 - `assets/styles.css` — theme
 - `nginx.conf` — static serving + proxy config
 
