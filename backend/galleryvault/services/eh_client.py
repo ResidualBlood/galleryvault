@@ -933,25 +933,49 @@ class EhClient:
         response = await self._get("/favorites.php")
         return _parse_favorite_counts(response.text)
 
-    async def remove_favorites(self, gids: list[int]) -> None:
+    async def remove_favorites(self, gids: list[int]) -> list[int]:
         """Remove galleries from ExHentai favorites (across all folders).
 
         Mirrors Ehviewer_CN_SXJ: POST /favorites.php with ``ddact=delete`` and
-        one ``modifygids[]`` entry per gid.  A non-2xx response is raised so the
-        caller can surface a cloud sync failure.
+        one ``modifygids[]`` entry per gid.  ExHentai caps each request at 25
+        gids, so larger lists are chunked; a failed chunk is retried once per
+        gid so one bad gallery cannot block the rest.  Returns the list of gids
+        that could not be removed (empty on full success).
         """
         if not gids:
-            return
-        form = {"ddact": "delete", "apply": "Apply", "modifygids[]": [str(int(g)) for g in gids]}
-        response = await self._request(
-            "POST",
-            "/favorites.php",
-            data=form,
-            headers={"Referer": urljoin(str(self.client.base_url), "/favorites.php")},
-        )
-        if response.status_code in (401, 403) or "login" in str(response.url).lower():
-            raise EhClientError("ExHentai authentication is required or expired")
-        response.raise_for_status()
+            return []
+        failed: list[int] = []
+
+        async def _post(gids_batch: list[int]) -> None:
+            form = {
+                "ddact": "delete",
+                "apply": "Apply",
+                "modifygids[]": [str(int(g)) for g in gids_batch],
+            }
+            response = await self._request(
+                "POST",
+                "/favorites.php",
+                data=form,
+                headers={"Referer": urljoin(str(self.client.base_url), "/favorites.php")},
+            )
+            if response.status_code in (401, 403) or "login" in str(response.url).lower():
+                raise EhClientError("ExHentai authentication is required or expired")
+            response.raise_for_status()
+
+        for chunk in (gids[i : i + 25] for i in range(0, len(gids), 25)):
+            try:
+                await _post(chunk)
+            except EhClientError:
+                # Auth expiry is not a per-gallery failure: propagate so the
+                # caller can surface a dead session instead of swallowing it.
+                raise
+            except Exception:  # noqa: BLE001 - retry each gid on its own
+                for gid in chunk:
+                    try:
+                        await _post([gid])
+                    except Exception:  # noqa: BLE001 - surface per-gid failures
+                        failed.append(gid)
+        return failed
 
     async def fetch_gmetadata(
         self, pairs: list[tuple[int, str]]

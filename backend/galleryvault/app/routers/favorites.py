@@ -164,6 +164,7 @@ async def favorites_remove(body: main.FavoritesRemoveRequest) -> dict[str, objec
     if not body.gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
     gids = list(dict.fromkeys(body.gids))
+    cloud_failed: list[int] = []
     cloud_removed = 0
     cloud_ok = True
     try:
@@ -171,15 +172,17 @@ async def favorites_remove(body: main.FavoritesRemoveRequest) -> dict[str, objec
         if client is not None:
             # Shared global client: never enter its async context, that would
             # close the underlying httpx client for every other worker.
-            await client.remove_favorites(gids)
+            cloud_failed = await client.remove_favorites(gids)
         else:
             async with main.EhClient(
                 main._settings(), max_concurrency=main._settings().exhentai_max_concurrency
             ) as temp_client:
-                await temp_client.remove_favorites(gids)
-        cloud_removed = len(gids)
+                cloud_failed = await temp_client.remove_favorites(gids)
+        cloud_removed = len(gids) - len(cloud_failed)
+        cloud_ok = not cloud_failed
     except Exception as exc:  # noqa: BLE001 - cloud is best-effort, keep going
         cloud_ok = False
+        cloud_failed = list(gids)
         main.logger.warning(
             "cloud favorite removal failed",
             extra=log_extra(error=type(exc).__name__),
@@ -206,11 +209,14 @@ async def favorites_remove(body: main.FavoritesRemoveRequest) -> dict[str, objec
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
     if body.delete_local:
-        _record_favorites_remove_log(gids, deleted_local_galleries, failed_deletions)
+        _record_favorites_remove_log(
+            gids, deleted_local_galleries, failed_deletions, cloud_failed
+        )
     return {
         "gids": gids,
         "cloud_ok": cloud_ok,
         "cloud_removed": cloud_removed,
+        "cloud_failed": cloud_failed,
         "local_removed": local_removed,
         "deleted_local_galleries": deleted_local_galleries,
         "failed_deletions": failed_deletions,
@@ -513,7 +519,10 @@ async def check_all_favorites() -> dict[str, object]:
 
 
 def _record_favorites_remove_log(
-    gids: list[int], deleted_local_galleries: int, failed_deletions: list[str]
+    gids: list[int],
+    deleted_local_galleries: int,
+    failed_deletions: list[str],
+    cloud_failed_gids: list[int] | None = None,
 ) -> None:
     """Append a favorites-remove entry to the activity log (Logs page)."""
     from datetime import UTC, datetime
@@ -526,11 +535,17 @@ def _record_favorites_remove_log(
         reason += f", delete failed {len(failed_deletions)}: {', '.join(failed_deletions[:3])}"
         if len(failed_deletions) > 3:
             reason += f" (+{len(failed_deletions) - 3} more)"
+    cloud_failed = cloud_failed_gids or []
+    if cloud_failed:
+        reason += f", cloud remove failed {len(cloud_failed)}: {', '.join(map(str, cloud_failed[:5]))}"
+        if len(cloud_failed) > 5:
+            reason += f" (+{len(cloud_failed) - 5} more)"
+    failed = bool(failed_deletions) or bool(cloud_failed)
     main._record_task(
         "favorites-remove",
         now,
         now,
-        "failed" if failed_deletions else "success",
+        "failed" if failed else "success",
         reason=reason,
         done=deleted_local_galleries,
         total=len(gids),
