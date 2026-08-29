@@ -722,6 +722,65 @@ async def test_fetch_gallery_resolves_viewer_images_and_tags() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_gallery_serial_tail_walks_beyond_512() -> None:
+    """fetch_gallery must collect pages past the 512-page concurrent batch.
+
+    Regression: a gallery whose gdata filecount implies more than 512 gallery
+    sub-pages (>10240 pages) used to be truncated — the concurrent batch capped
+    at 512 and the serial fallback ``range(start, 512)`` was empty once
+    ``start`` reached 512, so everything after offset 512 was dropped.  The
+    serial tail now walks until the first empty page.
+    """
+    gid = 77
+    token = "token"
+    # 20 viewer links per gallery sub-page; filecount claims ~513 sub-pages.
+    total_sub_pages = 513
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api.php" and request.method == "POST":
+            return httpx.Response(
+                200,
+                json={
+                    "gmetadata": [
+                        {"gid": gid, "filecount": str(total_sub_pages * 20), "token": token, "title": ""}
+                    ]
+                },
+            )
+        if path == f"/g/{gid}/{token}/":
+            p = request.url.params.get("p")
+            if p is None:
+                links = "".join(f'<a href="/s/{i:010x}/{gid}-{i}">p</a>' for i in range(1, 21))
+                return httpx.Response(
+                    200,
+                    text=f'<h1 class="gm">A title</h1><div class="gt">artist: alice</div>{links}',
+                )
+            offset = int(p)
+            if offset > total_sub_pages:
+                return httpx.Response(200, text="<html>no more</html>")
+            base = offset * 20
+            links = "".join(
+                f'<a href="/s/{base + i:010x}/{gid}-{base + i}">p</a>' for i in range(1, 21)
+            )
+            return httpx.Response(200, text=f"<html>{links}</html>")
+        raise AssertionError(f"unexpected request {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.org", transport=transport
+    ) as http_client:
+        client = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=http_client)
+        gallery = await client.fetch_gallery(gid, token, resolve_urls=False)
+
+    assert len(gallery.pages) == (total_sub_pages + 1) * 20
+    # The final page (offset 513, page index 10280) must have been reached: it
+    # lives well past the old 512-offset hard cap (10240 pages).
+    assert gallery.pages[-1].url.endswith(f"/77-{total_sub_pages * 20 + 20}")
+    # Lazy mode fills tokens from the viewer hrefs.
+    assert len({p.token for p in gallery.pages}) == len(gallery.pages)
+
+
+@pytest.mark.asyncio
 async def test_fetch_gallery_falls_back_to_html_when_showpage_fails() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/g/7/token/":

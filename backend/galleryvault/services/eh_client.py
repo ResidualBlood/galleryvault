@@ -550,12 +550,21 @@ class EhClient:
                 # from the end of the concurrent batch until a page is empty.
                 start = max(offsets) + 1
         if not truncated_by_limit:
-            for offset in range(start, 512):
+            # Serial tail walk.  The old ``range(start, 512)`` silently skipped
+            # everything past offset 512 (~10240 pages): a gallery whose gdata
+            # filecount implies more sub-pages got truncated.  Walk page by page
+            # instead, stopping at the first empty page with a sentinel that
+            # prevents an infinite loop when a server echoes the same content.
+            offset = start
+            while True:
+                if gallery_pages > 0 and offset > gallery_pages + 2:
+                    break
                 page_response = await self._get(f"{base}?p={offset}")
                 if _collect_hrefs(page_response.text, max_pages) == 0:
                     break
                 if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
                     break
+                offset += 1
         if not page_hrefs:
             raise EhParseError("gallery HTML did not contain a title and page links")
         if resolve_urls:
