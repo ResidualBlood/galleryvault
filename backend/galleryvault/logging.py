@@ -45,20 +45,29 @@ class _Formatter(logging.Formatter):
 
 
 class _HttpAccessFilter(logging.Filter):
-    """Suppress httpx access logs for successful (2xx/3xx) requests.
+    """Suppress noisy access logs that carry no diagnostic value.
 
-    httpx logs one INFO line per request ("HTTP Request: GET <url> \"HTTP/1.1
-    200 OK\""). Download-heavy workloads flood stdout with thousands of 200s.
-    Keep 4xx/5xx (real failures worth diagnosing) while dropping 2xx/3xx.
+    - httpx access logs for successful (2xx/3xx) requests: httpx logs one INFO
+      line per request ("HTTP Request: GET <url> \"HTTP/1.1 200 OK\"").
+      Download-heavy workloads flood stdout with thousands of 200s. Keep
+      4xx/5xx (real failures worth diagnosing) while dropping 2xx/3xx.
+    - uvicorn healthcheck heartbeats: the docker healthcheck polls /healthz
+      every ~10s, so uvicorn.access emits one line per poll. Real API access
+      logs (any non-/healthz path) are kept.
     """
 
     _STATUS = re.compile(r'"HTTP/\d(?:\.\d)? (\d{3})')
+    _HEALTHZ = re.compile(r'"GET /healthz ')
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.name == "httpx" and record.levelno <= logging.INFO:
+        if record.levelno > logging.INFO:
+            return True
+        if record.name == "httpx":
             match = self._STATUS.search(record.getMessage())
             if match and match.group(1)[0] in "23":
                 return False
+        elif record.name == "uvicorn.access" and self._HEALTHZ.search(record.getMessage()):
+            return False
         return True
 
 
