@@ -49,6 +49,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Equal-count favorite replacements are now detected.** The scheduled
+  favorites poll skipped the full re-list whenever the cloud count matched the
+  locally known gid count, so removing one favorite and adding another (count
+  unchanged) was never caught. Consecutive skips are now counted per folder:
+  the poll that would be the 5th consecutive skip forces a full re-list and
+  resets the counter.
 - **`check_login` no longer misreports an anti-bot challenge as a dead
   session.** ExHentai answers an empty body (no cookies / anti-bot challenge)
   with HTTP 200; `parse_login_state` previously classified it `not_logged_in`,
