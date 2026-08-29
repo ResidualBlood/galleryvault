@@ -31,6 +31,17 @@ def path_hash(path: Path) -> str:
     return hashlib.sha256(str(path.resolve()).encode()).hexdigest()
 
 
+# asyncpg binds ~32767 parameters per statement; every ``column.in_(...)`` with
+# a caller-supplied list must go through this to stay under the limit.
+_CHUNK_SIZE = 500
+
+
+def _chunked(values: Sequence[int], size: int = _CHUNK_SIZE) -> list[list[int]]:
+    """Split ``values`` into fixed-size slices for ``in_``-style queries."""
+    values = list(values)
+    return [values[start : start + size] for start in range(0, len(values), size)]
+
+
 class GalleryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -890,29 +901,30 @@ class GalleryRepository:
         """Return cached gdata metadata for gids, ``{gid: {…}}`` with parsed tags."""
         if not gids:
             return {}
-        rows = await self.session.scalars(
-            select(GalleryMetadata).where(GalleryMetadata.gid.in_(list(dict.fromkeys(gids))))
-        )
         result: dict[int, dict] = {}
-        for row in rows:
-            tags = [
-                {"namespace": str(pair[0] or "misc"), "name": str(pair[1])}
-                for pair in (row.tags or [])
-                if len(pair) == 2 and str(pair[1]).strip()
-            ]
-            result[int(row.gid)] = {
-                "token": row.token,
-                "title": row.title,
-                "title_jpn": row.title_jpn,
-                "category": row.category,
-                "uploader": row.uploader,
-                "file_count": row.file_count,
-                "file_size": row.file_size,
-                "rating": row.rating,
-                "posted_at": row.posted_at,
-                "expunged": row.expunged,
-                "tags": tags,
-            }
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            rows = await self.session.scalars(
+                select(GalleryMetadata).where(GalleryMetadata.gid.in_(chunk))
+            )
+            for row in rows:
+                tags = [
+                    {"namespace": str(pair[0] or "misc"), "name": str(pair[1])}
+                    for pair in (row.tags or [])
+                    if len(pair) == 2 and str(pair[1]).strip()
+                ]
+                result[int(row.gid)] = {
+                    "token": row.token,
+                    "title": row.title,
+                    "title_jpn": row.title_jpn,
+                    "category": row.category,
+                    "uploader": row.uploader,
+                    "file_count": row.file_count,
+                    "file_size": row.file_size,
+                    "rating": row.rating,
+                    "posted_at": row.posted_at,
+                    "expunged": row.expunged,
+                    "tags": tags,
+                }
         return result
 
     async def metadata_for_gid(self, gid: int) -> dict | None:
@@ -1599,14 +1611,17 @@ class FavoritesRepository:
         """
         if not gids:
             return set()
-        rows = await self.session.scalars(
-            select(Gallery.gid).where(
-                Gallery.gid.is_not(None),
-                Gallery.expunged.is_(False),
-                Gallery.gid.in_(list(dict.fromkeys(gids))),
+        found: set[int] = set()
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            rows = await self.session.scalars(
+                select(Gallery.gid).where(
+                    Gallery.gid.is_not(None),
+                    Gallery.expunged.is_(False),
+                    Gallery.gid.in_(chunk),
+                )
             )
-        )
-        return {int(gid) for gid in rows if gid is not None}
+            found.update(int(gid) for gid in rows if gid is not None)
+        return found
 
     async def remember(self, favcat: int, item) -> None:
         now = datetime.now(UTC)
@@ -1793,23 +1808,27 @@ class FavoritesRepository:
     ) -> dict[int, list[tuple[str, str]]]:
         if not gallery_ids:
             return {}
-        rows = await self.session.execute(
-            select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
-            .join(Tag, Tag.id == GalleryTag.tag_id)
-            .where(GalleryTag.gallery_id.in_(list(dict.fromkeys(gallery_ids))))
-        )
         result: dict[int, list[tuple[str, str]]] = {}
-        for gallery_id, namespace, name in rows:
-            result.setdefault(int(gallery_id), []).append((namespace, name))
+        for chunk in _chunked(list(dict.fromkeys(gallery_ids))):
+            rows = await self.session.execute(
+                select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
+                .join(Tag, Tag.id == GalleryTag.tag_id)
+                .where(GalleryTag.gallery_id.in_(chunk))
+            )
+            for gallery_id, namespace, name in rows:
+                result.setdefault(int(gallery_id), []).append((namespace, name))
         return result
 
     async def remove_gids(self, gids: list[int]) -> int:
         if not gids:
             return 0
-        result = await self.session.execute(
-            delete(FavoriteItem).where(FavoriteItem.gid.in_(gids))
-        )
-        return result.rowcount or 0
+        removed = 0
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            result = await self.session.execute(
+                delete(FavoriteItem).where(FavoriteItem.gid.in_(chunk))
+            )
+            removed += result.rowcount or 0
+        return removed
 
     async def favcats_for_gid(self, gid: int | None) -> list[int]:
         if gid is None:
@@ -1831,25 +1850,35 @@ class FavoritesRepository:
         """Map gid -> local gallery.id for galleries on disk (not expunged)."""
         if not gids:
             return {}
-        rows = await self.session.execute(
-            select(Gallery.gid, Gallery.id).where(
-                Gallery.gid.is_not(None),
-                Gallery.expunged.is_(False),
-                Gallery.gid.in_(list(dict.fromkeys(gids))),
+        result: dict[int, int] = {}
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            rows = await self.session.execute(
+                select(Gallery.gid, Gallery.id).where(
+                    Gallery.gid.is_not(None),
+                    Gallery.expunged.is_(False),
+                    Gallery.gid.in_(chunk),
+                )
             )
-        )
-        return {int(gid): int(gid_local) for gid, gid_local in rows if gid is not None}
+            for gid, gid_local in rows:
+                if gid is not None:
+                    result[int(gid)] = int(gid_local)
+        return result
 
     async def gallery_titles_by_gid(self, gids: list[int]) -> dict[int, tuple[str | None, str | None]]:
         """Map gid -> (title, title_jpn) for galleries on disk."""
         if not gids:
             return {}
-        rows = await self.session.execute(
-            select(Gallery.gid, Gallery.title, Gallery.title_jpn).where(
-                Gallery.gid.is_not(None), Gallery.gid.in_(list(dict.fromkeys(gids)))
+        result: dict[int, tuple[str | None, str | None]] = {}
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            rows = await self.session.execute(
+                select(Gallery.gid, Gallery.title, Gallery.title_jpn).where(
+                    Gallery.gid.is_not(None), Gallery.gid.in_(chunk)
+                )
             )
-        )
-        return {int(gid): (title, title_jpn) for gid, title, title_jpn in rows if gid is not None}
+            for gid, title, title_jpn in rows:
+                if gid is not None:
+                    result[int(gid)] = (title, title_jpn)
+        return result
 
     async def ignored_duplicate_keys(self) -> set[str]:
         rows = await self.session.scalars(select(DuplicateIgnore.key))
@@ -1859,14 +1888,16 @@ class FavoritesRepository:
         """Duplicate-scan style item detail for favorite gids (local-join aware)."""
         if not gids:
             return {}
-        rows = (
-            await self.session.execute(
-                select(FavoriteItem, Gallery)
-                .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
-                .where(FavoriteItem.gid.in_(list(dict.fromkeys(gids))))
-            )
-        ).all()
-        pairs = [(item, gallery) for item, gallery in rows]
+        pairs: list[tuple[FavoriteItem, Gallery | None]] = []
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            rows = (
+                await self.session.execute(
+                    select(FavoriteItem, Gallery)
+                    .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+                    .where(FavoriteItem.gid.in_(chunk))
+                )
+            ).all()
+            pairs.extend((item, gallery) for item, gallery in rows)
         local_ids = [
             int(gallery.id)
             for _, gallery in pairs
@@ -1874,13 +1905,14 @@ class FavoritesRepository:
         ]
         tag_map: dict[int, list[tuple[str, str]]] = {}
         if local_ids:
-            tag_rows = await self.session.execute(
-                select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
-                .join(Tag, Tag.id == GalleryTag.tag_id)
-                .where(GalleryTag.gallery_id.in_(list(dict.fromkeys(local_ids))))
-            )
-            for gallery_id, namespace, name in tag_rows:
-                tag_map.setdefault(int(gallery_id), []).append((namespace, name))
+            for chunk in _chunked(list(dict.fromkeys(local_ids))):
+                tag_rows = await self.session.execute(
+                    select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
+                    .join(Tag, Tag.id == GalleryTag.tag_id)
+                    .where(GalleryTag.gallery_id.in_(chunk))
+                )
+                for gallery_id, namespace, name in tag_rows:
+                    tag_map.setdefault(int(gallery_id), []).append((namespace, name))
         result: dict[int, dict] = {}
         for item, gallery in pairs:
             if gallery is not None:

@@ -808,13 +808,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Settings Test Exhentai Api Settings Exhentai Test Post"
-                }
+                "schema": {}
               }
             }
           }
@@ -1257,6 +1251,47 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Delete Galleries Bulk Api Galleries Delete Bulk Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/galleries/delete-filtered": {
+      "post": {
+        "summary": "Delete Galleries Filtered",
+        "description": "Delete every gallery matching the current library filter.\n\nThe SPA used to page through the filter on the client and POST the whole id\nlist to ``delete-bulk``.  For big libraries that list can exceed asyncpg's\n~32767 bound-parameter limit.  Here the backend re-runs the same filter the\nlibrary grid uses, pages it, and deletes in 500-row batches \u2014 the client\nonly sends the filter itself.",
+        "operationId": "delete_galleries_filtered_api_galleries_delete_filtered_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilteredDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Delete Galleries Filtered Api Galleries Delete Filtered Post"
                 }
               }
             }
@@ -2471,6 +2506,55 @@
         ],
         "title": "FavoritesRemoveRequest"
       },
+      "FilteredDeleteRequest": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "title": "Q",
+            "default": ""
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "tag_mode": {
+            "type": "string",
+            "title": "Tag Mode",
+            "default": "or"
+          },
+          "tag_match": {
+            "type": "string",
+            "title": "Tag Match",
+            "default": "exact"
+          },
+          "delete_files": {
+            "type": "boolean",
+            "title": "Delete Files",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "FilteredDeleteRequest",
+        "description": "Server-side \"delete everything matching this filter\" request.\n\nThe SPA used to resolve the current library filter into a full id list on\nthe client and POST it to ``delete-bulk``.  For big libraries that list can\nbe tens of thousands of ids, blowing past asyncpg's ~32767 param limit when\nthe backend issues ``Gallery.id.in_(ids)``.  This endpoint pages the filter\nquery itself and deletes in 500-row batches, so the client only sends the\nfilter, never the ids."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2623,6 +2707,17 @@
               }
             ],
             "title": "Download Quality"
+          },
+          "download_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Title"
           },
           "use_hah": {
             "anyOf": [

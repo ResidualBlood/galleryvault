@@ -2648,6 +2648,25 @@ class BulkDeleteRequest(BaseModel):
     delete_files: bool = False
 
 
+class FilteredDeleteRequest(BaseModel):
+    """Server-side "delete everything matching this filter" request.
+
+    The SPA used to resolve the current library filter into a full id list on
+    the client and POST it to ``delete-bulk``.  For big libraries that list can
+    be tens of thousands of ids, blowing past asyncpg's ~32767 param limit when
+    the backend issues ``Gallery.id.in_(ids)``.  This endpoint pages the filter
+    query itself and deletes in 500-row batches, so the client only sends the
+    filter, never the ids.
+    """
+
+    q: str = ""
+    category: str | None = None
+    tags: str | None = None
+    tag_mode: str = "or"
+    tag_match: str = "exact"
+    delete_files: bool = False
+
+
 def _in_scan_roots(path: Path) -> bool:
     """True when ``path`` (resolved) sits under one of the configured scan roots."""
     try:

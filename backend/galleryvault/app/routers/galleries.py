@@ -15,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from galleryvault.app import main
 from galleryvault.db.models import Gallery
-from galleryvault.db.repository import GalleryRepository
+from galleryvault.db.repository import GalleryRepository, _chunked
 from galleryvault.logging import log_extra
 from galleryvault.scanners import registry
 from galleryvault.scanners.base import CATEGORIES, PageInfo
@@ -36,6 +36,24 @@ def _dedupe_tags(tags: list[tuple[str | None, str]]) -> list[tuple[str | None, s
             seen.add(tag)
             out.append(tag)
     return out
+
+
+def _parse_tag_filter(tags: str | None) -> list[tuple[str | None, str]]:
+    """Parse the comma-separated ``tags`` query string into (ns, name) pairs."""
+    parsed_tags: list[tuple[str | None, str]] = []
+    for value in (tags or "").split(","):
+        value = value.strip()
+        if not value:
+            continue
+        if ":" in value:
+            namespace, name = value.split(":", 1)
+            namespace = namespace.strip() or None
+        else:
+            namespace, name = None, value
+        if not name.strip() or len(name) > 200 or (namespace and len(namespace) > 32):
+            raise HTTPException(status_code=422, detail="invalid tag")
+        parsed_tags.append((namespace, name.strip()))
+    return parsed_tags
 
 
 async def _resolve_search_tokens(
@@ -105,19 +123,7 @@ async def gallery_list(
         category = None
     if category is not None and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail="invalid category")
-    parsed_tags: list[tuple[str | None, str]] = []
-    for value in (tags or "").split(","):
-        value = value.strip()
-        if not value:
-            continue
-        if ":" in value:
-            namespace, name = value.split(":", 1)
-            namespace = namespace.strip() or None
-        else:
-            namespace, name = None, value
-        if not name.strip() or len(name) > 200 or (namespace and len(namespace) > 32):
-            raise HTTPException(status_code=422, detail="invalid tag")
-        parsed_tags.append((namespace, name.strip()))
+    parsed_tags = _parse_tag_filter(tags)
     try:
         async with main._settings_session() as session:
             repo = GalleryRepository(session)
@@ -333,10 +339,12 @@ async def delete_galleries_bulk(body: main.BulkDeleteRequest) -> dict[str, objec
         raise HTTPException(status_code=422, detail="No gallery ids provided")
     try:
         async with main._settings_session() as session, session.begin():
-            rows = await session.scalars(
-                select(Gallery).where(Gallery.id.in_(body.ids))
-            )
-            galleries = list(rows)
+            galleries: list[Gallery] = []
+            for chunk in _chunked(list(dict.fromkeys(body.ids))):
+                rows = await session.scalars(
+                    select(Gallery).where(Gallery.id.in_(chunk))
+                )
+                galleries.extend(rows.all())
             results = await main.delete_galleries_local(
                 session, galleries, delete_files=body.delete_files, delete_all_copies=False
             )
@@ -346,6 +354,60 @@ async def delete_galleries_bulk(body: main.BulkDeleteRequest) -> dict[str, objec
     deleted = sum(1 for r in results if r["db_removed"])
     failed_deletions = [p for r in results for p in r["failed_paths"]]
     return {"deleted": deleted, "failed_deletions": failed_deletions}
+
+
+@router.post("/api/galleries/delete-filtered")
+async def delete_galleries_filtered(body: main.FilteredDeleteRequest) -> dict[str, object]:
+    """Delete every gallery matching the current library filter.
+
+    The SPA used to page through the filter on the client and POST the whole id
+    list to ``delete-bulk``.  For big libraries that list can exceed asyncpg's
+    ~32767 bound-parameter limit.  Here the backend re-runs the same filter the
+    library grid uses, pages it, and deletes in 500-row batches — the client
+    only sends the filter itself.
+    """
+    if body.tag_mode not in {"and", "or"} or body.tag_match not in {"exact", "fuzzy"}:
+        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
+    category = body.category or None
+    if category is not None and category not in CATEGORIES:
+        raise HTTPException(status_code=422, detail="invalid category")
+    parsed_tags = _parse_tag_filter(body.tags)
+    try:
+        async with main._settings_session() as session, session.begin():
+            repo = GalleryRepository(session)
+            resolved_q = body.q or ""
+            if body.q and body.q.strip():
+                auto_tags, keywords, changed = await _resolve_search_tokens(body.q, repo)
+                if changed:
+                    parsed_tags.extend(auto_tags)
+                    parsed_tags = _dedupe_tags(parsed_tags)
+                    resolved_q = keywords
+            matching_ids: list[int] = []
+            page = 1
+            while True:
+                _, rows = await repo.list_page(
+                    page, 500, resolved_q, parsed_tags, body.tag_mode, body.tag_match, category
+                )
+                if not rows:
+                    break
+                matching_ids.extend(r.id for r in rows)
+                if len(rows) < 500:
+                    break
+                page += 1
+            results: list[dict] = []
+            for chunk in _chunked(list(dict.fromkeys(matching_ids))):
+                batch = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
+                results.extend(
+                    await main.delete_galleries_local(
+                        session, list(batch), delete_files=body.delete_files, delete_all_copies=False
+                    )
+                )
+            _record_gallery_delete_log(results)
+    except SQLAlchemyError as exc:
+        raise main._db_error(exc) from exc
+    deleted = sum(1 for r in results if r["db_removed"])
+    failed_deletions = [p for r in results for p in r["failed_paths"]]
+    return {"deleted": deleted, "matched": len(matching_ids), "failed_deletions": failed_deletions}
 
 
 def _record_gallery_delete_log(results: list[dict]) -> None:

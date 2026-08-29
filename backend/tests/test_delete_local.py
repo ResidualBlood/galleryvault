@@ -200,3 +200,175 @@ async def test_delete_files_false_only_removes_db_row(tmp_path):
     assert results[0]["db_removed"] is True
     assert results[0]["failed_paths"] == []
     assert session.deleted_galleries == [6]
+
+
+def test_chunked_splits_into_batches():
+    """_chunked must keep every ``in_`` query under the asyncpg 32767 limit."""
+    from galleryvault.db.repository import _chunked
+
+    assert _chunked([]) == []
+    assert _chunked([1]) == [[1]]
+    chunks = _chunked(list(range(1500)))
+    assert len(chunks) == 3
+    assert [len(c) for c in chunks] == [500, 500, 500]
+    assert chunks[0][0] == 0 and chunks[-1][-1] == 1499
+
+
+async def _capture_in_sizes(session, statement, collector):
+    """Run a scalars/execute against a no-op session and record ``in_`` sizes."""
+    from sqlalchemy.dialects import postgresql
+
+    compiled = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    import re
+
+    for match in re.finditer(r"\bIN \(([0-9, ]+)\)", compiled):
+        collector.append(len([v for v in match.group(1).split(",") if v.strip()]))
+    return _EmptyResult()
+
+
+class _EmptyResult:
+    def all(self):
+        return []
+
+    def scalars(self):
+        return self
+
+    def __iter__(self):
+        return iter(())
+
+
+async def test_metadata_map_chunks_in_queries():
+    """metadata_map must issue chunked gid lookups for large gid lists."""
+    from galleryvault.db import repository as repo_module
+
+    in_sizes: list[int] = []
+    original = repo_module.GalleryRepository.metadata_map
+
+    class RecordingSession:
+        async def scalars(self, statement):
+            await _capture_in_sizes(self, statement, in_sizes)
+            return _EmptyResult()
+
+    repo = repo_module.GalleryRepository(RecordingSession())
+    result = await original(repo, list(range(1200)))
+    assert result == {}
+    assert in_sizes and max(in_sizes) <= 500
+    assert sum(in_sizes) >= 1200
+
+
+async def test_galleries_for_gids_chunks_in_queries():
+    """Favorites remove-path lookups must stay under asyncpg's param limit."""
+    from galleryvault.db import repository as repo_module
+
+    in_sizes: list[int] = []
+    original = repo_module.FavoritesRepository.galleries_for_gids
+
+    class RecordingSession:
+        async def execute(self, statement):
+            await _capture_in_sizes(self, statement, in_sizes)
+            return _EmptyResult()
+
+    repo = repo_module.FavoritesRepository(RecordingSession())
+    result = await original(repo, list(range(1200)))
+    assert result == {}
+    assert in_sizes and max(in_sizes) <= 500
+    assert sum(in_sizes) >= 1200
+
+
+async def test_favorite_items_detail_by_gids_chunks_in_queries():
+    """favorite_items_detail_by_gids must chunk both the main and tag queries."""
+    from galleryvault.db import repository as repo_module
+
+    in_sizes: list[int] = []
+    original = repo_module.FavoritesRepository.favorite_items_detail_by_gids
+
+    class RecordingSession:
+        async def execute(self, statement):
+            await _capture_in_sizes(self, statement, in_sizes)
+            return _EmptyResult()
+
+    repo = repo_module.FavoritesRepository(RecordingSession())
+    result = await original(repo, list(range(1200)))
+    assert result == {}
+    assert in_sizes and max(in_sizes) <= 500
+    assert len(in_sizes) >= 3  # 1200 gids -> 3 chunks; tag query gated by local rows
+
+
+async def test_delete_filtered_pages_and_chunks(monkeypatch):
+    """delete-filtered must page the filter and delete in 500-row batches."""
+    from galleryvault.app import main
+    from galleryvault.app.routers import galleries as galleries_module
+    from galleryvault.app.routers.galleries import delete_galleries_filtered
+
+    galleries = [Gallery(id=i, gid=1000 + i, title=f"g{i}", storage_path="") for i in range(1, 1201)]
+    page_calls = []
+    deleted_batches = []
+
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+        def __iter__(self):
+            return iter(self._rows)
+
+    class Session:
+        def __init__(self):
+            self._by_id = {g.id: g for g in galleries}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        def begin(self):
+            return self
+
+        async def scalars(self, statement):
+            import re
+
+            from sqlalchemy.dialects import postgresql
+
+            compiled = str(
+                statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+            )
+            ids = [
+                int(v)
+                for m in re.finditer(r"\bIN \(([0-9, ]+)\)", compiled)
+                for v in m.group(1).split(",")
+                if v.strip()
+            ]
+            return Result([self._by_id[i] for i in ids if i in self._by_id])
+
+    session = Session()
+    main._settings_session = lambda: session
+
+    class Repo:
+        def __init__(self, session):
+            self.session = session
+
+        async def list_page(self, page, page_size, q, tags, tag_mode, tag_match, category):
+            page_calls.append((page, page_size, q, tags, tag_mode, tag_match, category))
+            start = (page - 1) * page_size
+            return len(galleries), galleries[start : start + page_size]
+
+    monkeypatch.setattr(galleries_module, "GalleryRepository", Repo)
+
+    async def fake_delete(session, batch, *, delete_files, delete_all_copies):
+        deleted_batches.append(len(batch))
+        return [
+            {"gallery_id": g.id, "gid": g.gid, "db_removed": True, "deleted_paths": [], "failed_paths": []}
+            for g in batch
+        ]
+
+    monkeypatch.setattr(main, "delete_galleries_local", fake_delete)
+
+    body = main.FilteredDeleteRequest(q="", category=None, tags="", tag_mode="or", delete_files=False)
+    result = await delete_galleries_filtered(body)
+    assert result["matched"] == 1200
+    assert result["deleted"] == 1200
+    assert len(page_calls) == 3  # 1200 rows / 500 per page
+    assert deleted_batches == [500, 500, 200]
