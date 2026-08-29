@@ -1241,7 +1241,7 @@ function ehBaseUrlControl(value, prefix) {
   const options = EH_BASE_URLS.map(o =>
     `<option value="${o.v}"${value === o.v ? " selected" : ""}>${o.label}</option>`
   ).join("") + `<option value="${EH_CUSTOM}"${fixed ? "" : " selected"}>${esc(t("custom"))}</option>`;
-  return `<select name="${prefix}exhentai_base_url" onchange="toggleEhCustom(this)">${options}</select>
+  return `<select name="${prefix}exhentai_base_url" data-eh-select>${options}</select>
   <input name="${prefix}exhentai_base_url_custom" data-eh-custom value="${fixed ? "" : esc(value || "")}" placeholder="https://proxy.exhentai.org"${fixed ? " hidden" : ""}>`;
 }
 
@@ -1660,7 +1660,7 @@ function renderDupGroups(st) {
       <div class="panel dup-group ${hidden ? "dup-hidden" : ""}" style="margin-top:14px">
         <div class="dup-group-head">
           <span class="dup-count">${esc(g.items.length)} ×</span>
-          <a class="dup-main-title" href="${esc(g.items[0].url)}" target="_blank" rel="noopener">${esc(g.items[0].title)}</a>
+          <a class="dup-main-title" href="${esc(g.items[0].url)}" target="_blank" rel="noopener">${esc(g.items[0].display_title || g.items[0].title)}</a>
           ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
           ${hidden ? `<span class="badge dup-ignored-badge">${esc(t("dupIgnored"))}</span>` : ""}
           <span class="dup-head-actions"><button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
@@ -1671,7 +1671,7 @@ function renderDupGroups(st) {
               <span class="dup-thumb-wrap">${dupThumbHtml(it)}</span>
               <span class="dup-body">
                 <span class="dup-title">
-                  <a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+                  <a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.display_title || it.title)}</a>
                 </span>
                 <span class="dup-meta">
                   ${it.gallery_id != null ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id })}">${esc(t("favLocal"))}</a>` : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`}
@@ -2287,7 +2287,7 @@ function renderDuplicatesList() {
       <div class="dup-row">
         <span class="dup-thumb-wrap">${dupGalThumb(c)}</span>
         <span class="dup-body">
-          <span class="dup-title">${esc(c.title || c.path)}</span>
+          <span class="dup-title">${esc(c.display_title || c.title || c.path)}</span>
           <span class="dup-meta">
             ${isCurrent ? `<span class="badge dup-badge-local">${esc(t("dupGalCurrent"))}</span>` : `<span class="badge dup-badge-cloud">${esc(storageLabel(c.storage_type))}</span>`}
             ${c.page_count != null ? `<span class="badge">${c.page_count} P</span>` : ""}
@@ -2308,7 +2308,7 @@ function renderDuplicatesList() {
       <div class="panel dup-group" style="margin-top:14px">
         <div class="dup-group-head">
           <span class="dup-count">#${g.gid}</span>
-          <span class="dup-main-title">${esc((g.copies && g.copies[0] && g.copies[0].title) || ("gid " + g.gid))}</span>
+          <span class="dup-main-title">${esc((g.copies && g.copies[0] && (g.copies[0].display_title || g.copies[0].title)) || ("gid " + g.gid))}</span>
           <span class="badge">${esc(g.policy || "")}</span>
           <span class="badge">${esc(t(DUPGAL_STATUSES[g.status] || "dupGalOpen"))}</span>
           <span class="dup-head-actions">
@@ -2596,6 +2596,7 @@ async function saveSettings(form) {
 function onChange(e) {
   const el = e.target;
   if (!el) return;
+  if (el.matches("select[data-eh-select]")) { toggleEhCustom(el); return; }
   if (el.matches(".page-jump")) {
     const last = parseInt(el.max, 10) || 1;
     jumpPage(el, last);
