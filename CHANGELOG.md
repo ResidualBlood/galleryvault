@@ -38,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Docs: Telegram `/pause` clarified.** The bot's `/pause` only gates new URL
+  intake (URLs pasted while paused are ignored); already-queued and in-flight
+  downloads are unaffected. The pause flag is not persisted (auto-resets on
+  backend restart). Wiki `Usage` / `Usage-EN` updated accordingly.
 - **Reader page images are cached by the browser for an hour.** The page-image
   endpoint (`/api/galleries/{id}/pages/{n}`) used to stream every image fresh
   on each request; it now sends `Cache-Control: public, max-age=3600` so back
