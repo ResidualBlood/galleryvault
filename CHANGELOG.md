@@ -30,6 +30,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Galleries over ~10240 pages are no longer truncated.** The page-link
+  enumeration fetched the first 512 gallery sub-pages concurrently, then
+  walked a serial tail `range(start, 512)` — which was empty once `start`
+  reached 512, so any gallery whose gdata `file_count` implied more than 512
+  sub-pages silently dropped everything past that point. The serial tail now
+  walks page-by-page until the first empty page (with a safety sentinel past
+  the estimated page count).
 - **Looking up a gallery by id/gid no longer 500s when the two collide.** A
   gallery is addressable by both its DB `id` and its ExHentai `gid`. When one
   gallery's `id` numerically equalled another gallery's `gid`, the old
