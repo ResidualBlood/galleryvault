@@ -13,84 +13,21 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 
 ## Features
 
-**Local gallery library**
-
-- **Scan** Ehviewer export directories, CBZ/CBR archives and plain image
-  folders into a persistent, searchable index (PostgreSQL).
-- **Format fidelity** — `<gid>-<title>/` + `.ehviewer` (SpiderInfo V1/V2),
-  JHenTai `metadata` JSON and CBZ/CBR (+ ComicInfo.xml) all restore the full
-  gallery identity; galleries without a gid can be browsed but take no part in
-  downloads or dedupe.
-- **Duplicate-copy cleanup** — when the same gid appears under several scan
-  roots, a `duplicate_policy` (keep-stored / more pages / newer / larger /
-  smaller / manual) keeps one copy automatically and lists every other copy on
-  a *Duplicate copies* page (keep / keep-and-delete / dismiss).
-- **Title display** — `japanese` / `english` / `directory` drives the whole
-  UI; downloaded folder names follow the separate *Download title* setting.
-
-**Search & tags**
-
-- **Multi-tag & mixed search** — clicking tags (suggestions / detail page /
-  tag cloud) stacks AND filters; the box accepts `动图 中国` combos and
-  `ns:name` syntax, tags are opt-in (click a suggestion), and Enter runs a
-  plain title search (multi-word = every word must match).
-- **Tag translations** — pulls the latest EhTagTranslation database; Chinese
-  input reverse-matches (typing 巨乳 suggests `big breasts`).
-- **Bilingual UI** — English / 中文, switchable at any time; tags show their
-  translations in the Chinese view.
-- **Tag cloud** — namespace groups (Tag / Artist / Character / Parody / Group
-  / Female / Male / Language), size weighted by usage.
-
-**ExHentai integration**
-
-- **Metadata sync** — fetch metadata / categories / tags with your own
-  cookies; a gdata batch cache is reused by scans and favorites.
-- **Public-mirror safe** — with `e-hentai.org` configured, ExHentai-only
-  galleries *pause* tag sync (never misclassified as deleted) and resume when
-  the base URL switches back.
-- **Favorites monitor & management** — watches the ten folders (incremental /
-  watch-only / force modes), auto-downloads missing galleries, per-folder
-  lists, a skip heuristic to save bandwidth, and duplicate scan with
-  ignore/restore.
-- **Open on ExHentai** — a one-click link to the original gallery from the
-  detail page (built from the configured base URL).
-
-**Download manager**
-
-- **Ehviewer-style downloads** — concurrent page downloads, live progress,
-  resumable retries (missing pages only), partial downloads (`max_pages`),
-  cancel and bulk retry.
-- **Slow-node watchdog** — per-image total-time budget + warm-up window +
-  minimum speed; a sluggish H@H node no longer holds a whole gallery hostage.
-- **Self-healing failures** — transient errors re-queue with **exponential
-  backoff** (30s → 6h, up to 10 attempts); a periodic sweep re-activates
-  failed tasks that still have retry budget.
-- **Instant ingestion** — a finished download is written into the index (tags
-  and cover included), no full scan; existing download folders are reused.
-- **Telegram** — download/scan/favorites notifications (summary / immediate /
-  failures-only / off, 中文/English) plus bot control commands (`/pause`
-  `/resume` `/status`, paste a gallery URL to enqueue a download).
-
-**Reader & UI**
-
-- **Reader** — one-page streaming, keyboard/space/click paging, three-page
-  preload, auto-advance after the last page, fullscreen and fit modes, 1-hour
-  browser caching, saved reading position, and the search context is kept
-  throughout.
-- **Browse & history** — newest-gallery browse (random gallery, tag namespace
-  strip), a global top-bar search, a reading-history page, an activity log
-  page, and a first-run wizard.
-
-**Security & operations**
-
-- **Security** — PBKDF2 auth, login rate limiting, cross-origin checks and a
-  domain whitelist, password change revokes every session, non-root runtime;
-  optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM).
-- **Proxy** — HTTP or SOCKS5 (pick one), used for ExHentai access, downloads
-  and translation updates.
-- **One-command deployment** — two Docker Hub images plus PostgreSQL with a
-  single `docker compose up`; automatic migrations on upgrade and
-  `scripts/backup.sh` for backups.
+- **Local gallery library** — scans Ehviewer exports, CBZ/CBR archives and
+  plain image folders into a searchable local index (PostgreSQL);
+  auto-dedupes same-gid copies across scan roots.
+- **Search & tags** — stackable multi-tag (AND) filters, mixed tag+text
+  queries, Chinese tag translations with reverse lookup, bilingual UI.
+- **ExHentai integration** — sync metadata and tags with your own cookies;
+  favorites monitoring with auto-download and dedupe; one-click *Open on
+  ExHentai*.
+- **Download manager** — Ehviewer-style concurrent downloads, resumable
+  retries, self-healing failures, instant ingestion on completion; Telegram
+  notifications and bot commands.
+- **Reader & UI** — streaming reader (fullscreen, auto-advance), reading
+  history, activity log, first-run wizard.
+- **Security & operations** — PBKDF2 auth, optional encryption at rest
+  (AES-256-GCM), non-root runtime; one-command deploy and one-click backup.
 
 ## Screenshots
 
