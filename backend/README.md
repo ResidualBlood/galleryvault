@@ -29,6 +29,5 @@ can be protected with optional at-rest encryption via `ENCRYPTION_KEY`.
 ## Documentation
 
 - Endpoints: `docs/API.md`
-- Usage guide: `docs/USAGE.md`
 - Architecture / development: `docs/DEVELOPMENT.md`
 - Full user docs: [GalleryVault Wiki](https://github.com/ResidualBlood/galleryvault/wiki)
