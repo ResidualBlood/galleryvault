@@ -28,6 +28,7 @@ const I18N = {
     filterAll: "All", filterPending: "Pending", filterSuccess: "Success", filterFailed: "Failed",
     cancel: "Cancel", noTasks: "No download tasks.", noGalleries: "No matching galleries, click Scan.",
     noHistory: "No reading history.", noTags: "No local tags found.", clearAll: "clear all", search: "Search",
+    openEh: "Open on ExHentai", ehLoginNote: "Requires ExHentai login in your browser", custom: "Custom",
     progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
     enabled: "Enabled", mode: "Mode", intervalMin: "Interval (min)",
     syncFavcats: "Sync folder names", checkNow: "Check now", saveOk: "Saved",
@@ -157,6 +158,7 @@ const I18N = {
     filterAll: "全部", filterPending: "进行中", filterSuccess: "成功", filterFailed: "失败",
     cancel: "取消", noTasks: "暂无下载任务。", noGalleries: "没有匹配的画廊，请点击扫描。",
     noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", clearAll: "清空标签", search: "搜索",
+    openEh: "打开原站", ehLoginNote: "需浏览器已登录 ExHentai", custom: "自定义",
     progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
     enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
     syncFavcats: "同步收藏夹名称", checkNow: "立即检查", saveOk: "已保存",
@@ -485,7 +487,7 @@ async function renderWelcome() {
     </div>` : `<p class="w-ok">${esc(t("stepDone"))}</p>`;
   const cookieBlock = st.exhentai_configured ? `<p class="w-ok">${esc(t("stepDone"))}</p>` : `
     <div class="w-form">
-      <input name="w_base_url" placeholder="${esc(t("baseUrl"))}" value="https://exhentai.org">
+      ${ehBaseUrlControl("https://exhentai.org", "w_")}
       <div class="w-grid">
         <input name="w_ipb_member_id" placeholder="${esc(t("cookieId"))}" autocomplete="off">
         <input name="w_ipb_pass_hash" placeholder="${esc(t("cookieHash"))}" autocomplete="off">
@@ -831,6 +833,7 @@ async function renderGallery() {
       <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span></p></header>
       <div class="toolbar">
         <a class="primary" href="${navHash("reader", { id, page: progress.current_page }, libraryContext())}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
+        ${g.eh_url ? `<a class="secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
         <button class="secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
         <button class="secondary" data-action="unfavorite-gallery" data-id="${id}" type="button" hidden>${esc(t("unfavorite"))}</button>
         <button class="secondary danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
@@ -1225,6 +1228,26 @@ function field(label, inputHtml) {
   return `<label class="field"><span>${esc(label)}</span>${inputHtml}</label>`;
 }
 
+const EH_BASE_URLS = [
+  { v: "https://exhentai.org", label: "ExHentai（里站）" },
+  { v: "https://e-hentai.org", label: "E-Hentai（外站）" },
+];
+const EH_CUSTOM = "__custom__";
+
+function ehBaseUrlControl(value, prefix) {
+  const fixed = EH_BASE_URLS.some(o => o.v === value);
+  const options = EH_BASE_URLS.map(o =>
+    `<option value="${o.v}"${value === o.v ? " selected" : ""}>${o.label}</option>`
+  ).join("") + `<option value="${EH_CUSTOM}"${fixed ? "" : " selected"}>${esc(t("custom"))}</option>`;
+  return `<select name="${prefix}exhentai_base_url" onchange="toggleEhCustom(this)">${options}</select>
+  <input name="${prefix}exhentai_base_url_custom" data-eh-custom value="${fixed ? "" : esc(value || "")}" placeholder="https://proxy.exhentai.org"${fixed ? " hidden" : ""}>`;
+}
+
+function toggleEhCustom(select) {
+  const input = select.parentElement.querySelector("[data-eh-custom]");
+  if (input) input.hidden = select.value !== EH_CUSTOM;
+}
+
 async function renderSettings() {
   if (!app.settings) {
     try { app.settings = await api("GET", "/api/settings"); } catch (_) { app.settings = {}; }
@@ -1246,7 +1269,7 @@ async function renderSettings() {
         <button class="secondary" data-action="change-password" type="button">${esc(t("changePassword"))}</button>
       </fieldset>
       <fieldset><legend>ExHentai</legend>
-        ${field(t("baseUrl"), `<input name="exhentai_base_url" value="${esc(s.exhentai_base_url || "")}">`)}
+        ${field(t("baseUrl"), ehBaseUrlControl(s.exhentai_base_url || "", ""))}
         <p class="notice">Cookie: <strong>${s.exhentai_cookie_configured ? esc(t("cookieSet")) : esc(t("cookieUnset"))}</strong> · ${esc(t("cookiesNote"))}</p>
         <div class="form-grid">
           <input name="ipb_member_id" placeholder="${esc(t("cookieId"))}" autocomplete="off">
@@ -1366,7 +1389,9 @@ function collectSettings(form) {
   const lines = a => a.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
   const body = {
     library_roots: val("library_roots"),
-    exhentai_base_url: val("exhentai_base_url"),
+    exhentai_base_url: val("exhentai_base_url") === EH_CUSTOM
+      ? (val("exhentai_base_url_custom") || "https://exhentai.org")
+      : val("exhentai_base_url"),
     http_proxy: val("http_proxy"),
     socks5_proxy: val("socks5_proxy"),
     download_root: val("download_root"),
@@ -2477,7 +2502,12 @@ async function welcomeChangePassword() {
 
 async function welcomeSaveCookie() {
   const { v } = welcomeInputs();
-  const body = { exhentai_base_url: v("w_base_url") || "https://exhentai.org" };
+  const baseSel = v("w_exhentai_base_url");
+  const body = {
+    exhentai_base_url: baseSel === EH_CUSTOM
+      ? (v("w_exhentai_base_url_custom") || "https://exhentai.org")
+      : baseSel,
+  };
   for (const k of ["ipb_member_id", "ipb_pass_hash", "igneous"]) {
     if (v("w_" + k)) body[k] = v("w_" + k);
   }
