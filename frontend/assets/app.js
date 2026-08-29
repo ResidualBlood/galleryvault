@@ -449,6 +449,7 @@ function router() {
   if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
+  if (app.view !== "reader" && readerFsActive) exitReaderFullscreen();
   stopInfinite();
   switch (app.view) {
     case "browse": renderBrowse(); break;
@@ -910,14 +911,21 @@ function bindReaderKeys() {
   const advance = () => {
     const n = current() + 1;
     if (app.readerTotal && n >= app.readerTotal) { goReaderNext(id); return; }
+    if (readerFsActive) { readerSwapPage(id, n); return; }
     location.hash = navHash("reader", { id, page: n }, libraryContext());
   };
   readerKeyHandler = (e) => {
     if (e.type === "click") {
       const img = e.target.closest && e.target.closest("#reader-img");
       if (!img) return;
+      const next = parseInt(img.dataset.next, 10);
+      if (readerFsActive) {
+        if (!isNaN(next)) { readerSwapPage(id, next); }
+        else { exitReaderFullscreen(); goReaderNext(id); }
+        return;
+      }
       if (img.dataset.next) {
-        location.hash = navHash("reader", { id, page: parseInt(img.dataset.next, 10) }, libraryContext());
+        location.hash = navHash("reader", { id, page: next }, libraryContext());
       } else {
         goReaderNext(id);
       }
@@ -930,7 +938,8 @@ function bindReaderKeys() {
       advance();
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) }, libraryContext());
+      if (readerFsActive) { readerSwapPage(id, current() - 1); }
+      else { location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) }, libraryContext()); }
     } else if (e.key === "f" || e.key === "F") {
       e.preventDefault();
       toggleReaderFullscreen();
@@ -940,12 +949,64 @@ function bindReaderKeys() {
   document.addEventListener("click", readerKeyHandler);
 }
 
+let readerFsActive = false;
+let readerFitBeforeFs = "";
+
 function toggleReaderFullscreen() {
-  const root = document.documentElement;
-  try {
-    if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); }
-    else if (root.requestFullscreen) { root.requestFullscreen().catch(() => {}); }
-  } catch (_) { /* unsupported */ }
+  if (document.fullscreenElement) { exitReaderFullscreen(); }
+  else { enterReaderFullscreen(); }
+}
+
+function enterReaderFullscreen() {
+  const img = document.getElementById("reader-img");
+  if (!img || !img.requestFullscreen) return;
+  readerFitBeforeFs = img.getAttribute("style") || "";
+  img.removeAttribute("style");
+  readerFsActive = true;
+  const p = img.requestFullscreen();
+  if (p && p.catch) p.catch(() => { clearReaderFsState(); });
+}
+
+function exitReaderFullscreen() {
+  clearReaderFsState();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  syncReaderUrl();
+}
+
+function clearReaderFsState() {
+  readerFsActive = false;
+  const img = document.getElementById("reader-img");
+  if (img && readerFitBeforeFs) img.setAttribute("style", readerFitBeforeFs);
+  readerFitBeforeFs = "";
+}
+
+function onFullscreenChange() {
+  if (!document.fullscreenElement && readerFsActive) {
+    clearReaderFsState();
+    syncReaderUrl();
+  }
+}
+
+function syncReaderUrl() {
+  if (app.view !== "reader" || !app.params.id) return;
+  const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  const target = navHash("reader", { id: app.params.id, page }, libraryContext());
+  if (location.hash !== target) location.hash = target;
+}
+
+function readerSwapPage(id, target) {
+  const total = app.readerTotal || 0;
+  if (target >= total) { exitReaderFullscreen(); goReaderNext(id); return; }
+  if (target < 0) { exitReaderFullscreen(); return; }
+  app.params.page = String(target);
+  const img = document.getElementById("reader-img");
+  if (!img) return;
+  img.src = `/api/galleries/${id}/pages/${target}`;
+  img.dataset.next = target + 1 < total ? String(target + 1) : "";
+  const bar = document.querySelector(".reader-bar span");
+  if (bar) bar.textContent = `${target + 1} / ${total}`;
+  api("PUT", `/api/galleries/${id}/progress`, { current_page: target, total_pages: total }).catch(() => {});
+  if (target + 1 < total) { const pre = new Image(); pre.src = `/api/galleries/${id}/pages/${target + 1}`; }
 }
 
 function toggleReaderFit() {
@@ -2608,6 +2669,7 @@ function init() {
   document.addEventListener("click", onClick);
   document.addEventListener("change", onChange);
   document.addEventListener("submit", onSubmit);
+  document.addEventListener("fullscreenchange", onFullscreenChange);
   window.addEventListener("hashchange", router);
   updateLangButton();
   checkAuth();
