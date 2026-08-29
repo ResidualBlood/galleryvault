@@ -1126,22 +1126,33 @@ async def _run_download(task: DownloadTask) -> None:
         async with _settings_session() as session, session.begin():
             row = await session.get(DownloadTaskModel, task.id)
             if row is not None:
-                if row.status != "cancelled":
-                    row.status, row.target_path, row.category = (
-                        "success",
-                        str(result.path),
-                        result.category,
-                    )
-                    row.error_message = None
-                    row.retry_count = 0
-                    row.retry_at = None
-                    row.finished_at = datetime.now(UTC)
+                # A cancel can land between the last progress check and this
+                # commit (the cancel route flips the DB status and sets the
+                # in-flight flag).  Honor it: walk the cancel cleanup path
+                # below instead of racing it and marking the task success.
+                if row.status == "cancelled" or (
+                    task.id is not None and task.id in _download_cancelled
+                ):
+                    raise DownloadCancelledError("download was cancelled")
+                row.status, row.target_path, row.category = (
+                    "success",
+                    str(result.path),
+                    result.category,
+                )
+                row.error_message = None
+                row.retry_count = 0
+                row.retry_at = None
+                row.finished_at = datetime.now(UTC)
                 # Skip the attempt log when the task row was deleted mid-flight
                 # (writing one would violate the FK on download_tasks.id).
                 await DownloadRepository(session).record_attempt(
                     task.id or 0, row.retry_count + 1, "success"
                 )
-            completed = True
+                completed = True
+        # The success path always consumes the in-flight flag, so a cancel that
+        # lands just after the commit above can never leak into a later retry.
+        if task.id is not None:
+            _download_cancelled.discard(task.id)
         if completed:
             await _record_download_notification("ok", result.title or task.gid, str(result.pages))
             _maybe_scan_after_download(result)

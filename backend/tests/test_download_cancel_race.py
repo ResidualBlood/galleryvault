@@ -1,0 +1,197 @@
+"""Regression tests for the cancel/completion race in _run_download.
+
+A user can hit cancel just as a download finishes: the last progress callback
+already ran (so no DownloadCancelledError was raised mid-flight), but the
+cancel route has flipped the DB row to "cancelled" and armed the in-flight
+flag.  The old success branch ignored both signals and either marked the task
+success or left a "success" attempt + an "ok" notification behind.  The branch
+now re-checks the row status and the flag inside its transaction and raises
+DownloadCancelledError so the shared cancel-cleanup path (temp dir, flag, no
+"ok" notification) runs.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from galleryvault.app import main
+from galleryvault.services.downloader import DownloadResult, DownloadTask
+
+
+class _Row:
+    def __init__(self, task_id: int):
+        self.id = task_id
+        self.gid = 7
+        self.token = "token"
+        self.status = "downloading"
+        self.retry_count = 0
+        self.max_retries = 10
+        self.target_path = None
+        self.category = None
+        self.error_message = None
+        self.retry_at = None
+        self.finished_at = None
+        self.started_at = None
+
+
+class _Session:
+    """Fake session whose row snapshot is chosen per read.
+
+    ``row_provider`` returns the row the next ``get`` should hand back, so a
+    test can flip the row to "cancelled" between the pre-flight read and the
+    final-commit read, exactly like the cancel route does.
+    """
+
+    def __init__(self, row_provider):
+        self._provider = row_provider
+        self.attempts: list[tuple[int, int, str]] = []
+        self.committed = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        pass
+
+    def begin(self):
+        return self
+
+    async def get(self, model, pk):
+        row = self._provider()
+        row.id = pk
+        return row
+
+    def add(self, obj):
+        self.attempts.append((obj.task_id, obj.attempt, obj.status))
+
+    async def flush(self):
+        pass
+
+
+class _Downloader:
+    def __init__(self, result, cancel_between=False):
+        self.result = result
+        self.cancel_between = cancel_between
+        self.cancelled_now = False
+
+    async def execute(self, task, *, progress=None, **_):
+        if self.cancel_between:
+            self.cancelled_now = True
+            main._download_cancelled.add(task.id)
+        return self.result
+
+
+class _Settings:
+    def __init__(self, root: Path):
+        self.download_root = str(root)
+        self.telegram_notify_level = "always"
+
+
+def _patched(monkeypatch, *, row_provider, downloader):
+    """Stub the DB + downloader + notification seams _run_download touches."""
+    monkeypatch.setattr(main, "_settings_session", lambda: _Session(row_provider))
+    monkeypatch.setattr(main.app.state, "downloader", downloader)
+    monkeypatch.setattr(main.app.state, "settings", _Settings(Path("/tmp")))
+    monkeypatch.setattr(main, "_maybe_scan_after_download", lambda result: None)
+    notifications: list[tuple[str, object, object]] = []
+
+    async def record_notification(kind, title, detail=None):
+        notifications.append((kind, title, detail))
+
+    monkeypatch.setattr(main, "_record_download_notification", record_notification)
+    return notifications
+
+
+async def test_cancel_lands_after_download_completes() -> None:
+    """A cancel armed just before the final commit must not mark success.
+
+    The last progress callback has already run, so execute() returns normally;
+    but the cancel route has set the flag (and flipped the DB row) by the time
+    the success branch commits.  The task must stay cancelled, no success
+    attempt, no "ok" notification, and the flag must be consumed.
+    """
+    main._download_cancelled = set()
+    monkeypatch = pytest.MonkeyPatch()
+
+    row = _Row(42)
+    phase = [0]
+
+    def row_provider():
+        # First read: task is being claimed.  Second read: cancel committed.
+        phase[0] += 1
+        if phase[0] >= 2:
+            row.status = "cancelled"
+        return row
+
+    result = DownloadResult(gid=7, path=Path("/tmp/dl"), pages=5, category="manga", title="t")
+    notifications = _patched(
+        monkeypatch,
+        row_provider=row_provider,
+        downloader=_Downloader(result, cancel_between=True),
+    )
+
+    await main._run_download(DownloadTask(7, "token", "t", id=42))
+
+    assert row.status == "cancelled", "task must stay cancelled"
+    assert 42 not in main._download_cancelled, "in-flight flag must be discarded"
+    assert notifications == [], "no ok notification for a cancelled download"
+    monkeypatch.undo()
+
+
+async def test_cancel_via_db_status_before_commit() -> None:
+    """The row already reads "cancelled" when the success branch commits.
+
+    The cancel route's DB commit happened before the success branch read the
+    row (flag path above covers the in-between window).  Same expectations.
+    """
+    main._download_cancelled = set()
+    monkeypatch = pytest.MonkeyPatch()
+
+    row = _Row(43)
+    phase = [0]
+
+    def row_provider():
+        phase[0] += 1
+        if phase[0] >= 2:
+            row.status = "cancelled"
+        return row
+
+    result = DownloadResult(gid=7, path=Path("/tmp/dl"), pages=5, category="manga", title="t")
+    notifications = _patched(
+        monkeypatch,
+        row_provider=row_provider,
+        downloader=_Downloader(result),
+    )
+
+    await main._run_download(DownloadTask(7, "token", "t", id=43))
+
+    assert row.status == "cancelled"
+    assert 43 not in main._download_cancelled
+    assert notifications == []
+    monkeypatch.undo()
+
+
+async def test_success_path_when_no_cancel() -> None:
+    """Without a cancel the success branch still marks success + notifies."""
+    main._download_cancelled = set()
+    monkeypatch = pytest.MonkeyPatch()
+
+    row = _Row(44)
+
+    def row_provider():
+        return row
+
+    result = DownloadResult(gid=7, path=Path("/tmp/dl"), pages=5, category="manga", title="t")
+    notifications = _patched(
+        monkeypatch,
+        row_provider=row_provider,
+        downloader=_Downloader(result),
+    )
+
+    await main._run_download(DownloadTask(7, "token", "t", id=44))
+
+    assert row.status == "success"
+    assert row.target_path == "/tmp/dl"
+    assert row.retry_count == 0
+    assert notifications == [("ok", "t", "5")]
+    monkeypatch.undo()
