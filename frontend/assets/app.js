@@ -68,7 +68,7 @@ const I18N = {
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
     catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted",
-    useHah: "Use H@H", titleDisplay: "Title display",
+    useHah: "Use H@H", titleDisplay: "Title display", downloadTitle: "Download title (folder name)",
     imageTimeout: "Image max time (seconds)", imageWarmup: "Image slow warmup (seconds)", imageMinSpeed: "Image min speed (KB/s)",
     imageTimeoutHint: "A single image is aborted after this many seconds total. ",
     imageSlowHint: "After the warm-up window, an image averaging below the minimum speed is treated as a throttled H@H node and retried with backoff.",
@@ -177,7 +177,7 @@ const I18N = {
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
     catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除",
-    useHah: "使用 H@H", titleDisplay: "标题显示",
+    useHah: "使用 H@H", titleDisplay: "标题显示", downloadTitle: "下载标题（目录命名）",
     imageTimeout: "单图最大耗时（秒）", imageWarmup: "慢速预热窗口（秒）", imageMinSpeed: "单图最低速度（KB/s）",
     imageTimeoutHint: "单张图片下载超过该总时长即中断。",
     imageSlowHint: "超过预热窗口后，若单图平均速度低于下限，判定为 H@H 限流节点，退避后重试。",
@@ -1302,6 +1302,10 @@ async function renderSettings() {
             <option value="original"${(s.download_quality || "resample") === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
             <option value="resample"${(s.download_quality || "resample") === "resample" ? " selected" : ""}>${esc(t("qualityResample"))}</option>
           </select>`)}
+          ${field(t("downloadTitle"), `<select name="download_title">
+            <option value="japanese"${(s.download_title || "japanese") === "japanese" ? " selected" : ""}>Japanese (日文)</option>
+            <option value="english"${(s.download_title || "japanese") === "english" ? " selected" : ""}>English (英文)</option>
+          </select>`)}
           ${field(t("titleDisplay"), `<select name="title_display">${["japanese", "english", "directory"].map(o => `<option value="${o}"${o === (s.title_display || "japanese") ? " selected" : ""}>${o}</option>`).join("")}</select>`)}
         </div>
         <p class="notice">${esc(t("imageTimeoutHint"))}</p>
@@ -1401,6 +1405,7 @@ function collectSettings(form) {
     download_concurrency: Math.min(32, Math.max(1, num("download_concurrency", 2))),
     page_concurrency: Math.min(16, Math.max(1, num("page_concurrency", 4))),
     download_quality: val("download_quality") || "resample",
+    download_title: val("download_title") || "japanese",
     title_display: val("title_display") || "japanese",
     image_download_timeout_seconds: Math.max(1, Math.round(num("image_download_timeout_seconds", 120))),
     image_slow_warmup_seconds: Math.max(1, Math.round(num("image_slow_warmup_seconds", 30))),
