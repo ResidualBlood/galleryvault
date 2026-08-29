@@ -20,5 +20,7 @@ fi
 
 alembic upgrade head
 # --proxy-headers: trust the nginx reverse proxy's X-Forwarded-* so login rate
-# limiting keys on the real client IP instead of the shared proxy IP.
-exec uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips="*"
+# limiting keys on the real client IP instead of the shared proxy IP.  Only the
+# private docker/proxy range is allowed to rewrite forwarded headers; the login
+# bucket itself keys on X-Real-IP (set by nginx, unforgeable by clients).
+exec uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips="172.16.0.0/12,127.0.0.1"

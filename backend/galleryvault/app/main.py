@@ -253,6 +253,19 @@ async def _login_succeeded(ip: str) -> None:
         _login_attempts.pop(ip, None)
 
 
+def _client_ip(request: Request) -> str:
+    """Best-effort real client IP for login rate limiting.
+
+    The reverse proxy (nginx) unconditionally overwrites ``X-Real-IP`` with
+    ``$remote_addr``, so a client cannot spoof it there; when the backend is
+    hit directly (no proxy header) the socket peer is the source of truth.
+    """
+    real = request.headers.get("x-real-ip")
+    if real and real.strip():
+        return real.strip()
+    return request.client.host if request.client else "unknown"
+
+
 def _settings() -> Settings:
     return app.state.settings
 
@@ -671,7 +684,7 @@ async def shutdown() -> None:
 
 @app.post("/login")
 async def login(request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     if not await _login_gate(ip):
         logger.info(
             "login rate limited", extra=log_extra(ip=ip, reason="rate_limit")
@@ -686,7 +699,7 @@ async def login(request: Request):
         logger.info(
             "authentication failed",
             extra=log_extra(
-                ip=request.client.host if request.client else "unknown", reason="invalid_password"
+                ip=ip, reason="invalid_password"
             ),
         )
         return RedirectResponse("/login?error=1", status_code=303)

@@ -338,3 +338,83 @@ def test_gallery_detail_includes_spider_info(
     response = client.get("/api/galleries/7")
     assert response.status_code == 200
     assert response.json()["spider_info"]["version"] == "1.0"
+
+
+def _fake_request(headers, client_host="9.9.9.9"):
+    class _Headers(dict):
+        def get(self, key, default=None):
+            return super().get(key.lower(), default)
+
+    return SimpleNamespace(
+        headers=_Headers({k.lower(): v for k, v in headers.items()}),
+        client=SimpleNamespace(host=client_host),
+    )
+
+
+def test_client_ip_prefers_trusted_x_real_ip() -> None:
+    """Login rate limiting keys on nginx's X-Real-IP, not the socket peer."""
+    from galleryvault.app.main import _client_ip
+
+    assert _client_ip(_fake_request({"x-real-ip": "1.2.3.4"})) == "1.2.3.4"
+    assert _client_ip(_fake_request({"X-Real-IP": "  1.2.3.4  "})) == "1.2.3.4"
+
+
+def test_client_ip_falls_back_to_socket_peer() -> None:
+    """Direct backend access without a proxy header falls back to client.host."""
+    from galleryvault.app.main import _client_ip
+
+    assert _client_ip(_fake_request({})) == "9.9.9.9"
+    assert _client_ip(_fake_request({"x-real-ip": ""})) == "9.9.9.9"
+    assert (
+        _client_ip(_fake_request({"x-real-ip": " "}, client_host="7.7.7.7")) == "7.7.7.7"
+    )
+
+
+def test_client_ip_unknown_without_client() -> None:
+    from galleryvault.app.main import _client_ip
+
+    assert _client_ip(SimpleNamespace(headers={}, client=None)) == "unknown"
+
+
+def test_login_rate_limit_keys_on_x_real_ip(client: TestClient) -> None:
+    """A spoofed X-Real-IP must not reset another bucket's counters."""
+    from galleryvault.app import main
+
+    original = main._login_attempts
+    original_lock = main._login_lock
+    main._login_attempts = {}
+    main._login_lock = __import__("asyncio").Lock()
+
+    def reset():
+        main._login_attempts = original
+        main._login_lock = original_lock
+
+    try:
+        # Pretend every request carries the proxy-set X-Real-IP; the bucket
+        # must key on it (here via the TestClient, whose socket peer is
+        # 127.0.0.1 — a spoofed header must not mix into that bucket).
+        for _ in range(main.LOGIN_RATE_MAX + 1):
+            resp = client.post(
+                "/login",
+                data={"password": "wrong"},
+                follow_redirects=False,
+                headers={"X-Real-IP": "5.5.5.5"},
+            )
+            assert resp.status_code in {303, 429}
+        limited = client.post(
+            "/login",
+            data={"password": "wrong"},
+            follow_redirects=False,
+            headers={"X-Real-IP": "5.5.5.5"},
+        )
+        assert limited.status_code == 429
+        # A different X-Real-IP still has its own fresh bucket.
+        other = client.post(
+            "/login",
+            data={"password": "wrong"},
+            follow_redirects=False,
+            headers={"X-Real-IP": "6.6.6.6"},
+        )
+        assert other.status_code == 303
+    finally:
+        reset()
