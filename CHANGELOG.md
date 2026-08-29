@@ -30,6 +30,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Empty cached tags no longer wipe a gallery's local tags.** When the gdata
+  metadata cache for a gallery had an empty `tags` list (stale or partial
+  response), `apply_metadata_to_galleries` still ran the `delete(GalleryTag)`
+  for every gallery in the batch, destroying tags that were already synced
+  locally. The delete is now gated per-gallery on the cache actually carrying
+  tags; galleries with empty cached tags keep their local tags while the rest
+  of their metadata is still updated.
 - **A cancel landing just as a download finished no longer races the success
   commit.** The cancel route flips the DB row to `cancelled` and arms the
   in-flight flag; if that landed between the last progress callback and the
