@@ -768,6 +768,10 @@ async function renderLibrary() {
     if (category) extra.category = category;
     if (tags) { extra.tags = tags; extra.tag_mode = "and"; }
     const data = await galleryGrid("lib-grid", page, extra);
+    if (data && data.resolved && (data.q !== (app.query.q || "") || data.tags !== (app.query.tags || ""))) {
+      location.hash = navHash("library", {}, { q: data.q, category: data.category, tags: data.tags, tag_mode: "and" });
+      return;
+    }
     renderCardCheckboxes();
     gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 24 }));
     bindTagSuggest();
