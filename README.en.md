@@ -13,27 +13,84 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 
 ## Features
 
-- **Local gallery library** — Scan Ehviewer export directories, CBZ/CBR files and plain image folders into a persistent, searchable index (PostgreSQL).
-- **Tag cloud and search** — namespaced tags, a frequency-weighted tag cloud and
-  live search suggestions; **click any tag (in the tag cloud or on the gallery
-  detail page) to filter the library to every gallery carrying it**.
-- **Multi-tag & mixed search** — clicking tags **stacks** the filter (all must
-  match, AND); the search box accepts a free-form combo such as `动图 中国` and
-  splits it automatically (tag `animated` + keyword); the gallery detail page
-  offers a one-click **Open on ExHentai** link built from the configured base URL.
-- **Tag translations** — Pulls the latest EhTagTranslation database; Chinese input reverse-matches the translation table (typing 巨乳 suggests `big breasts`).
-- **Bilingual interface** — Full English and Chinese interface, switchable at any time; tags render their translations in the Chinese view.
-- **ExHentai integration** — Use your own cookies (e-hentai.org or exhentai.org) to fetch metadata, categories and tags for every gallery. With the **public mirror** (`e-hentai.org`) configured, ExHentai-only galleries *pause* tag sync instead of being misclassified as deleted, and resume automatically when the base URL switches back to `exhentai.org`.
-- **Download manager** — Ehviewer-style concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry. Failed tasks **self-heal with an exponential backoff** (30s → 6h, up to 10 attempts), so a long gallery interrupted by network flakiness resumes on its own. Finished downloads are **ingested into the index immediately** (tags and cover included — no full library scan).
-- **Duplicate-copy cleanup** — When the same gallery (gid) exists under several scan roots, a `duplicate_policy` (keep-first / more pages / newer / larger / smaller / manual) keeps one copy automatically and lists every other copy on a *Duplicate copies* page (thumbnail, tags, page count, size, posted date) where you can keep one or keep-and-delete the rest from disk.
-- **Favorites monitor & management** — Watches the ten ExHentai favorite folders and auto-downloads missing galleries; per-folder lists, duplicate scan with ignore/restore.
-- **Metadata cache & auto-sync** — Folder checks batch every favorited gallery's metadata (tags, category, posted date, size) into a database cache via the gdata API; scanned galleries reuse it with no extra fetch, and fresh metadata is applied to on-disk galleries automatically.
-- **Reader and history** — Streams one page at a time with keyboard/space/click paging, preloads the next three pages, advances to the next gallery after the last page, saves your reading position.
-- **Activity log page** — A single place for background tasks (scan, tag sync, thumbnails, favorites metadata) with running/finished sections and per-task cancel.
-- **First-run wizard** — New deployments land in a three-step `#/welcome` guide (change password → connect ExHentai → scan the library), revisit it any time.
-- **Telegram notifications** — On download success/failure, scan completion, and favorite sync; download notifications default to a **summary** digest (a bulk run collapses into one message), switchable to immediate / failures-only / off. A **notification language** setting (中文 / English) drives the wording of every message.
-- **Security and privacy** — PBKDF2 auth, login rate limiting, cross-origin checks and an ExHentai domain whitelist, non-root runtime, optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM); changing the password revokes every active session.
-- **One-command deployment** — Two published Docker Hub images plus PostgreSQL run with a single `docker compose up`.
+**Local gallery library**
+
+- **Scan** Ehviewer export directories, CBZ/CBR archives and plain image
+  folders into a persistent, searchable index (PostgreSQL).
+- **Format fidelity** — `<gid>-<title>/` + `.ehviewer` (SpiderInfo V1/V2),
+  JHenTai `metadata` JSON and CBZ/CBR (+ ComicInfo.xml) all restore the full
+  gallery identity; galleries without a gid can be browsed but take no part in
+  downloads or dedupe.
+- **Duplicate-copy cleanup** — when the same gid appears under several scan
+  roots, a `duplicate_policy` (keep-stored / more pages / newer / larger /
+  smaller / manual) keeps one copy automatically and lists every other copy on
+  a *Duplicate copies* page (keep / keep-and-delete / dismiss).
+- **Title display** — `japanese` / `english` / `directory` drives the whole
+  UI; downloaded folder names follow the separate *Download title* setting.
+
+**Search & tags**
+
+- **Multi-tag & mixed search** — clicking tags (suggestions / detail page /
+  tag cloud) stacks AND filters; the box accepts `动图 中国` combos and
+  `ns:name` syntax, tags are opt-in (click a suggestion), and Enter runs a
+  plain title search (multi-word = every word must match).
+- **Tag translations** — pulls the latest EhTagTranslation database; Chinese
+  input reverse-matches (typing 巨乳 suggests `big breasts`).
+- **Bilingual UI** — English / 中文, switchable at any time; tags show their
+  translations in the Chinese view.
+- **Tag cloud** — namespace groups (Tag / Artist / Character / Parody / Group
+  / Female / Male / Language), size weighted by usage.
+
+**ExHentai integration**
+
+- **Metadata sync** — fetch metadata / categories / tags with your own
+  cookies; a gdata batch cache is reused by scans and favorites.
+- **Public-mirror safe** — with `e-hentai.org` configured, ExHentai-only
+  galleries *pause* tag sync (never misclassified as deleted) and resume when
+  the base URL switches back.
+- **Favorites monitor & management** — watches the ten folders (incremental /
+  watch-only / force modes), auto-downloads missing galleries, per-folder
+  lists, a skip heuristic to save bandwidth, and duplicate scan with
+  ignore/restore.
+- **Open on ExHentai** — a one-click link to the original gallery from the
+  detail page (built from the configured base URL).
+
+**Download manager**
+
+- **Ehviewer-style downloads** — concurrent page downloads, live progress,
+  resumable retries (missing pages only), partial downloads (`max_pages`),
+  cancel and bulk retry.
+- **Slow-node watchdog** — per-image total-time budget + warm-up window +
+  minimum speed; a sluggish H@H node no longer holds a whole gallery hostage.
+- **Self-healing failures** — transient errors re-queue with **exponential
+  backoff** (30s → 6h, up to 10 attempts); a periodic sweep re-activates
+  failed tasks that still have retry budget.
+- **Instant ingestion** — a finished download is written into the index (tags
+  and cover included), no full scan; existing download folders are reused.
+- **Telegram** — download/scan/favorites notifications (summary / immediate /
+  failures-only / off, 中文/English) plus bot control commands (`/pause`
+  `/resume` `/status`, paste a gallery URL to enqueue a download).
+
+**Reader & UI**
+
+- **Reader** — one-page streaming, keyboard/space/click paging, three-page
+  preload, auto-advance after the last page, fullscreen and fit modes, 1-hour
+  browser caching, saved reading position, and the search context is kept
+  throughout.
+- **Browse & history** — newest-gallery browse (random gallery, tag namespace
+  strip), a global top-bar search, a reading-history page, an activity log
+  page, and a first-run wizard.
+
+**Security & operations**
+
+- **Security** — PBKDF2 auth, login rate limiting, cross-origin checks and a
+  domain whitelist, password change revokes every session, non-root runtime;
+  optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM).
+- **Proxy** — HTTP or SOCKS5 (pick one), used for ExHentai access, downloads
+  and translation updates.
+- **One-command deployment** — two Docker Hub images plus PostgreSQL with a
+  single `docker compose up`; automatic migrations on upgrade and
+  `scripts/backup.sh` for backups.
 
 ## Screenshots
 
