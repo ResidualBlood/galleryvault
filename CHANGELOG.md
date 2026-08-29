@@ -30,6 +30,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A cancel landing just as a download finished no longer races the success
+  commit.** The cancel route flips the DB row to `cancelled` and arms the
+  in-flight flag; if that landed between the last progress callback and the
+  final commit, the old success branch either marked the task `success` or
+  left a `success` attempt + an "ok" notification behind. The success branch
+  now re-checks the row status and the flag inside its transaction and walks
+  the shared cancel-cleanup path (temp dir, flag, no "ok" notification); the
+  success path always consumes the in-flight flag so a late cancel can never
+  leak into a later retry.
 - **Galleries over ~10240 pages are no longer truncated.** The page-link
   enumeration fetched the first 512 gallery sub-pages concurrently, then
   walked a serial tail `range(start, 512)` — which was empty once `start`
