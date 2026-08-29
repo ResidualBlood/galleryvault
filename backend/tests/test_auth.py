@@ -144,6 +144,52 @@ def test_settings_api_exposes_configuration_groups(client: TestClient) -> None:
     )
 
 
+def test_settings_save_persists_auth_required(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The settings page checkbox must survive a save.
+
+    Regression guard: SettingsRequest previously had no ``auth_required`` field,
+    so pydantic silently dropped the submitted value and the toggle could never
+    be persisted (dead UI since v1.0.0).
+    """
+    from galleryvault.app import main
+    from galleryvault.app.routers import settings as settings_router
+
+    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+    saved: dict[str, object] = {}
+
+    class FakeRepo:
+        def __init__(self, session: object) -> None:
+            self.session = session
+
+        async def get(self) -> dict[str, object]:
+            return dict(saved)
+
+        async def save(self, values: dict[str, object]) -> None:
+            saved.clear()
+            saved.update(values)
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        def begin(self):
+            return self
+
+    monkeypatch.setattr(settings_router, "SettingsRepository", FakeRepo)
+    monkeypatch.setattr(main, "_settings_session", lambda: Session())
+    response = client.post("/api/settings", json={"auth_required": False, "page_concurrency": 8})
+    assert response.status_code == 200
+    assert saved["auth_required"] is False
+    assert saved["page_concurrency"] == 8
+    # In-memory runtime settings must reflect the toggle immediately too.
+    assert main._settings().auth_required is False
+
+
 def test_protected_api_requires_authentication(client: TestClient) -> None:
     assert client.get("/api/settings", follow_redirects=False).status_code == 401
     assert client.get("/api/downloads", follow_redirects=False).status_code == 401

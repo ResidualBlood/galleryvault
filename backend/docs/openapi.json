@@ -2600,6 +2600,19 @@
             ],
             "title": "Download Concurrency"
           },
+          "page_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 16.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Concurrency"
+          },
           "download_quality": {
             "anyOf": [
               {
@@ -2872,6 +2885,17 @@
               }
             ],
             "title": "Duplicate Policy"
+          },
+          "auth_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Required"
           }
         },
         "type": "object",

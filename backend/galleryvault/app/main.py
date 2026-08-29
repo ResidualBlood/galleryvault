@@ -1611,6 +1611,7 @@ class SettingsRequest(BaseModel):
     tag_sync_concurrency: int | None = Field(default=None, ge=1, le=32)
     generate_thumbnails: bool | None = None
     duplicate_policy: str | None = None
+    auth_required: bool | None = None
 
     @model_validator(mode="after")
     def validate_values(self) -> "SettingsRequest":
