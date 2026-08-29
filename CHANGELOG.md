@@ -4,6 +4,30 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Download-title setting (`download_title`)** — chooses which title seeds
+  the on-disk download folder name (`<gid>-<title>`): `japanese` (default,
+  Ehviewer-style) or `english`. Independent of the display `title_display`
+  setting; a changed setting only affects newly downloaded folders.
+- **Download folder reuse** — re-running a download now reuses the existing
+  `<gid>-…` folder instead of deleting it and starting over, so a changed
+  title no longer leaves a second orphaned copy on disk.
+- **Long CJK titles can no longer overflow the filesystem limit** — download
+  folder names are truncated to 255 UTF-8 bytes at a character boundary
+  (previously 180 characters, which could exceed 255 bytes for Japanese text).
+
+### Changed
+
+- **ExHentai login test now really verifies the session** — `POST
+  /api/settings/exhentai/test` answers with meaningful HTTP status codes (200
+  logged in, 400 no cookies configured, 401 cookie expired/invalid, 403 no
+  exhentai access, 502 upstream failure) and classifies the home page by its
+  login markers instead of treating any HTTP 200 as success. A transient
+  anti-bot challenge is retried once before reporting a failure.
+
 ## [1.2.15] - 2026-08-29
 
 ### Added
