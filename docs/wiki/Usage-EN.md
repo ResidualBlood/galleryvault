@@ -321,8 +321,11 @@ additions again.
   (bold titles, mono gids); gallery titles are never translated. A **Send test
   message** button verifies the bot can reach the chat.
 - **Telegram bot control commands** (send from an **allowed user ID**):
-  `/pause` pauses the queue (nothing is enqueued while paused), `/resume`
-  resumes, `/status` shows the pause state; **pasting a gallery URL** (e.g.
+  `/pause` pauses the bot's URL intake (URLs pasted while paused are ignored,
+  not enqueued), `/resume` re-enables intake, `/status` shows the pause state;
+  `/pause` only affects bot URL intake — **already-queued and in-flight
+  downloads continue unaffected** (the flag is not persisted and auto-resets on
+  backend restart). **Pasting a gallery URL** (e.g.
   `https://exhentai.org/g/2325283/d3722b6aa8/`) parses the gid/token and
   enqueues it for download immediately, replying with a confirmation.
 - **Translation auto-update**: interval (minutes, 0 = off) and **Update now**.

@@ -136,5 +136,5 @@ SPA 使用 hash 路由（`#/library`、`#/gallery/7`、…），浏览器刷新�
 - **标签同步**：扫描/启动后自动同步、间隔、并发，**立即同步标签**。
 - **Thumbnails**：自动生成开关、**立即生成**；下方显示缩略图**实时状态**。
 - **Telegram**：bot token、chat ID、允许的 user ID，**发送测试消息**验证；**通知级别**（汇总 / 即时 / 仅失败 / 关闭）与**通知语言**（中文 / English）——下载、扫库、收藏夹检查与 bot 回复统一用该语言发送，消息采用 Telegram HTML 格式（标题加粗、gid 等宽），画廊标题保持原文不翻译。
-- **Telegram bot 控制命令**（在「允许的 user ID」账号发给 bot）：`/pause` 暂停队列（期间不再入队）、`/resume` 恢复、`/status` 查看暂停状态；**直接粘贴画廊 URL**（如 `https://exhentai.org/g/2325283/d3722b6aa8/`）会解析 gid/token 并立即入队下载，bot 回复确认。
+- **Telegram bot 控制命令**（在「允许的 user ID」账号发给 bot）：`/pause` 暂停 bot 接收新 URL（暂停期间粘贴的画廊 URL 会被忽略、不入队）、`/resume` 恢复接收、`/status` 查看暂停状态；`/pause` 只影响 bot 的 URL 入队，**已入队/正在下载的任务不受影响、继续下载**（该暂停标记不持久化，backend 重启后自动恢复）。**直接粘贴画廊 URL**（如 `https://exhentai.org/g/2325283/d3722b6aa8/`）会解析 gid/token 并立即入队下载，bot 回复确认。
 - **翻译自动更新**：间隔（分钟，0=关闭）与**立即更新**。
