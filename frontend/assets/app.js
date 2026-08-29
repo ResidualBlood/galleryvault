@@ -566,7 +566,7 @@ function galleryCard(it) {
 }
 
 async function galleryGrid(container, page, extraQuery) {
-  const pageSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : (app.query.page_size || 24);
+  const pageSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : prefPageSize();
   const q = Object.assign({ page, page_size: pageSize }, extraQuery || {});
   delete q.page_size;
   q.page_size = pageSize;
@@ -672,9 +672,16 @@ function parseTags(s) {
   return (s || "").split(",").map(t => t.trim()).filter(Boolean);
 }
 
+function prefPageSize() {
+  const fromUrl = parseInt(app.query.page_size, 10);
+  if (fromUrl > 0) return fromUrl;
+  const saved = parseInt(localStorage.getItem("gv_page_size") || "", 10);
+  return saved > 0 ? saved : 24;
+}
+
 function libraryContext() {
   const c = {};
-  for (const k of ["q", "tags", "tag_mode", "category"]) {
+  for (const k of ["q", "tags", "tag_mode", "category", "page_size"]) {
     if (app.query[k]) c[k] = app.query[k];
   }
   return c;
@@ -731,12 +738,12 @@ async function renderBrowse() {
     </section>`;
   try {
     const [data, tagData] = await Promise.all([
-      galleryGrid("browse-grid", app.query.page || "1", { page_size: app.query.page_size || 24 }),
+      galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() }),
       api("GET", "/api/tags/search?page=1&page_size=1").catch(() => null),
     ]);
     const totalEl = document.getElementById("browse-total");
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;
-    gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 24 }));
+    gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
     const strip = document.getElementById("browse-ns");
     if (strip && tagData) {
       const counts = {};
@@ -777,7 +784,7 @@ async function renderLibrary() {
     <div id="lib-grid"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="lib-pager"></div>`;
   try {
-    const extra = { page_size: app.query.page_size || 24 };
+    const extra = { page_size: prefPageSize() };
     if (q) extra.q = q;
     if (category) extra.category = category;
     if (tags) { extra.tags = tags; extra.tag_mode = "and"; }
@@ -787,7 +794,7 @@ async function renderLibrary() {
       return;
     }
     renderCardCheckboxes();
-    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: app.query.page_size || 24 }));
+    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
@@ -809,7 +816,7 @@ async function renderGallery() {
         ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${addTagHash(tg.namespace, tg.name)}">${esc(tagText(tg))}</a>`).join("")}
       </div></div>`).join("");
     const thumbsAll = g.pages || [];
-    const perPage = parseInt(app.query.page_size || "30", 10);
+    const perPage = prefPageSize();
     const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
     const thumbPage = Math.min(Math.max(parseInt(app.query.page || "1", 10), 1), totalPages);
     const pageStart = (thumbPage - 1) * perPage;
@@ -1160,7 +1167,7 @@ async function renderHistory() {
     <div id="hist-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="hist-pages"></div>`;
   try {
-    const pageSize = app.query.page_size || 24;
+    const pageSize = prefPageSize();
     const data = await api("GET", `/api/history?page=${encodeURIComponent(page)}&page_size=${pageSize}`);
     const el = document.getElementById("hist-list");
     const items = (data && data.items) || [];
@@ -1171,7 +1178,7 @@ async function renderHistory() {
         <span class="row-meta">${esc(t("progress"))} ${h.current_page}/${h.total_pages} · ${h.last_read_at ? esc(String(h.last_read_at).slice(0, 10)) : ""}</span>
       </a>`).join("") + `</div>`;
     const last = Math.max(1, Math.ceil(data.total / data.page_size));
-    const qp = p => navHash("history", {}, { page: p, page_size: app.query.page_size || 24 });
+    const qp = p => navHash("history", {}, { page: p, page_size: prefPageSize() });
     const pages = [];
     for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
       pages.push(p === data.page ? `<strong class="cur">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
@@ -1242,7 +1249,7 @@ function dlProgressHtml(x) {
 async function loadDownloads(filter, page) {
   try {
     const status = filter !== "all" ? `&status=${encodeURIComponent(filter)}` : "";
-    const pageSize = app.query.page_size || 24;
+    const pageSize = prefPageSize();
     const data = await api("GET", `/api/downloads?page=${encodeURIComponent(page)}&page_size=${pageSize}${status}`);
     const items = (data && data.items) || [];
     const el = document.getElementById("dl-list");
@@ -1560,7 +1567,7 @@ async function renderFavList() {
     <div id="fav-items"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="favlist-pager"></div>`;
   try {
-    const qs = `page=${encodeURIComponent(page)}&page_size=${app.query.page_size || 24}&state=${encodeURIComponent(state)}`;
+    const qs = `page=${encodeURIComponent(page)}&page_size=${prefPageSize()}&state=${encodeURIComponent(state)}`;
     const data = await api("GET", `/api/favorites/${favcat}/items?${qs}`);
     const el = document.getElementById("fav-items");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
@@ -2473,11 +2480,11 @@ function bindTagSuggest() {
       clearTimeout(suggestTimer);
       const value = input.value.trim();
       if (!value) { box.hidden = true; return; }
-      suggestTimer = setTimeout(() => loadTagSuggest(value, box), 200);
+      suggestTimer = setTimeout(() => loadTagSuggest(value, box, input), 200);
     });
     input.addEventListener("focus", () => {
       const value = input.value.trim();
-      if (value) loadTagSuggest(value, box);
+      if (value) loadTagSuggest(value, box, input);
     });
     box.addEventListener("click", (e) => e.stopPropagation());
   });
@@ -2493,7 +2500,7 @@ function dismiss(e) {
   });
 }
 
-async function loadTagSuggest(q, box) {
+async function loadTagSuggest(q, box, input) {
   if (!box) return;
   try {
     const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/u.test(q);
@@ -2501,18 +2508,38 @@ async function loadTagSuggest(q, box) {
     const data = await api("GET", url);
     const items = (data && data.items) || [];
     if (!items.length) { box.hidden = true; return; }
-    box.innerHTML = items.map(it => `
-      <div class="suggest-item" data-tags="${esc(`${it.namespace}:${it.name}`)}">
-        <span class="suggest-name">${esc(tagText(it))}</span>
+    box.innerHTML = items.map(it => {
+      const display = tagText(it);
+      return `
+      <div class="suggest-item" data-tags="${esc(`${it.namespace}:${it.name}`)}" data-display="${esc(display)}">
+        <span class="suggest-name">${esc(display)}</span>
         <span class="suggest-ns">${esc(nsLabel(it.namespace))} · ${it.usage_count}</span>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     box.hidden = false;
     box.querySelectorAll(".suggest-item").forEach(item => {
       item.addEventListener("click", () => {
         box.hidden = true;
         const tag = item.getAttribute("data-tags");
+        const display = item.getAttribute("data-display") || "";
         const i = tag.indexOf(":");
-        location.hash = addTagHash(tag.slice(0, i), tag.slice(i + 1));
+        const ns = tag.slice(0, i);
+        const name = tag.slice(i + 1);
+        // Consume the clicked tag's text from the input so it does not also
+        // act as a title keyword; the remaining words stay the text query.
+        const consumed = new Set([name, display, tag, ns ? `${ns}:${display}` : ""]
+          .filter(Boolean).map(s => s.trim()));
+        const remaining = (input ? input.value : "").split(/\s+/).map(s => s.trim())
+          .filter(s => s && !consumed.has(s)).join(" ");
+        if (input) input.value = remaining;
+        const curTags = parseTags(app.query.tags);
+        if (!curTags.includes(tag)) curTags.push(tag);
+        location.hash = navHash("library", {}, {
+          ...(remaining ? { q: remaining } : {}),
+          ...(app.query.category ? { category: app.query.category } : {}),
+          tags: curTags.join(","),
+          tag_mode: "and",
+        });
       });
     });
   } catch (_) { box.hidden = true; }
@@ -2658,6 +2685,7 @@ function onChange(e) {
     return;
   }
   if (!el.matches(".page-size")) return;
+  localStorage.setItem("gv_page_size", el.value);
   const view = el.getAttribute("data-view") || app.view;
   const params = (view === "gallery" || view === "favlist") ? { id: app.params.id } : {};
   const q = { ...app.query, page_size: el.value, page: undefined };
