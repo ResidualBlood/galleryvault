@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from galleryvault.app import main
-from galleryvault.db.repository import FavoritesRepository, SettingsRepository
+from galleryvault.db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
 
 router = APIRouter()
 
@@ -141,5 +141,23 @@ async def _save_settings(body: main.SettingsRequest) -> dict[str, object]:
                 )
     except Exception as exc:
         raise _db_error(exc) from exc
+    # Switching the base URL from the public E-Hentai mirror back to ExHentai
+    # restores tag sync for galleries that were suspended as "not visible"
+    # (an ExHentai-only gallery 404s on e-hentai.org). Resume them so the tag
+    # worker picks them up without manual action.
+    old_base = str(db_settings.get("exhentai_base_url") or "")
+    new_base = str(persisted_values.get("exhentai_base_url") or "")
+    if main._is_public_site(old_base) and not main._is_public_site(new_base):
+        try:
+            async with _settings_session() as session, session.begin():
+                resumed = await GalleryRepository(session).resume_not_visible()
+            if resumed:
+                main.logger.info(
+                    "resumed tag sync for not-visible galleries", extra={"count": resumed}
+                )
+        except Exception as exc:  # noqa: BLE001 - best-effort
+            main.logger.warning(
+                "could not resume not-visible galleries", extra={"error": str(exc)}
+            )
     await _refresh_services()
     return _settings_public()

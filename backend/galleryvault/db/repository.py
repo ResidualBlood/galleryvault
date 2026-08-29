@@ -688,6 +688,44 @@ class GalleryRepository:
             select(Gallery).where((Gallery.id == identifier) | (Gallery.gid == identifier))
         )
 
+    async def mark_tag_not_visible(self, gallery_id: int) -> None:
+        """Suspend tag sync for a gallery the current site cannot see.
+
+        Used when the public E-Hentai mirror reports an ExHentai-only gallery
+        as not found: unlike :meth:`mark_tag_synced` with ``deleted`` this does
+        NOT reclassify the gallery — the 404 is a permission/site artefact, not
+        a deletion. ``tags_synced_at`` is stamped so it leaves the pending
+        queue, and ``source_meta.eh_not_visible`` records the reason so a later
+        switch back to ExHentai can resume it (see :meth:`resume_not_visible`).
+        """
+        row = await self.session.get(Gallery, gallery_id)
+        if row is not None:
+            row.tags_synced_at = datetime.now(UTC)
+            row.category_refreshed_at = datetime.now(UTC)
+            meta = dict(row.source_meta or {})
+            meta["eh_not_visible"] = True
+            row.source_meta = meta
+        await self.session.flush()
+
+    async def resume_not_visible(self) -> int:
+        """Re-queue every gallery suspended for being not-visible on E-Hentai.
+
+        Clearing ``tags_synced_at`` puts them back on the tag-sync pending
+        queue (the worker reseeds on the next tick); the marker is dropped so a
+        later public-mirror trip cannot re-suspend a synced gallery. Returns
+        the number of galleries resumed.
+        """
+        result = await self.session.execute(
+            update(Gallery)
+            .where(Gallery.source_meta.has_key("eh_not_visible"))
+            .values(
+                tags_synced_at=None,
+                category_refreshed_at=None,
+                source_meta=Gallery.source_meta.op("-")("eh_not_visible"),
+            )
+        )
+        return int(result.rowcount or 0)
+
     async def mark_tag_synced(self, gallery_id: int, category: str | None = None) -> None:
         """Mark a gallery's tags as synchronized without writing any tags.
 

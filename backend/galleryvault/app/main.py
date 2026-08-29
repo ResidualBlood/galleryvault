@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -255,6 +255,21 @@ async def _login_succeeded(ip: str) -> None:
 
 def _settings() -> Settings:
     return app.state.settings
+
+
+def _is_public_site(base_url: str) -> bool:
+    """True when ``base_url`` points at the public E-Hentai mirror.
+
+    Used to tell "gallery not found" apart from "this site cannot see a
+    gallery that only ExHentai exposes": on e-hentai.org an ExHentai-only
+    gallery returns the same 404/empty page as a deleted one, so the tag-sync
+    worker must not reclassify it as deleted.
+    """
+    try:
+        host = (urlsplit(base_url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == "e-hentai.org" or host.endswith(".e-hentai.org")
 
 
 def _password_effective() -> str | None:
@@ -1524,19 +1539,35 @@ async def _tag_sync_worker_loop() -> None:
                 interval[0] = max(base_interval, interval[0] / 2)
             return True
         except GalleryGoneError as exc:
-            # The gallery was deleted from ExHentai; nothing can be synced.
-            # Mark it done so it stops cluttering the pending queue, without
-            # treating it as a transient failure (no retries / no backoff).
-            try:
-                async with _settings_session() as session, session.begin():
-                    await GalleryRepository(session).mark_tag_synced(
-                        gallery_id, category="deleted"
+            # "Not found" covers two very different cases: the gallery was
+            # actually deleted from ExHentai, or the configured site (the
+            # public e-hentai.org mirror) simply cannot see an ExHentai-only
+            # gallery. Only the former is a deletion — on the public mirror we
+            # suspend the gallery instead of reclassifying it, and the settings
+            # save handler resumes it once the base URL is back on ExHentai.
+            if _is_public_site(_settings().exhentai_base_url):
+                try:
+                    async with _settings_session() as session, session.begin():
+                        await GalleryRepository(session).mark_tag_not_visible(gallery_id)
+                except Exception:  # noqa: BLE001 - marking is best-effort
+                    logger.warning(
+                        "could not mark gallery not-visible on public mirror",
+                        extra=log_extra(gallery_id=gallery_id),
                     )
-            except Exception:  # noqa: BLE001 - marking is best-effort
-                logger.warning(
-                    "could not mark deleted gallery synced",
-                    extra=log_extra(gallery_id=gallery_id),
-                )
+            else:
+                # The gallery was deleted from ExHentai; nothing can be synced.
+                # Mark it done so it stops cluttering the pending queue, without
+                # treating it as a transient failure (no retries / no backoff).
+                try:
+                    async with _settings_session() as session, session.begin():
+                        await GalleryRepository(session).mark_tag_synced(
+                            gallery_id, category="deleted"
+                        )
+                except Exception:  # noqa: BLE001 - marking is best-effort
+                    logger.warning(
+                        "could not mark deleted gallery synced",
+                        extra=log_extra(gallery_id=gallery_id),
+                    )
             await _complete_job(JOB_TAG_SYNC, gallery_id)
             tag_sync_state["failed"] += 1
             logger.warning(
@@ -1668,13 +1699,23 @@ async def _category_refresh_once() -> int:
                     ).refresh_category(gallery_id)
                 refreshed += 1
             except GalleryGoneError:
-                try:
-                    async with _settings_session() as session, session.begin():
-                        await GalleryRepository(session).mark_tag_synced(
-                            gallery_id, category="deleted"
+                if _is_public_site(_settings().exhentai_base_url):
+                    try:
+                        async with _settings_session() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_not_visible(gallery_id)
+                    except Exception as exc:  # noqa: BLE001 - best-effort
+                        logger.warning(
+                            "could not mark gallery not-visible during category refresh",
+                            extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
                         )
-                except Exception as exc:  # noqa: BLE001 - best-effort
-                    logger.warning(
+                else:
+                    try:
+                        async with _settings_session() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_synced(
+                                gallery_id, category="deleted"
+                            )
+                    except Exception as exc:  # noqa: BLE001 - best-effort
+                        logger.warning(
                         "could not mark deleted gallery during category refresh",
                         extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
                     )
