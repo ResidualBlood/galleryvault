@@ -34,6 +34,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   production log volume. A new `_HttpAccessFilter` in `logging.py` drops
   `2xx`/`3xx` httpx request logs while keeping `4xx`/`5xx` (e.g. H@H `403`
   keystamp misses) and all business WARNING/ERROR lines.
+- **`/healthz` heartbeat access logs are silenced**. The docker healthcheck
+  polls `/healthz` every ~10s, so uvicorn emitted one line per poll (~8.6k
+  lines/day). The filter now drops those while keeping all other uvicorn
+  access logs (real API traffic).
 - **Slow-H@H-node watchdog defaults relaxed further** (`image_min_speed_kb_s`
   20 → 10) and the image transfer **read timeout is now 30s (was 15s) with a
   120s total budget**, so large GIFs / animated images survive a slow or
