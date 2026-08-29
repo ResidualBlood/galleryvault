@@ -4,6 +4,7 @@ Gallery endpoints.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -19,10 +20,70 @@ from galleryvault.logging import log_extra
 from galleryvault.scanners import registry
 from galleryvault.scanners.base import CATEGORIES, PageInfo
 from galleryvault.services.tag_sync import GalleryGidMissing, GalleryNotFound, GalleryTokenMissing
-from galleryvault.services.tag_translation import translated_tag
+from galleryvault.services.tag_translation import search_zh_exact, translated_tag
 from galleryvault.services.thumbnails import JPEG_MIME, ThumbnailError
 
 router = APIRouter()
+
+_CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+
+
+def _dedupe_tags(tags: list[tuple[str | None, str]]) -> list[tuple[str | None, str]]:
+    seen: set[tuple[str | None, str]] = set()
+    out: list[tuple[str | None, str]] = []
+    for tag in tags:
+        if tag not in seen:
+            seen.add(tag)
+            out.append(tag)
+    return out
+
+
+async def _resolve_search_tokens(
+    q: str, repo: GalleryRepository
+) -> tuple[list[tuple[str | None, str]], str, bool]:
+    """Split a free-form query into tag filters + remaining title keywords.
+
+    Each whitespace-separated token becomes a tag filter when it clearly names
+    one: ``ns:name`` syntax, a Chinese word whose translation matches a local
+    tag one-to-one (e.g. ``动图`` → ``other:animated``), or an English token
+    that is an exact tag name in the local tag table.  Everything else stays in
+    the title keyword string.  Returns ``(tags, keywords, changed)``.
+    """
+    tokens = q.split()
+    if not tokens:
+        return [], "", False
+    explicit: list[tuple[str | None, str]] = []
+    zh_tokens: list[str] = []
+    en_tokens: list[str] = []
+    for token in tokens:
+        if ":" in token:
+            namespace, name = token.split(":", 1)
+            namespace = namespace.strip() or None
+            name = name.strip()
+            if name:
+                explicit.append((namespace, name))
+        elif _CJK.search(token):
+            zh_tokens.append(token)
+        else:
+            en_tokens.append(token)
+    resolved_tags: list[tuple[str | None, str]] = []
+    keywords: list[str] = []
+    for token in zh_tokens:
+        hit = await run_in_threadpool(search_zh_exact, token)
+        if hit:
+            resolved_tags.append((hit[0], hit[1]))
+        else:
+            keywords.append(token)
+    if en_tokens:
+        found = await repo.resolve_tag_names(en_tokens)
+        for token in en_tokens:
+            candidates = found.get(token.lower())
+            if candidates:
+                resolved_tags.append((candidates[0][0], candidates[0][1]))
+            else:
+                keywords.append(token)
+    changed = bool(explicit) or bool(resolved_tags)
+    return explicit + resolved_tags, " ".join(keywords), changed
 
 @router.get("/api/galleries")
 async def gallery_list(
@@ -59,18 +120,29 @@ async def gallery_list(
         parsed_tags.append((namespace, name.strip()))
     try:
         async with main._settings_session() as session:
-            total, rows = await GalleryRepository(session).list_page(
-                page, page_size, q, parsed_tags, tag_mode, tag_match, category
+            repo = GalleryRepository(session)
+            resolved_q = q or ""
+            resolved = False
+            if q and q.strip():
+                auto_tags, keywords, changed = await _resolve_search_tokens(q, repo)
+                resolved = changed
+                if changed:
+                    parsed_tags.extend(auto_tags)
+                    parsed_tags = _dedupe_tags(parsed_tags)
+                    resolved_q = keywords
+            total, rows = await repo.list_page(
+                page, page_size, resolved_q, parsed_tags, tag_mode, tag_match, category
             )
-            tag_map = await GalleryRepository(session).tags_for_galleries([row.id for row in rows])
+            tag_map = await repo.tags_for_galleries([row.id for row in rows])
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "q": q or "",
-        "tags": tags or "",
+        "q": resolved_q,
+        "tags": ",".join(f"{namespace}:{name}" if namespace else name for namespace, name in parsed_tags),
+        "resolved": resolved,
         "tag_mode": tag_mode,
         "tag_match": tag_match,
         "category": category or "",

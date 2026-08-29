@@ -174,6 +174,21 @@ def test_search_zh_reverse_matches_chinese_query() -> None:
     assert all("\u4e00" <= display[:1] <= "\u9fff" for _, _, display in hits)
 
 
+def test_search_zh_exact_maps_only_one_to_one_translations() -> None:
+    from galleryvault.services.tag_translation import load_translations, search_zh_exact
+
+    load_translations("galleryvault/data/tag_translations.json", reset=True)
+    # "动图" maps one-to-one onto the animated tag (misc/other alias both store it).
+    hit = search_zh_exact("动图")
+    assert hit is not None and hit[1] == "animated"
+    # "巨乳" maps exactly onto female:big breasts.
+    assert search_zh_exact("巨乳")[0:2] == ("female", "big breasts")
+    # "中国" is NOT a translation of any tag (language:chinese translates to 汉语),
+    # so it must not be promoted to a tag filter.
+    assert search_zh_exact("中国") is None
+    assert search_zh_exact("") is None
+
+
 def test_parse_gallery_titles_reads_gn_and_gj() -> None:
     from galleryvault.services.eh_client import _parse_gallery_titles
 

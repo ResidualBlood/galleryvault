@@ -182,6 +182,29 @@ def search_zh(query: str, limit: int = 20) -> list[tuple[str, str, str]]:
     return [(ns, name, display) for _, ns, name, display in scored[:limit]]
 
 
+def search_zh_exact(query: str) -> tuple[str, str, str] | None:
+    """Return ``(namespace, name, display)`` whose translation *exactly* equals
+    ``query``, or ``None``.
+
+    Used by the smart search-box parsing: a Chinese token is only promoted to a
+    tag filter when it maps one-to-one onto a tag translation (e.g. ``动图`` →
+    ``other:animated``), avoiding false positives where a word merely contains
+    a translation.  Namespaces are walked in the same high-traffic order as
+    :func:`search_zh` so ties resolve consistently.
+    """
+    needle = query.casefold().strip()
+    if not needle:
+        return None
+    order = ["parody", "character", "group", "artist", "female", "male", "language", "misc", "other"]
+    namespaces = sorted(_TRANSLATIONS, key=lambda ns: order.index(ns) if ns in order else len(order))
+    for ns in namespaces:
+        for name, zh in _TRANSLATIONS[ns].items():
+            display = clean_display(str(zh)) if zh else ""
+            if display.casefold() == needle:
+                return ns, name, display
+    return None
+
+
 def translate_namespace(namespace: str | None) -> str:
     if not namespace:
         return ""

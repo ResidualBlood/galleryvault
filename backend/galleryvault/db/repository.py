@@ -518,6 +518,43 @@ class GalleryRepository:
         ).all()
         return total, [(namespace, name, int(count)) for namespace, name, count in rows]
 
+    async def resolve_tag_names(
+        self, names: list[str]
+    ) -> dict[str, list[tuple[str, str, int]]]:
+        """Map exact (case-insensitive) English tag names to their tags.
+
+        Returns ``{name.lower(): [(namespace, name, usage_count), ...]}`` where
+        each list is ordered by usage count descending (ties by namespace), so
+        callers can pick the most representative tag when a name lives in
+        several namespaces.  Used by the smart search-box parsing to promote
+        plain English tokens that are real tag names into tag filters.
+        """
+        if not names:
+            return {}
+        lowered = [n.lower() for n in names]
+        rows = await self.session.execute(
+            select(
+                Tag.namespace,
+                Tag.name,
+                func.count(Gallery.id),
+            )
+            .select_from(Tag)
+            .outerjoin(GalleryTag, GalleryTag.tag_id == Tag.id)
+            .outerjoin(
+                Gallery,
+                and_(Gallery.id == GalleryTag.gallery_id, Gallery.expunged.is_(False)),
+            )
+            .where(func.lower(Tag.name).in_(lowered))
+            .group_by(Tag.id)
+            .order_by(Tag.namespace, Tag.name)
+        )
+        result: dict[str, list[tuple[str, str, int]]] = {}
+        for namespace, name, count in rows.all():
+            result.setdefault(name.lower(), []).append((namespace, name, int(count)))
+        for candidates in result.values():
+            candidates.sort(key=lambda item: (-item[2], item[0]))
+        return result
+
     async def tag_facets(self) -> list[tuple[str, int]]:
         """Per-namespace gallery counts for the tag browser pills."""
         rows = await self.session.execute(
