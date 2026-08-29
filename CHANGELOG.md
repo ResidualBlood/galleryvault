@@ -23,6 +23,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Telegram bot now uses 30s long polling (was 1s short polling)** and the
+  notifier client timeout is raised to 45s to match. `getUpdates` was hammering
+  `api.telegram.org` about once per second, flooding logs with one line per
+  poll (≈9k lines/6h in production); long polling cuts that to 1 request/30s
+  and is gentler on Telegram's API.
+- **httpx access logs are filtered down to failures only**. httpx logged one
+  INFO line per HTTP request, so successful ExHentai page/`api.php` fetches,
+  H@H image downloads and Telegram calls (all `2xx`) flooded stdout — ~96% of
+  production log volume. A new `_HttpAccessFilter` in `logging.py` drops
+  `2xx`/`3xx` httpx request logs while keeping `4xx`/`5xx` (e.g. H@H `403`
+  keystamp misses) and all business WARNING/ERROR lines.
 - **Slow-H@H-node watchdog defaults relaxed further** (`image_min_speed_kb_s`
   20 → 10) and the image transfer **read timeout is now 30s (was 15s) with a
   120s total budget**, so large GIFs / animated images survive a slow or
