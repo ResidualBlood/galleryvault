@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Multi-tag library search**. The library now supports filtering by several
+  tags at once (all must match, `tag_mode=and`). Tag suggestions, tags on the
+  gallery detail page and tags in the tag cloud all **append** to the active
+  filter instead of replacing it; each active tag shows as a removable pill
+  above the grid (per-pill × and a clear-all action). Resubmitting the title
+  search keeps the current tag filter. The backend `/api/galleries` endpoint
+  already accepted comma-separated `tags` — this change surfaces it in the UI.
 - **Background work survives restarts**. Thumbnail generation and tag sync now
   run off a persistent job queue in the database instead of in-memory lists, so
   a container restart continues the remaining work instead of starting over.
