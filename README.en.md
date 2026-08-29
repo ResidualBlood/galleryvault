@@ -19,8 +19,8 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Search & tags** — stackable multi-tag (AND) filters, mixed tag+text
   queries, Chinese tag translations with reverse lookup, bilingual UI.
 - **ExHentai integration** — sync metadata and tags with your own cookies;
-  favorites monitoring with auto-download and dedupe; one-click *Open on
-  ExHentai*.
+  favorites monitoring with auto-download and dedupe; auto-update re-uploaded
+  galleries; one-click *Open on ExHentai*.
 - **Download manager** — Ehviewer-style concurrent downloads, resumable
   retries, self-healing failures, instant ingestion on completion; Telegram
   notifications and bot commands.
