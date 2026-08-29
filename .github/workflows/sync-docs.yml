@@ -1,0 +1,34 @@
+name: sync-docs
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wiki
+        uses: actions/checkout@v7
+        with:
+          repository: ResidualBlood/galleryvault.wiki
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Pull latest reference docs from galleryvault-backend
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/API.md -o API.md
+          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/DEVELOPMENT.md -o Development.md
+          curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault-backend/main/docs/openapi.json -o openapi.json
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add API.md Development.md openapi.json
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git commit -m "docs: sync API/development reference from galleryvault-backend"
+          git push

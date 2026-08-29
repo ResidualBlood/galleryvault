@@ -1,0 +1,78 @@
+services:
+  frontend:
+    image: residualblood/galleryvault-frontend:latest
+    container_name: galleryvault-frontend
+    restart: always
+    ports: ["8000:80"]
+    depends_on:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    image: residualblood/galleryvault-backend:latest
+    container_name: galleryvault-backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql+asyncpg://galleryvault:${POSTGRES_PASSWORD:-galleryvault}@db:5432/galleryvault
+      DOWNLOAD_ROOT: /downloads
+      TZ: Asia/Shanghai
+      # Optional at-rest encryption for ExHentai cookies / Telegram bot token /
+      # auth secrets. Set it ONCE to a long random string to enable; on an
+      # existing install, plaintext values are encrypted automatically at
+      # startup. Keep it OUT of the database backup and store it safely —
+      # losing it makes the encrypted values unrecoverable. Leave unset to
+      # keep storing them as plaintext.
+      # ENCRYPTION_KEY: change-me-to-a-long-random-string
+    # The JSON API is only reachable through the frontend proxy; bind it to the
+    # loopback interface so it is never exposed straight to the public network.
+    ports: ["127.0.0.1:8001:8001"]
+    volumes:
+      # Library: put your existing archives (Ehviewer exports, CBZ…) here.
+      # New downloads never land in this directory; deleting a gallery removes
+      # its files here when the mount is writable (a read-only mount reports
+      # the failure on the Logs page instead of silently succeeding).
+      - ./library:/library
+      # Download directory: galleries downloaded from ExHentai are stored here
+      # and scanned automatically.
+      - ./downloads:/downloads
+      # Thumbnail cache (generated, never written into the galleries above).
+      - ./cache:/gv-cache
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  db:
+    image: postgres:16-alpine
+    container_name: galleryvault-db
+    restart: always
+    environment:
+      POSTGRES_USER: galleryvault
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-galleryvault}
+      POSTGRES_DB: galleryvault
+      TZ: Asia/Shanghai
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U galleryvault -d galleryvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
