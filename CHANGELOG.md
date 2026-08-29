@@ -23,6 +23,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Long CJK titles can no longer overflow the filesystem limit** — download
   folder names are truncated to 255 UTF-8 bytes at a character boundary
   (previously 180 characters, which could exceed 255 bytes for Japanese text).
+- **"Not in favorites" library filter** — the library page's category dropdown
+  now offers "Not in favorites", showing local galleries whose gid is not in any
+  ExHentai favorite folder (gid-less local archives count as not favorited).
+  Pseudo-category `category=__not_fav__`; also honored by the filtered delete.
 
 ### Changed
 
