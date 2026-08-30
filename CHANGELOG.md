@@ -57,6 +57,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dev pushes still run `build` as a preview but no longer attempt to deploy,
   which the `github-pages` environment protection rules rejected with
   "Branch dev is not allowed to deploy to github-pages".
+- **Duplicate-copies page tags lost their Chinese translation** — the
+  `/api/scan/duplicates` response returned each copy's tags as plain
+  `{namespace, name}` without the translated `display` field (every other page
+  fills it server-side via `translated_tag`), so `tagText()` on the Chinese UI
+  fell back to the untranslated English tag name. The cleanup page now fills
+  `display` like the gallery/favorites endpoints; existing duplicate records
+  are translated on the fly, no rescan needed.
 
 ### Changed
 
