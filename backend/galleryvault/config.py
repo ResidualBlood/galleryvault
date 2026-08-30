@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Scheduled-scan archive threshold: galleries with ``filecount`` strictly
     # greater than this are archived, the rest download page-by-page. 0 = all.
     favorites_archive_max_pages: int = 0
+    # When the archive channel cannot serve a gallery (tier unavailable, GP too
+    # low, archive corrupt), fall back to page-by-page instead of failing the
+    # whole task. Page-by-page costs no GP but uses H@H traffic.
+    archive_fallback_pages: bool = True
     # Which title seeds the on-disk download folder name (``<gid>-<title>``).
     # Independent of the display-title setting; ``japanese`` (default) keeps
     # Ehviewer-style naming, ``english`` prefers the romaji/English title.
@@ -215,6 +219,7 @@ EDITABLE_SETTINGS = {
         "archive_quality",
         "favorites_archive_enabled",
         "favorites_archive_max_pages",
+        "archive_fallback_pages",
         "use_hah",
         "image_download_timeout_seconds",
         "image_slow_warmup_seconds",

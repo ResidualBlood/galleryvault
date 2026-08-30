@@ -243,7 +243,29 @@ class Downloader:
         self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
         if task.mode and "archive" in task.mode:
-            return await self._download_archive_once(task, progress)
+            try:
+                return await self._download_archive_once(task, progress)
+            except ArchiveNotRetryableError:
+                # The archive channel cannot serve this gallery (no such tier,
+                # insufficient GP, corrupt zip). When enabled, fall back to the
+                # page-by-page channel, which costs no GP and lets H@H carry the
+                # traffic, instead of failing the whole download.
+                settings = getattr(self.client, "settings", None)
+                if not getattr(settings, "archive_fallback_pages", True):
+                    raise
+                logger.info(
+                    "archive download unavailable; falling back to page-by-page",
+                    extra=log_extra(gid=task.gid),
+                )
+                temp = self.root / f".gv-{task.gid}"
+                if temp.exists():
+                    shutil.rmtree(temp, ignore_errors=True)
+                return await self._download_pages(task, progress)
+        return await self._download_pages(task, progress)
+
+    async def _download_pages(
+        self, task: DownloadTask, progress: ProgressCallback | None = None
+    ) -> DownloadResult:
         # Pass max_pages through to fetch_gallery so a sample download only
         # resolves the pages it actually needs (otherwise every page's URL is
         # fetched from ExHentai via showpage before the list is truncated).

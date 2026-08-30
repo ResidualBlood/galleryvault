@@ -1858,6 +1858,7 @@ class SettingsRequest(BaseModel):
     archive_quality: str | None = None
     favorites_archive_enabled: bool | None = None
     favorites_archive_max_pages: int | None = Field(default=None, ge=0)
+    archive_fallback_pages: bool | None = None
     use_hah: bool | None = None
     image_download_timeout_seconds: int | None = Field(default=None, ge=1)
     image_slow_warmup_seconds: int | None = Field(default=None, ge=1)
@@ -1928,6 +1929,7 @@ def _settings_public() -> dict[str, object]:
         "archive_quality": current.archive_quality,
         "favorites_archive_enabled": current.favorites_archive_enabled,
         "favorites_archive_max_pages": current.favorites_archive_max_pages,
+        "archive_fallback_pages": current.archive_fallback_pages,
         "use_hah": current.use_hah,
         "image_download_timeout_seconds": current.image_download_timeout_seconds,
         "image_slow_warmup_seconds": current.image_slow_warmup_seconds,
@@ -1977,6 +1979,7 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "archive_quality",
         "favorites_archive_enabled",
         "favorites_archive_max_pages",
+        "archive_fallback_pages",
         "use_hah",
         "image_download_timeout_seconds",
         "image_slow_warmup_seconds",

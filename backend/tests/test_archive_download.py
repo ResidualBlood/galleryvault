@@ -192,6 +192,12 @@ class FakeArchiveClient:
             await cb(len(data), len(data))
         return len(data)
 
+    async def resolve_page(self, gid, page, showkey=None) -> GalleryPageData:
+        return page
+
+    async def download_image_with_metadata(self, url: str) -> tuple[bytes, str]:
+        return b"\xff\xd8\xff" + b"\x00" * 64, "image/jpeg"
+
 
 @pytest.mark.asyncio
 async def test_archive_downloader_writes_renamed_gallery(tmp_path: Path) -> None:
@@ -245,7 +251,17 @@ async def test_archive_original_tier_passes_org_dltype(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_archive_insufficient_funds_is_not_retryable(tmp_path: Path) -> None:
+    """With fallback disabled, insufficient GP still fails the task with
+    ArchiveNotRetryableError (never burns the retry budget on a non-healing
+    condition)."""
+
     class PoorClient(FakeArchiveClient):
+        settings = SimpleNamespace(
+            download_quality="resample",
+            download_title="japanese",
+            archive_fallback_pages=False,
+        )
+
         async def fetch_archive_info(self, gid: int, token: str) -> ArchiveInfo:
             return ArchiveInfo(
                 funds=5,
@@ -299,3 +315,68 @@ async def test_archive_resume_keeps_zip_url(tmp_path: Path) -> None:
     assert client.download_calls == 2
     assert len(client.requests) == 1
     assert (result.path / "00000001.png").exists()
+
+
+@pytest.mark.asyncio
+async def test_archive_unavailable_tier_falls_back_to_pages(tmp_path: Path) -> None:
+    """A gallery whose requested archive tier is unavailable (resample N/A)
+    falls back to the page-by-page channel when archive_fallback_pages is on,
+    instead of failing the whole download."""
+
+    class NoResampleClient(FakeArchiveClient):
+        async def fetch_archive_info(self, gid: int, token: str) -> ArchiveInfo:
+            return ArchiveInfo(
+                funds=1000,
+                original_cost=100,
+                original_size=1024 * 1024,
+                original_url="https://exhentai.org/archiver.php?gid=1&token=t&or=key",
+                resample_cost=0,
+                resample_size=0,
+                resample_url=None,
+            )
+
+    client = NoResampleClient()
+    downloader = Downloader(client, tmp_path)
+    result = await downloader.execute(
+        DownloadTask(1, "t", "title", mode="archive", quality="resample")
+    )
+    # No archive was ever requested; the gallery came down page-by-page.
+    assert client.requests == []
+    assert result.pages == 3
+    assert sorted(p.name for p in result.path.glob("*.jpg")) == [
+        "00000001.jpg",
+        "00000002.jpg",
+        "00000003.jpg",
+    ]
+    assert not (tmp_path / ".gv-1").exists()
+
+
+@pytest.mark.asyncio
+async def test_archive_fallback_disabled_keeps_failure(tmp_path: Path) -> None:
+    """With archive_fallback_pages off, an unavailable archive tier still
+    fails the task with ArchiveNotRetryableError."""
+
+    class NoResampleClient(FakeArchiveClient):
+        settings = SimpleNamespace(
+            download_quality="resample",
+            download_title="japanese",
+            archive_fallback_pages=False,
+        )
+
+        async def fetch_archive_info(self, gid: int, token: str) -> ArchiveInfo:
+            return ArchiveInfo(
+                funds=1000,
+                original_cost=100,
+                original_size=1024 * 1024,
+                original_url=None,
+                resample_cost=0,
+                resample_size=0,
+                resample_url=None,
+            )
+
+    client = NoResampleClient()
+    with pytest.raises(ArchiveNotRetryableError):
+        await Downloader(client, tmp_path).execute(
+            DownloadTask(1, "t", "title", id=1, mode="archive", quality="resample")
+        )
+    assert client.requests == []
