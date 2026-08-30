@@ -25,6 +25,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   page-by-page downloads regardless of the global `download_quality` setting;
   `POST /api/downloads` and the download queue accept an optional `quality`.
 
+### Fixed
+
+- **CI `pages` deploy on dev** — the `deploy` job now runs only on `main`;
+  dev pushes still run `build` as a preview but no longer attempt to deploy,
+  which the `github-pages` environment protection rules rejected with
+  "Branch dev is not allowed to deploy to github-pages".
+
 ## [1.3.0] - 2026-08-30
 
 ### Added
