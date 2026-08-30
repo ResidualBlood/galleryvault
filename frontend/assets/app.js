@@ -1983,6 +1983,7 @@ function onClick(e) {
   if (action === "upd-update-orig") { updRunSelectedOrig(); return; }
   if (action === "upd-archive") { updArchiveSelected(); return; }
   if (action === "upd-ignore") { updIgnoreSelected(); return; }
+  if (action === "upd-delete-selected") { updDeleteSelected(); return; }
   if (action === "upd-retry") { updRunIds([parseInt(el.getAttribute("data-id"), 10)]); return; }
   if (action === "upd-unignore") { updUnignore([parseInt(el.getAttribute("data-id"), 10)]); return; }
   if (action === "upd-unignore-selected") { updUnignoreSelected(); return; }
@@ -2440,6 +2441,8 @@ function updateUpdSelBtn() {
     "upd-update": t("updateSelected"),
     "upd-update-orig": t("updOrig"),
     "upd-archive": t("updArchive"),
+    "upd-ignore": t("ignoreSelected"),
+    "upd-delete-selected": t("deleteSel"),
   };
   for (const [action, base] of Object.entries(labels)) {
     const btn = document.querySelector(`[data-action="${action}"]`);
@@ -2462,6 +2465,7 @@ async function renderUpdates() {
       <button class="secondary" data-action="upd-update-orig" type="button">${esc(t("updOrig"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="upd-archive" type="button">${esc(t("updArchive"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="upd-ignore" type="button">${esc(t("ignoreSelected"))}${selCount ? ` (${selCount})` : ""}</button>
+      ${state === "failed" ? `<button class="secondary danger" data-action="upd-delete-selected" type="button">${esc(t("deleteSel"))}${selCount ? ` (${selCount})` : ""}</button>` : ""}
       <button class="secondary" data-action="upd-scan" type="button">${esc(t("scanNow"))}</button>
       <label class="checkbox" style="margin-left:12px"><input type="checkbox" data-action="upd-select-all"> ${esc(t("selectAll"))}</label>
       <a class="link-button" href="#/updates/ignored" style="margin-left:auto">${esc(t("updIgnoredPage"))}</a>
@@ -2612,6 +2616,17 @@ async function updIgnoreSelected() {
   if (!ids.length) { toast(t("select")); return; }
   try {
     await api("POST", "/api/updates/ignore", { ids });
+    selUpdate.clear();
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+async function updDeleteSelected() {
+  const ids = [...selUpdate];
+  if (!ids.length) { toast(t("select")); return; }
+  if (!window.confirm(t("deleteSel") + " (" + ids.length + ")?")) return;
+  try {
+    await api("POST", "/api/updates/delete", { ids });
     selUpdate.clear();
     router();
   } catch (e) { toast(e.message); }
