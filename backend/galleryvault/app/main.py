@@ -3292,8 +3292,6 @@ async def delete_galleries_local(
         failed_paths: list[str] = []
         if delete_files:
             for target in targets:
-                if not _in_scan_roots(target):
-                    continue
                 if _delete_local_copy(target):
                     deleted_paths.append(str(target))
                 else:
