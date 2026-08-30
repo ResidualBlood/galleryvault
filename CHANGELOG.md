@@ -31,6 +31,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Slow backend startup from a recursive cache chown** — `entrypoint.sh`
+  walked the whole thumbnail cache (`chown -R` over 14 GB / hundreds of
+  thousands of files, ~4s) on every container boot even though runtime writes
+  already come from the `app` user. The recursive repair now runs once,
+  tracked by a `.gv-ownership` marker in the cache volume, and is skipped on
+  later boots (a reset/emptied cache has no marker, so it re-runs). Backend
+  start-to-healthy drops from ~11s to ~7s.
 - **Archive cost-preview showed a bogus "available GP" balance** — archiver.php
   no longer renders a `You have X GP` balance row (ExHentai layout change), so
   the fallback regex grabbed the original tier's `Download Cost` (e.g. 59,782
