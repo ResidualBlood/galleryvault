@@ -83,6 +83,8 @@ async def list_downloads(
             "current_page": x.current_page or 0,
             "total_pages": x.total_pages,
             "error_message": x.error_message,
+            "mode": x.mode,
+            "quality": x.quality,
         }
         if x.status == "downloading" and downloader is not None:
             try:
