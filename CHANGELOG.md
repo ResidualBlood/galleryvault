@@ -24,6 +24,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   selected original" / "update selected original" buttons force original-quality
   page-by-page downloads regardless of the global `download_quality` setting;
   `POST /api/downloads` and the download queue accept an optional `quality`.
+- **Download tasks page distinguishes archive vs page-by-page** — `GET
+  /api/downloads` now returns each task's `mode` and `quality`; the tasks page
+  badges archive downloads ("Archive · Original/Resample") and marks plain
+  H@H page-by-page downloads with a "Page-by-page" badge (zh/en).
 
 ### Fixed
 
