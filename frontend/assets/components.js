@@ -41,7 +41,7 @@ function galleryCard(it) {
   const cat = esc(catLabel(it.category));
   const ctx = app.view === "library" ? libraryContext() : {};
   return `<div class="gc-wrap">
-    <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}">
+    <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}" role="link" aria-label="${esc(it.title)} (${cat}, ${it.page_count} pages)">
       <div class="gc-cover">
         ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<span class="badge">no cover</span>`}
         <span class="gc-cat">${cat}</span>
