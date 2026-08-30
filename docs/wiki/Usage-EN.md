@@ -115,6 +115,23 @@ manually to revisit it.
   `exhentai.org`.
 - The favorite folders the gallery belongs to are shown as badges, with an
   **Unfavorite** button.
+- **Original / resampled**: next to the favorite badges the detail page shows
+  whether the local copy is original or resampled (hidden when unknown).
+  Quality is recorded when a gallery is downloaded and inferred for existing
+  galleries by comparing the local file size against the ExHentai original
+  size — backfilled during the favorites metadata sync (poll / check now /
+  fetch missing) and when a **library scan** completes.
+- **Upgrade to original**: galleries that are not already original and have an
+  ExHentai gid get two toolbar buttons —
+  - **Download original**: downloads original images page-by-page (no GP, see
+    the Downloads page for progress); not enqueued when the gallery has no
+    original images on ExHentai.
+  - **Archive-download original**: shows a cost/balance preview (locked to the
+    original tier, disabled when original is unavailable or GP is too low) and
+    downloads through the ExHentai archive (zip) channel.
+  - After an original download finishes, the superseded resampled copy is
+    removed automatically (only when the page count matches; if the mount is
+    read-only the task still succeeds and you are told to remove it manually).
 
 ## Reader (`#/reader/<id>/<page>`)
 
