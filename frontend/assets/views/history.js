@@ -5,17 +5,17 @@
 
 async function renderHistory() {
   const page = app.query.page || "1";
-  $view().innerHTML = `
+  renderView(`
     <header><p class="eyebrow">READING LOG</p><h1>${esc(t("history"))}</h1>
     <button class="secondary" data-action="clear-history" type="button">${esc(t("clearHistory"))}</button></header>
-    <div id="hist-list"><p>${esc(t("loading"))}</p></div>
-    <div class="pages" id="hist-pages"></div>`;
+    <div id="hist-list">${renderLoading()}</div>
+    <div class="pages" id="hist-pages"></div>`);
   try {
     const pageSize = prefPageSize();
     const data = await api("GET", `/api/history?page=${encodeURIComponent(page)}&page_size=${pageSize}`);
     const el = document.getElementById("hist-list");
     const items = (data && data.items) || [];
-    if (!items.length) { el.innerHTML = `<p>${esc(t("noHistory"))}</p>`; return; }
+    if (!items.length) { el.innerHTML = renderEmpty(t("noHistory")); return; }
     el.innerHTML = `<div class="rows">` + items.map(h => `
       <a class="row" href="${navHash("gallery", { id: h.gallery_id })}">
         <span class="row-title">${esc(h.title || ("#" + h.gallery_id))}</span>
@@ -31,5 +31,5 @@ async function renderHistory() {
       `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
       pages.join(" ") +
       ` ${pagerJump(data.page, last)} · ${esc(t("perPage"))} ${pageSizeSelect(data.page_size, "history")}`;
-  } catch (e) { document.getElementById("hist-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  } catch (e) { document.getElementById("hist-list").innerHTML = renderError(esc(e.message)); }
 }
