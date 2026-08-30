@@ -42,3 +42,8 @@ async function renderBrowse() {
     }
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
+
+async function randomGallery() {
+  try { const d = await api("GET", "/api/galleries/random"); location.hash = navHash("gallery", { id: d.id }); }
+  catch (e) { toast(e.message); }
+}

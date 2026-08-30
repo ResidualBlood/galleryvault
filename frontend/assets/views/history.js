@@ -33,3 +33,8 @@ async function renderHistory() {
       ` ${pagerJump(data.page, last)} · ${esc(t("perPage"))} ${pageSizeSelect(data.page_size, "history")}`;
   } catch (e) { document.getElementById("hist-list").innerHTML = renderError(esc(e.message)); }
 }
+
+async function clearHistory() {
+  try { await api("DELETE", "/api/history"); renderHistory(); }
+  catch (e) { toast(e.message); }
+}

@@ -89,3 +89,36 @@ async function renderGallery() {
     }
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
+
+async function deleteGallery(id) {
+  if (!window.confirm(t("confirmDelete"))) return;
+  const deleteFiles = window.confirm(t("deleteFiles"));
+  try {
+    await api("DELETE", `/api/galleries/${id}?delete_files=${deleteFiles}`);
+    toast(t("deleted"));
+    location.hash = navHash("library");
+  } catch (e) { toast(e.message); }
+}
+
+async function downloadOriginalGallery(id, gid, archive) {
+  if (archive) {
+    const tier = await showArchiveDialog([parseInt(gid, 10)], { lockTier: "original" });
+    if (!tier) return;
+  }
+  try {
+    await api("POST", `/api/galleries/${id}/download-original`, { archive });
+    toast(t(archive ? "dlOrigArchiveQueued" : "dlOrigQueued"));
+  } catch (e) { toast(e.message); }
+}
+
+async function unfavoriteGallery(el) {
+  const gid = parseInt(el.dataset.gid, 10);
+  if (!gid) { toast(t("unfavoriteFail")); return; }
+  if (!window.confirm(t("confirmUnfavorite"))) return;
+  try {
+    const r = await api("POST", "/api/favorites/remove", { gids: [gid], delete_local: false });
+    if (r.cloud_ok) toast(t("unfavorited"));
+    else toast(t("unfavoritedLocal"));
+    el.hidden = true;
+  } catch (e) { toast(e.message); }
+}

@@ -57,52 +57,11 @@ const app = {
 
 // onClick / onSubmit / toggleLang moved to events.js
 
+// randomGallery moved to views/browse.js
 
-async function randomGallery() {
-  try { const d = await api("GET", "/api/galleries/random"); location.hash = navHash("gallery", { id: d.id }); }
-  catch (e) { toast(e.message); }
-}
+// clearHistory moved to views/history.js
 
-// logTimer moved to state.js
-
-
-async function clearHistory() {
-  try { await api("DELETE", "/api/history"); renderHistory(); }
-  catch (e) { toast(e.message); }
-}
-
-async function deleteGallery(id) {
-  if (!window.confirm(t("confirmDelete"))) return;
-  const deleteFiles = window.confirm(t("deleteFiles"));
-  try {
-    await api("DELETE", `/api/galleries/${id}?delete_files=${deleteFiles}`);
-    toast(t("deleted"));
-    location.hash = navHash("library");
-  } catch (e) { toast(e.message); }
-}
-
-async function downloadOriginalGallery(id, gid, archive) {
-  if (archive) {
-    const tier = await showArchiveDialog([parseInt(gid, 10)], { lockTier: "original" });
-    if (!tier) return;
-  }
-  try {
-    await api("POST", `/api/galleries/${id}/download-original`, { archive });
-    toast(t(archive ? "dlOrigArchiveQueued" : "dlOrigQueued"));
-  } catch (e) { toast(e.message); }
-}
-
-async function unfavoriteGallery(el) {
-  const gid = parseInt(el.dataset.gid, 10);
-  if (!gid) { toast(t("unfavoriteFail")); return; }
-  if (!window.confirm(t("confirmUnfavorite"))) return;
-  try {
-    const r = await api("POST", "/api/favorites/remove", { gids: [gid], delete_local: false });
-    if (r.cloud_ok) toast(t("unfavorited"));
-    else toast(t("unfavoritedLocal"));
-    el.hidden = true;
-  } catch (e) { toast(e.message); }
-}
+// deleteGallery/downloadOriginal/unfavorite moved to views/gallery.js
 
 // favList* moved to views/favorites.js
 
