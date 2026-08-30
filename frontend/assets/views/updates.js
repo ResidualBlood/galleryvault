@@ -281,3 +281,20 @@ async function dupUnignoreSelected() {
   toast(t("dupUnignoredOk") + ": " + ok);
   renderFavIgnored();
 }
+
+function updStatusKey(st) { return UPD_STATUS_KEYS[st] || st; }
+
+function updateUpdSelBtn() {
+  const n = selUpdate.size;
+  const labels = {
+    "upd-update": t("updateSelected"),
+    "upd-update-orig": t("updOrig"),
+    "upd-archive": t("updArchive"),
+    "upd-ignore": t("ignoreSelected"),
+    "upd-delete-selected": t("deleteSel"),
+  };
+  for (const [action, base] of Object.entries(labels)) {
+    const btn = document.querySelector(`[data-action="${action}"]`);
+    if (btn) btn.textContent = base + (n ? ` (${n})` : "");
+  }
+}

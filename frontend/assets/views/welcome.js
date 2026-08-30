@@ -65,3 +65,55 @@ function renderLogin() {
       </form>
     </div></div>`;
 }
+
+function welcomeInputs() {
+  const form = document.querySelector(".welcome .wizard");
+  const v = n => { const el = form && form.querySelector(`[name="${n}"]`); return el ? el.value.trim() : ""; };
+  return { v, form };
+}
+
+async function welcomeChangePassword() {
+  const { v } = welcomeInputs();
+  const current = v("current_password");
+  const next = v("new_password");
+  if (!next) { toast(t("newPassword")); return; }
+  try {
+    await api("POST", "/api/auth/change-password", { current, new: next });
+    app.session.must_change_password = false;
+    toast(t("changePwOk"));
+    updateBanner();
+    renderWelcome();
+  } catch (e) { toast(e.message); }
+}
+
+async function welcomeSaveCookie() {
+  const { v } = welcomeInputs();
+  const baseSel = v("w_exhentai_base_url");
+  const body = {
+    exhentai_base_url: baseSel === EH_CUSTOM
+      ? (v("w_exhentai_base_url_custom") || "https://exhentai.org")
+      : baseSel,
+  };
+  for (const k of ["ipb_member_id", "ipb_pass_hash", "igneous"]) {
+    if (v("w_" + k)) body[k] = v("w_" + k);
+  }
+  try {
+    await api("POST", "/api/settings", body);
+    app.settings = null;
+    toast(t("saveOk"));
+    renderWelcome();
+  } catch (e) { toast(e.message); }
+}
+
+function welcomeScan() { return scanLibrary(); }
+
+async function welcomeFinish() {
+  try {
+    const st = await api("GET", "/api/onboarding/status");
+    if (st.password_default) { toast(t("welcomePasswordTitle")); return; }
+  } catch (_) { /* fall through */ }
+  toast(t("welcomeDone"));
+  location.hash = "#/browse";
+}
+
+function welcomeLater() { location.hash = "#/browse"; }

@@ -108,29 +108,9 @@ async function unfavoriteGallery(el) {
 
 // dup support moved to views/duplicates.js (dupAction, dupSelectGroup, dupIgnoreSelected, dupUnignore)
 
-// --- Gallery updates (re-uploaded / new-version tracking) ------------------
+// updates support moved to views/updates.js (updStatusKey, updateUpdSelBtn)
 
-// updatesTimer/selUpdate/UPD_* moved to state.js
-
-function updStatusKey(st) { return UPD_STATUS_KEYS[st] || st; }
-
-function updateUpdSelBtn() {
-  const n = selUpdate.size;
-  const labels = {
-    "upd-update": t("updateSelected"),
-    "upd-update-orig": t("updOrig"),
-    "upd-archive": t("updArchive"),
-    "upd-ignore": t("ignoreSelected"),
-    "upd-delete-selected": t("deleteSel"),
-  };
-  for (const [action, base] of Object.entries(labels)) {
-    const btn = document.querySelector(`[data-action="${action}"]`);
-    if (btn) btn.textContent = base + (n ? ` (${n})` : "");
-  }
-}
-
-
-
+// --- remaining support / actions kept minimal in app for now
 
 async function deleteFiltered() {
   const q = app.query.q || "";
@@ -237,44 +217,8 @@ async function changePassword() {
   } catch (e) { toast(e.message); }
 }
 
-function welcomeInputs() {
-  const form = document.querySelector(".welcome .wizard");
-  const v = n => { const el = form && form.querySelector(`[name="${n}"]`); return el ? el.value.trim() : ""; };
-  return { v, form };
-}
-
-async function welcomeChangePassword() {
-  const { v } = welcomeInputs();
-  const current = v("current_password");
-  const next = v("new_password");
-  if (!next) { toast(t("newPassword")); return; }
-  try {
-    await api("POST", "/api/auth/change-password", { current, new: next });
-    app.session.must_change_password = false;
-    toast(t("changePwOk"));
-    updateBanner();
-    renderWelcome();
-  } catch (e) { toast(e.message); }
-}
-
-async function welcomeSaveCookie() {
-  const { v } = welcomeInputs();
-  const baseSel = v("w_exhentai_base_url");
-  const body = {
-    exhentai_base_url: baseSel === EH_CUSTOM
-      ? (v("w_exhentai_base_url_custom") || "https://exhentai.org")
-      : baseSel,
-  };
-  for (const k of ["ipb_member_id", "ipb_pass_hash", "igneous"]) {
-    if (v("w_" + k)) body[k] = v("w_" + k);
-  }
-  try {
-    await api("POST", "/api/settings", body);
-    app.settings = null;
-    toast(t("saveOk"));
-    renderWelcome();
-  } catch (e) { toast(e.message); }
-}
+// welcome* moved to views/welcome.js (welcomeInputs/Change/Save/Scan/Finish/Later)
+// scanLibrary kept here (called from events + welcomeScan)
 
 async function scanLibrary() {
   try {
@@ -283,19 +227,6 @@ async function scanLibrary() {
     pollLogs();
   } catch (e) { toast(e.message); }
 }
-
-function welcomeScan() { return scanLibrary(); }
-
-async function welcomeFinish() {
-  try {
-    const st = await api("GET", "/api/onboarding/status");
-    if (st.password_default) { toast(t("welcomePasswordTitle")); return; }
-  } catch (_) { /* fall through */ }
-  toast(t("welcomeDone"));
-  location.hash = "#/browse";
-}
-
-function welcomeLater() { location.hash = "#/browse"; }
 
 async function testTelegram() {
   try {
