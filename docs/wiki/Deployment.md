@@ -52,6 +52,10 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 > **权限**：backend 以容器内 `app`（uid 10001）运行，需能读取挂载的宿主目录（≥ 可读即可）。挂载前建议直接 `chown -R 10001:10001 <宿主目录>` 一劳永逸；删除画廊需该目录对 10001 可写（只读挂载时删除会如实失败）。`./db-data` 属 postgres（999），**勿 chown**。
 
+> **多个已有画廊目录**：有几个就挂几条 volume（容器内路径各取一个唯一名字，如 `/gallery1`、`/gallery2`），然后在「库根目录」每行填一个容器内路径。`download_root` 会被自动并入库根，无需重复填写。
+
+> **环境变量可省略**：compose 里的 `LIBRARY_ROOTS` / `DOWNLOAD_ROOT` 只是**启动初值**，实际以「设置 → 库根目录 / 下载目录」保存的值为准（存 DB，启动时覆盖环境变量）。backend 默认即 `download_root=/downloads`、`library_roots=["/library","/downloads"]`，所以全新部署可以直接不写这两个变量，去设置页配置即可。
+
 ## 安全加固
 
 后端默认绑定 `127.0.0.1:8001`，只通过前端 nginx 代理访问；登录接口按真实客户端 IP 限速（每 IP 60 秒 10 次），`/api` 限流 30 次/秒（由前端 nginx 的 `limit_req` 实现）。
@@ -97,3 +101,19 @@ docker compose up -d
 数据库迁移会在 backend 启动时自动执行（alembic），无需手动操作。镜像使用 `:latest` 标签，`pull` 即可获得新版本。
 
 > **不要**用 `curl -o docker-compose.yml` 覆盖本地 compose——它可能含有你的定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。如需获取更新的 compose 模板，先备份本地文件，再手动比对合并修改。
+
+## 文档站（GitHub Pages）与 wiki 的同步机制
+
+GalleryVault 的文档有两条自动同步链路（CI 完成，无需手工）：
+
+| 输出 | 来源 | 触发 | 内容时效 |
+|------|------|------|----------|
+| **GitHub Wiki**（本页所在） | meta 仓库 `docs/wiki/` | push 到 `main` **或** `dev`，且 `docs/wiki/**` 有变化 → `sync-wiki` workflow rsync 镜像 | **始终最新**——开发推 dev 即同步 |
+| **GitHub Pages 文档站**（`docs-site/`，VitePress） | 同一份 `docs/wiki/` + backend 的 `API.md` / `DEVELOPMENT.md` | `pages` workflow 构建；**部署只在 `main`** | **稳定版**——`main` 合并/发布才更新 |
+
+要点：
+
+- **wiki 与分支无关**：`main` / `dev` 谁最后推送 `docs/wiki` 谁生效。开发在 dev 上进行，实际效果就是 dev 一推、wiki 立刻更新。
+- **Pages 只随 main**：`pages` 的 `deploy` job 受 GitHub 环境保护规则限制只能由 `main` 分支部署；dev 推送只做构建预检，不覆盖线上文档站。
+- `API.md` / `Development.md` / `openapi.json` 由 `sync-docs` workflow 每 6 小时从 backend 同步到 wiki（两处 rsync 均排除这三份）。
+- **改文档只需改 meta 仓库 `docs/wiki/`**，提交后 CI 自动同步，不要直接编辑 wiki 页面。

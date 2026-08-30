@@ -4,6 +4,106 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-08-30
+
+### Added
+
+- **ExHentai archive (zip) downloads** — a new download channel that uses GP
+  instead of H@H page fetches for large galleries, with a per-task quality
+  tier. Three entries share one executor (favorites download area / updates
+  area / scheduled scan): `POST /api/archives/preview` shows funds + per-gallery
+  original/resample cost & size (read-only, never charges GP), the favorites
+  and updates toolbars gained "download original" and "archive download"
+  buttons, and the scheduled scan can archive galleries over a page threshold.
+  The zip streams on a single connection with Range resume; the requested
+  quality + zip URL are persisted so a retry resumes without re-charging GP;
+  insufficient GP fails the task immediately. Archive output reuses the standard
+  metadata + notification + ingest + update-finalize pipeline. New settings:
+  `archive_quality`, `favorites_archive_enabled`, `favorites_archive_max_pages`.
+- **Per-task quality override (`download_tasks.quality`)** — the "download
+  selected original" / "update selected original" buttons force original-quality
+  page-by-page downloads regardless of the global `download_quality` setting;
+  `POST /api/downloads` and the download queue accept an optional `quality`.
+- **Download tasks page distinguishes archive vs page-by-page** — `GET
+  /api/downloads` now returns each task's `mode` and `quality`; the tasks page
+  badges archive downloads ("Archive · Original/Resample") and marks plain
+  H@H page-by-page downloads with a "Page-by-page" badge (zh/en).
+
+### Fixed
+
+- **Archive (zip) downloads showed no speed / ETA in the tasks UI** — the
+  archive download path only forwarded page progress to the DB and never fed
+  the downloader's live byte stats (`_record_bytes`), so `/api/downloads`
+  returned no `speed_stats` for archive tasks and the tasks page rendered them
+  without a speed or ETA (unlike page-by-page downloads). The zip-stream
+  callback now records byte/progress deltas the same way the page-by-page
+  path does.
+- **Slow backend startup from a recursive cache chown** — `entrypoint.sh`
+  walked the whole thumbnail cache (`chown -R` over 14 GB / hundreds of
+  thousands of files, ~4s) on every container boot even though runtime writes
+  already come from the `app` user. The recursive repair now runs once,
+  tracked by a `.gv-ownership` marker in the cache volume, and is skipped on
+  later boots (a reset/emptied cache has no marker, so it re-runs). Backend
+  start-to-healthy drops from ~11s to ~7s.
+- **Archive cost-preview showed a bogus "available GP" balance** — archiver.php
+  no longer renders a `You have X GP` balance row (ExHentai layout change), so
+  the fallback regex grabbed the original tier's `Download Cost` (e.g. 59,782
+  GP) and reported it as the account balance. `funds` is now parsed only from
+  an explicit balance row, and the real balance is read from the GP exchange
+  page (`exchange.php?t=gp`, `Available: N kGP`); the archive-download dialog
+  and the downloader's funds gate both use that value.
+- **Archive cost-preview showed N/A tiers as "0 GP · 0 B"** — an unavailable
+  tier (archiver.php `N/A`) reported cost/size 0 with `*_available` false, so
+  the dialog rendered a misleading zero-cost entry flagged "insufficient GP".
+  `/api/archives/preview` now returns `null` cost/size for unavailable tiers
+  and the dialog renders a muted `N/A`; a genuine GP shortage still shows the
+  real cost/size with the warning.
+- **Archive cost-preview crashed on unavailable tiers (500)** — when a gallery's
+  archiver page shows `Estimated Size: N/A` for a tier (e.g. a gallery that does
+  not qualify for a resample archive), `_parse_archive_size` crashed with an
+  `AttributeError`, turning the archive-download preview into `Internal Server
+  Error`. The parser now yields 0 for unparseable sizes, `N/A` tiers have their
+  download URL cleared (so they are never charged or downloaded), and the
+  preview's `original_available` / `resample_available` checks require a real
+  download URL in addition to sufficient GP.
+- **Archive cost-preview dialog was transparent** — `.gv-modal` set
+  `background: var(--panel-1)`, a CSS variable that is never defined, so the
+  declaration was invalid and the modal body rendered transparent over the 55%
+  black overlay (text hard to read). Now uses the defined `--panel` color.
+- **Page-size selector showed the wrong value** — `prefPageSize()` defaults to
+  24 but the `PAGE_SIZES` dropdown only offers `[5,30,50,100,200,500]`, so the
+  select had no matching option and rendered "5" while the list actually showed
+  24 (or any other out-of-list) items. `pageSizeSelect` now appends the current
+  value as an option so the label always matches reality.
+- **Chinese UI: archive/original buttons fell back to English** — the favorites
+  ("download selected original" / "archive download selected") and updates
+  ("update selected original" / "archive update selected") toolbar buttons were
+  missing their `zh` i18n keys, so `t()` fell back to English on the Chinese UI.
+  Added the four keys (`favDlOrig`, `favDlArchive`, `updOrig`, `updArchive`).
+- **CI `pages` deploy on dev** — the `deploy` job now runs only on `main`;
+  dev pushes still run `build` as a preview but no longer attempt to deploy,
+  which the `github-pages` environment protection rules rejected with
+  "Branch dev is not allowed to deploy to github-pages".
+- **Duplicate-copies page tags lost their Chinese translation** — the
+  `/api/scan/duplicates` response returned each copy's tags as plain
+  `{namespace, name}` without the translated `display` field (every other page
+  fills it server-side via `translated_tag`), so `tagText()` on the Chinese UI
+  fell back to the untranslated English tag name. The cleanup page now fills
+  `display` like the gallery/favorites endpoints; existing duplicate records
+  are translated on the fly, no rescan needed.
+- **Ignored favorites-duplicates list tags had no translation** — the
+  `#/favorites/manage` ignored-duplicates list returned tags as plain
+  `{namespace, name}` for both local and cloud items, so the Chinese UI showed
+  English tag names. `/api/favorites/duplicates/ignored` now fills `display`
+  the same way as the duplicate-scan results.
+
+### Changed
+
+- **Docs (Deployment, zh/en)**: mounting multiple existing gallery folders, and
+  the note that `LIBRARY_ROOTS` / `DOWNLOAD_ROOT` compose env vars are only
+  startup defaults overridden by the DB-backed Settings page (production
+  compose dropped the now-unused `LIBRARY_ROOTS` var).
+
 ## [1.3.0] - 2026-08-30
 
 ### Added
