@@ -16,7 +16,7 @@ async function renderWelcome() {
     <div class="w-form">
       <input name="current_password" type="password" placeholder="${esc(t("currentPassword"))}" autocomplete="current-password">
       <input name="new_password" type="password" placeholder="${esc(t("newPassword"))}" autocomplete="new-password">
-      <button class="primary" data-action="welcome-change-password" type="button">${esc(t("changePassword"))}</button>
+      <button class="btn btn-primary" data-action="welcome-change-password" type="button">${esc(t("changePassword"))}</button>
     </div>` : `<p class="w-ok">${esc(t("stepDone"))}</p>`;
   const cookieBlock = st.exhentai_configured ? `<p class="w-ok">${esc(t("stepDone"))}</p>` : `
     <div class="w-form">

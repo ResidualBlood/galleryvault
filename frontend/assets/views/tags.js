@@ -43,7 +43,7 @@ async function renderTags() {
     <div class="pills" id="tag-pills"></div>
     <form class="toolbar" data-action="tags-search">
       <input name="q" value="${esc(q)}" placeholder="${esc(t("searchPlaceholder"))}">
-      <button class="primary" type="submit">${esc(t("tags"))}</button>
+      <button class="btn btn-primary" type="submit">${esc(t("tags"))}</button>
     </form>
     <div id="tag-cloud" class="cloud"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="tag-pages"></div>`;

@@ -20,16 +20,16 @@ async function renderReader() {
           <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
           <span>${page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
           <span class="reader-actions">
-            <button class="secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
-            <button class="secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
+            <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
+            <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
           </span>
         </div>
         ${preload}
         <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-next="${page + 1 < total ? page + 1 : ""}">
         <div class="nav">
-          ${page > 0 ? `<a class="secondary" href="${navHash("reader", { id, page: page - 1 }, libraryContext())}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
-          <a class="secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>
-          ${page + 1 < total ? `<a class="secondary" href="${navHash("reader", { id, page: page + 1 }, libraryContext())}">${esc(t("next"))}</a>` : `<span>${esc(t("next"))}</span>`}
+          ${page > 0 ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: page - 1 }, libraryContext())}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
+          <a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>
+          ${page + 1 < total ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: page + 1 }, libraryContext())}">${esc(t("next"))}</a>` : `<span>${esc(t("next"))}</span>`}
         </div>
       </div>`;
     try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}

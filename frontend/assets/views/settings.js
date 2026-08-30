@@ -117,7 +117,7 @@ async function renderSettings() {
           <input name="ipb_pass_hash" placeholder="${esc(t("cookieHash"))}" autocomplete="off">
           <input name="igneous" placeholder="${esc(t("cookieIgneous"))}" autocomplete="off">
         </div>
-        <button class="secondary" data-action="test-exhentai" type="button">${esc(t("testExhentai"))}</button>
+        <button class="btn btn-secondary" data-action="test-exhentai" type="button">${esc(t("testExhentai"))}</button>
       </fieldset>
       <fieldset><legend>Proxy</legend>
         <div class="form-grid">
@@ -175,14 +175,14 @@ async function renderSettings() {
           ${field(t("tagSyncInterval"), `<input name="tag_sync_interval_seconds" type="number" step="0.1" min="0.1" value="${s.tag_sync_interval_seconds != null ? s.tag_sync_interval_seconds : 1}">`)}
           ${field(t("tagSyncConcurrency"), `<input name="tag_sync_concurrency" type="number" min="1" max="32" value="${s.tag_sync_concurrency != null ? s.tag_sync_concurrency : 2}">`)}
         </div>
-        <div class="toolbar"><button class="secondary" data-action="sync-all-tags" type="button">${esc(t("syncAllTags"))}</button>
-          <a class="secondary" href="#/logs" style="padding:8px 14px;border-radius:4px">${esc(t("logs"))}</a></div>
+        <div class="toolbar">        <button class="btn btn-secondary" data-action="sync-all-tags" type="button">${esc(t("syncAllTags"))}</button>
+          <a class="btn btn-secondary" href="#/logs" style="padding:8px 14px;border-radius:4px">${esc(t("logs"))}</a></div>
       </fieldset>
       <fieldset><legend>Thumbnails</legend>
         <label class="checkbox"><input type="checkbox" name="generate_thumbnails"${s.generate_thumbnails ? " checked" : ""}> ${esc(t("generateThumbnails"))}</label>
         <div class="toolbar">
           <button class="secondary" data-action="gen-thumbs" type="button">${esc(t("genThumbs"))}</button>
-          <a class="secondary" href="#/logs" style="padding:8px 14px;border-radius:4px">${esc(t("logs"))}</a>
+          <a class="btn btn-secondary" href="#/logs" style="padding:8px 14px;border-radius:4px">${esc(t("logs"))}</a>
         </div>
         <p class="notice" id="thumbs-status">${esc(t("thumbsHint"))}</p>
       </fieldset>
@@ -191,11 +191,11 @@ async function renderSettings() {
         ${field(t("dupPolicy"), `<select name="duplicate_policy">
           ${[["keep_first", t("dupPolicyKeepFirst")], ["prefer_more_pages", t("dupPolicyMorePages")], ["prefer_newer", t("dupPolicyNewer")], ["prefer_larger", t("dupPolicyLarger")], ["prefer_smaller", t("dupPolicySmaller")], ["manual", t("dupPolicyManual")]].map(([o, label]) => `<option value="${o}"${o === (s.duplicate_policy || "keep_first") ? " selected" : ""}>${esc(label)}</option>`).join("")}
         </select>`)}
-        <div class="toolbar"><a class="secondary" href="#/duplicates" style="padding:8px 14px;border-radius:4px">${esc(t("dupGalTitle"))}</a></div>
+        <div class="toolbar"><a class="btn btn-secondary" href="#/duplicates" style="padding:8px 14px;border-radius:4px">${esc(t("dupGalTitle"))}</a></div>
       </fieldset>
       <fieldset><legend>${esc(t("translationUpdate"))}</legend>
         ${field(t("translationInterval"), `<input name="tag_translation_update_interval_minutes" type="number" min="0" value="${s.tag_translation_update_interval_minutes != null ? s.tag_translation_update_interval_minutes : 720}">`)}
-        <div class="toolbar"><button class="secondary" data-action="force-update" type="button">${esc(t("forceUpdate"))}</button></div>
+        <div class="toolbar"><button class="btn btn-secondary" data-action="force-update" type="button">${esc(t("forceUpdate"))}</button></div>
         <p class="notice">${esc(t("translationStatus"))}: <span id="trans-status">${esc(s.translation ? s.translation : "")}</span></p>
       </fieldset>
       <fieldset><legend>Telegram</legend>
@@ -210,7 +210,7 @@ async function renderSettings() {
             ${[["zh", t("langZh")], ["en", t("langEn")]].map(([o, label]) => `<option value="${o}"${o === (s.telegram_notify_lang || app.lang) ? " selected" : ""}>${esc(label)}</option>`).join("")}
           </select>`)}
         </div>
-        <button class="secondary" data-action="test-telegram" type="button">${esc(t("testTelegram"))}</button>
+        <button class="btn btn-secondary" data-action="test-telegram" type="button">${esc(t("testTelegram"))}</button>
       </fieldset>
       <div class="toolbar"><button class="btn btn-primary" type="submit">${esc(t("save"))}</button></div>
     </form>`);

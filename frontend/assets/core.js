@@ -314,7 +314,7 @@ function updateBanner() {
   if (!el) return;
   if (app.authenticated && app.session.must_change_password) {
     el.hidden = false;
-    el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="primary" href="#/welcome">${esc(t("changePassword"))}</a>`;
+    el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="btn btn-primary" href="#/welcome">${esc(t("changePassword"))}</a>`;
   } else {
     el.hidden = true;
     el.innerHTML = "";
