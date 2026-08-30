@@ -226,3 +226,38 @@ async function renderSettings() {
   }).catch(() => {});
   refreshThumbsStatus();
 }
+
+async function testExhentai() {
+  try {
+    const r = await api("POST", "/api/settings/exhentai/test");
+    toast(r.message || r.status);
+  } catch (e) { toast(e.message); }
+}
+
+async function changePassword() {
+  const form = document.querySelector('[data-action="settings-save"]');
+  const current = form.querySelector('[name="current_password"]').value;
+  const next = form.querySelector('[name="new_password"]').value;
+  if (!next) { toast(t("newPassword")); return; }
+  try {
+    await api("POST", "/api/auth/change-password", { current, new: next });
+    app.session.must_change_password = false;
+    toast(t("changePwOk"));
+    updateBanner();
+  } catch (e) { toast(e.message); }
+}
+
+async function testTelegram() {
+  try {
+    const r = await api("POST", "/api/telegram/test");
+    toast(r.ok ? t("testTelegram") + " OK" : JSON.stringify(r.results));
+  } catch (e) { toast(e.message); }
+}
+
+async function generateThumbnails() {
+  try {
+    const r = await api("POST", "/api/thumbs/generate");
+    toast(t("genThumbs") + (r && r.queued ? ` (${r.queued})` : ""));
+    pollLogs();
+  } catch (e) { toast(e.message); }
+}

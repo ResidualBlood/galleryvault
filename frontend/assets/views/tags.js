@@ -107,3 +107,29 @@ async function loadTags(q, ns, page) {
     if (cloud) cloud.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }
+
+async function forceUpdate() {
+  try {
+    const r = await api("POST", "/api/tags/search/reload");
+    const el = document.getElementById("trans-status");
+    if (el) el.textContent = r.ok ? t("transUpdated") : (r.last_error || "?");
+    toast(t("forceUpdate") + (r.ok ? " OK" : " :: " + (r.last_error || "?")));
+    pollLogs();
+  } catch (e) { toast(e.message); }
+}
+
+async function syncAllTags() {
+  try {
+    const r = await api("POST", "/api/tag-sync/start");
+    toast(t("syncAllTags") + (r && r.queued ? ` (${r.queued})` : ""));
+    pollLogs();
+  } catch (e) { toast(e.message); }
+}
+
+async function syncTags(id) {
+  try {
+    const r = await api("POST", `/api/galleries/${id}/sync-tags`);
+    toast((r && r.source === "cache") ? t("tagSyncFromCache") : t("tagSyncFromNetwork") + (r ? ` · ${r.count}` : ""));
+  }
+  catch (e) { toast(e.message); }
+}

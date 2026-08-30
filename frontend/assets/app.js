@@ -112,27 +112,9 @@ async function unfavoriteGallery(el) {
 
 // delete* + tag suggest moved to views/library.js
 
-async function testExhentai() {
-  try {
-    const r = await api("POST", "/api/settings/exhentai/test");
-    toast(r.message || r.status);
-  } catch (e) { toast(e.message); }
-}
+// testExhentai/changePassword/testTelegram/generateThumbnails moved to views/settings.js
 
-async function changePassword() {
-  const form = document.querySelector('[data-action="settings-save"]');
-  const current = form.querySelector('[name="current_password"]').value;
-  const next = form.querySelector('[name="new_password"]').value;
-  if (!next) { toast(t("newPassword")); return; }
-  try {
-    await api("POST", "/api/auth/change-password", { current, new: next });
-    app.session.must_change_password = false;
-    toast(t("changePwOk"));
-    updateBanner();
-  } catch (e) { toast(e.message); }
-}
-
-// welcome* moved to views/welcome.js (welcomeInputs/Change/Save/Scan/Finish/Later)
+// welcome* moved to views/welcome.js
 // scanLibrary kept here (called from events + welcomeScan)
 
 async function scanLibrary() {
@@ -143,47 +125,7 @@ async function scanLibrary() {
   } catch (e) { toast(e.message); }
 }
 
-async function testTelegram() {
-  try {
-    const r = await api("POST", "/api/telegram/test");
-    toast(r.ok ? t("testTelegram") + " OK" : JSON.stringify(r.results));
-  } catch (e) { toast(e.message); }
-}
-
-async function forceUpdate() {
-  try {
-    const r = await api("POST", "/api/tags/search/reload");
-    const el = document.getElementById("trans-status");
-    if (el) el.textContent = r.ok ? t("transUpdated") : (r.last_error || "?");
-    toast(t("forceUpdate") + (r.ok ? " OK" : " :: " + (r.last_error || "?")));
-    pollLogs();
-  } catch (e) { toast(e.message); }
-}
-
-async function generateThumbnails() {
-  try {
-    const r = await api("POST", "/api/thumbs/generate");
-    toast(t("genThumbs") + (r && r.queued ? ` (${r.queued})` : ""));
-    pollLogs();
-  } catch (e) { toast(e.message); }
-}
-
-async function syncAllTags() {
-  try {
-    const r = await api("POST", "/api/tag-sync/start");
-    toast(t("syncAllTags") + (r && r.queued ? ` (${r.queued})` : ""));
-    pollLogs();
-  } catch (e) { toast(e.message); }
-}
-
-async function syncTags(id) {
-  try {
-    const r = await api("POST", `/api/galleries/${id}/sync-tags`);
-    toast((r && r.source === "cache") ? t("tagSyncFromCache") : t("tagSyncFromNetwork") + (r ? ` · ${r.count}` : ""));
-  }
-  catch (e) { toast(e.message); }
-}
-
+// forceUpdate/sync* moved to views/tags.js
 
 // onChange moved to events.js
 
