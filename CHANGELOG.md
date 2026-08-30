@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Archive download falls back to page-by-page when unavailable** — when the
+  ExHentai archive channel cannot serve a gallery (the selected quality tier
+  does not exist, GP too low, archive corrupt), the download now automatically
+  switches to the page-by-page channel (no GP cost, H@H carries the traffic)
+  instead of failing the whole task. New setting `archive_fallback_pages`
+  (default on) in the Settings page; turn it off to restore fail-immediately
+  without burning automatic retries.
+
 - **Delete failed gallery-update records** — the gallery-updates page gains a
   "delete selected" button on the failed filter, removing those records for
   good via `POST /api/updates/delete`. Only `failed`/`ignored`/`pending` rows
