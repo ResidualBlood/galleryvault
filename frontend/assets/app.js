@@ -68,6 +68,7 @@ const I18N = {
     qualityOriginal: "Original (原图)", qualityResample: "Resample (普通)",
     archiveQuality: "Archive quality", archiveScanEnabled: "Archive large favorites on scheduled scan",
     archiveMaxPages: "Archive page threshold (0 = all)", archiveMaxPagesHint: "On scheduled favorites checks, galleries with more pages than this are downloaded via the ExHentai archive (zip) instead of page-by-page; the rest download page-by-page as usual. 0 archives everything.",
+    archiveFallbackPages: "Fall back to page-by-page if archive is unavailable", archiveFallbackPagesHint: "When the archive channel cannot serve a gallery (that quality tier does not exist, GP too low, archive corrupt), download it page-by-page instead of failing. Page-by-page costs no GP but uses H@H traffic.",
     archiveTitle: "Archive download — cost preview", archiveFunds: "GP available", archiveTierOriginal: "Original", archiveTierResample: "Resample", archiveCost: "cost", archiveSize: "size", archiveUnavailable: "insufficient GP", archiveConfirm: "Start archive download", archiveNoItems: "No archives available for the selection.", archivePreviewFail: "Archive preview failed", archiveQueued: "Archive download queued", archiveUnsupported: "Some selected galleries are already local or lack a token and were skipped.",
     dlBadgeArchive: "Archive", dlBadgePages: "Page-by-page",
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
@@ -188,6 +189,7 @@ const I18N = {
     qualityOriginal: "原图 (Original)", qualityResample: "重采样 (Resample)",
     archiveQuality: "归档下载质量", archiveScanEnabled: "定时扫描大画廊走归档下载",
     archiveMaxPages: "归档页数阈值（0=全部归档）", archiveMaxPagesHint: "定时扫描收藏夹时，页数超过该阈值的画廊用 ExHentai 官方归档（zip）下载，其余仍逐页下载。0 表示全部走归档。",
+    archiveFallbackPages: "归档不可用时降级为逐页下载", archiveFallbackPagesHint: "当归档通道无法下载该画廊（所选画质不存在、GP 不足、归档损坏）时，改为逐页下载而不是失败。逐页不消耗 GP，但会占用 H@H 流量。",
     archiveTitle: "归档下载 — 费用预览", archiveFunds: "可用 GP", archiveTierOriginal: "原图", archiveTierResample: "重采样", archiveCost: "费用", archiveSize: "大小", archiveUnavailable: "GP 不足", archiveConfirm: "开始归档下载", archiveNoItems: "所选画廊没有可用的归档。", archivePreviewFail: "归档预览失败", archiveQueued: "已加入归档下载", archiveUnsupported: "部分所选画廊已本地或缺少 token，已跳过。",
     dlBadgeArchive: "归档", dlBadgePages: "逐页",
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
@@ -1451,6 +1453,8 @@ async function renderSettings() {
           ${field(t("archiveMaxPages"), `<input name="favorites_archive_max_pages" type="number" min="0" value="${s.favorites_archive_max_pages != null ? s.favorites_archive_max_pages : 0}">`)}
         </div>
         <label class="checkbox"><input type="checkbox" name="favorites_archive_enabled"${s.favorites_archive_enabled ? " checked" : ""}> ${esc(t("archiveScanEnabled"))}</label>
+        <label class="checkbox"><input type="checkbox" name="archive_fallback_pages"${s.archive_fallback_pages === false ? "" : " checked"}> ${esc(t("archiveFallbackPages"))}</label>
+        <p class="notice">${esc(t("archiveFallbackPagesHint"))}</p>
       </fieldset>
       <fieldset><legend>Tags</legend>
         <label class="checkbox"><input type="checkbox" name="auto_sync_tags"${s.auto_sync_tags ? " checked" : ""}> ${esc(t("autoSyncTags"))}</label>
@@ -1542,6 +1546,7 @@ function collectSettings(form) {
     archive_quality: val("archive_quality") || "resample",
     favorites_archive_max_pages: Math.max(0, Math.round(num("favorites_archive_max_pages", 0))),
     favorites_archive_enabled: form.favorites_archive_enabled.checked,
+    archive_fallback_pages: form.archive_fallback_pages.checked,
     download_title: val("download_title") || "japanese",
     title_display: val("title_display") || "japanese",
     image_download_timeout_seconds: Math.max(1, Math.round(num("image_download_timeout_seconds", 120))),
