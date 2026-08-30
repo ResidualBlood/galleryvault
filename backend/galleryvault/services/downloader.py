@@ -56,6 +56,7 @@ class DownloadResult:
     title_jpn: str | None = None
     token: str | None = None
     tags: tuple[tuple[str, str], ...] = ()
+    quality: str | None = None
 
 
 class DownloadClient(Protocol):
@@ -438,17 +439,18 @@ class Downloader:
             (temp / ".download-manifest.json").write_text(
                 json.dumps({"gid": gallery.gid, "pages": done}), encoding="utf-8"
             )
-        self._write_metadata(temp, gallery, pages)
+        self._write_metadata(temp, gallery, pages, quality)
         manifest = temp / ".download-manifest.json"
         if manifest.exists():
             manifest.unlink()
-        return self._finalize_target(task, temp, gallery, pages)
+        return self._finalize_target(task, temp, gallery, pages, quality)
 
     def _write_metadata(
         self,
         temp: Path,
         gallery: GalleryData,
         pages: list[GalleryPageData],
+        quality: str | None = None,
     ) -> None:
         """Write the Ehviewer ``.ehviewer`` resume manifest and ``.galleryvault.json``.
 
@@ -486,6 +488,7 @@ class Downloader:
                         for tag in gallery.tags
                         if tag.get("name")
                     ],
+                    "quality": quality,
                 },
                 ensure_ascii=True,
             ),
@@ -498,6 +501,7 @@ class Downloader:
         temp: Path,
         gallery: GalleryData,
         pages: list[GalleryPageData],
+        quality: str | None = None,
     ) -> DownloadResult:
         """Merge the staged temp dir into the final ``<gid>-`` folder and return the result."""
         settings = getattr(self.client, "settings", None)
@@ -532,6 +536,7 @@ class Downloader:
                 for tag in gallery.tags
                 if tag.get("name")
             ),
+            quality,
         )
 
     async def _download_archive_once(
@@ -659,8 +664,8 @@ class Downloader:
         # The archive state was consumed; drop it so it does not leak into the
         # final gallery folder (dotfiles are hidden but unnecessary).
         state_file.unlink(missing_ok=True)
-        self._write_metadata(temp, gallery, pages)
-        return self._finalize_target(task, temp, gallery, pages)
+        self._write_metadata(temp, gallery, pages, quality)
+        return self._finalize_target(task, temp, gallery, pages, quality)
 
     @staticmethod
     def _extract_zip(zip_path: Path, dest: Path) -> None:

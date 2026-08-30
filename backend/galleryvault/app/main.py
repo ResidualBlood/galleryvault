@@ -760,6 +760,24 @@ async def logout():
     return response
 
 
+def _infer_image_quality(
+    storage_size: int | None, original_size: int | None, storage_type: str | None = None
+) -> str | None:
+    """Infer original/resample from local size vs the ExHentai original size.
+
+    Resampled images are downscaled and re-compressed, so a resampled copy is
+    typically far smaller than the gallery's original total size reported by
+    gdata.  ``cbz`` archives are stored compressed, so their threshold is
+    looser.  Returns ``None`` when inference is impossible (missing data).
+    """
+    if not storage_size or not original_size:
+        return None
+    threshold = (
+        0.8 if storage_type == "cbz" else 0.85
+    )
+    return "original" if (storage_size / original_size) >= threshold else "resample"
+
+
 def _maybe_scan_after_download(result) -> None:
     """Ingest just the freshly downloaded gallery.
 
@@ -820,13 +838,24 @@ async def _ingest_downloaded_gallery(result) -> None:
             file_count=len(pages),
             file_size=sum(p.size or 0 for p in pages),
             tags=tags,
+            image_quality=getattr(result, "quality", None),
             source_meta={"title": result.title or path.name, "tags": tags},
             storage_signature=scanner.storage_signature(path),
             storage_mtime_ns=path.stat().st_mtime_ns,
             storage_size=sum(p.size or 0 for p in pages),
         )
         gallery_id = None
+        old_copy: tuple[Path, int] | None = None
         async with _settings_session() as session, session.begin():
+            # Capture the previous on-disk copy before ingest re-points the
+            # gallery row at the freshly downloaded path, so an original
+            # upgrade can remove the superseded resampled copy afterwards.
+            if gallery.gid is not None:
+                prev = await session.scalar(
+                    select(Gallery).where(Gallery.gid == gallery.gid)
+                )
+                if prev is not None and prev.storage_path != str(path):
+                    old_copy = (Path(prev.storage_path), prev.page_count or 0)
             await GalleryIngestService(session).ingest([gallery])
             if _settings().generate_thumbnails and gallery.gid is not None:
                 row = await session.execute(
@@ -836,6 +865,8 @@ async def _ingest_downloaded_gallery(result) -> None:
         if gallery_id is not None and _settings().generate_thumbnails:
             await _enqueue_job(JOB_THUMB, gallery_id)
             thumb_state["queued"] = await _jobs_count(JOB_THUMB)
+        if getattr(result, "quality", None) == "original" and old_copy is not None:
+            await _remove_superseded_copy(result, old_copy[0], old_copy[1])
         logger.info(
             "download ingested",
             extra=log_extra(gid=gallery.gid, path=str(path), pages=len(pages)),
@@ -845,6 +876,112 @@ async def _ingest_downloaded_gallery(result) -> None:
             "download ingest failed",
             extra=log_extra(path=str(result.path), error=type(exc).__name__),
         )
+
+
+async def _remove_superseded_copy(result, old_path: Path, old_pages: int) -> None:
+    """Delete the superseded (resampled) copy after an original-quality upgrade.
+
+    Only when the new original lives at a different path (the downloader merges
+    into an existing same-name folder in the download root, in which case the
+    resampled pages were overwritten in place and there is nothing to delete)
+    and the page count matches, so a partial download can never destroy the
+    only good copy.  Best-effort: a read-only mount must not fail the task.
+    """
+    new_path = Path(result.path)
+    try:
+        if old_path.resolve() == new_path.resolve():
+            return
+        if not old_path.exists():
+            return
+        if (result.pages or 0) != old_pages:
+            logger.warning(
+                "original upgrade page count mismatch; keeping old copy",
+                extra=log_extra(gid=result.gid, old=old_pages, new=result.pages),
+            )
+            return
+        import shutil as _shutil
+
+        if old_path.is_dir():
+            _shutil.rmtree(old_path)
+        else:
+            old_path.unlink()
+        logger.info(
+            "removed superseded resampled copy",
+            extra=log_extra(gid=result.gid, path=str(old_path)),
+        )
+    except OSError as exc:
+        logger.warning(
+            "failed to remove superseded resampled copy",
+            extra=log_extra(gid=result.gid, path=str(old_path), error=str(exc)),
+        )
+
+
+async def _backfill_image_quality(should_stop=None) -> int:
+    """Infer ``image_quality`` for local galleries, fetching cold gdata batches.
+
+    Called at the end of a library scan.  Covers galleries the favorites
+    metadata sync never sees (those not in any favorite folder).  Bounded and
+    low-concurrency so it never competes with the favorites poll; a failed
+    batch is skipped and retried on the next scan.
+    """
+    client = app.state.eh_client
+    if client is None:
+        return 0
+    processed = 0
+    last_id = 0
+    while True:
+        if should_stop is not None and should_stop():
+            break
+        async with _settings_session() as session:
+            rows = await GalleryRepository(session).pending_image_quality_gids(200, last_id)
+            if not rows:
+                break
+            last_id = rows[-1].id
+            local = {int(row.gid): (row.storage_size, row.storage_type) for row in rows}
+            have = await GalleryRepository(session).metadata_map(
+                [int(row.gid) for row in rows]
+            )
+        # Gids missing from the metadata cache (or without a recorded size)
+        # need one gdata round trip before they can be compared.
+        cold = [
+            (int(row.gid), row.token)
+            for row in rows
+            if int(row.gid) not in have or not have[int(row.gid)].get("file_size")
+        ]
+        if cold:
+            try:
+                fetched = await client.fetch_gmetadata(cold)
+                async with _settings_session() as session, session.begin():
+                    await GalleryRepository(session).upsert_metadata(
+                        [{"gid": gid, **meta} for gid, meta in fetched.items()]
+                    )
+            except Exception as exc:  # noqa: BLE001 - skip this batch, retry next scan
+                logger.warning(
+                    "image quality backfill gdata round failed",
+                    extra=log_extra(error=type(exc).__name__),
+                )
+                continue
+            for gid, meta in fetched.items():
+                have.setdefault(int(gid), {})["file_size"] = meta.get("file_size")
+        inferred = {
+            int(row.gid): quality
+            for row in rows
+            if int(row.gid) in have
+            and (
+                quality := _infer_image_quality(
+                    local[int(row.gid)][0], have[int(row.gid)].get("file_size"),
+                    local[int(row.gid)][1],
+                )
+            )
+        }
+        if inferred:
+            async with _settings_session() as session, session.begin():
+                processed += await GalleryRepository(session).set_image_qualities(inferred)
+        if len(rows) < 200:
+            break
+        # Gentle pacing: a large cold library is a one-time burst.
+        await asyncio.sleep(0.5)
+    return processed
 
 
 def _scan_summary_message(
@@ -959,6 +1096,25 @@ async def _run_scan() -> None:
                         logger.warning(
                             "tag sync enqueue failed", extra=log_extra(error=type(exc).__name__)
                         )
+                # Backfill the on-disk image quality for galleries the favorites
+                # sync never covers (not in any favorite folder), fetching cold
+                # gdata batches in a bounded loop.  Best-effort: a failed round
+                # is retried on the next scan.
+                try:
+                    quality_done = await _backfill_image_quality(
+                        should_stop=lambda: _cancelled("scan")
+                    )
+                    if quality_done:
+                        scan_state["image_quality_backfilled"] = quality_done
+                        logger.info(
+                            "image quality backfilled",
+                            extra=log_extra(count=quality_done),
+                        )
+                except Exception as exc:  # noqa: BLE001 - must not fail the scan
+                    logger.warning(
+                        "image quality backfill failed",
+                        extra=log_extra(error=type(exc).__name__),
+                    )
                 counters = service.last_counters
                 scan_state["last"] = {
                     **counters.__dict__,
@@ -2368,6 +2524,21 @@ async def _favorite_size_sync(favcat: int) -> None:
                     await GalleryRepository(session).upsert_metadata(
                         [{"gid": gid, **meta} for gid, meta in metadata.items()]
                     )
+                    # Infer image quality for the folder's on-disk galleries in
+                    # this gdata batch (zero extra network): compare the local
+                    # storage size against the freshly fetched original size.
+                    local = await GalleryRepository(session).storage_size_map(list(sizes))
+                    inferred = {
+                        gid: quality
+                        for gid, size in sizes.items()
+                        if gid in local
+                        and (
+                            quality := _infer_image_quality(
+                                local[gid][0], size, local[gid][1]
+                            )
+                        )
+                    }
+                    await GalleryRepository(session).set_image_qualities(inferred)
                 # Warm the folder's cover files on disk while the fresh gdata
                 # response still carries the thumb URLs (a favorites check is
                 # meant to pull covers, tags and sizes together).  Already-cached

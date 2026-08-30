@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import and_, delete, false, func, or_, select, tuple_, update
+from sqlalchemy import and_, case, delete, false, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +77,7 @@ class GalleryRepository:
                 "storage_mtime_ns": gallery.storage_mtime_ns,
                 "storage_size": gallery.storage_size,
                 "storage_signature": gallery.storage_signature,
+                "image_quality": gallery.image_quality,
                 "expunged": False,
                 "cover_path": gallery.pages[0].name if gallery.pages else None,
                 "page_count": len(gallery.pages),
@@ -114,6 +115,10 @@ class GalleryRepository:
                 changed.append((row, gallery))
             elif row.storage_signature != gallery.storage_signature or row.expunged:
                 for name, value in values_by_key[key].items():
+                    if name == "image_quality" and value is None:
+                        # Keep an already-known quality: a re-scan of a download
+                        # without a fresh quality marker must not erase it.
+                        continue
                     setattr(row, name, value)
                 changed.append((row, gallery))
         if changed:
@@ -931,6 +936,72 @@ class GalleryRepository:
             .limit(limit)
         )
         return [(int(row[0]), str(row[1])) for row in rows]
+
+    async def pending_image_quality_gids(
+        self, limit: int = 500, last_id: int = 0
+    ) -> list[Gallery]:
+        """Local galleries whose image quality is still unknown.
+
+        Filters to galleries that could ever be inferred: a known ExHentai
+        ``gid``, a token for gdata lookups, a real on-disk ``storage_size`` and
+        not expunged.  Oldest-first, id-cursor paged for bounded memory.
+        """
+        return list(
+            (
+                await self.session.scalars(
+                    select(Gallery)
+                    .where(
+                        Gallery.gid.is_not(None),
+                        Gallery.image_quality.is_(None),
+                        Gallery.expunged.is_(False),
+                        Gallery.token.is_not(None),
+                        Gallery.storage_size.is_not(None),
+                        Gallery.storage_size > 0,
+                        Gallery.id > last_id,
+                    )
+                    .order_by(Gallery.id)
+                    .limit(limit)
+                )
+            ).all()
+        )
+
+    async def storage_size_map(
+        self, gids: list[int]
+    ) -> dict[int, tuple[int | None, str | None]]:
+        """``gid -> (local storage_size, storage_type)`` for on-disk galleries."""
+        if not gids:
+            return {}
+        rows = await self.session.execute(
+            select(Gallery.gid, Gallery.storage_size, Gallery.storage_type).where(
+                Gallery.gid.in_(list(dict.fromkeys(gids)))
+            )
+        )
+        return {int(gid): (size, stype) for gid, size, stype in rows}
+
+    async def set_image_qualities(self, mapping: dict[int, str]) -> int:
+        """Persist inferred image quality per gid (never overwrites known ones).
+
+        Only rows whose quality is still ``NULL`` are touched, so a download
+        that explicitly marked a gallery keeps its authoritative value.
+        """
+        if not mapping:
+            return 0
+        stmt = (
+            update(Gallery)
+            .where(
+                Gallery.gid.in_(list(mapping.keys())),
+                Gallery.image_quality.is_(None),
+            )
+            .values(
+                image_quality=case(
+                    *[(Gallery.gid == gid, quality) for gid, quality in mapping.items()],
+                    else_=Gallery.image_quality,
+                ),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return int(result.rowcount or 0)
 
     async def apply_metadata_to_galleries(self, favcat: int, limit: int = 200) -> int:
         """Apply fresh cached metadata to local galleries of a favorite folder.

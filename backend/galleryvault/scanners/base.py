@@ -93,6 +93,7 @@ class GalleryMeta:
     posted_at: datetime | None = None
     tags: list[dict[str, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    image_quality: str | None = None
     source_meta: dict[str, Any] = field(default_factory=dict)
     storage_signature: str = ""
     storage_mtime_ns: int | None = None

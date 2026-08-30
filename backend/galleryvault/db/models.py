@@ -45,6 +45,7 @@ class Gallery(Base):
     storage_mtime_ns: Mapped[int | None] = mapped_column(BigInteger)
     storage_size: Mapped[int | None] = mapped_column(BigInteger)
     storage_signature: Mapped[str] = mapped_column(String(64))
+    image_quality: Mapped[str | None] = mapped_column(String(16))
     cover_path: Mapped[str | None] = mapped_column(Text)
     page_count: Mapped[int | None] = mapped_column(Integer)
     source_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
