@@ -37,6 +37,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Gallery delete now removes files even for (former) library roots** — the
+  `delete_files` path no longer gated on `_in_scan_roots`; any gallery's
+  `storage_path` is now attempted for deletion (rmtree / unlink) when
+  requested. This makes it possible to clean disk copies after removing a
+  library root from Settings (previously only the DB row was removed).
+
 - **Duplicate-copy snapshots dropped the Japanese title** — copies already
   ingested that were folded into a duplicate group by signature (content
   unchanged, so the scan skips them) never carried `title_jpn`: `ExistingGallery`
