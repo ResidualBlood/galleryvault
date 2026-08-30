@@ -2310,8 +2310,12 @@ function showArchiveDialog(gids) {
           if (it.error) {
             return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="2"><span class="error">${esc(it.error)}</span></td></tr>`;
           }
-          const orig = (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
-          const res = (it.resample_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.resample_cost + " GP · " + fmtSize(it.resample_size);
+          const orig = it.original_cost == null
+            ? `<span class="muted">N/A</span>`
+            : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
+          const res = it.resample_cost == null
+            ? `<span class="muted">N/A</span>`
+            : (it.resample_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.resample_cost + " GP · " + fmtSize(it.resample_size);
           return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
         }).join("");
         bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th>${esc(t("gallery"))}</th><th>${esc(t("archiveTierOriginal"))}</th><th>${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
