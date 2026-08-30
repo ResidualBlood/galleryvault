@@ -31,6 +31,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Archive cost-preview crashed on unavailable tiers (500)** — when a gallery's
+  archiver page shows `Estimated Size: N/A` for a tier (e.g. a gallery that does
+  not qualify for a resample archive), `_parse_archive_size` crashed with an
+  `AttributeError`, turning the archive-download preview into `Internal Server
+  Error`. The parser now yields 0 for unparseable sizes, `N/A` tiers have their
+  download URL cleared (so they are never charged or downloaded), and the
+  preview's `original_available` / `resample_available` checks require a real
+  download URL in addition to sufficient GP.
 - **Archive cost-preview dialog was transparent** — `.gv-modal` set
   `background: var(--panel-1)`, a CSS variable that is never defined, so the
   declaration was invalid and the modal body rendered transparent over the 55%
