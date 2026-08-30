@@ -74,6 +74,20 @@ does not re-import it as a fresh gallery).
 > needs the directory to be writable by uid 10001 (on a read-only mount deletion
 > fails honestly). `./db-data` belongs to postgres (999) — **do not chown it**.
 
+> **Multiple existing gallery folders**: add one volume per folder (give each a
+> unique in-container path such as `/gallery1`, `/gallery2`), then list each
+> in-container path in *Settings → Library roots* (one per line).
+> `download_root` is always included in the library roots automatically, so you
+> don't need to repeat it.
+
+> **Environment variables are optional**: the `LIBRARY_ROOTS` / `DOWNLOAD_ROOT`
+> env vars in the compose file are only **startup defaults**; the values saved
+> in *Settings → Library roots / Download directory* (stored in the DB and
+> applied on startup, overriding the env vars) win. The backend defaults are
+> `download_root=/downloads` and `library_roots=["/library","/downloads"]`, so a
+> fresh install can skip both variables entirely and just configure them in
+> Settings.
+
 ## Security hardening
 
 The backend binds `127.0.0.1:8001` by default and is only reachable through
