@@ -579,9 +579,21 @@ class Downloader:
             state_file.write_text(json.dumps(state), encoding="utf-8")
         zip_path = temp / "archive.zip"
         page_count = max(1, len(pages))
+        _last_bytes = 0
+        _last_done = 0
 
         async def _zip_progress(downloaded: int, total: int | None) -> None:
+            nonlocal _last_bytes, _last_done
             current = int(downloaded / total * page_count) if total else 0
+            # Feed the live speed/ETA stats the same way the page-by-page path
+            # does (bytes moved + progress done), or the downloads API would
+            # have no stats and the UI would show no speed for archive tasks.
+            # ``cb`` reports cumulative values; _record_bytes accumulates
+            # increments, so only pass the delta since the last callback.
+            byte_delta = max(0, downloaded - _last_bytes)
+            done_delta = max(0, current - _last_done)
+            _last_bytes, _last_done = downloaded, current
+            await self._record_bytes(task.gid, byte_delta, done_delta)
             if progress is not None:
                 await progress(min(current, page_count), len(pages))
 

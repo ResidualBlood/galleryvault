@@ -215,6 +215,26 @@ async def test_archive_downloader_writes_renamed_gallery(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_archive_downloader_records_speed_stats(tmp_path: Path) -> None:
+    """Archive downloads must feed the live speed/ETA stats so the tasks UI
+    shows a speed (the page-by-page path does via _record_bytes; the archive
+    zip path used to skip it entirely)."""
+    client = FakeArchiveClient()
+    downloader = Downloader(client, tmp_path)
+    recorded: list[tuple[int, int]] = []
+
+    async def spy(gid: int, count: int, done: int) -> None:
+        recorded.append((count, done))
+
+    downloader._record_bytes = spy  # type: ignore[method-assign]
+    await downloader.execute(
+        DownloadTask(1, "t", "title", mode="archive", quality="resample")
+    )
+    assert recorded, "_record_bytes was never called for the archive download"
+    assert all(bytes_count > 0 for bytes_count, _ in recorded)
+
+
+@pytest.mark.asyncio
 async def test_archive_original_tier_passes_org_dltype(tmp_path: Path) -> None:
     client = FakeArchiveClient()
     await Downloader(client, tmp_path).execute(
