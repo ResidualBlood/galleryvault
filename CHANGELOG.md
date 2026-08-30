@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Frontend Phase 0 refactor** (galleryvault-frontend feat/frontend-optimization-phase0): split 3179-line app.js into core/state/utils/components/events (vanilla, no build). State centralized, multi-script load in index.html, minimal logic change. Verified in test container :8200 + node --check. See FRONTEND_OPTIMIZATION_PLAN.md and HANDOFF.
+- **Frontend Phase 1 start**: extracted renderWelcome/browse/library/gallery to views/, added renderView + before/afterRender hooks + router wrap (core). galleryGrid moved to utils, catLabel fixed. Smoke + checks passed. Continue on same branch.
+- **Phase 1 complete**: app.js pure entry 29 lines (scan+init only); all renders/support extracted. smoke + checks.
+- **Frontend Phase 2 start**: design tokens (:root full color/space/radius/font/transition/focus), .btn system + unified skeleton/empty/loading, key buttons migrated, a11y (roles/aria/touch targets), transitions, mobile polish. :8200 smoke + node check. commit 4de129a.
+- **Phase 2 complete**: topbar 5 core links; arrow key card nav; all prior tokens/btn/mobile/a11y/keyboard. smoke. commit 3173b03. See PLAN. Phase 2 done.
+
 ### Added
 
 - **Archive download falls back to page-by-page when unavailable** — when the
