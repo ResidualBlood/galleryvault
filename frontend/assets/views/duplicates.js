@@ -263,3 +263,76 @@ async function renderDupGroupsFromCache() {
   renderDupGroups(lastDupStatus);
   updateDupButtons();
 }
+
+async function dupAction(deleteLocal) {
+  const items = [...document.querySelectorAll('#dup-groups [data-dup-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.dupGid, 10));
+  if (!items.length) { toast(t("select")); return; }
+  const msg = deleteLocal ? t("confirmDupDelete") : t("confirmDupUnfav");
+  if (!window.confirm(msg + " " + items.length)) return;
+  try {
+    const r = await api("POST", "/api/favorites/remove", { gids: items, delete_local: deleteLocal });
+    let msg = t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal"))
+      + (r.deleted_local_galleries ? " · " + t("deleted") + " " + r.deleted_local_galleries : "");
+    if (r.failed_deletions && r.failed_deletions.length) {
+      msg += " · " + t("dupDeleteFail") + r.failed_deletions.length;
+      console.warn("local delete failed:", r.failed_deletions);
+    }
+    toast(msg);
+    selDup.clear();
+    runDupScan();
+  } catch (e) { toast(e.message); }
+}
+
+function dupSelectGroup(gi) {
+  const filtered = lastDupStatus ? applyDupFilter(lastDupStatus.groups || []) : [];
+  const group = filtered[gi];
+  if (!group) return;
+  const gids = group.items.map(it => it.gid);
+  const allSel = gids.every(gid => selDup.has(gid));
+  const cbs = [...document.querySelectorAll(`#dup-groups input[data-gi="${gi}"]`)];
+  cbs.forEach(cb => {
+    const gid = parseInt(cb.dataset.dupGid, 10);
+    if (allSel) selDup.delete(gid); else selDup.add(gid);
+    cb.checked = !allSel;
+  });
+  updateDupButtons();
+}
+
+async function dupIgnoreSelected() {
+  const keys = new Set();
+  document.querySelectorAll('#dup-groups input[data-dup-gid]:checked').forEach(cb => {
+    const k = cb.getAttribute("data-key");
+    if (k) keys.add(k);
+  });
+  if (!keys.size) { toast(t("select")); return; }
+  const groupsByKey = new Map((lastDupStatus.groups || []).map(g => [g.key, g]));
+  let ok = 0;
+  for (const key of keys) {
+    const group = groupsByKey.get(key);
+    try {
+      await api("POST", "/api/favorites/duplicates/ignore", {
+        key,
+        title: group ? group.items[0].title : "",
+        gids: group ? group.items.map(it => it.gid) : [],
+      });
+      ok++;
+    } catch (_) { /* keep going */ }
+  }
+  keys.forEach(k => dupLocallyIgnored.add(k));
+  selDup.clear();
+  toast(t("dupIgnoredOk") + ": " + ok);
+  renderDupGroupsFromCache();
+  renderCardCheckboxes();
+  updateDupButtons();
+}
+
+async function dupUnignore(key) {
+  if (!key) return;
+  try {
+    await api("DELETE", `/api/favorites/duplicates/ignore?key=${encodeURIComponent(key)}`);
+    toast(t("dupUnignoredOk"));
+    if (app.view === "favignored") { renderFavIgnored(); }
+    else { dupLocallyIgnored.delete(key); renderDupGroupsFromCache(); }
+  } catch (e) { toast(e.message); }
+}

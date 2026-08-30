@@ -126,3 +126,138 @@ function renderFavPager(elId, data, page) {
   if (cur < pages) parts.push(`<a class="page-link" href="${qp(cur + 1)}">&gt;</a>`);
   el.innerHTML = `${parts.join(" ")} ${pagerJump(cur, pages)} · ${esc(t("perPage"))} ${pageSizeSelect(pageSize, "favlist")}`;
 }
+
+async function loadFavNames() {
+  if (Object.keys(favCatNames).length) return;
+  try {
+    const c = await api("GET", "/api/favorites/categories");
+    (Array.isArray(c) ? c : []).forEach(x => { favCatNames[x.favcat] = x.name || ""; });
+  } catch (_) {}
+}
+
+function favRingHtml(done, total) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const r = 15.9, c = 2 * Math.PI * r;
+  const off = c * (1 - pct / 100);
+  return `<span class="fav-ring" title="${esc(done + " / " + total)}">
+    <svg viewBox="0 0 36 36"><circle class="ring-bg" cx="18" cy="18" r="${r}"></circle>
+    <circle class="ring-fg" cx="18" cy="18" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${off}"></circle></svg>
+  </span>`;
+}
+
+async function pollFavoriteRings() {
+  if (favTimer) clearInterval(favTimer);
+  const tick = async () => {
+    try {
+      const st = await api("GET", "/api/favorites/check-status");
+      const cats = (st && st.categories) || {};
+      document.querySelectorAll("#fav-list tr[data-favcat]").forEach(tr => {
+        const nameCell = tr.querySelector(".fav-name");
+        if (!nameCell) return;
+        const old = nameCell.querySelector(".fav-ring");
+        if (old) old.remove();
+        const e = cats[tr.dataset.favcat];
+        if (e && e.running) {
+          nameCell.insertAdjacentHTML("beforeend", favRingHtml(e.done || 0, e.total || 0));
+        }
+      });
+    } catch (_) { /* transient */ }
+  };
+  tick();
+  favTimer = setInterval(tick, 3000);
+}
+
+async function saveFavoriteCategories() {
+  const favorites = [...document.querySelectorAll("#fav-list tr[data-favcat]")].map(tr => ({
+    favcat: parseInt(tr.dataset.favcat, 10),
+    enabled: tr.querySelector(".fav-enabled").checked,
+    mode: tr.querySelector(".fav-mode").value,
+    poll_interval_minutes: Math.max(1, parseInt(tr.querySelector(".fav-interval").value, 10) || 720),
+  }));
+  try {
+    await api("POST", "/api/settings", { favorites });
+    app.settings = null;
+    toast(t("saveOk"));
+  } catch (e) { toast(e.message); }
+}
+
+async function syncFavoriteCategories() {
+  try {
+    await api("POST", "/api/favorites/sync-categories");
+    app.settings = null;
+    toast(t("saveOk"));
+    renderFavorites();
+  } catch (e) { toast(e.message); }
+}
+
+async function checkFavoriteCategory(favcat) {
+  try {
+    await api("POST", `/api/favorites/${favcat}/check`);
+    toast("#" + favcat + " · " + t("checkNow"));
+  } catch (e) { toast(e.message); }
+}
+
+async function checkAllFavorites() {
+  try {
+    await api("POST", "/api/favorites/check-all");
+    toast(t("checkAll"));
+    pollFavoriteRings();
+  } catch (e) { toast(e.message); }
+}
+
+async function downloadMissingFavorites() {
+  try {
+    await api("POST", "/api/favorites/download-missing");
+    toast(t("downloadMissingStarted"));
+    if (app.view === "favorites") pollFavoriteRings();
+    else location.hash = "#/logs";
+  } catch (e) { toast(e.message); }
+}
+
+async function favListDownload(favcat) {
+  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!selected.length) { toast(t("select")); return; }
+  try {
+    const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected });
+    toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
+  } catch (e) { toast(e.message); }
+  selFav.clear();
+}
+
+async function favListDownloadOrig(favcat) {
+  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!selected.length) { toast(t("select")); return; }
+  try {
+    const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected, quality: "original" });
+    toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
+  } catch (e) { toast(e.message); }
+  selFav.clear();
+}
+
+async function favListArchive(favcat) {
+  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!selected.length) { toast(t("select")); return; }
+  const tier = await showArchiveDialog(selected);
+  if (!tier) return;
+  try {
+    const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected, archive: true, quality: tier });
+    toast(t("archiveQueued") + ": " + r.queued + (r.skipped ? " · " + t("archiveUnsupported") : ""));
+  } catch (e) { toast(e.message); }
+  selFav.clear();
+}
+
+async function favListUnfavorite(favcat) {
+  const items = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!items.length) { toast(t("select")); return; }
+  if (!window.confirm(t("confirmFavRemove") + " " + items.length)) return;
+  try {
+    const r = await api("POST", "/api/favorites/remove", { gids: items, delete_local: false });
+    toast(t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal")));
+    selFav.clear();
+    router();
+  } catch (e) { toast(e.message); }
+}
