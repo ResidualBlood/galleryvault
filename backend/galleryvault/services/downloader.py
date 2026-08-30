@@ -57,6 +57,7 @@ class DownloadResult:
     token: str | None = None
     tags: tuple[tuple[str, str], ...] = ()
     quality: str | None = None
+    new_files: tuple[str, ...] = ()
 
 
 class DownloadClient(Protocol):
@@ -515,6 +516,13 @@ class Downloader:
                 gallery.title,
                 mode=getattr(settings, "download_title", None) or "japanese",
             )
+        new_files = tuple(
+            item.name
+            for item in temp.iterdir()
+            if item.is_file()
+            and not item.name.startswith(".")
+            and item.suffix.casefold() in _ARCHIVE_IMAGE_SUFFIXES
+        ) if temp.is_dir() else ()
         if target.exists():
             # Merge into the existing directory (already-downloaded pages were
             # copied into temp during resume) instead of deleting it, so files
@@ -537,6 +545,7 @@ class Downloader:
                 if tag.get("name")
             ),
             quality,
+            new_files,
         )
 
     async def _download_archive_once(

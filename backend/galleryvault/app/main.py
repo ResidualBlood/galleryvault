@@ -793,20 +793,22 @@ def _maybe_scan_after_download(result) -> None:
     _spawn(_ingest_downloaded_gallery(result), "download ingest")
 
 
-def _prune_merged_stale_pages(path: Path) -> int:
+def _prune_merged_stale_pages(path: Path, new_files: tuple[str, ...] = ()) -> int:
     """Drop stale pages left by an in-place original upgrade.
 
     When the downloader merges an original-quality download into the folder of
     an existing resampled copy whose pages used a different extension (e.g.
-    ``.webp`` next to the new ``.jpg``/``.png``), both files remain for the
-    same page.  Keep the newest file per page stem and delete the older ones,
-    so the subsequent ingest sees exactly one copy per page.  Best-effort: a
-    read-only mount must not fail the task.
+    old ``.webp`` next to the new ``.jpg``/``.png``), both files remain for the
+    same page.  Only the freshly downloaded files (``new_files``) are wanted:
+    delete any image in the folder whose page stem has a fresh copy but whose
+    name is not in ``new_files``, so the subsequent ingest sees exactly one
+    copy per page.  Best-effort: a read-only mount must not fail the task.
     """
     if not path.is_dir():
         return 0
     import shutil as _shutil
 
+    fresh = set(new_files)
     by_stem: dict[str, list[Path]] = {}
     for item in path.iterdir():
         if (
@@ -817,10 +819,11 @@ def _prune_merged_stale_pages(path: Path) -> int:
             by_stem.setdefault(item.stem, []).append(item)
     removed = 0
     for siblings in by_stem.values():
-        if len(siblings) < 2:
+        if not any(sib.name in fresh for sib in siblings):
             continue
-        siblings.sort(key=lambda p: p.stat().st_mtime_ns)
-        for stale in siblings[:-1]:
+        for stale in siblings:
+            if stale.name in fresh:
+                continue
             try:
                 if stale.is_dir():
                     _shutil.rmtree(stale)
@@ -850,10 +853,10 @@ async def _ingest_downloaded_gallery(result) -> None:
         # An original upgrade may merge into the existing resampled folder
         # (same <gid>- name).  The freshly written pages then live next to the
         # old resampled ones when the extensions differ (e.g. .jpg vs .webp),
-        # doubling the page count.  Drop the older per-page copy first so the
-        # ingest counts exactly the new original pages.
+        # doubling the page count.  Drop the stale pages first so the ingest
+        # counts exactly the new original pages.
         if getattr(result, "quality", None) == "original":
-            _prune_merged_stale_pages(path)
+            _prune_merged_stale_pages(path, getattr(result, "new_files", ()))
         files = sorted(
             (
                 item

@@ -259,6 +259,7 @@ async def test_ingest_downloaded_gallery_prunes_merged_stale_pages(
     result = SimpleNamespace(
         gid=7, path=str(merged), title="T", title_jpn=None, token="tok",
         category="misc", quality="original", pages=2, tags=[],
+        new_files=("00000001.jpg", "00000002.jpg"),
     )
     await main._ingest_downloaded_gallery(result)
 
@@ -297,6 +298,7 @@ async def test_ingest_downloaded_gallery_keeps_stale_for_resample(
     result = SimpleNamespace(
         gid=7, path=str(merged), title="T", title_jpn=None, token="tok",
         category="misc", quality="resample", pages=2, tags=[],
+        new_files=("00000001.jpg",),
     )
     await main._ingest_downloaded_gallery(result)
 
