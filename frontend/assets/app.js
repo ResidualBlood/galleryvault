@@ -911,8 +911,8 @@ async function renderGallery() {
         ${g.eh_url ? `<a class="secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
         <button class="secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
         <button class="secondary" data-action="unfavorite-gallery" data-id="${id}" type="button" hidden>${esc(t("unfavorite"))}</button>
-        ${showOrigBtns ? `<button class="secondary" data-action="download-original" data-id="${g.id}" type="button">${esc(t("dlOrig"))}</button>
-        <button class="secondary" data-action="download-original-archive" data-id="${g.id}" type="button">${esc(t("dlOrigArchive"))}</button>` : ""}
+        ${showOrigBtns ? `<button class="secondary" data-action="download-original" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrig"))}</button>
+        <button class="secondary" data-action="download-original-archive" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrigArchive"))}</button>` : ""}
         <button class="secondary danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
       </div>
       <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
@@ -2032,8 +2032,8 @@ function onClick(e) {
   if (action === "gen-thumbs") { generateThumbnails(); return; }
   if (action === "sync-all-tags") { syncAllTags(); return; }
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
-  if (action === "download-original") { downloadOriginalGallery(el.getAttribute("data-id"), false); return; }
-  if (action === "download-original-archive") { downloadOriginalGallery(el.getAttribute("data-id"), true); return; }
+  if (action === "download-original") { downloadOriginalGallery(el.getAttribute("data-id"), el.getAttribute("data-gid"), false); return; }
+  if (action === "download-original-archive") { downloadOriginalGallery(el.getAttribute("data-id"), el.getAttribute("data-gid"), true); return; }
   if (action === "unfavorite-gallery") { unfavoriteGallery(el); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
@@ -2242,9 +2242,9 @@ async function deleteGallery(id) {
   } catch (e) { toast(e.message); }
 }
 
-async function downloadOriginalGallery(id, archive) {
+async function downloadOriginalGallery(id, gid, archive) {
   if (archive) {
-    const tier = await showArchiveDialog([parseInt(id, 10)], { lockTier: "original" });
+    const tier = await showArchiveDialog([parseInt(gid, 10)], { lockTier: "original" });
     if (!tier) return;
   }
   try {
