@@ -37,6 +37,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **In-place original upgrade left the old resampled pages behind** — when an
+  original-quality download merged into the folder of an existing resampled
+  copy whose pages used a different file extension (e.g. old `.webp` next to
+  the new `.jpg`/`.png`), both files survived for the same page, doubling the
+  gallery's `page_count`/`storage_size` in the database. The stale per-page
+  copy is now pruned before ingest, keeping exactly the new original pages.
+
 - **"Archive-download original" on the gallery detail page reported no
   archives available** — the dialog passed the local library id to
   `/api/archives/preview`, which expects ExHentai gids, so the preview came
