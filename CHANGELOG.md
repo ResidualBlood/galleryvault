@@ -23,6 +23,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   task), and deleting a download task on the tasks page still keeps its failed
   update record visible so it can be reviewed or removed here.
 
+- **Original-quality upgrade from the gallery detail page** — the detail page
+  now shows whether the local copy is original (原图) or resampled (重采样)
+  next to its favorite categories, and offers two upgrade actions when the
+  gallery is not already original: **下载原图** (page-by-page, no GP) and
+  **归档形式下载原图** (ExHentai archive channel, cost/balance preview locked to
+  the original tier). When an original download finishes, the superseded
+  resampled copy is removed automatically (page-count guarded, best-effort).
+  Quality is recorded at download time and inferred for existing galleries by
+  comparing the local storage size against the ExHentai original size —
+  backfilled during the favorites metadata sync and at the end of a library
+  scan for galleries no favorite folder covers.
+
 ### Fixed
 
 - **The gallery-updates page "select all" checkbox was pushed to the far right
