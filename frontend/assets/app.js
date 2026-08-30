@@ -46,84 +46,6 @@ const app = {
 // fmtDur moved to utils.js
 
 
-function field(label, inputHtml) {
-  return `<label class="field"><span>${esc(label)}</span>${inputHtml}</label>`;
-}
-
-// EH_* moved to state.js
-
-function ehBaseUrlControl(value, prefix) {
-  const fixed = EH_BASE_URLS.some(o => o.v === value);
-  const options = EH_BASE_URLS.map(o =>
-    `<option value="${o.v}"${value === o.v ? " selected" : ""}>${o.label}</option>`
-  ).join("") + `<option value="${EH_CUSTOM}"${fixed ? "" : " selected"}>${esc(t("custom"))}</option>`;
-  return `<select name="${prefix}exhentai_base_url" data-eh-select>${options}</select>
-  <input name="${prefix}exhentai_base_url_custom" data-eh-custom value="${fixed ? "" : esc(value || "")}" placeholder="https://proxy.exhentai.org"${fixed ? " hidden" : ""}>`;
-}
-
-function toggleEhCustom(select) {
-  const input = select.parentElement.querySelector("[data-eh-custom]");
-  if (input) input.hidden = select.value !== EH_CUSTOM;
-}
-
-
-async function refreshThumbsStatus() {
-  const el = document.getElementById("thumbs-status");
-  if (!el) return;
-  try {
-    const st = await api("GET", "/api/thumbs/status");
-    if (st && st.running) el.textContent = t("thumbs");
-    else if (st && (st.completed_at || st.succeeded)) {
-      el.textContent = t("thumbsDone") + (st.succeeded ? ` (${st.succeeded})` : "");
-    } else {
-      el.textContent = t("thumbsHint");
-    }
-  } catch (_) { /* transient */ }
-}
-
-function collectSettings(form) {
-  const val = n => form[n] ? form[n].value.trim() : "";
-  const num = (n, d) => { const v = parseFloat(val(n)); return Number.isFinite(v) ? v : d; };
-  const lines = a => a.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
-  const body = {
-    library_roots: val("library_roots"),
-    exhentai_base_url: val("exhentai_base_url") === EH_CUSTOM
-      ? (val("exhentai_base_url_custom") || "https://exhentai.org")
-      : val("exhentai_base_url"),
-    http_proxy: val("http_proxy"),
-    socks5_proxy: val("socks5_proxy"),
-    download_root: val("download_root"),
-    download_concurrency: Math.min(32, Math.max(1, num("download_concurrency", 2))),
-    page_concurrency: Math.min(16, Math.max(1, num("page_concurrency", 4))),
-    download_quality: val("download_quality") || "resample",
-    archive_quality: val("archive_quality") || "resample",
-    favorites_archive_max_pages: Math.max(0, Math.round(num("favorites_archive_max_pages", 0))),
-    favorites_archive_enabled: form.favorites_archive_enabled.checked,
-    archive_fallback_pages: form.archive_fallback_pages.checked,
-    download_title: val("download_title") || "japanese",
-    title_display: val("title_display") || "japanese",
-    image_download_timeout_seconds: Math.max(1, Math.round(num("image_download_timeout_seconds", 120))),
-    image_slow_warmup_seconds: Math.max(1, Math.round(num("image_slow_warmup_seconds", 30))),
-    image_min_speed_kb_s: Math.max(1, Math.round(num("image_min_speed_kb_s", 20))),
-    use_hah: form.use_hah.checked,
-    download_favorites_enabled: form.download_favorites_enabled.checked,
-    auto_sync_tags: form.auto_sync_tags.checked,
-    generate_thumbnails: form.generate_thumbnails ? form.generate_thumbnails.checked : undefined,
-    tag_sync_interval_seconds: Math.max(0.1, num("tag_sync_interval_seconds", 1)),
-    tag_sync_concurrency: Math.min(32, Math.max(1, num("tag_sync_concurrency", 2))),
-    telegram_chat_ids: lines(val("telegram_chat_ids")),
-    telegram_allowed_user_ids: lines(val("telegram_allowed_user_ids")).map(Number).filter(Number.isFinite),
-    telegram_notify_level: val("telegram_notify_level") || "summary",
-    telegram_notify_lang: val("telegram_notify_lang") || app.lang,
-    duplicate_policy: val("duplicate_policy") || "keep_first",
-    auth_required: form.auth_required.checked,
-    tag_translation_update_interval_minutes: Math.max(0, num("tag_translation_update_interval_minutes", 720)),
-  };
-  for (const k of ["ipb_member_id", "ipb_pass_hash", "igneous", "telegram_bot_token"]) {
-    if (val(k)) body[k] = val(k);
-  }
-  return body;
-}
 
 // FAV_MODES moved to state.js
 
@@ -712,14 +634,6 @@ async function syncTags(id) {
   catch (e) { toast(e.message); }
 }
 
-async function saveSettings(form) {
-  try {
-    const data = await api("POST", "/api/settings", collectSettings(form));
-    app.settings = data && data.library_roots !== undefined ? data : null;
-    toast(t("saveOk"));
-    renderSettings();
-  } catch (e) { toast(e.message); }
-}
 
 // onChange moved to events.js
 

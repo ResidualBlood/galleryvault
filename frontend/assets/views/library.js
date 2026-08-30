@@ -10,7 +10,7 @@ async function renderLibrary() {
   const tags = app.query.tags || "";
   const filterPill = tagFilterPills(tags);
   const selCount = selGalleries.size;
-  $view().innerHTML = `
+  renderView(`
     <header><p class="eyebrow">LOCAL LIBRARY</p><h1>${esc(t("library"))}</h1></header>
     <form class="toolbar" data-action="library-search">
       <div class="search-box">
@@ -30,7 +30,7 @@ async function renderLibrary() {
     </form>
     <div class="filters">${filterPill}</div>
     <div id="lib-grid"><p>${esc(t("loading"))}</p></div>
-    <div class="pages pager" id="lib-pager"></div>`;
+    <div class="pages pager" id="lib-pager"></div>`);
   try {
     const extra = { page_size: prefPageSize() };
     if (q) extra.q = q;
@@ -45,5 +45,5 @@ async function renderLibrary() {
     gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
-  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  } catch (e) { $view().innerHTML = renderError(esc(e.message)); }
 }
