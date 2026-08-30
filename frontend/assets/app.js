@@ -71,6 +71,9 @@ const I18N = {
     archiveFallbackPages: "Fall back to page-by-page if archive is unavailable", archiveFallbackPagesHint: "When the archive channel cannot serve a gallery (that quality tier does not exist, GP too low, archive corrupt), download it page-by-page instead of failing. Page-by-page costs no GP but uses H@H traffic.",
     archiveTitle: "Archive download — cost preview", archiveFunds: "GP available", archiveTierOriginal: "Original", archiveTierResample: "Resample", archiveCost: "cost", archiveSize: "size", archiveUnavailable: "insufficient GP", archiveConfirm: "Start archive download", archiveNoItems: "No archives available for the selection.", archivePreviewFail: "Archive preview failed", archiveQueued: "Archive download queued", archiveUnsupported: "Some selected galleries are already local or lack a token and were skipped.",
     dlBadgeArchive: "Archive", dlBadgePages: "Page-by-page",
+    dlOrig: "Download original", dlOrigArchive: "Archive-download original",
+    dlOrigQueued: "Original download queued", dlOrigArchiveQueued: "Original archive download queued",
+    origBadge: "Original", resampleBadge: "Resample",
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
     catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted", notFavorited: "Not in favorites",
@@ -192,6 +195,9 @@ const I18N = {
     archiveFallbackPages: "归档不可用时降级为逐页下载", archiveFallbackPagesHint: "当归档通道无法下载该画廊（所选画质不存在、GP 不足、归档损坏）时，改为逐页下载而不是失败。逐页不消耗 GP，但会占用 H@H 流量。",
     archiveTitle: "归档下载 — 费用预览", archiveFunds: "可用 GP", archiveTierOriginal: "原图", archiveTierResample: "重采样", archiveCost: "费用", archiveSize: "大小", archiveUnavailable: "GP 不足", archiveConfirm: "开始归档下载", archiveNoItems: "所选画廊没有可用的归档。", archivePreviewFail: "归档预览失败", archiveQueued: "已加入归档下载", archiveUnsupported: "部分所选画廊已本地或缺少 token，已跳过。",
     dlBadgeArchive: "归档", dlBadgePages: "逐页",
+    dlOrig: "下载原图", dlOrigArchive: "归档形式下载原图",
+    dlOrigQueued: "已加入原图下载", dlOrigArchiveQueued: "已加入原图归档下载",
+    origBadge: "原图", resampleBadge: "重采样",
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
     catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除", notFavorited: "不在收藏夹",
@@ -850,6 +856,12 @@ async function renderGallery() {
   $view().innerHTML = `<p>${esc(t("loading"))}</p>`;
   try {
     const g = await api("GET", `/api/galleries/${id}`);
+    const qualityBadge = g.image_quality === "original"
+      ? `<span class="badge quality-badge">${esc(t("origBadge"))}</span>`
+      : g.image_quality === "resample"
+        ? `<span class="badge quality-badge">${esc(t("resampleBadge"))}</span>`
+        : "";
+    const showOrigBtns = !!(g.gid && g.image_quality !== "original");
     let progress = { current_page: 0, total_pages: g.page_count };
     try { progress = await api("GET", `/api/galleries/${id}/progress`); } catch (_) {}
     const order = ["parody", "character", "group", "artist", "language", "category", "misc"];
@@ -893,12 +905,14 @@ async function renderGallery() {
     $view().innerHTML = `
       <a class="link-button" href="${navHash("library", {}, libraryContext())}">← ${esc(t("library"))}</a>
       <header style="margin-top:16px"><p class="eyebrow">${esc(g.storage_type)} · LOCAL GALLERY</p><h1>${esc(g.title)}</h1>
-      <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span></p></header>
+      <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span> ${qualityBadge}</p></header>
       <div class="toolbar">
         <a class="primary" href="${navHash("reader", { id, page: progress.current_page }, libraryContext())}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
         ${g.eh_url ? `<a class="secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
         <button class="secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
         <button class="secondary" data-action="unfavorite-gallery" data-id="${id}" type="button" hidden>${esc(t("unfavorite"))}</button>
+        ${showOrigBtns ? `<button class="secondary" data-action="download-original" data-id="${g.id}" type="button">${esc(t("dlOrig"))}</button>
+        <button class="secondary" data-action="download-original-archive" data-id="${g.id}" type="button">${esc(t("dlOrigArchive"))}</button>` : ""}
         <button class="secondary danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
       </div>
       <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
@@ -2018,6 +2032,8 @@ function onClick(e) {
   if (action === "gen-thumbs") { generateThumbnails(); return; }
   if (action === "sync-all-tags") { syncAllTags(); return; }
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
+  if (action === "download-original") { downloadOriginalGallery(el.getAttribute("data-id"), false); return; }
+  if (action === "download-original-archive") { downloadOriginalGallery(el.getAttribute("data-id"), true); return; }
   if (action === "unfavorite-gallery") { unfavoriteGallery(el); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
@@ -2226,6 +2242,17 @@ async function deleteGallery(id) {
   } catch (e) { toast(e.message); }
 }
 
+async function downloadOriginalGallery(id, archive) {
+  if (archive) {
+    const tier = await showArchiveDialog([parseInt(id, 10)], { lockTier: "original" });
+    if (!tier) return;
+  }
+  try {
+    await api("POST", `/api/galleries/${id}/download-original`, { archive });
+    toast(t(archive ? "dlOrigArchiveQueued" : "dlOrigQueued"));
+  } catch (e) { toast(e.message); }
+}
+
 async function unfavoriteGallery(el) {
   const gid = parseInt(el.dataset.gid, 10);
   if (!gid) { toast(t("unfavoriteFail")); return; }
@@ -2273,18 +2300,23 @@ async function favListArchive(favcat) {
   selFav.clear();
 }
 
-function showArchiveDialog(gids) {
+function showArchiveDialog(gids, opts) {
+  opts = opts || {};
+  const lockTier = opts.lockTier || null;
   return new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.className = "gv-overlay";
+    const tiersHtml = lockTier
+      ? `<label><input type="radio" name="archive-tier" value="${lockTier}" checked> ${esc(t(lockTier === "original" ? "archiveTierOriginal" : "archiveTierResample"))}</label>`
+      : `<label><input type="radio" name="archive-tier" value="original"> ${esc(t("archiveTierOriginal"))}</label>
+        <label><input type="radio" name="archive-tier" value="resample"> ${esc(t("archiveTierResample"))}</label>`;
     overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true">
       <h3>${esc(t("archiveTitle"))}</h3>
       <div class="gv-modal-body">${esc(t("loading"))}</div>
       <div class="gv-modal-foot">
         <span class="archive-funds"></span>
         <span class="archive-tiers">
-          <label><input type="radio" name="archive-tier" value="original"> ${esc(t("archiveTierOriginal"))}</label>
-          <label><input type="radio" name="archive-tier" value="resample"> ${esc(t("archiveTierResample"))}</label>
+          ${tiersHtml}
         </span>
         <button class="primary" data-archive-confirm disabled type="button">${esc(t("archiveConfirm"))}</button>
         <button class="secondary" data-archive-cancel type="button">${esc(t("cancel"))}</button>
@@ -2312,27 +2344,44 @@ function showArchiveDialog(gids) {
           bodyEl.innerHTML = `<p>${esc(t("archiveNoItems"))}</p>`;
           return;
         }
-        const rows = items.map(it => {
-          if (it.error) {
-            return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="2"><span class="error">${esc(it.error)}</span></td></tr>`;
-          }
-          const orig = it.original_cost == null
-            ? `<span class="muted">N/A</span>`
-            : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
-          const res = it.resample_cost == null
-            ? `<span class="muted">N/A</span>`
-            : (it.resample_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.resample_cost + " GP · " + fmtSize(it.resample_size);
-          return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
-        }).join("");
-        bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th>${esc(t("gallery"))}</th><th>${esc(t("archiveTierOriginal"))}</th><th>${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+        const confirm = overlay.querySelector("[data-archive-confirm]");
+        if (lockTier === "original") {
+          const rows = items.map(it => {
+            if (it.error) {
+              return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="1"><span class="error">${esc(it.error)}</span></td></tr>`;
+            }
+            const orig = it.original_cost == null
+              ? `<span class="muted">N/A</span>`
+              : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
+            return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td></tr>`;
+          }).join("");
+          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th>${esc(t("gallery"))}</th><th>${esc(t("archiveTierOriginal"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+          const first = items[0];
+          confirm.disabled = !!(first && !first.error && first.original_cost != null && !first.original_available);
+        } else {
+          const rows = items.map(it => {
+            if (it.error) {
+              return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="2"><span class="error">${esc(it.error)}</span></td></tr>`;
+            }
+            const orig = it.original_cost == null
+              ? `<span class="muted">N/A</span>`
+              : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
+            const res = it.resample_cost == null
+              ? `<span class="muted">N/A</span>`
+              : (it.resample_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.resample_cost + " GP · " + fmtSize(it.resample_size);
+            return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
+          }).join("");
+          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th>${esc(t("gallery"))}</th><th>${esc(t("archiveTierOriginal"))}</th><th>${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+          confirm.disabled = false;
+        }
         if (data && data.funds != null) {
           overlay.querySelector(".archive-funds").textContent = t("archiveFunds") + ": " + data.funds + " GP";
         }
-        const confirm = overlay.querySelector("[data-archive-confirm]");
-        confirm.disabled = false;
-        const defaultTier = app.settings && app.settings.archive_quality === "original" ? "original" : "resample";
-        const radio = overlay.querySelector(`input[name="archive-tier"][value="${defaultTier}"]`);
-        if (radio) radio.checked = true;
+        if (!lockTier) {
+          const defaultTier = app.settings && app.settings.archive_quality === "original" ? "original" : "resample";
+          const radio = overlay.querySelector(`input[name="archive-tier"][value="${defaultTier}"]`);
+          if (radio) radio.checked = true;
+        }
       })
       .catch(err => {
         const bodyEl = overlay.querySelector(".gv-modal-body");
