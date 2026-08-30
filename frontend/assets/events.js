@@ -171,3 +171,18 @@ document.addEventListener('keydown', e => {
     if (s) s.focus();
   }
 });
+
+// Phase 2 keyboard: arrow keys navigate .gc cards (when focused)
+document.addEventListener('keydown', e => {
+  if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) return;
+  const active = document.activeElement;
+  if (!active || !active.classList.contains('gc')) return;
+  e.preventDefault();
+  const cards = Array.from(document.querySelectorAll('#view .gc'));
+  const idx = cards.indexOf(active);
+  if (idx < 0) return;
+  let next = idx;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = Math.min(idx + 1, cards.length - 1);
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = Math.max(idx - 1, 0);
+  if (next !== idx) cards[next].focus();
+});
