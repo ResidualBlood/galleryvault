@@ -97,6 +97,21 @@ button:disabled { opacity: .5; cursor: default; }
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
   padding: 10px 16px; z-index: 10;
 }
+.gv-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .55);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.gv-modal {
+  background: var(--panel-1); border: 1px solid var(--line); border-radius: 8px;
+  max-width: 680px; width: 92%; max-height: 82vh; display: flex; flex-direction: column;
+  padding: 18px 20px;
+}
+.gv-modal h3 { margin: 0 0 12px; }
+.gv-modal-body { overflow: auto; margin-bottom: 14px; }
+.gv-modal-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gv-modal-foot .archive-funds { margin-right: auto; font-weight: 700; }
+.archive-table td { vertical-align: top; }
+.archive-table .error { font-weight: 700; }
 .progress { height: 6px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
 .progress-bar { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .hidden { display: none; }
