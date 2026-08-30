@@ -276,7 +276,11 @@ Update translations now" buttons in Settings also leave a trace here.
   - **Reliability**: the zip resumes via HTTP Range; `quality + zip URL` are
     persisted under `.gv-{gid}/.archive.json`, so a retry **only resumes — it
     never re-packs or re-charges GP**; a corrupt zip is deleted and re-packed;
-    insufficient GP fails the task immediately without burning automatic retries.
+    when the archive channel cannot serve the gallery (selected tier
+    unavailable, insufficient GP, corrupt zip) the download **falls back to
+    page-by-page by default** (no GP cost, H@H carries the traffic) — disable
+    "Fall back to page-by-page if archive is unavailable" in Settings to fail
+    the task immediately instead, without burning automatic retries.
     On completion the archive goes through the same finishing pipeline as
     page-by-page downloads: `.ehviewer` / `.galleryvault.json` metadata, Telegram
     notification, immediate ingest, and old-version cleanup for gallery updates.
@@ -298,7 +302,9 @@ With **"Archive large favorites on scheduled scan"** enabled, the scheduled chec
 batch-fetches page counts for its candidates first: galleries above the
 **archive page threshold** (0 = all) go through the archive channel (tier =
 "Archive quality"), the rest download page-by-page as usual. If the page-count
-fetch fails, the check safely falls back to page-by-page.
+fetch fails, the check safely falls back to page-by-page. A gallery the archive
+channel cannot serve (e.g. the selected tier does not exist) also automatically
+falls back to page-by-page (Settings-toggleable).
 
 ### The three modes
 
@@ -333,7 +339,9 @@ additions again.
   values much above 4-6 trip the cap and cause connection errors on lossy
   lines; keep it low for stability, raise it only on a clean line), image
   quality (normal/original), **archive quality** (default tier for archive
-  downloads), H@H network, `max_pages`. Slow-H@H-node watchdogs:
+  downloads), **fall back to page-by-page if archive is unavailable** (on by
+  default — a gallery the archive channel cannot serve downloads page-by-page,
+  no GP cost), H@H network, `max_pages`. Slow-H@H-node watchdogs:
   **image max time** (seconds), **image slow warmup** (seconds) and **image min
   speed** (KB/s) — a single image is aborted once it exceeds the total
   wall-clock budget, or once it averages below the minimum throughput after the
