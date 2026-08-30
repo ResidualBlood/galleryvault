@@ -138,6 +138,10 @@ Other formats:
 - **Ehviewer-style downloads** — concurrent page downloads, live progress,
   resumable retries (missing pages only), partial downloads (`max_pages`),
   cancel and bulk retry.
+- **Archive downloads (ExHentai zip)** — the official whole-gallery zip
+  channel: spend GP for big galleries, per-task quality override
+  (original/resample), single-connection streaming with Range resume, retries
+  never re-charge GP, and a read-only GP cost preview dialog.
 - **Slow-node watchdog** — per-image total-time budget + warm-up window +
   minimum speed; a sluggish H@H node no longer holds a whole gallery hostage.
 - **Self-healing failures** — transient errors re-queue with **exponential
