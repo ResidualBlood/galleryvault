@@ -16,7 +16,7 @@ async function renderBrowse() {
     </form>
     <section>
       <h2>${esc(t("latest"))} <span class="muted" id="browse-total"></span></h2>
-      <div id="browse-grid"><p>${esc(t("loading"))}</p></div>
+      <div id="browse-grid">${renderLoading()}</div>
       <div class="pages pager" id="browse-pager"></div>
     </section>
     <section>

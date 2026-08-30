@@ -56,3 +56,20 @@ function galleryCard(it) {
 
 // 占位：未来加 favCard, modal, skeleton, empty-state 等
 // function renderPager(...) {}
+
+// Phase 1 unified status (loading/skeleton/empty/error)
+function renderLoading(msg) {
+  return `<p class="loading">${esc(msg || t("loading"))}</p>`;
+}
+
+function renderEmpty(msg) {
+  return `<div class="empty-state"><p>${esc(msg || t("noData"))}</p></div>`;
+}
+
+function renderError(msg) {
+  return `<p class="error">${esc(msg || t("error"))}</p>`;
+}
+
+function renderSkeleton(count = 6) {
+  return Array.from({length: count}, () => `<div class="skeleton gc"></div>`).join("");
+}
