@@ -31,6 +31,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Archive cost-preview showed a bogus "available GP" balance** — archiver.php
+  no longer renders a `You have X GP` balance row (ExHentai layout change), so
+  the fallback regex grabbed the original tier's `Download Cost` (e.g. 59,782
+  GP) and reported it as the account balance. `funds` is now parsed only from
+  an explicit balance row, and the real balance is read from the GP exchange
+  page (`exchange.php?t=gp`, `Available: N kGP`); the archive-download dialog
+  and the downloader's funds gate both use that value.
 - **Archive cost-preview showed N/A tiers as "0 GP · 0 B"** — an unavailable
   tier (archiver.php `N/A`) reported cost/size 0 with `*_available` false, so
   the dialog rendered a misleading zero-cost entry flagged "insufficient GP".
