@@ -668,8 +668,10 @@ function startInfinite(containerId, fetchPage, buildItem) {
 const PAGE_SIZES = [5, 30, 50, 100, 200, 500];
 
 function pageSizeSelect(current, view) {
+  const opts = [...PAGE_SIZES];
+  if (!opts.some(n => String(n) === String(current))) opts.push(parseInt(current, 10));
   return `<select class="page-size" data-action="page-size" data-view="${view}" aria-label="page size">
-    ${PAGE_SIZES.map(n => `<option value="${n}"${String(n) === String(current) ? " selected" : ""}>${n}</option>`).join("")}
+    ${opts.map(n => `<option value="${n}"${String(n) === String(current) ? " selected" : ""}>${n}</option>`).join("")}
   </select>`;
 }
 
