@@ -31,6 +31,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Archive cost-preview showed N/A tiers as "0 GP · 0 B"** — an unavailable
+  tier (archiver.php `N/A`) reported cost/size 0 with `*_available` false, so
+  the dialog rendered a misleading zero-cost entry flagged "insufficient GP".
+  `/api/archives/preview` now returns `null` cost/size for unavailable tiers
+  and the dialog renders a muted `N/A`; a genuine GP shortage still shows the
+  real cost/size with the warning.
 - **Archive cost-preview crashed on unavailable tiers (500)** — when a gallery's
   archiver page shows `Estimated Size: N/A` for a tier (e.g. a gallery that does
   not qualify for a resample archive), `_parse_archive_size` crashed with an
