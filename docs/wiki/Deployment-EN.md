@@ -149,3 +149,27 @@ releases.
 > `curl -o docker-compose.yml` — it likely contains your customizations (ports,
 > volume mounts, `ENCRYPTION_KEY`, …). If you need a newer compose template,
 > back it up first and merge the changes by hand.
+
+## Docs site (GitHub Pages) and wiki sync
+
+The documentation is kept in sync by two automated CI pipelines — no manual
+steps:
+
+| Output | Source | Trigger | Freshness |
+|--------|--------|---------|-----------|
+| **GitHub Wiki** (this site) | `docs/wiki/` in the meta repo | push to `main` **or** `dev` touching `docs/wiki/**` → `sync-wiki` workflow mirrors it with rsync | **Always current** — a dev push syncs it immediately |
+| **GitHub Pages docs site** (`docs-site/`, VitePress) | the same `docs/wiki/` + backend `API.md` / `DEVELOPMENT.md` | built by the `pages` workflow; **deployed from `main` only** | **Stable** — updated on `main` merge / release |
+
+Notes:
+
+- **The wiki is branch-agnostic**: whichever branch (`main` or `dev`) last
+  pushed `docs/wiki` wins. Development happens on `dev`, so in practice the
+  wiki is updated the moment a dev push lands.
+- **Pages follows `main` only**: the `deploy` job of `pages` is restricted by
+  the GitHub environment protection rules to the `main` branch; dev pushes only
+  run the build as a preview and never overwrite the live docs site.
+- `API.md` / `Development.md` / `openapi.json` are synced from the backend to
+  the wiki by the `sync-docs` workflow every 6 hours (both rsyncs exclude these
+  three files).
+- **To change the docs, edit `docs/wiki/` in the meta repo** — CI syncs
+  automatically after the commit; do not edit the wiki pages directly.

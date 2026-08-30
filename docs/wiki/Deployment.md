@@ -97,3 +97,19 @@ docker compose up -d
 数据库迁移会在 backend 启动时自动执行（alembic），无需手动操作。镜像使用 `:latest` 标签，`pull` 即可获得新版本。
 
 > **不要**用 `curl -o docker-compose.yml` 覆盖本地 compose——它可能含有你的定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。如需获取更新的 compose 模板，先备份本地文件，再手动比对合并修改。
+
+## 文档站（GitHub Pages）与 wiki 的同步机制
+
+GalleryVault 的文档有两条自动同步链路（CI 完成，无需手工）：
+
+| 输出 | 来源 | 触发 | 内容时效 |
+|------|------|------|----------|
+| **GitHub Wiki**（本页所在） | meta 仓库 `docs/wiki/` | push 到 `main` **或** `dev`，且 `docs/wiki/**` 有变化 → `sync-wiki` workflow rsync 镜像 | **始终最新**——开发推 dev 即同步 |
+| **GitHub Pages 文档站**（`docs-site/`，VitePress） | 同一份 `docs/wiki/` + backend 的 `API.md` / `DEVELOPMENT.md` | `pages` workflow 构建；**部署只在 `main`** | **稳定版**——`main` 合并/发布才更新 |
+
+要点：
+
+- **wiki 与分支无关**：`main` / `dev` 谁最后推送 `docs/wiki` 谁生效。开发在 dev 上进行，实际效果就是 dev 一推、wiki 立刻更新。
+- **Pages 只随 main**：`pages` 的 `deploy` job 受 GitHub 环境保护规则限制只能由 `main` 分支部署；dev 推送只做构建预检，不覆盖线上文档站。
+- `API.md` / `Development.md` / `openapi.json` 由 `sync-docs` workflow 每 6 小时从 backend 同步到 wiki（两处 rsync 均排除这三份）。
+- **改文档只需改 meta 仓库 `docs/wiki/`**，提交后 CI 自动同步，不要直接编辑 wiki 页面。
