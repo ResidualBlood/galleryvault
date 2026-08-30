@@ -37,6 +37,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **"Archive-download original" on the gallery detail page reported no
+  archives available** — the dialog passed the local library id to
+  `/api/archives/preview`, which expects ExHentai gids, so the preview came
+  back empty even for galleries with an original tier. The dialog now previews
+  with the gallery's gid while the enqueue still uses the local id.
+
 - **The gallery-updates page "select all" checkbox was pushed to the far right
   of the toolbar** — `.toolbar input { min-width: 180px }` also stretched the
   checkbox (a toolbar `<input type="checkbox">`). A CSS exception restores the
