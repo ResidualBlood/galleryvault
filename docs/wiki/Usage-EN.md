@@ -247,6 +247,10 @@ Update translations now" buttons in Settings also leave a trace here.
   is removed (its reading progress resets). Detection runs automatically after
   every favorites check and can be triggered with **Scan now**; false positives
   can be ignored, and ignored items are restored from `#/updates/ignored`.
+  When a download task is deleted from the tasks page, its update entry is
+  marked **failed** and kept here; under the **failed** filter you can use
+  **Delete selected** to permanently remove those records (this only cleans the
+  page's history, it never touches the tasks page).
 - **Archive downloads (ExHentai official zip channel)**: the server packs the
   whole gallery into a zip (spending **GP**) and the client streams it on a
   single connection — far faster than per-page H@H fetches for large galleries.
