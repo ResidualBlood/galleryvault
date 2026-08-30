@@ -4,6 +4,27 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **ExHentai archive (zip) downloads** — a new download channel that uses GP
+  instead of H@H page fetches for large galleries, with a per-task quality
+  tier. Three entries share one executor (favorites download area / updates
+  area / scheduled scan): `POST /api/archives/preview` shows funds + per-gallery
+  original/resample cost & size (read-only, never charges GP), the favorites
+  and updates toolbars gained "download original" and "archive download"
+  buttons, and the scheduled scan can archive galleries over a page threshold.
+  The zip streams on a single connection with Range resume; the requested
+  quality + zip URL are persisted so a retry resumes without re-charging GP;
+  insufficient GP fails the task immediately. Archive output reuses the standard
+  metadata + notification + ingest + update-finalize pipeline. New settings:
+  `archive_quality`, `favorites_archive_enabled`, `favorites_archive_max_pages`.
+- **Per-task quality override (`download_tasks.quality`)** — the "download
+  selected original" / "update selected original" buttons force original-quality
+  page-by-page downloads regardless of the global `download_quality` setting;
+  `POST /api/downloads` and the download queue accept an optional `quality`.
+
 ## [1.3.0] - 2026-08-30
 
 ### Added

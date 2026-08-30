@@ -214,7 +214,8 @@ Update translations now" buttons in Settings also leave a trace here.
   avoid needless network traffic and missed-detection risk; the moment the
   count changes, full checks resume automatically.
 - Click a folder name to open `#/favorites/<favcat>`: that folder's gallery
-  grid (checkboxes, **download selected**, **remove from favorites**, and an
+  grid (checkboxes, **download selected**, **download selected original**,
+  **archive download selected**, **remove from favorites**, and an
   **All / local only / cloud only** state filter), with inline cloud covers
   and real sizes for cloud galleries. The list uses numbered pagination with
   24 galleries per page by default.
@@ -243,6 +244,35 @@ Update translations now" buttons in Settings also leave a trace here.
   is removed (its reading progress resets). Detection runs automatically after
   every favorites check and can be triggered with **Scan now**; false positives
   can be ignored, and ignored items are restored from `#/updates/ignored`.
+- **Archive downloads (ExHentai official zip channel)**: the server packs the
+  whole gallery into a zip (spending **GP**) and the client streams it on a
+  single connection — far faster than per-page H@H fetches for large galleries.
+  Three entries share one executor:
+  - The **"Archive download selected" / "Archive update selected"** buttons in
+    the `#/favorites/<favcat>` and `#/updates` toolbars open a **cost preview**
+    first (read-only, never charges GP): the current GP balance on top, then a
+    row per gallery with original/resample cost and size, tiers that cost more
+    than the balance marked red. Pick a tier and confirm to enqueue. Original =
+    full-resolution originals; Resample = the server's fixed one-level resample
+    (the default tier — cheaper in GP and bandwidth).
+  - **"Download selected original" / "Update selected original"** still download
+    page-by-page but **force original quality** regardless of the global quality
+    setting.
+  - **Scheduled scan**: with "Archive large favorites on scheduled scan" and a
+    **page threshold** enabled in Settings, automatic favorites checks send
+    galleries over the threshold through the archive channel (using the
+    "Archive quality" tier) and keep the rest page-by-page. Threshold 0 =
+    everything archived.
+  - Archive tasks occupy a `download_concurrency` slot and share the same
+    FIFO queue as page-by-page tasks; if the same gid already has a pending task,
+    the archive button reports a skip.
+  - **Reliability**: the zip resumes via HTTP Range; `quality + zip URL` are
+    persisted under `.gv-{gid}/.archive.json`, so a retry **only resumes — it
+    never re-packs or re-charges GP**; a corrupt zip is deleted and re-packed;
+    insufficient GP fails the task immediately without burning automatic retries.
+    On completion the archive goes through the same finishing pipeline as
+    page-by-page downloads: `.ehviewer` / `.galleryvault.json` metadata, Telegram
+    notification, immediate ingest, and old-version cleanup for gallery updates.
 
 ### "download favorites" vs. "enabled"
 
@@ -256,6 +286,12 @@ For automatic downloads all three must hold: the master switch is on + the
 folder is checked + the mode is "incremental/force download". A manual **Check
 now** is not gated by the master switch, but an unchecked folder only records
 even when checked manually.
+
+With **"Archive large favorites on scheduled scan"** enabled, the scheduled check
+batch-fetches page counts for its candidates first: galleries above the
+**archive page threshold** (0 = all) go through the archive channel (tier =
+"Archive quality"), the rest download page-by-page as usual. If the page-count
+fetch fails, the check safely falls back to page-by-page.
 
 ### The three modes
 
@@ -289,12 +325,14 @@ additions again.
   gallery** (default 4 — H@H nodes cap concurrent connections per source IP, so
   values much above 4-6 trip the cap and cause connection errors on lossy
   lines; keep it low for stability, raise it only on a clean line), image
-  quality (normal/original), H@H network, `max_pages`. Slow-H@H-node watchdogs:
+  quality (normal/original), **archive quality** (default tier for archive
+  downloads), H@H network, `max_pages`. Slow-H@H-node watchdogs:
   **image max time** (seconds), **image slow warmup** (seconds) and **image min
   speed** (KB/s) — a single image is aborted once it exceeds the total
   wall-clock budget, or once it averages below the minimum throughput after the
   warm-up window, and is retried with backoff instead of holding the whole
-  gallery hostage.
+  gallery hostage. The downloads group also carries **archive page threshold**
+  (0 = all) and the **"archive large favorites on scheduled scan"** toggle.
 - **Title display** (in the Downloads group): `japanese` (default, Japanese
   title preferred) / `english` / `directory` (folder name). The library,
   browse, gallery detail, favorites (including cloud-only items),
