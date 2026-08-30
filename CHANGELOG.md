@@ -17,6 +17,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The gallery-updates page "select all" checkbox was pushed to the far right
+  of the toolbar** — `.toolbar input { min-width: 180px }` also stretched the
+  checkbox (a toolbar `<input type="checkbox">`). A CSS exception restores the
+  natural checkbox width.
+
 - **Deleting a download task could leave its gallery-update entry stuck
   "downloading" forever** — removing a task from the downloads page deleted the
   `download_tasks` row while the `gallery_updates` row it was pinned to stayed
