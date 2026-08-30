@@ -14,7 +14,15 @@ if [ "$(id -u)" = "0" ]; then
     # stay writable for the app user; the downloads tree is only chowned at the
     # root to keep startup fast (the app creates subdirectories as it goes).
     chown app:app /downloads 2>/dev/null || true
-    chown -R app:app /gv-cache 2>/dev/null || true
+    # The recursive cache chown walks 14 GB / hundreds of thousands of files
+    # and takes seconds, but is only needed to repair legacy root-owned files.
+    # Runtime writes come from the `app` user, so do it once (marker file) and
+    # skip it on later boots.  A fresh/emptied cache has no marker, so a reset
+    # re-runs the repair automatically.
+    if [ ! -f /gv-cache/.gv-ownership ]; then
+        chown -R app:app /gv-cache 2>/dev/null || true
+        touch /gv-cache/.gv-ownership
+    fi
     exec setpriv --reuid=app --regid=app --init-groups "$0" "$@"
 fi
 
