@@ -99,7 +99,15 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
             pass
 
     class Service:
-        async def check_category(self, favcat, mode="incremental", progress=None):
+        async def check_category(
+            self,
+            favcat,
+            mode="incremental",
+            progress=None,
+            archive_enabled=False,
+            archive_max_pages=0,
+            archive_quality="resample",
+        ):
             full_checks.append(favcat)
 
     try:

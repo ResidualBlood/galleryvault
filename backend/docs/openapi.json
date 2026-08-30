@@ -1519,10 +1519,51 @@
         }
       }
     },
+    "/api/archives/preview": {
+      "post": {
+        "summary": "Archives Preview",
+        "description": "Read-only archive info for a set of gids (no GP is charged).\n\nReturns the current funds balance plus per-gallery original/resample cost\nand size so the dialog can render tiers and availability before confirming.\nTokens are resolved from the favorites table (and gallery-update rows).",
+        "operationId": "archives_preview_api_archives_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchivePreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Archives Preview Api Archives Preview Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/favorites/download-selected": {
       "post": {
         "summary": "Favorites Download Selected",
-        "description": "Enqueue downloads for the selected favorite gids directly from the DB.\n\nUnlike the SPA's old flow (which paged through the whole folder to build\ntoken metadata), this looks the items up in one query \u2014 instant even for\nfolders with thousands of cloud-only galleries.",
+        "description": "Enqueue downloads for the selected favorite gids directly from the DB.\n\nUnlike the SPA's old flow (which paged through the whole folder to build\ntoken metadata), this looks the items up in one query \u2014 instant even for\nfolders with thousands of cloud-only galleries.  ``archive=True`` downloads\nthrough the ExHentai archive (zip) channel with the given quality tier.",
         "operationId": "favorites_download_selected_api_favorites_download_selected_post",
         "requestBody": {
           "content": {
@@ -2069,6 +2110,280 @@
         }
       }
     },
+    "/api/updates": {
+      "get": {
+        "summary": "Gallery Updates List",
+        "operationId": "gallery_updates_list_api_updates_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 24,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "active",
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Gallery Updates List Api Updates Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/updates/scan": {
+      "post": {
+        "summary": "Gallery Updates Scan",
+        "operationId": "gallery_updates_scan_api_updates_scan_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Gallery Updates Scan Api Updates Scan Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/updates/status": {
+      "get": {
+        "summary": "Gallery Updates Status",
+        "operationId": "gallery_updates_status_api_updates_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Gallery Updates Status Api Updates Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/updates/update": {
+      "post": {
+        "summary": "Gallery Updates Run",
+        "operationId": "gallery_updates_run_api_updates_update_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIdsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Gallery Updates Run Api Updates Update Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/updates/ignore": {
+      "post": {
+        "summary": "Gallery Updates Ignore",
+        "operationId": "gallery_updates_ignore_api_updates_ignore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIdsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Gallery Updates Ignore Api Updates Ignore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/updates/ignored": {
+      "get": {
+        "summary": "Gallery Updates Ignored",
+        "operationId": "gallery_updates_ignored_api_updates_ignored_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 24,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Gallery Updates Ignored Api Updates Ignored Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/updates/unignore": {
+      "post": {
+        "summary": "Gallery Updates Unignore",
+        "operationId": "gallery_updates_unignore_api_updates_unignore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIdsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Gallery Updates Unignore Api Updates Unignore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tags/search": {
       "get": {
         "summary": "Tag Search",
@@ -2267,6 +2582,22 @@
   },
   "components": {
     "schemas": {
+      "ArchivePreviewRequest": {
+        "properties": {
+          "gids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Gids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "gids"
+        ],
+        "title": "ArchivePreviewRequest"
+      },
       "BulkDeleteRequest": {
         "properties": {
           "ids": {
@@ -2374,6 +2705,17 @@
               }
             ],
             "title": "Max Pages"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
           }
         },
         "type": "object",
@@ -2387,6 +2729,22 @@
             },
             "type": "array",
             "title": "Gids"
+          },
+          "archive": {
+            "type": "boolean",
+            "title": "Archive",
+            "default": false
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
           }
         },
         "type": "object",
@@ -2719,6 +3077,40 @@
             ],
             "title": "Download Title"
           },
+          "archive_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Quality"
+          },
+          "favorites_archive_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorites Archive Enabled"
+          },
+          "favorites_archive_max_pages": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorites Archive Max Pages"
+          },
           "use_hah": {
             "anyOf": [
               {
@@ -2995,6 +3387,35 @@
         },
         "type": "object",
         "title": "SettingsRequest"
+      },
+      "UpdateIdsRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Ids"
+          },
+          "archive": {
+            "type": "boolean",
+            "title": "Archive",
+            "default": false
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          }
+        },
+        "type": "object",
+        "title": "UpdateIdsRequest"
       },
       "ValidationError": {
         "properties": {

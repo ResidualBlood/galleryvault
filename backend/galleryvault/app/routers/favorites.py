@@ -14,7 +14,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from galleryvault.app import main
 from galleryvault.db.models import Gallery
-from galleryvault.db.repository import FavoritesRepository, GalleryRepository
+from galleryvault.db.repository import (
+    FavoritesRepository,
+    GalleryRepository,
+    GalleryUpdatesRepository,
+)
 from galleryvault.logging import log_extra
 from galleryvault.services.eh_client import EhClientError, FavoriteData, GalleryGoneError
 from galleryvault.services.tag_translation import translated_tag
@@ -115,6 +119,90 @@ async def favorite_items(
 
 class DownloadSelectedRequest(BaseModel):
     gids: list[int]
+    archive: bool = False
+    quality: str | None = None
+
+
+class ArchivePreviewRequest(BaseModel):
+    gids: list[int]
+
+
+@router.post("/api/archives/preview")
+async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
+    """Read-only archive info for a set of gids (no GP is charged).
+
+    Returns the current funds balance plus per-gallery original/resample cost
+    and size so the dialog can render tiers and availability before confirming.
+    Tokens are resolved from the favorites table (and gallery-update rows).
+    """
+    gids = list(dict.fromkeys(body.gids))
+    if not gids:
+        raise HTTPException(status_code=422, detail="no galleries selected")
+    client = main.app.state.eh_client
+    if client is None:
+        raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
+    try:
+        async with main._settings_session() as session:
+            detail = await FavoritesRepository(session).favorite_items_detail_by_gids(gids)
+            if len(detail) < len(gids):
+                missing = [g for g in gids if g not in detail]
+                for row in await GalleryUpdatesRepository(session).by_new_gids(missing):
+                    if row is not None:
+                        detail[int(row.new_gid)] = {
+                            "token": row.new_token,
+                            "title": row.title or "",
+                            "gallery_id": None,
+                        }
+    except SQLAlchemyError as exc:
+        raise main._db_error(exc) from exc
+    # The real GP balance no longer appears on archiver.php (ExHentai layout
+    # change); read it once from the GP exchange page and use it for both the
+    # dialog display and the availability gates.
+    funds = await client.fetch_gp_balance()
+    items: list[dict[str, object]] = []
+    for gid in gids:
+        entry = detail.get(gid)
+        token = (entry or {}).get("token")
+        if not token:
+            continue
+        try:
+            info = await client.fetch_archive_info(int(gid), str(token))
+        except (EhClientError, GalleryGoneError) as exc:
+            items.append(
+                {"gid": gid, "title": (entry or {}).get("title") or "", "error": str(exc)}
+            )
+            continue
+        items.append(
+            {
+                "gid": gid,
+                "title": (entry or {}).get("title") or "",
+                # Unavailable tiers (``N/A`` on the archiver page) report null
+                # cost/size so the frontend can show ``N/A`` instead of a
+                # misleading ``0 GP · 0 B``; GP-shortage tiers keep real values
+                # and merely report ``*_available`` false.
+                "resample_cost": (
+                    info.resample_cost if info.resample_url is not None else None
+                ),
+                "resample_size": (
+                    info.resample_size if info.resample_url is not None else None
+                ),
+                "original_cost": (
+                    info.original_cost if info.original_url is not None else None
+                ),
+                "original_size": (
+                    info.original_size if info.original_url is not None else None
+                ),
+                "resample_available": (
+                    info.resample_url is not None
+                    and (funds is None or funds >= info.resample_cost)
+                ),
+                "original_available": (
+                    info.original_url is not None
+                    and (funds is None or funds >= info.original_cost)
+                ),
+            }
+        )
+    return {"funds": funds, "items": items}
 
 
 @router.post("/api/favorites/download-selected", status_code=202)
@@ -123,11 +211,14 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
 
     Unlike the SPA's old flow (which paged through the whole folder to build
     token metadata), this looks the items up in one query — instant even for
-    folders with thousands of cloud-only galleries.
+    folders with thousands of cloud-only galleries.  ``archive=True`` downloads
+    through the ExHentai archive (zip) channel with the given quality tier.
     """
     gids = list(dict.fromkeys(body.gids))
     if not gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
+    mode = "favorite_archive" if body.archive else "favorite"
+    quality = (body.quality or None) if body.archive else None
     try:
         async with main._settings_session() as session:
             detail = await FavoritesRepository(session).favorite_items_detail_by_gids(gids)
@@ -148,7 +239,9 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
                     token=entry["token"],
                     title=entry.get("title") or str(gid),
                     url=entry.get("url") or "",
-                )
+                ),
+                mode=mode,
+                quality=quality,
             )
         except Exception:  # noqa: BLE001 - one gid must not fail the batch
             ok = False
@@ -265,6 +358,16 @@ async def duplicates_ignored_list() -> list[dict[str, object]]:
                 gmeta = await main._favorites_metadata(cloud_pairs) if cloud_pairs else {}
                 cover_map = await main._remote_cover_data_batch(cloud_pairs, gmeta)
                 for gid, detail in items.items():
+                    tags = detail.get("tags") or []
+                    if tags:
+                        detail["tags"] = [
+                            {
+                                "namespace": tag.get("namespace"),
+                                "name": tag.get("name"),
+                                "display": translated_tag(tag.get("namespace"), tag.get("name"))[1],
+                            }
+                            for tag in tags
+                        ]
                     if detail.get("gallery_id") is not None:
                         continue
                     meta = gmeta.get(gid, {})
@@ -273,7 +376,11 @@ async def duplicates_ignored_list() -> list[dict[str, object]]:
                     detail["posted_at"] = detail.get("posted_at") or main._unix_to_iso(meta.get("posted"))
                     if meta.get("tags"):
                         detail["tags"] = [
-                            {"namespace": ns, "name": name}
+                            {
+                                "namespace": ns,
+                                "name": name,
+                                "display": translated_tag(ns, name)[1],
+                            }
                             for ns, name in main._parse_gdata_tags(meta.get("tags", []))
                         ]
             return [

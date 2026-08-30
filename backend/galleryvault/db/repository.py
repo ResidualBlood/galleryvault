@@ -1140,6 +1140,7 @@ class DownloadRepository:
         title: str | None = None,
         mode: str | None = None,
         max_pages: int | None = None,
+        quality: str | None = None,
     ) -> DownloadTask | None:
         active = await self.session.scalar(
             select(DownloadTask).where(
@@ -1157,6 +1158,7 @@ class DownloadRepository:
             retry_count=0,
             max_retries=10,
             max_pages=max_pages,
+            quality=quality,
         )
         self.session.add(task)
         await self.session.flush()
@@ -1334,6 +1336,16 @@ class GalleryUpdatesRepository:
 
     async def get(self, update_id: int) -> GalleryUpdate | None:
         return await self.session.get(GalleryUpdate, update_id)
+
+    async def by_new_gids(self, gids: list[int]) -> list[GalleryUpdate | None]:
+        """Update rows keyed by their new (re-uploaded) gid."""
+        if not gids:
+            return []
+        rows = await self.session.execute(
+            select(GalleryUpdate).where(GalleryUpdate.new_gid.in_(list(dict.fromkeys(gids))))
+        )
+        by_gid = {int(row.new_gid): row for row in rows.scalars()}
+        return [by_gid.get(int(g)) for g in gids]
 
     async def mark_downloading(self, update_id: int, task_id: int) -> bool:
         row = await self.session.get(GalleryUpdate, update_id)

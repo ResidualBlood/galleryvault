@@ -52,6 +52,9 @@ class FavoritesService:
         mode: str = "incremental",
         retries: int = 3,
         progress: Any | None = None,
+        archive_enabled: bool = False,
+        archive_max_pages: int = 0,
+        archive_quality: str = "resample",
     ) -> FavoritesCheckResult:
         if mode not in MODES:
             raise ValueError("mode must be monitor_only, incremental, or force")
@@ -114,12 +117,38 @@ class FavoritesService:
         await self.repository.remember_many(favcat, list(unique.values()))
         await self.repository.prune(favcat, set(unique))
         downloaded = failed = 0
+        archive_mode = "favorite_archive" if archive_enabled else None
+        archive_sizes: dict[int, int] = {}
+        if archive_enabled and candidates:
+            pairs = [(item.gid, item.token) for item in candidates if item.token]
+            try:
+                gmeta = await self.fetcher.fetch_gmetadata(pairs)
+                archive_sizes = {
+                    int(gid): int(meta.get("file_count") or 0)
+                    for gid, meta in gmeta.items()
+                }
+            except Exception as exc:  # noqa: BLE001 - fall back to page-by-page
+                logger.warning(
+                    "favorites archive sizing failed; falling back to page-by-page",
+                    extra={"context": {"favcat": favcat, "error": type(exc).__name__}},
+                )
         for item in candidates:
             if mode == "monitor_only":
                 continue
             try:
                 if self.queue is not None:
-                    accepted = await self.queue.enqueue(item)
+                    filecount = archive_sizes.get(item.gid, 0)
+                    use_archive = bool(
+                        archive_mode
+                        and item.token
+                        and (archive_max_pages == 0 or filecount > archive_max_pages)
+                    )
+                    if use_archive:
+                        accepted = await self.queue.enqueue(
+                            item, mode="favorite_archive", quality=archive_quality
+                        )
+                    else:
+                        accepted = await self.queue.enqueue(item)
                     if accepted is False:
                         raise RuntimeError("download task was not created")
                 downloaded += 1

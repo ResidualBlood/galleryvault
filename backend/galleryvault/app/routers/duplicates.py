@@ -20,6 +20,7 @@ from galleryvault.app import main
 from galleryvault.db.repository import GalleryRepository
 from galleryvault.scanners import registry
 from galleryvault.services.ingest import GalleryIngestService
+from galleryvault.services.tag_translation import translated_tag
 from galleryvault.services.thumbnails import ThumbnailError
 
 router = APIRouter()
@@ -60,6 +61,14 @@ async def list_duplicates() -> dict[str, object]:
                 )
                 or copy.get("title") or str(group.get("gid") or "")
             )
+            copy["tags"] = [
+                {
+                    "namespace": tag.get("namespace"),
+                    "name": tag.get("name"),
+                    "display": translated_tag(tag.get("namespace"), tag.get("name"))[1],
+                }
+                for tag in (copy.get("tags") or [])
+            ]
     return {"groups": groups, "count": len(groups)}
 
 

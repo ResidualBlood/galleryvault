@@ -179,8 +179,10 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
         def begin(self):
             return self
 
-    async def fake_create(self, gid, token, title, mode):
-        created.append((gid, token, title, mode))
+    async def fake_create(
+        self, gid, token, title, mode, max_pages=None, quality=None
+    ):
+        created.append((gid, token, title, mode, quality))
         return SimpleNamespace(id=77)
 
     monkeypatch.setattr(main, "_settings_session", lambda: Sess())
@@ -190,7 +192,57 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
     result = await main._run_gallery_updates([1, 1])
 
     assert result == {"started": 1, "skipped": 0}
-    assert created == [(500, "tok", "New version", "favorite")]
+    assert created == [(500, "tok", "New version", "favorite", None)]
+
+
+async def test_run_gallery_updates_archives(monkeypatch):
+    created = []
+
+    class FakeUpdate:
+        status = "pending"
+        id = 3
+        new_gid = 501
+        new_token = "tok2"
+        title = "Archive version"
+        download_task_id = None
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, update_id):
+            return FakeUpdate()
+
+        async def mark_downloading(self, update_id, task_id):
+            return True
+
+    class Sess:
+        def __init__(self):
+            self._entered = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+    async def fake_create(
+        self, gid, token, title, mode, max_pages=None, quality=None
+    ):
+        created.append((gid, token, title, mode, quality))
+        return SimpleNamespace(id=78)
+
+    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
+    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(main.DownloadRepository, "create", fake_create)
+
+    result = await main._run_gallery_updates([3], archive=True, quality="original")
+
+    assert result == {"started": 1, "skipped": 0}
+    assert created == [(501, "tok2", "Archive version", "archive", "original")]
 
 
 async def test_run_gallery_updates_skips_non_pending(monkeypatch):
@@ -223,7 +275,7 @@ async def test_run_gallery_updates_skips_non_pending(monkeypatch):
     monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
     called = []
 
-    async def fake_create(self, gid, token, title, mode):
+    async def fake_create(self, gid, token, title, mode, max_pages=None, quality=None):
         called.append(gid)
         return SimpleNamespace(id=77)
 

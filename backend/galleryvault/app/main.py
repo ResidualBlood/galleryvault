@@ -56,7 +56,12 @@ from ..secrets import (
     is_encrypted,
 )
 from ..services import messages
-from ..services.downloader import DownloadCancelledError, Downloader, DownloadTask
+from ..services.downloader import (
+    ArchiveNotRetryableError,
+    DownloadCancelledError,
+    Downloader,
+    DownloadTask,
+)
 from ..services.duplicates import find_duplicate_groups
 from ..services.eh_client import EhClient, EhClientError, GalleryGoneError, parse_gallery_url
 from ..services.favorites import FavoritesService
@@ -1152,6 +1157,7 @@ async def _run_download(task: DownloadTask) -> None:
                 task.mode,
                 task.category,
                 max_pages=task.max_pages,
+                quality=task.quality,
             ),
             progress=_on_progress,
         )
@@ -1215,6 +1221,9 @@ async def _run_download(task: DownloadTask) -> None:
                     # fail immediately instead of burning max_retries of
                     # pointless network round-trips against a redirect loop.
                     auth_failure = "authenticat" in str(exc)
+                    # An archive that cannot succeed without user action (e.g.
+                    # insufficient GP) must fail now, not spin retries.
+                    not_retryable = isinstance(exc, ArchiveNotRetryableError)
                     # The remoteapi.php anti-bot challenge is temporary (IP
                     # rate-challenge), and so are the connection resets that the
                     # challenged node returns; schedule the retry with an
@@ -1229,7 +1238,7 @@ async def _run_download(task: DownloadTask) -> None:
                         )
                     )
                     row.retry_count += 1
-                    if auth_failure or row.retry_count >= row.max_retries:
+                    if auth_failure or not_retryable or row.retry_count >= row.max_retries:
                         row.status = "failed"
                         row.retry_at = None
                         row.finished_at = now
@@ -1334,6 +1343,7 @@ async def _download_worker_loop() -> None:
                             row.mode,
                             row.category or "other",
                             max_pages=row.max_pages,
+                            quality=row.quality,
                         )
                 if row is not None:
                     await _run_download(task)
@@ -1804,9 +1814,12 @@ class DownloadRequest(BaseModel):
     title: str | None = None
     mode: str | None = None
     max_pages: int | None = Field(default=None, gt=0)
+    quality: str | None = None
 
     @model_validator(mode="after")
     def valid_source(self) -> "DownloadRequest":
+        if self.quality is not None and self.quality not in {"original", "resample"}:
+            raise ValueError("quality must be 'original' or 'resample'")
         if self.url:
             try:
                 gid, token = parse_gallery_url(self.url)
@@ -1842,6 +1855,9 @@ class SettingsRequest(BaseModel):
     page_concurrency: int | None = Field(default=None, ge=1, le=16)
     download_quality: str | None = None
     download_title: str | None = None
+    archive_quality: str | None = None
+    favorites_archive_enabled: bool | None = None
+    favorites_archive_max_pages: int | None = Field(default=None, ge=0)
     use_hah: bool | None = None
     image_download_timeout_seconds: int | None = Field(default=None, ge=1)
     image_slow_warmup_seconds: int | None = Field(default=None, ge=1)
@@ -1909,6 +1925,9 @@ def _settings_public() -> dict[str, object]:
         "page_concurrency": current.page_concurrency,
         "download_quality": current.download_quality,
         "download_title": current.download_title,
+        "archive_quality": current.archive_quality,
+        "favorites_archive_enabled": current.favorites_archive_enabled,
+        "favorites_archive_max_pages": current.favorites_archive_max_pages,
         "use_hah": current.use_hah,
         "image_download_timeout_seconds": current.image_download_timeout_seconds,
         "image_slow_warmup_seconds": current.image_slow_warmup_seconds,
@@ -1955,6 +1974,9 @@ def _update_runtime_settings(values: dict[str, object]) -> None:
         "page_concurrency",
         "download_quality",
         "download_title",
+        "archive_quality",
+        "favorites_archive_enabled",
+        "favorites_archive_max_pages",
         "use_hah",
         "image_download_timeout_seconds",
         "image_slow_warmup_seconds",
@@ -2065,10 +2087,12 @@ class _FavoritesRepositoryProxy:
 
 
 class _FavoriteDownloadQueue:
-    async def enqueue(self, item) -> bool:
+    async def enqueue(
+        self, item, mode: str = "favorite", quality: str | None = None
+    ) -> bool:
         async with _settings_session() as session, session.begin():
             task = await DownloadRepository(session).create(
-                item.gid, item.token, item.title, "favorite"
+                item.gid, item.token, item.title, mode, quality=quality
             )
             if task is None:
                 return False
@@ -2572,6 +2596,9 @@ async def _run_favorites_check(
                 favcat,
                 mode=category.mode if category else "incremental",
                 progress=_progress,
+                archive_enabled=_settings().favorites_archive_enabled,
+                archive_max_pages=_settings().favorites_archive_max_pages,
+                archive_quality=_settings().archive_quality,
             )
         _spawn(_favorite_size_sync(favcat), f"favorite size sync {favcat}")
     except Exception as exc:  # noqa: BLE001 - record and surface in the UI
@@ -2763,10 +2790,13 @@ async def _detect_gallery_updates() -> None:
         gallery_updates_state["last_run"] = datetime.now(UTC).isoformat()
 
 
-async def _run_gallery_updates(ids: list[int]) -> dict[str, int]:
+async def _run_gallery_updates(
+    ids: list[int], *, archive: bool = False, quality: str | None = None
+) -> dict[str, int]:
     """Enqueue the new-version download for each pending update row."""
     started = 0
     skipped = 0
+    mode = "archive" if archive else "favorite"
     try:
         async with _settings_session() as session, session.begin():
             repo = GalleryUpdatesRepository(session)
@@ -2776,7 +2806,11 @@ async def _run_gallery_updates(ids: list[int]) -> dict[str, int]:
                     skipped += 1
                     continue
                 task = await DownloadRepository(session).create(
-                    row.new_gid, row.new_token, row.title or str(row.new_gid), "favorite"
+                    row.new_gid,
+                    row.new_token,
+                    row.title or str(row.new_gid),
+                    mode,
+                    quality=quality,
                 )
                 if task is None:
                     skipped += 1

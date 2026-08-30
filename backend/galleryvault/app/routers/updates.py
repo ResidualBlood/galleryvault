@@ -19,6 +19,8 @@ router = APIRouter()
 
 class UpdateIdsRequest(BaseModel):
     ids: list[int] = Field(default_factory=list)
+    archive: bool = False
+    quality: str | None = None
 
 
 @router.get("/api/updates")
@@ -106,7 +108,10 @@ async def gallery_updates_status() -> dict[str, Any]:
 async def gallery_updates_run(body: UpdateIdsRequest) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
-    result = await main._run_gallery_updates(body.ids)
+    quality = (body.quality or None) if body.archive else None
+    result = await main._run_gallery_updates(
+        body.ids, archive=body.archive, quality=quality
+    )
     return {"status": "started", **result}
 
 
