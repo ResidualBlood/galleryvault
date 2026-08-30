@@ -31,6 +31,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Archive (zip) downloads showed no speed / ETA in the tasks UI** — the
+  archive download path only forwarded page progress to the DB and never fed
+  the downloader's live byte stats (`_record_bytes`), so `/api/downloads`
+  returned no `speed_stats` for archive tasks and the tasks page rendered them
+  without a speed or ETA (unlike page-by-page downloads). The zip-stream
+  callback now records byte/progress deltas the same way the page-by-page
+  path does.
 - **Slow backend startup from a recursive cache chown** — `entrypoint.sh`
   walked the whole thumbnail cache (`chown -R` over 14 GB / hundreds of
   thousands of files, ~4s) on every container boot even though runtime writes
