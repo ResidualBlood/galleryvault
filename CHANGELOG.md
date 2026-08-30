@@ -4,6 +4,20 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Deleting a download task could leave its gallery-update entry stuck
+  "downloading" forever** — removing a task from the downloads page deleted the
+  `download_tasks` row while the `gallery_updates` row it was pinned to stayed
+  in `downloading` (the update finalizer looks the task up by id and found
+  nothing, so it silently skipped it). The updates page then showed stale
+  in-progress entries that could never be retried. Deleting a download task now
+  marks any gallery-update row pinned to it as `failed` ("download task
+  removed"), and the finalizer marks orphaned updates `failed` as a fallback,
+  so the entry stays actionable (retry / ignore).
+
 ## [1.3.1] - 2026-08-30
 
 ### Added
