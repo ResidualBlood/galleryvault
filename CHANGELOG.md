@@ -37,6 +37,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Duplicate-copy snapshots dropped the Japanese title** — copies already
+  ingested that were folded into a duplicate group by signature (content
+  unchanged, so the scan skips them) never carried `title_jpn`: `ExistingGallery`
+  had no such field and `existing_rows` did not select `Gallery.title_jpn`. Under
+  the Japanese display preference the cleanup page then fell back to the romaji
+  title even though the on-disk folder was named with the Japanese title. The
+  field is now carried through, so re-running a library scan restores the
+  Japanese titles on the duplicate-copy page.
+
 - **In-place original upgrade left the old resampled pages behind** — when an
   original-quality download merged into the folder of an existing resampled
   copy whose pages used a different file extension (e.g. old `.webp` next to
