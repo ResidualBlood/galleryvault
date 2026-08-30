@@ -41,6 +41,7 @@ const I18N = {
     favManageSub: "Scan favorite folders for duplicate galleries (same work in different versions, e.g. DL / uncensored / language re-uploads).",
     favListSub: "Galleries in this favorite folder. Select and download or remove from favorites.",
     favDl: "Download selected", favDlQueued: "Download queued", favDlSkip: "already local/skipped",
+    favDlOrig: "Download selected original", favDlArchive: "Archive download selected",
     downloadMissing: "Download missing items", downloadMissingStarted: "Backfilling covers & tags…",
     favStateAll: "Show all", favStateLocal: "Local only", favStateCloud: "Cloud only",
     favRemove: "Remove from favorites", confirmFavRemove: "Remove selected from favorites?",
@@ -65,6 +66,10 @@ const I18N = {
     proxyHttp: "HTTP proxy", proxySocks5: "SOCKS5 proxy",
     downloadRoot: "Download root", concurrency: "Concurrency", pageConcurrency: "Pages in parallel", quality: "Quality",
     qualityOriginal: "Original (原图)", qualityResample: "Resample (普通)",
+    archiveQuality: "Archive quality", archiveScanEnabled: "Archive large favorites on scheduled scan",
+    archiveMaxPages: "Archive page threshold (0 = all)", archiveMaxPagesHint: "On scheduled favorites checks, galleries with more pages than this are downloaded via the ExHentai archive (zip) instead of page-by-page; the rest download page-by-page as usual. 0 archives everything.",
+    archiveTitle: "Archive download — cost preview", archiveFunds: "GP available", archiveTierOriginal: "Original", archiveTierResample: "Resample", archiveCost: "cost", archiveSize: "size", archiveUnavailable: "insufficient GP", archiveConfirm: "Start archive download", archiveNoItems: "No archives available for the selection.", archivePreviewFail: "Archive preview failed", archiveQueued: "Archive download queued", archiveUnsupported: "Some selected galleries are already local or lack a token and were skipped.",
+    dlBadgeArchive: "Archive", dlBadgePages: "Page-by-page",
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
     catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted", notFavorited: "Not in favorites",
@@ -98,6 +103,7 @@ const I18N = {
     deleteDl: "Delete",
     galleryUpdates: "Gallery updates", galleryUpdatesSub: "Local galleries that ExHentai re-uploaded under a new gid. Select them and download the newest version (the old local copy is removed after the new one finishes).",
     updateSelected: "Update selected", scanNow: "Scan now", ignoreSelected: "Ignore selected",
+    updOrig: "Update selected original", updArchive: "Archive update selected",
     updStateActive: "Active", updStateAll: "All", updStatePending: "Pending", updStateDownloading: "Downloading", updStateFailed: "Failed",
     updPending: "Update available", updDownloading: "Downloading", updFailed: "Failed", updIgnored: "Ignored",
     updToNewer: "→ new gid", updIgnoredPage: "Ignored updates", updNoUpdates: "No galleries with updates.",
@@ -180,6 +186,10 @@ const I18N = {
     proxyHttp: "HTTP 代理", proxySocks5: "SOCKS5 代理",
     downloadRoot: "下载根目录", concurrency: "并发数", pageConcurrency: "单画廊并发页数", quality: "画质",
     qualityOriginal: "原图 (Original)", qualityResample: "重采样 (Resample)",
+    archiveQuality: "归档下载质量", archiveScanEnabled: "定时扫描大画廊走归档下载",
+    archiveMaxPages: "归档页数阈值（0=全部归档）", archiveMaxPagesHint: "定时扫描收藏夹时，页数超过该阈值的画廊用 ExHentai 官方归档（zip）下载，其余仍逐页下载。0 表示全部走归档。",
+    archiveTitle: "归档下载 — 费用预览", archiveFunds: "可用 GP", archiveTierOriginal: "原图", archiveTierResample: "重采样", archiveCost: "费用", archiveSize: "大小", archiveUnavailable: "GP 不足", archiveConfirm: "开始归档下载", archiveNoItems: "所选画廊没有可用的归档。", archivePreviewFail: "归档预览失败", archiveQueued: "已加入归档下载", archiveUnsupported: "部分所选画廊已本地或缺少 token，已跳过。",
+    dlBadgeArchive: "归档", dlBadgePages: "逐页",
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
     catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除", notFavorited: "不在收藏夹",
@@ -213,6 +223,7 @@ const I18N = {
     deleteDl: "删除",
     galleryUpdates: "更新画廊", galleryUpdatesSub: "这些本地画廊被 ExHentai 重传（换了新 gid）。勾选后下载最新版本（新版下载完成后自动删除旧版本地文件）。",
     updateSelected: "更新选中", scanNow: "立即检测", ignoreSelected: "忽略选中",
+    updOrig: "更新选中原图", updArchive: "归档更新选中",
     updStateActive: "待处理", updStateAll: "全部", updStatePending: "待更新", updStateDownloading: "下载中", updStateFailed: "失败",
     updPending: "有新版", updDownloading: "下载中", updFailed: "失败", updIgnored: "已忽略",
     updToNewer: "→ 新 gid", updIgnoredPage: "已忽略的更新", updNoUpdates: "没有检测到有更新的画廊。",
@@ -228,6 +239,7 @@ const I18N = {
     favcatTag: "收藏夹", favDate: "收藏", backToGallery: "返回画廊", postedDate: "发布于",
     favListSub: "该收藏夹内的画廊。勾选后可下载或从收藏移除。",
     favDl: "下载所选", favDlQueued: "已加入下载", favDlSkip: "已本地/跳过",
+    favDlOrig: "下载所选原图", favDlArchive: "归档下载所选",
     downloadMissing: "下载缺失项目", downloadMissingStarted: "正在补拉封面与标签…",
     favStateAll: "全部显示", favStateLocal: "仅显示本地", favStateCloud: "仅显示云端",
     favRemove: "移除收藏", confirmFavRemove: "将所选从收藏夹移除？",
@@ -302,8 +314,11 @@ function renderCardCheckboxes() {
       const gid = parseInt(cb.getAttribute("data-fav-gid"), 10);
       if (cb.checked) selFav.add(gid); else selFav.delete(gid);
       const update = () => {
-        document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-unfav"]').forEach(b => {
-          const base = b.getAttribute("data-action") === "favlist-download" ? t("favDl") : t("favRemove");
+        document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-download-orig"], [data-action="favlist-archive"], [data-action="favlist-unfav"]').forEach(b => {
+          const base = b.getAttribute("data-action") === "favlist-download" ? t("favDl")
+            : b.getAttribute("data-action") === "favlist-download-orig" ? t("favDlOrig")
+            : b.getAttribute("data-action") === "favlist-archive" ? t("favDlArchive")
+            : t("favRemove");
           b.textContent = base + (selFav.size ? ` (${selFav.size})` : "");
         });
       };
@@ -653,8 +668,10 @@ function startInfinite(containerId, fetchPage, buildItem) {
 const PAGE_SIZES = [5, 30, 50, 100, 200, 500];
 
 function pageSizeSelect(current, view) {
+  const opts = [...PAGE_SIZES];
+  if (!opts.some(n => String(n) === String(current))) opts.push(parseInt(current, 10));
   return `<select class="page-size" data-action="page-size" data-view="${view}" aria-label="page size">
-    ${PAGE_SIZES.map(n => `<option value="${n}"${String(n) === String(current) ? " selected" : ""}>${n}</option>`).join("")}
+    ${opts.map(n => `<option value="${n}"${String(n) === String(current) ? " selected" : ""}>${n}</option>`).join("")}
   </select>`;
 }
 
@@ -1296,6 +1313,10 @@ async function loadDownloads(filter, page) {
     else {
       el.innerHTML = `<div class="rows">` + items.map(x => {
         const title = x.title || ("gid " + (x.gid != null ? x.gid : x.id));
+        const isArchive = !!(x.mode && String(x.mode).includes("archive"));
+        const badge = isArchive
+          ? `<span class="badge dl-badge">${esc(t("dlBadgeArchive"))} · ${esc(x.quality === "original" ? t("archiveTierOriginal") : t("archiveTierResample"))}</span>`
+          : `<span class="badge dl-badge">${esc(t("dlBadgePages"))}</span>`;
         const actions = [];
         if (x.status === "pending" || x.status === "downloading") {
           actions.push(`<button class="secondary" data-action="cancel-download" data-id="${x.id}" type="button">${esc(t("cancelDl"))}</button>`);
@@ -1306,7 +1327,7 @@ async function loadDownloads(filter, page) {
         actions.push(`<button class="secondary danger" data-action="delete-download" data-id="${x.id}" type="button">${esc(t("deleteDl"))}</button>`);
         return `<div class="row" data-task-id="${x.id}">
           <input type="checkbox" class="dl-check" data-id="${x.id}"${checked.has(String(x.id)) ? " checked" : ""} aria-label="${esc(t("selectAll"))}">
-          <span class="row-title dl-title" title="${esc(title)}">${esc(title)}</span>
+          <span class="row-title dl-title" title="${esc(title)}">${esc(title)}</span>${badge}
           ${dlProgressHtml(x)}
           ${actions.join("")}
         </div>`;
@@ -1419,6 +1440,17 @@ async function renderSettings() {
         <p class="notice">${esc(t("imageSlowHint"))}</p>
         <label class="checkbox"><input type="checkbox" name="use_hah"${s.use_hah ? " checked" : ""}> ${esc(t("useHah"))}</label>
         <label class="checkbox"><input type="checkbox" name="download_favorites_enabled"${s.download_favorites_enabled ? " checked" : ""}> download favorites</label>
+        <div class="form-grid">
+          ${field(t("archiveQuality"), `<select name="archive_quality">
+            <option value="original"${(s.archive_quality || "resample") === "original" ? " selected" : ""}>${esc(t("archiveTierOriginal"))}</option>
+            <option value="resample"${(s.archive_quality || "resample") === "resample" ? " selected" : ""}>${esc(t("archiveTierResample"))}</option>
+          </select>`)}
+        </div>
+        <p class="notice">${esc(t("archiveMaxPagesHint"))}</p>
+        <div class="form-grid">
+          ${field(t("archiveMaxPages"), `<input name="favorites_archive_max_pages" type="number" min="0" value="${s.favorites_archive_max_pages != null ? s.favorites_archive_max_pages : 0}">`)}
+        </div>
+        <label class="checkbox"><input type="checkbox" name="favorites_archive_enabled"${s.favorites_archive_enabled ? " checked" : ""}> ${esc(t("archiveScanEnabled"))}</label>
       </fieldset>
       <fieldset><legend>Tags</legend>
         <label class="checkbox"><input type="checkbox" name="auto_sync_tags"${s.auto_sync_tags ? " checked" : ""}> ${esc(t("autoSyncTags"))}</label>
@@ -1507,6 +1539,9 @@ function collectSettings(form) {
     download_concurrency: Math.min(32, Math.max(1, num("download_concurrency", 2))),
     page_concurrency: Math.min(16, Math.max(1, num("page_concurrency", 4))),
     download_quality: val("download_quality") || "resample",
+    archive_quality: val("archive_quality") || "resample",
+    favorites_archive_max_pages: Math.max(0, Math.round(num("favorites_archive_max_pages", 0))),
+    favorites_archive_enabled: form.favorites_archive_enabled.checked,
     download_title: val("download_title") || "japanese",
     title_display: val("title_display") || "japanese",
     image_download_timeout_seconds: Math.max(1, Math.round(num("image_download_timeout_seconds", 120))),
@@ -1591,6 +1626,8 @@ async function renderFavList() {
     <p class="sub">${esc(t("favListSub"))}</p></header>
     <div class="toolbar">
       <button class="primary" data-action="favlist-download" data-favcat="${favcat}" type="button">${esc(t("favDl"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="favlist-download-orig" data-favcat="${favcat}" type="button">${esc(t("favDlOrig"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="favlist-archive" data-favcat="${favcat}" type="button">${esc(t("favDlArchive"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary danger" data-action="favlist-unfav" data-favcat="${favcat}" type="button">${esc(t("favRemove"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-clear" type="button">${esc(t("clearSel"))}</button>
       <span class="fav-state-filter">
@@ -1936,11 +1973,15 @@ function onClick(e) {
   if (action === "favlist-state") { e.preventDefault(); location.hash = navHash("favlist", { id: app.params.id }, { ...app.query, state: el.getAttribute("data-state") || "all", page: undefined }); return; }
   if (action === "favcat-check") { checkFavoriteCategory(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-download") { favListDownload(el.getAttribute("data-favcat")); return; }
+  if (action === "favlist-download-orig") { favListDownloadOrig(el.getAttribute("data-favcat")); return; }
+  if (action === "favlist-archive") { favListArchive(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-unfav") { favListUnfavorite(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-clear") { selFav.clear(); router(); return; }
   if (action === "upd-scan") { updScan(); return; }
   if (action === "upd-state") { e.preventDefault(); location.hash = navHash("updates", {}, { state: el.getAttribute("data-state") || "active", page: undefined }); return; }
   if (action === "upd-update") { updRunSelected(); return; }
+  if (action === "upd-update-orig") { updRunSelectedOrig(); return; }
+  if (action === "upd-archive") { updArchiveSelected(); return; }
   if (action === "upd-ignore") { updIgnoreSelected(); return; }
   if (action === "upd-retry") { updRunIds([parseInt(el.getAttribute("data-id"), 10)]); return; }
   if (action === "upd-unignore") { updUnignore([parseInt(el.getAttribute("data-id"), 10)]); return; }
@@ -2202,6 +2243,98 @@ async function favListDownload(favcat) {
   selFav.clear();
 }
 
+async function favListDownloadOrig(favcat) {
+  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!selected.length) { toast(t("select")); return; }
+  try {
+    const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected, quality: "original" });
+    toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
+  } catch (e) { toast(e.message); }
+  selFav.clear();
+}
+
+async function favListArchive(favcat) {
+  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!selected.length) { toast(t("select")); return; }
+  const tier = await showArchiveDialog(selected);
+  if (!tier) return;
+  try {
+    const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected, archive: true, quality: tier });
+    toast(t("archiveQueued") + ": " + r.queued + (r.skipped ? " · " + t("archiveUnsupported") : ""));
+  } catch (e) { toast(e.message); }
+  selFav.clear();
+}
+
+function showArchiveDialog(gids) {
+  return new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.className = "gv-overlay";
+    overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true">
+      <h3>${esc(t("archiveTitle"))}</h3>
+      <div class="gv-modal-body">${esc(t("loading"))}</div>
+      <div class="gv-modal-foot">
+        <span class="archive-funds"></span>
+        <span class="archive-tiers">
+          <label><input type="radio" name="archive-tier" value="original"> ${esc(t("archiveTierOriginal"))}</label>
+          <label><input type="radio" name="archive-tier" value="resample"> ${esc(t("archiveTierResample"))}</label>
+        </span>
+        <button class="primary" data-archive-confirm disabled type="button">${esc(t("archiveConfirm"))}</button>
+        <button class="secondary" data-archive-cancel type="button">${esc(t("cancel"))}</button>
+      </div>
+    </div>`;
+    let settled = false;
+    const close = (value) => {
+      if (settled) return;
+      settled = true;
+      overlay.remove();
+      resolve(value);
+    };
+    overlay.addEventListener("click", e => { if (e.target === overlay) close(null); });
+    overlay.querySelector("[data-archive-cancel]").addEventListener("click", () => close(null));
+    overlay.querySelector("[data-archive-confirm]").addEventListener("click", () => {
+      const tier = overlay.querySelector('input[name="archive-tier"]:checked');
+      close(tier ? tier.value : null);
+    });
+    document.body.appendChild(overlay);
+    api("POST", "/api/archives/preview", { gids })
+      .then(data => {
+        const bodyEl = overlay.querySelector(".gv-modal-body");
+        const items = data && data.items ? data.items : [];
+        if (!items.length) {
+          bodyEl.innerHTML = `<p>${esc(t("archiveNoItems"))}</p>`;
+          return;
+        }
+        const rows = items.map(it => {
+          if (it.error) {
+            return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="2"><span class="error">${esc(it.error)}</span></td></tr>`;
+          }
+          const orig = it.original_cost == null
+            ? `<span class="muted">N/A</span>`
+            : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
+          const res = it.resample_cost == null
+            ? `<span class="muted">N/A</span>`
+            : (it.resample_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.resample_cost + " GP · " + fmtSize(it.resample_size);
+          return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
+        }).join("");
+        bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th>${esc(t("gallery"))}</th><th>${esc(t("archiveTierOriginal"))}</th><th>${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+        if (data && data.funds != null) {
+          overlay.querySelector(".archive-funds").textContent = t("archiveFunds") + ": " + data.funds + " GP";
+        }
+        const confirm = overlay.querySelector("[data-archive-confirm]");
+        confirm.disabled = false;
+        const defaultTier = app.settings && app.settings.archive_quality === "original" ? "original" : "resample";
+        const radio = overlay.querySelector(`input[name="archive-tier"][value="${defaultTier}"]`);
+        if (radio) radio.checked = true;
+      })
+      .catch(err => {
+        const bodyEl = overlay.querySelector(".gv-modal-body");
+        bodyEl.innerHTML = `<p class="error">${esc(err.message || t("archivePreviewFail"))}</p>`;
+      });
+  });
+}
+
 async function favListUnfavorite(favcat) {
   const items = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
     .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
@@ -2303,8 +2436,15 @@ function updStatusKey(st) { return UPD_STATUS_KEYS[st] || st; }
 
 function updateUpdSelBtn() {
   const n = selUpdate.size;
-  const btn = document.querySelector('[data-action="upd-update"]');
-  if (btn) btn.textContent = t("updateSelected") + (n ? ` (${n})` : "");
+  const labels = {
+    "upd-update": t("updateSelected"),
+    "upd-update-orig": t("updOrig"),
+    "upd-archive": t("updArchive"),
+  };
+  for (const [action, base] of Object.entries(labels)) {
+    const btn = document.querySelector(`[data-action="${action}"]`);
+    if (btn) btn.textContent = base + (n ? ` (${n})` : "");
+  }
 }
 
 async function renderUpdates() {
@@ -2319,6 +2459,8 @@ async function renderUpdates() {
     <p class="sub"><span id="upd-status">…</span></p></header>
     <div class="toolbar">
       <button class="primary" data-action="upd-update" type="button">${esc(t("updateSelected"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="upd-update-orig" type="button">${esc(t("updOrig"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="upd-archive" type="button">${esc(t("updArchive"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="upd-ignore" type="button">${esc(t("ignoreSelected"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="upd-scan" type="button">${esc(t("scanNow"))}</button>
       <label class="checkbox" style="margin-left:12px"><input type="checkbox" data-action="upd-select-all"> ${esc(t("selectAll"))}</label>
@@ -2362,7 +2504,7 @@ function updRow(u) {
   const retry = u.status === "failed"
     ? ` <button class="secondary" data-action="upd-retry" data-id="${u.id}" type="button">${esc(t("retry"))}</button>`
     : "";
-  return `<tr data-upd-id="${u.id}">
+  return `<tr data-upd-id="${u.id}" data-new-gid="${u.new_gid}">
     <td><input type="checkbox" data-upd-id="${u.id}" aria-label="${esc(t("select"))}"></td>
     <td><a class="upd-cover" href="${navHash("gallery", { id: u.gallery_id })}">${cover}</a></td>
     <td><a href="${navHash("gallery", { id: u.gallery_id })}">${esc(u.title)}</a></td>
@@ -2427,10 +2569,12 @@ async function updScan() {
   } catch (e) { toast(e.message); }
 }
 
-async function updRunIds(ids) {
+async function updRunIds(ids, quality) {
   if (!ids.length) { toast(t("select")); return; }
   try {
-    const r = await api("POST", "/api/updates/update", { ids });
+    const body = { ids };
+    if (quality) body.quality = quality;
+    const r = await api("POST", "/api/updates/update", body);
     selUpdate.clear();
     toast(t("updateSelected") + ": " + (r.started || 0) + (r.skipped ? ` (skip ${r.skipped})` : ""));
     router();
@@ -2439,6 +2583,28 @@ async function updRunIds(ids) {
 
 async function updRunSelected() {
   await updRunIds([...selUpdate]);
+}
+
+async function updRunSelectedOrig() {
+  await updRunIds([...selUpdate], "original");
+}
+
+async function updArchiveSelected() {
+  const ids = [...selUpdate];
+  if (!ids.length) { toast(t("select")); return; }
+  const gids = ids.map(id => {
+    const el = document.querySelector(`#upd-list [data-upd-id="${id}"]`);
+    return el ? parseInt(el.getAttribute("data-new-gid"), 10) : null;
+  }).filter(Boolean);
+  if (!gids.length) { toast(t("select")); return; }
+  const tier = await showArchiveDialog(gids);
+  if (!tier) return;
+  try {
+    const r = await api("POST", "/api/updates/update", { ids, archive: true, quality: tier });
+    selUpdate.clear();
+    toast(t("archiveQueued") + ": " + (r.started || 0) + (r.skipped ? ` (skip ${r.skipped})` : ""));
+    router();
+  } catch (e) { toast(e.message); }
 }
 
 async function updIgnoreSelected() {
