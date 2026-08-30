@@ -902,8 +902,9 @@ async def _ingest_downloaded_gallery(result) -> None:
         old_copy: tuple[Path, int] | None = None
         async with _settings_session() as session, session.begin():
             # Capture the previous on-disk copy before ingest re-points the
-            # gallery row at the freshly downloaded path, so an original
-            # upgrade can remove the superseded resampled copy afterwards.
+            # gallery row at the freshly downloaded path. We remove it after
+            # successful ingest (any path change for the same gid), not only
+            # for original-quality upgrades.
             if gallery.gid is not None:
                 prev = await session.scalar(
                     select(Gallery).where(Gallery.gid == gallery.gid)
@@ -919,7 +920,7 @@ async def _ingest_downloaded_gallery(result) -> None:
         if gallery_id is not None and _settings().generate_thumbnails:
             await _enqueue_job(JOB_THUMB, gallery_id)
             thumb_state["queued"] = await _jobs_count(JOB_THUMB)
-        if getattr(result, "quality", None) == "original" and old_copy is not None:
+        if old_copy is not None:
             await _remove_superseded_copy(result, old_copy[0], old_copy[1])
         logger.info(
             "download ingested",
@@ -933,13 +934,12 @@ async def _ingest_downloaded_gallery(result) -> None:
 
 
 async def _remove_superseded_copy(result, old_path: Path, old_pages: int) -> None:
-    """Delete the superseded (resampled) copy after an original-quality upgrade.
+    """Delete a previous physical copy of the same gid after a successful download.
 
-    Only when the new original lives at a different path (the downloader merges
-    into an existing same-name folder in the download root, in which case the
-    resampled pages were overwritten in place and there is nothing to delete)
-    and the page count matches, so a partial download can never destroy the
-    only good copy.  Best-effort: a read-only mount must not fail the task.
+    Called whenever ingest moves a gid to a new storage_path (e.g. archive
+    original download, re-download, or gallery update landing on a gid that
+    had an old export in another root). Only deletes when page count matches
+    and paths differ. Best-effort: a read-only mount must not fail the task.
     """
     new_path = Path(result.path)
     try:
@@ -949,7 +949,7 @@ async def _remove_superseded_copy(result, old_path: Path, old_pages: int) -> Non
             return
         if (result.pages or 0) != old_pages:
             logger.warning(
-                "original upgrade page count mismatch; keeping old copy",
+                "page count mismatch; keeping old copy",
                 extra=log_extra(gid=result.gid, old=old_pages, new=result.pages),
             )
             return
@@ -960,12 +960,12 @@ async def _remove_superseded_copy(result, old_path: Path, old_pages: int) -> Non
         else:
             old_path.unlink()
         logger.info(
-            "removed superseded resampled copy",
+            "removed superseded copy",
             extra=log_extra(gid=result.gid, path=str(old_path)),
         )
     except OSError as exc:
         logger.warning(
-            "failed to remove superseded resampled copy",
+            "failed to remove superseded copy",
             extra=log_extra(gid=result.gid, path=str(old_path), error=str(exc)),
         )
 
