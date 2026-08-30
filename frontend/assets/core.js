@@ -452,6 +452,7 @@ function router() {
   if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
   if (app.view !== "reader" && readerFsActive) exitReaderFullscreen();
   stopInfinite();
+  beforeRender(app.view);
   switch (app.view) {
     case "browse": renderBrowse(); break;
     case "library": renderLibrary(); break;
@@ -472,6 +473,28 @@ function router() {
     case "updignored": renderUpdateIgnored(); break;
     default: renderBrowse();
   }
+  afterRender(app.view);
   bindTagSuggest();
   bindReaderKeys();
+}
+
+// --- Phase 1 render governance (renderView + hooks) ---
+let currentViewCleanup = null;
+
+function beforeRender(view) {
+  if (currentViewCleanup) {
+    try { currentViewCleanup(); } catch (_) {}
+    currentViewCleanup = null;
+  }
+  stopInfinite();
+}
+
+function afterRender(view) {
+  // placeholder for future: bind common, a11y etc.
+}
+
+function renderView(html) {
+  beforeRender(app.view);
+  $view().innerHTML = html || "";
+  afterRender(app.view);
 }

@@ -177,3 +177,24 @@ function fmtDuration(startIso, endIso) {
   const m = Math.floor(s / 60), rem = s % 60;
   return m < 60 ? `${m}m ${rem}s` : `${Math.floor(m / 60)}h ${m % 60}m ${rem}s`;
 }
+
+function catLabel(c) {
+  if (!c) return "";
+  const key = (typeof CATEGORY_LABELS !== "undefined" && CATEGORY_LABELS[c]) || c;
+  return t(key) || c;
+}
+
+async function galleryGrid(container, page, extraQuery) {
+  const pageSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : prefPageSize();
+  const q = Object.assign({ page, page_size: pageSize }, extraQuery || {});
+  delete q.page_size;
+  q.page_size = pageSize;
+  const qs = Object.entries(q).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  const data = await api("GET", `/api/galleries?${qs}`);
+  if (container == null) return data;
+  const el = document.getElementById(container);
+  if (!el) return data;
+  if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
+  else { el.innerHTML = `<div class="grid gc-grid">` + data.items.map(galleryCard).join("") + `</div>`; }
+  return data;
+}
