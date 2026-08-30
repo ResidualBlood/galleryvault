@@ -345,6 +345,16 @@ async def duplicates_ignored_list() -> list[dict[str, object]]:
                 gmeta = await main._favorites_metadata(cloud_pairs) if cloud_pairs else {}
                 cover_map = await main._remote_cover_data_batch(cloud_pairs, gmeta)
                 for gid, detail in items.items():
+                    tags = detail.get("tags") or []
+                    if tags:
+                        detail["tags"] = [
+                            {
+                                "namespace": tag.get("namespace"),
+                                "name": tag.get("name"),
+                                "display": translated_tag(tag.get("namespace"), tag.get("name"))[1],
+                            }
+                            for tag in tags
+                        ]
                     if detail.get("gallery_id") is not None:
                         continue
                     meta = gmeta.get(gid, {})
@@ -353,7 +363,11 @@ async def duplicates_ignored_list() -> list[dict[str, object]]:
                     detail["posted_at"] = detail.get("posted_at") or main._unix_to_iso(meta.get("posted"))
                     if meta.get("tags"):
                         detail["tags"] = [
-                            {"namespace": ns, "name": name}
+                            {
+                                "namespace": ns,
+                                "name": name,
+                                "display": translated_tag(ns, name)[1],
+                            }
                             for ns, name in main._parse_gdata_tags(meta.get("tags", []))
                         ]
             return [
