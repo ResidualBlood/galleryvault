@@ -64,6 +64,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fell back to the untranslated English tag name. The cleanup page now fills
   `display` like the gallery/favorites endpoints; existing duplicate records
   are translated on the fly, no rescan needed.
+- **Ignored favorites-duplicates list tags had no translation** — the
+  `#/favorites/manage` ignored-duplicates list returned tags as plain
+  `{namespace, name}` for both local and cloud items, so the Chinese UI showed
+  English tag names. `/api/favorites/duplicates/ignored` now fills `display`
+  the same way as the duplicate-scan results.
 
 ### Changed
 
