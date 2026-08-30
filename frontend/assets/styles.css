@@ -59,6 +59,7 @@ label.checkbox, label.inline { display: flex; gap: 8px; align-items: center; }
 .card .copy h3 { font-size: .95rem; margin: 0 0 4px; }
 .card .copy p { margin: 0; font-size: .8rem; }
 .badge { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; font-size: .72rem; }
+.dl-badge { margin-left: 8px; white-space: nowrap; vertical-align: middle; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
 .toolbar input, .toolbar select { min-width: 180px; }
 button.primary, button.secondary {

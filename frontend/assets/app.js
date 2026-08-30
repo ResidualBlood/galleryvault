@@ -69,6 +69,7 @@ const I18N = {
     archiveQuality: "Archive quality", archiveScanEnabled: "Archive large favorites on scheduled scan",
     archiveMaxPages: "Archive page threshold (0 = all)", archiveMaxPagesHint: "On scheduled favorites checks, galleries with more pages than this are downloaded via the ExHentai archive (zip) instead of page-by-page; the rest download page-by-page as usual. 0 archives everything.",
     archiveTitle: "Archive download — cost preview", archiveFunds: "GP available", archiveTierOriginal: "Original", archiveTierResample: "Resample", archiveCost: "cost", archiveSize: "size", archiveUnavailable: "insufficient GP", archiveConfirm: "Start archive download", archiveNoItems: "No archives available for the selection.", archivePreviewFail: "Archive preview failed", archiveQueued: "Archive download queued", archiveUnsupported: "Some selected galleries are already local or lack a token and were skipped.",
+    dlBadgeArchive: "Archive", dlBadgePages: "Page-by-page",
     catDoujinshi: "Doujinshi", catManga: "Manga", catArtistcg: "Artist CG", catGamecg: "Game CG",
     catWestern: "Western", catNonH: "Non-H", catImageSet: "Image Set", catCosplay: "Cosplay",
     catAsianporn: "Asian Porn", catMisc: "Misc", catDeleted: "Deleted", notFavorited: "Not in favorites",
@@ -188,6 +189,7 @@ const I18N = {
     archiveQuality: "归档下载质量", archiveScanEnabled: "定时扫描大画廊走归档下载",
     archiveMaxPages: "归档页数阈值（0=全部归档）", archiveMaxPagesHint: "定时扫描收藏夹时，页数超过该阈值的画廊用 ExHentai 官方归档（zip）下载，其余仍逐页下载。0 表示全部走归档。",
     archiveTitle: "归档下载 — 费用预览", archiveFunds: "可用 GP", archiveTierOriginal: "原图", archiveTierResample: "重采样", archiveCost: "费用", archiveSize: "大小", archiveUnavailable: "GP 不足", archiveConfirm: "开始归档下载", archiveNoItems: "所选画廊没有可用的归档。", archivePreviewFail: "归档预览失败", archiveQueued: "已加入归档下载", archiveUnsupported: "部分所选画廊已本地或缺少 token，已跳过。",
+    dlBadgeArchive: "归档", dlBadgePages: "逐页",
     catDoujinshi: "同人志", catManga: "漫画", catArtistcg: "画师CG", catGamecg: "游戏CG",
     catWestern: "西方", catNonH: "非H", catImageSet: "图集", catCosplay: "Cosplay",
     catAsianporn: "亚洲色情", catMisc: "杂项", catDeleted: "已删除", notFavorited: "不在收藏夹",
@@ -1309,6 +1311,10 @@ async function loadDownloads(filter, page) {
     else {
       el.innerHTML = `<div class="rows">` + items.map(x => {
         const title = x.title || ("gid " + (x.gid != null ? x.gid : x.id));
+        const isArchive = !!(x.mode && String(x.mode).includes("archive"));
+        const badge = isArchive
+          ? `<span class="badge dl-badge">${esc(t("dlBadgeArchive"))} · ${esc(x.quality === "original" ? t("archiveTierOriginal") : t("archiveTierResample"))}</span>`
+          : `<span class="badge dl-badge">${esc(t("dlBadgePages"))}</span>`;
         const actions = [];
         if (x.status === "pending" || x.status === "downloading") {
           actions.push(`<button class="secondary" data-action="cancel-download" data-id="${x.id}" type="button">${esc(t("cancelDl"))}</button>`);
@@ -1319,7 +1325,7 @@ async function loadDownloads(filter, page) {
         actions.push(`<button class="secondary danger" data-action="delete-download" data-id="${x.id}" type="button">${esc(t("deleteDl"))}</button>`);
         return `<div class="row" data-task-id="${x.id}">
           <input type="checkbox" class="dl-check" data-id="${x.id}"${checked.has(String(x.id)) ? " checked" : ""} aria-label="${esc(t("selectAll"))}">
-          <span class="row-title dl-title" title="${esc(title)}">${esc(title)}</span>
+          <span class="row-title dl-title" title="${esc(title)}">${esc(title)}</span>${badge}
           ${dlProgressHtml(x)}
           ${actions.join("")}
         </div>`;
