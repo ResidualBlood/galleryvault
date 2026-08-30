@@ -155,7 +155,10 @@ async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
                         }
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
-    funds: int | None = None
+    # The real GP balance no longer appears on archiver.php (ExHentai layout
+    # change); read it once from the GP exchange page and use it for both the
+    # dialog display and the availability gates.
+    funds = await client.fetch_gp_balance()
     items: list[dict[str, object]] = []
     for gid in gids:
         entry = detail.get(gid)
@@ -169,8 +172,6 @@ async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
                 {"gid": gid, "title": (entry or {}).get("title") or "", "error": str(exc)}
             )
             continue
-        if funds is None and info.funds is not None:
-            funds = info.funds
         items.append(
             {
                 "gid": gid,
@@ -193,11 +194,11 @@ async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
                 ),
                 "resample_available": (
                     info.resample_url is not None
-                    and (info.funds is None or info.funds >= info.resample_cost)
+                    and (funds is None or funds >= info.resample_cost)
                 ),
                 "original_available": (
                     info.original_url is not None
-                    and (info.funds is None or info.funds >= info.original_cost)
+                    and (funds is None or funds >= info.original_cost)
                 ),
             }
         )

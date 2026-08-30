@@ -65,8 +65,12 @@ ARCHIVE_SIZE_RE = re.compile(
 ARCHIVE_FUNDS_RE = re.compile(
     r"You have\s+(?:<[^>]*>\s*)*([0-9][0-9,.]*)\s*(?:<[^>]*>\s*)*GP", re.IGNORECASE
 )
-ARCHIVE_FUNDS_FALLBACK_RE = re.compile(
-    r"([0-9][0-9,.]*)\s*(?:<[^>]*>\s*)*GP\b", re.IGNORECASE
+# The GP balance is no longer shown on archiver.php (ExHentai layout change);
+# the authoritative balance lives on the GP exchange page ("Sell GP" box,
+# ``Available: N kGP``).  A fallback that grabs any ``<number> GP`` would
+# mis-read the ``Download Cost`` labels, so no per-page fallback regex.
+ARCHIVE_GP_BALANCE_RE = re.compile(
+    r"Available:\s*([0-9][0-9,.]*)\s*kGP", re.IGNORECASE
 )
 ARCHIVER_DOWNLOAD_LINK_RE = re.compile(
     r'href=["\']([^"\']+)["\']\s*>\s*Click Here To Start Downloading', re.IGNORECASE
@@ -259,15 +263,17 @@ def _parse_archive_size(text: str) -> int:
 
 
 def _parse_archive_info(body: str) -> ArchiveInfo:
-    """Parse an archiver.php page into ArchiveInfo (mirrors SXJ's parser)."""
+    """Parse an archiver.php page into ArchiveInfo (mirrors SXJ's parser).
+
+    ``funds`` is parsed only from the explicit ``You have X GP`` balance row.
+    The archiver page no longer renders it for every account/layout, so
+    ``funds`` is often None here; callers should fall back to the GP exchange
+    balance (``fetch_gp_balance``) when they need a real number.
+    """
     funds: int | None = None
     funds_match = ARCHIVE_FUNDS_RE.search(body)
     if funds_match:
         funds = int(float(funds_match.group(1).replace(",", "")))
-    else:
-        fallback = ARCHIVE_FUNDS_FALLBACK_RE.search(body)
-        if fallback:
-            funds = int(float(fallback.group(1).replace(",", "")))
     costs: dict[str, int] = {"org": 0, "res": 0}
     sizes: dict[str, int] = {"org": 0, "res": 0}
     urls: dict[str, str | None] = {"org": None, "res": None}
@@ -1214,6 +1220,23 @@ class EhClient:
             headers={"Referer": f"/g/{int(gid)}/{token}/"},
         )
         return _parse_archive_info(response.text)
+
+    async def fetch_gp_balance(self) -> int | None:
+        """Read the current GP balance from the GP exchange page.
+
+        archiver.php no longer shows ``You have X GP``, so the balance is
+        taken from the exchange page's "Sell GP" box (``Available: N kGP``,
+        displayed in thousands).  Returns None when the page is unreachable
+        or the balance cannot be parsed.
+        """
+        try:
+            response = await self._get("https://e-hentai.org/exchange.php?t=gp")
+        except EhClientError:
+            return None
+        match = ARCHIVE_GP_BALANCE_RE.search(response.text)
+        if not match:
+            return None
+        return int(float(match.group(1).replace(",", "")) * 1000)
 
     async def request_archive(self, url: str, dltype: str) -> str:
         """Ask ExHentai to build the archive zip and return its download URL.

@@ -79,6 +79,23 @@ def test_parse_archive_info_page() -> None:
     assert info.original_url == info.resample_url
 
 
+def test_parse_archive_info_without_balance_does_not_misread_cost() -> None:
+    """A page with no ``You have X GP`` row (current ExHentai layout) must not
+    treat the ``Download Cost`` labels as the balance."""
+    info = _parse_archive_info(ARCHIVER_PAGE.replace("You have <b style=\"color:#1a1a1a\">1,250</b> GP", ""))
+    assert info.funds is None
+    assert info.original_cost == 0 and info.original_size == int(18.46 * 1024**2)
+
+
+def test_parse_gp_balance_kpg() -> None:
+    from galleryvault.services.eh_client import ARCHIVE_GP_BALANCE_RE
+
+    page = """<div style="margin-top:5px; font-weight:bold">Available: 288,429 kGP</div>"""
+    match = ARCHIVE_GP_BALANCE_RE.search(page)
+    assert match is not None
+    assert int(float(match.group(1).replace(",", "")) * 1000) == 288_429_000
+
+
 def test_parse_archive_info_unavailable_tier() -> None:
     """A tier with ``N/A`` cost/size must parse without crashing and mark its
     URL as unavailable so it is never charged or downloaded."""

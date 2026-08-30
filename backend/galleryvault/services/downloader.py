@@ -559,7 +559,11 @@ class Downloader:
             cost = getattr(info, "original_cost", None) if tier == "original" else getattr(
                 info, "resample_cost", None
             )
+            # archiver.php no longer exposes the GP balance; fall back to the
+            # GP exchange page when the info page did not include it.
             funds = getattr(info, "funds", None)
+            if funds is None and hasattr(self.client, "fetch_gp_balance"):
+                funds = await self.client.fetch_gp_balance()
             if cost and funds is not None and funds < cost:
                 raise ArchiveNotRetryableError(
                     f"insufficient GP for archive download ({cost} GP needed, {funds} GP available)"
