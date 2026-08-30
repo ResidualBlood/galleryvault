@@ -122,6 +122,7 @@ def test_scan_folds_existing_row_into_duplicate_group(tmp_path) -> None:
             gallery_id=7,
             storage_type="ehviewer_dir",
             title="existing",
+            title_jpn="既存の日本語タイトル",
             file_count=2,
             file_size=2,
             posted_at=None,
@@ -141,6 +142,10 @@ def test_scan_folds_existing_row_into_duplicate_group(tmp_path) -> None:
     assert svc.last_duplicates[0].winner.is_current is False
     assert len(svc.last_duplicates[0].losers) == 1
     assert svc.last_duplicates[0].losers[0].is_current is True
+    # The folded-in existing row must carry its Japanese title through to the
+    # duplicate-copy record, or the cleanup page falls back to the romaji title.
+    existing_record = svc.last_duplicates[0].losers[0].as_record()
+    assert existing_record["title_jpn"] == "既存の日本語タイトル"
 
 
 def test_scan_manual_policy_ingests_nothing(tmp_path) -> None:

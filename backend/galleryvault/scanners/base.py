@@ -71,9 +71,10 @@ class ExistingGallery:
     gallery_id: int
     storage_type: str
     title: str
-    file_count: int | None
-    file_size: int | None
-    posted_at: datetime | None
+    title_jpn: str | None = None
+    file_count: int | None = None
+    file_size: int | None = None
+    posted_at: datetime | None = None
 
 
 @dataclass
