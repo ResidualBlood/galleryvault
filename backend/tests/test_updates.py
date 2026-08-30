@@ -461,3 +461,29 @@ async def test_updates_ignore_marks_ignored(monkeypatch):
     body = await updates_router.gallery_updates_ignore(updates_router.UpdateIdsRequest(ids=[1, 2]))
 
     assert body == {"ignored": 2}
+
+
+async def test_updates_delete_deletes_rows(monkeypatch):
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def delete_many(self, ids):
+            return len(ids)
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
+    monkeypatch.setattr(updates_router, "GalleryUpdatesRepository", FakeRepo)
+
+    body = await updates_router.gallery_updates_delete(updates_router.UpdateIdsRequest(ids=[1, 2]))
+
+    assert body == {"deleted": 2}

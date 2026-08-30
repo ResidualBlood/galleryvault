@@ -1405,6 +1405,25 @@ class GalleryUpdatesRepository:
         )
         return int(result.rowcount or 0)
 
+    async def delete_many(self, ids: Sequence[int]) -> int:
+        """Permanently remove gallery-update rows.
+
+        Only rows that are not mid-download are deletable: a ``downloading``
+        row has a live download task whose finalize loop would look the row up
+        by id, so removing it would orphan that task.  The frontend only shows
+        the delete action for failed rows; this guard also protects against
+        future callers.
+        """
+        if not ids:
+            return 0
+        result = await self.session.execute(
+            delete(GalleryUpdate).where(
+                GalleryUpdate.id.in_(list(ids)),
+                GalleryUpdate.status.in_(["failed", "ignored", "pending"]),
+            )
+        )
+        return int(result.rowcount or 0)
+
     async def downloading(self) -> list[GalleryUpdate]:
         rows = await self.session.scalars(
             select(GalleryUpdate).where(GalleryUpdate.status == "downloading")
