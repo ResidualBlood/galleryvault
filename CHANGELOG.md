@@ -35,6 +35,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `background: var(--panel-1)`, a CSS variable that is never defined, so the
   declaration was invalid and the modal body rendered transparent over the 55%
   black overlay (text hard to read). Now uses the defined `--panel` color.
+- **Page-size selector showed the wrong value** — `prefPageSize()` defaults to
+  24 but the `PAGE_SIZES` dropdown only offers `[5,30,50,100,200,500]`, so the
+  select had no matching option and rendered "5" while the list actually showed
+  24 (or any other out-of-list) items. `pageSizeSelect` now appends the current
+  value as an option so the label always matches reality.
 - **Chinese UI: archive/original buttons fell back to English** — the favorites
   ("download selected original" / "archive download selected") and updates
   ("update selected original" / "archive update selected") toolbar buttons were
