@@ -27,6 +27,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Chinese UI: archive/original buttons fell back to English** — the favorites
+  ("download selected original" / "archive download selected") and updates
+  ("update selected original" / "archive update selected") toolbar buttons were
+  missing their `zh` i18n keys, so `t()` fell back to English on the Chinese UI.
+  Added the four keys (`favDlOrig`, `favDlArchive`, `updOrig`, `updArchive`).
 - **CI `pages` deploy on dev** — the `deploy` job now runs only on `main`;
   dev pushes still run `build` as a preview but no longer attempt to deploy,
   which the `github-pages` environment protection rules rejected with
