@@ -22,8 +22,9 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
   favorites monitoring with auto-download and dedupe; auto-update re-uploaded
   galleries; one-click *Open on ExHentai*.
 - **Download manager** — Ehviewer-style concurrent downloads, resumable
-  retries, self-healing failures, instant ingestion on completion; Telegram
-  notifications and bot commands.
+  retries, self-healing failures, instant ingestion on completion; ExHentai
+  archive (zip) downloads that trade GP for speed with resume without
+  re-charging; Telegram notifications and bot commands.
 - **Reader & UI** — streaming reader (fullscreen, auto-advance), reading
   history, activity log, first-run wizard.
 - **Security & operations** — PBKDF2 auth, optional encryption at rest

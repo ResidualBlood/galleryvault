@@ -74,6 +74,20 @@ does not re-import it as a fresh gallery).
 > needs the directory to be writable by uid 10001 (on a read-only mount deletion
 > fails honestly). `./db-data` belongs to postgres (999) — **do not chown it**.
 
+> **Multiple existing gallery folders**: add one volume per folder (give each a
+> unique in-container path such as `/gallery1`, `/gallery2`), then list each
+> in-container path in *Settings → Library roots* (one per line).
+> `download_root` is always included in the library roots automatically, so you
+> don't need to repeat it.
+
+> **Environment variables are optional**: the `LIBRARY_ROOTS` / `DOWNLOAD_ROOT`
+> env vars in the compose file are only **startup defaults**; the values saved
+> in *Settings → Library roots / Download directory* (stored in the DB and
+> applied on startup, overriding the env vars) win. The backend defaults are
+> `download_root=/downloads` and `library_roots=["/library","/downloads"]`, so a
+> fresh install can skip both variables entirely and just configure them in
+> Settings.
+
 ## Security hardening
 
 The backend binds `127.0.0.1:8001` by default and is only reachable through
@@ -149,3 +163,27 @@ releases.
 > `curl -o docker-compose.yml` — it likely contains your customizations (ports,
 > volume mounts, `ENCRYPTION_KEY`, …). If you need a newer compose template,
 > back it up first and merge the changes by hand.
+
+## Docs site (GitHub Pages) and wiki sync
+
+The documentation is kept in sync by two automated CI pipelines — no manual
+steps:
+
+| Output | Source | Trigger | Freshness |
+|--------|--------|---------|-----------|
+| **GitHub Wiki** (this site) | `docs/wiki/` in the meta repo | push to `main` **or** `dev` touching `docs/wiki/**` → `sync-wiki` workflow mirrors it with rsync | **Always current** — a dev push syncs it immediately |
+| **GitHub Pages docs site** (`docs-site/`, VitePress) | the same `docs/wiki/` + backend `API.md` / `DEVELOPMENT.md` | built by the `pages` workflow; **deployed from `main` only** | **Stable** — updated on `main` merge / release |
+
+Notes:
+
+- **The wiki is branch-agnostic**: whichever branch (`main` or `dev`) last
+  pushed `docs/wiki` wins. Development happens on `dev`, so in practice the
+  wiki is updated the moment a dev push lands.
+- **Pages follows `main` only**: the `deploy` job of `pages` is restricted by
+  the GitHub environment protection rules to the `main` branch; dev pushes only
+  run the build as a preview and never overwrite the live docs site.
+- `API.md` / `Development.md` / `openapi.json` are synced from the backend to
+  the wiki by the `sync-docs` workflow every 6 hours (both rsyncs exclude these
+  three files).
+- **To change the docs, edit `docs/wiki/` in the meta repo** — CI syncs
+  automatically after the commit; do not edit the wiki pages directly.
