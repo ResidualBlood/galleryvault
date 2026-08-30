@@ -62,6 +62,7 @@ button { cursor: pointer; font: inherit; }
 .links a { color: var(--muted); font-size: .88rem; }
 .links a:hover { color: var(--ink); }
 .link-button { background: none; color: var(--muted); padding: 0; border: 0; }
+.hamburger { font-size: 1.2rem; padding: 4px 8px; min-width: 44px; display: none; }
 main { max-width: 1320px; margin: auto; padding: 40px 24px 80px; }
 h1 { font: clamp(2rem, 5vw, 3.5rem)/.95 Georgia, serif; letter-spacing: -.04em; margin: 0 0 12px; }
 h2 { font-size: 1.1rem; margin: 18px 0 8px; }
@@ -457,6 +458,9 @@ a.row:hover { border-color: var(--accent); }
   .table-wrap { overflow-x: auto; }
 }
 @media (max-width: 640px) {
+  .hamburger { display: inline-block; }
+  .topbar .links { display: none; }
+  .topbar.nav-open .links { display: flex; flex-direction: column; position: absolute; top: 100%; left: 0; right: 0; background: var(--panel); padding: 8px 12px; border-top: 1px solid var(--line); z-index: 10; gap: 6px; white-space: normal; box-shadow: 0 4px 12px #0006; }
   .topbar { flex-wrap: wrap; height: auto; padding: 8px 10px; gap: var(--space-sm); }
   .top-search { order: 3; flex-basis: 100%; max-width: none; }
   .top-search input { flex: 1; min-width: 0; }

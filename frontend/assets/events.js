@@ -10,6 +10,15 @@ function onClick(e) {
   if (action === "toggle-lang") { toggleLang(); return; }
   if (action === "logout") { doLogout(); return; }
   if (action === "random") { randomGallery(); return; }
+  if (action === "toggle-nav") {
+    const nav = document.getElementById('topbar');
+    if (nav) {
+      nav.classList.toggle('nav-open');
+      const expanded = nav.classList.contains('nav-open');
+      el.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    }
+    return;
+  }
   if (action === "scan") { scanLibrary(); return; }
   if (action === "welcome-change-password") { welcomeChangePassword(); return; }
   if (action === "welcome-save-cookie") { welcomeSaveCookie(); return; }
