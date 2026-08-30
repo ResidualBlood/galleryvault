@@ -84,8 +84,8 @@ function showArchiveDialog(gids, opts) {
       ? `<label><input type="radio" name="archive-tier" value="${lockTier}" checked> ${esc(t(lockTier === "original" ? "archiveTierOriginal" : "archiveTierResample"))}</label>`
       : `<label><input type="radio" name="archive-tier" value="original"> ${esc(t("archiveTierOriginal"))}</label>
         <label><input type="radio" name="archive-tier" value="resample"> ${esc(t("archiveTierResample"))}</label>`;
-    overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true">
-      <h3>${esc(t("archiveTitle"))}</h3>
+    overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true" aria-labelledby="archive-title">
+      <h3 id="archive-title">${esc(t("archiveTitle"))}</h3>
       <div class="gv-modal-body">${esc(t("loading"))}</div>
       <div class="gv-modal-foot">
         <span class="archive-funds"></span>
@@ -110,6 +110,18 @@ function showArchiveDialog(gids, opts) {
       close(tier ? tier.value : null);
     });
     document.body.appendChild(overlay);
+    const modalEl = overlay.querySelector('.gv-modal');
+    const focusables = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (focusables.length) focusables[0].focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') { close(null); document.removeEventListener('keydown', onKey); }
+      if (e.key === 'Tab' && focusables.length) {
+        const first = focusables[0], last = focusables[focusables.length-1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKey);
     api("POST", "/api/archives/preview", { gids })
       .then(data => {
         const bodyEl = overlay.querySelector(".gv-modal-body");
