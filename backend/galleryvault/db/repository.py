@@ -1365,6 +1365,23 @@ class GalleryUpdatesRepository:
         row.updated_at = datetime.now(UTC)
         return True
 
+    async def mark_failed_by_task(self, task_id: int, error: str | None) -> int:
+        """Fail gallery-update rows referencing a removed download task.
+
+        Deleting a download task leaves the ``gallery_updates`` row stuck in
+        ``downloading`` (the finalize loop would never see the task).  Mark
+        them failed so the user can retry or ignore the update.
+        """
+        result = await self.session.execute(
+            update(GalleryUpdate)
+            .where(
+                GalleryUpdate.download_task_id == task_id,
+                GalleryUpdate.status == "downloading",
+            )
+            .values(status="failed", error_message=error, updated_at=datetime.now(UTC))
+        )
+        return int(result.rowcount or 0)
+
     async def mark_ignored(self, ids: Sequence[int]) -> int:
         if not ids:
             return 0

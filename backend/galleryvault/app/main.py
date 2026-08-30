@@ -2840,6 +2840,14 @@ async def _gallery_updates_finalize_loop() -> None:
                 async with _settings_session() as session:
                     task = await session.get(DownloadTaskModel, row.download_task_id)
                 if task is None:
+                    # The download task was deleted (e.g. removed from the
+                    # downloads page).  The update row would otherwise stay
+                    # "downloading" forever; mark it failed so the user can
+                    # retry or ignore it.
+                    async with _settings_session() as session, session.begin():
+                        await GalleryUpdatesRepository(session).mark_failed(
+                            row.id, "download task removed"
+                        )
                     continue
                 if task.status == "success":
                     await _finalize_gallery_update(row)

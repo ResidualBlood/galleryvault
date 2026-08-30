@@ -290,6 +290,61 @@ async def test_run_gallery_updates_skips_non_pending(monkeypatch):
 # --- API surface ------------------------------------------------------------
 
 
+async def test_finalize_loop_marks_removed_task_failed(monkeypatch):
+    """A downloading update whose task row vanished must not stay stuck.
+
+    Regression: the loop used to ``continue`` on ``task is None``, so an
+    update whose download task was deleted (downloads page) stayed
+    ``downloading`` forever.
+    """
+    marked = []
+
+    class FakeRow:
+        id = 99
+        download_task_id = 555  # task was deleted
+        status = "downloading"
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def downloading(self):
+            return [FakeRow()]
+
+        async def mark_failed(self, update_id, error):
+            marked.append((update_id, error))
+            return True
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+        async def get(self, model, task_id):
+            return None  # the download task no longer exists
+
+    sleeps = {"n": 0}
+
+    async def fake_sleep(_):
+        sleeps["n"] += 1
+        if sleeps["n"] > 1:
+            raise RuntimeError("stop-loop")
+
+    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
+    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(main, "asyncio", SimpleNamespace(sleep=fake_sleep))
+
+    with pytest.raises(RuntimeError, match="stop-loop"):
+        await main._gallery_updates_finalize_loop()
+
+    assert marked == [(99, "download task removed")]
+
+
 async def test_updates_status_reports_counts(monkeypatch):
     class FakeRepo:
         def __init__(self, session):
