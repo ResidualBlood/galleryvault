@@ -102,7 +102,7 @@ button:disabled { opacity: .5; cursor: default; }
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
 .gv-modal {
-  background: var(--panel-1); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   max-width: 680px; width: 92%; max-height: 82vh; display: flex; flex-direction: column;
   padding: 18px 20px;
 }
