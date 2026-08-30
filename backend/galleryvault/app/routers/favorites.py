@@ -175,10 +175,22 @@ async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
             {
                 "gid": gid,
                 "title": (entry or {}).get("title") or "",
-                "resample_cost": info.resample_cost,
-                "resample_size": info.resample_size,
-                "original_cost": info.original_cost,
-                "original_size": info.original_size,
+                # Unavailable tiers (``N/A`` on the archiver page) report null
+                # cost/size so the frontend can show ``N/A`` instead of a
+                # misleading ``0 GP · 0 B``; GP-shortage tiers keep real values
+                # and merely report ``*_available`` false.
+                "resample_cost": (
+                    info.resample_cost if info.resample_url is not None else None
+                ),
+                "resample_size": (
+                    info.resample_size if info.resample_url is not None else None
+                ),
+                "original_cost": (
+                    info.original_cost if info.original_url is not None else None
+                ),
+                "original_size": (
+                    info.original_size if info.original_url is not None else None
+                ),
                 "resample_available": (
                     info.resample_url is not None
                     and (info.funds is None or info.funds >= info.resample_cost)
