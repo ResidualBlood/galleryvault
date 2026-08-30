@@ -162,3 +162,12 @@ function onChange(e) {
   Object.keys(q).forEach(k => { if (q[k] === undefined) delete q[k]; });
   location.hash = navHash(view, params, q);
 }
+
+// Phase 2 keyboard: / focuses global search (if not in input)
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
+    e.preventDefault();
+    const s = document.getElementById('global-search') || document.querySelector('input[name="q"]');
+    if (s) s.focus();
+  }
+});
