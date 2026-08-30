@@ -225,6 +225,85 @@ async def test_ingest_downloaded_gallery_skips_removal_for_resample(
     assert not removed
 
 
+async def test_ingest_downloaded_gallery_prunes_merged_stale_pages(
+    tmp_path, monkeypatch
+):
+    """In-place original upgrade: stale resampled pages with a different
+    extension (old .webp) must be pruned before ingest, keeping the new
+    original .jpg per page."""
+    merged = tmp_path / "merged"
+    merged.mkdir()
+    new_jpg = merged / "00000001.jpg"
+    new_jpg.write_bytes(b"new")
+    stale_webp = merged / "00000001.webp"
+    stale_webp.write_bytes(b"old")
+    # Page 2: same-extension overwrite (no duplicate to prune).
+    (merged / "00000002.jpg").write_bytes(b"new")
+    (merged / "00000002.jpg").write_bytes(b"new")
+
+    session = _FakeSession(None)
+    ingested: list[main.GalleryMeta] = []
+
+    class _FakeIngest:
+        def __init__(self, _session):
+            pass
+
+        async def ingest(self, galleries):
+            ingested.extend(galleries)
+
+    monkeypatch.setattr(main, "_settings_session", lambda: session)
+    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
+    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+
+    result = SimpleNamespace(
+        gid=7, path=str(merged), title="T", title_jpn=None, token="tok",
+        category="misc", quality="original", pages=2, tags=[],
+    )
+    await main._ingest_downloaded_gallery(result)
+
+    assert not stale_webp.exists()
+    assert new_jpg.exists()
+    assert len(ingested) == 1 and len(ingested[0].pages) == 2
+    assert ingested[0].image_quality == "original"
+
+
+async def test_ingest_downloaded_gallery_keeps_stale_for_resample(
+    tmp_path, monkeypatch
+):
+    """A resample download must not prune same-stem files (no upgrade)."""
+    merged = tmp_path / "merged"
+    merged.mkdir()
+    a = merged / "00000001.jpg"
+    a.write_bytes(b"a")
+    b = merged / "00000001.webp"
+    b.write_bytes(b"b")
+
+    session = _FakeSession(None)
+    ingested: list[main.GalleryMeta] = []
+
+    class _FakeIngest:
+        def __init__(self, _session):
+            pass
+
+        async def ingest(self, galleries):
+            ingested.extend(galleries)
+
+    monkeypatch.setattr(main, "_settings_session", lambda: session)
+    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
+    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+
+    result = SimpleNamespace(
+        gid=7, path=str(merged), title="T", title_jpn=None, token="tok",
+        category="misc", quality="resample", pages=2, tags=[],
+    )
+    await main._ingest_downloaded_gallery(result)
+
+    assert a.exists() and b.exists()
+    assert len(ingested) == 1 and len(ingested[0].pages) == 2
+
+
 # --- detail endpoint --------------------------------------------------------
 
 
