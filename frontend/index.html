@@ -8,16 +8,16 @@
 </head>
 <body>
   <div id="app">
-    <nav class="topbar" id="topbar" hidden>
+    <nav class="topbar" id="topbar" role="navigation" aria-label="Main navigation" hidden>
       <a class="brand" href="#/browse">GalleryVault</a>
-      <form class="top-search" data-action="search">
+      <form class="top-search" data-action="search" role="search" aria-label="Search library">
         <div class="search-box search-box-top">
           <input id="global-search" name="q" placeholder="Search library..." aria-label="Search library" autocomplete="off">
           <div id="tag-suggest-top" class="tag-suggest" hidden></div>
         </div>
         <button type="submit" aria-label="Search">⌕</button>
       </form>
-      <button class="icon-button" data-action="random" title="Random" aria-label="Random">🎲</button>
+      <button class="btn btn-ghost icon-button" data-action="random" title="Random" aria-label="Random">🎲</button>
       <div class="links">
         <a href="#/browse" data-i18n="browse">Browse</a>
         <a href="#/library" data-i18n="library">Library</a>
@@ -28,8 +28,8 @@
         <a href="#/history" data-i18n="history">History</a>
         <a href="#/settings" data-i18n="settings">Settings</a>
         <a href="#/logs" data-i18n="logs">Logs</a>
-        <button class="link-button" data-action="toggle-lang">中文</button>
-        <button class="link-button" data-action="logout" data-i18n="logout">Logout</button>
+        <button class="btn btn-ghost link-button" data-action="toggle-lang">中文</button>
+        <button class="btn btn-ghost link-button" data-action="logout" data-i18n="logout">Logout</button>
       </div>
     </nav>
     <div id="banner" class="banner" hidden></div>

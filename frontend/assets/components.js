@@ -92,8 +92,8 @@ function showArchiveDialog(gids, opts) {
         <span class="archive-tiers">
           ${tiersHtml}
         </span>
-        <button class="primary" data-archive-confirm disabled type="button">${esc(t("archiveConfirm"))}</button>
-        <button class="secondary" data-archive-cancel type="button">${esc(t("cancel"))}</button>
+        <button class="btn btn-primary" data-archive-confirm disabled type="button">${esc(t("archiveConfirm"))}</button>
+        <button class="btn btn-secondary" data-archive-cancel type="button">${esc(t("cancel"))}</button>
       </div>
     </div>`;
     let settled = false;

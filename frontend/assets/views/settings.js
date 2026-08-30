@@ -106,7 +106,7 @@ async function renderSettings() {
       <fieldset><legend>${esc(t("changePassword"))}</legend>
         ${field(t("currentPassword"), `<input name="current_password" type="password" autocomplete="current-password">`)}
         ${field(t("newPassword"), `<input name="new_password" type="password" autocomplete="new-password">`)}
-        <button class="secondary" data-action="change-password" type="button">${esc(t("changePassword"))}</button>
+        <button class="btn btn-secondary" data-action="change-password" type="button">${esc(t("changePassword"))}</button>
       </fieldset>
       <fieldset><legend>ExHentai</legend>
         ${field(t("baseUrl"), ehBaseUrlControl(s.exhentai_base_url || "", ""))}
@@ -212,7 +212,7 @@ async function renderSettings() {
         </div>
         <button class="secondary" data-action="test-telegram" type="button">${esc(t("testTelegram"))}</button>
       </fieldset>
-      <div class="toolbar"><button class="primary" type="submit">${esc(t("save"))}</button></div>
+      <div class="toolbar"><button class="btn btn-primary" type="submit">${esc(t("save"))}</button></div>
     </form>`);
   api("GET", "/api/tags/search/status").then(status => {
     const el = document.getElementById("trans-status");

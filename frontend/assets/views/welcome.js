@@ -27,15 +27,15 @@ async function renderWelcome() {
         <input name="w_igneous" placeholder="${esc(t("cookieIgneous"))}" autocomplete="off">
       </div>
       <div class="w-btns">
-        <button class="secondary" data-action="welcome-save-cookie" type="button">${esc(t("save"))}</button>
-        <button class="secondary" data-action="welcome-test-exhentai" type="button">${esc(t("testExhentai"))}</button>
+        <button class="btn btn-secondary" data-action="welcome-save-cookie" type="button">${esc(t("save"))}</button>
+        <button class="btn btn-secondary" data-action="welcome-test-exhentai" type="button">${esc(t("testExhentai"))}</button>
       </div>
     </div>`;
   const importBlock = st.library_count > 0 ? `<p class="w-ok">${esc(t("stepDone"))} (${st.library_count})</p>` : `
     <p>${esc(t("welcomeImportHint"))}</p>
     <div class="w-btns">
-      <button class="primary" data-action="welcome-check-favs" type="button">${esc(t("checkAll"))}</button>
-      <button class="secondary" data-action="welcome-scan" type="button">${esc(t("scan"))}</button>
+      <button class="btn btn-primary" data-action="welcome-check-favs" type="button">${esc(t("checkAll"))}</button>
+      <button class="btn btn-secondary" data-action="welcome-scan" type="button">${esc(t("scan"))}</button>
     </div>`;
   $view().innerHTML = `
     <div class="welcome">
@@ -47,8 +47,8 @@ async function renderWelcome() {
         ${step(st.library_count > 0, `<h3>${esc(t("welcomeImportTitle"))}</h3><p>${esc(t("welcomeImportDesc"))}</p>${importBlock}`)}
       </ol>
       <div class="wizard-actions">
-        <button class="primary" data-action="welcome-finish" type="button">${esc(t("welcomeFinish"))}</button>
-        ${st.password_default ? "" : `<button class="link-button" data-action="welcome-later" type="button">${esc(t("welcomeLater"))}</button>`}
+        <button class="btn btn-primary" data-action="welcome-finish" type="button">${esc(t("welcomeFinish"))}</button>
+        ${st.password_default ? "" : `<button class="btn btn-ghost link-button" data-action="welcome-later" type="button">${esc(t("welcomeLater"))}</button>`}
       </div>
     </div>`;
 }
@@ -61,7 +61,7 @@ function renderLogin() {
       <p class="sub">${esc(t("loginSub"))}</p>
       <form data-action="login">
         <label>${esc(t("password"))}<input name="password" type="password" autocomplete="current-password" autofocus></label>
-        <button class="primary" type="submit">${esc(t("login"))}</button>
+        <button class="btn btn-primary" type="submit">${esc(t("login"))}</button>
       </form>
     </div></div>`;
 }

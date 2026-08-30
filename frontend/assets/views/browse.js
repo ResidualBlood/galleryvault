@@ -11,8 +11,8 @@ async function renderBrowse() {
         <input name="q" value="" placeholder="${esc(t("searchPlaceholder"))}" autocomplete="off">
         <div id="tag-suggest" class="tag-suggest" hidden></div>
       </div>
-      <button class="primary" type="submit">${esc(t("search"))}</button>
-      <button class="secondary big" data-action="random" type="button">🎲 ${esc(t("random"))}</button>
+      <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
+      <button class="btn btn-secondary big" data-action="random" type="button">🎲 ${esc(t("random"))}</button>
     </form>
     <section>
       <h2>${esc(t("latest"))} <span class="muted" id="browse-total"></span></h2>

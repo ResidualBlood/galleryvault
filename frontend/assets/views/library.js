@@ -22,11 +22,11 @@ async function renderLibrary() {
         ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
         <option value="__not_fav__" ${"__not_fav__" === category ? "selected" : ""}>${esc(t("notFavorited"))}</option>
       </select>
-      <button class="primary" type="submit">${esc(t("search"))}</button>
-      <button class="secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
-      <button class="secondary" data-action="sel-clear" type="button">${esc(t("clearSel"))}</button>
-      <button class="secondary danger" data-action="sel-delete" type="button">${esc(t("deleteSel"))}${selCount ? ` (${selCount})` : ""}</button>
-      <button class="secondary danger" data-action="delete-filtered" type="button">${esc(t("deleteFiltered"))}</button>
+      <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
+      <button class="btn btn-secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
+      <button class="btn btn-secondary" data-action="sel-clear" type="button">${esc(t("clearSel"))}</button>
+      <button class="btn btn-danger" data-action="sel-delete" type="button">${esc(t("deleteSel"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="btn btn-danger" data-action="delete-filtered" type="button">${esc(t("deleteFiltered"))}</button>
     </form>
     <div class="filters">${filterPill}</div>
     <div id="lib-grid"><p>${esc(t("loading"))}</p></div>
