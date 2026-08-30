@@ -63,8 +63,10 @@ ARCHIVER_PAGE = """<html><body>
 def test_parse_archive_cost_and_size() -> None:
     assert _parse_archive_cost("Free!") == 0
     assert _parse_archive_cost("1,250") == 1250
+    assert _parse_archive_cost("N/A") == 0
     assert _parse_archive_size("18.46 MiB") == int(18.46 * 1024**2)
     assert _parse_archive_size("2.17 MiB") == int(2.17 * 1024**2)
+    assert _parse_archive_size("N/A") == 0
 
 
 def test_parse_archive_info_page() -> None:
@@ -75,6 +77,45 @@ def test_parse_archive_info_page() -> None:
     assert info.resample_size == int(2.17 * 1024**2)
     assert "or=key" in (info.original_url or "")
     assert info.original_url == info.resample_url
+
+
+def test_parse_archive_info_unavailable_tier() -> None:
+    """A tier with ``N/A`` cost/size must parse without crashing and mark its
+    URL as unavailable so it is never charged or downloaded."""
+    page = """<html><body>
+    <div style="font-weight:bold">You have <b style="color:#1a1a1a">1,250</b> GP</div>
+    <div style="width:180px; float:left">
+        <div style="text-align:center; margin-top:4px">Download Cost: &nbsp;
+            <strong>59,782 GP</strong></div>
+        <form action="https://exhentai.org/archiver.php?gid=3188703&amp;token=t&amp;or=key"
+              method="post">
+            <input type="hidden" name="dltype" value="org"/>
+            <div style="margin:3px auto"><input type="submit" name="dlcheck"
+                                                value="Download Original Archive"
+                                                style="width:180px"/></div>
+        </form>
+        <p>Estimated Size: &nbsp; <strong>2.78 GiB</strong></p>
+    </div>
+    <div style="width:180px; float:right">
+        <div style="text-align:center; margin-top:4px">Download Cost: &nbsp;
+            <strong>N/A</strong></div>
+        <form action="https://exhentai.org/archiver.php?gid=3188703&amp;token=t&amp;or=key"
+              method="post">
+            <input type="hidden" name="dltype" value="res"/>
+            <div style="margin:3px auto"><input type="submit" name="dlcheck"
+                                                value="Download Resample Archive"
+                                                disabled="disabled"/></div>
+        </form>
+        <p>Estimated Size: &nbsp; <strong>N/A</strong></p>
+    </div>
+</body></html>"""
+    info = _parse_archive_info(page)
+    assert info.funds == 1250
+    assert info.original_url is not None
+    assert info.resample_url is None
+    assert info.resample_size == 0
+    assert info.resample_cost == 0
+    assert "or=key" in (info.original_url or "")
 
 
 def _make_zip(images: list[tuple[str, bytes]]) -> bytes:

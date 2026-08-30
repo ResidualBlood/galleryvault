@@ -235,10 +235,15 @@ def _parse_archive_cost(text: str) -> int:
 
 
 def _parse_archive_size(text: str) -> int:
-    """Parse an ``Estimated Size`` label like ``18.46 MiB`` into bytes."""
+    """Parse an ``Estimated Size`` label like ``18.46 MiB`` into bytes.
+
+    Unparseable values (e.g. ``N/A`` when a tier is unavailable) yield 0.
+    """
     number = re.search(r"[0-9]+(?:[.,][0-9]+)?", text)
     unit = re.search(r"(k|m|g|t)?(i?b)", text, re.IGNORECASE)
-    amount = float(number.group(0).replace(",", ".")) if number else 0.0
+    if not number or not unit:
+        return 0
+    amount = float(number.group(0).replace(",", "."))
     multiplier = {
         "b": 1,
         "kb": 1024,
@@ -288,6 +293,11 @@ def _parse_archive_info(body: str) -> ArchiveInfo:
         after = body[form.end() : form.end() + 260]
         cost_match = ARCHIVE_COST_RE.search(before)
         size_match = ARCHIVE_SIZE_RE.search(after)
+        if size_match and not re.search(r"[0-9]", size_match.group(1)):
+            # ``N/A`` marks an unavailable tier (e.g. this gallery does not
+            # qualify for a resample archive).  Clear its URL so callers treat
+            # the tier as unavailable instead of charging/downloading blindly.
+            urls[dltype] = None
         if cost_match:
             costs[dltype] = _parse_archive_cost(cost_match.group(1))
         if size_match:

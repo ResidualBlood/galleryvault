@@ -180,10 +180,12 @@ async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
                 "original_cost": info.original_cost,
                 "original_size": info.original_size,
                 "resample_available": (
-                    info.funds is None or info.funds >= info.resample_cost
+                    info.resample_url is not None
+                    and (info.funds is None or info.funds >= info.resample_cost)
                 ),
                 "original_available": (
-                    info.funds is None or info.funds >= info.original_cost
+                    info.original_url is not None
+                    and (info.funds is None or info.funds >= info.original_cost)
                 ),
             }
         )
