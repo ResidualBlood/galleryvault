@@ -27,6 +27,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Archive cost-preview dialog was transparent** — `.gv-modal` set
+  `background: var(--panel-1)`, a CSS variable that is never defined, so the
+  declaration was invalid and the modal body rendered transparent over the 55%
+  black overlay (text hard to read). Now uses the defined `--panel` color.
 - **Chinese UI: archive/original buttons fell back to English** — the favorites
   ("download selected original" / "archive download selected") and updates
   ("update selected original" / "archive update selected") toolbar buttons were
