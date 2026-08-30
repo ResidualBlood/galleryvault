@@ -1,0 +1,223 @@
+"""Tests for the ExHentai archive (zip) download channel.
+
+Covers the archiver.php parser, the executor's full unzip->rename->metadata
+flow, the GP funds gate, and the idempotent resume (persisted zip URL).
+"""
+
+from __future__ import annotations
+
+import io
+import zipfile
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from galleryvault.services.downloader import (
+    ArchiveNotRetryableError,
+    Downloader,
+    DownloadTask,
+)
+from galleryvault.services.eh_client import (
+    ArchiveInfo,
+    EhClientError,
+    GalleryData,
+    GalleryPageData,
+    _parse_archive_cost,
+    _parse_archive_info,
+    _parse_archive_size,
+)
+
+ARCHIVER_PAGE = """<html><body>
+<div id="db">
+    <h1 style="font-size:10pt; font-weight:bold">COSPLAYTALE</h1>
+    <div style="font-weight:bold">You have <b style="color:#1a1a1a">1,250</b> GP</div>
+    <div style="width:180px; float:left">
+        <div style="text-align:center; margin-top:4px">Download Cost: &nbsp;
+            <strong>Free!</strong></div>
+        <form action="https://exhentai.org/archiver.php?gid=2881867&amp;token=b57&amp;or=key"
+              method="post">
+            <input type="hidden" name="dltype" value="org"/>
+            <div style="margin:3px auto"><input type="submit" name="dlcheck"
+                                                value="Download Original Archive"
+                                                style="width:180px"/></div>
+        </form>
+        <p>Estimated Size: &nbsp; <strong>18.46 MiB</strong></p>
+    </div>
+    <div style="width:180px; float:right">
+        <div style="text-align:center; margin-top:4px">Download Cost: &nbsp;
+            <strong>Free!</strong></div>
+        <form action="https://exhentai.org/archiver.php?gid=2881867&amp;token=b57&amp;or=key"
+              method="post">
+            <input type="hidden" name="dltype" value="res"/>
+            <div style="margin:3px auto"><input type="submit" name="dlcheck"
+                                                value="Download Resample Archive"
+                                                style="width:180px"/></div>
+        </form>
+        <p>Estimated Size: &nbsp; <strong>2.17 MiB</strong></p>
+    </div>
+</div>
+</body></html>"""
+
+
+def test_parse_archive_cost_and_size() -> None:
+    assert _parse_archive_cost("Free!") == 0
+    assert _parse_archive_cost("1,250") == 1250
+    assert _parse_archive_size("18.46 MiB") == int(18.46 * 1024**2)
+    assert _parse_archive_size("2.17 MiB") == int(2.17 * 1024**2)
+
+
+def test_parse_archive_info_page() -> None:
+    info = _parse_archive_info(ARCHIVER_PAGE)
+    assert info.funds == 1250
+    assert info.original_cost == 0 and info.resample_cost == 0
+    assert info.original_size == int(18.46 * 1024**2)
+    assert info.resample_size == int(2.17 * 1024**2)
+    assert "or=key" in (info.original_url or "")
+    assert info.original_url == info.resample_url
+
+
+def _make_zip(images: list[tuple[str, bytes]]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, data in images:
+            archive.writestr(name, data)
+    return buffer.getvalue()
+
+
+class FakeArchiveClient:
+    settings = SimpleNamespace(
+        download_quality="resample", download_title="japanese"
+    )
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str]] = []
+        self.download_calls = 0
+
+    async def fetch_gallery(
+        self, gid, token, max_pages=None, *, resolve_urls=True
+    ) -> GalleryData:
+        pages = [
+            GalleryPageData(i, f"https://exhentai.org/s/x/{gid}-{i}", f"tok{i}")
+            for i in range(3)
+        ]
+        return GalleryData(
+            int(gid), token, "Arc Title", pages, [{"namespace": "artist", "name": "a"}],
+            "manga", "アーカイブ",
+        )
+
+    async def fetch_archive_info(self, gid: int, token: str) -> ArchiveInfo:
+        return ArchiveInfo(
+            funds=1000,
+            original_cost=100,
+            original_size=1024 * 1024,
+            original_url="https://exhentai.org/archiver.php?gid=1&token=t&or=key",
+            resample_cost=10,
+            resample_size=512 * 1024,
+            resample_url="https://exhentai.org/archiver.php?gid=1&token=t&or=key",
+        )
+
+    async def request_archive(self, url: str, dltype: str) -> str:
+        self.requests.append((url, dltype))
+        return "https://exhentai.org/dl/archive.zip"
+
+    async def download_archive(self, url: str, dest: Path, cb=None) -> int:
+        data = _make_zip(
+            [
+                ("b.jpg", b"\xff\xd8\xffb"),
+                ("a.png", b"\x89PNG a"),
+                ("c.gif", b"GIF89a c"),
+            ]
+        )
+        dest.write_bytes(data)
+        if cb is not None:
+            await cb(len(data), len(data))
+        return len(data)
+
+
+@pytest.mark.asyncio
+async def test_archive_downloader_writes_renamed_gallery(tmp_path: Path) -> None:
+    client = FakeArchiveClient()
+    result = await Downloader(client, tmp_path).execute(
+        DownloadTask(1, "t", "title", mode="archive", quality="resample")
+    )
+    assert client.requests == [
+        ("https://exhentai.org/archiver.php?gid=1&token=t&or=key", "res")
+    ]
+    # Renaming follows the archive's sorted filename order: a.png -> 1, b.jpg -> 2,
+    # c.gif -> 3.
+    assert sorted(p.name for p in result.path.glob("*.jpg")) == ["00000002.jpg"]
+    assert sorted(p.name for p in result.path.glob("*.png")) == ["00000001.png"]
+    assert sorted(p.name for p in result.path.glob("*.gif")) == ["00000003.gif"]
+    metadata = (result.path / ".ehviewer").read_text().splitlines()
+    assert metadata[:8] == ["VERSION2", "00000000", "1", "t", "1", "1", "20", "3"]
+    assert metadata[-3:] == ["0 tok0", "1 tok1", "2 tok2"]
+    assert not (result.path / ".archive.json").exists()
+    assert not (result.path / "archive.zip").exists()
+
+
+@pytest.mark.asyncio
+async def test_archive_original_tier_passes_org_dltype(tmp_path: Path) -> None:
+    client = FakeArchiveClient()
+    await Downloader(client, tmp_path).execute(
+        DownloadTask(1, "t", "title", mode="archive", quality="original")
+    )
+    assert client.requests[0][1] == "org"
+
+
+@pytest.mark.asyncio
+async def test_archive_insufficient_funds_is_not_retryable(tmp_path: Path) -> None:
+    class PoorClient(FakeArchiveClient):
+        async def fetch_archive_info(self, gid: int, token: str) -> ArchiveInfo:
+            return ArchiveInfo(
+                funds=5,
+                original_cost=100,
+                original_size=0,
+                original_url=None,
+                resample_cost=10,
+                resample_size=0,
+                resample_url=None,
+            )
+
+    client = PoorClient()
+    with pytest.raises(ArchiveNotRetryableError):
+        await Downloader(client, tmp_path).execute(
+            DownloadTask(1, "t", "title", id=1, mode="archive", quality="resample")
+        )
+    assert client.requests == []
+
+
+@pytest.mark.asyncio
+async def test_archive_resume_keeps_zip_url(tmp_path: Path) -> None:
+    """A failed transfer must not re-request the archive on the next attempt."""
+
+    class FlakyClient(FakeArchiveClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self._failed = False
+
+        async def download_archive(self, url: str, dest: Path, cb=None) -> int:
+            self.download_calls += 1
+            if not self._failed:
+                self._failed = True
+                dest.write_bytes(b"\x50\x4b" + b"\x00" * 32)  # partial zip
+                raise EhClientError("ExHentai archive download failed")
+            return await super().download_archive(url, dest, cb)
+
+    client = FlakyClient()
+    downloader = Downloader(client, tmp_path)
+    with pytest.raises(EhClientError):
+        await downloader.execute(
+            DownloadTask(1, "t", "title", id=1, mode="archive", quality="resample")
+        )
+    # The persisted zip URL survives the failed attempt…
+    state_file = tmp_path / ".gv-1" / ".archive.json"
+    assert state_file.exists()
+    assert client.requests == [("https://exhentai.org/archiver.php?gid=1&token=t&or=key", "res")]
+    # …so a retry resumes the zip instead of charging GP a second time.
+    result = await downloader.execute(
+        DownloadTask(1, "t", "title", id=1, mode="archive", quality="resample")
+    )
+    assert client.download_calls == 2
+    assert len(client.requests) == 1
+    assert (result.path / "00000001.png").exists()

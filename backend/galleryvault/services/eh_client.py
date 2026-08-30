@@ -9,6 +9,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Self
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -50,6 +51,27 @@ SHOWPAGE_ORIGIN_PROMPT_RE = re.compile(
     r'<a href="#" onclick="prompt\(\'Copy the URL below\.\', \'([^\']+)\'\)'
 )
 SHOWPAGE_ORIGIN_RE = re.compile(r'<a href="([^"]+)fullimg([^"]+)">', re.IGNORECASE)
+
+# ExHentai archive (archiver.php) page markers.  The page lists two POST forms
+# (original / resample) that share the same action URL and differ only in the
+# hidden ``dltype``; each carries its own ``Download Cost`` / ``Estimated Size``
+# labels.  The GP balance appears near the top ("You have <b>…</b> GP").
+ARCHIVE_COST_RE = re.compile(
+    r"Download\s+Cost:?[^<]*<[^>]*>([^<]+)</[^>]+>", re.IGNORECASE
+)
+ARCHIVE_SIZE_RE = re.compile(
+    r"Estimated\s+Size:?[^<]*<[^>]*>([^<]+)</[^>]+>", re.IGNORECASE
+)
+ARCHIVE_FUNDS_RE = re.compile(
+    r"You have\s+(?:<[^>]*>\s*)*([0-9][0-9,.]*)\s*(?:<[^>]*>\s*)*GP", re.IGNORECASE
+)
+ARCHIVE_FUNDS_FALLBACK_RE = re.compile(
+    r"([0-9][0-9,.]*)\s*(?:<[^>]*>\s*)*GP\b", re.IGNORECASE
+)
+ARCHIVER_DOWNLOAD_LINK_RE = re.compile(
+    r'href=["\']([^"\']+)["\']\s*>\s*Click Here To Start Downloading', re.IGNORECASE
+)
+ARCHIVER_LOCATION_RE = re.compile(r'document\.location\s*=\s*["\']([^"\']+)["\']')
 
 
 def _page_token_from_href(absolute: str) -> str | None:
@@ -181,6 +203,125 @@ class FavoriteData:
     title: str
     url: str
     thumb: str | None = None
+
+
+@dataclass(frozen=True)
+class ArchiveInfo:
+    """Cost / size / form data parsed from an ExHentai archiver.php page.
+
+    ``funds`` is the current GP balance (None when the page does not expose
+    it).  Costs are in GP (0 for "Free!"), sizes in bytes.  The two forms share
+    one action URL (``resample_url`` == ``original_url``) and differ only in
+    the POST ``dltype`` value.
+    """
+
+    funds: int | None
+    original_cost: int
+    original_size: int
+    original_url: str | None
+    resample_cost: int
+    resample_size: int
+    resample_url: str | None
+
+
+def _parse_archive_cost(text: str) -> int:
+    """Parse a ``Download Cost`` value: "Free!" -> 0, a GP number otherwise."""
+    if "free" in text.lower():
+        return 0
+    match = re.search(r"[0-9][0-9,.]*", text)
+    if not match:
+        return 0
+    return int(float(match.group(0).replace(",", "")))
+
+
+def _parse_archive_size(text: str) -> int:
+    """Parse an ``Estimated Size`` label like ``18.46 MiB`` into bytes."""
+    number = re.search(r"[0-9]+(?:[.,][0-9]+)?", text)
+    unit = re.search(r"(k|m|g|t)?(i?b)", text, re.IGNORECASE)
+    amount = float(number.group(0).replace(",", ".")) if number else 0.0
+    multiplier = {
+        "b": 1,
+        "kb": 1024,
+        "mb": 1024**2,
+        "gb": 1024**3,
+        "tb": 1024**4,
+        "kib": 1024,
+        "mib": 1024**2,
+        "gib": 1024**3,
+        "tib": 1024**4,
+    }.get((unit.group(1) or "").lower() + (unit.group(2) or "").lower(), 1)
+    return int(amount * multiplier)
+
+
+def _parse_archive_info(body: str) -> ArchiveInfo:
+    """Parse an archiver.php page into ArchiveInfo (mirrors SXJ's parser)."""
+    funds: int | None = None
+    funds_match = ARCHIVE_FUNDS_RE.search(body)
+    if funds_match:
+        funds = int(float(funds_match.group(1).replace(",", "")))
+    else:
+        fallback = ARCHIVE_FUNDS_FALLBACK_RE.search(body)
+        if fallback:
+            funds = int(float(fallback.group(1).replace(",", "")))
+    costs: dict[str, int] = {"org": 0, "res": 0}
+    sizes: dict[str, int] = {"org": 0, "res": 0}
+    urls: dict[str, str | None] = {"org": None, "res": None}
+    for form in re.finditer(
+        r'<form\b[^>]*action=["\']([^"\']+)["\'][^>]*method=["\']post["\'][^>]*>(.*?)</form>',
+        body,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        action, inner = form.group(1), form.group(2)
+        dltype_match = re.search(
+            r'<input[^>]*name=["\']dltype["\'][^>]*value=["\']([^"\']+)["\']',
+            inner,
+            re.IGNORECASE,
+        )
+        if not dltype_match:
+            continue
+        dltype = dltype_match.group(1).lower()
+        if dltype not in {"org", "res"}:
+            continue
+        urls[dltype] = html.unescape(action)
+        # Cost label sits just before the form, size just after it.
+        before = body[max(0, form.start() - 260) : form.start()]
+        after = body[form.end() : form.end() + 260]
+        cost_match = ARCHIVE_COST_RE.search(before)
+        size_match = ARCHIVE_SIZE_RE.search(after)
+        if cost_match:
+            costs[dltype] = _parse_archive_cost(cost_match.group(1))
+        if size_match:
+            sizes[dltype] = _parse_archive_size(size_match.group(1))
+    return ArchiveInfo(
+        funds=funds,
+        original_cost=costs["org"],
+        original_size=sizes["org"],
+        original_url=urls["org"],
+        resample_cost=costs["res"],
+        resample_size=sizes["res"],
+        resample_url=urls["res"],
+    )
+
+
+def _parse_archiver_download_url(body: str) -> str | None:
+    """The zip path behind the ``Click Here To Start Downloading`` link."""
+    match = ARCHIVER_DOWNLOAD_LINK_RE.search(body)
+    if not match:
+        return None
+    return html.unescape(match.group(1)).strip()
+
+
+def _content_range_total(value: str | None) -> int | None:
+    """``Content-Range`` total (``bytes 0-100/5000`` -> 5000)."""
+    if not value:
+        return None
+    slash = value.rfind("/")
+    if slash < 0 or slash == len(value) - 1:
+        return None
+    total = value[slash + 1 :].strip()
+    if total.isdigit():
+        return int(total)
+    return None
 
 
 def parse_gallery_url(value: str, base_url: str = "https://exhentai.org") -> tuple[int, str]:
@@ -1051,6 +1192,121 @@ class EhClient:
         if not match:
             return None
         return int(match.group(1)), match.group(2)
+
+    async def fetch_archive_info(self, gid: int, token: str) -> ArchiveInfo:
+        """Read the archiver.php page: GP funds + original/resample costs/sizes.
+
+        Read-only — nothing is charged here (charging happens on the POST in
+        ``request_archive``).  Uses the shared page-fetch budget.
+        """
+        response = await self._get(
+            f"/archiver.php?gid={int(gid)}&token={token}",
+            headers={"Referer": f"/g/{int(gid)}/{token}/"},
+        )
+        return _parse_archive_info(response.text)
+
+    async def request_archive(self, url: str, dltype: str) -> str:
+        """Ask ExHentai to build the archive zip and return its download URL.
+
+        ``dltype`` is ``org`` or ``res``.  This POST is what actually spends GP,
+        so the executor persists the returned URL and never re-calls this for an
+        already-requested archive.  Mirrors SXJ's ``downloadArchiver``: follow
+        the ``document.location`` hop, then parse the zip link.
+        """
+        if dltype not in {"org", "res"}:
+            raise ValueError("dltype must be 'org' or 'res'")
+        dlcheck = (
+            "Download Original Archive"
+            if dltype == "org"
+            else "Download Resample Archive"
+        )
+        origin = self.settings.exhentai_base_url.rstrip("/")
+        response = await self._request(
+            "POST",
+            url,
+            data={"dltype": dltype, "dlcheck": dlcheck},
+            headers={"Referer": url, "Origin": origin},
+        )
+        if response.status_code in (401, 403) or "login" in str(response.url).lower():
+            raise EhClientError("ExHentai authentication is required or expired")
+        response.raise_for_status()
+        body = response.text
+        direct = _parse_archiver_download_url(body)
+        if direct:
+            return urljoin(str(response.url), direct)
+        location = ARCHIVER_LOCATION_RE.search(body)
+        if not location:
+            if _is_auth_failure_page(body):
+                raise EhClientError("ExHentai authentication is required or expired")
+            raise EhClientError("ExHentai archiver request returned no download link")
+        continue_url = html.unescape(location.group(1))
+        confirmation = await self._get(continue_url)
+        link = _parse_archiver_download_url(confirmation.text)
+        if not link:
+            raise EhClientError("ExHentai archiver confirmation page has no download link")
+        return urljoin(str(confirmation.url), link)
+
+    async def download_archive(
+        self, url: str, dest: Path, cb: Callable[[int, int | None], object] | None = None
+    ) -> int:
+        """Stream an archive zip to ``dest`` with Range resume support.
+
+        A single long-lived connection (no page semaphore): ExHentai serves the
+        archive itself rather than through H@H nodes.  ``cb(downloaded, total)``
+        receives byte progress.  Returns the final total size.
+        """
+        offset = dest.stat().st_size if dest.is_file() else 0
+        headers = {"Referer": self.settings.exhentai_base_url.rstrip("/") + "/"}
+        if offset > 0:
+            headers["Range"] = f"bytes={offset}-"
+        timeout = httpx.Timeout(120.0, read=30.0)
+        try:
+            async with self.client.stream(
+                "GET", url, headers=headers, timeout=timeout
+            ) as response:
+                if response.status_code in (401, 403) or "login" in str(
+                    response.url
+                ).lower():
+                    raise EhClientError(
+                        "ExHentai authentication is required or expired"
+                    )
+                if response.status_code in (429, 509):
+                    raise EhClientError(
+                        f"ExHentai rate limited (HTTP {response.status_code})"
+                    )
+                if response.status_code == 416:
+                    total = _content_range_total(response.headers.get("content-range"))
+                    if total is not None and offset >= total:
+                        return total
+                    raise EhClientError("ExHentai archive range is not satisfiable")
+                if response.status_code == 200:
+                    if offset > 0:
+                        # Server ignored the Range header: restart from scratch.
+                        dest.unlink(missing_ok=True)
+                        offset = 0
+                elif response.status_code != 206:
+                    response.raise_for_status()
+                content_length = response.headers.get("content-length") or ""
+                total = _content_range_total(
+                    response.headers.get("content-range")
+                ) or (offset + int(content_length) if content_length.isdigit() else None)
+                downloaded = offset
+                mode = "ab" if offset > 0 else "wb"
+                with dest.open(mode) as handle:
+                    async for chunk in response.aiter_bytes():
+                        handle.write(chunk)
+                        downloaded += len(chunk)
+                        if cb is not None:
+                            await cb(downloaded, total)
+            if total is not None and downloaded != total:
+                raise EhClientError("ExHentai archive download was incomplete")
+            return total if total is not None else downloaded
+        except httpx.RequestError as exc:
+            logger.warning(
+                "archive download request failed",
+                extra=log_extra(error=type(exc).__name__),
+            )
+            raise EhClientError("ExHentai archive download failed") from exc
 
     async def download_image(self, url: str) -> bytes:
         content, _ = await self.download_image_with_metadata(url)

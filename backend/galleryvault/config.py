@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     http_proxy: str | None = None
     socks5_proxy: str | None = None
     download_quality: str = "resample"
+    # Quality tier used by the ExHentai archive download channel: the manual
+    # archive dialog default and the scheduled-scan tier (``resample`` keeps GP
+    # cost and bandwidth low; ``original`` fetches the full images).
+    archive_quality: str = "resample"
+    # Scheduled favorites scan: whether large galleries are downloaded through
+    # the ExHentai archive (zip) channel instead of page-by-page.
+    favorites_archive_enabled: bool = False
+    # Scheduled-scan archive threshold: galleries with ``filecount`` strictly
+    # greater than this are archived, the rest download page-by-page. 0 = all.
+    favorites_archive_max_pages: int = 0
     # Which title seeds the on-disk download folder name (``<gid>-<title>``).
     # Independent of the display-title setting; ``japanese`` (default) keeps
     # Ehviewer-style naming, ``english`` prefers the romaji/English title.
@@ -118,6 +128,10 @@ class Settings(BaseSettings):
             raise ValueError("configure only one proxy")
         if self.download_quality not in {"original", "resample"}:
             raise ValueError("download_quality must be 'original' or 'resample'")
+        if self.archive_quality not in {"original", "resample"}:
+            raise ValueError("archive_quality must be 'original' or 'resample'")
+        if self.favorites_archive_max_pages < 0:
+            raise ValueError("favorites_archive_max_pages must be >= 0")
         if self.download_title not in {"japanese", "english"}:
             raise ValueError("download_title must be 'japanese' or 'english'")
         if self.title_display not in {"japanese", "english", "directory"}:
@@ -198,6 +212,9 @@ EDITABLE_SETTINGS = {
         "page_concurrency",
         "download_quality",
         "download_title",
+        "archive_quality",
+        "favorites_archive_enabled",
+        "favorites_archive_max_pages",
         "use_hah",
         "image_download_timeout_seconds",
         "image_slow_warmup_seconds",

@@ -68,6 +68,9 @@ curl -b cookies.txt http://localhost:8001/api/settings
   "download_concurrency": 2,
   "page_concurrency": 4,
   "download_quality": "resample",
+  "archive_quality": "resample",
+  "favorites_archive_enabled": false,
+  "favorites_archive_max_pages": 0,
   "use_hah": false,
   "image_download_timeout_seconds": 120,
   "image_slow_warmup_seconds": 30,
@@ -117,7 +120,7 @@ manual cleanup on the *Duplicate copies* page). All duplicates are recorded in
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. Returns `202 {id, gid, status}`. |
+| POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?, quality?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. `quality` (`resample`/`original`) overrides the global `download_quality` for this task (page-by-page original downloads ignore H@H and fetch full-size images). Returns `202 {id, gid, status}`. |
 | GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤500), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress and `retry_count`/`max_retries`. |
 | POST | `/api/downloads/{task_id}/cancel` | Cancel a pending/active task. An in-flight download is interrupted (page writes stop, the partial temp dir is removed). Cancel latency is bounded by the page-progress ticks (at most one in-flight page finishes first). |
 | POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`). Retries are otherwise automatic: transient failures re-queue with an exponential backoff up to `max_retries` (default 10), and a periodic sweep re-activates `failed` tasks that still have budget left. |
@@ -145,12 +148,34 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | GET | `/api/favorites/{favcat}/items` | Paginated folder galleries (`page`, `page_size`, optional `state` = `all`/`local`/`cloud` to filter by whether the gallery is already local). Each row: `favcat`, `gid`, `token`, `title`, `url`, `first_seen_at`, `state` (`local`/`cloud`), and when the gallery is local `gallery_id`, `category`, `page_count`, `cover_url`, `file_size`, `tags`. Cloud-only galleries get their metadata (real `file_size`, `title_jpn`, `tags`, category) via the batched gdata API and an inline `cover_data` base64 thumbnail, so a folder page renders with a single request. |
 | POST | `/api/favorites/download-missing` | `202` – spawns a per-folder `_favorite_size_sync` pass that downloads cover files for every gallery in the folder missing a cover on disk (using the thumb URL captured from the favorites listing). |
 | POST | `/api/favorites/remove` | Body `{gids: [...], delete_local?: bool}`. Remove galleries from ExHentai favorites (all folders, `favorites.php` `ddact=delete` like SXJ, chunked 25/batch with per-gid retry) and from local `favorite_items`; `delete_local` also deletes on-disk galleries — every physical copy of a gid under the scan roots, and the `duplicate_records` row once all copies are gone. A gallery row is kept when any copy fails to delete (avoids resurrection on the next scan). Returns `{cloud_ok, cloud_removed, cloud_failed, local_removed, deleted_local_galleries, failed_deletions}`; `cloud_failed` lists the gids the cloud could not remove. |
+| POST | `/api/favorites/download-selected` | Body `{gids: [...], archive?: bool, quality?: string}` — `202`; enqueues a download for each selected **cloud-only** favorite gid (`{queued, skipped}`). `archive: true` downloads through the ExHentai archive (zip) channel with the given `quality` tier instead of page-by-page. |
 | POST | `/api/favorites/duplicates/scan` | `202` – background scan grouping favorite items into duplicate sets (same normalized title + same artist). |
 | GET | `/api/favorites/duplicates/status` | Scan progress (`stage`, `done`, `total`) and result `groups` (`key`, `artist`, `items: [{favcat, gid, token, title, url, gallery_id, file_size, posted_at, first_seen_at, title_jpn, cover_data, tags}]`), `group_count`, `item_count`, plus `ignored` (previously hidden groups, restorable). Cloud items are enriched via the batched gdata API (cover, size, posted date, tags); local items' posted dates are persisted onto `galleries.posted_at`. |
 | POST | `/api/favorites/duplicates/ignore` | Body `{key, title?, gids?}` – hide a duplicate group from every later scan. |
 | DELETE | `/api/favorites/duplicates/ignore?key=` | Restore a previously ignored group. |
 | GET | `/api/favorites/duplicates/ignored` | List the currently ignored duplicate groups (each with `key`, `title`, `items`) so they can be restored. |
 | GET | `/api/galleries/{identifier}/favorite` | Which favorite folders a gallery is in: `{gid, favorite: bool, favcats: [...]}`.
+
+## Archives (ExHentai zip channel)
+
+ExHentai's official archive download: the server packs the whole gallery into a
+zip (charging GP) and the client streams it on a single connection, which is
+much faster than per-page H@H fetches for large galleries. Tasks created with
+`archive: true` (or `mode` containing `"archive"`) run through this channel.
+The executor reads `archiver.php`, requests the zip once (the returned URL is
+persisted under `.gv-{gid}/.archive.json` so retries resume with a Range request
+instead of re-charging GP), streams it, unzips, renames images by page order and
+writes the same `.ehviewer`/`.galleryvault.json` metadata as a page-by-page
+download. Insufficient GP fails the task immediately without retries.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/archives/preview` | Body `{gids: [...]}`. Read-only, **does not charge GP**: returns `{funds, items:[{gid, title, resample_cost, resample_size, original_cost, original_size, resample_available, original_available}]}`. Tokens are resolved from `favorite_items` (and gallery-update rows); unavailable gids are omitted and per-gallery fetch failures carry an `error` field. |
+
+The scheduled favorites check uses the archive channel when
+`favorites_archive_enabled` is on: galleries whose `filecount` exceeds
+`favorites_archive_max_pages` (0 = all) are archived with the `archive_quality`
+tier, the rest download page-by-page.
 
 ## Gallery updates (re-uploaded versions)
 
@@ -159,7 +184,7 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | GET | `/api/updates` | Re-upload tracking. Query `page`, `page_size`, `state` (`active` = everything except ignored, `all`, `pending`, `downloading`, `failed`, `ignored`). Each row: `id`, `gallery_id` (old local copy), `old_gid`, `new_gid`, `title`, `favcat`, `favcat_name`, `status` (`pending`/`downloading`/`failed`/`ignored`), `error_message`, `detected_at`, `updated_at`, `cover_url`. Detection: a local gallery whose gid is not in any favorite folder but whose normalized title matches a favorite item. |
 | POST | `/api/updates/scan` | `202` – trigger a detection scan now (also runs automatically after every favorites check). |
 | GET | `/api/updates/status` | Detection/update status: `{detecting, last_detected_at, last_run, last_error, last_found, counts: {pending, downloading, failed, ignored}}`. |
-| POST | `/api/updates/update` | Body `{ids: [...]}` – `202`; enqueues the new-gid download for each pending row (`{started, skipped}`). When the download finishes, the old local copy is deleted (files + row, cascade-deleting the update row). |
+| POST | `/api/updates/update` | Body `{ids: [...], archive?: bool, quality?: string}` – `202`; enqueues the new-gid download for each pending row (`{started, skipped}`). `archive: true` uses the ExHentai archive channel with the given quality tier. When the download finishes, the old local copy is deleted (files + row, cascade-deleting the update row). |
 | POST | `/api/updates/ignore` | Body `{ids: [...]}` – mark rows ignored (hidden from the active list, restorable). |
 | POST | `/api/updates/unignore` | Body `{ids: [...]}` – restore ignored rows to `pending`. |
 | GET | `/api/updates/ignored` | Paginated list of currently ignored rows (for the restore page). |

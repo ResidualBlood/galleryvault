@@ -21,7 +21,12 @@ async def create_download(body: main.DownloadRequest) -> dict[str, object]:
     try:
         async with _settings_session() as session, session.begin():
             task = await DownloadRepository(session).create(
-                body.gid, body.token, body.title, body.mode, body.max_pages
+                body.gid,
+                body.token,
+                body.title,
+                body.mode,
+                body.max_pages,
+                body.quality,
             )
             if task is None:
                 raise HTTPException(
@@ -35,6 +40,7 @@ async def create_download(body: main.DownloadRequest) -> dict[str, object]:
                 max_retries=task.max_retries,
                 mode=task.mode,
                 max_pages=body.max_pages,
+                quality=task.quality,
             )
     except HTTPException:
         raise
