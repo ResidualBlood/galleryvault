@@ -52,6 +52,10 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 > **权限**：backend 以容器内 `app`（uid 10001）运行，需能读取挂载的宿主目录（≥ 可读即可）。挂载前建议直接 `chown -R 10001:10001 <宿主目录>` 一劳永逸；删除画廊需该目录对 10001 可写（只读挂载时删除会如实失败）。`./db-data` 属 postgres（999），**勿 chown**。
 
+> **多个已有画廊目录**：有几个就挂几条 volume（容器内路径各取一个唯一名字，如 `/gallery1`、`/gallery2`），然后在「库根目录」每行填一个容器内路径。`download_root` 会被自动并入库根，无需重复填写。
+
+> **环境变量可省略**：compose 里的 `LIBRARY_ROOTS` / `DOWNLOAD_ROOT` 只是**启动初值**，实际以「设置 → 库根目录 / 下载目录」保存的值为准（存 DB，启动时覆盖环境变量）。backend 默认即 `download_root=/downloads`、`library_roots=["/library","/downloads"]`，所以全新部署可以直接不写这两个变量，去设置页配置即可。
+
 ## 安全加固
 
 后端默认绑定 `127.0.0.1:8001`，只通过前端 nginx 代理访问；登录接口按真实客户端 IP 限速（每 IP 60 秒 10 次），`/api` 限流 30 次/秒（由前端 nginx 的 `limit_req` 实现）。

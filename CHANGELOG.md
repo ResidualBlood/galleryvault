@@ -50,6 +50,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which the `github-pages` environment protection rules rejected with
   "Branch dev is not allowed to deploy to github-pages".
 
+### Changed
+
+- **Docs (Deployment, zh/en)**: mounting multiple existing gallery folders, and
+  the note that `LIBRARY_ROOTS` / `DOWNLOAD_ROOT` compose env vars are only
+  startup defaults overridden by the DB-backed Settings page (production
+  compose dropped the now-unused `LIBRARY_ROOTS` var).
+
 ## [1.3.0] - 2026-08-30
 
 ### Added
