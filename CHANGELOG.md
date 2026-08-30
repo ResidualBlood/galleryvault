@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Delete failed gallery-update records** — the gallery-updates page gains a
+  "delete selected" button on the failed filter, removing those records for
+  good via `POST /api/updates/delete`. Only `failed`/`ignored`/`pending` rows
+  are deletable (the repository guards against rows with a live download
+  task), and deleting a download task on the tasks page still keeps its failed
+  update record visible so it can be reviewed or removed here.
+
 ### Fixed
 
 - **Deleting a download task could leave its gallery-update entry stuck
