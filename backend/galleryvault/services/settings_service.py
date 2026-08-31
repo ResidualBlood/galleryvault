@@ -131,6 +131,7 @@ def start_telegram_bot() -> None:
                 settings,
                 client=app_state.telegram.client,
                 queue=FavoriteDownloadQueue(),
+                notifier=app_state.telegram,
             ).run(),
             "telegram bot",
         )

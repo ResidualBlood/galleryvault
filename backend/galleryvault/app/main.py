@@ -825,6 +825,7 @@ def _start_telegram_bot() -> None:
                 _settings(),
                 client=getattr(app.state.telegram, "client", None),
                 queue=fav_queue_cls(),
+                notifier=app.state.telegram,
             ).run()
         )
 
