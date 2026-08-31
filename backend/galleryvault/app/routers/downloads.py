@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from galleryvault.app import main
 from galleryvault.db.models import DownloadTask as DownloadTaskModel
-from galleryvault.db.repository import DownloadRepository
+from galleryvault.db.repository import DownloadRepository, GalleryUpdatesRepository
 from galleryvault.services.downloader import DownloadTask
 
 router = APIRouter()
@@ -168,6 +168,12 @@ async def delete_download_task(task_id: int) -> None:
             was_downloading = row.status == "downloading"
             if not await DownloadRepository(session).delete(task_id):
                 raise HTTPException(status_code=404, detail="Download task not found")
+            # A gallery-update row pinned to this task would otherwise stay
+            # "downloading" forever (its finalize loop looks up the task by id
+            # and finds nothing).  Mark it failed so the update stays actionable.
+            await GalleryUpdatesRepository(session).mark_failed_by_task(
+                task_id, "download task removed"
+            )
     except HTTPException:
         raise
     except SQLAlchemyError as exc:

@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from galleryvault.app import main
@@ -152,6 +153,21 @@ async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
                             "token": row.new_token,
                             "title": row.title or "",
                             "gallery_id": None,
+                        }
+                # Local (library) galleries that are not in any favorite folder
+                # carry their own token; resolve them so the archive dialog can
+                # quote cost/balance for a gallery-detail-page archive download.
+                still_missing = [g for g in missing if g not in detail]
+                if still_missing:
+                    for row in (
+                        await session.scalars(
+                            select(Gallery).where(Gallery.gid.in_(still_missing))
+                        )
+                    ).all():
+                        detail[int(row.gid)] = {
+                            "token": row.token,
+                            "title": row.title,
+                            "gallery_id": row.id,
                         }
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc

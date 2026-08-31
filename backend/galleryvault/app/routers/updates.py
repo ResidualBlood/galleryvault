@@ -142,3 +142,15 @@ async def gallery_updates_unignore(body: UpdateIdsRequest) -> dict[str, Any]:
     except SQLAlchemyError as exc:
         raise main._db_error(exc) from exc
     return {"restored": restored}
+
+
+@router.post("/api/updates/delete", status_code=200)
+async def gallery_updates_delete(body: UpdateIdsRequest) -> dict[str, Any]:
+    if not body.ids:
+        raise HTTPException(status_code=422, detail="No update ids provided")
+    try:
+        async with main._settings_session() as session, session.begin():
+            deleted = await GalleryUpdatesRepository(session).delete_many(body.ids)
+    except SQLAlchemyError as exc:
+        raise main._db_error(exc) from exc
+    return {"deleted": deleted}

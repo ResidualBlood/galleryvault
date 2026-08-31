@@ -1,8 +1,8 @@
 """Tests for the shared local-deletion helper (main.delete_galleries_local).
 
-Covers multi-copy collection, per-path scan-root validation, directory vs.
-single-file (CBZ) deletion, partial-failure keeping the DB row, and
-duplicate_records cleanup after a full multi-copy delete.
+Covers multi-copy collection, directory vs. single-file (CBZ) deletion,
+partial-failure keeping the DB row, and duplicate_records cleanup after a
+full multi-copy delete.
 """
 
 from pathlib import Path
@@ -102,8 +102,8 @@ async def test_delete_single_cbz_file(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_delete_outside_scan_roots_leaves_file_but_removes_row(tmp_path, monkeypatch):
-    """A path outside the scan roots is never deleted, but the row still goes."""
+async def test_delete_outside_scan_roots_still_deletes_file_and_removes_row(tmp_path, monkeypatch):
+    """A path outside the (current) scan roots still has its file deleted when delete_files, and the row is removed."""
     outside = tmp_path.parent / "outside-gv"
     outside.mkdir(exist_ok=True)
     copy = outside / "g-3"
@@ -115,9 +115,10 @@ async def test_delete_outside_scan_roots_leaves_file_but_removes_row(tmp_path, m
         session, [gallery], delete_files=True, delete_all_copies=False
     )
 
-    assert copy.exists()  # outside scan root -> untouched
-    assert results[0]["db_removed"] is True  # row still removed (not an error)
-    assert results[0]["deleted_paths"] == []
+    assert not copy.exists()
+    assert results[0]["db_removed"] is True
+    assert results[0]["deleted_paths"] == [str(copy)]
+    assert results[0]["failed_paths"] == []
 
 
 @pytest.mark.asyncio

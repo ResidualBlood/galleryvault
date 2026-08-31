@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
-from .eh_client import EhImageSlowError, GalleryData, GalleryPageData, ShowkeyState
+from .eh_client import (
+    ArchiveExpiredError,
+    EhImageSlowError,
+    GalleryData,
+    GalleryPageData,
+    ShowkeyState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +62,8 @@ class DownloadResult:
     title_jpn: str | None = None
     token: str | None = None
     tags: tuple[tuple[str, str], ...] = ()
+    quality: str | None = None
+    new_files: tuple[str, ...] = ()
 
 
 class DownloadClient(Protocol):
@@ -243,7 +251,36 @@ class Downloader:
         self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
         if task.mode and "archive" in task.mode:
-            return await self._download_archive_once(task, progress)
+            temp = self.root / f".gv-{task.gid}"
+            if (temp / ".archive_fallback").exists():
+                logger.info(
+                    "archive fallback marker found; continuing page-by-page",
+                    extra=log_extra(gid=task.gid),
+                )
+                return await self._download_pages(task, progress)
+            try:
+                return await self._download_archive_once(task, progress)
+            except ArchiveNotRetryableError:
+                # The archive channel cannot serve this gallery (no such tier,
+                # insufficient GP, corrupt zip). When enabled, fall back to the
+                # page-by-page channel, which costs no GP and lets H@H carry the
+                # traffic, instead of failing the whole download.
+                settings = getattr(self.client, "settings", None)
+                if not getattr(settings, "archive_fallback_pages", True):
+                    raise
+                logger.info(
+                    "archive download unavailable; falling back to page-by-page",
+                    extra=log_extra(gid=task.gid),
+                )
+                temp = self.root / f".gv-{task.gid}"
+                temp.mkdir(parents=True, exist_ok=True)
+                (temp / ".archive_fallback").touch()
+                return await self._download_pages(task, progress)
+        return await self._download_pages(task, progress)
+
+    async def _download_pages(
+        self, task: DownloadTask, progress: ProgressCallback | None = None
+    ) -> DownloadResult:
         # Pass max_pages through to fetch_gallery so a sample download only
         # resolves the pages it actually needs (otherwise every page's URL is
         # fetched from ExHentai via showpage before the list is truncated).
@@ -416,17 +453,18 @@ class Downloader:
             (temp / ".download-manifest.json").write_text(
                 json.dumps({"gid": gallery.gid, "pages": done}), encoding="utf-8"
             )
-        self._write_metadata(temp, gallery, pages)
+        self._write_metadata(temp, gallery, pages, quality)
         manifest = temp / ".download-manifest.json"
         if manifest.exists():
             manifest.unlink()
-        return self._finalize_target(task, temp, gallery, pages)
+        return self._finalize_target(task, temp, gallery, pages, quality)
 
     def _write_metadata(
         self,
         temp: Path,
         gallery: GalleryData,
         pages: list[GalleryPageData],
+        quality: str | None = None,
     ) -> None:
         """Write the Ehviewer ``.ehviewer`` resume manifest and ``.galleryvault.json``.
 
@@ -464,6 +502,7 @@ class Downloader:
                         for tag in gallery.tags
                         if tag.get("name")
                     ],
+                    "quality": quality,
                 },
                 ensure_ascii=True,
             ),
@@ -476,6 +515,7 @@ class Downloader:
         temp: Path,
         gallery: GalleryData,
         pages: list[GalleryPageData],
+        quality: str | None = None,
     ) -> DownloadResult:
         """Merge the staged temp dir into the final ``<gid>-`` folder and return the result."""
         settings = getattr(self.client, "settings", None)
@@ -489,6 +529,13 @@ class Downloader:
                 gallery.title,
                 mode=getattr(settings, "download_title", None) or "japanese",
             )
+        new_files = tuple(
+            item.name
+            for item in temp.iterdir()
+            if item.is_file()
+            and not item.name.startswith(".")
+            and item.suffix.casefold() in _ARCHIVE_IMAGE_SUFFIXES
+        ) if temp.is_dir() else ()
         if target.exists():
             # Merge into the existing directory (already-downloaded pages were
             # copied into temp during resume) instead of deleting it, so files
@@ -510,6 +557,8 @@ class Downloader:
                 for tag in gallery.tags
                 if tag.get("name")
             ),
+            quality,
+            new_files,
         )
 
     async def _download_archive_once(
@@ -601,7 +650,12 @@ class Downloader:
         # URL intact, so the next attempt resumes with a Range request instead
         # of re-charging GP.  A corrupt/expired archive is caught later at
         # extraction time, which clears both and re-requests.
-        await self.client.download_archive(str(zip_url), zip_path, cb=_zip_progress)
+        try:
+            await self.client.download_archive(str(zip_url), zip_path, cb=_zip_progress)
+        except ArchiveExpiredError as exc:
+            zip_path.unlink(missing_ok=True)
+            state_file.unlink(missing_ok=True)
+            raise ArchiveNotRetryableError(str(exc)) from exc
         if progress is not None:
             await progress(len(pages), len(pages))
         unzip_dir = temp / "_unzip"
@@ -624,8 +678,14 @@ class Downloader:
             key=lambda item: item.name,
         )
         if not images:
+            zip_path.unlink(missing_ok=True)
+            state_file.unlink(missing_ok=True)
+            shutil.rmtree(unzip_dir, ignore_errors=True)
             raise ArchiveNotRetryableError("archive contained no images")
         if len(images) != len(pages):
+            zip_path.unlink(missing_ok=True)
+            state_file.unlink(missing_ok=True)
+            shutil.rmtree(unzip_dir, ignore_errors=True)
             raise ArchiveNotRetryableError(
                 f"archive image count {len(images)} != gallery page count {len(pages)}"
             )
@@ -637,8 +697,8 @@ class Downloader:
         # The archive state was consumed; drop it so it does not leak into the
         # final gallery folder (dotfiles are hidden but unnecessary).
         state_file.unlink(missing_ok=True)
-        self._write_metadata(temp, gallery, pages)
-        return self._finalize_target(task, temp, gallery, pages)
+        self._write_metadata(temp, gallery, pages, quality)
+        return self._finalize_target(task, temp, gallery, pages, quality)
 
     @staticmethod
     def _extract_zip(zip_path: Path, dest: Path) -> None:

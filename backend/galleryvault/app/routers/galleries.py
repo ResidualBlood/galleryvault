@@ -8,13 +8,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 from galleryvault.app import main
 from galleryvault.db.models import Gallery
-from galleryvault.db.repository import GalleryRepository, _chunked
+from galleryvault.db.repository import DownloadRepository, GalleryRepository, _chunked
 from galleryvault.logging import log_extra
 from galleryvault.scanners import registry
 from galleryvault.scanners.base import CATEGORIES, PageInfo
@@ -225,7 +226,63 @@ async def gallery_detail(identifier: int) -> dict[str, object]:
             for namespace, name in tags
         ],
         "tags_synced_at": row.tags_synced_at,
+        "image_quality": getattr(row, "image_quality", None),
     }
+
+
+class DownloadOriginalRequest(BaseModel):
+    archive: bool = False
+
+
+@router.post("/api/galleries/{identifier}/download-original", status_code=202)
+async def download_gallery_original(
+    identifier: int, body: DownloadOriginalRequest
+) -> dict[str, object]:
+    """Enqueue an original-quality download for a local gallery.
+
+    ``archive=False`` downloads page-by-page (no GP); ``archive=True`` goes
+    through the ExHentai archive (zip) channel.  For the page-by-page path the
+    first page is resolved up front so a resample-only gallery is rejected
+    instead of silently downgrading to resample.
+    """
+    row, _ = await main._gallery(identifier)
+    if not row.gid or not row.token:
+        raise HTTPException(status_code=422, detail="Gallery has no ExHentai gid/token")
+    mode = "gallery_archive" if body.archive else "gallery"
+    if not body.archive:
+        client = main.app.state.eh_client
+        if client is None:
+            raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
+        try:
+            preview = await client.fetch_gallery(
+                row.gid, row.token, max_pages=1, resolve_urls=True
+            )
+        except Exception as exc:
+            main.logger.warning(
+                "original availability check failed",
+                extra=log_extra(gid=row.gid, error=type(exc).__name__),
+            )
+            raise HTTPException(
+                status_code=502, detail="ExHentai metadata request failed"
+            ) from exc
+        if not preview.pages or not preview.pages[0].origin_url:
+            raise HTTPException(
+                status_code=422, detail="No original images available for this gallery"
+            )
+    try:
+        async with main._settings_session() as session, session.begin():
+            task = await DownloadRepository(session).create(
+                row.gid, row.token, row.title, mode, None, "original"
+            )
+            if task is None:
+                raise HTTPException(
+                    status_code=409, detail="An active download already exists for this gid"
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise main._db_error(exc) from exc
+    return {"id": task.id, "gid": task.gid, "status": "pending"}
 
 
 @router.get("/api/galleries/{identifier}/progress")

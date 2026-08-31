@@ -71,9 +71,10 @@ class ExistingGallery:
     gallery_id: int
     storage_type: str
     title: str
-    file_count: int | None
-    file_size: int | None
-    posted_at: datetime | None
+    title_jpn: str | None = None
+    file_count: int | None = None
+    file_size: int | None = None
+    posted_at: datetime | None = None
 
 
 @dataclass
@@ -93,6 +94,7 @@ class GalleryMeta:
     posted_at: datetime | None = None
     tags: list[dict[str, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    image_quality: str | None = None
     source_meta: dict[str, Any] = field(default_factory=dict)
     storage_signature: str = ""
     storage_mtime_ns: int | None = None

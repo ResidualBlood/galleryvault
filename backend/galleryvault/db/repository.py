@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import and_, delete, false, func, or_, select, tuple_, update
+from sqlalchemy import and_, case, delete, false, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +77,7 @@ class GalleryRepository:
                 "storage_mtime_ns": gallery.storage_mtime_ns,
                 "storage_size": gallery.storage_size,
                 "storage_signature": gallery.storage_signature,
+                "image_quality": gallery.image_quality,
                 "expunged": False,
                 "cover_path": gallery.pages[0].name if gallery.pages else None,
                 "page_count": len(gallery.pages),
@@ -114,6 +115,10 @@ class GalleryRepository:
                 changed.append((row, gallery))
             elif row.storage_signature != gallery.storage_signature or row.expunged:
                 for name, value in values_by_key[key].items():
+                    if name == "image_quality" and value is None:
+                        # Keep an already-known quality: a re-scan of a download
+                        # without a fresh quality marker must not erase it.
+                        continue
                     setattr(row, name, value)
                 changed.append((row, gallery))
         if changed:
@@ -212,6 +217,7 @@ class GalleryRepository:
                 Gallery.id,
                 Gallery.storage_type,
                 Gallery.title,
+                Gallery.title_jpn,
                 Gallery.file_count,
                 Gallery.file_size,
                 Gallery.posted_at,
@@ -234,6 +240,7 @@ class GalleryRepository:
                     gallery_id=m["id"],
                     storage_type=m["storage_type"],
                     title=m["title"],
+                    title_jpn=m["title_jpn"],
                     file_count=m["file_count"],
                     file_size=m["file_size"],
                     posted_at=m["posted_at"],
@@ -932,6 +939,72 @@ class GalleryRepository:
         )
         return [(int(row[0]), str(row[1])) for row in rows]
 
+    async def pending_image_quality_gids(
+        self, limit: int = 500, last_id: int = 0
+    ) -> list[Gallery]:
+        """Local galleries whose image quality is still unknown.
+
+        Filters to galleries that could ever be inferred: a known ExHentai
+        ``gid``, a token for gdata lookups, a real on-disk ``storage_size`` and
+        not expunged.  Oldest-first, id-cursor paged for bounded memory.
+        """
+        return list(
+            (
+                await self.session.scalars(
+                    select(Gallery)
+                    .where(
+                        Gallery.gid.is_not(None),
+                        Gallery.image_quality.is_(None),
+                        Gallery.expunged.is_(False),
+                        Gallery.token.is_not(None),
+                        Gallery.storage_size.is_not(None),
+                        Gallery.storage_size > 0,
+                        Gallery.id > last_id,
+                    )
+                    .order_by(Gallery.id)
+                    .limit(limit)
+                )
+            ).all()
+        )
+
+    async def storage_size_map(
+        self, gids: list[int]
+    ) -> dict[int, tuple[int | None, str | None]]:
+        """``gid -> (local storage_size, storage_type)`` for on-disk galleries."""
+        if not gids:
+            return {}
+        rows = await self.session.execute(
+            select(Gallery.gid, Gallery.storage_size, Gallery.storage_type).where(
+                Gallery.gid.in_(list(dict.fromkeys(gids)))
+            )
+        )
+        return {int(gid): (size, stype) for gid, size, stype in rows}
+
+    async def set_image_qualities(self, mapping: dict[int, str]) -> int:
+        """Persist inferred image quality per gid (never overwrites known ones).
+
+        Only rows whose quality is still ``NULL`` are touched, so a download
+        that explicitly marked a gallery keeps its authoritative value.
+        """
+        if not mapping:
+            return 0
+        stmt = (
+            update(Gallery)
+            .where(
+                Gallery.gid.in_(list(mapping.keys())),
+                Gallery.image_quality.is_(None),
+            )
+            .values(
+                image_quality=case(
+                    *[(Gallery.gid == gid, quality) for gid, quality in mapping.items()],
+                    else_=Gallery.image_quality,
+                ),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return int(result.rowcount or 0)
+
     async def apply_metadata_to_galleries(self, favcat: int, limit: int = 200) -> int:
         """Apply fresh cached metadata to local galleries of a favorite folder.
 
@@ -1365,6 +1438,23 @@ class GalleryUpdatesRepository:
         row.updated_at = datetime.now(UTC)
         return True
 
+    async def mark_failed_by_task(self, task_id: int, error: str | None) -> int:
+        """Fail gallery-update rows referencing a removed download task.
+
+        Deleting a download task leaves the ``gallery_updates`` row stuck in
+        ``downloading`` (the finalize loop would never see the task).  Mark
+        them failed so the user can retry or ignore the update.
+        """
+        result = await self.session.execute(
+            update(GalleryUpdate)
+            .where(
+                GalleryUpdate.download_task_id == task_id,
+                GalleryUpdate.status == "downloading",
+            )
+            .values(status="failed", error_message=error, updated_at=datetime.now(UTC))
+        )
+        return int(result.rowcount or 0)
+
     async def mark_ignored(self, ids: Sequence[int]) -> int:
         if not ids:
             return 0
@@ -1385,6 +1475,25 @@ class GalleryUpdatesRepository:
             update(GalleryUpdate)
             .where(GalleryUpdate.id.in_(list(ids)), GalleryUpdate.status == "ignored")
             .values(status="pending", updated_at=datetime.now(UTC))
+        )
+        return int(result.rowcount or 0)
+
+    async def delete_many(self, ids: Sequence[int]) -> int:
+        """Permanently remove gallery-update rows.
+
+        Only rows that are not mid-download are deletable: a ``downloading``
+        row has a live download task whose finalize loop would look the row up
+        by id, so removing it would orphan that task.  The frontend only shows
+        the delete action for failed rows; this guard also protects against
+        future callers.
+        """
+        if not ids:
+            return 0
+        result = await self.session.execute(
+            delete(GalleryUpdate).where(
+                GalleryUpdate.id.in_(list(ids)),
+                GalleryUpdate.status.in_(["failed", "ignored", "pending"]),
+            )
         )
         return int(result.rowcount or 0)
 
