@@ -126,32 +126,81 @@ window.addEventListener("online", () => {
   toast(t("onlineNotice"));
 });
 
-function bindTagSuggest() {
-  const input = document.getElementById("global-search");
-  const box = document.getElementById("tag-suggest-top");
-  if (!input || !box) return;
-  input.oninput = () => {
-    clearTimeout(suggestTimer);
-    const q = input.value.trim();
-    if (!q) { box.hidden = true; return; }
-    suggestTimer = setTimeout(async () => {
-      try {
-        const data = await api("GET", `/api/tags/search?q=${encodeURIComponent(q)}&page_size=8`);
-        box.innerHTML = (data.items || []).map(t => `<div class="sug-item" data-action="pick-tag" data-tag="${esc(t.namespace ? t.namespace+':'+t.name : t.name)}">${esc(tagText(t))}</div>`).join("");
-        box.hidden = false;
-        box.querySelectorAll(".sug-item").forEach(it => it.onclick = () => {
-          const tag = it.getAttribute("data-tag");
-          const cur = parseTags(app.query.tags || "");
-          if (!cur.includes(tag)) cur.push(tag);
-          location.hash = tagFilterHash(cur);
-          box.hidden = true;
-        });
-      } catch (_) { box.hidden = true; }
-    }, 180);
-  };
-  document.addEventListener("click", ev => {
-    if (!box.contains(ev.target) && ev.target !== input) box.hidden = true;
+function dismissTagSuggest(e) {
+  document.querySelectorAll(".tag-suggest").forEach(b => {
+    if (!b.contains(e.target) && (!b.parentElement || !b.parentElement.contains(e.target))) {
+      b.hidden = true;
+    }
   });
+}
+
+async function loadTagSuggest(q, box, input) {
+  if (!box) return;
+  try {
+    const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/u.test(q);
+    const url = `/api/tags/search?q=${encodeURIComponent(q)}&page_size=8${isCjk ? "&zh=1" : ""}`;
+    const data = await api("GET", url);
+    const items = (data && data.items) || [];
+    if (!items.length) { box.hidden = true; return; }
+    box.innerHTML = items.map(it => {
+      const display = tagText(it);
+      return `
+      <div class="suggest-item" data-tags="${esc(`${it.namespace}:${it.name}`)}" data-display="${esc(display)}">
+        <span class="suggest-name">${esc(display)}</span>
+        <span class="suggest-ns">${esc(nsLabel(it.namespace))} · ${it.usage_count}</span>
+      </div>`;
+    }).join("");
+    box.hidden = false;
+    box.querySelectorAll(".suggest-item").forEach(item => {
+      item.addEventListener("click", () => {
+        box.hidden = true;
+        const tag = item.getAttribute("data-tags");
+        const display = item.getAttribute("data-display") || "";
+        const i = tag.indexOf(":");
+        const ns = tag.slice(0, i);
+        const name = tag.slice(i + 1);
+        // Consume the clicked tag's text from the input so it does not also
+        // act as a title keyword; the remaining words stay the text query.
+        const consumed = new Set([name, display, tag, ns ? `${ns}:${display}` : ""]
+          .filter(Boolean).map(s => s.trim()));
+        const remaining = (input ? input.value : "").split(/\s+/).map(s => s.trim())
+          .filter(s => s && !consumed.has(s)).join(" ");
+        if (input) input.value = remaining;
+        const curTags = parseTags(app.query.tags);
+        if (!curTags.includes(tag)) curTags.push(tag);
+        location.hash = navHash("library", {}, {
+          ...(remaining ? { q: remaining } : {}),
+          ...(app.query.category ? { category: app.query.category } : {}),
+          tags: curTags.join(","),
+          tag_mode: "and",
+        });
+      });
+    });
+  } catch (_) { box.hidden = true; }
+}
+
+function bindTagSuggest() {
+  document.querySelectorAll('.search-box input[name="q"]').forEach(input => {
+    if (input.dataset.suggestBound) return;
+    input.dataset.suggestBound = "1";
+    const box = input.parentElement.querySelector(".tag-suggest");
+    if (!box) return;
+    input.addEventListener("input", () => {
+      clearTimeout(suggestTimer);
+      const value = input.value.trim();
+      if (!value) { box.hidden = true; return; }
+      suggestTimer = setTimeout(() => loadTagSuggest(value, box, input), 200);
+    });
+    input.addEventListener("focus", () => {
+      const value = input.value.trim();
+      if (value) loadTagSuggest(value, box, input);
+    });
+    box.addEventListener("click", (e) => e.stopPropagation());
+  });
+  if (!window.__gvSuggestBound) {
+    window.__gvSuggestBound = true;
+    document.addEventListener("click", dismissTagSuggest);
+  }
 }
 
 // onChange moved here too for completeness
