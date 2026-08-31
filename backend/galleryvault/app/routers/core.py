@@ -24,4 +24,9 @@ async def healthz() -> dict[str, str]:
 
 @router.get("/metrics")
 async def metrics() -> str:
+    from galleryvault.observability import set_gauge
+
+    set_gauge("gv_scan_running", 1 if main.scan_state.get("running") else 0)
+    set_gauge("gv_tag_sync_running", 1 if main.tag_sync_state.get("running") else 0)
+    set_gauge("gv_thumb_queued", int(main.thumb_state.get("queued") or 0))
     return render_metrics()

@@ -1558,3 +1558,13 @@ def test_resolve_display_title_modes(monkeypatch) -> None:
     assert main.resolve_display_title(None, None, "") == ""
     assert main.resolve_display_title("en", None) == "en"
     assert main.resolve_display_title("", "jp") == "jp"
+
+
+def test_observability_gauges_and_counters() -> None:
+    from galleryvault.observability import inc_counter, render_metrics, set_gauge
+
+    inc_counter("gv_download_tasks_total", 3, {"status": "completed"})
+    set_gauge("gv_scan_running", 1)
+    rendered = render_metrics()
+    assert 'gv_download_tasks_total{status="completed"} 3' in rendered
+    assert "gv_scan_running 1" in rendered
