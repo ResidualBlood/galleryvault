@@ -28,6 +28,7 @@ _login_lock = asyncio.Lock()
 async def login_gate(ip: str) -> bool:
     """Return True if ip may attempt a login within the rate window."""
     global _login_attempts
+    ip = str(ip)[:64]
     now = time.time()
     async with _login_lock:
         if len(_login_attempts) > 2048:
@@ -45,6 +46,7 @@ async def login_gate(ip: str) -> bool:
 
 
 async def login_succeeded(ip: str) -> None:
+    ip = str(ip)[:64]
     async with _login_lock:
         _login_attempts.pop(ip, None)
 
@@ -66,7 +68,7 @@ def client_ip(request: Request) -> str:
     peer = request.client.host if request.client else "unknown"
     if is_trusted_proxy(peer):
         real = request.headers.get("x-real-ip")
-        if real and real.strip():
+        if real and len(real) <= 128 and real.strip():
             candidate = real.strip()
             try:
                 ipaddress.ip_address(candidate)
@@ -74,15 +76,16 @@ def client_ip(request: Request) -> str:
             except ValueError:
                 pass
         forwarded = request.headers.get("x-forwarded-for")
-        if forwarded and forwarded.strip():
-            for part in [p.strip() for p in forwarded.split(",")]:
-                if part:
+        if forwarded and len(forwarded) <= 512 and forwarded.strip():
+            parts = [p.strip() for p in forwarded.split(",")][:16]
+            for part in parts:
+                if part and len(part) <= 64:
                     try:
                         ipaddress.ip_address(part)
                         return part
                     except ValueError:
                         pass
-    return peer
+    return str(peer)[:64]
 
 
 def verify_login_password(password: str, effective: str | None) -> bool:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import Any, Self
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .repository import (
     BackgroundJobsRepository,
@@ -13,16 +15,22 @@ from .repository import (
     SettingsRepository,
 )
 
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 
 class UnitOfWork:
     """Encapsulates a database transaction and provides convenient repository access."""
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
-        self.session: AsyncSession | None = None
+    def __init__(
+        self,
+        session_or_factory: Any,
+    ) -> None:
+        if callable(session_or_factory) and not hasattr(session_or_factory, "begin") and not isinstance(session_or_factory, AsyncSession):
+            self._session_factory = session_or_factory
+            self.session = None
+            self._external_session = False
+        else:
+            self._session_factory = None
+            self.session = session_or_factory
+            self._external_session = True
         self._galleries: GalleryRepository | None = None
         self._downloads: DownloadRepository | None = None
         self._favorites: FavoritesRepository | None = None
@@ -31,19 +39,26 @@ class UnitOfWork:
         self._updates: GalleryUpdatesRepository | None = None
 
     async def __aenter__(self) -> Self:
-        self.session = self._session_factory()
-        await self.session.begin()
+        if self._session_factory is not None:
+            self.session = self._session_factory()
+            if hasattr(self.session, "begin"):
+                await self.session.begin()
+        elif self.session is not None:
+            in_tx = getattr(self.session, "in_transaction", None)
+            if callable(in_tx) and not in_tx() and hasattr(self.session, "begin"):
+                await self.session.begin()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         if self.session is not None:
             try:
-                if exc_type is not None:
+                if exc_type is not None and hasattr(self.session, "rollback"):
                     await self.session.rollback()
-                else:
+                elif not self._external_session and hasattr(self.session, "commit"):
                     await self.session.commit()
             finally:
-                await self.session.close()
+                if not self._external_session and hasattr(self.session, "close"):
+                    await self.session.close()
 
     async def commit(self) -> None:
         if self.session is not None:

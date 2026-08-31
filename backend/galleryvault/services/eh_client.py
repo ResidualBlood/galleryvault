@@ -1357,6 +1357,10 @@ class EhClient:
                     if total is not None and offset == total:
                         return total
                     # Range not satisfiable or file corrupted/oversized: delete destination to restart clean
+                    logger.warning(
+                        "archive download 416 range error, clearing corrupt partial file",
+                        extra=log_extra(dest=str(dest), offset=offset, total=total),
+                    )
                     dest.unlink(missing_ok=True)
                     raise EhClientError("ExHentai archive range is not satisfiable")
                 if response.status_code == 200:

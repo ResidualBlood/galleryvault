@@ -42,9 +42,38 @@ class FavoriteCategoryRequest(BaseModel):
 
 
 class FavoritesRemoveRequest(BaseModel):
-    items: list[dict[str, Any]]
+    gids: list[int] = Field(default_factory=list)
+    delete_local: bool = False
+    items: list[dict[str, Any]] = Field(default_factory=list)
     delete_files: bool = False
     delete_all_copies: bool = False
+
+    @model_validator(mode="after")
+    def populate_gids(self) -> FavoritesRemoveRequest:
+        if not self.gids and self.items:
+            extracted: list[int] = []
+            for it in self.items:
+                if isinstance(it, dict) and "gid" in it:
+                    try:
+                        extracted.append(int(it["gid"]))
+                    except (ValueError, TypeError):
+                        pass
+            object.__setattr__(self, "gids", extracted)
+        if self.delete_files:
+            object.__setattr__(self, "delete_local", True)
+        elif self.delete_local:
+            object.__setattr__(self, "delete_files", True)
+        return self
+
+
+class ArchivePreviewRequest(BaseModel):
+    gids: list[int]
+
+
+class DownloadSelectedRequest(BaseModel):
+    gids: list[int]
+    archive: bool = False
+    quality: str | None = None
 
 
 class DuplicateIgnoreRequest(BaseModel):
@@ -54,21 +83,43 @@ class DuplicateIgnoreRequest(BaseModel):
 
 
 class ProgressRequest(BaseModel):
-    page: int = Field(ge=0)
+    current_page: int = Field(default=0, ge=0)
+    total_pages: int | None = Field(default=None, ge=0)
+    page: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def sync_page(self) -> ProgressRequest:
+        if self.page is not None and self.current_page == 0:
+            object.__setattr__(self, "current_page", self.page)
+        elif self.current_page is not None and self.page is None:
+            object.__setattr__(self, "page", self.current_page)
+        return self
 
 
 class BulkDeleteRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list)
     gallery_ids: list[int] = Field(default_factory=list)
     delete_files: bool = False
     delete_all_copies: bool = False
 
+    @model_validator(mode="after")
+    def sync_ids(self) -> BulkDeleteRequest:
+        if not self.ids and self.gallery_ids:
+            object.__setattr__(self, "ids", list(self.gallery_ids))
+        elif not self.gallery_ids and self.ids:
+            object.__setattr__(self, "gallery_ids", list(self.ids))
+        return self
+
 
 class FilteredDeleteRequest(BaseModel):
+    q: str = ""
+    category: str | None = None
+    tags: str | None = None
+    tag: str | None = None
+    tag_mode: str = "or"
+    tag_match: str = "exact"
     delete_files: bool = False
     delete_all_copies: bool = False
-    q: str | None = None
-    category: str | None = None
-    tag: str | None = None
     uploader: str | None = None
     min_rating: float | None = None
     favorite: bool | None = None
@@ -80,6 +131,14 @@ class FilteredDeleteRequest(BaseModel):
     storage_type: str | None = None
     min_posted_at: str | None = None
     max_posted_at: str | None = None
+
+    @model_validator(mode="after")
+    def sync_tags(self) -> FilteredDeleteRequest:
+        if not self.tags and self.tag:
+            object.__setattr__(self, "tags", self.tag)
+        elif not self.tag and self.tags:
+            object.__setattr__(self, "tag", self.tags)
+        return self
 
 
 class UpdateIdsRequest(BaseModel):

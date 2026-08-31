@@ -46,6 +46,16 @@ def get_current_settings() -> Settings:
     return get_settings()
 
 
+def get_session_factory() -> Any:
+    from . import main
+    session_cm = getattr(main, "_settings_session", None)
+    if session_cm is not None:
+        return session_cm
+    if app_state.session_factory is not None:
+        return app_state.session_factory
+    raise HTTPException(status_code=503, detail="Database session factory not initialized")
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     """Yield an async database session for request scope."""
     from . import main
@@ -65,7 +75,7 @@ async def get_uow(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> AsyncIterator[UnitOfWork]:
     """Yield a UnitOfWork wrapper over the active session."""
-    async with UnitOfWork(session=session) as uow:
+    async with UnitOfWork(session) as uow:
         yield uow
 
 

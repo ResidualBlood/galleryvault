@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from ..services.thumbnails import ThumbnailService
 
 
+from ..services.tasks import default_task_manager
+
+
 @dataclass
 class AppState:
     """Central container holding singleton services and configuration."""
@@ -35,9 +38,9 @@ class AppState:
     library_service: LibraryService | None = None
     tag_service: TagSyncService | None = None
     thumbnail_service: ThumbnailService | None = None
-    task_manager: TaskManager | None = None
+    task_manager: TaskManager = default_task_manager
     extra: dict[str, Any] = field(default_factory=dict)
 
 
 # Global singleton app state reference
-app_state = AppState()
+app_state = AppState(task_manager=default_task_manager)

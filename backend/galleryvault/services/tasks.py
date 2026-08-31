@@ -167,7 +167,7 @@ class TaskManager:
         try:
             from ..db.models import AppConfig
 
-            async with session_cm() as session:
+            async with session_cm() as session, session.begin():
                 if hasattr(session, "get"):
                     row = await session.get(AppConfig, "task_history")
                 else:
@@ -205,17 +205,17 @@ class TaskManager:
             running_tasks.append({
                 "task": "scan",
                 "started_at": self.scan_state.get("started_at"),
-                "done": 0,
+                "done": int(self.scan_state.get("scanned") or 0),
                 "total": None,
                 "stage": None,
-                "cancellable": False,
+                "cancellable": True,
             })
         if self.tag_sync_state.get("running"):
             running_tasks.append({
                 "task": "tag-sync",
                 "started_at": self.tag_sync_state.get("started_at"),
-                "done": self.tag_sync_state.get("processed", 0),
-                "total": self.tag_sync_state.get("total", 0),
+                "done": int(self.tag_sync_state.get("processed") or 0),
+                "total": int(self.tag_sync_state.get("total") or 0),
                 "stage": None,
                 "cancellable": True,
             })
@@ -223,28 +223,45 @@ class TaskManager:
             running_tasks.append({
                 "task": "thumbs",
                 "started_at": self.thumb_state.get("started_at"),
-                "done": self.thumb_state.get("processed", 0),
-                "total": self.thumb_state.get("total", 0),
+                "done": int(self.thumb_state.get("succeeded") or 0) + int(self.thumb_state.get("failed") or 0),
+                "total": int(self.thumb_state.get("total") or 0),
                 "stage": None,
                 "cancellable": True,
+            })
+        if self.metadata_sync_state.get("running"):
+            running_tasks.append({
+                "task": "metadata",
+                "started_at": self.metadata_sync_state.get("started_at"),
+                "done": int(self.metadata_sync_state.get("done") or 0),
+                "total": int(self.metadata_sync_state.get("total") or 0),
+                "stage": self.metadata_sync_state.get("stage"),
+                "cancellable": True,
+            })
+        if self.favorites_check_state.get("running"):
+            running_tasks.append({
+                "task": "favcheck",
+                "started_at": self.favorites_check_state.get("started_at"),
+                "done": sum(
+                    int(item.get("done") or 0)
+                    for item in self.favorites_check_state.get("categories", {}).values()
+                    if isinstance(item, dict)
+                ),
+                "total": sum(
+                    int(item.get("total") or 0)
+                    for item in self.favorites_check_state.get("categories", {}).values()
+                    if isinstance(item, dict)
+                ),
+                "stage": None,
+                "cancellable": False,
             })
         if self.translation_state.get("running"):
             running_tasks.append({
                 "task": "translation",
                 "started_at": self.translation_state.get("started_at"),
-                "done": 0,
+                "done": int(self.translation_state.get("entries") or 0),
                 "total": None,
                 "stage": None,
                 "cancellable": False,
-            })
-        if self.metadata_sync_state.get("running"):
-            running_tasks.append({
-                "task": "metadata-sync",
-                "started_at": self.metadata_sync_state.get("started_at"),
-                "done": self.metadata_sync_state.get("done", 0),
-                "total": self.metadata_sync_state.get("total", 0),
-                "stage": self.metadata_sync_state.get("stage"),
-                "cancellable": True,
             })
         if self.duplicates_state.get("running"):
             running_tasks.append({
@@ -254,15 +271,6 @@ class TaskManager:
                 "total": self.duplicates_state.get("total", 0),
                 "stage": self.duplicates_state.get("stage"),
                 "cancellable": False,
-            })
-        if self.favorites_check_state.get("running"):
-            running_tasks.append({
-                "task": "favorites-check",
-                "started_at": self.favorites_check_state.get("started_at"),
-                "done": 0,
-                "total": 0,
-                "stage": None,
-                "cancellable": True,
             })
         if self.gallery_updates_state.get("detecting"):
             running_tasks.append({

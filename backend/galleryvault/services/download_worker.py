@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time as _time
 from datetime import UTC, datetime, timedelta
@@ -212,6 +213,45 @@ async def telegram_flush_loop() -> None:
                 )
 
 
+def is_download_cancelled(task_id: int | None) -> bool:
+    if task_id is None:
+        return False
+    tm = app_state.task_manager
+    if tm and tm.is_cancelled(task_id):
+        return True
+    from ..app import main
+    cancelled_set = getattr(main, "_download_cancelled", None)
+    if cancelled_set is not None and (isinstance(cancelled_set, set) or hasattr(cancelled_set, "__contains__")):
+        return task_id in cancelled_set
+    return False
+
+
+def clear_download_cancelled(task_id: int | None) -> None:
+    if task_id is None:
+        return
+    tm = app_state.task_manager
+    if tm:
+        tm.clear_cancelled(task_id)
+    from ..app import main
+    cancelled_set = getattr(main, "_download_cancelled", None)
+    if cancelled_set is not None and (isinstance(cancelled_set, set) or hasattr(cancelled_set, "discard")):
+        with contextlib.suppress(Exception):
+            cancelled_set.discard(task_id)
+
+
+def mark_download_cancelled(task_id: int | None) -> None:
+    if task_id is None:
+        return
+    tm = app_state.task_manager
+    if tm:
+        tm.request_cancel(task_id)
+    from ..app import main
+    cancelled_set = getattr(main, "_download_cancelled", None)
+    if cancelled_set is not None and (isinstance(cancelled_set, set) or hasattr(cancelled_set, "add")):
+        with contextlib.suppress(Exception):
+            cancelled_set.add(task_id)
+
+
 async def run_download(task: DownloadTask) -> None:
     from ..app import main
     session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
@@ -221,10 +261,6 @@ async def run_download(task: DownloadTask) -> None:
     downloader = getattr(st, "downloader", None) or app_state.downloader
     if downloader is None:
         return
-    cancelled_set = getattr(main, "_download_cancelled", None)
-    if cancelled_set is None:
-        tm = app_state.task_manager
-        cancelled_set = tm._cancelled_tasks if tm else set()
     notify_fn = getattr(main, "_record_download_notification", record_download_notification)
     maybe_scan_fn = getattr(main, "_maybe_scan_after_download", maybe_scan_after_download)
 
@@ -240,7 +276,7 @@ async def run_download(task: DownloadTask) -> None:
         progress_state = {"last_persisted": 0, "last_flush": 0.0}
 
         async def _on_progress(current: int, total: int) -> None:
-            if task.id is not None and task.id in cancelled_set:
+            if is_download_cancelled(task.id):
                 raise DownloadCancelledError("download was cancelled")
             now = _time.monotonic()
             if (
@@ -272,7 +308,7 @@ async def run_download(task: DownloadTask) -> None:
         async with session_cm() as session, session.begin():
             row = await session.get(DownloadTaskModel, task.id)
             if row is not None:
-                if row.status == "cancelled" or (task.id is not None and task.id in cancelled_set):
+                if row.status == "cancelled" or is_download_cancelled(task.id):
                     raise DownloadCancelledError("download was cancelled")
                 row.status, row.target_path, row.category = (
                     "success",
@@ -288,8 +324,7 @@ async def run_download(task: DownloadTask) -> None:
                 )
                 completed = True
 
-        if task.id is not None:
-            cancelled_set.discard(task.id)
+        clear_download_cancelled(task.id)
         if completed:
             await notify_fn("ok", result.title or str(task.gid), str(result.pages))
             maybe_scan_fn(result)
@@ -302,8 +337,7 @@ async def run_download(task: DownloadTask) -> None:
                 shutil.rmtree(temp, ignore_errors=True)
         except OSError:
             pass
-        if task.id is not None:
-            cancelled_set.discard(task.id)
+        clear_download_cancelled(task.id)
         logger.info("download cancelled", extra=log_extra(gid=task.gid))
     except Exception as exc:  # noqa: BLE001
         logger.error(

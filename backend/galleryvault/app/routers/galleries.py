@@ -15,7 +15,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 from ...db.models import Gallery, GalleryPage, GalleryTag, Tag
-from ...db.repository import DownloadRepository, GalleryRepository
+from ...db.repository import (
+    DownloadRepository,
+    FavoritesRepository,
+    GalleryRepository,
+    _chunked,
+)
 from ...logging import log_extra
 from ...scanners import registry
 from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
@@ -197,17 +202,19 @@ async def _resolve_search_tokens(
                 keywords.append(token)
         else:
             keywords.append(token)
-    return explicit, " ".join(keywords), False
+    return explicit, " ".join(keywords), bool(explicit)
 
 
 @router.get("/api/galleries")
 async def list_galleries(
     page: int = 1,
     page_size: int = 24,
-    order: str = "id_desc",
-    category: str | None = None,
     q: str | None = None,
     tags: str | None = None,
+    tag_mode: str = "or",
+    tag_match: str = "exact",
+    category: str | None = None,
+    order: str = "id_desc",
     uploader: str | None = None,
     min_rating: float | None = None,
     favorite: bool | None = None,
@@ -221,24 +228,30 @@ async def list_galleries(
     max_posted_at: str | None = None,
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(status_code=422, detail="page_size must be between 1 and 500")
-
-    category_filter = category
+        raise HTTPException(
+            status_code=422, detail="page must be >= 1 and page_size must be between 1 and 500"
+        )
+    if tag_mode not in {"and", "or"} or tag_match not in {"exact", "fuzzy"}:
+        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
+    if category == "":
+        category = None
     exclude_favorited = False
     if category == "__not_fav__":
         exclude_favorited = True
-        category_filter = None
+        category = None
     elif category and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail=f"category must be one of {', '.join(CATEGORIES)}")
 
     parsed_tags = _parse_tag_filter(tags)
-    search_keywords = q or None
-    query_modified = False
+    resolved_q = q or ""
+    resolved = False
     if q and q.strip():
-        inferred_tags, remaining_keywords, query_modified = await _resolve_search_tokens(q)
-        if inferred_tags:
-            parsed_tags = _dedupe_tags(parsed_tags + inferred_tags)
-        search_keywords = remaining_keywords or None
+        auto_tags, keywords, changed = await _resolve_search_tokens(q)
+        resolved = changed
+        if changed:
+            parsed_tags.extend(auto_tags)
+            parsed_tags = _dedupe_tags(parsed_tags)
+            resolved_q = keywords
     try:
         async for session in get_session():
             from .. import main
@@ -246,9 +259,11 @@ async def list_galleries(
             total, rows = await repo_cls(session).list_page(
                 page,
                 page_size,
-                q=search_keywords,
+                q=resolved_q,
                 tags=parsed_tags if parsed_tags else (),
-                category=category_filter,
+                tag_mode=tag_mode,
+                tag_match=tag_match,
+                category=category,
                 exclude_favorited=exclude_favorited,
             )
             tag_map = await repo_cls(session).tags_for_galleries([r.id for r in rows if getattr(r, "id", None)])
@@ -260,7 +275,12 @@ async def list_galleries(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "category": category,
+        "q": resolved_q,
+        "tags": ",".join(f"{namespace}:{name}" if namespace else name for namespace, name in parsed_tags),
+        "resolved": resolved,
+        "tag_mode": tag_mode,
+        "tag_match": tag_match,
+        "category": "__not_fav__" if exclude_favorited else (category or ""),
         "query_tags": (
             [
                 {
@@ -270,7 +290,7 @@ async def list_galleries(
                 }
                 for ns, name in parsed_tags
             ]
-            if query_modified
+            if resolved
             else []
         ),
         "items": [
@@ -279,20 +299,12 @@ async def list_galleries(
                 "gid": getattr(row, "gid", None),
                 "token": getattr(row, "token", None),
                 "title": display_title(row),
+                "title_english": getattr(row, "title", None),
                 "title_jpn": getattr(row, "title_jpn", None),
-                "category": getattr(row, "category", "other"),
-                "uploader": getattr(row, "uploader", None),
-                "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
-                "page_count": getattr(row, "page_count", 0),
-                "storage_size": getattr(row, "storage_size", 0),
-                "rating": getattr(row, "rating", None),
-                "favorite": getattr(row, "favorite", False),
-                "favorite_category": getattr(row, "favorite_category", None),
-                "reading_progress": getattr(row, "reading_progress", None),
-                "expunged": getattr(row, "expunged", False),
-                "cover_url": f"/api/galleries/{row.id}/thumb/0",
-                "image_quality": getattr(row, "image_quality", None),
                 "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
+                "category": getattr(row, "category", "other") or "other",
+                "page_count": getattr(row, "page_count", 0) or 0,
+                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
                 "tags": [
                     {
                         "namespace": ns,
@@ -301,6 +313,16 @@ async def list_galleries(
                     }
                     for ns, name in tag_map.get(row.id, [])
                 ],
+                "uploader": getattr(row, "uploader", None),
+                "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
+                "file_size": getattr(row, "file_size", None),
+                "storage_size": getattr(row, "storage_size", 0),
+                "rating": getattr(row, "rating", None),
+                "favorite": getattr(row, "favorite", False),
+                "favorite_category": getattr(row, "favorite_category", None),
+                "reading_progress": getattr(row, "reading_progress", None),
+                "expunged": getattr(row, "expunged", False),
+                "image_quality": getattr(row, "image_quality", None),
             }
             for row in rows
         ],
@@ -330,13 +352,29 @@ async def list_categories() -> dict[str, object]:
 async def random_gallery() -> dict[str, object]:
     try:
         async for session in get_session():
-            row = await GalleryRepository(session).random_gallery()
+            gallery_id = await GalleryRepository(session).random_id()
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    if row is None:
-        raise HTTPException(status_code=404, detail="No galleries found")
-    return {"id": row.id}
+    if gallery_id is None:
+        raise HTTPException(status_code=404, detail="No galleries available")
+    return {"id": gallery_id}
+
+
+gallery_random = random_gallery
+
+
+@router.get("/api/galleries/{identifier}/next")
+async def gallery_next(identifier: int) -> dict[str, object]:
+    try:
+        async for session in get_session():
+            next_id = await GalleryRepository(session).next_gallery_id(identifier)
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    if next_id is None:
+        raise HTTPException(status_code=404, detail="No next gallery")
+    return {"id": next_id}
 
 
 @router.get("/api/galleries/{identifier}")
@@ -344,30 +382,54 @@ async def get_gallery(identifier: int) -> dict[str, object]:
     row, pages = await _gallery(identifier)
     tags = await _gallery_tags(row.id)
     settings = get_current_settings()
+    source_meta = getattr(row, "source_meta", None) or {}
+    spider_keys = (
+        "version",
+        "start_page",
+        "gid",
+        "token",
+        "mode",
+        "preview_pages",
+        "preview_per_page",
+        "pages",
+        "p_tokens",
+        "page_entries",
+        "warnings",
+    )
     return {
         "id": row.id,
         "gid": row.gid,
-        "token": row.token,
+        "token": getattr(row, "token", None),
         "title": display_title(row),
+        "title_english": getattr(row, "title", None),
         "title_jpn": getattr(row, "title_jpn", None),
-        "category": getattr(row, "category", "other"),
+        "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
+        "category": getattr(row, "category", "other") or "other",
+        "page_count": len(pages),
+        "file_size": getattr(row, "file_size", None),
+        "storage_size": getattr(row, "storage_size", 0),
         "uploader": getattr(row, "uploader", None),
         "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
-        "page_count": getattr(row, "page_count", len(pages)),
-        "storage_size": getattr(row, "storage_size", 0),
         "rating": getattr(row, "rating", None),
         "favorite": getattr(row, "favorite", False),
         "favorite_category": getattr(row, "favorite_category", None),
         "reading_progress": getattr(row, "reading_progress", None),
         "expunged": getattr(row, "expunged", False),
         "image_quality": getattr(row, "image_quality", None),
-        "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
         "storage_path": getattr(row, "storage_path", ""),
+        "eh_url": (
+            f"{settings.exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
+            if row.gid and row.token
+            else ""
+        ),
         "exhentai_url": (
             f"{settings.exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
             if row.gid and row.token
             else None
         ),
+        "warnings": source_meta.get("warnings", []),
+        "spider_info": {key: source_meta[key] for key in spider_keys if key in source_meta},
+        "source_meta": source_meta,
         "tags": [
             {
                 "namespace": ns,
@@ -377,11 +439,12 @@ async def get_gallery(identifier: int) -> dict[str, object]:
             for ns, name in tags
         ],
         "tags_synced_at": getattr(row, "tags_synced_at", None),
-        "spider_info": getattr(row, "source_meta", None) or {},
-        "source_meta": getattr(row, "source_meta", None) or {},
         "pages": [
             {
+                "index": p.page_index,
                 "page_index": p.page_index,
+                "name": p.member_name,
+                "member_name": p.member_name,
                 "media_type": p.media_type,
                 "image_url": f"/api/galleries/{row.id}/pages/{p.page_index}",
                 "thumb_url": f"/api/galleries/{row.id}/thumb/{p.page_index}",
@@ -439,6 +502,24 @@ async def download_gallery_original(
     return {"id": task.id, "gid": task.gid, "status": "pending"}
 
 
+@router.get("/api/galleries/{identifier}/favorite")
+async def gallery_favorite_status(identifier: int) -> dict[str, object]:
+    try:
+        async for session in get_session():
+            row, _ = await _gallery(identifier)
+            favcats = await FavoritesRepository(session).favcats_for_gid(row.gid)
+            names = await FavoritesRepository(session).category_names(favcats)
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {
+        "gid": row.gid,
+        "favorite": bool(favcats),
+        "favcats": favcats,
+        "favcat_names": [{"favcat": f, "name": names.get(f, "")} for f in favcats],
+    }
+
+
 @router.post("/api/galleries/{identifier}/favorite")
 async def toggle_gallery_favorite(
     identifier: int, favcat: int = 0
@@ -470,6 +551,45 @@ async def toggle_gallery_favorite(
     return {"favorite": target_state, "favorite_category": favcat if target_state else None}
 
 
+@router.get("/api/galleries/{identifier}/progress")
+async def gallery_progress(identifier: int) -> dict[str, object]:
+    row, pages = await _gallery(identifier)
+    async for session in get_session():
+        progress = await GalleryRepository(session).progress(row.id)
+        break
+    return {
+        "gallery_id": row.id,
+        "current_page": progress.current_page if progress else 0,
+        "total_pages": progress.total_pages if progress else len(pages),
+        "updated_at": progress.updated_at if progress else None,
+    }
+
+
+@router.put("/api/galleries/{identifier}/progress")
+@router.post("/api/galleries/{identifier}/progress")
+async def save_gallery_progress(identifier: int, body: ProgressRequest) -> dict[str, object]:
+    row, pages = await _gallery(identifier)
+    current = body.current_page if body.current_page is not None else (body.page or 0)
+    total_pages = body.total_pages or len(pages)
+    if current > len(pages) and len(pages) > 0:
+        raise HTTPException(status_code=422, detail="current_page is outside gallery")
+    async for session in get_session():
+        async with session.begin():
+            progress = await GalleryRepository(session).upsert_progress(
+                row.id, current, total_pages
+            )
+            await GalleryRepository(session).record_history(
+                row.id, current, total_pages
+            )
+        break
+    return {
+        "gallery_id": row.id,
+        "current_page": progress.current_page if progress else current,
+        "total_pages": progress.total_pages if progress else total_pages,
+        "reading_progress": current,
+    }
+
+
 @router.post("/api/galleries/{identifier}/read")
 async def mark_gallery_read(identifier: int) -> dict[str, object]:
     row, pages = await _gallery(identifier)
@@ -480,15 +600,49 @@ async def mark_gallery_read(identifier: int) -> dict[str, object]:
     return {"reading_progress": len(pages)}
 
 
-@router.post("/api/galleries/{identifier}/progress")
-async def save_gallery_progress(identifier: int, body: ProgressRequest) -> dict[str, object]:
-    row, pages = await _gallery(identifier)
-    current = min(body.page, len(pages))
+@router.get("/api/history")
+async def history(page: int = 1, page_size: int = 24) -> dict[str, object]:
+    if page < 1 or not 1 <= page_size <= 500:
+        raise HTTPException(status_code=422, detail="invalid pagination")
+    async for session in get_session():
+        total, rows = await GalleryRepository(session).history_page(page, page_size)
+        galleries = (
+            {
+                row.id: row
+                for row in (
+                    await session.scalars(
+                        select(Gallery).where(Gallery.id.in_({x.gallery_id for x in rows}))
+                    )
+                ).all()
+            }
+            if rows
+            else {}
+        )
+        break
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "gallery_id": x.gallery_id,
+                "current_page": x.current_page,
+                "total_pages": x.total_pages,
+                "last_read_at": x.last_read_at,
+                "title": galleries[x.gallery_id].title if x.gallery_id in galleries else None,
+                "url": f"/galleries/{x.gallery_id}",
+            }
+            for x in rows
+        ],
+    }
+
+
+@router.delete("/api/history", status_code=204)
+async def clear_history() -> None:
     async for session in get_session():
         async with session.begin():
-            await GalleryRepository(session).update_progress(row.id, current)
+            await GalleryRepository(session).clear_history()
         break
-    return {"reading_progress": current}
 
 
 @router.post("/api/galleries/{identifier}/redownload", status_code=202)
@@ -515,10 +669,10 @@ async def redownload_gallery(
     return {"status": "pending", "task_id": task.id, "gid": row.gid}
 
 
-@router.delete("/api/galleries/{identifier}", status_code=200)
+@router.delete("/api/galleries/{identifier}", status_code=204)
 async def delete_gallery(
     identifier: int, delete_files: bool = False, delete_all_copies: bool = False
-) -> dict[str, object]:
+) -> None:
     try:
         async for session in get_session():
             row = await session.get(Gallery, identifier)
@@ -527,91 +681,108 @@ async def delete_gallery(
             if row is None:
                 raise HTTPException(status_code=404, detail="Gallery not found")
             async with session.begin():
-                results = await delete_galleries_local(
+                from .. import main
+                delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
+                results = await delete_fn(
                     session, [row], delete_files=delete_files, delete_all_copies=delete_all_copies
                 )
+            _record_gallery_delete_log(results, delete_files)
             break
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    _record_gallery_delete_log(results, delete_files)
-    return {"results": results}
 
 
 @router.post("/api/galleries/delete-bulk", status_code=200)
 async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
-    if not body.gallery_ids:
-        return {"results": []}
+    ids = body.ids or body.gallery_ids or []
+    if not ids:
+        raise HTTPException(status_code=422, detail="No gallery ids provided")
     try:
         async for session in get_session():
+            galleries: list[Gallery] = []
+            for chunk in _chunked(list(dict.fromkeys(ids))):
+                rows = await session.scalars(
+                    select(Gallery).where(Gallery.id.in_(chunk))
+                )
+                galleries.extend(rows.all())
             async with session.begin():
-                galleries = (
-                    await session.scalars(
-                        select(Gallery).where(Gallery.id.in_(body.gallery_ids))
-                    )
-                ).all()
-                results = await delete_galleries_local(
+                from .. import main
+                delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
+                results = await delete_fn(
                     session,
-                    list(galleries),
+                    galleries,
                     delete_files=body.delete_files,
                     delete_all_copies=body.delete_all_copies,
                 )
+            _record_gallery_delete_log(results, body.delete_files)
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    _record_gallery_delete_log(results, body.delete_files)
-    return {"results": results}
+    deleted = sum(1 for r in results if r.get("db_removed"))
+    failed_deletions = [p for r in results for p in r.get("failed_paths", [])]
+    return {"deleted": deleted, "failed_deletions": failed_deletions, "results": results}
 
 
 @router.post("/api/galleries/delete-filtered", status_code=200)
 async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, object]:
-    category_filter = body.category
+    if body.tag_mode not in {"and", "or"} or body.tag_match not in {"exact", "fuzzy"}:
+        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
+    category = body.category or None
     exclude_favorited = False
-    if body.category == "__not_fav__":
+    if category == "__not_fav__":
         exclude_favorited = True
-        category_filter = None
-
-    all_results: list[dict[str, object]] = []
-    page = 1
-    page_size = 500
-    matched = 0
+        category = None
+    if category is not None and category not in CATEGORIES:
+        raise HTTPException(status_code=422, detail="invalid category")
+    parsed_tags = _parse_tag_filter(body.tags or body.tag)
     try:
         async for session in get_session():
             from .. import main
+            repo = GalleryRepository(session)
             delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
+            resolved_q = body.q or ""
+            if body.q and body.q.strip():
+                auto_tags, keywords, changed = await _resolve_search_tokens(body.q)
+                if changed:
+                    parsed_tags.extend(auto_tags)
+                    parsed_tags = _dedupe_tags(parsed_tags)
+                    resolved_q = keywords
+            matching_ids: list[int] = []
+            page = 1
             while True:
-                total, batch = await GalleryRepository(session).list_page(
+                _, rows = await repo.list_page(
                     page,
-                    page_size,
-                    body.q or "",
-                    body.tag or "",
-                    getattr(body, "tag_mode", "or"),
-                    getattr(body, "tag_match", "exact"),
-                    category_filter,
+                    500,
+                    q=resolved_q,
+                    tags=parsed_tags,
+                    tag_mode=body.tag_mode,
+                    tag_match=body.tag_match,
+                    category=category,
                     exclude_favorited=exclude_favorited,
                 )
-                if page == 1:
-                    matched = total
-                if not batch:
+                if not rows:
                     break
-                async with session.begin():
-                    batch_results = await delete_fn(
-                        session,
-                        batch,
-                        delete_files=body.delete_files,
-                        delete_all_copies=body.delete_all_copies,
-                    )
-                all_results.extend(batch_results)
-                if len(batch) < page_size:
+                matching_ids.extend(r.id for r in rows)
+                if len(rows) < 500:
                     break
                 page += 1
+            results: list[dict] = []
+            for chunk in _chunked(list(dict.fromkeys(matching_ids))):
+                batch = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
+                async with session.begin():
+                    res = await delete_fn(
+                        session, list(batch), delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
+                    )
+                results.extend(res)
+            _record_gallery_delete_log(results, body.delete_files)
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    deleted = sum(1 for r in all_results if r.get("db_removed"))
-    _record_gallery_delete_log(all_results, body.delete_files)
-    return {"matched": matched, "deleted": deleted, "results": all_results}
+    deleted = sum(1 for r in results if r.get("db_removed"))
+    failed_deletions = [p for r in results for p in r.get("failed_paths", [])]
+    return {"deleted": deleted, "matched": len(matching_ids), "failed_deletions": failed_deletions, "results": results}
 
 
 def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: bool) -> None:

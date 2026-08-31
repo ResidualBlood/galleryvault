@@ -46,15 +46,16 @@ async def background_task_logs() -> dict[str, object]:
 
 @router.post("/api/logs/{task}/cancel", status_code=202)
 async def cancel_background_task(task: str) -> dict[str, object]:
-    if task not in {"scan", "tag-sync", "thumbs", "metadata"}:
+    task_key = "metadata" if task in {"metadata", "metadata-sync"} else task
+    if task_key not in {"scan", "tag-sync", "thumbs", "metadata"}:
         raise HTTPException(status_code=404, detail="Unknown task")
     tm = get_task_manager()
-    tm.request_cancel(task)
-    if task == "tag-sync":
+    tm.request_cancel(task_key)
+    if task_key == "tag-sync":
         await _clear_jobs("tag-sync")
-    elif task == "thumbs":
+    elif task_key == "thumbs":
         await _clear_jobs("thumbs")
-    return {"task": task, "status": "cancelling"}
+    return {"task": task_key, "status": "cancelling"}
 
 
 @router.get("/api/tag-sync/status")

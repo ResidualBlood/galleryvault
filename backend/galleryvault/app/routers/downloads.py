@@ -10,9 +10,13 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ...db.models import DownloadTask as DownloadTaskModel
 from ...db.repository import DownloadRepository, GalleryUpdatesRepository
+from ...services.download_worker import (
+    clear_download_cancelled,
+    mark_download_cancelled,
+)
 from ...services.downloader import DownloadTask
-from .. import main
-from ..dependencies import db_error, get_current_settings, get_session, get_task_manager
+from .. import main  # noqa: F401
+from ..dependencies import db_error, get_current_settings, get_session
 from ..schemas import DownloadRequest
 from ..state import app_state
 
@@ -133,10 +137,7 @@ async def retry_download(task_id: int) -> dict[str, object]:
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
-    if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
-        main._download_cancelled.discard(task_id)
-    tm = get_task_manager()
-    tm.clear_cancelled(task_id)
+    clear_download_cancelled(task_id)
     return {"id": task_id, "status": "pending"}
 
 
@@ -159,9 +160,7 @@ async def cancel_download(task_id: int) -> dict[str, object]:
         raise db_error(exc) from exc
 
     if was_downloading:
-        if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
-            main._download_cancelled.add(task_id)
-        get_task_manager().request_cancel(task_id)
+        mark_download_cancelled(task_id)
     return {"id": task_id, "status": "cancelled"}
 
 
@@ -189,13 +188,9 @@ async def delete_download_task(task_id: int) -> None:
         raise db_error(exc) from exc
 
     if was_downloading:
-        if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
-            main._download_cancelled.add(task_id)
-        get_task_manager().request_cancel(task_id)
+        mark_download_cancelled(task_id)
     else:
-        if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
-            main._download_cancelled.discard(task_id)
-        get_task_manager().clear_cancelled(task_id)
+        clear_download_cancelled(task_id)
     if gid is not None:
         await _cleanup_download_temp(gid)
 
