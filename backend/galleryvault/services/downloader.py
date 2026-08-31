@@ -251,6 +251,13 @@ class Downloader:
         self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
         if task.mode and "archive" in task.mode:
+            temp = self.root / f".gv-{task.gid}"
+            if (temp / ".archive_fallback").exists():
+                logger.info(
+                    "archive fallback marker found; continuing page-by-page",
+                    extra=log_extra(gid=task.gid),
+                )
+                return await self._download_pages(task, progress)
             try:
                 return await self._download_archive_once(task, progress)
             except ArchiveNotRetryableError:
@@ -582,8 +589,6 @@ class Downloader:
             quality = "resample"
         temp = self.root / f".gv-{task.gid}"
         temp.mkdir(parents=True, exist_ok=True)
-        if (temp / ".archive_fallback").exists():
-            raise ArchiveNotRetryableError("fallback to page-by-page already active")
         state_file = temp / ".archive.json"
         state: dict[str, object] = {}
         if state_file.exists():
