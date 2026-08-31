@@ -792,7 +792,9 @@ def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: b
 
 
 @router.post("/api/galleries/{identifier}/sync-tags")
-async def sync_gallery_tags(identifier: int) -> dict[str, object]:
+async def sync_gallery_tags(identifier: int, redirect: bool = False) -> dict[str, object]:
+    from fastapi.responses import RedirectResponse
+
     from .. import main
     try:
         async for session in get_session():
@@ -809,13 +811,17 @@ async def sync_gallery_tags(identifier: int) -> dict[str, object]:
         raise db_error(exc) from exc
     except Exception as exc:
         logger.warning("tag sync failed", extra=log_extra(gallery_id=identifier, error=type(exc).__name__))
-        raise HTTPException(status_code=502, detail="ExHentai upstream tag sync request failed") from exc
+        raise HTTPException(status_code=502, detail="ExHentai metadata request failed") from exc
+    if redirect:
+        return RedirectResponse(f"/galleries/{identifier}", status_code=303)
     return {
         "id": identifier,
         "gid": getattr(result, "gid", None),
         "title": getattr(result, "title", None),
         "count": getattr(result, "count", getattr(result, "tags_added", 0)),
         "tags_added": getattr(result, "tags_added", getattr(result, "count", 0)),
+        "synced_at": getattr(result, "synced_at", None),
+        "source": getattr(result, "source", None),
     }
 
 
