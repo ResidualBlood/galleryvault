@@ -169,7 +169,7 @@ def test_auth_client_ip_and_proxy_defense(monkeypatch) -> None:
         monkeypatch.setattr(
             _main, "_settings", lambda: _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False)
         )
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
     assert is_trusted_proxy("192.168.1.50") is True
 
