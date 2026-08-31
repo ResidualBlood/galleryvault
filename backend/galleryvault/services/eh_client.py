@@ -116,6 +116,10 @@ class EhImageSlowError(EhClientError):
     """
 
 
+class ArchiveExpiredError(EhClientError):
+    pass
+
+
 class GalleryGoneError(EhClientError):
     """The gallery no longer exists on ExHentai (HTTP 404).
 
@@ -1365,7 +1369,9 @@ class EhClient:
             if total is not None and downloaded != total:
                 raise EhClientError("ExHentai archive download was incomplete")
             return total if total is not None else downloaded
-        except httpx.RequestError as exc:
+        except httpx.HTTPError as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (404, 410):
+                raise ArchiveExpiredError("archive URL is expired or not found") from exc
             logger.warning(
                 "archive download request failed",
                 extra=log_extra(error=type(exc).__name__),

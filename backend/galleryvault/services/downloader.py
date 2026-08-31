@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
-from .eh_client import EhImageSlowError, GalleryData, GalleryPageData, ShowkeyState
+from .eh_client import ArchiveExpiredError, EhImageSlowError, GalleryData, GalleryPageData, ShowkeyState
 
 logger = logging.getLogger(__name__)
 
@@ -260,8 +260,8 @@ class Downloader:
                     extra=log_extra(gid=task.gid),
                 )
                 temp = self.root / f".gv-{task.gid}"
-                if temp.exists():
-                    shutil.rmtree(temp, ignore_errors=True)
+                temp.mkdir(parents=True, exist_ok=True)
+                (temp / ".archive_fallback").touch()
                 return await self._download_pages(task, progress)
         return await self._download_pages(task, progress)
 
@@ -576,6 +576,8 @@ class Downloader:
             quality = "resample"
         temp = self.root / f".gv-{task.gid}"
         temp.mkdir(parents=True, exist_ok=True)
+        if (temp / ".archive_fallback").exists():
+            raise ArchiveNotRetryableError("fallback to page-by-page already active")
         state_file = temp / ".archive.json"
         state: dict[str, object] = {}
         if state_file.exists():
@@ -637,7 +639,12 @@ class Downloader:
         # URL intact, so the next attempt resumes with a Range request instead
         # of re-charging GP.  A corrupt/expired archive is caught later at
         # extraction time, which clears both and re-requests.
-        await self.client.download_archive(str(zip_url), zip_path, cb=_zip_progress)
+        try:
+            await self.client.download_archive(str(zip_url), zip_path, cb=_zip_progress)
+        except ArchiveExpiredError:
+            zip_path.unlink(missing_ok=True)
+            state_file.unlink(missing_ok=True)
+            raise
         if progress is not None:
             await progress(len(pages), len(pages))
         unzip_dir = temp / "_unzip"
@@ -660,8 +667,14 @@ class Downloader:
             key=lambda item: item.name,
         )
         if not images:
+            zip_path.unlink(missing_ok=True)
+            state_file.unlink(missing_ok=True)
+            shutil.rmtree(unzip_dir, ignore_errors=True)
             raise ArchiveNotRetryableError("archive contained no images")
         if len(images) != len(pages):
+            zip_path.unlink(missing_ok=True)
+            state_file.unlink(missing_ok=True)
+            shutil.rmtree(unzip_dir, ignore_errors=True)
             raise ArchiveNotRetryableError(
                 f"archive image count {len(images)} != gallery page count {len(pages)}"
             )
