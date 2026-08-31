@@ -4,6 +4,93 @@ All notable changes to GalleryVault are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.3.2] - 2026-08-31
+
+### Fixed
+
+- **Infinite retry loop on archive fallback**: When an archive zip failed validation (e.g., incorrect page count) or returned 404/410 (such as H@H rate limits "You have clocked too many downloaded bytes"), the fallback to page-by-page downloading wiped the temporary directory. If the page-by-page attempt subsequently failed, the next retry would wipe the progress and mistakenly retry the archive download from scratch. The fallback state is now persisted via a `.archive_fallback` marker, and the downloader directly falls back to page-by-page on `ArchiveExpiredError`, ensuring smooth resumes without endless cycles, GP bleeding, or stalls.
+
+### Changed
+
+- **ExHentai requests now send a full browser fingerprint** (backend `eh_client.py`): mirror Ehviewer_CN_SXJ's ChromeRequestBuilder — default client sends the browser `Accept` (`image/avif,image/webp,...`) and `Accept-Language` headers; `showpage`/`gdata` POSTs add `Origin` (+ `Referer` on showpage). ExHentai's anti-abuse fingerprints the whole header set, and the bare httpx defaults read as scripted traffic (reduces IP challenges like the 2026-08-31 outage).
+- **Frontend Optimization (Phase 0-3) fully delivered and merged into `dev`**: modular architecture (monolithic app.js refactored into core/state/utils/components/events/views/locales), Design Tokens & `.btn` component system, mobile hamburger navigation, accessibility & keyboard shortcuts (`/` search focus, arrow card navigation), CSS content-visibility & IO virtual scroll, on-demand i18n locale loading, full 9-link navigation, full CI syntax-check, and Playwright smoke suite. See FRONTEND_OPTIMIZATION_PLAN.md.
+
+### Added
+
+- **Archive download falls back to page-by-page when unavailable** — when the
+  ExHentai archive channel cannot serve a gallery (the selected quality tier
+  does not exist, GP too low, archive corrupt), the download now automatically
+  switches to the page-by-page channel (no GP cost, H@H carries the traffic)
+  instead of failing the whole task. New setting `archive_fallback_pages`
+  (default on) in the Settings page; turn it off to restore fail-immediately
+  without burning automatic retries.
+
+- **Delete failed gallery-update records** — the gallery-updates page gains a
+  "delete selected" button on the failed filter, removing those records for
+  good via `POST /api/updates/delete`. Only `failed`/`ignored`/`pending` rows
+  are deletable (the repository guards against rows with a live download
+  task), and deleting a download task on the tasks page still keeps its failed
+  update record visible so it can be reviewed or removed here.
+
+- **Original-quality upgrade from the gallery detail page** — the detail page
+  now shows whether the local copy is original (原图) or resampled (重采样)
+  next to its favorite categories, and offers two upgrade actions when the
+  gallery is not already original: **下载原图** (page-by-page, no GP) and
+  **归档形式下载原图** (ExHentai archive channel, cost/balance preview locked to
+  the original tier). When an original download finishes, the superseded
+  resampled copy is removed automatically (page-count guarded, best-effort).
+  Quality is recorded at download time and inferred for existing galleries by
+  comparing the local storage size against the ExHentai original size —
+  backfilled during the favorites metadata sync and at the end of a library
+  scan for galleries no favorite folder covers.
+
+### Fixed
+
+- **Gallery delete now removes files even for (former) library roots** — the
+  `delete_files` path no longer gated on `_in_scan_roots`; any gallery's
+  `storage_path` is now attempted for deletion (rmtree / unlink) when
+  requested. This makes it possible to clean disk copies after removing a
+  library root from Settings (previously only the DB row was removed).
+
+- **Duplicate-copy snapshots dropped the Japanese title** — copies already
+  ingested that were folded into a duplicate group by signature (content
+  unchanged, so the scan skips them) never carried `title_jpn`: `ExistingGallery`
+  had no such field and `existing_rows` did not select `Gallery.title_jpn`. Under
+  the Japanese display preference the cleanup page then fell back to the romaji
+  title even though the on-disk folder was named with the Japanese title. The
+  field is now carried through, so re-running a library scan restores the
+  Japanese titles on the duplicate-copy page.
+
+- **In-place original upgrade left the old resampled pages behind** — when an
+  original-quality download merged into the folder of an existing resampled
+  copy whose pages used a different file extension (e.g. old `.webp` next to
+  the new `.jpg`/`.png`), both files survived for the same page, doubling the
+  gallery's `page_count`/`storage_size` in the database. The stale per-page
+  copy is now pruned before ingest, keeping exactly the new original pages.
+
+- **"Archive-download original" on the gallery detail page reported no
+  archives available** — the dialog passed the local library id to
+  `/api/archives/preview`, which expects ExHentai gids, so the preview came
+  back empty even for galleries with an original tier. The dialog now previews
+  with the gallery's gid while the enqueue still uses the local id.
+
+- **The gallery-updates page "select all" checkbox was pushed to the far right
+  of the toolbar** — `.toolbar input { min-width: 180px }` also stretched the
+  checkbox (a toolbar `<input type="checkbox">`). A CSS exception restores the
+  natural checkbox width.
+
+- **Deleting a download task could leave its gallery-update entry stuck
+  "downloading" forever** — removing a task from the downloads page deleted the
+  `download_tasks` row while the `gallery_updates` row it was pinned to stayed
+  in `downloading` (the update finalizer looks the task up by id and found
+  nothing, so it silently skipped it). The updates page then showed stale
+  in-progress entries that could never be retried. Deleting a download task now
+  marks any gallery-update row pinned to it as `failed` ("download task
+  removed"), and the finalizer marks orphaned updates `failed` as a fallback,
+  so the entry stays actionable (retry / ignore).
+
 ## [1.3.1] - 2026-08-30
 
 ### Added
