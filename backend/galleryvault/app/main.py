@@ -2,11 +2,13 @@ import asyncio
 import base64
 import contextlib
 import hmac
+import ipaddress
 import logging
 import re
 import time as _time
 from collections import deque
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
@@ -16,6 +18,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
+    JSONResponse,
     RedirectResponse,
     Response,
 )
@@ -84,7 +87,16 @@ configure_logging(settings.log_level, settings.log_json)
 logger = logging.getLogger(__name__)
 
 
-app = FastAPI(title="GalleryVault")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await startup()
+    try:
+        yield
+    finally:
+        await shutdown()
+
+
+app = FastAPI(title="GalleryVault", lifespan=lifespan)
 app.state.settings = settings
 app.state.engine, app.state.session_factory = create_database(settings)
 app.state.downloader = None
@@ -267,17 +279,45 @@ async def _login_succeeded(ip: str) -> None:
         _login_attempts.pop(ip, None)
 
 
+def _is_trusted_proxy(host: str | None) -> bool:
+    if not host:
+        return False
+    if host in {"testclient", "localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
+
+
 def _client_ip(request: Request) -> str:
     """Best-effort real client IP for login rate limiting.
 
-    The reverse proxy (nginx) unconditionally overwrites ``X-Real-IP`` with
-    ``$remote_addr``, so a client cannot spoof it there; when the backend is
-    hit directly (no proxy header) the socket peer is the source of truth.
+    Only trusts proxy headers (X-Real-IP, X-Forwarded-For) if the immediate
+    connecting socket peer is a trusted local/private proxy (e.g. Nginx or
+    local container bridge). Direct public connections always use the socket IP.
     """
-    real = request.headers.get("x-real-ip")
-    if real and real.strip():
-        return real.strip()
-    return request.client.host if request.client else "unknown"
+    peer = request.client.host if request.client else "unknown"
+    if _is_trusted_proxy(peer):
+        real = request.headers.get("x-real-ip")
+        if real and real.strip():
+            candidate = real.strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded and forwarded.strip():
+            for part in [p.strip() for p in forwarded.split(",")]:
+                if part:
+                    try:
+                        ipaddress.ip_address(part)
+                        return part
+                    except ValueError:
+                        continue
+    return peer
 
 
 def _settings() -> Settings:
@@ -380,10 +420,9 @@ async def authentication(request: Request, call_next):
             extra=log_extra(ip=request.client.host if request.client else "unknown", reason=reason),
         )
         if request.url.path.startswith("/api/"):
-            return HTMLResponse(
-                '{"detail":"Authentication required"}',
+            return JSONResponse(
+                {"detail": "Authentication required"},
                 status_code=401,
-                media_type="application/json",
             )
         return RedirectResponse("/login", status_code=303)
     # JSON APIs use the authenticated session and do not accept browser form
@@ -393,17 +432,25 @@ async def authentication(request: Request, call_next):
         request.method in {"POST", "PUT", "DELETE", "PATCH"}
         and request.url.path.startswith("/api/")
     ):
+        sec_fetch_site = request.headers.get("sec-fetch-site")
+        if sec_fetch_site == "cross-site":
+            return JSONResponse(
+                {"detail": "Cross-origin request rejected"},
+                status_code=403,
+            )
         origin = request.headers.get("origin")
         if origin:
             from urllib.parse import urlparse as _origin_parse
 
-            origin_host = _origin_parse(origin).hostname
-            request_hostname = _origin_parse("//" + request.headers.get("host", "")).hostname
-            if origin_host and origin_host != request_hostname:
-                return HTMLResponse(
-                    '{"detail":"Cross-origin request rejected"}',
+            parsed_origin = _origin_parse(origin)
+            origin_netloc = parsed_origin.netloc or parsed_origin.hostname
+            host_header = request.headers.get("host", "")
+            parsed_host = _origin_parse("//" + host_header)
+            request_netloc = parsed_host.netloc or parsed_host.hostname
+            if origin_netloc and request_netloc and origin_netloc.lower() != request_netloc.lower():
+                return JSONResponse(
+                    {"detail": "Cross-origin request rejected"},
                     status_code=403,
-                    media_type="application/json",
                 )
     if (
         request.method == "POST"
@@ -564,7 +611,6 @@ async def _migrate_plaintext_secrets() -> None:
         logger.warning("plaintext secret migration failed", extra={"error": str(exc)})
 
 
-@app.on_event("startup")
 async def startup() -> None:
     try:
         async with _settings_session() as session:
@@ -656,7 +702,6 @@ async def startup() -> None:
     logger.info("GalleryVault started", extra=log_extra(library_roots=_settings().library_roots))
 
 
-@app.on_event("shutdown")
 async def shutdown() -> None:
     for task in list(getattr(app.state, "spawned_tasks", set()) or ()):
         task.cancel()
@@ -856,7 +901,7 @@ async def _ingest_downloaded_gallery(result) -> None:
         # doubling the page count.  Drop the stale pages first so the ingest
         # counts exactly the new original pages.
         if getattr(result, "quality", None) == "original":
-            _prune_merged_stale_pages(path, getattr(result, "new_files", ()))
+            await asyncio.to_thread(_prune_merged_stale_pages, path, getattr(result, "new_files", ()))
         files = sorted(
             (
                 item
@@ -947,6 +992,12 @@ async def _remove_superseded_copy(result, old_path: Path, old_pages: int) -> Non
             return
         if not old_path.exists():
             return
+        if not _in_scan_roots(old_path):
+            logger.error(
+                "SECURITY_ALERT: refusal to remove superseded copy outside configured scan roots",
+                extra=log_extra(gid=result.gid, path=str(old_path)),
+            )
+            return
         if (result.pages or 0) != old_pages:
             logger.warning(
                 "page count mismatch; keeping old copy",
@@ -956,7 +1007,7 @@ async def _remove_superseded_copy(result, old_path: Path, old_pages: int) -> Non
         import shutil as _shutil
 
         if old_path.is_dir():
-            _shutil.rmtree(old_path)
+            await asyncio.to_thread(_shutil.rmtree, old_path)
         else:
             old_path.unlink()
         logger.info(
@@ -3247,6 +3298,12 @@ def _in_scan_roots(path: Path) -> bool:
 
 def _delete_local_copy(path: Path) -> bool:
     """Delete one on-disk copy (directory or single file). Returns success."""
+    if not _in_scan_roots(path):
+        logger.error(
+            "SECURITY_ALERT: refusal to delete file outside configured scan roots",
+            extra={"path": str(path)},
+        )
+        return False
     try:
         if path.is_dir():
             import shutil as _shutil

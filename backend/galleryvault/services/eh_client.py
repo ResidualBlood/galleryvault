@@ -1344,8 +1344,10 @@ class EhClient:
                     )
                 if response.status_code == 416:
                     total = _content_range_total(response.headers.get("content-range"))
-                    if total is not None and offset >= total:
+                    if total is not None and offset == total:
                         return total
+                    # Range not satisfiable or file corrupted/oversized: delete destination to restart clean
+                    dest.unlink(missing_ok=True)
                     raise EhClientError("ExHentai archive range is not satisfiable")
                 if response.status_code == 200:
                     if offset > 0:
@@ -1359,13 +1361,25 @@ class EhClient:
                     response.headers.get("content-range")
                 ) or (offset + int(content_length) if content_length.isdigit() else None)
                 downloaded = offset
+                last_cb_time = 0.0
+                last_cb_bytes = downloaded
                 mode = "ab" if offset > 0 else "wb"
                 with dest.open(mode) as handle:
                     async for chunk in response.aiter_bytes():
                         handle.write(chunk)
                         downloaded += len(chunk)
                         if cb is not None:
-                            await cb(downloaded, total)
+                            now = time.monotonic()
+                            if (
+                                now - last_cb_time >= 0.2
+                                or (total is not None and downloaded == total)
+                                or (downloaded - last_cb_bytes >= 1024 * 1024)
+                            ):
+                                await cb(downloaded, total)
+                                last_cb_time = now
+                                last_cb_bytes = downloaded
+                    if cb is not None and last_cb_bytes != downloaded:
+                        await cb(downloaded, total)
             if total is not None and downloaded != total:
                 raise EhClientError("ExHentai archive download was incomplete")
             return total if total is not None else downloaded

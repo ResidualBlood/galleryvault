@@ -37,6 +37,11 @@ def path_hash(path: Path) -> str:
 _CHUNK_SIZE = 500
 
 
+def escape_like_wildcards(val: str) -> str:
+    """Escape SQL LIKE/ILIKE wildcards (%, _, \\) to treat user input as literal text."""
+    return val.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _chunked(values: Sequence[int], size: int = _CHUNK_SIZE) -> list[list[int]]:
     """Split ``values`` into fixed-size slices for ``in_``-style queries."""
     values = list(values)
@@ -389,7 +394,7 @@ class GalleryRepository:
             # than one contiguous pattern, so "mimu gif" matches any title that
             # contains both words anywhere (order- and position-independent).
             for token in q.split():
-                pattern = f"%{token}%"
+                pattern = f"%{escape_like_wildcards(token)}%"
                 query = query.where(Gallery.title.ilike(pattern) | Gallery.title_jpn.ilike(pattern))
         if category:
             query = query.where(Gallery.category == category)
@@ -401,7 +406,8 @@ class GalleryRepository:
         if tags:
             tag_conditions = []
             for namespace, name in tags:
-                pattern = name if tag_match == "exact" else f"%{name}%"
+                escaped_name = escape_like_wildcards(name)
+                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
                 condition = [Tag.name.ilike(pattern)]
                 if namespace:
                     condition.append(Tag.namespace == namespace)
@@ -437,7 +443,7 @@ class GalleryRepository:
     async def search_tags(
         self, q: str | None, page: int, page_size: int, namespace: str | None = None
     ) -> tuple[int, list[tuple[str, str, int]]]:
-        pattern = f"%{q.strip()}%" if q and q.strip() else None
+        pattern = f"%{escape_like_wildcards(q.strip())}%" if q and q.strip() else None
         match = select(Tag.id).select_from(Tag)
         if namespace:
             match = match.where(Tag.namespace == namespace)

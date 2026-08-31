@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from ..config import Settings
@@ -14,6 +15,13 @@ from ..services.eh_client import parse_gallery_url
 from ..services.messages import bot_paused, bot_queued, bot_resumed, bot_status
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TelegramGalleryItem:
+    gid: int
+    token: str
+    title: str
 
 
 class TelegramBotService:
@@ -64,7 +72,7 @@ class TelegramBotService:
                 return
             if not self.paused:
                 await self.queue.enqueue(
-                    type("TelegramGallery", (), {"gid": gid, "token": token, "title": text})()
+                    TelegramGalleryItem(gid=gid, token=token, title=text)
                 )
                 await self.notifier.send_message(bot_queued(gid, lang), chat_id, force=True)
 

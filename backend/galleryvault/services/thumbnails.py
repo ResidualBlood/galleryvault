@@ -12,6 +12,9 @@ import logging
 from io import BytesIO
 from pathlib import Path
 
+from PIL import Image
+from PIL.Image import DecompressionBombError
+
 logger = logging.getLogger(__name__)
 
 # Display boxes are roughly 240px wide; cap width and let the height follow
@@ -20,6 +23,10 @@ THUMB_MAX_WIDTH = 240
 THUMB_MAX_HEIGHT = 480
 THUMB_QUALITY = 70
 JPEG_MIME = "image/jpeg"
+
+# Limit maximum allowed image pixels (64 million pixels) to prevent
+# decompression bomb Denial of Service (DoS) memory exhaustion.
+Image.MAX_IMAGE_PIXELS = 64_000_000
 
 
 class ThumbnailError(Exception):
@@ -76,13 +83,15 @@ class ThumbnailService:
 
     @staticmethod
     def _render(page_bytes: bytes) -> bytes:
-        from PIL import Image, UnidentifiedImageError
+        from PIL import UnidentifiedImageError
 
         try:
             with Image.open(BytesIO(page_bytes)) as source:
                 source.load()
                 image = source.convert("RGB")
                 image.thumbnail((THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT))
+        except DecompressionBombError as exc:
+            raise ThumbnailError(f"image exceeds maximum safe dimensions: {exc}") from exc
         except UnidentifiedImageError as exc:
             raise ThumbnailError(f"unsupported image format: {exc}") from exc
         except OSError as exc:

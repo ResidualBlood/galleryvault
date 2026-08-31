@@ -369,7 +369,7 @@ def test_gallery_detail_includes_spider_info(
     assert response.json()["spider_info"]["version"] == "1.0"
 
 
-def _fake_request(headers, client_host="9.9.9.9"):
+def _fake_request(headers, client_host="127.0.0.1"):
     class _Headers(dict):
         def get(self, key, default=None):
             return super().get(key.lower(), default)
@@ -392,8 +392,8 @@ def test_client_ip_falls_back_to_socket_peer() -> None:
     """Direct backend access without a proxy header falls back to client.host."""
     from galleryvault.app.main import _client_ip
 
-    assert _client_ip(_fake_request({})) == "9.9.9.9"
-    assert _client_ip(_fake_request({"x-real-ip": ""})) == "9.9.9.9"
+    assert _client_ip(_fake_request({}, client_host="9.9.9.9")) == "9.9.9.9"
+    assert _client_ip(_fake_request({"x-real-ip": ""}, client_host="9.9.9.9")) == "9.9.9.9"
     assert (
         _client_ip(_fake_request({"x-real-ip": " "}, client_host="7.7.7.7")) == "7.7.7.7"
     )
@@ -447,3 +447,32 @@ def test_login_rate_limit_keys_on_x_real_ip(client: TestClient) -> None:
         assert other.status_code == 303
     finally:
         reset()
+
+
+def test_client_ip_ignores_spoofed_headers_from_untrusted_socket() -> None:
+    from galleryvault.app.main import _client_ip
+
+    # Untrusted public IP directly connecting with spoofed proxy headers
+    fake_req = SimpleNamespace(
+        headers={"x-real-ip": "1.2.3.4", "x-forwarded-for": "8.8.8.8"},
+        client=SimpleNamespace(host="8.8.8.8"),
+    )
+    assert _client_ip(fake_req) == "8.8.8.8"
+
+    # Trusted proxy connecting with real client header
+    trusted_req = SimpleNamespace(
+        headers={"x-real-ip": "198.51.100.22"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+    assert _client_ip(trusted_req) == "198.51.100.22"
+
+
+def test_cross_origin_api_request_rejected(client: TestClient) -> None:
+    # Mutating API requests with cross-origin Sec-Fetch-Site or mismatched Origin
+    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+    resp = client.post(
+        "/api/tasks/scan",
+        headers={"Sec-Fetch-Site": "cross-site", "Origin": "http://evil.com"},
+    )
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "Cross-origin request rejected"}

@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from galleryvault.services.downloader import (
@@ -380,3 +381,44 @@ async def test_archive_fallback_disabled_keeps_failure(tmp_path: Path) -> None:
             DownloadTask(1, "t", "title", id=1, mode="archive", quality="resample")
         )
     assert client.requests == []
+
+
+def test_safe_extract_zip_blocks_zip_slip_and_symlink(tmp_path: Path) -> None:
+    """_extract_zip must reject path traversal and symlinks in archive."""
+    dest = tmp_path / "extract_dest"
+    zip_slip = tmp_path / "slip.zip"
+    with zipfile.ZipFile(zip_slip, "w") as zf:
+        zf.writestr("../../escape.txt", b"malicious content")
+
+    with pytest.raises(ArchiveNotRetryableError, match="escapes extraction dir"):
+        Downloader._extract_zip(zip_slip, dest)
+    assert not (tmp_path / "escape.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_download_archive_416_resets_corrupt_file(tmp_path: Path) -> None:
+    """When server returns 416 and local file is corrupt/oversized, file is removed."""
+    from galleryvault.config import Settings
+    from galleryvault.services.eh_client import EhClient
+
+    dest = tmp_path / "corrupt.zip"
+    dest.write_bytes(b"corrupt partial bytes longer than total")
+
+    class MockTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                status_code=416,
+                headers={"Content-Range": "bytes */10"},
+                request=request,
+            )
+
+    client = EhClient(
+        Settings(exhentai_base_url="https://exhentai.org"),
+        transport=MockTransport(),
+    )
+    try:
+        with pytest.raises(EhClientError, match="not satisfiable"):
+            await client.download_archive("https://exhentai.org/archive.zip", dest)
+        assert not dest.exists()
+    finally:
+        await client.aclose()

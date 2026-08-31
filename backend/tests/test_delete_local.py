@@ -102,8 +102,8 @@ async def test_delete_single_cbz_file(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_delete_outside_scan_roots_still_deletes_file_and_removes_row(tmp_path, monkeypatch):
-    """A path outside the (current) scan roots still has its file deleted when delete_files, and the row is removed."""
+async def test_delete_outside_scan_roots_safely_blocked(tmp_path, monkeypatch):
+    """A path outside the scan roots is blocked by security boundary; file is preserved."""
     outside = tmp_path.parent / "outside-gv"
     outside.mkdir(exist_ok=True)
     copy = outside / "g-3"
@@ -115,10 +115,10 @@ async def test_delete_outside_scan_roots_still_deletes_file_and_removes_row(tmp_
         session, [gallery], delete_files=True, delete_all_copies=False
     )
 
-    assert not copy.exists()
-    assert results[0]["db_removed"] is True
-    assert results[0]["deleted_paths"] == [str(copy)]
-    assert results[0]["failed_paths"] == []
+    assert copy.exists()
+    assert results[0]["db_removed"] is False
+    assert results[0]["deleted_paths"] == []
+    assert results[0]["failed_paths"] == [str(copy)]
 
 
 @pytest.mark.asyncio

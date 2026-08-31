@@ -61,6 +61,11 @@ def test_infer_image_quality_returns_none_without_data():
 # --- superseded-copy removal ------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _scan_roots_isolated(monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "_scan_roots", lambda: [str(tmp_path)])
+
+
 def _result(path, pages=2, quality="original"):
     return SimpleNamespace(gid=7, path=path, pages=pages, quality=quality)
 

@@ -1464,6 +1464,19 @@ def test_thumbnail_service_rejects_corrupt_input(tmp_path: Path) -> None:
         service.get_or_create(1, 0, b"not-an-image")
 
 
+def test_thumbnail_service_decompression_bomb_protected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from PIL import Image
+
+    from galleryvault.services.thumbnails import ThumbnailError, ThumbnailService
+
+    service = ThumbnailService(tmp_path / "thumbs")
+    buf = _make_jpeg_bytes(100, 100)
+    # Mock MAX_IMAGE_PIXELS to a tiny number so standard image triggers DecompressionBombError
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 50)
+    with pytest.raises(ThumbnailError, match="maximum safe dimensions"):
+        service.get_or_create(1, 0, buf)
+
+
 @pytest.mark.asyncio
 async def test_upsert_many_all_gidless_batch_does_not_crash() -> None:
     """A scan batch of only gid-less galleries must not raise TypeError.

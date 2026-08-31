@@ -93,13 +93,31 @@ class CbzZipScanner(ArchiveScanner):
                 normalized = info.filename.replace("\\", "/")
                 if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
                     raise ValueError(f"{path}: unsafe archive member path: {info.filename}")
+                is_symlink = (
+                    info.is_symlink()
+                    if hasattr(info, "is_symlink")
+                    else ((info.external_attr >> 16) & 0o170000 == 0o120000)
+                )
+                if is_symlink:
+                    raise ValueError(f"{path}: unsafe symlink in archive: {info.filename}")
             sizes = {info.filename: info.file_size for info in archive.infolist()}
             pages = self._pages(list(sizes), sizes)
             raw, metadata = self._comic_info(archive, list(sizes))
             return self._meta(path, pages, raw, **metadata)
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
+        normalized = page.name.replace("\\", "/")
+        if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
+            raise ValueError(f"unsafe page path: {page.name}")
         with zipfile.ZipFile(gallery.path) as archive:
+            info = archive.getinfo(page.name)
+            is_symlink = (
+                info.is_symlink()
+                if hasattr(info, "is_symlink")
+                else ((info.external_attr >> 16) & 0o170000 == 0o120000)
+            )
+            if is_symlink:
+                raise ValueError(f"unsafe symlink in archive: {page.name}")
             return io.BytesIO(archive.read(page.name))
 
 
