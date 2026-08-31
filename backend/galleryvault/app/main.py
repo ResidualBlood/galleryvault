@@ -671,9 +671,11 @@ async def _apply_persisted_settings() -> None:
         updates_dict: dict[str, object] = {**persisted}
         _update_runtime_settings(updates_dict)
         if runtime.get("auth_password_hash"):
-            app.state.settings = app.state.settings.model_copy(
+            updated = app.state.settings.model_copy(
                 update={"auth_password_hash": decrypt_or_plain(runtime["auth_password_hash"])}
             )
+            app.state.settings = updated
+            app_state.settings = updated
     except Exception as exc:  # noqa: BLE001
         logger.warning("user settings could not be loaded", extra={"error": str(exc)})
 
@@ -796,6 +798,14 @@ async def _refresh_services() -> None:
         client, fav_proxy_cls(), fav_queue_cls(), app.state.telegram
     )
     app_state.favorites_service = app.state.favorites_service
+    # Keep library/tag services in sync (previously missed, leading to stale app.state)
+    if getattr(app_state, "library_service", None) is not None:
+        app.state.library_service = app_state.library_service
+    if getattr(app_state, "tag_service", None) is not None:
+        app.state.tag_service = app_state.tag_service
+    # Ensure app.state mirrors app_state for any future service attributes
+    if hasattr(app_state, "thumbnail_service") and app_state.thumbnail_service is not None:
+        app.state.thumbnail_service = app_state.thumbnail_service
     _ensure_translation_updater()
 
 
@@ -818,14 +828,21 @@ async def startup() -> None:
     global download_worker_task, download_retry_sweep_task, gallery_updates_finalize_task
     global telegram_flush_task, tag_sync_worker_task, thumb_worker_task
 
-    if getattr(app.state, "settings", None) is None:
-        app.state.settings = app_state.settings
-    else:
+    # Canonical source is app_state; keep app.state in sync for legacy monkeypatch compat
+    if getattr(app.state, "settings", None) is not None:
         app_state.settings = app.state.settings
+    app.state.settings = app_state.settings
     app.state.engine = app_state.engine
     app.state.session_factory = app_state.session_factory
+    # Mirror spawned_tasks to app_state.extra for unified shutdown tracking
     app.state.spawned_tasks = set()
     app_state.extra["spawned_tasks"] = app.state.spawned_tasks
+    # Also mirror other services for completeness
+    for _attr in ("eh_client", "downloader", "telegram", "favorites_service", "library_service", "tag_service", "thumbnail_service"):
+        if getattr(app_state, _attr, None) is not None:
+            setattr(app.state, _attr, getattr(app_state, _attr))
+        elif getattr(app.state, _attr, None) is not None:
+            setattr(app_state, _attr, getattr(app.state, _attr))
 
     try:
         async with _settings_session() as session:
@@ -920,6 +937,11 @@ async def startup() -> None:
         globals().get("_thumbnail_worker_loop", _thumbnail_worker_loop)()
     )
 
+    if not encryption_enabled():
+        logger.warning(
+            "ENCRYPTION_KEY not set; exhentai_cookies and auth secrets will be stored in plaintext. "
+            "Set ENCRYPTION_KEY to enable at-rest encryption and avoid plaintext persistence."
+        )
     if _settings().generate_thumbnails:
         try:
             await globals().get("_seed_thumbnails", _seed_thumbnails)()

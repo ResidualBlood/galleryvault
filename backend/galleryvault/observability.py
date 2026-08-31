@@ -106,7 +106,6 @@ async def request_id_middleware(request: Request, call_next):
         _request_id_var.reset(token)
         if "response" in locals() and response is not None:
             response.headers["X-Request-ID"] = rid
-        _bump("gv_http_requests_total")
         _bump(f'gv_http_requests_total{{code="{status_code}"}}')
         observe_histogram("gv_http_request_duration_seconds", elapsed, {"code": str(status_code)})
 
@@ -124,17 +123,23 @@ def render_metrics() -> str:
     lines.append("# TYPE gv_http_errors_total counter")
     lines.append(f"gv_http_errors_total {_metrics.get('gv_http_errors_total', 0)}")
 
+    seen_counters: set[str] = set()
     for key, value in sorted(_metrics.items()):
         if not key.startswith("gv_http_requests_total") and key != "gv_http_errors_total":
             base_name = key.split("{", 1)[0]
-            lines.append(f"# HELP {base_name} Application metric counter")
-            lines.append(f"# TYPE {base_name} counter")
+            if base_name not in seen_counters:
+                lines.append(f"# HELP {base_name} Application metric counter")
+                lines.append(f"# TYPE {base_name} counter")
+                seen_counters.add(base_name)
             lines.append(f"{key} {value}")
 
+    seen_gauges: set[str] = set()
     for key, value in sorted(_gauges.items()):
         base_name = key.split("{", 1)[0]
-        lines.append(f"# HELP {base_name} Application metric gauge")
-        lines.append(f"# TYPE {base_name} gauge")
+        if base_name not in seen_gauges:
+            lines.append(f"# HELP {base_name} Application metric gauge")
+            lines.append(f"# TYPE {base_name} gauge")
+            seen_gauges.add(base_name)
         lines.append(f"{key} {value}")
 
     # Histograms

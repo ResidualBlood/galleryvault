@@ -1253,18 +1253,38 @@ class DownloadRepository:
 
     async def claim_pending(self) -> DownloadTask | None:
         now = datetime.now(UTC)
-        row = await self.session.scalar(
-            select(DownloadTask)
-            .where(
-                DownloadTask.status == "pending",
-                DownloadTask.retry_count < DownloadTask.max_retries,
-                (DownloadTask.retry_at.is_(None))
-                | (DownloadTask.retry_at <= now),
+        # SKIP LOCKED is not supported on SQLite (tests) — omit locking there to avoid
+        # silent duplication or errors.
+        dialect = ""
+        try:
+            bind = self.session.get_bind()
+            dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
+        except Exception:  # noqa: BLE001
+            dialect = ""
+        if dialect == "sqlite":
+            stmt = (
+                select(DownloadTask)
+                .where(
+                    DownloadTask.status == "pending",
+                    DownloadTask.retry_count < DownloadTask.max_retries,
+                    (DownloadTask.retry_at.is_(None)) | (DownloadTask.retry_at <= now),
+                )
+                .order_by(DownloadTask.id)
+                .limit(1)
             )
-            .order_by(DownloadTask.id)
-            .with_for_update(skip_locked=True)
-            .limit(1)
-        )
+        else:
+            stmt = (
+                select(DownloadTask)
+                .where(
+                    DownloadTask.status == "pending",
+                    DownloadTask.retry_count < DownloadTask.max_retries,
+                    (DownloadTask.retry_at.is_(None)) | (DownloadTask.retry_at <= now),
+                )
+                .order_by(DownloadTask.id)
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+        row = await self.session.scalar(stmt)
         if row is not None:
             row.status = "downloading"
             row.started_at = datetime.now(UTC)
@@ -1599,18 +1619,37 @@ class BackgroundJobsRepository:
     ) -> list[tuple[int, int]]:
         """Claim up to ``limit`` due jobs, returning ``(gallery_id, attempts)``."""
         now = now or datetime.now(UTC)
-        subquery = (
-            select(BackgroundJob.id)
-            .where(
-                BackgroundJob.job_type == job_type,
-                BackgroundJob.status == "pending",
-                (BackgroundJob.next_attempt_at.is_(None))
-                | (BackgroundJob.next_attempt_at <= now),
+        dialect = ""
+        try:
+            bind = self.session.get_bind()
+            dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
+        except Exception:  # noqa: BLE001
+            dialect = ""
+        if dialect == "sqlite":
+            subquery = (
+                select(BackgroundJob.id)
+                .where(
+                    BackgroundJob.job_type == job_type,
+                    BackgroundJob.status == "pending",
+                    (BackgroundJob.next_attempt_at.is_(None))
+                    | (BackgroundJob.next_attempt_at <= now),
+                )
+                .order_by(BackgroundJob.id)
+                .limit(max(1, limit))
             )
-            .order_by(BackgroundJob.id)
-            .with_for_update(skip_locked=True)
-            .limit(max(1, limit))
-        )
+        else:
+            subquery = (
+                select(BackgroundJob.id)
+                .where(
+                    BackgroundJob.job_type == job_type,
+                    BackgroundJob.status == "pending",
+                    (BackgroundJob.next_attempt_at.is_(None))
+                    | (BackgroundJob.next_attempt_at <= now),
+                )
+                .order_by(BackgroundJob.id)
+                .with_for_update(skip_locked=True)
+                .limit(max(1, limit))
+            )
         stmt = (
             update(BackgroundJob)
             .where(BackgroundJob.id.in_(subquery))

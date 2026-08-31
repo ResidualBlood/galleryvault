@@ -196,7 +196,9 @@ async def translation_update_once() -> bool:
                 done=int(translation_state.get("entries") or 0),
                 total=0,
             )
-            asyncio.create_task(tm.persist_history())
+            from ..app.dependencies import spawn_task
+
+            spawn_task(tm.persist_history(), "persist task history")
     return ok
 
 
@@ -273,7 +275,7 @@ async def tag_sync_worker_loop() -> None:
     tag_sync_state["completed_at"] = None
 
     settings = app_state.settings or get_settings()
-    concurrency = max(1, settings.tag_sync_concurrency)
+    concurrency = max(1, min(int(settings.tag_sync_concurrency), 8))
     semaphore = asyncio.Semaphore(concurrency)
     base_interval = max(0.1, float(settings.tag_sync_interval_seconds))
     interval = [base_interval]
@@ -398,7 +400,9 @@ async def tag_sync_worker_loop() -> None:
                             done=int(tag_sync_state.get("processed") or 0),
                             total=int(tag_sync_state.get("total") or 0),
                         )
-                        asyncio.create_task(tm.persist_history())
+                        from ..app.dependencies import spawn_task
+
+                        spawn_task(tm.persist_history(), "persist task history")
                 await asyncio.sleep(1)
                 continue
 

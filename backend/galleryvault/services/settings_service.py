@@ -122,14 +122,18 @@ def start_telegram_bot() -> None:
         task.cancel()
     settings = app_state.settings or get_settings()
     if settings.telegram_bot_token and app_state.telegram is not None:
-        new_task = asyncio.create_task(
+        from ..app.dependencies import spawn_task
+
+        new_task = spawn_task(
             TelegramBotService(
                 settings,
                 client=app_state.telegram.client,
                 queue=FavoriteDownloadQueue(),
-            ).run()
+            ).run(),
+            "telegram bot",
         )
-        app_state.extra["telegram_bot_task"] = new_task
+        if new_task is not None:
+            app_state.extra["telegram_bot_task"] = new_task
 
 
 async def refresh_services() -> None:

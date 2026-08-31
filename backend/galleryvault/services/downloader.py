@@ -543,7 +543,7 @@ class Downloader:
             await asyncio.to_thread(shutil.copytree, temp, target, dirs_exist_ok=True)
             await asyncio.to_thread(shutil.rmtree, temp)
         else:
-            temp.rename(target)
+            await asyncio.to_thread(shutil.move, str(temp), str(target))
         return DownloadResult(
             gallery.gid,
             target,
@@ -706,24 +706,21 @@ class Downloader:
         import shutil
         import zipfile
 
+        from ..scanners.archive import _is_symlink, _is_unsafe_path
+
         dest.mkdir(parents=True, exist_ok=True)
         dest_resolved = dest.resolve()
         with zipfile.ZipFile(zip_path) as archive:
             for member in archive.infolist():
-                normalized = member.filename.replace("\\", "/")
-                if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
+                if _is_unsafe_path(member.filename):
                     raise ArchiveNotRetryableError(
                         f"archive member escapes extraction dir: {member.filename}"
                     )
-                is_symlink = (
-                    member.is_symlink()
-                    if hasattr(member, "is_symlink")
-                    else ((member.external_attr >> 16) & 0o170000 == 0o120000)
-                )
-                if is_symlink:
+                if _is_symlink(member):
                     raise ArchiveNotRetryableError(
                         f"archive member is a symlink: {member.filename}"
                     )
+                normalized = member.filename.replace("\\", "/")
                 target = (dest / normalized).resolve()
                 if not target.is_relative_to(dest_resolved):
                     raise ArchiveNotRetryableError(

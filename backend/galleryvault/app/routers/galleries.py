@@ -512,6 +512,8 @@ async def gallery_favorite_status(identifier: int) -> dict[str, object]:
 async def toggle_gallery_favorite(
     identifier: int, favcat: int = 0
 ) -> dict[str, object]:
+    if not 0 <= favcat <= 9:
+        raise HTTPException(status_code=422, detail="favcat must be between 0 and 9")
     row, _ = await _gallery(identifier)
     target_state = not row.favorite
     if row.gid and row.token:
@@ -559,7 +561,7 @@ async def save_gallery_progress(identifier: int, body: ProgressRequest) -> dict[
     row, pages = await _gallery(identifier)
     current = body.current_page if body.current_page is not None else (body.page or 0)
     total_pages = body.total_pages or len(pages)
-    if current > len(pages) and len(pages) > 0:
+    if current < 0 or (current > len(pages) and len(pages) > 0):
         raise HTTPException(status_code=422, detail="current_page is outside gallery")
     async for session in get_session():
         async with session.begin():

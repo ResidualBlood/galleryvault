@@ -181,21 +181,21 @@ async def remote_cover_data_batch(
         need_download.append((gid, thumb_url))
 
     if need_download and app_state.eh_client is not None:
-        sem = asyncio.Semaphore(6)
+        # Rely on EhClient's own image/page semaphores — no extra local limiter
+        # to avoid double throttling (previous Semaphore(6) stacked with client's 12).
 
         async def _fetch(gid: int, url: str) -> None:
-            async with sem:
-                try:
-                    assert app_state.eh_client is not None
-                    raw = await app_state.eh_client.download_image(url)
-                    if raw:
-                        cached_file = cache_dir / f"{gid}.jpg"
-                        cached_file.write_bytes(raw)
-                        uri = _img_data_uri(raw)
-                        if uri:
-                            result[gid] = uri
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("cover download failed", extra=log_extra(gid=gid, error=str(exc)))
+            try:
+                assert app_state.eh_client is not None
+                raw = await app_state.eh_client.download_image(url)
+                if raw:
+                    cached_file = cache_dir / f"{gid}.jpg"
+                    cached_file.write_bytes(raw)
+                    uri = _img_data_uri(raw)
+                    if uri:
+                        result[gid] = uri
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("cover download failed", extra=log_extra(gid=gid, error=str(exc)))
 
         await asyncio.gather(*[_fetch(gid, url) for gid, url in need_download])
     return result
@@ -433,7 +433,9 @@ async def run_favorites_check(
                     done=entry.get("done", 0),
                     total=entry.get("total", 0),
                 )
-                asyncio.create_task(tm.persist_history())
+                from ..app.dependencies import spawn_task
+
+                spawn_task(tm.persist_history(), "persist task history")
 
 
 async def favorites_poll_loop(service: FavoritesService | None = None) -> None:

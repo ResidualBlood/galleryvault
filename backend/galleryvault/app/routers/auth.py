@@ -66,6 +66,8 @@ async def login(request: Request):
         return HTMLResponse("Too many attempts, try again later", status_code=429)
     form = parse_qs((await request.body()).decode(errors="replace"), keep_blank_values=True)
     password = form.get("password", [""])[0]
+    if len(password) > 256:
+        password = password[:256]
     valid = True
     settings = get_current_settings()
     if settings.auth_required:

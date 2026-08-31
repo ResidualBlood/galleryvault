@@ -39,21 +39,8 @@ def _thumb_service() -> ThumbnailService:
 
 def _meta(gallery: Gallery, pages: list[GalleryPage]) -> GalleryMeta:
     return GalleryMeta(
-        gid=gallery.gid,
-        token=gallery.token,
-        title=gallery.title,
-        title_jpn=gallery.title_jpn,
-        category=gallery.category,
-        uploader=gallery.uploader,
-        posted_at=gallery.posted_at.isoformat() if gallery.posted_at else None,
-        filecount=gallery.page_count or 0,
-        filesize=gallery.storage_size or 0,
-        expunged=gallery.expunged or False,
-        rating=gallery.rating,
-        thumbnail_url=gallery.thumbnail_url,
-        japanese_title=gallery.japanese_title,
-        english_title=gallery.english_title,
-        storage_path=gallery.storage_path or "",
+        title=gallery.title or "",
+        path=Path(gallery.storage_path or ""),
         storage_type=gallery.storage_type or "ehviewer_dir",
         pages=[
             PageInfo(
@@ -63,7 +50,19 @@ def _meta(gallery: Gallery, pages: list[GalleryPage]) -> GalleryMeta:
             )
             for p in pages
         ],
+        gid=gallery.gid,
+        token=gallery.token,
+        title_jpn=gallery.title_jpn,
+        category=gallery.category,
+        uploader=gallery.uploader,
+        file_count=gallery.page_count or 0,
+        file_size=gallery.file_size or gallery.storage_size or 0,
+        rating=gallery.rating,
+        posted_at=gallery.posted_at,
         tags=[],
+        storage_signature=gallery.storage_signature or "",
+        storage_mtime_ns=gallery.storage_mtime_ns,
+        storage_size=gallery.storage_size or 0,
     )
 
 
@@ -192,7 +191,9 @@ async def thumbnail_worker_loop() -> None:
                                 done=int(thumb_state.get("processed") or 0),
                                 total=int(thumb_state.get("total") or 0),
                             )
-                            asyncio.create_task(tm.persist_history())
+                            from ..app.dependencies import spawn_task
+
+                            spawn_task(tm.persist_history(), "persist task history")
                 await asyncio.sleep(_THUMB_POLL_INTERVAL)
                 continue
 

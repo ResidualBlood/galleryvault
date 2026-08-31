@@ -252,7 +252,9 @@ async def run_scan() -> None:
                     total=0,
                 )
                 tm.clear_cancelled("scan")
-                asyncio.create_task(tm.persist_history())
+                from ..app.dependencies import spawn_task
+
+                spawn_task(tm.persist_history(), "persist task history")
 
             try:
                 if not cancelled and app_state.telegram is not None and settings.telegram_chat_ids:

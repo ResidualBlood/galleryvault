@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from ...config import normalize_library_roots
 from ...db.models import FavoritesMonitor
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
-from ...secrets import encrypt, encrypt_json, is_encrypted
+from ...secrets import encrypt, encrypt_json, encryption_enabled, is_encrypted
 from ...services.settings_service import (
     decrypt_user_settings,
     is_public_site,
@@ -137,6 +137,14 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
     persisted_values = {**db_settings, **values}
     cookies = persisted_values.get("exhentai_cookies")
     if isinstance(cookies, (dict, list)) and cookies:
+        if not encryption_enabled():
+            logger.warning(
+                "refusing to store exhentai_cookies in plaintext; set ENCRYPTION_KEY to enable encryption"
+            )
+            raise HTTPException(
+                status_code=422,
+                detail="ENCRYPTION_KEY not configured; cannot store ExHentai cookies without encryption. Set ENCRYPTION_KEY env var.",
+            )
         persisted_values["exhentai_cookies"] = encrypt_json(cookies)
     token = persisted_values.get("telegram_bot_token")
     if isinstance(token, str) and token and not is_encrypted(token):

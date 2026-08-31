@@ -164,8 +164,8 @@ def maybe_scan_after_download(result: Any) -> None:
     spawn_task(ingest_downloaded_gallery(result), "download ingest")
 
 
-async def download_progress(task_id: int, current_page: int, total_pages: int) -> None:
-    if not app_state.session_factory:
+async def download_progress(task_id: int | None, current_page: int, total_pages: int) -> None:
+    if task_id is None or not app_state.session_factory:
         return
     try:
         async with app_state.session_factory() as session, session.begin():
@@ -253,6 +253,9 @@ def mark_download_cancelled(task_id: int | None) -> None:
 
 
 async def run_download(task: DownloadTask) -> None:
+    if task.id is None:
+        logger.warning("download task missing id; skipping", extra=log_extra(gid=task.gid))
+        return
     from ..app import main
     session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
     if session_cm is None:
@@ -395,6 +398,14 @@ async def download_worker_loop() -> None:
 
     settings = app_state.settings or get_settings()
     concurrency = max(1, settings.download_concurrency)
+    # SQLite does not support FOR UPDATE SKIP LOCKED — multiple workers would
+    # repeatedly claim the same row. Force single worker in that case.
+    try:
+        engine = app_state.engine
+        if engine is not None and getattr(engine.dialect, "name", "") == "sqlite":
+            concurrency = 1
+    except Exception:  # noqa: BLE001, S110
+        pass
 
     async def _worker() -> None:
         while True:

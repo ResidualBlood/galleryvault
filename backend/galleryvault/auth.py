@@ -58,7 +58,31 @@ def is_trusted_proxy(host: str | None) -> bool:
         return True
     try:
         ip = ipaddress.ip_address(host)
-        return ip.is_loopback or ip.is_private
+        if ip.is_loopback:
+            return True
+        # Private networks are NOT trusted by default — only explicit whitelist.
+        from .config import get_settings
+
+        trusted = get_settings().trusted_proxies or []
+        for entry in trusted:
+            entry = str(entry).strip()
+            if not entry:
+                continue
+            if "/" in entry:
+                try:
+                    net = ipaddress.ip_network(entry, strict=False)
+                    if ip in net:
+                        return True
+                except ValueError:
+                    continue
+            else:
+                try:
+                    if ip == ipaddress.ip_address(entry):
+                        return True
+                except ValueError:
+                    if host == entry:
+                        return True
+        return False
     except ValueError:
         return False
 
@@ -109,7 +133,7 @@ def verify_password(password: str, encoded: str | None) -> bool:
         if scheme != "pbkdf2_sha256":
             return False
         iterations = int(raw_iterations)
-        if iterations < 100_000 or iterations > 10_000_000:
+        if iterations < 200_000 or iterations > 10_000_000:
             return False
         decode = lambda value: base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
         expected = hashlib.pbkdf2_hmac(ALGORITHM, password.encode(), decode(raw_salt), iterations)

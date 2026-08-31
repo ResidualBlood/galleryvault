@@ -10,6 +10,32 @@ from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 from .ehviewer import IMAGE_EXTENSIONS, natural_key
 
 
+def _is_symlink(info: object) -> bool:
+    """Return True if archive member is a symlink (ZipInfo/RarInfo unified)."""
+    if hasattr(info, "is_symlink"):
+        try:
+            return bool(info.is_symlink())  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001, S110
+            pass
+    external_attr = getattr(info, "external_attr", 0)
+    return ((int(external_attr) >> 16) & 0o170000) == 0o120000
+
+
+def _is_unsafe_path(filename: str) -> bool:
+    """Check for absolute path or path traversal via ``..`` components."""
+    normalized = filename.replace("\\", "/")
+    p = Path(normalized)
+    return p.is_absolute() or ".." in p.parts
+
+
+def validate_archive_member(filename: str, info: object) -> None:
+    """Validate a single archive member, raising ValueError on Zip-Slip/symlink."""
+    if _is_unsafe_path(filename):
+        raise ValueError(f"unsafe archive member path: {filename}")
+    if _is_symlink(info):
+        raise ValueError(f"unsafe symlink in archive: {filename}")
+
+
 class ArchiveScanner(GalleryScanner):
     def fingerprint(self, path: Path) -> str:
         return self.storage_signature(path)
@@ -90,33 +116,21 @@ class CbzZipScanner(ArchiveScanner):
     def scan(self, path: Path) -> GalleryMeta:
         with zipfile.ZipFile(path) as archive:
             for info in archive.infolist():
-                normalized = info.filename.replace("\\", "/")
-                if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
-                    raise ValueError(f"{path}: unsafe archive member path: {info.filename}")
-                is_symlink = (
-                    info.is_symlink()
-                    if hasattr(info, "is_symlink")
-                    else ((info.external_attr >> 16) & 0o170000 == 0o120000)
-                )
-                if is_symlink:
-                    raise ValueError(f"{path}: unsafe symlink in archive: {info.filename}")
+                try:
+                    validate_archive_member(info.filename, info)
+                except ValueError as exc:
+                    raise ValueError(f"{path}: {exc}") from exc
             sizes = {info.filename: info.file_size for info in archive.infolist()}
             pages = self._pages(list(sizes), sizes)
             raw, metadata = self._comic_info(archive, list(sizes))
             return self._meta(path, pages, raw, **metadata)
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
-        normalized = page.name.replace("\\", "/")
-        if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
+        if _is_unsafe_path(page.name):
             raise ValueError(f"unsafe page path: {page.name}")
         with zipfile.ZipFile(gallery.path) as archive:
             info = archive.getinfo(page.name)
-            is_symlink = (
-                info.is_symlink()
-                if hasattr(info, "is_symlink")
-                else ((info.external_attr >> 16) & 0o170000 == 0o120000)
-            )
-            if is_symlink:
+            if _is_symlink(info):
                 raise ValueError(f"unsafe symlink in archive: {page.name}")
             return io.BytesIO(archive.read(page.name))
 
@@ -144,9 +158,10 @@ class CbrRarScanner(ArchiveScanner):
             with RarFile(path) as archive:
                 infos = archive.infolist()
                 for info in infos:
-                    normalized = info.filename.replace("\\", "/")
-                    if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
-                        raise ValueError(f"{path}: unsafe archive member path: {info.filename}")
+                    try:
+                        validate_archive_member(info.filename, info)
+                    except ValueError as exc:
+                        raise ValueError(f"{path}: {exc}") from exc
                 sizes = {info.filename: info.file_size for info in infos}
                 raw, metadata = self._comic_info(archive, list(sizes))
                 return self._meta(path, self._pages(list(sizes), sizes), raw, **metadata)
@@ -158,9 +173,23 @@ class CbrRarScanner(ArchiveScanner):
             ) from exc
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
+        if _is_unsafe_path(page.name):
+            raise ValueError(f"unsafe page path: {page.name}")
         RarFile = self._rar()
         try:
             with RarFile(gallery.path) as archive:
+                # Validate symlink for RAR as well (previously missing)
+                try:
+                    infos = archive.infolist()
+                    target_info = next((i for i in infos if i.filename == page.name), None)
+                    if target_info is not None and _is_symlink(target_info):
+                        raise ValueError(f"unsafe symlink in archive: {page.name}")
+                except ValueError:
+                    raise
+                except Exception:  # noqa: BLE001, S110
+                    pass
                 return io.BytesIO(archive.read(page.name))
+        except ValueError:
+            raise
         except Exception as exc:
             raise RuntimeError("Unable to read CBR/RAR page; install unrar or libarchive") from exc

@@ -58,7 +58,9 @@ def record_gallery_update_log(results: list[dict[str, Any]]) -> None:
             done=deleted,
             total=len(results),
         )
-        asyncio.create_task(tm.persist_history())
+        from ..app.dependencies import spawn_task
+
+        spawn_task(tm.persist_history(), "persist task history")
 
 
 async def finalize_gallery_update(row: Any) -> None:

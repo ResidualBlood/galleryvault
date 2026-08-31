@@ -537,7 +537,18 @@ class EhClient:
         else:
             proxy = self.settings.socks5_proxy or self.settings.http_proxy
             raw_cookies = self.settings.exhentai_cookies
-            cookies = dict(raw_cookies) if isinstance(raw_cookies, dict) else {}
+            if isinstance(raw_cookies, dict):
+                cookies = dict(raw_cookies)
+            elif isinstance(raw_cookies, str) and raw_cookies.strip():
+                try:
+                    import json as _json
+
+                    parsed = _json.loads(raw_cookies)
+                    cookies = dict(parsed) if isinstance(parsed, dict) else {}
+                except Exception:  # noqa: BLE001
+                    cookies = {}
+            else:
+                cookies = {}
             # Ehviewer-compatible behaviour flags expressed as ExHentai cookies.
             # uh: load images through the H@H network (y) or not (n).
             # oi: always fetch the original (full) image instead of the resample.
@@ -592,7 +603,7 @@ class EhClient:
             # Buffer the body inside the try so a connection reset while reading
             # is wrapped as EhClientError below instead of leaking a raw
             # RemoteProtocolError to the download worker.
-            response.read()
+            await response.aread()
             return response
         except httpx.RequestError as exc:
             # Covers TimeoutException, ConnectError, ReadError,
@@ -1354,9 +1365,10 @@ class EhClient:
                     )
                 if response.status_code == 416:
                     total = _content_range_total(response.headers.get("content-range"))
-                    if total is not None and offset >= total:
+                    if total is not None and offset == total:
                         return total
-                    # Genuine range error with offset < total: clear corrupt partial to allow clean restart
+                    # Oversized or truncated partial: 416 with offset != total indicates
+                    # corrupt/oversized local file. Clear so next attempt restarts cleanly.
                     if offset != 0:
                         logger.warning(
                             "archive download 416 range error, clearing corrupt partial file",
@@ -1435,11 +1447,25 @@ class EhClient:
         if not match:
             raise GalleryGoneError("gallery has no cover")
         cover_url = urljoin(str(response.url), html.unescape(match.group(1)))
-        cover_response = await self._request(
-            "GET",
-            cover_url,
-            headers={"Referer": str(response.url)},
-        )
+        # Route cover through the correct limiter (H@H images vs site pages),
+        # mirroring download_image_with_metadata's host-based budget.
+        host = (urlparse(cover_url).hostname or "").lower()
+        use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
+        semaphore = self._image_semaphore if use_image_budget else self._semaphore
+        t_wait_start = time.perf_counter()
+        async with semaphore:
+            wait_elapsed = time.perf_counter() - t_wait_start
+            observe_histogram(
+                "gv_ehclient_semaphore_wait_seconds",
+                wait_elapsed,
+                {"type": "image" if use_image_budget else "page"},
+            )
+            cover_response = await self.client.get(
+                cover_url,
+                headers={"Referer": str(response.url)},
+                timeout=httpx.Timeout(120.0, read=30.0),
+                follow_redirects=True,
+            )
         if cover_response.status_code in (401, 403) or "login" in str(cover_response.url).lower():
             raise EhClientError("ExHentai authentication is required or expired")
         cover_response.raise_for_status()
