@@ -241,6 +241,37 @@ def _record_task(
             "total": total,
         }
     )
+    _spawn(_persist_task_history(), "persist task history")
+
+
+async def _persist_task_history() -> None:
+    from ..db.models import AppConfig as _AppConfig
+
+    try:
+        data = list(task_history)
+        async with _settings_session() as session, session.begin():
+            row = await session.get(_AppConfig, "task_history")
+            if row is None:
+                session.add(_AppConfig(key="task_history", value=data))
+            else:
+                row.value = data
+    except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+        logger.debug("could not persist task history", extra={"error": str(exc)})
+
+
+async def _restore_task_history() -> None:
+    from ..db.models import AppConfig as _AppConfig
+
+    try:
+        async with _settings_session() as session:
+            row = await session.get(_AppConfig, "task_history")
+            if row and isinstance(row.value, list):
+                task_history.clear()
+                for item in reversed(row.value):
+                    if isinstance(item, dict):
+                        task_history.appendleft(item)
+    except Exception as exc:  # noqa: BLE001 - restoration is best-effort
+        logger.debug("could not restore task history", extra={"error": str(exc)})
 
 
 def _request_cancel(task: str) -> None:
@@ -638,6 +669,7 @@ async def startup() -> None:
     try:
         await _bootstrap_auth()
         await _migrate_plaintext_secrets()
+        await _restore_task_history()
     except Exception:  # noqa: BLE001
         logger.warning("auth bootstrap failed; using temporary credentials")
     client = EhClient(_settings(), max_concurrency=_settings().exhentai_max_concurrency)

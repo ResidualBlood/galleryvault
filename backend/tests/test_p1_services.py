@@ -1568,3 +1568,44 @@ def test_observability_gauges_and_counters() -> None:
     rendered = render_metrics()
     assert 'gv_download_tasks_total{status="completed"} 3' in rendered
     assert "gv_scan_running 1" in rendered
+
+
+@pytest.mark.asyncio
+async def test_task_history_persistence_and_restoration(monkeypatch) -> None:
+    from galleryvault.app import main
+
+    saved_rows = {}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+        async def get(self, model, key):
+            from galleryvault.db.models import AppConfig
+            if key in saved_rows:
+                return AppConfig(key=key, value=saved_rows[key])
+            return None
+
+        def add(self, item):
+            saved_rows[item.key] = item.value
+
+    monkeypatch.setattr(main, "_settings_session", lambda: FakeSession())
+
+    main.task_history.clear()
+    main._record_task("scan", "2026-08-31T00:00:00Z", "2026-08-31T00:01:00Z", "success", done=10)
+    await main._persist_task_history()
+    assert len(main.task_history) == 1
+    assert "task_history" in saved_rows
+
+    main.task_history.clear()
+    assert len(main.task_history) == 0
+    await main._restore_task_history()
+    assert len(main.task_history) == 1
+    assert main.task_history[0]["task"] == "scan"
+    assert main.task_history[0]["done"] == 10
