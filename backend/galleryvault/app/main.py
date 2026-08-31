@@ -20,14 +20,13 @@ from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
-    Response,
 )
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
-from ..auth import create_session, hash_password, verify_password, verify_session
+from ..auth import verify_password, verify_session
 from ..config import (
     Settings,
     get_settings,
@@ -59,6 +58,21 @@ from ..secrets import (
     is_encrypted,
 )
 from ..services import messages
+from ..services.deletion import (
+    delete_galleries_local as _deletion_service_delete_galleries,
+)
+from ..services.deletion import (
+    delete_local_copy as _deletion_service_delete_copy,
+)
+from ..services.deletion import (
+    in_scan_roots as _deletion_service_in_roots,
+)
+from ..services.deletion import (
+    prune_merged_stale_pages as _deletion_service_prune,
+)
+from ..services.deletion import (
+    remove_superseded_copy as _deletion_service_remove_superseded,
+)
 from ..services.downloader import (
     ArchiveNotRetryableError,
     DownloadCancelledError,
@@ -745,49 +759,6 @@ async def shutdown() -> None:
     await app.state.engine.dispose()
 
 
-
-
-@app.post("/login")
-async def login(request: Request):
-    ip = _client_ip(request)
-    if not await _login_gate(ip):
-        logger.info(
-            "login rate limited", extra=log_extra(ip=ip, reason="rate_limit")
-        )
-        return HTMLResponse("Too many attempts, try again later", status_code=429)
-    form = parse_qs((await request.body()).decode(errors="replace"), keep_blank_values=True)
-    password = form.get("password", [""])[0]
-    valid = True
-    if _settings().auth_required:
-        valid = verify_login_password(password, _password_effective())
-    if not valid:
-        logger.info(
-            "authentication failed",
-            extra=log_extra(
-                ip=ip, reason="invalid_password"
-            ),
-        )
-        return RedirectResponse("/login?error=1", status_code=303)
-    response = RedirectResponse("/", status_code=303)
-    response.set_cookie(
-        _settings().auth_cookie_name,
-        create_session(_settings().auth_secret or "", _settings().auth_session_ttl),
-        httponly=True,
-        samesite="lax",
-        secure=_settings().auth_cookie_secure,
-        max_age=_settings().auth_session_ttl,
-    )
-    await _login_succeeded(ip)
-    return response
-
-
-@app.get("/login")
-async def login_get() -> RedirectResponse:
-    """The frontend is served separately; a GET to /login just redirects to the
-    SPA root (hash-routed), keeping e.g. /login?error=1 on the frontend."""
-    return RedirectResponse("/", status_code=303)
-
-
 def verify_login_password(password: str, effective: str | None) -> bool:
     """Validate a password against the configured hash or legacy plaintext."""
     if effective is None:
@@ -796,13 +767,6 @@ def verify_login_password(password: str, effective: str | None) -> bool:
     if "$" in effective and effective.startswith("pbkdf2_sha256"):
         return verify_password(password, effective)
     return hmac.compare_digest(password, effective)
-
-
-@app.post("/logout")
-async def logout():
-    response = RedirectResponse("/login", status_code=303)
-    response.delete_cookie(_settings().auth_cookie_name)
-    return response
 
 
 def _infer_image_quality(
@@ -839,50 +803,8 @@ def _maybe_scan_after_download(result) -> None:
 
 
 def _prune_merged_stale_pages(path: Path, new_files: tuple[str, ...] = ()) -> int:
-    """Drop stale pages left by an in-place original upgrade.
-
-    When the downloader merges an original-quality download into the folder of
-    an existing resampled copy whose pages used a different extension (e.g.
-    old ``.webp`` next to the new ``.jpg``/``.png``), both files remain for the
-    same page.  Only the freshly downloaded files (``new_files``) are wanted:
-    delete any image in the folder whose page stem has a fresh copy but whose
-    name is not in ``new_files``, so the subsequent ingest sees exactly one
-    copy per page.  Best-effort: a read-only mount must not fail the task.
-    """
-    if not path.is_dir():
-        return 0
-    import shutil as _shutil
-
-    fresh = set(new_files)
-    by_stem: dict[str, list[Path]] = {}
-    for item in path.iterdir():
-        if (
-            item.is_file()
-            and not item.name.startswith(".")
-            and item.suffix.casefold() in IMAGE_EXTENSIONS
-        ):
-            by_stem.setdefault(item.stem, []).append(item)
-    removed = 0
-    for siblings in by_stem.values():
-        if not any(sib.name in fresh for sib in siblings):
-            continue
-        for stale in siblings:
-            if stale.name in fresh:
-                continue
-            try:
-                if stale.is_dir():
-                    _shutil.rmtree(stale)
-                else:
-                    stale.unlink()
-                removed += 1
-            except OSError:
-                pass
-    if removed:
-        logger.info(
-            "pruned stale pages after in-place original upgrade",
-            extra=log_extra(path=str(path), removed=removed),
-        )
-    return removed
+    """Drop stale pages left by an in-place original upgrade."""
+    return _deletion_service_prune(path, new_files)
 
 
 async def _ingest_downloaded_gallery(result) -> None:
@@ -979,46 +901,10 @@ async def _ingest_downloaded_gallery(result) -> None:
 
 
 async def _remove_superseded_copy(result, old_path: Path, old_pages: int) -> None:
-    """Delete a previous physical copy of the same gid after a successful download.
-
-    Called whenever ingest moves a gid to a new storage_path (e.g. archive
-    original download, re-download, or gallery update landing on a gid that
-    had an old export in another root). Only deletes when page count matches
-    and paths differ. Best-effort: a read-only mount must not fail the task.
-    """
-    new_path = Path(result.path)
-    try:
-        if old_path.resolve() == new_path.resolve():
-            return
-        if not old_path.exists():
-            return
-        if not _in_scan_roots(old_path):
-            logger.error(
-                "SECURITY_ALERT: refusal to remove superseded copy outside configured scan roots",
-                extra=log_extra(gid=result.gid, path=str(old_path)),
-            )
-            return
-        if (result.pages or 0) != old_pages:
-            logger.warning(
-                "page count mismatch; keeping old copy",
-                extra=log_extra(gid=result.gid, old=old_pages, new=result.pages),
-            )
-            return
-        import shutil as _shutil
-
-        if old_path.is_dir():
-            await asyncio.to_thread(_shutil.rmtree, old_path)
-        else:
-            old_path.unlink()
-        logger.info(
-            "removed superseded copy",
-            extra=log_extra(gid=result.gid, path=str(old_path)),
-        )
-    except OSError as exc:
-        logger.warning(
-            "failed to remove superseded copy",
-            extra=log_extra(gid=result.gid, path=str(old_path), error=str(exc)),
-        )
+    """Delete a previous physical copy of the same gid after a successful download."""
+    return await _deletion_service_remove_superseded(
+        result, old_path, old_pages, scan_roots=_scan_roots()
+    )
 
 
 async def _backfill_image_quality(should_stop=None) -> int:
@@ -3289,32 +3175,12 @@ class FilteredDeleteRequest(BaseModel):
 
 def _in_scan_roots(path: Path) -> bool:
     """True when ``path`` (resolved) sits under one of the configured scan roots."""
-    try:
-        resolved = path.resolve()
-    except (ValueError, TypeError, OSError):
-        return False
-    return any(resolved.is_relative_to(root) for root in _scan_roots())
+    return _deletion_service_in_roots(path, _scan_roots())
 
 
 def _delete_local_copy(path: Path) -> bool:
     """Delete one on-disk copy (directory or single file). Returns success."""
-    if not _in_scan_roots(path):
-        logger.error(
-            "SECURITY_ALERT: refusal to delete file outside configured scan roots",
-            extra={"path": str(path)},
-        )
-        return False
-    try:
-        if path.is_dir():
-            import shutil as _shutil
-
-            _shutil.rmtree(path)
-        else:
-            path.unlink(missing_ok=True)
-        return True
-    except OSError:
-        logger.warning("gallery file removal failed", extra={"path": str(path)})
-        return False
+    return _deletion_service_delete_copy(path, _scan_roots())
 
 
 async def delete_galleries_local(
@@ -3324,53 +3190,15 @@ async def delete_galleries_local(
     delete_files: bool,
     delete_all_copies: bool,
 ) -> list[dict]:
-    """Delete galleries (DB rows + optional on-disk copies) via a shared path.
-
-    ``delete_files`` controls whether on-disk files are removed.  ``delete_all_copies``
-    extends deletion to every physical copy of a gid recorded in ``duplicate_records``
-    (used by the favorites dedup page, where one gid may live under several roots).
-
-    A gallery row is only deleted when every target path was removed successfully
-    (or ``delete_files`` is False); a partial failure keeps the row so a later
-    scan cannot resurrect a half-deleted gallery as if it were fresh.  Returned per
-    gallery: ``{gallery_id, gid, db_removed, deleted_paths, failed_paths}``.
-    """
-    results: list[dict] = []
-    for gallery in galleries:
-        gid = gallery.gid
-        targets = [Path(gallery.storage_path)] if gallery.storage_path else []
-        if delete_all_copies and gid is not None:
-            copies = await GalleryRepository(session).duplicate_copies_for_gid(gid)
-            for copy in copies:
-                p = Path(str(copy.get("path") or ""))
-                if p not in targets:
-                    targets.append(p)
-        deleted_paths: list[str] = []
-        failed_paths: list[str] = []
-        if delete_files:
-            for target in targets:
-                if _delete_local_copy(target):
-                    deleted_paths.append(str(target))
-                else:
-                    failed_paths.append(str(target))
-        if not delete_files or not failed_paths:
-            await session.delete(gallery)
-            if delete_all_copies and gid is not None and not failed_paths:
-                await GalleryRepository(session).delete_duplicate(gid)
-            db_removed = True
-        else:
-            db_removed = False
-        results.append(
-            {
-                "gallery_id": gallery.id,
-                "gid": gid,
-                "db_removed": db_removed,
-                "deleted_paths": deleted_paths,
-                "failed_paths": failed_paths,
-            }
-        )
-    await session.flush()
-    return results
+    """Delete galleries (DB rows + optional on-disk copies) via a shared path."""
+    return await _deletion_service_delete_galleries(
+        session,
+        galleries,
+        scan_roots=_scan_roots(),
+        delete_files=delete_files,
+        delete_all_copies=delete_all_copies,
+        delete_fn=_delete_local_copy,
+    )
 
 
 
@@ -3803,99 +3631,11 @@ async def _tag_facets_cached() -> list[tuple[str, int]]:
     return facets
 
 
-
-
-
-
-@app.get("/api/auth/session")
-async def auth_session() -> dict[str, object]:
-    return {
-        "authenticated": True,
-        "auth_required": _settings().auth_required,
-        "must_change_password": _must_change_password(),
-    }
-
-
-@app.get("/api/onboarding/status")
-async def onboarding_status() -> dict[str, object]:
-    """Setup progress used by the first-run wizard (password, ExHentai, library)."""
-    settings = _settings()
-    password_default = settings.auth_required and not (
-        settings.auth_password_hash or settings.auth_password
-    )
-    exhentai_configured = bool(settings.exhentai_cookies)
-    library_count = 0
-    try:
-        async with _settings_session() as session:
-            library_count = int(
-                await session.scalar(select(func.count()).select_from(Gallery)) or 0
-            )
-    except Exception as exc:  # noqa: BLE001 - DB down: fall back to a 0 count
-        logger.warning("onboarding status could not read library count", extra={"error": str(exc)})
-    return {
-        "password_default": password_default,
-        "exhentai_configured": exhentai_configured,
-        "library_count": library_count,
-    }
-
-
-class ChangePasswordRequest(BaseModel):
-    current: str = ""
-    new: str = Field(min_length=1, max_length=256)
-
-
-@app.post("/api/auth/change-password", status_code=204)
-async def change_password(body: ChangePasswordRequest) -> None:
-    effective = _password_effective()
-    using_default = effective is None
-    current_valid = (
-        using_default and body.current == DEFAULT_PASSWORD
-    ) or verify_login_password(body.current, effective)
-    if not current_valid:
-        raise HTTPException(status_code=403, detail="Current password is incorrect")
-    if body.new == DEFAULT_PASSWORD and using_default:
-        raise HTTPException(status_code=422, detail="New password cannot be the default")
-    new_hash = hash_password(body.new)
-    # Rotate auth_secret so every previously issued session cookie is revoked.
-    # The secret must be applied to the RUNNING process (not just persisted):
-    # ``_apply_persisted_settings`` only re-applies the password hash, so
-    # without the model_copy below revocation would silently wait for the next
-    # restart while the DB already held the new secret.
-    import secrets as _secrets
-
-    new_secret = _secrets.token_urlsafe(32)
-    stored = {"auth_password_hash": new_hash, "auth_secret": new_secret}
-    if encryption_enabled():
-        stored = {k: encrypt(v) for k, v in stored.items()}
-    try:
-        async with _settings_session() as session, session.begin():
-            await SettingsRepository(session).save_extra(stored)
-    except SQLAlchemyError as exc:
-        raise _db_error(exc) from exc
-    app.state.settings = app.state.settings.model_copy(
-        update={"auth_secret": new_secret, "auth_password_hash": new_hash}
-    )
-    # Hand the current user a fresh cookie signed with the new secret so their
-    # own password change does not log them out while everyone else's old
-    # sessions are revoked immediately.
-    response = Response(status_code=204)
-    response.set_cookie(
-        _settings().auth_cookie_name,
-        create_session(new_secret, _settings().auth_session_ttl),
-        httponly=True,
-        samesite="lax",
-        secure=_settings().auth_cookie_secure,
-        max_age=_settings().auth_session_ttl,
-    )
-    logger.info("account password changed")
-    return response
-
-
-
 # Routers are wired at the very end so this module is fully initialized before
 # they import it (their handlers annotate parameters with e.g.
 # main.DownloadRequest, which must already exist).
 from .routers import (
+    auth,
     core,
     downloads,
     duplicates,
@@ -3907,6 +3647,7 @@ from .routers import (
     updates,
 )
 
+app.include_router(auth.router)
 app.include_router(tasks.router)
 app.include_router(duplicates.router)
 app.include_router(downloads.router)
