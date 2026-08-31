@@ -727,6 +727,7 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
     if category is not None and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail="invalid category")
     parsed_tags = _parse_tag_filter(body.tags or body.tag)
+    _MAX_FILTERED_DELETE = 5000
     try:
         resolved_q = body.q or ""
         if body.q and body.q.strip():
@@ -753,6 +754,11 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                 if not rows:
                     break
                 matching_ids.extend(r.id for r in rows)
+                if len(matching_ids) > _MAX_FILTERED_DELETE:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"matched {len(matching_ids)} galleries exceeds safe limit {_MAX_FILTERED_DELETE}; refine filter or delete in batches",
+                    )
                 if len(rows) < 500:
                     break
                 page += 1

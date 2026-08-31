@@ -241,6 +241,7 @@ EDITABLE_SETTINGS = {
     "tag_translation_update_interval_minutes",
     "generate_thumbnails",
     "duplicate_policy",
+    "trusted_proxies",
 }
 
 

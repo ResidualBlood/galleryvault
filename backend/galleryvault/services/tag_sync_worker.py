@@ -231,15 +231,69 @@ def _is_public_site(url: str | None) -> bool:
     return "e-hentai.org" in host or not host
 
 
-async def category_refresh_once() -> None:
-    """Trigger category refresh once."""
-    if not app_state.session_factory or not app_state.eh_client:
-        return
+async def category_refresh_once() -> int:
+    """Backfill the 大分类 for galleries stuck in ``other``."""
+    tm = app_state.task_manager
+    state = tm.tag_sync_state if tm else {}
+    if state.get("category_refresh_running"):
+        return 0
+    state["category_refresh_running"] = True
+    refreshed = 0
     try:
-        async with app_state.session_factory():
-            pass
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("category refresh failed", extra=log_extra(error=type(exc).__name__))
+        if not app_state.session_factory or not app_state.eh_client:
+            return 0
+        ids: list[int] = []
+        async with app_state.session_factory() as session:
+            last_id = 0
+            while True:
+                batch = await GalleryRepository(session).pending_category_refresh_ids(500, last_id)
+                if not batch:
+                    break
+                ids.extend(batch)
+                last_id = batch[-1]
+        for gallery_id in ids:
+            try:
+                async with app_state.session_factory() as session, session.begin():
+                    await TagSyncService(
+                        app_state.eh_client, GalleryRepository(session)
+                    ).refresh_category(gallery_id)
+                refreshed += 1
+            except GalleryGoneError:
+                settings = app_state.settings or get_settings()
+                if _is_public_site(settings.exhentai_base_url):
+                    try:
+                        async with app_state.session_factory() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_not_visible(gallery_id)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "could not mark gallery not-visible during category refresh",
+                            extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+                        )
+                else:
+                    try:
+                        async with app_state.session_factory() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_synced(gallery_id, category="deleted")
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "could not mark deleted gallery during category refresh",
+                            extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+                        )
+            except EhClientError:
+                logger.warning(
+                    "category refresh failed",
+                    extra=log_extra(gallery_id=gallery_id, error="EhClientError"),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "category refresh error",
+                    extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+                )
+            if ids and gallery_id != ids[-1]:
+                await asyncio.sleep(0.3)
+        state["category_refreshed"] = int(state.get("category_refreshed", 0)) + refreshed
+    finally:
+        state["category_refresh_running"] = False
+    return refreshed
 
 
 async def tag_sync_worker_loop() -> None:

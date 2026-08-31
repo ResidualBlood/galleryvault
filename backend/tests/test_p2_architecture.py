@@ -150,10 +150,28 @@ def test_download_cancellation_tracking() -> None:
     assert is_download_cancelled(None) is False
 
 
-def test_auth_client_ip_and_proxy_defense() -> None:
+def test_auth_client_ip_and_proxy_defense(monkeypatch) -> None:
+    # Loopback always trusted; private / public need explicit whitelist
     assert is_trusted_proxy("127.0.0.1") is True
-    assert is_trusted_proxy("192.168.1.50") is True
+    assert is_trusted_proxy("192.168.1.50") is False
     assert is_trusted_proxy("8.8.8.8") is False
+    # Whitelisted CIDR becomes trusted
+    from galleryvault.config import Settings as _Settings
+
+    monkeypatch.setattr(
+        "galleryvault.config.get_settings",
+        lambda: _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False),
+    )
+    # Also patch app.main._settings for any indirect path
+    try:
+        from galleryvault.app import main as _main
+
+        monkeypatch.setattr(
+            _main, "_settings", lambda: _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False)
+        )
+    except Exception:
+        pass
+    assert is_trusted_proxy("192.168.1.50") is True
 
     scope = {
         "type": "http",

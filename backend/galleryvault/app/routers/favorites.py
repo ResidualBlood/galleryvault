@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from ...db.models import FavoritesMonitor, Gallery
 from ...db.repository import (
@@ -597,7 +598,7 @@ async def favorite_cover(gid: int, token: str) -> Response:
         raise HTTPException(status_code=422, detail="invalid token")
     cache_dir = Path(settings.thumbnail_cache_dir).parent / "remote-covers"
     path = cache_dir / f"{int(gid)}.img"
-    if not path.is_file():
+    if not await run_in_threadpool(path.is_file):
         client = app_state.eh_client
         if client is None:
             raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
@@ -605,14 +606,19 @@ async def favorite_cover(gid: int, token: str) -> Response:
             data, _ = await client.fetch_gallery_cover(int(gid), token)
         except (GalleryGoneError, EhClientError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_bytes(data)
-        tmp.replace(path)
-    body = path.read_bytes()
-    return Response(
-        body,
-        media_type=image_content_type(body),
+
+        def _write_atomic() -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(path)
+
+        await run_in_threadpool(_write_atomic)
+    # Infer content-type from first bytes without loading whole file twice.
+    head: bytes = await run_in_threadpool(lambda: path.read_bytes()[:16])
+    return FileResponse(
+        path,
+        media_type=image_content_type(head),
         headers={"Cache-Control": "public, max-age=86400"},
     )
 

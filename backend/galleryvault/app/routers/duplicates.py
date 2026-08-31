@@ -111,15 +111,19 @@ async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str
         break
 
     if body.delete_others:
+
+        def _delete_path(path: Path) -> None:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+
         for copy in copies:
             target = Path(str(copy.get("path")))
             if target == chosen or not _in_roots(target):
                 continue
             try:
-                if target.is_dir():
-                    shutil.rmtree(target)
-                else:
-                    target.unlink(missing_ok=True)
+                await run_in_threadpool(_delete_path, target)
             except OSError as exc:
                 logger.warning(
                     "duplicate copy deletion failed",

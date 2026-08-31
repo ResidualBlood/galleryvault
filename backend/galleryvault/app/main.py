@@ -756,7 +756,12 @@ def _ensure_translation_updater() -> asyncio.Task | None:
     if (
         translation_update_task is None or translation_update_task.done()
     ) and _settings().tag_translation_update_interval_minutes > 0:
-        translation_update_task = asyncio.create_task(_translation_update_loop())
+        task = _spawn(_translation_update_loop(), "translation updater")
+        if task is not None:
+            translation_update_task = task
+        else:
+            # Fallback if no running loop (e.g. called synchronously outside event loop)
+            translation_update_task = asyncio.create_task(_translation_update_loop())
     return translation_update_task
 
 
