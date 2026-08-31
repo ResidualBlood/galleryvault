@@ -299,3 +299,8 @@ const I18N = {
     ns: { artist: "作者", character: "角色", parody: "原作", group: "社团", language: "语言", category: "分类", misc: "标签", other: "标签", female: "女性", male: "男性", mixed: "男女" },
   },
 };
+
+function t(key) { return (I18N[app.lang] && I18N[app.lang][key]) || I18N.en[key] || key; }
+function nsLabel(ns) { return (I18N[app.lang].ns && I18N[app.lang].ns[ns]) || ns; }
+function groupLabel(key) { return (I18N[app.lang].groups && I18N[app.lang].groups[key]) || key; }
+function tagText(tag) { return app.lang === "zh" ? (tag.display || tag.name) : tag.name; }

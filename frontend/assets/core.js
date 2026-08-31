@@ -1,11 +1,7 @@
 "use strict";
 
-// Phase 3: I18N moved to i18n.js (split for future extraction / i18n tools)
+// Phase 3: I18N + t/nsLabel/groupLabel/tagText moved to i18n.js (split for future extraction / i18n tools)
 
-function t(key) { return (I18N[app.lang] && I18N[app.lang][key]) || I18N.en[key] || key; }
-function nsLabel(ns) { return (I18N[app.lang].ns && I18N[app.lang].ns[ns]) || ns; }
-function groupLabel(key) { return (I18N[app.lang].groups && I18N[app.lang].groups[key]) || key; }
-function tagText(tag) { return app.lang === "zh" ? (tag.display || tag.name) : tag.name; }
 function updateLangButton() {
   const b = document.querySelector('[data-action="toggle-lang"]');
   if (b) b.textContent = t("language");
