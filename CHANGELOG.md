@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-08-31
+
 ### Fixed
 
 - **Infinite retry loop on archive fallback**: When an archive zip failed validation (e.g., incorrect page count) or returned 404/410 (such as H@H rate limits "You have clocked too many downloaded bytes"), the fallback to page-by-page downloading wiped the temporary directory. If the page-by-page attempt subsequently failed, the next retry would wipe the progress and mistakenly retry the archive download from scratch. The fallback state is now persisted via a `.archive_fallback` marker, and the downloader directly falls back to page-by-page on `ArchiveExpiredError`, ensuring smooth resumes without endless cycles, GP bleeding, or stalls.
