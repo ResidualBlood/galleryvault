@@ -18,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Phase 1 complete**: app.js pure entry 29 lines (scan+init only); all renders/support extracted. smoke + checks.
 - **Frontend Phase 2 start**: design tokens (:root full color/space/radius/font/transition/focus), .btn system + unified skeleton/empty/loading, key buttons migrated, a11y (roles/aria/touch targets), transitions, mobile polish. :8200 smoke + node check. commit 4de129a.
 - **Phase 2 complete + verified**: ... Phase 2 done. See PLAN.
-- **Phase 3 start (perf)**: ... + i18n split prep + polish + html comment + playwright smoke.spec example. smoke. commits ... c13eb5b. See PLAN.
+- **Phase 3 progress (perf & tooling)**: simple virtual render via content-visibility:auto, startInfinite IO sentinel on favorites/browse/library, minimal .eslintrc.json, i18n module split into assets/i18n.js, CI syntax-check for all JS files, and 5-path playwright smoke test suite. smoke + node checks. See FRONTEND_OPTIMIZATION_PLAN.md.
 
 ### Added
 
