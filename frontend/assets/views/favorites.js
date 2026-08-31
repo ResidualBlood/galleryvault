@@ -81,6 +81,10 @@ async function renderFavList() {
         cb.checked = selFav.has(parseInt(cb.dataset.favGid, 10));
       });
       renderCardCheckboxes();
+      startInfinite("fav-items", async (p) => {
+        const qs = `page=${encodeURIComponent(p)}&page_size=${prefPageSize()}&state=${encodeURIComponent(state)}`;
+        return await api("GET", `/api/favorites/${favcat}/items?${qs}`);
+      }, favCard);
     }
     renderFavPager("favlist-pager", data, page);
   } catch (e) { document.getElementById("fav-items").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
