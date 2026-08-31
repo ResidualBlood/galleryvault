@@ -1,9 +1,11 @@
 """Password hashing and stateless signed session cookies."""
 
+import asyncio
 import base64
 import getpass
 import hashlib
 import hmac
+import ipaddress
 import json
 import secrets
 import sys
@@ -15,6 +17,80 @@ from fastapi.responses import RedirectResponse
 
 ALGORITHM = "sha256"
 ITERATIONS = 310_000
+DEFAULT_PASSWORD = "p1a2s3s4"
+
+LOGIN_RATE_WINDOW = 60.0
+LOGIN_RATE_MAX = 10
+_login_attempts: dict[str, list[float]] = {}
+_login_lock = asyncio.Lock()
+
+
+async def login_gate(ip: str) -> bool:
+    """Return True if ip may attempt a login within the rate window."""
+    global _login_attempts
+    now = time.time()
+    async with _login_lock:
+        if len(_login_attempts) > 2048:
+            cutoff = now - LOGIN_RATE_WINDOW
+            _login_attempts = {
+                key: [t for t in stamps if t >= cutoff]
+                for key, stamps in _login_attempts.items()
+                if any(t >= cutoff for t in stamps)
+            }
+        stamps = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_RATE_WINDOW]
+        if len(stamps) >= LOGIN_RATE_MAX:
+            return False
+        _login_attempts[ip] = stamps + [now]
+    return True
+
+
+async def login_succeeded(ip: str) -> None:
+    async with _login_lock:
+        _login_attempts.pop(ip, None)
+
+
+def is_trusted_proxy(host: str | None) -> bool:
+    if not host:
+        return False
+    if host in {"testclient", "localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
+
+
+def client_ip(request: Request) -> str:
+    """Best-effort real client IP for login rate limiting."""
+    peer = request.client.host if request.client else "unknown"
+    if is_trusted_proxy(peer):
+        real = request.headers.get("x-real-ip")
+        if real and real.strip():
+            candidate = real.strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded and forwarded.strip():
+            for part in [p.strip() for p in forwarded.split(",")]:
+                if part:
+                    try:
+                        ipaddress.ip_address(part)
+                        return part
+                    except ValueError:
+                        pass
+    return peer
+
+
+def verify_login_password(password: str, effective: str | None) -> bool:
+    if effective is None:
+        return False
+    if effective.startswith("pbkdf2_sha256$"):
+        return verify_password(password, effective)
+    return hmac.compare_digest(password, effective)
 
 
 def hash_password(password: str, *, iterations: int = ITERATIONS) -> str:

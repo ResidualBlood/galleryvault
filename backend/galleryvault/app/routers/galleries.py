@@ -1,29 +1,154 @@
-"""
-Gallery endpoints.
-"""
+"""Gallery endpoints."""
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
-from galleryvault.app import main
-from galleryvault.db.models import Gallery
-from galleryvault.db.repository import DownloadRepository, GalleryRepository, _chunked
-from galleryvault.logging import log_extra
-from galleryvault.scanners import registry
-from galleryvault.scanners.base import CATEGORIES, PageInfo
-from galleryvault.services.tag_sync import GalleryGidMissing, GalleryNotFound, GalleryTokenMissing
-from galleryvault.services.tag_translation import translated_tag
-from galleryvault.services.thumbnails import JPEG_MIME, ThumbnailError
+from ...db.models import Gallery, GalleryPage, GalleryTag, Tag
+from ...db.repository import DownloadRepository, GalleryRepository
+from ...logging import log_extra
+from ...scanners import registry
+from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
+from ...services.deletion import delete_galleries_local
+from ...services.tag_sync import (
+    GalleryGidMissing,
+    GalleryNotFound,
+    GalleryTokenMissing,
+    TagSyncService,
+)
+from ...services.tag_translation import translated_tag
+from ...services.thumbnails import JPEG_MIME, ThumbnailError, ThumbnailService
+from ..dependencies import (
+    db_error,
+    display_title,
+    get_current_settings,
+    get_eh_client,
+    get_session,
+    get_task_manager,
+    spawn_task,
+)
+from ..schemas import (
+    BulkDeleteRequest,
+    DownloadOriginalRequest,
+    FilteredDeleteRequest,
+    ProgressRequest,
+)
+from ..state import app_state
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_PAGE_STREAM_CHUNK = 256 * 1024
+
+
+def _page_media_type(ext: str) -> str:
+    """Map a page file extension to a standards-compliant media type."""
+    return {"jpg": "image/jpeg", "jpe": "image/jpeg", "jpeg": "image/jpeg"}.get(
+        (ext or "").lower(), f"image/{ext}"
+    )
+
+
+def _closing_stream(stream: BinaryIO) -> Iterator[bytes]:
+    """Yield a sync page stream in 256KB chunks, closing the file when exhausted."""
+    try:
+        while True:
+            chunk = stream.read(_PAGE_STREAM_CHUNK)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
+def _meta(row: Gallery, pages: list[GalleryPage]) -> GalleryMeta:
+    return GalleryMeta(
+        title=row.title,
+        path=Path(row.storage_path or ""),
+        storage_type=row.storage_type or "ehviewer_dir",
+        pages=[
+            PageInfo(
+                p.page_index,
+                p.member_name or f"{p.page_index:04d}",
+                p.media_type or "jpg",
+                (p.manifest or {}).get("size"),
+                (p.manifest or {}).get("mtime_ns"),
+            )
+            for p in pages
+        ],
+        gid=row.gid,
+        token=row.token,
+        storage_signature=row.storage_signature,
+    )
+
+
+async def _gallery_lookup(identifier: int) -> tuple[Gallery, list[GalleryPage]]:
+    try:
+        async for session in get_session():
+            row = await session.scalar(select(Gallery).where(Gallery.id == identifier))
+            if row is None:
+                row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
+            if row is None:
+                raise HTTPException(status_code=404, detail="Gallery not found")
+            pages = (
+                await session.scalars(
+                    select(GalleryPage)
+                    .where(GalleryPage.gallery_id == row.id)
+                    .order_by(GalleryPage.page_index)
+                )
+            ).all()
+            return row, list(pages)
+        raise HTTPException(status_code=503, detail="Database is unavailable")
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+
+
+async def _gallery_tags_lookup(gallery_id: int) -> list[tuple[str, str]]:
+    try:
+        async for session in get_session():
+            rows = await session.execute(
+                select(Tag.namespace, Tag.name)
+                .join(GalleryTag, GalleryTag.tag_id == Tag.id)
+                .where(GalleryTag.gallery_id == gallery_id)
+                .order_by(Tag.namespace, Tag.name)
+            )
+            return [(namespace, name) for namespace, name in rows]
+        return []
+    except Exception as exc:
+        raise db_error(exc) from exc
+
+
+async def _gallery(identifier: int) -> tuple[Gallery, list[GalleryPage]]:
+    from .. import main
+    fn = getattr(main, "_gallery", _gallery_lookup)
+    return await fn(identifier)
+
+
+async def _gallery_tags(gallery_id: int) -> list[tuple[str, str]]:
+    from .. import main
+    fn = getattr(main, "_gallery_tags", _gallery_tags_lookup)
+    return await fn(gallery_id)
+
+
+def _get_thumb_service() -> ThumbnailService:
+    if app_state.thumbnail_service is not None:
+        return app_state.thumbnail_service
+    settings = get_current_settings()
+    service = ThumbnailService(settings.thumbnail_cache_dir)
+    app_state.thumbnail_service = service
+    return service
 
 
 def _dedupe_tags(tags: list[tuple[str | None, str]]) -> list[tuple[str | None, str]]:
@@ -37,7 +162,6 @@ def _dedupe_tags(tags: list[tuple[str | None, str]]) -> list[tuple[str | None, s
 
 
 def _parse_tag_filter(tags: str | None) -> list[tuple[str | None, str]]:
-    """Parse the comma-separated ``tags`` query string into (ns, name) pairs."""
     parsed_tags: list[tuple[str | None, str]] = []
     for value in (tags or "").split(","):
         value = value.strip()
@@ -57,13 +181,6 @@ def _parse_tag_filter(tags: str | None) -> list[tuple[str | None, str]]:
 async def _resolve_search_tokens(
     q: str,
 ) -> tuple[list[tuple[str | None, str]], str, bool]:
-    """Split a free-form query into explicit tag filters + title keywords.
-
-    Only explicit ``ns:name`` tokens become tag filters; every other
-    whitespace-separated token is a plain title keyword.  Free-form words are
-    never auto-promoted to tags (that requires the UI's tag suggestions, which
-    the user explicitly clicks).  Returns ``(tags, keywords, changed)``.
-    """
     tokens = q.split()
     if not tokens:
         return [], "", False
@@ -80,77 +197,109 @@ async def _resolve_search_tokens(
                 keywords.append(token)
         else:
             keywords.append(token)
-    return explicit, " ".join(keywords), bool(explicit)
+    return explicit, " ".join(keywords), False
+
 
 @router.get("/api/galleries")
-async def gallery_list(
+async def list_galleries(
     page: int = 1,
     page_size: int = 24,
+    order: str = "id_desc",
+    category: str | None = None,
     q: str | None = None,
     tags: str | None = None,
-    tag_mode: str = "or",
-    tag_match: str = "exact",
-    category: str | None = None,
+    uploader: str | None = None,
+    min_rating: float | None = None,
+    favorite: bool | None = None,
+    read: bool | None = None,
+    expunged: bool | None = None,
+    min_pages: int | None = None,
+    max_pages: int | None = None,
+    media_type: str | None = None,
+    storage_type: str | None = None,
+    min_posted_at: str | None = None,
+    max_posted_at: str | None = None,
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(
-            status_code=422, detail="page must be >= 1 and page_size must be between 1 and 500"
-        )
-    if tag_mode not in {"and", "or"} or tag_match not in {"exact", "fuzzy"}:
-        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
-    if category == "":
-        category = None
+        raise HTTPException(status_code=422, detail="page_size must be between 1 and 500")
+
+    category_filter = category
     exclude_favorited = False
     if category == "__not_fav__":
-        # Pseudo-category for "local galleries not in any favorite folder".
         exclude_favorited = True
-        category = None
-    if category is not None and category not in CATEGORIES:
-        raise HTTPException(status_code=422, detail="invalid category")
+        category_filter = None
+    elif category and category not in CATEGORIES:
+        raise HTTPException(status_code=422, detail=f"category must be one of {', '.join(CATEGORIES)}")
+
     parsed_tags = _parse_tag_filter(tags)
+    search_keywords = q or None
+    query_modified = False
+    if q and q.strip():
+        inferred_tags, remaining_keywords, query_modified = await _resolve_search_tokens(q)
+        if inferred_tags:
+            parsed_tags = _dedupe_tags(parsed_tags + inferred_tags)
+        search_keywords = remaining_keywords or None
     try:
-        async with main._settings_session() as session:
-            repo = GalleryRepository(session)
-            resolved_q = q or ""
-            resolved = False
-            if q and q.strip():
-                auto_tags, keywords, changed = await _resolve_search_tokens(q)
-                resolved = changed
-                if changed:
-                    parsed_tags.extend(auto_tags)
-                    parsed_tags = _dedupe_tags(parsed_tags)
-                    resolved_q = keywords
-            total, rows = await repo.list_page(
-                page, page_size, resolved_q, parsed_tags, tag_mode, tag_match, category,
-                exclude_favorited,
+        async for session in get_session():
+            from .. import main
+            repo_cls = getattr(main, "GalleryRepository", GalleryRepository)
+            total, rows = await repo_cls(session).list_page(
+                page,
+                page_size,
+                q=search_keywords,
+                tags=parsed_tags if parsed_tags else (),
+                category=category_filter,
+                exclude_favorited=exclude_favorited,
             )
-            tag_map = await repo.tags_for_galleries([row.id for row in rows])
+            tag_map = await repo_cls(session).tags_for_galleries([r.id for r in rows if getattr(r, "id", None)])
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
+
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "q": resolved_q,
-        "tags": ",".join(f"{namespace}:{name}" if namespace else name for namespace, name in parsed_tags),
-        "resolved": resolved,
-        "tag_mode": tag_mode,
-        "tag_match": tag_match,
-        "category": "__not_fav__" if exclude_favorited else (category or ""),
+        "category": category,
+        "query_tags": (
+            [
+                {
+                    "namespace": ns,
+                    "name": name,
+                    "display": translated_tag(ns or "misc", name)[1],
+                }
+                for ns, name in parsed_tags
+            ]
+            if query_modified
+            else []
+        ),
         "items": [
             {
                 "id": row.id,
-                "gid": row.gid,
-                "title": main.display_title(row),
-                "title_english": row.title,
-                "title_jpn": row.title_jpn,
-                "storage_type": row.storage_type,
-                "category": row.category or "other",
-                "page_count": row.page_count or 0,
-                "cover_url": f"/api/galleries/{row.id}/thumb/0" if row.page_count else None,
+                "gid": getattr(row, "gid", None),
+                "token": getattr(row, "token", None),
+                "title": display_title(row),
+                "title_jpn": getattr(row, "title_jpn", None),
+                "category": getattr(row, "category", "other"),
+                "uploader": getattr(row, "uploader", None),
+                "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
+                "page_count": getattr(row, "page_count", 0),
+                "storage_size": getattr(row, "storage_size", 0),
+                "rating": getattr(row, "rating", None),
+                "favorite": getattr(row, "favorite", False),
+                "favorite_category": getattr(row, "favorite_category", None),
+                "reading_progress": getattr(row, "reading_progress", None),
+                "expunged": getattr(row, "expunged", False),
+                "cover_url": f"/api/galleries/{row.id}/thumb/0",
+                "image_quality": getattr(row, "image_quality", None),
+                "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
                 "tags": [
-                    {"namespace": namespace, "name": name, "display": translated_tag(namespace, name)[1]}
-                    for namespace, name in tag_map.get(row.id, [])
+                    {
+                        "namespace": ns,
+                        "name": name,
+                        "display": translated_tag(ns, name)[1],
+                    }
+                    for ns, name in tag_map.get(row.id, [])
                 ],
             }
             for row in rows
@@ -158,107 +307,110 @@ async def gallery_list(
     }
 
 
-@router.get("/api/galleries/random")
-async def gallery_random() -> dict[str, object]:
+gallery_list = list_galleries
+
+
+@router.get("/api/galleries/categories")
+async def list_categories() -> dict[str, object]:
     try:
-        async with main._settings_session() as session:
-            gallery_id = await GalleryRepository(session).random_id()
+        async for session in get_session():
+            counts = await GalleryRepository(session).category_counts()
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    if gallery_id is None:
-        raise HTTPException(status_code=404, detail="No galleries available")
-    return {"id": gallery_id}
-
-
-@router.get("/api/galleries/{identifier}/next")
-async def gallery_next(identifier: int) -> dict[str, object]:
-    try:
-        async with main._settings_session() as session:
-            next_id = await GalleryRepository(session).next_gallery_id(identifier)
-    except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    if next_id is None:
-        raise HTTPException(status_code=404, detail="No next gallery")
-    return {"id": next_id}
-
-
-@router.get("/api/galleries/{identifier}")
-async def gallery_detail(identifier: int) -> dict[str, object]:
-    row, pages = await main._gallery(identifier)
-    tags = await main._gallery_tags(row.id)
-    source_meta = row.source_meta or {}
-    spider_keys = (
-        "version",
-        "start_page",
-        "gid",
-        "token",
-        "mode",
-        "preview_pages",
-        "preview_per_page",
-        "pages",
-        "p_tokens",
-        "page_entries",
-        "warnings",
-    )
+        raise db_error(exc) from exc
     return {
-        "id": row.id,
-        "gid": row.gid,
-        "title": main.display_title(row),
-        "title_english": row.title,
-        "title_jpn": row.title_jpn,
-        "storage_type": row.storage_type,
-        "category": row.category or "other",
-        "page_count": len(pages),
-        "file_size": row.file_size,
-        "eh_url": (
-            f"{main._settings().exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
-            if row.gid and row.token
-            else ""
-        ),
-        "pages": [
-            {"index": p.page_index, "name": p.member_name, "media_type": p.media_type}
-            for p in pages
-        ],
-        "warnings": source_meta.get("warnings", []),
-        "spider_info": {key: source_meta[key] for key in spider_keys if key in source_meta},
-        "tags": [
-            {"namespace": namespace, "name": name, "display": translated_tag(namespace, name)[1]}
-            for namespace, name in tags
-        ],
-        "tags_synced_at": row.tags_synced_at,
-        "image_quality": getattr(row, "image_quality", None),
+        "categories": [
+            {"name": cat, "count": counts.get(cat, 0)}
+            for cat in CATEGORIES
+        ]
     }
 
 
-class DownloadOriginalRequest(BaseModel):
-    archive: bool = False
+@router.get("/api/galleries/random")
+async def random_gallery() -> dict[str, object]:
+    try:
+        async for session in get_session():
+            row = await GalleryRepository(session).random_gallery()
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="No galleries found")
+    return {"id": row.id}
+
+
+@router.get("/api/galleries/{identifier}")
+async def get_gallery(identifier: int) -> dict[str, object]:
+    row, pages = await _gallery(identifier)
+    tags = await _gallery_tags(row.id)
+    settings = get_current_settings()
+    return {
+        "id": row.id,
+        "gid": row.gid,
+        "token": row.token,
+        "title": display_title(row),
+        "title_jpn": getattr(row, "title_jpn", None),
+        "category": getattr(row, "category", "other"),
+        "uploader": getattr(row, "uploader", None),
+        "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
+        "page_count": getattr(row, "page_count", len(pages)),
+        "storage_size": getattr(row, "storage_size", 0),
+        "rating": getattr(row, "rating", None),
+        "favorite": getattr(row, "favorite", False),
+        "favorite_category": getattr(row, "favorite_category", None),
+        "reading_progress": getattr(row, "reading_progress", None),
+        "expunged": getattr(row, "expunged", False),
+        "image_quality": getattr(row, "image_quality", None),
+        "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
+        "storage_path": getattr(row, "storage_path", ""),
+        "exhentai_url": (
+            f"{settings.exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
+            if row.gid and row.token
+            else None
+        ),
+        "tags": [
+            {
+                "namespace": ns,
+                "name": name,
+                "display": translated_tag(ns, name)[1],
+            }
+            for ns, name in tags
+        ],
+        "tags_synced_at": getattr(row, "tags_synced_at", None),
+        "spider_info": getattr(row, "source_meta", None) or {},
+        "source_meta": getattr(row, "source_meta", None) or {},
+        "pages": [
+            {
+                "page_index": p.page_index,
+                "media_type": p.media_type,
+                "image_url": f"/api/galleries/{row.id}/pages/{p.page_index}",
+                "thumb_url": f"/api/galleries/{row.id}/thumb/{p.page_index}",
+            }
+            for p in pages
+        ],
+    }
+
+
+gallery_detail = get_gallery
 
 
 @router.post("/api/galleries/{identifier}/download-original", status_code=202)
 async def download_gallery_original(
     identifier: int, body: DownloadOriginalRequest
 ) -> dict[str, object]:
-    """Enqueue an original-quality download for a local gallery.
-
-    ``archive=False`` downloads page-by-page (no GP); ``archive=True`` goes
-    through the ExHentai archive (zip) channel.  For the page-by-page path the
-    first page is resolved up front so a resample-only gallery is rejected
-    instead of silently downgrading to resample.
-    """
-    row, _ = await main._gallery(identifier)
+    """Enqueue an original-quality download for a local gallery."""
+    row, _ = await _gallery(identifier)
     if not row.gid or not row.token:
         raise HTTPException(status_code=422, detail="Gallery has no ExHentai gid/token")
     mode = "gallery_archive" if body.archive else "gallery"
     if not body.archive:
-        client = main.app.state.eh_client
-        if client is None:
-            raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
+        client = get_eh_client()
         try:
             preview = await client.fetch_gallery(
                 row.gid, row.token, max_pages=1, resolve_urls=True
             )
         except Exception as exc:
-            main.logger.warning(
+            logger.warning(
                 "original availability check failed",
                 extra=log_extra(gid=row.gid, error=type(exc).__name__),
             )
@@ -270,270 +422,274 @@ async def download_gallery_original(
                 status_code=422, detail="No original images available for this gallery"
             )
     try:
-        async with main._settings_session() as session, session.begin():
-            task = await DownloadRepository(session).create(
-                row.gid, row.token, row.title, mode, None, "original"
-            )
-            if task is None:
-                raise HTTPException(
-                    status_code=409, detail="An active download already exists for this gid"
+        async for session in get_session():
+            async with session.begin():
+                task = await DownloadRepository(session).create(
+                    row.gid, row.token, row.title, mode, None, "original"
                 )
+                if task is None:
+                    raise HTTPException(
+                        status_code=409, detail="An active download already exists for this gid"
+                    )
+            break
     except HTTPException:
         raise
     except Exception as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
     return {"id": task.id, "gid": task.gid, "status": "pending"}
 
 
-@router.get("/api/galleries/{identifier}/progress")
-async def gallery_progress(identifier: int) -> dict[str, object]:
-    row, pages = await main._gallery(identifier)
-    async with main._settings_session() as session:
-        progress = await GalleryRepository(session).progress(row.id)
-    return {
-        "gallery_id": row.id,
-        "current_page": progress.current_page if progress else 0,
-        "total_pages": progress.total_pages if progress else len(pages),
-        "updated_at": progress.updated_at if progress else None,
-    }
+@router.post("/api/galleries/{identifier}/favorite")
+async def toggle_gallery_favorite(
+    identifier: int, favcat: int = 0
+) -> dict[str, object]:
+    row, _ = await _gallery(identifier)
+    target_state = not row.favorite
+    if row.gid and row.token:
+        client = app_state.eh_client
+        if client is not None:
+            try:
+                if target_state:
+                    await client.add_favorite(row.gid, row.token, favcat)
+                else:
+                    await client.remove_favorite(row.gid)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ExHentai cloud favorite sync failed",
+                    extra=log_extra(gid=row.gid, error=type(exc).__name__),
+                )
+    try:
+        async for session in get_session():
+            async with session.begin():
+                await GalleryRepository(session).set_favorite(
+                    row.id, target_state, favcat if target_state else None
+                )
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {"favorite": target_state, "favorite_category": favcat if target_state else None}
 
 
-@router.put("/api/galleries/{identifier}/progress")
-async def save_gallery_progress(identifier: int, body: main.ProgressRequest) -> dict[str, object]:
-    row, pages = await main._gallery(identifier)
-    if body.current_page >= len(pages):
-        raise HTTPException(status_code=422, detail="current_page is outside gallery")
-    async with main._settings_session() as session, session.begin():
-        progress = await GalleryRepository(session).upsert_progress(
-            row.id, body.current_page, body.total_pages or len(pages)
-        )
-        await GalleryRepository(session).record_history(
-            row.id, body.current_page, body.total_pages or len(pages)
-        )
-    return {
-        "gallery_id": row.id,
-        "current_page": progress.current_page,
-        "total_pages": progress.total_pages,
-    }
+@router.post("/api/galleries/{identifier}/read")
+async def mark_gallery_read(identifier: int) -> dict[str, object]:
+    row, pages = await _gallery(identifier)
+    async for session in get_session():
+        async with session.begin():
+            await GalleryRepository(session).update_progress(row.id, len(pages))
+        break
+    return {"reading_progress": len(pages)}
 
 
-@router.get("/api/history")
-async def history(page: int = 1, page_size: int = 24) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(status_code=422, detail="invalid pagination")
-    async with main._settings_session() as session:
-        total, rows = await GalleryRepository(session).history_page(page, page_size)
-        galleries = (
-            {
-                row.id: row
-                for row in (
+@router.post("/api/galleries/{identifier}/progress")
+async def save_gallery_progress(identifier: int, body: ProgressRequest) -> dict[str, object]:
+    row, pages = await _gallery(identifier)
+    current = min(body.page, len(pages))
+    async for session in get_session():
+        async with session.begin():
+            await GalleryRepository(session).update_progress(row.id, current)
+        break
+    return {"reading_progress": current}
+
+
+@router.post("/api/galleries/{identifier}/redownload", status_code=202)
+async def redownload_gallery(
+    identifier: int, quality: str | None = None, archive: bool = False
+) -> dict[str, object]:
+    if quality is not None and quality not in {"original", "resample"}:
+        raise HTTPException(status_code=422, detail="quality must be 'original' or 'resample'")
+    row, _ = await _gallery(identifier)
+    if not row.gid or not row.token:
+        raise HTTPException(status_code=422, detail="Gallery lacks ExHentai gid/token")
+    mode = "archive" if archive else "gallery"
+    try:
+        async for session in get_session():
+            async with session.begin():
+                task = await DownloadRepository(session).create(
+                    row.gid, row.token, row.title or str(row.gid), mode, quality=quality
+                )
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    if task is None:
+        raise HTTPException(status_code=409, detail="An active download already exists for this gid")
+    return {"status": "pending", "task_id": task.id, "gid": row.gid}
+
+
+@router.delete("/api/galleries/{identifier}", status_code=200)
+async def delete_gallery(
+    identifier: int, delete_files: bool = False, delete_all_copies: bool = False
+) -> dict[str, object]:
+    try:
+        async for session in get_session():
+            row = await session.get(Gallery, identifier)
+            if row is None:
+                row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
+            if row is None:
+                raise HTTPException(status_code=404, detail="Gallery not found")
+            async with session.begin():
+                results = await delete_galleries_local(
+                    session, [row], delete_files=delete_files, delete_all_copies=delete_all_copies
+                )
+            break
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    _record_gallery_delete_log(results, delete_files)
+    return {"results": results}
+
+
+@router.post("/api/galleries/delete-bulk", status_code=200)
+async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
+    if not body.gallery_ids:
+        return {"results": []}
+    try:
+        async for session in get_session():
+            async with session.begin():
+                galleries = (
                     await session.scalars(
-                        select(Gallery).where(Gallery.id.in_({x.gallery_id for x in rows}))
+                        select(Gallery).where(Gallery.id.in_(body.gallery_ids))
                     )
                 ).all()
-            }
-            if rows
-            else {}
-        )
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "items": [
-            {
-                "gallery_id": x.gallery_id,
-                "current_page": x.current_page,
-                "total_pages": x.total_pages,
-                "last_read_at": x.last_read_at,
-                "title": galleries[x.gallery_id].title if x.gallery_id in galleries else None,
-                "url": f"/galleries/{x.gallery_id}",
-            }
-            for x in rows
-        ],
-    }
-
-
-@router.delete("/api/history", status_code=204)
-async def clear_history() -> None:
-    async with main._settings_session() as session, session.begin():
-        await GalleryRepository(session).clear_history()
-
-
-@router.delete("/api/galleries/{identifier}", status_code=204)
-async def delete_gallery(identifier: int, delete_files: bool = False) -> None:
-    try:
-        async with main._settings_session() as session, session.begin():
-            gallery = await GalleryRepository(session).get_by_identifier(identifier)
-            if gallery is None:
-                raise HTTPException(status_code=404, detail="Gallery not found")
-            results = await main.delete_galleries_local(
-                session, [gallery], delete_files=delete_files, delete_all_copies=False
-            )
-            _record_gallery_delete_log(results)
-    except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-
-
-@router.post("/api/galleries/delete-bulk")
-async def delete_galleries_bulk(body: main.BulkDeleteRequest) -> dict[str, object]:
-    if not body.ids:
-        raise HTTPException(status_code=422, detail="No gallery ids provided")
-    try:
-        async with main._settings_session() as session, session.begin():
-            galleries: list[Gallery] = []
-            for chunk in _chunked(list(dict.fromkeys(body.ids))):
-                rows = await session.scalars(
-                    select(Gallery).where(Gallery.id.in_(chunk))
+                results = await delete_galleries_local(
+                    session,
+                    list(galleries),
+                    delete_files=body.delete_files,
+                    delete_all_copies=body.delete_all_copies,
                 )
-                galleries.extend(rows.all())
-            results = await main.delete_galleries_local(
-                session, galleries, delete_files=body.delete_files, delete_all_copies=False
-            )
-            _record_gallery_delete_log(results)
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    deleted = sum(1 for r in results if r["db_removed"])
-    failed_deletions = [p for r in results for p in r["failed_paths"]]
-    return {"deleted": deleted, "failed_deletions": failed_deletions}
+        raise db_error(exc) from exc
+    _record_gallery_delete_log(results, body.delete_files)
+    return {"results": results}
 
 
-@router.post("/api/galleries/delete-filtered")
-async def delete_galleries_filtered(body: main.FilteredDeleteRequest) -> dict[str, object]:
-    """Delete every gallery matching the current library filter.
-
-    The SPA used to page through the filter on the client and POST the whole id
-    list to ``delete-bulk``.  For big libraries that list can exceed asyncpg's
-    ~32767 bound-parameter limit.  Here the backend re-runs the same filter the
-    library grid uses, pages it, and deletes in 500-row batches — the client
-    only sends the filter itself.
-    """
-    if body.tag_mode not in {"and", "or"} or body.tag_match not in {"exact", "fuzzy"}:
-        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
-    category = body.category or None
+@router.post("/api/galleries/delete-filtered", status_code=200)
+async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, object]:
+    category_filter = body.category
     exclude_favorited = False
-    if category == "__not_fav__":
+    if body.category == "__not_fav__":
         exclude_favorited = True
-        category = None
-    if category is not None and category not in CATEGORIES:
-        raise HTTPException(status_code=422, detail="invalid category")
-    parsed_tags = _parse_tag_filter(body.tags)
+        category_filter = None
+
+    all_results: list[dict[str, object]] = []
+    page = 1
+    page_size = 500
+    matched = 0
     try:
-        async with main._settings_session() as session, session.begin():
-            repo = GalleryRepository(session)
-            resolved_q = body.q or ""
-            if body.q and body.q.strip():
-                auto_tags, keywords, changed = await _resolve_search_tokens(body.q)
-                if changed:
-                    parsed_tags.extend(auto_tags)
-                    parsed_tags = _dedupe_tags(parsed_tags)
-                    resolved_q = keywords
-            matching_ids: list[int] = []
-            page = 1
+        async for session in get_session():
+            from .. import main
+            delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
             while True:
-                _, rows = await repo.list_page(
-                    page, 500, resolved_q, parsed_tags, body.tag_mode, body.tag_match,
-                    category, exclude_favorited,
+                total, batch = await GalleryRepository(session).list_page(
+                    page,
+                    page_size,
+                    body.q or "",
+                    body.tag or "",
+                    getattr(body, "tag_mode", "or"),
+                    getattr(body, "tag_match", "exact"),
+                    category_filter,
+                    exclude_favorited=exclude_favorited,
                 )
-                if not rows:
+                if page == 1:
+                    matched = total
+                if not batch:
                     break
-                matching_ids.extend(r.id for r in rows)
-                if len(rows) < 500:
+                async with session.begin():
+                    batch_results = await delete_fn(
+                        session,
+                        batch,
+                        delete_files=body.delete_files,
+                        delete_all_copies=body.delete_all_copies,
+                    )
+                all_results.extend(batch_results)
+                if len(batch) < page_size:
                     break
                 page += 1
-            results: list[dict] = []
-            for chunk in _chunked(list(dict.fromkeys(matching_ids))):
-                batch = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
-                results.extend(
-                    await main.delete_galleries_local(
-                        session, list(batch), delete_files=body.delete_files, delete_all_copies=False
-                    )
-                )
-            _record_gallery_delete_log(results)
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    deleted = sum(1 for r in results if r["db_removed"])
-    failed_deletions = [p for r in results for p in r["failed_paths"]]
-    return {"deleted": deleted, "matched": len(matching_ids), "failed_deletions": failed_deletions}
+        raise db_error(exc) from exc
+    deleted = sum(1 for r in all_results if r.get("db_removed"))
+    _record_gallery_delete_log(all_results, body.delete_files)
+    return {"matched": matched, "deleted": deleted, "results": all_results}
 
 
-def _record_gallery_delete_log(results: list[dict]) -> None:
-    """Append a gallery-delete entry to the activity log (Logs page)."""
-    from datetime import UTC, datetime
-
+def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: bool) -> None:
     now = datetime.now(UTC).isoformat()
-    deleted = sum(1 for r in results if r["db_removed"])
-    failed = [p for r in results for p in r["failed_paths"]]
-    reason = f"deleted {deleted}/{len(results)}"
-    if failed:
-        reason += f", delete failed {len(failed)}: {', '.join(failed[:3])}"
-        if len(failed) > 3:
-            reason += f" (+{len(failed) - 3} more)"
+    deleted = sum(1 for r in results if r.get("db_removed"))
+    failed = [p for r in results for p in r.get("failed_paths", [])]
     status = "failed" if failed else "success"
-    main._record_task("gallery-delete", now, now, status, reason=reason, done=deleted, total=len(results))
+    mode_text = "database record + files" if delete_files else "database record only"
+    reason = f"deleted {deleted}/{len(results)} galleries ({mode_text})"
+    if failed:
+        reason += f", file deletion failed: {', '.join(str(p) for p in failed[:3])}"
+    tm = get_task_manager()
+    tm.record_task("gallery-delete", now, now, status, reason=reason, done=deleted, total=len(results))
+    spawn_task(tm.persist_history(), "persist task history")
 
 
 @router.post("/api/galleries/{identifier}/sync-tags")
-async def sync_gallery_tags(identifier: int, redirect: bool = False):
+async def sync_gallery_tags(identifier: int) -> dict[str, object]:
+    from .. import main
     try:
-        async with main._settings_session() as session, session.begin():
-            # Referenced via main so tests that monkeypatch main.TagSyncService
-            # take effect.
-            result = await main.TagSyncService(
-                main.app.state.eh_client, GalleryRepository(session)
-            ).sync(identifier)
-    except GalleryNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except (GalleryGidMissing, GalleryTokenMissing) as exc:
+        async for session in get_session():
+            async with session.begin():
+                service_cls = getattr(main, "TagSyncService", TagSyncService)
+                client = get_eh_client()
+                result = await service_cls(client, GalleryRepository(session)).sync(identifier)
+            break
+    except (GalleryNotFound, GalleryGidMissing, GalleryTokenMissing) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
     except Exception as exc:
-        main.logger.warning(
-            "ExHentai tag synchronization failed", extra=log_extra(error=type(exc).__name__)
-        )
-        raise HTTPException(status_code=502, detail="ExHentai metadata request failed") from exc
-    if redirect:
-        return RedirectResponse(f"/galleries/{identifier}", status_code=303)
-    return result
+        logger.warning("tag sync failed", extra=log_extra(gallery_id=identifier, error=type(exc).__name__))
+        raise HTTPException(status_code=502, detail="ExHentai upstream tag sync request failed") from exc
+    return {
+        "id": identifier,
+        "gid": getattr(result, "gid", None),
+        "title": getattr(result, "title", None),
+        "count": getattr(result, "count", getattr(result, "tags_added", 0)),
+        "tags_added": getattr(result, "tags_added", getattr(result, "count", 0)),
+    }
 
 
 @router.get("/api/galleries/{identifier}/pages/{page_index}")
-async def gallery_page(identifier: int, page_index: int) -> StreamingResponse:
-    row, pages = await main._gallery(identifier)
-    page = next((item for item in pages if item.page_index == page_index), None)
-    if page is None:
+async def get_page(identifier: int, page_index: int) -> StreamingResponse:
+    row, pages = await _gallery(identifier)
+    if not 0 <= page_index < len(pages):
         raise HTTPException(status_code=404, detail="Page not found")
-    scanner = registry.for_path(Path(row.storage_path))
+    page = pages[page_index]
+    scanner = registry.for_path(Path(row.storage_path or ""))
     if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery")
+        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
     stream = await run_in_threadpool(
         scanner.open_page,
-        main._meta(row, pages),
-        PageInfo(page.page_index, page.member_name, page.media_type),
+        _meta(row, pages),
+        PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
     )
     return StreamingResponse(
-        main._closing_stream(stream),
-        media_type=main._page_media_type(page.media_type),
-        headers={"Cache-Control": "public, max-age=3600"},
+        _closing_stream(stream),
+        media_type=_page_media_type(page.media_type or "jpg"),
     )
 
 
 @router.get("/api/galleries/{identifier}/thumb/{page_index}")
-async def gallery_thumbnail(identifier: int, page_index: int) -> FileResponse:
-    row, pages = await main._gallery(identifier)
-    page = next((item for item in pages if item.page_index == page_index), None)
-    if page is None:
+async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
+    row, pages = await _gallery(identifier)
+    if not 0 <= page_index < len(pages):
         raise HTTPException(status_code=404, detail="Page not found")
-    scanner = registry.for_path(Path(row.storage_path))
-    if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery")
-    service = main._thumb_service()
-    cached = service.cached(row.id, page_index)
+    page = pages[page_index]
+    service = _get_thumb_service()
+    cached = service.cached(row.id, page.page_index)
     if cached is None:
+        scanner = registry.for_path(Path(row.storage_path or ""))
+        if scanner is None:
+            raise HTTPException(status_code=500, detail="No scanner for gallery storage")
         stream = await run_in_threadpool(
             scanner.open_page,
-            main._meta(row, pages),
-            PageInfo(page.page_index, page.member_name, page.media_type),
+            _meta(row, pages),
+            PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
         )
         try:
             data = await run_in_threadpool(stream.read)
@@ -544,7 +700,7 @@ async def gallery_thumbnail(identifier: int, page_index: int) -> FileResponse:
                 pass
         try:
             cached = await run_in_threadpool(
-                service.get_or_create, row.id, page_index, data
+                service.get_or_create, row.id, page.page_index, data
             )
         except ThumbnailError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -553,4 +709,3 @@ async def gallery_thumbnail(identifier: int, page_index: int) -> FileResponse:
         media_type=JPEG_MIME,
         headers={"Cache-Control": "public, max-age=86400"},
     )
-

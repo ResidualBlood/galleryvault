@@ -277,6 +277,8 @@ def translate_tag(namespace: str | None, name: str) -> str:
 
 def translated_tag(namespace: str | None, name: str) -> tuple[str, str]:
     """Return ``(namespace_label, display_name)`` with Chinese where available."""
+    if not _TRANSLATIONS:
+        load_translations()
     label = translate_namespace(namespace)
     display = translate_tag(namespace, name)
     return label, display

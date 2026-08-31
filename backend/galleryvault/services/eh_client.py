@@ -17,6 +17,7 @@ import httpx
 
 from ..config import Settings, get_settings
 from ..logging import log_extra
+from ..observability import observe_histogram
 
 logger = logging.getLogger(__name__)
 
@@ -535,7 +536,8 @@ class EhClient:
             self.client = client
         else:
             proxy = self.settings.socks5_proxy or self.settings.http_proxy
-            cookies = dict(self.settings.exhentai_cookies)
+            raw_cookies = self.settings.exhentai_cookies
+            cookies = dict(raw_cookies) if isinstance(raw_cookies, dict) else {}
             # Ehviewer-compatible behaviour flags expressed as ExHentai cookies.
             # uh: load images through the H@H network (y) or not (n).
             # oi: always fetch the original (full) image instead of the resample.
@@ -566,8 +568,16 @@ class EhClient:
             await self.client.aclose()
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        t_wait_start = time.perf_counter()
         async with self._semaphore:
-            return await self.client.request(method, url, **kwargs)
+            wait_elapsed = time.perf_counter() - t_wait_start
+            observe_histogram("gv_ehclient_semaphore_wait_seconds", wait_elapsed, {"type": "page"})
+            t_req_start = time.perf_counter()
+            try:
+                return await self.client.request(method, url, **kwargs)
+            finally:
+                req_elapsed = time.perf_counter() - t_req_start
+                observe_histogram("gv_ehclient_request_duration_seconds", req_elapsed, {"method": method})
 
     async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
         try:
@@ -1445,8 +1455,15 @@ class EhClient:
         # don't trip anti-abuse on the site itself.
         use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
         semaphore = self._image_semaphore if use_image_budget else self._semaphore
+        t_wait_start = time.perf_counter()
         try:
             async with semaphore:
+                wait_elapsed = time.perf_counter() - t_wait_start
+                observe_histogram(
+                    "gv_ehclient_semaphore_wait_seconds",
+                    wait_elapsed,
+                    {"type": "image" if use_image_budget else "page"},
+                )
                 # read=30s acts as a zero-progress watchdog (Ehviewer_CN_SXJ
                 # aborts stalled downloads after ~3s of no bytes): a hanging H@H
                 # node fails fast instead of holding the worker until the

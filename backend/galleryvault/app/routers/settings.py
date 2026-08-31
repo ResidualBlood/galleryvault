@@ -2,41 +2,58 @@
 
 from __future__ import annotations
 
+import logging
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from galleryvault.app import main
-from galleryvault.db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
+from ...config import normalize_library_roots
+from ...db.models import FavoritesMonitor
+from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
+from ...secrets import encrypt, encrypt_json, is_encrypted
+from ...services.settings_service import (
+    decrypt_user_settings,
+    is_public_site,
+    refresh_services,
+    settings_public,
+    update_runtime_settings,
+)
+from ..dependencies import db_error, get_current_settings, get_eh_client, get_session
+from ..schemas import SettingsRequest
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/api/settings")
 async def settings_get() -> dict[str, object]:
     try:
-        async with main._settings_session() as session:
+        async for session in get_session():
             persisted = await SettingsRepository(session).get()
-        persisted = main._decrypt_user_settings(persisted)
-        main._update_runtime_settings(persisted)
-    except Exception as exc:  # noqa: BLE001 - DB down: serve in-memory settings
-        # DB unavailable: serve the current in-memory settings unchanged.
-        main.logger.warning("settings could not be re-read", extra={"error": str(exc)})
-    return main._settings_public()
+            persisted = decrypt_user_settings(persisted)
+            update_runtime_settings(persisted)
+            break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("settings could not be re-read", extra={"error": str(exc)})
+    return settings_public()
 
 
 @router.post("/api/settings")
-async def settings_save(body: main.SettingsRequest) -> dict[str, object]:
+async def settings_save(body: SettingsRequest) -> dict[str, object]:
     return await _save_settings(body)
 
 
 @router.post("/api/settings/exhentai/test")
 async def settings_test_exhentai() -> JSONResponse:
-    if not main._settings().exhentai_cookies:
+    settings = get_current_settings()
+    if not settings.exhentai_cookies:
         return JSONResponse(
             {"status": "not_configured", "message": "ExHentai Cookie 未设置"},
             status_code=400,
         )
-    state, detail = await main.app.state.eh_client.check_login()
+    client = get_eh_client()
+    state, detail = await client.check_login()
     if state == "ok":
         return JSONResponse({"status": "ok", "message": "登录成功"}, status_code=200)
     if state == "no_exhentai_access":
@@ -55,22 +72,12 @@ async def settings_test_exhentai() -> JSONResponse:
     )
 
 
-async def _save_settings(body: main.SettingsRequest) -> dict[str, object]:
-    _settings = main._settings
-    _settings_session = main._settings_session
-    _settings_public = main._settings_public
-    _update_runtime_settings = main._update_runtime_settings
-    _refresh_services = main._refresh_services
-    _db_error = main._db_error
+async def _save_settings(body: SettingsRequest) -> dict[str, object]:
     values = body.model_dump(exclude_none=True)
-    # A blank bot token must never clobber a configured one (older frontends /
-    # cached JS used to submit an empty value). "Leave blank to keep" semantics.
     if "telegram_bot_token" in values and not str(values["telegram_bot_token"]).strip():
         values.pop("telegram_bot_token", None)
     if values.get("exhentai_base_url"):
-        from urllib.parse import urlparse as _base_parse
-
-        host = (_base_parse(str(values["exhentai_base_url"])).hostname or "").lower()
+        host = (urlparse(str(values["exhentai_base_url"])).hostname or "").lower()
         if host not in {"exhentai.org", "e-hentai.org"} and not host.endswith(
             (".exhentai.org", ".e-hentai.org")
         ):
@@ -78,9 +85,7 @@ async def _save_settings(body: main.SettingsRequest) -> dict[str, object]:
                 status_code=422, detail="exhentai_base_url must be on exhentai.org / e-hentai.org"
             )
     if "library_roots" in values:
-        values["library_roots"] = main.normalize_library_roots(values["library_roots"])
-    # An empty input means "clear this proxy"; an empty string would be sent to
-    # httpx verbatim and crash every outbound request.
+        values["library_roots"] = normalize_library_roots(values["library_roots"])
     for proxy_key in ("http_proxy", "socks5_proxy"):
         if values.get(proxy_key) == "":
             values[proxy_key] = None
@@ -116,64 +121,57 @@ async def _save_settings(body: main.SettingsRequest) -> dict[str, object]:
         value = values.pop(key, None)
         if value:
             cookie_fields[key] = value
+    current_settings = get_current_settings()
     if cookie_fields:
-        values["exhentai_cookies"] = {**_settings().exhentai_cookies, **cookie_fields}
-    _update_runtime_settings(values)
-    # Start from what is already persisted so a field the frontend did not
-    # submit (e.g. the bot token, which is never echoed and only sent when
-    # changed) is kept. save() replaces the whole dict, so this DB-read + merge
-    # is what protects the token from being dropped by an unrelated save.
+        values["exhentai_cookies"] = {**current_settings.exhentai_cookies, **cookie_fields}
+    update_runtime_settings(values)
+
+    db_settings = {}
     try:
-        async with _settings_session() as session:
+        async for session in get_session():
             db_settings = await SettingsRepository(session).get()
-    except Exception:  # noqa: BLE001 - DB down: fall back to in-memory settings
+            break
+    except Exception:  # noqa: BLE001
         db_settings = {}
+
     persisted_values = {**db_settings, **values}
-    # Encrypt sensitive values for at-rest storage; values that are already
-    # stored encrypted (e.g. an unchanged bot token read from the DB) pass
-    # through untouched.
     cookies = persisted_values.get("exhentai_cookies")
     if isinstance(cookies, (dict, list)) and cookies:
-        persisted_values["exhentai_cookies"] = main.encrypt_json(cookies)
+        persisted_values["exhentai_cookies"] = encrypt_json(cookies)
     token = persisted_values.get("telegram_bot_token")
-    if isinstance(token, str) and token and not main.is_encrypted(token):
-        persisted_values["telegram_bot_token"] = main.encrypt(token)
-    # All user-editable settings live in the DB (single source of truth).
-    try:
-        async with _settings_session() as session, session.begin():
-            await SettingsRepository(session).save(persisted_values)
-            for item in favorites:
-                favcat = _favcat(item)
-                row = await FavoritesRepository(session).category(favcat)
-                if row is None:
-                    from galleryvault.db.models import FavoritesMonitor
+    if isinstance(token, str) and token and not is_encrypted(token):
+        persisted_values["telegram_bot_token"] = encrypt(token)
 
-                    row = FavoritesMonitor(favcat=favcat)
-                    session.add(row)
-                row.enabled = bool(item.get("enabled", True))
-                row.mode = str(item["mode"])
-                row.poll_interval_seconds = max(
-                    60, int(item.get("poll_interval_minutes", 720)) * 60
-                )
+    try:
+        async for session in get_session():
+            async with session.begin():
+                await SettingsRepository(session).save(persisted_values)
+                for item in favorites:
+                    favcat = _favcat(item)
+                    row = await FavoritesRepository(session).category(favcat)
+                    if row is None:
+                        row = FavoritesMonitor(favcat=favcat)
+                        session.add(row)
+                    row.enabled = bool(item.get("enabled", True))
+                    row.mode = str(item["mode"])
+                    row.poll_interval_seconds = max(
+                        60, int(item.get("poll_interval_minutes", 720)) * 60
+                    )
+            break
     except Exception as exc:
-        raise _db_error(exc) from exc
-    # Switching the base URL from the public E-Hentai mirror back to ExHentai
-    # restores tag sync for galleries that were suspended as "not visible"
-    # (an ExHentai-only gallery 404s on e-hentai.org). Resume them so the tag
-    # worker picks them up without manual action.
+        raise db_error(exc) from exc
+
     old_base = str(db_settings.get("exhentai_base_url") or "")
     new_base = str(persisted_values.get("exhentai_base_url") or "")
-    if main._is_public_site(old_base) and not main._is_public_site(new_base):
+    if is_public_site(old_base) and not is_public_site(new_base):
         try:
-            async with _settings_session() as session, session.begin():
-                resumed = await GalleryRepository(session).resume_not_visible()
-            if resumed:
-                main.logger.info(
-                    "resumed tag sync for not-visible galleries", extra={"count": resumed}
-                )
-        except Exception as exc:  # noqa: BLE001 - best-effort
-            main.logger.warning(
-                "could not resume not-visible galleries", extra={"error": str(exc)}
-            )
-    await _refresh_services()
-    return _settings_public()
+            async for session in get_session():
+                async with session.begin():
+                    resumed = await GalleryRepository(session).resume_not_visible()
+                if resumed:
+                    logger.info("resumed tag sync for not-visible galleries", extra={"count": resumed})
+                break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not resume not-visible galleries", extra={"error": str(exc)})
+    await refresh_services()
+    return settings_public()

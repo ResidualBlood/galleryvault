@@ -1,28 +1,27 @@
-"""Duplicate-copy endpoints: list, resolve (keep a copy), dismiss, thumbnails.
-
-A library scan persists duplicate groups into ``duplicate_records``; this router
-lets the cleanup page review every physical copy of a gid and decide which one
-to keep.  File deletions are only allowed for paths listed in a duplicate
-record and located inside the configured scan roots.
-"""
+"""Duplicate-copy endpoints: list, resolve (keep a copy), dismiss, thumbnails."""
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from galleryvault.app import main
-from galleryvault.db.repository import GalleryRepository
-from galleryvault.scanners import registry
-from galleryvault.services.ingest import GalleryIngestService
-from galleryvault.services.tag_translation import translated_tag
-from galleryvault.services.thumbnails import ThumbnailError
+from ...db.repository import GalleryRepository
+from ...scanners import registry
+from ...services.deletion import in_scan_roots
+from ...services.ingest import GalleryIngestService
+from ...services.tag_translation import translated_tag
+from ...services.thumbnails import ThumbnailError, ThumbnailService
+from ..dependencies import get_current_settings, get_session, resolve_display_title
+from ..state import app_state
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 DUP_JPEG = "image/jpeg"
@@ -33,13 +32,28 @@ class DuplicateResolveRequest(BaseModel):
     delete_others: bool = False
 
 
+def _scan_roots() -> list[str]:
+    settings = get_current_settings()
+    roots = list(settings.library_roots)
+    if settings.download_root and settings.download_root not in roots:
+        roots.append(settings.download_root)
+    return roots
+
+
 def _in_roots(path: Path) -> bool:
-    roots = [Path(root) for root in main._scan_roots()]
-    resolved = path.resolve()
-    return any(resolved.is_relative_to(root) for root in roots)
+    return in_scan_roots(path, _scan_roots())
 
 
-async def _scan_copy(path: Path):
+def _get_thumb_service() -> ThumbnailService:
+    if app_state.thumbnail_service is not None:
+        return app_state.thumbnail_service
+    settings = get_current_settings()
+    service = ThumbnailService(settings.thumbnail_cache_dir)
+    app_state.thumbnail_service = service
+    return service
+
+
+async def _scan_copy(path: Path) -> Any:
     scanner = registry.for_path(path)
     if scanner is None:
         raise HTTPException(status_code=422, detail=f"No scanner for {path}")
@@ -48,18 +62,21 @@ async def _scan_copy(path: Path):
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Cannot read copy: {exc}") from exc
 
+
 @router.get("/api/scan/duplicates")
 async def list_duplicates() -> dict[str, object]:
-    async with main._settings_session() as session:
+    async for session in get_session():
         groups = await GalleryRepository(session).list_duplicates()
+        break
     for group in groups:
         for copy in group.get("copies") or []:
             directory = str(Path(str(copy.get("path") or "")).name)
             copy["display_title"] = (
-                main.resolve_display_title(
+                resolve_display_title(
                     copy.get("title"), copy.get("title_jpn"), directory
                 )
-                or copy.get("title") or str(group.get("gid") or "")
+                or copy.get("title")
+                or str(group.get("gid") or "")
             )
             copy["tags"] = [
                 {
@@ -77,18 +94,22 @@ async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str
     chosen = Path(body.path)
     if not _in_roots(chosen):
         raise HTTPException(status_code=422, detail="path is outside the scan roots")
-    async with main._settings_session() as session:
+    async for session in get_session():
         groups = await GalleryRepository(session).list_duplicates()
+        break
     group = next((g for g in groups if int(g["gid"]) == gid), None)
     if group is None:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     copies = group["copies"]
     if not any(str(copy.get("path")) == str(chosen) for copy in copies):
         raise HTTPException(status_code=422, detail="path is not a copy in this group")
-    # Repoint the DB row at the chosen copy (upsert by gid).
+
     meta = await _scan_copy(chosen)
-    async with main._settings_session() as session, session.begin():
-        await GalleryIngestService(session).ingest([meta])
+    async for session in get_session():
+        async with session.begin():
+            await GalleryIngestService(session).ingest([meta])
+        break
+
     if body.delete_others:
         for copy in copies:
             target = Path(str(copy.get("path")))
@@ -100,23 +121,27 @@ async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str
                 else:
                     target.unlink(missing_ok=True)
             except OSError as exc:
-                main.logger.warning(
+                logger.warning(
                     "duplicate copy deletion failed",
                     extra={"path": str(target), "error": str(exc)},
                 )
-        # The duplicate is gone from disk; drop the record instead of waiting
-        # for the next scan to clean it up.
-        async with main._settings_session() as session, session.begin():
-            await GalleryRepository(session).delete_duplicate(gid)
-    async with main._settings_session() as session:
+        async for session in get_session():
+            async with session.begin():
+                await GalleryRepository(session).delete_duplicate(gid)
+            break
+
+    async for session in get_session():
         refreshed = await GalleryRepository(session).list_duplicates()
+        break
     return {"groups": refreshed, "count": len(refreshed)}
 
 
 @router.post("/api/scan/duplicates/{gid}/dismiss")
 async def dismiss_duplicate(gid: int) -> dict[str, str]:
-    async with main._settings_session() as session, session.begin():
-        ok = await GalleryRepository(session).set_duplicate_status(gid, "dismissed")
+    async for session in get_session():
+        async with session.begin():
+            ok = await GalleryRepository(session).set_duplicate_status(gid, "dismissed")
+        break
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     return {"status": "dismissed"}
@@ -124,8 +149,10 @@ async def dismiss_duplicate(gid: int) -> dict[str, str]:
 
 @router.post("/api/scan/duplicates/{gid}/restore")
 async def restore_duplicate(gid: int) -> dict[str, str]:
-    async with main._settings_session() as session, session.begin():
-        ok = await GalleryRepository(session).set_duplicate_status(gid, "open")
+    async for session in get_session():
+        async with session.begin():
+            ok = await GalleryRepository(session).set_duplicate_status(gid, "open")
+        break
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     return {"status": "open"}
@@ -133,8 +160,9 @@ async def restore_duplicate(gid: int) -> dict[str, str]:
 
 @router.get("/api/scan/duplicates/thumb/{key}")
 async def duplicate_thumb(key: str) -> FileResponse:
-    async with main._settings_session() as session:
+    async for session in get_session():
         groups = await GalleryRepository(session).list_duplicates()
+        break
     target: Path | None = None
     for group in groups:
         for copy in group["copies"]:
@@ -143,7 +171,7 @@ async def duplicate_thumb(key: str) -> FileResponse:
                 break
     if target is None or not target.exists():
         raise HTTPException(status_code=404, detail="copy not found")
-    service = main._thumb_service()
+    service = _get_thumb_service()
     cached = service.root / "dup" / key / "0.jpg"
     if not cached.is_file():
         meta = await _scan_copy(target)

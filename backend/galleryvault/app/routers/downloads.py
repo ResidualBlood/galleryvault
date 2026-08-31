@@ -3,59 +3,64 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from galleryvault.app import main
-from galleryvault.db.models import DownloadTask as DownloadTaskModel
-from galleryvault.db.repository import DownloadRepository, GalleryUpdatesRepository
-from galleryvault.services.downloader import DownloadTask
+from ...db.models import DownloadTask as DownloadTaskModel
+from ...db.repository import DownloadRepository, GalleryUpdatesRepository
+from ...services.downloader import DownloadTask
+from .. import main
+from ..dependencies import db_error, get_current_settings, get_session, get_task_manager
+from ..schemas import DownloadRequest
+from ..state import app_state
 
 router = APIRouter()
 
 
 @router.post("/api/downloads", status_code=202)
-async def create_download(body: main.DownloadRequest) -> dict[str, object]:
-    _settings_session = main._settings_session
+async def create_download(body: DownloadRequest) -> dict[str, object]:
+    task_data = None
     try:
-        async with _settings_session() as session, session.begin():
-            task = await DownloadRepository(session).create(
-                body.gid,
-                body.token,
-                body.title,
-                body.mode,
-                body.max_pages,
-                body.quality,
-            )
-            if task is None:
-                raise HTTPException(
-                    status_code=409, detail="An active download already exists for this gid"
+        async for session in get_session():
+            async with session.begin():
+                task = await DownloadRepository(session).create(
+                    body.gid,
+                    body.token,
+                    body.title,
+                    body.mode,
+                    body.max_pages,
+                    body.quality,
                 )
-            task_data = DownloadTask(
-                task.gid,
-                task.token,
-                task.title or str(task.gid),
-                task.id,
-                max_retries=task.max_retries,
-                mode=task.mode,
-                max_pages=body.max_pages,
-                quality=task.quality,
-            )
+                if task is None:
+                    raise HTTPException(
+                        status_code=409, detail="An active download already exists for this gid"
+                    )
+                task_data = DownloadTask(
+                    task.gid,
+                    task.token,
+                    task.title or str(task.gid),
+                    task.id,
+                    max_retries=task.max_retries,
+                    mode=task.mode,
+                    max_pages=body.max_pages,
+                    quality=task.quality,
+                )
+            break
     except HTTPException:
         raise
     except IntegrityError as exc:
-        # Race with a concurrent enqueue of the same active gid (guarded by the
-        # partial unique index): report as a conflict, not a 503.
-        await session.rollback()
         raise HTTPException(
             status_code=409, detail="An active download already exists for this gid"
         ) from exc
     except Exception as exc:
-        raise main._db_error(exc) from exc
-    downloader = main.app.state.downloader
+        raise db_error(exc) from exc
+
+    downloader = app_state.downloader
     if downloader is None:
         raise HTTPException(status_code=503, detail="Downloader is unavailable")
+    assert task_data is not None
     return {"id": task_data.id, "gid": task_data.gid, "status": "pending"}
 
 
@@ -66,14 +71,15 @@ async def list_downloads(
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     try:
-        async with main._settings_session() as session:
+        async for session in get_session():
             total, rows = await DownloadRepository(session).list_page(page, page_size, status)
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    downloader = main.app.state.downloader
-    items = []
+        raise db_error(exc) from exc
+    downloader = app_state.downloader
+    items: list[dict[str, Any]] = []
     for x in rows:
-        item: dict[str, object] = {
+        item: dict[str, Any] = {
             "id": x.id,
             "gid": x.gid,
             "title": x.title,
@@ -91,7 +97,7 @@ async def list_downloads(
                 stats = await downloader.speed_stats(
                     x.gid, current_page=x.current_page or 0, total_pages=x.total_pages
                 )
-            except Exception:  # noqa: BLE001 - stats are best-effort
+            except Exception:  # noqa: BLE001
                 stats = None
             if stats:
                 item["speed"] = stats["speed"]
@@ -108,27 +114,29 @@ async def list_downloads(
 @router.post("/api/downloads/{task_id}/retry")
 async def retry_download(task_id: int) -> dict[str, object]:
     try:
-        async with main._settings_session() as session, session.begin():
-            row = await session.get(DownloadTaskModel, task_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="Download task not found")
-            if row.status not in {"failed", "cancelled", "success"}:
-                raise HTTPException(status_code=409, detail="Task is still active")
-            row.status = "pending"
-            row.retry_count = 0
-            # A manual retry must start immediately: clear the stale backoff
-            # timestamp or the claim worker would wait for it to pass.
-            row.retry_at = None
-            row.error_message = None
-            row.finished_at = None
-            # Reset the retry budget: a task that exhausted its automatic
-            # retries (max_retries=0) would otherwise stay stuck forever.
-            row.max_retries = 10
+        async for session in get_session():
+            async with session.begin():
+                row = await session.get(DownloadTaskModel, task_id)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Download task not found")
+                if row.status not in {"failed", "cancelled", "success"}:
+                    raise HTTPException(status_code=409, detail="Task is still active")
+                row.status = "pending"
+                row.retry_count = 0
+                row.retry_at = None
+                row.error_message = None
+                row.finished_at = None
+                row.max_retries = 10
+            break
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    main._download_cancelled.discard(task_id)
+        raise db_error(exc) from exc
+
+    if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
+        main._download_cancelled.discard(task_id)
+    tm = get_task_manager()
+    tm.clear_cancelled(task_id)
     return {"id": task_id, "status": "pending"}
 
 
@@ -136,22 +144,24 @@ async def retry_download(task_id: int) -> dict[str, object]:
 async def cancel_download(task_id: int) -> dict[str, object]:
     was_downloading = False
     try:
-        async with main._settings_session() as session, session.begin():
-            row = await session.get(DownloadTaskModel, task_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="Download task not found")
-            was_downloading = row.status == "downloading"
-            if not await DownloadRepository(session).cancel(task_id):
-                raise HTTPException(status_code=404, detail="Download task not found")
+        async for session in get_session():
+            async with session.begin():
+                row = await session.get(DownloadTaskModel, task_id)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Download task not found")
+                was_downloading = row.status == "downloading"
+                if not await DownloadRepository(session).cancel(task_id):
+                    raise HTTPException(status_code=404, detail="Download task not found")
+            break
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    # Only a mid-flight download needs the in-flight cancel flag; a pending task
-    # is simply not claimed.  The worker discards the flag when it handles the
-    # cancellation, so the set never grows with dead ids.
+        raise db_error(exc) from exc
+
     if was_downloading:
-        main._download_cancelled.add(task_id)
+        if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
+            main._download_cancelled.add(task_id)
+        get_task_manager().request_cancel(task_id)
     return {"id": task_id, "status": "cancelled"}
 
 
@@ -160,45 +170,43 @@ async def delete_download_task(task_id: int) -> None:
     gid: int | None = None
     was_downloading = False
     try:
-        async with main._settings_session() as session, session.begin():
-            row = await session.get(DownloadTaskModel, task_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="Download task not found")
-            gid = row.gid
-            was_downloading = row.status == "downloading"
-            if not await DownloadRepository(session).delete(task_id):
-                raise HTTPException(status_code=404, detail="Download task not found")
-            # A gallery-update row pinned to this task would otherwise stay
-            # "downloading" forever (its finalize loop looks up the task by id
-            # and finds nothing).  Mark it failed so the update stays actionable.
-            await GalleryUpdatesRepository(session).mark_failed_by_task(
-                task_id, "download task removed"
-            )
+        async for session in get_session():
+            async with session.begin():
+                row = await session.get(DownloadTaskModel, task_id)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Download task not found")
+                gid = row.gid
+                was_downloading = row.status == "downloading"
+                if not await DownloadRepository(session).delete(task_id):
+                    raise HTTPException(status_code=404, detail="Download task not found")
+                await GalleryUpdatesRepository(session).mark_failed_by_task(
+                    task_id, "download task removed"
+                )
+            break
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
-    # A mid-flight worker must not keep writing into the partial directory we
-    # are about to remove. Signal it so the in-flight download aborts on its
-    # next progress check (the worker cleans up the temp dir and discards the
-    # flag); the cleanup below is idempotent. Dead ids never linger: a worker
-    # that never handled the task is one that was claimed, and it always
-    # discards the flag on completion or cancellation.
+        raise db_error(exc) from exc
+
     if was_downloading:
-        main._download_cancelled.add(task_id)
+        if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
+            main._download_cancelled.add(task_id)
+        get_task_manager().request_cancel(task_id)
     else:
-        main._download_cancelled.discard(task_id)
+        if hasattr(main, "_download_cancelled") and isinstance(main._download_cancelled, set):
+            main._download_cancelled.discard(task_id)
+        get_task_manager().clear_cancelled(task_id)
     if gid is not None:
         await _cleanup_download_temp(gid)
 
 
 async def _cleanup_download_temp(gid: int) -> None:
-    """Remove a partial download directory (``.gv-{gid}``) if present."""
-    import shutil as _shutil
-
+    """Remove a partial download directory (.gv-{gid}) if present."""
+    import shutil
     try:
-        temp = Path(main._settings().download_root) / f".gv-{gid}"
+        settings = get_current_settings()
+        temp = Path(settings.download_root) / f".gv-{gid}"
         if temp.exists():
-            _shutil.rmtree(temp, ignore_errors=True)
+            shutil.rmtree(temp, ignore_errors=True)
     except OSError:
         pass
