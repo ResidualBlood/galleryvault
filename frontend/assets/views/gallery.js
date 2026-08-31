@@ -48,7 +48,7 @@ async function renderGallery() {
     }
     for (let p = Math.max(1, thumbPage - 2); p <= Math.min(totalPages, thumbPage + 2); p++) {
       thumbPagerParts.push(p === thumbPage
-        ? `<strong class="cur">${p}</strong>`
+        ? `<strong class="cur" aria-current="page">${p}</strong>`
         : `<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: p, page_size: perPage })}">${p}</a>`);
     }
     if (thumbPage < totalPages) {

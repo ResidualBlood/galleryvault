@@ -41,7 +41,17 @@ async function api(method, path, body) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(path, opts);
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch (err) {
+    if (!navigator.onLine || err.name === "TypeError") {
+      const netMsg = t("networkError");
+      toast(netMsg);
+      throw new Error(netMsg);
+    }
+    throw err;
+  }
   if (res.status === 204) return null;
   let data = null;
   try { data = await res.json(); } catch (_) {}
@@ -188,6 +198,10 @@ function beforeRender(view) {
     currentViewCleanup = null;
   }
   stopInfinite();
+  if (view !== "reader") {
+    try { window.scrollTo({ top: 0, left: 0, behavior: "instant" }); }
+    catch (_) { window.scrollTo(0, 0); }
+  }
 }
 
 function afterRender(view) {

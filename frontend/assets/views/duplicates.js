@@ -146,7 +146,7 @@ function renderDupGroups(st) {
   const pageLinks = [];
   for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) {
     pageLinks.push(p === page
-      ? `<strong class="cur">${p}</strong>`
+      ? `<strong class="cur" aria-current="page">${p}</strong>`
       : `<a class="page-link" href="#" data-action="dup-page" data-page="${p}">${p}</a>`);
   }
   const pagerHtml = groups.length > perPage

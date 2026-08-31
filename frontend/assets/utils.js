@@ -82,7 +82,7 @@ function gridPager(elId, data, buildQuery) {
   const parts = [];
   if (data.page > 1) parts.push(link(data.page - 1, "‹"));
   for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
-    parts.push(p === data.page ? `<strong class="cur">${p}</strong>` : link(p, String(p)));
+    parts.push(p === data.page ? `<strong class="cur" aria-current="page">${p}</strong>` : link(p, String(p)));
   }
   if (data.page < last) parts.push(link(data.page + 1, "›"));
   el.innerHTML =

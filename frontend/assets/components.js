@@ -141,7 +141,7 @@ function showArchiveDialog(gids, opts) {
               : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
             return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td></tr>`;
           }).join("");
-          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th>${esc(t("gallery"))}</th><th>${esc(t("archiveTierOriginal"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
           const first = items[0];
           confirm.disabled = !!(first && !first.error && first.original_cost != null && !first.original_available);
         } else {
@@ -157,7 +157,7 @@ function showArchiveDialog(gids, opts) {
               : (it.resample_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.resample_cost + " GP · " + fmtSize(it.resample_size);
             return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
           }).join("");
-          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th>${esc(t("gallery"))}</th><th>${esc(t("archiveTierOriginal"))}</th><th>${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th><th scope="col">${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
           confirm.disabled = false;
         }
         if (data && data.funds != null) {

@@ -30,7 +30,7 @@ async function renderFavorites() {
       </tr>`).join("");
     document.getElementById("fav-list").innerHTML = `
       <table class="table">
-        <thead><tr><th>${esc(t("favorites"))}</th><th>${esc(t("favCount"))}</th><th>${esc(t("favSize"))}</th><th>${esc(t("enabled"))}</th><th>${esc(t("mode"))}</th><th>${esc(t("intervalMin"))}</th><th></th></tr></thead>
+        <thead><tr><th scope="col">${esc(t("favorites"))}</th><th scope="col">${esc(t("favCount"))}</th><th scope="col">${esc(t("favSize"))}</th><th scope="col">${esc(t("enabled"))}</th><th scope="col">${esc(t("mode"))}</th><th scope="col">${esc(t("intervalMin"))}</th><th scope="col"></th></tr></thead>
         <tbody>${rows || `<tr><td colspan="7">—</td></tr>`}</tbody>
       </table>`;
     pollFavoriteRings();
@@ -124,7 +124,7 @@ function renderFavPager(elId, data, page) {
   if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
   for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) {
     parts.push(p === cur
-      ? `<strong class="cur">${p}</strong>`
+      ? `<strong class="cur" aria-current="page">${p}</strong>`
       : `<a class="page-link" href="${qp(p)}">${p}</a>`);
   }
   if (cur < pages) parts.push(`<a class="page-link" href="${qp(cur + 1)}">&gt;</a>`);

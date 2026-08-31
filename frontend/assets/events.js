@@ -109,12 +109,22 @@ function onSubmit(e) {
   if (action === "settings-save") { e.preventDefault(); saveSettings(form); return; }
 }
 
-function toggleLang() {
-  app.lang = app.lang === "zh" ? "en" : "zh";
+async function toggleLang() {
+  const targetLang = app.lang === "zh" ? "en" : "zh";
+  await loadLocale(targetLang);
+  app.lang = targetLang;
   localStorage.setItem("gv_lang", app.lang);
   updateLangButton();
   router();
 }
+
+window.addEventListener("offline", () => {
+  toast(t("offlineNotice"));
+});
+
+window.addEventListener("online", () => {
+  toast(t("onlineNotice"));
+});
 
 function bindTagSuggest() {
   const input = document.getElementById("global-search");

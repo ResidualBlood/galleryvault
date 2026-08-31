@@ -39,7 +39,7 @@ async function renderUpdates() {
     const el = document.getElementById("upd-list");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("updNoUpdates"))}</p>`; }
     else {
-      el.innerHTML = `<table class="table"><thead><tr><th></th><th></th><th>${esc(t("gallery"))}</th><th>${esc(t("gid"))}</th><th>${esc(t("favorites"))}</th><th>${esc(t("status"))}</th></tr></thead><tbody>`
+      el.innerHTML = `<table class="table"><thead><tr><th scope="col"></th><th scope="col"></th><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("gid"))}</th><th scope="col">${esc(t("favorites"))}</th><th scope="col">${esc(t("status"))}</th></tr></thead><tbody>`
         + data.items.map(updRow).join("") + `</tbody></table>`;
       document.querySelectorAll('#upd-list input[data-upd-id]').forEach(cb => {
         cb.checked = selUpdate.has(parseInt(cb.dataset.updId, 10));
@@ -82,7 +82,7 @@ function updPager(elId, data, page, state) {
   if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
   for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) {
     parts.push(p === cur
-      ? `<strong class="cur">${p}</strong>`
+      ? `<strong class="cur" aria-current="page">${p}</strong>`
       : `<a class="page-link" href="${qp(p)}">${p}</a>`);
   }
   if (cur < pages) parts.push(`<a class="page-link" href="${qp(cur + 1)}">&gt;</a>`);

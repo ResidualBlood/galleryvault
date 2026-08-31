@@ -25,7 +25,7 @@ async function renderHistory() {
     const qp = p => navHash("history", {}, { page: p, page_size: prefPageSize() });
     const pages = [];
     for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
-      pages.push(p === data.page ? `<strong class="cur">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
+      pages.push(p === data.page ? `<strong class="cur" aria-current="page">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
     }
     document.getElementById("hist-pages").innerHTML =
       `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
