@@ -12,7 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Frontend Phase 1 start**: extracted renderWelcome/browse/library/gallery to views/, added renderView + before/afterRender hooks + router wrap (core). galleryGrid moved to utils, catLabel fixed. Smoke + checks passed. Continue on same branch.
 - **Phase 1 complete**: app.js pure entry 29 lines (scan+init only); all renders/support extracted. smoke + checks.
 - **Frontend Phase 2 start**: design tokens (:root full color/space/radius/font/transition/focus), .btn system + unified skeleton/empty/loading, key buttons migrated, a11y (roles/aria/touch targets), transitions, mobile polish. :8200 smoke + node check. commit 4de129a.
-- **Phase 2 complete + verified**: topbar 5 core links; arrow key card nav; tokens/btn/mobile/a11y/keyboard. hash router verified (back/forward/refresh/share state). mobile/keyboard tested. node --check + :8200 smoke. docs updated. Phase 2 done. See PLAN.
+- **Phase 2 complete + verified**: ... Phase 2 done. See PLAN.
+- **Phase 3 start (perf)**: simple virtual render for cards via CSS content-visibility:auto (leverages browser IntersectionObserver for offscreen skip). Minimal. smoke. commit f6f6b4a. See PLAN.
 
 ### Added
 
