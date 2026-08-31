@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Unit of Work transaction semantics** (`db/uow.py`): `async_sessionmaker` was mis-detected as an external session, so `get_uow` never committed. Factory vs session is now distinguished by `isinstance(AsyncSession)` + callable check with `_began` tracking, and `from_factory`/`from_session` are available.
+- **Download progress + SQLite concurrency** (`services/download_worker.py`, `db/repository.py`): `task.id=None` no longer crashes `download_progress`/`is_download_cancelled`; `claim_pending`/`BackgroundJob.claim` fall back without `FOR UPDATE SKIP LOCKED` on SQLite and the download worker limits itself to 1 worker there.
+- **App state double-write** (`app/main.py`, `app/state.py`): `app_state` is the single source of truth, `app.state` is mirrored; `_refresh_services` and `startup` now keep `library_service`/`tag_service`/`thumbnail_service` in sync.
+- **Background task leaks** (`services/*_worker.py`): `asyncio.create_task(persist_history)` not tracked by `shutdown` — all fire-and-forget history persists now go through `spawn_task`.
+- **Archive validation unified** (`scanners/archive.py`, `services/downloader.py`): Zip-Slip/symlink checks share `_is_symlink`/`_is_unsafe_path`/`validate_archive_member`; `CbrRarScanner` now checks symlinks on both `scan` and `open_page` with `is_relative_to`.
+- **Observability double-count** (`observability.py`): drop unlabeled `gv_http_requests_total` bump and dedupe `HELP`/`TYPE` per base name.
+- **Thumbnail meta mismatch** (`services/thumbnail_worker.py`): `_meta` now maps to `GalleryMeta` (`file_count`/`file_size`/`path`/`posted_at`/`storage_signature`).
+- **Downloader cross-filesystem** (`services/downloader.py`): `temp.rename` → `shutil.move` + `to_thread`.
+- **EhClient parity** (`services/eh_client.py`): `await response.aread()`, JSON-string cookies accepted, `fetch_gallery_cover` respects `image_semaphore` for `hath.network`/`ehgt.org`, `tag_sync_concurrency` clamped to 8 in the worker, `download_archive` 416 only succeeds when `offset==total` (oversized partials are cleared and retried).
+
+### Changed
+
+- **Proxy trust is now a whitelist** (`config.py` `trusted_proxies`, `auth.py`): `X-Forwarded-For`/`X-Real-IP` are only trusted when the peer is loopback or listed in `trusted_proxies` (CIDR or IP); private ranges are no longer implicitly trusted.
+- **Tag sync concurrency bounded** (`services/tag_sync_worker.py`): worker concurrency is clamped to 8 regardless of `tag_sync_concurrency` (settings still allow 1–32, but the worker never exhausts the httpx pool).
+- **Input validation tightened**: login password truncated to 256 chars, `POST /api/galleries/{id}/progress` rejects `current_page < 0`, `POST /api/galleries/{id}/favorite` validates `favcat 0–9`.
+
+### Security
+
+- **Password hash downgrade blocked** (`auth.py`): `verify_password` now rejects `pbkdf2_sha256` with `<200k` iterations (was `<100k`).
+- **At-rest encryption guard** (`app/main.py`, `routers/settings.py`): startup warns when `ENCRYPTION_KEY` is missing; `POST /api/settings` refuses to persist `exhentai_cookies` in plaintext (422) until the key is configured.
+
 ## [1.3.2] - 2026-08-31
 
 ### Fixed

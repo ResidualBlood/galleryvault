@@ -60,6 +60,8 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 后端默认绑定 `127.0.0.1:8001`，只通过前端 nginx 代理访问；登录接口按真实客户端 IP 限速（每 IP 60 秒 10 次），`/api` 限流 30 次/秒（由前端 nginx 的 `limit_req` 实现）。
 
+> **受信代理白名单 `TRUSTED_PROXIES`**：`X-Forwarded-For` / `X-Real-IP` 仅当直连 IP 为 `127.0.0.1` / `::1` / `testclient` 或在 `TRUSTED_PROXIES` 白名单时才被信任（支持单 IP 或 CIDR，如 `10.0.0.0/8,192.168.1.10`），其余私网 IP 不再隐式可信，避免内网任意客户端伪造 XFF 绕过登录限速。未配置时仅本机环回可信；在反代后部署时请按实际反代 IP 段配置。
+
 ### 启用 TLS（可选）
 
 要公网 HTTPS 访问，在 nginx 终止 TLS（或前置 Caddy/反代），并设置 `AUTH_COOKIE_SECURE=true`：
