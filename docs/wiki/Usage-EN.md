@@ -115,6 +115,23 @@ manually to revisit it.
   `exhentai.org`.
 - The favorite folders the gallery belongs to are shown as badges, with an
   **Unfavorite** button.
+- **Original / resampled**: next to the favorite badges the detail page shows
+  whether the local copy is original or resampled (hidden when unknown).
+  Quality is recorded when a gallery is downloaded and inferred for existing
+  galleries by comparing the local file size against the ExHentai original
+  size — backfilled during the favorites metadata sync (poll / check now /
+  fetch missing) and when a **library scan** completes.
+- **Upgrade to original**: galleries that are not already original and have an
+  ExHentai gid get two toolbar buttons —
+  - **Download original**: downloads original images page-by-page (no GP, see
+    the Downloads page for progress); not enqueued when the gallery has no
+    original images on ExHentai.
+  - **Archive-download original**: shows a cost/balance preview (locked to the
+    original tier, disabled when original is unavailable or GP is too low) and
+    downloads through the ExHentai archive (zip) channel.
+  - After an original download finishes, the superseded resampled copy is
+    removed automatically (only when the page count matches; if the mount is
+    read-only the task still succeeds and you are told to remove it manually).
 
 ## Reader (`#/reader/<id>/<page>`)
 
@@ -247,6 +264,10 @@ Update translations now" buttons in Settings also leave a trace here.
   is removed (its reading progress resets). Detection runs automatically after
   every favorites check and can be triggered with **Scan now**; false positives
   can be ignored, and ignored items are restored from `#/updates/ignored`.
+  When a download task is deleted from the tasks page, its update entry is
+  marked **failed** and kept here; under the **failed** filter you can use
+  **Delete selected** to permanently remove those records (this only cleans the
+  page's history, it never touches the tasks page).
 - **Archive downloads (ExHentai official zip channel)**: the server packs the
   whole gallery into a zip (spending **GP**) and the client streams it on a
   single connection — far faster than per-page H@H fetches for large galleries.
@@ -272,7 +293,11 @@ Update translations now" buttons in Settings also leave a trace here.
   - **Reliability**: the zip resumes via HTTP Range; `quality + zip URL` are
     persisted under `.gv-{gid}/.archive.json`, so a retry **only resumes — it
     never re-packs or re-charges GP**; a corrupt zip is deleted and re-packed;
-    insufficient GP fails the task immediately without burning automatic retries.
+    when the archive channel cannot serve the gallery (selected tier
+    unavailable, insufficient GP, corrupt zip) the download **falls back to
+    page-by-page by default** (no GP cost, H@H carries the traffic) — disable
+    "Fall back to page-by-page if archive is unavailable" in Settings to fail
+    the task immediately instead, without burning automatic retries.
     On completion the archive goes through the same finishing pipeline as
     page-by-page downloads: `.ehviewer` / `.galleryvault.json` metadata, Telegram
     notification, immediate ingest, and old-version cleanup for gallery updates.
@@ -294,7 +319,9 @@ With **"Archive large favorites on scheduled scan"** enabled, the scheduled chec
 batch-fetches page counts for its candidates first: galleries above the
 **archive page threshold** (0 = all) go through the archive channel (tier =
 "Archive quality"), the rest download page-by-page as usual. If the page-count
-fetch fails, the check safely falls back to page-by-page.
+fetch fails, the check safely falls back to page-by-page. A gallery the archive
+channel cannot serve (e.g. the selected tier does not exist) also automatically
+falls back to page-by-page (Settings-toggleable).
 
 ### The three modes
 
@@ -329,7 +356,9 @@ additions again.
   values much above 4-6 trip the cap and cause connection errors on lossy
   lines; keep it low for stability, raise it only on a clean line), image
   quality (normal/original), **archive quality** (default tier for archive
-  downloads), H@H network, `max_pages`. Slow-H@H-node watchdogs:
+  downloads), **fall back to page-by-page if archive is unavailable** (on by
+  default — a gallery the archive channel cannot serve downloads page-by-page,
+  no GP cost), H@H network, `max_pages`. Slow-H@H-node watchdogs:
   **image max time** (seconds), **image slow warmup** (seconds) and **image min
   speed** (KB/s) — a single image is aborted once it exceeds the total
   wall-clock budget, or once it averages below the minimum throughput after the

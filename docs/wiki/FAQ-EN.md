@@ -115,7 +115,7 @@ The gallery library uses **infinite scroll** (24 galleries per page, more as
 you scroll; page size selectable at the bottom). Favorite folders use numbered
 pagination with a 24-per-page default; the tag browse page uses numbered
 pagination fixed at 100 per page (no page-size selector). If you still see an
-old layout, hard-refresh (Ctrl+Shift+R) to load the new `assets/app.js`.
+old layout, hard-refresh (Ctrl+Shift+R) to load the new frontend assets.
 
 ## How do I search by several tags at once?
 
