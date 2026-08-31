@@ -52,14 +52,18 @@ async function api(method, path, body) {
     }
     throw err;
   }
-  if (res.status === 204) return null;
+  if (res.status === 204 || res.headers.get("content-length") === "0") return null;
+  let text = "";
+  try { text = await res.text(); } catch (_) {}
   let data = null;
-  try { data = await res.json(); } catch (_) {}
+  if (text) { try { data = JSON.parse(text); } catch (_) {} }
   if (!res.ok) {
-    const detail = (data && (data.detail || data.message)) || res.statusText;
+    const detail = (data && (data.detail || data.message)) || text || res.statusText;
     throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
   }
-  return data;
+  // Empty body on success -> null, JSON object/array -> parsed, otherwise raw text
+  if (data !== null) return data;
+  return text ? text : null;
 }
 
 async function checkAuth() {

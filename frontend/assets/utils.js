@@ -31,17 +31,18 @@ function startInfinite(containerId, fetchPage, buildItem) {
     try {
       const data = await fetchPage(page + 1);
       const items = (data && data.items) || [];
-      if (!items.length) { finished = true; sentinel.remove(); return; }
+      if (!items.length) { finished = true; try{observer.disconnect();}catch(_){} sentinel.remove(); return; }
       page = data.page || (page + 1);
       sentinel.insertAdjacentHTML("beforebegin", items.map(buildItem).join(""));
       if ((data.page * (data.page_size || 24)) >= (data.total || 0)) {
         finished = true;
+        try{observer.disconnect();}catch(_){}
         sentinel.remove();
       }
       if (["lib-grid", "fav-items", "browse-grid"].includes(containerId)) {
         renderCardCheckboxes();
       }
-    } catch (_) { finished = true; sentinel.remove(); }
+    } catch (_) { finished = true; try{observer.disconnect();}catch(_){} sentinel.remove(); }
     finally { loading = false; }
   }, { rootMargin: "900px" });
   observer.observe(sentinel);

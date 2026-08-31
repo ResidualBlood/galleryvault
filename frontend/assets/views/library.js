@@ -52,7 +52,7 @@ async function deleteFiltered() {
   const q = app.query.q || "";
   const category = app.query.category || "";
   const tags = app.query.tags || "";
-  const tag_mode = app.query.tag_mode || "or";
+  const tag_mode = app.query.tag_mode || "and";
   if (!window.confirm(t("confirmDeleteFiltered"))) return;
   const deleteFiles = window.confirm(t("deleteFiles"));
   try {
