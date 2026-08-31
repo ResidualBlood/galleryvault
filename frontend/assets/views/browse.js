@@ -31,6 +31,7 @@ async function renderBrowse() {
     const totalEl = document.getElementById("browse-total");
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;
     gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
+    startInfinite("browse-grid", p => galleryGrid(null, p, { page_size: prefPageSize() }), galleryCard);
     const strip = document.getElementById("browse-ns");
     if (strip && tagData) {
       const counts = {};

@@ -38,7 +38,7 @@ function startInfinite(containerId, fetchPage, buildItem) {
         finished = true;
         sentinel.remove();
       }
-      if (["lib-grid", "fav-items"].includes(containerId)) {
+      if (["lib-grid", "fav-items", "browse-grid"].includes(containerId)) {
         renderCardCheckboxes();
       }
     } catch (_) { finished = true; sentinel.remove(); }
