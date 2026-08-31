@@ -647,10 +647,10 @@ class Downloader:
         # extraction time, which clears both and re-requests.
         try:
             await self.client.download_archive(str(zip_url), zip_path, cb=_zip_progress)
-        except ArchiveExpiredError:
+        except ArchiveExpiredError as exc:
             zip_path.unlink(missing_ok=True)
             state_file.unlink(missing_ok=True)
-            raise
+            raise ArchiveNotRetryableError(str(exc)) from exc
         if progress is not None:
             await progress(len(pages), len(pages))
         unzip_dir = temp / "_unzip"
