@@ -17,10 +17,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Thumbnail meta mismatch** (`services/thumbnail_worker.py`): `_meta` now maps to `GalleryMeta` (`file_count`/`file_size`/`path`/`posted_at`/`storage_signature`).
 - **Downloader cross-filesystem** (`services/downloader.py`): `temp.rename` → `shutil.move` + `to_thread`.
 - **EhClient parity** (`services/eh_client.py`): `await response.aread()`, JSON-string cookies accepted, `fetch_gallery_cover` respects `image_semaphore` for `hath.network`/`ehgt.org`, `tag_sync_concurrency` clamped to 8 in the worker, `download_archive` 416 only succeeds when `offset==total` (oversized partials are cleared and retried).
+- **Filtered delete guard** (`app/routers/galleries.py:738`): `POST /api/galleries/delete-filtered` caps the matched set at 5000 rows (409 when exceeded; refine filter or delete in batches) to prevent full-library wipe on empty filters; paging is 500-row batches.
+- **Duplicate resolution no longer blocks the event loop** (`routers/duplicates.py:118`): `shutil.rmtree`/`unlink`/`is_dir` now run via `run_in_threadpool`.
+- **Favorites cover is non-blocking** (`routers/favorites.py:598`): `is_file`/`write_bytes`/`replace` via `run_in_threadpool`, served as `FileResponse` with `Cache-Control: public, max-age=86400`.
+- **Translation updater tracking** (`app/main.py:754`): `asyncio.create_task(_translation_update_loop())` now goes through `spawn_task` so `shutdown` waits for it.
+- **Category backfill restored** (`services/tag_sync_worker.py:234`): `category_refresh_once` was a stub — restored full one-time 大分类 backfill (`pending_category_refresh_ids` → `TagSyncService.refresh_category`, `GalleryGoneError` → `mark_tag_not_visible`/`deleted`, `category_refreshed`/`category_refresh_running` status, 0.3s pacing).
+- **Frontend filtered-delete tag mode** (`frontend assets/views/library.js:55`): default `tag_mode` corrected from `or` to `and` to match `renderLibrary`.
+- **Frontend infinite scroll leak** (`frontend assets/utils.js:27`): `IntersectionObserver` now `disconnect()`s before `sentinel.remove()` on `finished`.
+- **Frontend checkbox duplication** (`frontend assets/components.js:6`): `renderCardCheckboxes` now guards with `dataset.bound` to avoid stacking listeners.
+- **Frontend archive dialog leak** (`frontend assets/components.js:99`): `keydown` listener is now removed in `close()` (not only on Escape).
+- **Frontend API empty-body handling** (`frontend assets/core.js:55`): `204` or `content-length: 0` short-circuits; non-JSON error bodies fall back to `res.text()` so Chinese `detail` is not lost.
 
 ### Changed
 
-- **Proxy trust is now a whitelist** (`config.py` `trusted_proxies`, `auth.py`): `X-Forwarded-For`/`X-Real-IP` are only trusted when the peer is loopback or listed in `trusted_proxies` (CIDR or IP); private ranges are no longer implicitly trusted.
+- **Proxy trust is now a whitelist** (`config.py` `trusted_proxies`, `auth.py`): `X-Forwarded-For`/`X-Real-IP` are only trusted when the peer is loopback or listed in `trusted_proxies` (CIDR or IP); private ranges are no longer implicitly trusted. `trusted_proxies` is now editable via `POST /api/settings` (and `tag_translation_update_interval_minutes` added to the allowed set).
 - **Tag sync concurrency bounded** (`services/tag_sync_worker.py`): worker concurrency is clamped to 8 regardless of `tag_sync_concurrency` (settings still allow 1–32, but the worker never exhausts the httpx pool).
 - **Input validation tightened**: login password truncated to 256 chars, `POST /api/galleries/{id}/progress` rejects `current_page < 0`, `POST /api/galleries/{id}/favorite` validates `favcat 0–9`.
 
