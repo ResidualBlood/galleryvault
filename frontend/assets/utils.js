@@ -125,6 +125,20 @@ function addTagHash(ns, name) {
   return tagFilterHash(cur);
 }
 
+function removeTagHash(tag) {
+  const cur = parseTags(app.query.tags || "").filter(t => t !== tag);
+  return tagFilterHash(cur);
+}
+
+function tagFilterPills(tags) {
+  const arr = parseTags(tags);
+  if (!arr.length) return "";
+  const pills = arr.map(t => {
+    return `<span class="tag" title="${esc(t)}">${esc(t)} <a class="tag-x" data-action="remove-tag" data-tag="${esc(t)}" href="#">×</a></span>`;
+  }).join("");
+  return `<span class="mode">AND</span>${pills} <a class="clear-all" data-action="clear-tag" href="#">${esc(t("clearAll"))}</a>`;
+}
+
 function cloudSizeClass(count, max) {
   if (!count) return "s1";
   const ratio = max > 0 ? Math.log(count + 1) / Math.log(max + 1) : 0;

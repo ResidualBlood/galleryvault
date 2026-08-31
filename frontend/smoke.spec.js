@@ -22,15 +22,19 @@ test.describe('GalleryVault Frontend Smoke Suite', () => {
     await expect(page.locator('#app')).toBeVisible();
   });
 
-  test('Path 2: Topbar 5 core links exist and have correct hrefs', async ({ page }) => {
+  test('Path 2: Topbar navigation links exist and have correct hrefs', async ({ page }) => {
     const topbar = page.locator('#topbar');
-    // Topbar contains 5 core navigation links
+    // Topbar contains 9 navigation links
     const expectedLinks = [
       { href: '#/browse' },
       { href: '#/library' },
+      { href: '#/tags' },
       { href: '#/downloads' },
       { href: '#/favorites' },
+      { href: '#/duplicates' },
+      { href: '#/history' },
       { href: '#/settings' },
+      { href: '#/logs' },
     ];
 
     for (const item of expectedLinks) {
