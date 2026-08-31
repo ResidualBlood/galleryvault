@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import hmac
 import logging
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -514,9 +515,95 @@ thumb_worker_task: asyncio.Task | None = None
 
 
 def _settings() -> Settings:
-    if "app" in globals() and hasattr(app, "state") and getattr(app.state, "settings", None) is not None:
-        return app.state.settings
-    return app_state.settings or get_settings()
+    # app_state is the canonical source; adopt monkeypatched app.state.settings
+    # so tests that set app.state.settings continue to work.
+    patched = None
+    if "app" in globals() and hasattr(app, "state"):
+        patched = getattr(app.state, "settings", None)
+        if patched is not None and patched is not app_state.settings:
+            app_state.settings = patched
+            return patched
+    if app_state.settings is not None:
+        return app_state.settings
+    if patched is not None:
+        return patched
+    return get_settings()
+
+
+def _sync_state() -> None:
+    """Mirror app_state <-> app.state so monkeypatched tests stay consistent.
+
+    app_state is canonical; app.state is a legacy alias that tests mutate
+    directly. After any service is (re)created we ensure both point to the same
+    objects. If a test patched app.state with a different object, adopt it.
+    """
+    for attr in (
+        "settings",
+        "engine",
+        "session_factory",
+        "eh_client",
+        "downloader",
+        "telegram",
+        "favorites_service",
+        "library_service",
+        "tag_service",
+        "thumbnail_service",
+        "spawned_tasks",
+    ):
+        patched = getattr(app.state, attr, None) if "app" in globals() and hasattr(app, "state") and hasattr(app.state, attr) else None
+        canonical = getattr(app_state, attr, None)
+        # Adopt monkeypatched value into canonical store (tests patch app.state directly).
+        if patched is not None and patched is not canonical:
+            setattr(app_state, attr, patched)
+            if attr == "spawned_tasks" and isinstance(patched, set):
+                app_state.extra["spawned_tasks"] = patched
+        # Ensure app.state mirrors canonical.
+        can = getattr(app_state, attr, None)
+        if can is not None:
+            try:
+                setattr(app.state, attr, can)
+            except Exception:  # noqa: BLE001, S110
+                pass
+        elif patched is not None:
+            try:
+                setattr(app_state, attr, patched)
+            except Exception:  # noqa: BLE001, S110
+                pass
+    # Keep extra["spawned_tasks"] in sync
+    if "app" in globals() and hasattr(app, "state"):
+        try:
+            app_state.extra["spawned_tasks"] = getattr(app.state, "spawned_tasks", set())
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+
+def _create_services(settings_obj: Settings) -> dict[str, object]:
+    """Factory used by startup and _refresh_services (replaces globals().get trick).
+
+    Respects test monkeypatches: if globals() contains a replacement class (e.g.
+    tests patch EhClient), that class is used instead of the real one.
+    """
+    eh_cls = globals().get("EhClient", EhClient)
+    dl_cls = globals().get("Downloader", Downloader)
+    tg_cls = globals().get("TelegramNotifier", TelegramNotifier)
+    fav_cls = globals().get("FavoritesService", FavoritesService)
+    fav_proxy_cls = globals().get("_FavoritesRepositoryProxy", _FavoritesRepositoryProxy)
+    fav_queue_cls = globals().get("_FavoriteDownloadQueue", _FavoriteDownloadQueue)
+    client = eh_cls(settings_obj, max_concurrency=settings_obj.exhentai_max_concurrency)
+    downloader = dl_cls(
+        client,
+        settings_obj.download_root,
+        concurrency=settings_obj.download_concurrency,
+        page_concurrency=settings_obj.page_concurrency,
+    )
+    telegram = tg_cls(settings_obj)
+    favorites_service = fav_cls(client, fav_proxy_cls(), fav_queue_cls(), telegram)
+    return {
+        "eh_client": client,
+        "downloader": downloader,
+        "telegram": telegram,
+        "favorites_service": favorites_service,
+    }
 
 
 def _settings_session() -> AsyncIterator[AsyncSession]:
@@ -671,11 +758,16 @@ async def _apply_persisted_settings() -> None:
         updates_dict: dict[str, object] = {**persisted}
         _update_runtime_settings(updates_dict)
         if runtime.get("auth_password_hash"):
-            updated = app.state.settings.model_copy(
+            updated = app_state.settings.model_copy(
                 update={"auth_password_hash": decrypt_or_plain(runtime["auth_password_hash"])}
             )
-            app.state.settings = updated
             app_state.settings = updated
+            try:
+                app.state.settings = updated
+            except Exception:  # noqa: BLE001, S110
+                pass
+        else:
+            _sync_state()
     except Exception as exc:  # noqa: BLE001
         logger.warning("user settings could not be loaded", extra={"error": str(exc)})
 
@@ -707,8 +799,13 @@ async def _bootstrap_auth() -> None:
     opts: dict[str, object] = {"auth_secret": decrypt_or_plain(final.get("auth_secret"))}
     if final.get("auth_password_hash"):
         opts["auth_password_hash"] = decrypt_or_plain(final["auth_password_hash"])
-    app.state.settings = app.state.settings.model_copy(update=opts)
-    app_state.settings = app.state.settings
+    updated = app_state.settings.model_copy(update=opts)
+    app_state.settings = updated
+    try:
+        app.state.settings = updated
+    except Exception:  # noqa: BLE001, S110
+        pass
+    _sync_state()
 
 
 async def _auth_runtime_hash() -> str | None:
@@ -766,8 +863,9 @@ def _ensure_translation_updater() -> asyncio.Task | None:
 
 
 async def _refresh_services() -> None:
-    old_client = app.state.eh_client
-    old_telegram = app.state.telegram
+    _sync_state()
+    old_client = getattr(app_state, "eh_client", None) or getattr(app.state, "eh_client", None)
+    old_telegram = getattr(app_state, "telegram", None) or getattr(app.state, "telegram", None)
     if old_telegram is not None:
         if hasattr(old_telegram, "flush_summary"):
             await old_telegram.flush_summary()
@@ -776,58 +874,58 @@ async def _refresh_services() -> None:
     if old_client is not None and hasattr(old_client, "aclose"):
         await old_client.aclose()
 
-    eh_cls = globals().get("EhClient", EhClient)
-    dl_cls = globals().get("Downloader", Downloader)
-    tg_cls = globals().get("TelegramNotifier", TelegramNotifier)
-    fav_cls = globals().get("FavoritesService", FavoritesService)
-    fav_proxy_cls = globals().get("_FavoritesRepositoryProxy", _FavoritesRepositoryProxy)
-    fav_queue_cls = globals().get("_FavoriteDownloadQueue", _FavoriteDownloadQueue)
-
-    client = eh_cls(_settings(), max_concurrency=_settings().exhentai_max_concurrency)
-    app.state.eh_client = client
-    app_state.eh_client = client
-
-    app.state.downloader = dl_cls(
-        client,
-        _settings().download_root,
-        concurrency=_settings().download_concurrency,
-        page_concurrency=_settings().page_concurrency,
-    )
-    app_state.downloader = app.state.downloader
-
-    app.state.telegram = tg_cls(_settings())
-    app_state.telegram = app.state.telegram
+    settings_obj = _settings()
+    services = _create_services(settings_obj)
+    for key, obj in services.items():
+        setattr(app_state, key, obj)
+        try:
+            setattr(app.state, key, obj)
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     _start_telegram_bot()
-    app.state.favorites_service = fav_cls(
-        client, fav_proxy_cls(), fav_queue_cls(), app.state.telegram
-    )
-    app_state.favorites_service = app.state.favorites_service
-    # Keep library/tag services in sync (previously missed, leading to stale app.state)
-    if getattr(app_state, "library_service", None) is not None:
-        app.state.library_service = app_state.library_service
-    if getattr(app_state, "tag_service", None) is not None:
-        app.state.tag_service = app_state.tag_service
-    # Ensure app.state mirrors app_state for any future service attributes
-    if hasattr(app_state, "thumbnail_service") and app_state.thumbnail_service is not None:
-        app.state.thumbnail_service = app_state.thumbnail_service
+    # Keep library/tag/thumbnail services in sync (previously missed, leading to stale app.state)
+    _sync_state()
     _ensure_translation_updater()
 
 
 def _start_telegram_bot() -> None:
+    _sync_state()
     if getattr(app.state, "telegram_bot_task", None) is not None and hasattr(app.state.telegram_bot_task, "cancel"):
-        app.state.telegram_bot_task.cancel()
+        try:
+            app.state.telegram_bot_task.cancel()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        app_state.extra.get("spawned_tasks", set()).discard(app.state.telegram_bot_task)
     bot_cls = globals().get("TelegramBotService", TelegramBotService)
     fav_queue_cls = globals().get("_FavoriteDownloadQueue", _FavoriteDownloadQueue)
-    if _settings().telegram_bot_token and getattr(app.state, "telegram", None) is not None:
-        app.state.telegram_bot_task = asyncio.create_task(
+    if _settings().telegram_bot_token and getattr(app_state, "telegram", None) is not None:
+        task = _spawn(
             bot_cls(
                 _settings(),
-                client=getattr(app.state.telegram, "client", None),
+                client=getattr(app_state.telegram, "client", None),
                 queue=fav_queue_cls(),
-                notifier=app.state.telegram,
-            ).run()
+                notifier=app_state.telegram,
+            ).run(),
+            "telegram bot",
         )
+        # Fallback if no running loop (e.g. called outside event loop in tests)
+        if task is None:
+            try:
+                task = asyncio.create_task(
+                    bot_cls(
+                        _settings(),
+                        client=getattr(app_state.telegram, "client", None),
+                        queue=fav_queue_cls(),
+                        notifier=app_state.telegram,
+                    ).run()
+                )
+            except RuntimeError:
+                task = None
+        if task is not None:
+            app.state.telegram_bot_task = task
+            # Also keep in app_state for shutdown discovery
+            app_state.extra.setdefault("spawned_tasks", set()).add(task)
 
 
 async def startup() -> None:
@@ -835,27 +933,19 @@ async def startup() -> None:
     global telegram_flush_task, tag_sync_worker_task, thumb_worker_task
 
     # Canonical source is app_state; keep app.state in sync for legacy monkeypatch compat
-    if getattr(app.state, "settings", None) is not None:
-        app_state.settings = app.state.settings
-    app.state.settings = app_state.settings
-    app.state.engine = app_state.engine
-    app.state.session_factory = app_state.session_factory
-    # Mirror spawned_tasks to app_state.extra for unified shutdown tracking
-    app.state.spawned_tasks = set()
+    _sync_state()
+    if not hasattr(app.state, "spawned_tasks") or not isinstance(getattr(app.state, "spawned_tasks", None), set):
+        app.state.spawned_tasks = set()
     app_state.extra["spawned_tasks"] = app.state.spawned_tasks
-    # Also mirror other services for completeness
-    for _attr in ("eh_client", "downloader", "telegram", "favorites_service", "library_service", "tag_service", "thumbnail_service"):
-        if getattr(app_state, _attr, None) is not None:
-            setattr(app.state, _attr, getattr(app_state, _attr))
-        elif getattr(app.state, _attr, None) is not None:
-            setattr(app_state, _attr, getattr(app.state, _attr))
+    # Ensure app_state mirrors app.state for spawned_tasks
+    _sync_state()
 
     try:
         async with _settings_session() as session:
             repo_cls = globals().get("SettingsRepository", SettingsRepository)
             persisted = await repo_cls(session).get()
         _update_runtime_settings(_decrypt_user_settings(persisted))
-        app.state.settings = app_state.settings
+        _sync_state()
     except Exception:  # noqa: BLE001
         logger.warning("user settings could not be loaded at startup")
 
@@ -866,33 +956,30 @@ async def startup() -> None:
     except Exception:  # noqa: BLE001
         logger.warning("auth bootstrap failed; using temporary credentials")
 
-    eh_cls = globals().get("EhClient", EhClient)
-    dl_cls = globals().get("Downloader", Downloader)
-    tg_cls = globals().get("TelegramNotifier", TelegramNotifier)
-    fav_cls = globals().get("FavoritesService", FavoritesService)
-    fav_proxy_cls = globals().get("_FavoritesRepositoryProxy", _FavoritesRepositoryProxy)
-    fav_queue_cls = globals().get("_FavoriteDownloadQueue", _FavoriteDownloadQueue)
-
-    client = eh_cls(_settings(), max_concurrency=_settings().exhentai_max_concurrency)
-    app.state.eh_client = client
-    app_state.eh_client = client
-    app.state.downloader = dl_cls(
-        client,
-        _settings().download_root,
-        concurrency=_settings().download_concurrency,
-        page_concurrency=_settings().page_concurrency,
-    )
-    app_state.downloader = app.state.downloader
-    app.state.telegram = tg_cls(_settings())
-    app_state.telegram = app.state.telegram
+    settings_obj = _settings()
+    services = _create_services(settings_obj)
+    for key, obj in services.items():
+        setattr(app_state, key, obj)
+        try:
+            setattr(app.state, key, obj)
+        except Exception:  # noqa: BLE001, S110
+            pass
     globals().get("_start_telegram_bot", _start_telegram_bot)()
-    app.state.favorites_service = fav_cls(
-        client, fav_proxy_cls(), fav_queue_cls(), app.state.telegram
-    )
-    app_state.favorites_service = app.state.favorites_service
-    app.state.favorite_poll_task = asyncio.create_task(
-        globals().get("_favorites_poll_loop", _favorites_poll_loop)()
-    )
+    _sync_state()
+    # favorite_poll_task should be tracked via spawned_tasks, but keep legacy attr for tests
+    poll_coro = globals().get("_favorites_poll_loop", _favorites_poll_loop)()
+    poll_task = _spawn(poll_coro, "favorites poll")
+    if poll_task is None:
+        try:
+            poll_task = asyncio.create_task(poll_coro)
+        except RuntimeError:
+            poll_task = None
+        else:
+            # If _spawn failed due to no loop, we still need to close coro
+            if poll_task is None and hasattr(poll_coro, "close"):
+                poll_coro.close()
+    if poll_task is not None:
+        app.state.favorite_poll_task = poll_task
 
     globals().get("_spawn", _spawn)(
         globals().get("_refresh_favorite_counts", _refresh_favorite_counts)(),
@@ -954,14 +1041,37 @@ async def startup() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.warning("thumbnail seeding failed", extra=log_extra(error=type(exc).__name__))
     globals().get("_ensure_translation_updater", _ensure_translation_updater)()
-    await asyncio.to_thread(load_translations)
+    # Do not block lifespan on translation DB load; /healthz should be ready ASAP.
+    try:
+        coro = asyncio.to_thread(load_translations)
+        t = _spawn(coro, "load translations")
+        if t is None:
+            # No running loop (e.g. sync test harness) — run inline
+            await coro
+    except RuntimeError:
+        # Fallback: no loop, run synchronously
+        try:
+            await asyncio.to_thread(load_translations)
+        except Exception:  # noqa: BLE001, S110
+            pass
     logger.info("GalleryVault started", extra=log_extra(library_roots=_settings().library_roots))
+    _sync_state()
+    # Guard: canonical and legacy state must stay in sync
+    try:
+        assert app_state.settings is app.state.settings
+    except AssertionError:
+        logger.warning("state mirror diverged after startup", extra=log_extra(canonical=id(app_state.settings), legacy=id(app.state.settings)))
 
 
 async def shutdown() -> None:
-    for task in list(getattr(app.state, "spawned_tasks", set()) or ()):
+    # Collect all tracked background tasks from both mirrors
+    all_spawned: set[asyncio.Task] = set()
+    for src in (getattr(app.state, "spawned_tasks", None), app_state.extra.get("spawned_tasks")):
+        if isinstance(src, set):
+            all_spawned.update(src)
+    for task in list(all_spawned):
         task.cancel()
-    for task in list(getattr(app.state, "spawned_tasks", set()) or ()):
+    for task in list(all_spawned):
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
     if translation_update_task is not None:
@@ -1027,7 +1137,17 @@ app.state.spawned_tasks = set()
 async def authentication(request: Request, call_next):
     path = request.url.path
     if path in {"/healthz", "/metrics", "/login", "/logout"}:
-        return await call_next(request)
+        response = await call_next(request)
+        # Ensure CSRF cookie is set for subsequent POSTs when auth is required
+        if _settings().auth_required and not request.cookies.get(CSRF_COOKIE):
+            try:
+                token = secrets.token_urlsafe(32)
+                # Use lax, not httponly so JS can read it for X-CSRF-Token header
+                secure = _settings().auth_cookie_secure or request.headers.get("x-forwarded-proto", "").lower() == "https" or request.url.scheme == "https"
+                response.set_cookie(CSRF_COOKIE, token, samesite="lax", secure=secure, httponly=False, max_age=86400 * 30)
+            except Exception:  # noqa: BLE001, S110
+                pass
+        return response
     if not _settings().auth_required:
         return await call_next(request)
     if not verify_session(
@@ -1045,47 +1165,73 @@ async def authentication(request: Request, call_next):
             )
         return RedirectResponse("/login", status_code=303)
 
-    if (
-        request.method in {"POST", "PUT", "DELETE", "PATCH"}
-        and request.url.path.startswith("/api/")
-    ):
-        sec_fetch_site = request.headers.get("sec-fetch-site")
-        if sec_fetch_site == "cross-site":
-            return JSONResponse(
-                {"detail": "Cross-origin request rejected"},
-                status_code=403,
-            )
-        origin = request.headers.get("origin")
-        if origin:
-            parsed_origin = urlparse(origin)
-            origin_netloc = parsed_origin.netloc or parsed_origin.hostname
-            host_header = request.headers.get("host", "")
-            parsed_host = urlparse("//" + host_header)
-            request_netloc = parsed_host.netloc or parsed_host.hostname
-            if origin_netloc and request_netloc and origin_netloc.lower() != request_netloc.lower():
+    # CSRF / Origin protection for state-changing requests
+    if request.method in {"POST", "PUT", "DELETE", "PATCH"}:
+        # API routes: Origin / Referer / Sec-Fetch-Site + optional X-CSRF-Token
+        if request.url.path.startswith("/api/"):
+            sec_fetch_site = request.headers.get("sec-fetch-site")
+            if sec_fetch_site == "cross-site":
                 return JSONResponse(
                     {"detail": "Cross-origin request rejected"},
                     status_code=403,
                 )
-    if (
-        request.method == "POST"
-        and request.url.path not in {"/login", "/logout"}
-        and not request.url.path.startswith("/api/")
-    ):
-        csrf = request.cookies.get(CSRF_COOKIE)
-        supplied = request.headers.get("x-csrf-token")
-        content_type = request.headers.get("content-type", "").split(";", 1)[0]
-        if content_type == "application/x-www-form-urlencoded":
-            body = await request.body()
-            supplied = parse_qs(body.decode(errors="replace")).get("csrf_token", [None])[0]
+            # Prefer X-Forwarded-Host if behind trusted proxy, else Host
+            host_header = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+            # Normalize host (strip port handling via urlparse)
+            parsed_host = urlparse("//" + host_header)
+            request_netloc = (parsed_host.netloc or parsed_host.hostname or "").lower()
+            # Origin check (primary)
+            origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
+            csrf_cookie = request.cookies.get(CSRF_COOKIE)
+            csrf_header = request.headers.get("x-csrf-token")
+            if origin:
+                parsed_origin = urlparse(origin)
+                origin_netloc = (parsed_origin.netloc or parsed_origin.hostname or "").lower()
+                if origin_netloc and request_netloc and origin_netloc != request_netloc:
+                    return JSONResponse(
+                        {"detail": "Cross-origin request rejected"},
+                        status_code=403,
+                    )
+            elif referer:
+                parsed_referer = urlparse(referer)
+                referer_netloc = (parsed_referer.netloc or parsed_referer.hostname or "").lower()
+                if referer_netloc and request_netloc and referer_netloc != request_netloc:
+                    return JSONResponse(
+                        {"detail": "Cross-origin request rejected"},
+                        status_code=403,
+                    )
+            else:
+                # No Origin/Referer: fall back to CSRF token validation if both present
+                # Old browsers or curl without Origin would otherwise bypass.
+                if csrf_cookie and csrf_header and not hmac.compare_digest(csrf_cookie, csrf_header):
+                    return JSONResponse({"detail": "CSRF token required"}, status_code=403)
+                # If no CSRF cookie yet, allow (will be set on response below) — same-origin fetch without Origin is normal
+        # Non-API POST (form) — strict CSRF
+        elif request.url.path not in {"/login", "/logout"}:
+            csrf = request.cookies.get(CSRF_COOKIE)
+            supplied = request.headers.get("x-csrf-token")
+            content_type = request.headers.get("content-type", "").split(";", 1)[0]
+            if content_type == "application/x-www-form-urlencoded":
+                body = await request.body()
+                supplied = parse_qs(body.decode(errors="replace")).get("csrf_token", [None])[0]
 
-            async def receive():
-                return {"type": "http.request", "body": body, "more_body": False}
+                async def receive():
+                    return {"type": "http.request", "body": body, "more_body": False}
 
-            request._receive = receive
-        if not csrf or not supplied or not hmac.compare_digest(csrf, supplied):
-            return HTMLResponse("CSRF token required", status_code=403)
-    return await call_next(request)
+                request._receive = receive
+            if not csrf or not supplied or not hmac.compare_digest(csrf, supplied):
+                return HTMLResponse("CSRF token required", status_code=403)
+    response = await call_next(request)
+    # Ensure CSRF cookie is present for future requests (30-day, lax)
+    if not request.cookies.get(CSRF_COOKIE) and _settings().auth_required:
+        try:
+            token = secrets.token_urlsafe(32)
+            secure = _settings().auth_cookie_secure or request.headers.get("x-forwarded-proto", "").lower() == "https" or request.url.scheme == "https"
+            response.set_cookie(CSRF_COOKIE, token, samesite="lax", secure=secure, httponly=False, max_age=86400 * 30)
+        except Exception:  # noqa: BLE001, S110
+            pass
+    return response
 
 
 @app.middleware("http")

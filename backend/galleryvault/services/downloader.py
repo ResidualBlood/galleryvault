@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
+from ..scanners.ehviewer import natural_key
 from .eh_client import (
     ArchiveExpiredError,
     EhImageSlowError,
@@ -675,7 +676,11 @@ class Downloader:
                 for item in unzip_dir.rglob("*")
                 if item.is_file() and item.suffix.casefold() in _ARCHIVE_IMAGE_SUFFIXES
             ),
-            key=lambda item: item.name,
+            # Natural sort on the relative path so ``2.jpg`` sorts before ``10.jpg``
+            # and subdirectories do not collapse duplicate basenames. The previous
+            # ``item.name`` order matched only zero-padded names; non-padded
+            # archives (e.g. ``2.jpg`` / ``10.jpg``) would be silently reordered.
+            key=lambda item: natural_key(str(item.relative_to(unzip_dir))),
         )
         if not images:
             zip_path.unlink(missing_ok=True)

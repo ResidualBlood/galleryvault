@@ -1308,6 +1308,15 @@ class DownloadRepository:
         )
         return int(result.rowcount or 0)
 
+    async def sweep_auto_retry(self) -> int:
+        """Alias for the retry sweep expected by download_worker_loop.
+
+        The worker imports ``sweep_auto_retry``; keep it as a thin wrapper
+        over ``rearm_failed`` so tests that patch either name work. Future
+        improvements could filter by error type (skip ArchiveNotRetryable).
+        """
+        return await self.rearm_failed()
+
     async def count_active(self) -> int:
         """Number of download tasks still pending or in progress."""
         return int(

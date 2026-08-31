@@ -28,7 +28,7 @@ from .downloader import (
     DownloadCancelledError,
     DownloadTask,
 )
-from .eh_client import EhClientError
+from .eh_client import EhClientError  # noqa: F401  # kept for backoff classification docs
 from .ingest import GalleryIngestService
 
 logger = logging.getLogger(__name__)
@@ -353,12 +353,6 @@ async def run_download(task: DownloadTask) -> None:
                     now = datetime.now(UTC)
                     auth_failure = "authenticat" in str(exc)
                     not_retryable = isinstance(exc, ArchiveNotRetryableError)
-                    challenge = (
-                        "challeng" in str(exc)
-                        or "disconnect" in str(exc)
-                        or "reset" in str(exc)
-                        or isinstance(exc, (EhClientError, asyncio.TimeoutError))
-                    )
                     row.retry_count += 1
                     if auth_failure or not_retryable or row.retry_count >= row.max_retries:
                         row.status = "failed"
@@ -366,11 +360,11 @@ async def run_download(task: DownloadTask) -> None:
                         row.finished_at = now
                     else:
                         row.status = "pending"
-                        row.retry_at = (
-                            now + timedelta(seconds=retry_backoff(row.retry_count))
-                            if challenge
-                            else now
-                        )
+                        # Always apply exponential backoff for transient errors so the
+                        # 60s sweep does not instantly re-claim a just-failed task.
+                        # The old `challenge ? backoff : now` caused non-challenge
+                        # EhClientError to be retried in <1s, burning the retry budget.
+                        row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count))
                     row.error_message = f"{type(exc).__name__}: {exc}"
                     row.updated_at = now
                     await DownloadRepository(session).record_attempt(

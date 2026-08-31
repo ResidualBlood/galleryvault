@@ -56,6 +56,22 @@ def _must_change_password() -> bool:
     return bool(settings.auth_required and (not auth_hash_configured or settings.auth_password == DEFAULT_PASSWORD))
 
 
+def _cookie_secure(request: Request, settings) -> bool:
+    """Auto-enable Secure when the request is clearly HTTPS even if setting is false."""
+    if getattr(settings, "auth_cookie_secure", False):
+        return True
+    # X-Forwarded-Proto is set by nginx/traefik when TLS terminates at the proxy.
+    if request.headers.get("x-forwarded-proto", "").lower() == "https":
+        return True
+    # Direct HTTPS (when backend terminates TLS itself)
+    try:
+        if request.url.scheme == "https":
+            return True
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return False
+
+
 @router.post("/login")
 async def login(request: Request):
     ip = client_ip(request)
@@ -84,7 +100,7 @@ async def login(request: Request):
         create_session(settings.auth_secret or "", settings.auth_session_ttl),
         httponly=True,
         samesite="lax",
-        secure=settings.auth_cookie_secure,
+        secure=_cookie_secure(request, settings),
         max_age=settings.auth_session_ttl,
     )
     await login_succeeded(ip)
@@ -138,7 +154,7 @@ async def onboarding_status() -> dict[str, object]:
 
 
 @router.post("/api/auth/change-password", status_code=204)
-async def change_password(body: ChangePasswordRequest) -> Response:
+async def change_password(request: Request, body: ChangePasswordRequest) -> Response:
     effective = _password_effective()
     using_default = effective is None
     current_valid = (
@@ -171,7 +187,7 @@ async def change_password(body: ChangePasswordRequest) -> Response:
         create_session(new_secret, current_settings.auth_session_ttl),
         httponly=True,
         samesite="lax",
-        secure=current_settings.auth_cookie_secure,
+        secure=_cookie_secure(request, current_settings),
         max_age=current_settings.auth_session_ttl,
     )
     logger.info("account password changed")

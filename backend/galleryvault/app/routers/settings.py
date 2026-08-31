@@ -143,7 +143,7 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
             )
             raise HTTPException(
                 status_code=422,
-                detail="ENCRYPTION_KEY not configured; cannot store ExHentai cookies without encryption. Set ENCRYPTION_KEY env var.",
+                detail="encryption not enabled; cannot store ExHentai cookies without encryption",
             )
         persisted_values["exhentai_cookies"] = encrypt_json(cookies)
     token = persisted_values.get("telegram_bot_token")

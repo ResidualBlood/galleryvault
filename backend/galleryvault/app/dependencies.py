@@ -33,16 +33,19 @@ _LEADING_NUMBER = re.compile(r"^\s*\d+[\s\-]+")
 
 def get_current_settings() -> Settings:
     """Return runtime settings or fallback to env settings."""
+    # Prefer the canonical app_state store; main._settings() already adopts
+    # monkeypatched app.state values, so call it first to keep test compat.
     from . import main
     if hasattr(main, "_settings"):
         try:
             return main._settings()
         except Exception:  # noqa: S110, BLE001
             pass
-    if hasattr(main, "app") and hasattr(main.app, "state") and getattr(main.app.state, "settings", None) is not None:
-        return main.app.state.settings
+    # Fallback: direct app_state read (single source of truth)
     if app_state.settings is not None:
         return app_state.settings
+    if hasattr(main, "app") and hasattr(main.app, "state") and getattr(main.app.state, "settings", None) is not None:
+        return main.app.state.settings
     return get_settings()
 
 

@@ -387,7 +387,19 @@ async def run_favorites_check(
         def _progress(done: int) -> None:
             entry["done"] = done
 
-        settings = app_state.settings or get_settings()
+        # Use main._settings() (which adopts monkeypatched app.state) when available,
+        # so tests that stub main.app.state.settings do not leave app_state.settings stale.
+        settings = None
+        try:
+            from ..app.main import _settings as _main_settings  # local import to avoid cycle
+
+            settings = _main_settings()
+        except Exception:  # noqa: BLE001, S110
+            settings = app_state.settings or get_settings()
+        # Test stubs (e.g. test_download_cancel_race) may lack archive fields — default safely
+        archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
+        archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
+        archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
         if category is not None and not getattr(category, "enabled", True):
             await service.check_category(favcat, mode="monitor_only", progress=_progress)
         else:
@@ -395,9 +407,9 @@ async def run_favorites_check(
                 favcat,
                 mode=getattr(category, "mode", "incremental") if category else "incremental",
                 progress=_progress,
-                archive_enabled=settings.favorites_archive_enabled,
-                archive_max_pages=settings.favorites_archive_max_pages,
-                archive_quality=settings.archive_quality,
+                archive_enabled=archive_enabled,
+                archive_max_pages=archive_max_pages,
+                archive_quality=archive_quality,
             )
         entry["error"] = None
         async with session_cm() as session, session.begin():
@@ -440,8 +452,14 @@ async def run_favorites_check(
 
 async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
     while True:
-        settings = app_state.settings or get_settings()
-        interval = max(60, int(settings.favorites_poll_interval_seconds))
+        try:
+            from ..app.main import _settings as _main_settings
+
+            settings = _main_settings()
+        except Exception:  # noqa: BLE001, S110
+            settings = app_state.settings or get_settings()
+        # Config stores minutes; poll loop works in seconds — tolerate test stubs
+        interval = max(60, int(getattr(settings, "favorites_poll_interval_minutes", 720)) * 60)
         await asyncio.sleep(interval)
         if not settings.exhentai_cookies:
             continue

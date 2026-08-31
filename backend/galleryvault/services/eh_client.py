@@ -354,6 +354,20 @@ def _content_range_total(value: str | None) -> int | None:
 
 
 def parse_gallery_url(value: str, base_url: str = "https://exhentai.org") -> tuple[int, str]:
+    # Host validation to avoid SSRF via user-supplied evil.com/g/... URLs.
+    # fetch_gallery builds its own URL from gid/token + base_url, but callers
+    # that blindly use the parsed gid/token could be misled; reject non-ExHentai hosts early.
+    try:
+        parsed_input = urlparse(value)
+        if parsed_input.scheme and parsed_input.hostname:
+            host = parsed_input.hostname.lower()
+            allowed = {"exhentai.org", "e-hentai.org"}
+            if host not in allowed and not host.endswith((".exhentai.org", ".e-hentai.org")):
+                raise ValueError("gallery URL must be on exhentai.org / e-hentai.org")
+    except ValueError:
+        raise
+    except Exception:  # noqa: BLE001, S110
+        pass
     match = GALLERY_RE.search(value)
     if not match:
         compact = re.fullmatch(r"\s*(\d+)\s*/\s*([0-9a-fA-F]+)\s*", value)
@@ -748,18 +762,30 @@ class EhClient:
                 # from the end of the concurrent batch until a page is empty.
                 start = max(offsets) + 1
         if not truncated_by_limit:
-            # Serial tail walk.  The old ``range(start, 512)`` silently skipped
-            # everything past offset 512 (~10240 pages): a gallery whose gdata
-            # filecount implies more sub-pages got truncated.  Walk page by page
-            # instead, stopping at the first empty page with a sentinel that
-            # prevents an infinite loop when a server echoes the same content.
+            # Serial tail walk. Fix for stale gdata under-report: the old
+            # ``gallery_pages + 2`` guard truncated long galleries when gdata
+            # file_count was outdated (e.g. actual 255 pages but gdata said 20
+            # => only 2 extra pages walked). Now walk until two consecutive
+            # empty pages, which tolerates a single glitched page but still
+            # terminates, and is unbounded when estimate==0. A hard 5000-offset
+            # cap (~100k images) prevents an infinite loop if the server echoes
+            # content.
             offset = start
+            empty_streak = 0
             while True:
-                if gallery_pages > 0 and offset > gallery_pages + 2:
+                if offset > 5000:
                     break
                 page_response = await self._get(f"{base}?p={offset}")
-                if _collect_hrefs(page_response.text, max_pages) == 0:
-                    break
+                collected = _collect_hrefs(page_response.text, max_pages)
+                if collected == 0:
+                    empty_streak += 1
+                    if empty_streak >= 2:
+                        break
+                    # One empty after we have passed estimate+2 could be real tail,
+                    # but require two empties to be safe against a transient gap.
+                    offset += 1
+                    continue
+                empty_streak = 0
                 if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
                     break
                 offset += 1
@@ -1043,15 +1069,16 @@ class EhClient:
         if i7 is not None:
             origin_match = SHOWPAGE_ORIGIN_RE.search(i7)
             if origin_match:
-                origin_url = (
+                origin_url = urljoin(
+                    str(response.url),
                     html.unescape(origin_match.group(1))
                     + "fullimg"
-                    + html.unescape(origin_match.group(2))
+                    + html.unescape(origin_match.group(2)),
                 )
         if origin_url is None:
             prompt_match = SHOWPAGE_ORIGIN_PROMPT_RE.search(i6)
             if prompt_match:
-                origin_url = html.unescape(prompt_match.group(1))
+                origin_url = urljoin(str(response.url), html.unescape(prompt_match.group(1)))
         return {
             "image_url": image_url,
             "origin_url": origin_url,
