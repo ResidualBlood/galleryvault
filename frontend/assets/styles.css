@@ -229,6 +229,7 @@ button:disabled { opacity: .5; cursor: default; }
 .gc {
   display: flex; flex-direction: column; background: transparent; border: 0;
   color: inherit; overflow: hidden;
+  content-visibility: auto; contain-intrinsic-size: 180px 260px;
 }
 .gc-cover {
   position: relative; aspect-ratio: 3/4; background: #000;
