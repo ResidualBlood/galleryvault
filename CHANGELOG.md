@@ -13,12 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - **ExHentai requests now send a full browser fingerprint** (backend `eh_client.py`): mirror Ehviewer_CN_SXJ's ChromeRequestBuilder — default client sends the browser `Accept` (`image/avif,image/webp,...`) and `Accept-Language` headers; `showpage`/`gdata` POSTs add `Origin` (+ `Referer` on showpage). ExHentai's anti-abuse fingerprints the whole header set, and the bare httpx defaults read as scripted traffic (reduces IP challenges like the 2026-08-31 outage).
-- **Frontend Phase 0 refactor** (galleryvault-frontend feat/frontend-optimization-phase0): split 3179-line app.js into core/state/utils/components/events (vanilla, no build). State centralized, multi-script load in index.html, minimal logic change. Verified in test container :8200 + node --check. See FRONTEND_OPTIMIZATION_PLAN.md and HANDOFF.
-- **Frontend Phase 1 start**: extracted renderWelcome/browse/library/gallery to views/, added renderView + before/afterRender hooks + router wrap (core). galleryGrid moved to utils, catLabel fixed. Smoke + checks passed. Continue on same branch.
-- **Phase 1 complete**: app.js pure entry 29 lines (scan+init only); all renders/support extracted. smoke + checks.
-- **Frontend Phase 2 start**: design tokens (:root full color/space/radius/font/transition/focus), .btn system + unified skeleton/empty/loading, key buttons migrated, a11y (roles/aria/touch targets), transitions, mobile polish. :8200 smoke + node check. commit 4de129a.
-- **Phase 2 complete + verified**: ... Phase 2 done. See PLAN.
-- **Phase 3 progress (perf & tooling)**: simple virtual render via content-visibility:auto, startInfinite IO sentinel on favorites/browse/library, minimal .eslintrc.json, i18n dynamic on-demand locale loader (assets/locales/{zh,en}.js), a11y polish (th scope, toast role, pager aria-current), scroll restoration on route change, offline/weak network feedback, restored tagFilterPills and 9-link full topbar, full CI syntax-check, and 5-path playwright smoke suite. smoke + node checks. See FRONTEND_OPTIMIZATION_PLAN.md.
+- **Frontend Optimization (Phase 0-3) fully delivered and merged into `dev`**: modular architecture (monolithic app.js refactored into core/state/utils/components/events/views/locales), Design Tokens & `.btn` component system, mobile hamburger navigation, accessibility & keyboard shortcuts (`/` search focus, arrow card navigation), CSS content-visibility & IO virtual scroll, on-demand i18n locale loading, full 9-link navigation, full CI syntax-check, and Playwright smoke suite. See FRONTEND_OPTIMIZATION_PLAN.md.
 
 ### Added
 
