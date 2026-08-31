@@ -27,6 +27,14 @@ EHVIEWER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
 )
+# Mirror the browser-ish Accept / Accept-Language headers that Ehviewer_CN_SXJ's
+# ChromeRequestBuilder sends.  ExHentai's anti-abuse looks at the whole header
+# fingerprint, not just the User-Agent; httpx's bare ``*/*`` / missing
+# Accept-Language reads as scripted traffic.
+EHVIEWER_ACCEPT = (
+    "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+)
+EHVIEWER_ACCEPT_LANGUAGE = "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
 
 GALLERY_RE = re.compile(r"/(?:g|gallery)/(?P<gid>\d+)/(?P<token>[A-Za-z0-9]+)/")
 # Legacy 3-segment viewer URL: /s/<gid>/<ptoken>/<page-token>/
@@ -535,7 +543,11 @@ class EhClient:
                 proxy=proxy,
                 timeout=30.0,
                 transport=transport,
-                headers={"User-Agent": EHVIEWER_USER_AGENT},
+                headers={
+                    "User-Agent": EHVIEWER_USER_AGENT,
+                    "Accept": EHVIEWER_ACCEPT,
+                    "Accept-Language": EHVIEWER_ACCEPT_LANGUAGE,
+                },
                 follow_redirects=True,
             )
 
@@ -826,7 +838,7 @@ class EhClient:
             if not showkey.value:
                 return await _resolve_page_html(href)
             try:
-                info = await self._showpage(gid, page, p_token, showkey.value)
+                info = await self._showpage(gid, page, p_token, showkey.value, absolute)
             except EhClientError:
                 # API hiccup (stale showkey, throttled, changed markup): fall back
                 # to the full HTML path, which re-seeds showkey if needed.
@@ -874,7 +886,9 @@ class EhClient:
         page_num = int(viewer.group("page")) if viewer else page.index + 1
         if showkey.value:
             try:
-                info = await self._showpage(gid, page_num, p_token, showkey.value)
+                info = await self._showpage(
+                    gid, page_num, p_token, showkey.value, absolute
+                )
             except EhClientError:
                 # Stale showkey / throttled API: fall back to HTML, which
                 # re-seeds the showkey (same as fetch_gallery does).
@@ -936,12 +950,19 @@ class EhClient:
         )
 
     async def _showpage(
-        self, gid: int, page: int, p_token: str, showkey: str
+        self,
+        gid: int,
+        page: int,
+        p_token: str,
+        showkey: str,
+        referer: str | None = None,
     ) -> dict[str, str]:
         """Resolve one page's image URLs via the ExHentai ``showpage`` API.
 
         ``page`` is 1-based.  Returns ``{image_url, origin_url, skip_hath_key}``
         exactly like parsing the viewer HTML would, but from a small JSON body.
+        ``referer`` should be the gallery viewer URL this call originates from —
+        ExHentai expects the browser-like Referer + Origin on its JSON API.
         """
         payload = {
             "method": "showpage",
@@ -950,12 +971,16 @@ class EhClient:
             "imgkey": p_token,
             "showkey": showkey,
         }
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if referer:
+            headers["Referer"] = referer
+        headers["Origin"] = self.settings.exhentai_base_url.rstrip("/")
         try:
             response = await self._request(
                 "POST",
                 "/api.php",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             )
         except httpx.RequestError as exc:
             # Raw transport errors (e.g. ConnectTimeout) must surface as
@@ -1117,7 +1142,10 @@ class EhClient:
                 "POST",
                 "/favorites.php",
                 data=form,
-                headers={"Referer": urljoin(str(self.client.base_url), "/favorites.php")},
+                headers={
+                    "Referer": urljoin(str(self.client.base_url), "/favorites.php"),
+                    "Origin": self.settings.exhentai_base_url.rstrip("/"),
+                },
             )
             if response.status_code in (401, 403) or "login" in str(response.url).lower():
                 raise EhClientError("ExHentai authentication is required or expired")
@@ -1159,7 +1187,10 @@ class EhClient:
                 "POST",
                 "/api.php",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": self.settings.exhentai_base_url.rstrip("/"),
+                },
             )
             if response.status_code in (401, 403) or "login" in str(response.url).lower():
                 raise EhClientError("ExHentai authentication is required or expired")
