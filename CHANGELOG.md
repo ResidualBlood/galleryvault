@@ -13,7 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Phase 1 complete**: app.js pure entry 29 lines (scan+init only); all renders/support extracted. smoke + checks.
 - **Frontend Phase 2 start**: design tokens (:root full color/space/radius/font/transition/focus), .btn system + unified skeleton/empty/loading, key buttons migrated, a11y (roles/aria/touch targets), transitions, mobile polish. :8200 smoke + node check. commit 4de129a.
 - **Phase 2 complete + verified**: ... Phase 2 done. See PLAN.
-- **Phase 3 start (perf)**: simple virtual render for cards via CSS content-visibility:auto + extended IO infinite (startInfinite) to favorites fav-items + browse-grid. + minimal eslint config. smoke. commits f6f6b4a, fe3e11b, b86359b, 742c6c2. See PLAN.
+- **Phase 3 start (perf)**: simple virtual render for cards via CSS content-visibility:auto + extended IO infinite (startInfinite) to favorites fav-items + browse-grid. + minimal eslint config. + i18n split prep (I18N to i18n.js). smoke. commits ... 55ebea8. See PLAN.
 
 ### Added
 
