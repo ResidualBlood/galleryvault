@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
-from .eh_client import ArchiveExpiredError, EhImageSlowError, GalleryData, GalleryPageData, ShowkeyState
+from .eh_client import (
+    ArchiveExpiredError,
+    EhImageSlowError,
+    GalleryData,
+    GalleryPageData,
+    ShowkeyState,
+)
 
 logger = logging.getLogger(__name__)
 
