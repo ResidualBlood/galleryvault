@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Infinite retry loop on archive fallback**: When an archive zip failed validation (e.g., incorrect page count) or returned 404/410, the fallback to page-by-page downloading wiped the temporary directory. If the page-by-page attempt subsequently failed, the next retry would wipe the progress and mistakenly retry the archive download from scratch. The fallback state is now persisted via a `.archive_fallback` marker, ensuring smooth resumes without endless cycles or GP bleeding.
+
 ### Changed
 
 - **ExHentai requests now send a full browser fingerprint** (backend `eh_client.py`): mirror Ehviewer_CN_SXJ's ChromeRequestBuilder — default client sends the browser `Accept` (`image/avif,image/webp,...`) and `Accept-Language` headers; `showpage`/`gdata` POSTs add `Origin` (+ `Referer` on showpage). ExHentai's anti-abuse fingerprints the whole header set, and the bare httpx defaults read as scripted traffic (reduces IP challenges like the 2026-08-31 outage).
