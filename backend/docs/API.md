@@ -90,6 +90,7 @@ curl -b cookies.txt http://localhost:8001/api/settings
   "duplicate_policy": "keep_first",
   "auth_required": true,
   "tag_translation_update_interval_minutes": 720,
+  "trusted_proxies": ["192.168.1.0/24"],
   "favorites": [
     {"favcat": 0, "enabled": true, "mode": "incremental", "poll_interval_minutes": 720}
   ]
@@ -199,7 +200,7 @@ tier, the rest download page-by-page.
 | GET | `/api/galleries/{identifier}` | Metadata (`file_size` included), page list, tags (each with Chinese `display` when available), `spider_info`, and `eh_url` (deep link `{base_url}/g/{gid}/{token}/` built from the configured base URL; empty for local galleries without a token). `identifier` may be the DB `id` or the ExHentai `gid`. |
 | DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes the on-disk files (directory or single archive); the row is kept when deletion fails. |
 | POST | `/api/galleries/delete-bulk` | Body `{ids: [...], delete_files?: bool}`. Bulk remove galleries by id; `delete_files` also deletes on-disk files, keeping each row whose files failed to delete. Returns `{deleted, failed_deletions}`. Ids are processed in 500-row batches to stay under asyncpg's parameter limit. |
-| POST | `/api/galleries/delete-filtered` | Body `{q?, category?, tags?, tag_mode?, tag_match?, delete_files?}`. Remove every gallery matching the current library filter (same semantics as `GET /api/galleries`). The backend pages the filter and deletes in 500-row batches, so the client never sends a huge id list. Returns `{deleted, matched, failed_deletions}`. |
+| POST | `/api/galleries/delete-filtered` | Body `{q?, category?, tags?, tag_mode?, tag_match?, delete_files?}`. Remove every gallery matching the current library filter (same semantics as `GET /api/galleries`). The backend pages the filter and deletes in 500-row batches, so the client never sends a huge id list. Returns `{deleted, matched, failed_deletions}`. When `matched` exceeds 5000 the request is rejected with `409` (refine the filter or delete in batches). |
 | GET | `/api/galleries/{identifier}/pages/{page_index}` | Stream one page image (`image/jpeg`/`image/png`/…). |
 | GET | `/api/galleries/{identifier}/thumb/{page_index}` | Serve a cached static JPEG thumbnail for a page (generated on first access into `/gv-cache/thumbs`, `Cache-Control` + `ETag`). |
 | GET | `/api/galleries/{identifier}/progress` | Reading progress (`current_page`, `total_pages`). |
