@@ -55,18 +55,35 @@ function bindReaderKeys() {
   };
   readerKeyHandler = (e) => {
     if (e.type === "click") {
+      // Allow clicking the image or empty reader area to advance (mobile)
       const img = e.target.closest && e.target.closest("#reader-img");
-      if (!img) return;
-      const next = parseInt(img.dataset.next, 10);
-      if (readerFsActive) {
-        if (!isNaN(next)) { readerSwapPage(id, next); }
-        else { exitReaderFullscreen(); goReaderNext(id); }
+      const readerArea = e.target.closest && e.target.closest(".reader");
+      const isButton = e.target.closest && e.target.closest("button, a");
+      if (isButton) return;
+      if (img) {
+        const next = parseInt(img.dataset.next, 10);
+        if (readerFsActive) {
+          if (!isNaN(next)) { readerSwapPage(id, next); }
+          else { exitReaderFullscreen(); goReaderNext(id); }
+          return;
+        }
+        if (img.dataset.next) {
+          location.hash = navHash("reader", { id, page: next }, libraryContext());
+        } else {
+          goReaderNext(id);
+        }
         return;
       }
-      if (img.dataset.next) {
-        location.hash = navHash("reader", { id, page: next }, libraryContext());
-      } else {
-        goReaderNext(id);
+      if (readerArea) {
+        // Click on empty reader background — advance
+        if (readerFsActive) {
+          const cur = current() + 1;
+          if (cur < (app.readerTotal || 0)) readerSwapPage(id, cur);
+          else { exitReaderFullscreen(); goReaderNext(id); }
+        } else {
+          advance();
+        }
+        return;
       }
       return;
     }
@@ -150,17 +167,11 @@ function readerSwapPage(id, target) {
 function toggleReaderFit() {
   const img = document.getElementById("reader-img");
   if (!img) return;
-  const fitted = img.classList.toggle("reader-fit");
-  if (fitted) {
-    // Refit the current page once to the new mode.
-    img.style.maxWidth = "none";
-    img.style.width = "100%";
-    img.style.height = "auto";
-  } else {
-    img.style.width = "";
-    img.style.maxWidth = "";
-    img.style.height = "";
-  }
+  img.classList.toggle("reader-fit");
+  // Clear any legacy inline styles that conflict with CSS variables
+  img.style.width = "";
+  img.style.maxWidth = "";
+  img.style.height = "";
 }
 
 async function goReaderNext(id) {

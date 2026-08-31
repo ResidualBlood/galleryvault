@@ -8,7 +8,11 @@ function nsClass(ns) {
 }
 
 function stopInfinite() {
-  if (infiniteState && infiniteState.observer) infiniteState.observer.disconnect();
+  if (infiniteState) {
+    try { infiniteState.observer && infiniteState.observer.disconnect(); } catch (_) {}
+    try { infiniteState.controller && infiniteState.controller.abort(); } catch (_) {}
+    try { infiniteState.sentinel && infiniteState.sentinel.parentNode && infiniteState.sentinel.remove(); } catch (_) {}
+  }
   infiniteState = null;
 }
 
@@ -24,12 +28,17 @@ function startInfinite(containerId, fetchPage, buildItem) {
   const sentinel = document.createElement("div");
   sentinel.className = "inf-scroll-sentinel";
   grid.appendChild(sentinel);
+  const controller = new AbortController();
   const observer = new IntersectionObserver(async (entries) => {
     if (finished || loading) return;
     if (!(entries[0] && entries[0].isIntersecting)) return;
+    if (controller.signal.aborted) return;
     loading = true;
     try {
       const data = await fetchPage(page + 1);
+      if (controller.signal.aborted) return;
+      // Route may have changed while fetching — abort append to detached DOM
+      if (!document.contains(grid) || !document.contains(sentinel)) { finished = true; return; }
       const items = (data && data.items) || [];
       if (!items.length) { finished = true; try{observer.disconnect();}catch(_){} sentinel.remove(); return; }
       page = data.page || (page + 1);
@@ -42,11 +51,14 @@ function startInfinite(containerId, fetchPage, buildItem) {
       if (["lib-grid", "fav-items", "browse-grid"].includes(containerId)) {
         renderCardCheckboxes();
       }
-    } catch (_) { finished = true; try{observer.disconnect();}catch(_){} sentinel.remove(); }
+    } catch (_) {
+      if (controller.signal.aborted) return;
+      finished = true; try{observer.disconnect();}catch(_){} sentinel.remove();
+    }
     finally { loading = false; }
   }, { rootMargin: "900px" });
   observer.observe(sentinel);
-  infiniteState = { observer };
+  infiniteState = { observer, controller, sentinel };
 }
 
 function pageSizeSelect(current, view) {
@@ -97,10 +109,12 @@ function parseTags(s) {
 }
 
 function prefPageSize(fallback = 24) {
+  const clamp = n => Math.max(1, Math.min(500, n));
   const fromUrl = parseInt(app.query.page_size, 10);
-  if (fromUrl > 0) return fromUrl;
+  if (fromUrl > 0) return clamp(fromUrl);
   const saved = parseInt(localStorage.getItem("gv_page_size") || "", 10);
-  return saved > 0 ? saved : fallback;
+  if (saved > 0) return clamp(saved);
+  return clamp(fallback);
 }
 
 function libraryContext() {
@@ -200,16 +214,29 @@ function catLabel(c) {
 }
 
 async function galleryGrid(container, page, extraQuery) {
-  const pageSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : prefPageSize();
+  const rawSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : prefPageSize();
+  const pageSize = Math.max(1, Math.min(500, parseInt(rawSize, 10) || 24));
   const q = Object.assign({ page, page_size: pageSize }, extraQuery || {});
-  delete q.page_size;
   q.page_size = pageSize;
   const qs = Object.entries(q).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
-  const data = await api("GET", `/api/galleries?${qs}`);
+  let data;
+  try {
+    data = await api("GET", `/api/galleries?${qs}`);
+  } catch (e) {
+    // 422 from bad page_size should not white-screen; clamp and retry once
+    if (String(e.message).includes("422") && pageSize !== 24) {
+      q.page_size = 24;
+      const retryQs = Object.entries(q).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+      data = await api("GET", `/api/galleries?${retryQs}`);
+    } else {
+      throw e;
+    }
+  }
   if (container == null) return data;
   const el = document.getElementById(container);
   if (!el) return data;
-  if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
+  if (!document.contains(el)) return data;
+  if (!data.items.length) { el.innerHTML = renderEmpty(t("noGalleries")); }
   else { el.innerHTML = `<div class="grid gc-grid">` + data.items.map(galleryCard).join("") + `</div>`; }
   return data;
 }

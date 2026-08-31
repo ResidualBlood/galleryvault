@@ -234,11 +234,22 @@ document.addEventListener('keydown', e => {
 // Phase 2 keyboard: arrow keys navigate .gc cards (when focused)
 document.addEventListener('keydown', e => {
   if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) return;
+  // Allow navigation when focus is on the card, its wrapper, or an image inside
   const active = document.activeElement;
-  if (!active || !active.classList.contains('gc')) return;
+  let activeCard = null;
+  if (active) {
+    activeCard = active.closest ? active.closest('.gc') : null;
+    if (!activeCard && active.classList && active.classList.contains('gc')) activeCard = active;
+  }
+  // If nothing focused but grid exists, allow arrow keys to focus first card
+  if (!activeCard && ['ArrowRight','ArrowDown'].includes(e.key)) {
+    const first = document.querySelector('#view .gc');
+    if (first) { e.preventDefault(); first.focus(); return; }
+  }
+  if (!activeCard) return;
   e.preventDefault();
   const cards = Array.from(document.querySelectorAll('#view .gc'));
-  const idx = cards.indexOf(active);
+  const idx = cards.indexOf(activeCard);
   if (idx < 0) return;
   let next = idx;
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = Math.min(idx + 1, cards.length - 1);

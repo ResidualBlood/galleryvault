@@ -28,3 +28,14 @@ async function init() {
 }
 
 init();
+
+// Global namespace convergence for legacy vanilla scripts (Phase 0-3).
+// All view/core modules currently pollute window; expose the canonical
+// app object via window.GV so future type=module migration can import from
+// a single entry. Script order in index.html is still required.
+window.GV = window.GV || {};
+window.GV.app = app;
+if (typeof esc !== "undefined") window.GV.esc = esc;
+if (typeof api !== "undefined") window.GV.api = api;
+if (typeof router !== "undefined") window.GV.router = router;
+if (typeof navHash !== "undefined") window.GV.navHash = navHash;

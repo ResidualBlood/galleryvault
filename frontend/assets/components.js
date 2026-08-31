@@ -49,7 +49,7 @@ function galleryCard(it) {
   return `<div class="gc-wrap">
     <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}" role="link" aria-label="${esc(it.title)} (${cat}, ${it.page_count} pages)">
       <div class="gc-cover">
-        ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<span class="badge">no cover</span>`}
+        ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover") || "no cover")}</div>`}
         <span class="gc-cat">${cat}</span>
         <span class="gc-pages">${it.page_count} P</span>
       </div>

@@ -29,7 +29,7 @@ async function renderLibrary() {
       <button class="btn btn-danger" data-action="delete-filtered" type="button">${esc(t("deleteFiltered"))}</button>
     </form>
     <div class="filters">${filterPill}</div>
-    <div id="lib-grid"><p>${esc(t("loading"))}</p></div>
+    <div id="lib-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="lib-pager"></div>`);
   try {
     const extra = { page_size: prefPageSize() };
