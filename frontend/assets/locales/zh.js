@@ -146,6 +146,7 @@ window.GV_LOCALES.zh = {
   welcomeImportHint: "提示：建议先「检查所有收藏夹」——它会缓存元数据（标签/大小/发布时间），之后扫描库和标签同步会快得多。",
   welcomeFinish: "完成设置", welcomeLater: "稍后再说", welcomeDone: "完成，欢迎使用！",
   stepDone: "已完成", stepNotDone: "待完成",
+  gallery: "画廊", gid: "GID", status: "状态", noData: "暂无数据",
   networkError: "网络连接失败，请检查网络或后端服务。",
   offlineNotice: "当前处于离线状态。",
   onlineNotice: "网络已恢复连接。",

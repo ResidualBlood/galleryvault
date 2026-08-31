@@ -146,6 +146,7 @@ window.GV_LOCALES.en = {
   welcomeImportHint: "Tip: check your ExHentai favorites first — it caches metadata (tags, sizes, posted dates) so the library scan and tag sync are much faster afterwards.",
   welcomeFinish: "Finish setup", welcomeLater: "Do this later", welcomeDone: "Done — welcome aboard!",
   stepDone: "done", stepNotDone: "pending",
+  gallery: "Gallery", gid: "GID", status: "Status", noData: "No data",
   networkError: "Network connection failed. Please check network or backend service.",
   offlineNotice: "You are currently offline.",
   onlineNotice: "Network reconnected.",
