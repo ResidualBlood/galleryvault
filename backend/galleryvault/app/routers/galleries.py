@@ -214,18 +214,6 @@ async def list_galleries(
     tag_mode: str = "or",
     tag_match: str = "exact",
     category: str | None = None,
-    order: str = "id_desc",
-    uploader: str | None = None,
-    min_rating: float | None = None,
-    favorite: bool | None = None,
-    read: bool | None = None,
-    expunged: bool | None = None,
-    min_pages: int | None = None,
-    max_pages: int | None = None,
-    media_type: str | None = None,
-    storage_type: str | None = None,
-    min_posted_at: str | None = None,
-    max_posted_at: str | None = None,
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(
@@ -675,12 +663,12 @@ async def delete_gallery(
 ) -> None:
     try:
         async for session in get_session():
-            row = await session.get(Gallery, identifier)
-            if row is None:
-                row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
-            if row is None:
-                raise HTTPException(status_code=404, detail="Gallery not found")
             async with session.begin():
+                row = await session.get(Gallery, identifier)
+                if row is None:
+                    row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Gallery not found")
                 from .. import main
                 delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
                 results = await delete_fn(
@@ -701,13 +689,13 @@ async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
         raise HTTPException(status_code=422, detail="No gallery ids provided")
     try:
         async for session in get_session():
-            galleries: list[Gallery] = []
-            for chunk in _chunked(list(dict.fromkeys(ids))):
-                rows = await session.scalars(
-                    select(Gallery).where(Gallery.id.in_(chunk))
-                )
-                galleries.extend(rows.all())
             async with session.begin():
+                galleries: list[Gallery] = []
+                for chunk in _chunked(list(dict.fromkeys(ids))):
+                    rows = await session.scalars(
+                        select(Gallery).where(Gallery.id.in_(chunk))
+                    )
+                    galleries.extend(rows.all())
                 from .. import main
                 delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
                 results = await delete_fn(
@@ -738,18 +726,16 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
         raise HTTPException(status_code=422, detail="invalid category")
     parsed_tags = _parse_tag_filter(body.tags or body.tag)
     try:
+        resolved_q = body.q or ""
+        if body.q and body.q.strip():
+            auto_tags, keywords, changed = await _resolve_search_tokens(body.q)
+            if changed:
+                parsed_tags.extend(auto_tags)
+                parsed_tags = _dedupe_tags(parsed_tags)
+                resolved_q = keywords
+        matching_ids: list[int] = []
         async for session in get_session():
-            from .. import main
             repo = GalleryRepository(session)
-            delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
-            resolved_q = body.q or ""
-            if body.q and body.q.strip():
-                auto_tags, keywords, changed = await _resolve_search_tokens(body.q)
-                if changed:
-                    parsed_tags.extend(auto_tags)
-                    parsed_tags = _dedupe_tags(parsed_tags)
-                    resolved_q = keywords
-            matching_ids: list[int] = []
             page = 1
             while True:
                 _, rows = await repo.list_page(
@@ -768,16 +754,22 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                 if len(rows) < 500:
                     break
                 page += 1
-            results: list[dict] = []
-            for chunk in _chunked(list(dict.fromkeys(matching_ids))):
-                batch = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
-                async with session.begin():
-                    res = await delete_fn(
-                        session, list(batch), delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
-                    )
-                results.extend(res)
-            _record_gallery_delete_log(results, body.delete_files)
             break
+
+        results: list[dict] = []
+        if matching_ids:
+            async for session in get_session():
+                async with session.begin():
+                    from .. import main
+                    delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
+                    for chunk in _chunked(list(dict.fromkeys(matching_ids))):
+                        batch = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
+                        res = await delete_fn(
+                            session, list(batch), delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
+                        )
+                        results.extend(res)
+                break
+        _record_gallery_delete_log(results, body.delete_files)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     deleted = sum(1 for r in results if r.get("db_removed"))
@@ -809,7 +801,9 @@ async def sync_gallery_tags(identifier: int) -> dict[str, object]:
                 client = get_eh_client()
                 result = await service_cls(client, GalleryRepository(session)).sync(identifier)
             break
-    except (GalleryNotFound, GalleryGidMissing, GalleryTokenMissing) as exc:
+    except GalleryNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (GalleryGidMissing, GalleryTokenMissing) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -880,3 +874,7 @@ async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
         media_type=JPEG_MIME,
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+gallery_page = get_page
+gallery_thumbnail = get_thumbnail

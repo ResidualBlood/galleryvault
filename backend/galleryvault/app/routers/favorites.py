@@ -56,15 +56,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _parse_gdata_tags(tags: list[str]) -> list[tuple[str, str]]:
-    parsed: list[tuple[str, str]] = []
-    for tag in tags:
-        if ":" in tag:
-            ns, name = tag.split(":", 1)
-            parsed.append((ns.strip(), name.strip()))
-        else:
-            parsed.append(("misc", tag.strip()))
-    return parsed
+def _parse_gdata_tags(raw_tags: list[Any]) -> list[tuple[str | None, str]]:
+    out: list[tuple[str | None, str]] = []
+    for tag in raw_tags or []:
+        if isinstance(tag, dict):
+            ns = str(tag.get("namespace") or "").strip() or None
+            name = str(tag.get("name") or "").strip()
+            if name:
+                out.append((ns, name))
+        elif isinstance(tag, (list, tuple)) and len(tag) >= 2:
+            ns = str(tag[0] or "").strip() or None
+            name = str(tag[1] or "").strip()
+            if name:
+                out.append((ns, name))
+        elif isinstance(tag, str) and tag.strip():
+            val = tag.strip()
+            if ":" in val:
+                ns, name = val.split(":", 1)
+                out.append((ns.strip() or None, name.strip()))
+            else:
+                out.append((None, val))
+    return out
 
 
 def _unix_to_iso(val: Any) -> str | None:
@@ -163,8 +175,10 @@ async def favorite_items(
     ]
     metadata = await favorites_metadata(cloud_pairs)
     for item, gallery in rows:
-        if gallery is None and item.gid in metadata and not metadata[item.gid].get("thumb"):
-            metadata[item.gid]["thumb"] = item.thumbnail_url
+        if gallery is None and item.thumb:
+            entry = metadata.setdefault(int(item.gid), {})
+            if not entry.get("thumb"):
+                entry["thumb"] = item.thumb
     cover_data = await remote_cover_data_batch(cloud_pairs, metadata)
     items = []
     for item, gallery in rows:
@@ -766,7 +780,7 @@ async def check_all_favorites() -> dict[str, object]:
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    favcats = [c.favcat for c in categories if c.enabled] or list(range(10))
+    favcats = [int(c.favcat) for c in categories] or list(range(10))
     for favcat in favcats:
         spawn_task(run_favorites_check(favcat, service), f"favorites check {favcat}")
     return {"status": "started", "favcats": favcats}

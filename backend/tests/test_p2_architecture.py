@@ -221,3 +221,13 @@ def test_api_route_contracts_with_client(monkeypatch) -> None:
     # Test invalid cancel task 404
     resp = client.post("/api/logs/nonexistent_task/cancel")
     assert resp.status_code == 404
+
+
+def test_gallery_router_aliases() -> None:
+    from galleryvault.app.routers import galleries
+
+    assert getattr(galleries, "gallery_page", None) is not None
+    assert getattr(galleries, "gallery_thumbnail", None) is not None
+    assert getattr(galleries, "gallery_list", None) is not None
+    assert getattr(galleries, "gallery_detail", None) is not None
+    assert getattr(galleries, "gallery_random", None) is not None
