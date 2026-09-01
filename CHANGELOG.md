@@ -49,6 +49,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **空体挑战误判为已删除**：`fetch_gallery_metadata` `/g/{gid}/{token}/` 收到空体/挑战页（`200 len 0` 或 `/?poni` 302 后小页）时曾直接 `GalleryGoneError` → `mark_tag_synced(category="deleted")` 批量污染；现补与 `fetch_gallery` 同款鉴别（`url.path` 校验 + `_is_auth_failure_page` + 空体 `EhClientError`），并在 `tag_sync` 两处 `GalleryGoneError` 前增加 `_confirm_gone` 经 `fetch_gmetadata` 的 `expunged` 双源确认（`false`/`None` 则重入队而非打 `deleted`）。
   - **已删除自愈**：新增 `GalleryRepository.repair_deleted_misclassified`（`db/repository.py:700`），对 `category=deleted` 且 `gallery_metadata.expunged=false` 或仍在 `favorite_items` 的记录清 `tags_synced_at/category_refreshed_at` 并回写真实分类（生产 40→7 真删，其余回队待重同步）。
   - **更新画廊漏扫**：`normalize_update_title` 补 `中国翻译/汉化/漢化/无修正/翻譯版` 等 9 个变体，去除全半角/标点更稳；`favorites_worker.run_favorites_check` 成功后自动 `spawn detect_gallery_updates`，避免新 `gid` 已入收藏但旧本地仍停在 `deleted`。
+  - **更新画廊立即检测跨域误拒**（`backend 7d819bd` `frontend 83703bd`）：`app/main.py:1180` `Origin/Referer` vs `Host` 曾 `netloc`（含 `:8000`）比对，而 `nginx Host $host` 丢端口恒不等（`192.168.1.123` vs `192.168.1.123:8000`）→ `403 Cross-origin request rejected`；改为 `hostname` 比对 + `X-Forwarded-Host`，`frontend nginx.conf` 改 `$http_host`，`core.js` 对 `POST/PUT/DELETE/PATCH` 自动带 `X-CSRF-Token`。
 
 ### Changed
 
