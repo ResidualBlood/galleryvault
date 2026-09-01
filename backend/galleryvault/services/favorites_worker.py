@@ -394,7 +394,7 @@ async def run_favorites_check(
             from ..app.main import _settings as _main_settings  # local import to avoid cycle
 
             settings = _main_settings()
-        except Exception:  # noqa: BLE001, S110
+        except Exception:  # noqa: BLE001
             settings = app_state.settings or get_settings()
         # Test stubs (e.g. test_download_cancel_race) may lack archive fields — default safely
         archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
@@ -456,7 +456,7 @@ async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
             from ..app.main import _settings as _main_settings
 
             settings = _main_settings()
-        except Exception:  # noqa: BLE001, S110
+        except Exception:  # noqa: BLE001
             settings = app_state.settings or get_settings()
         # Config stores minutes; poll loop works in seconds — tolerate test stubs
         interval = max(60, int(getattr(settings, "favorites_poll_interval_minutes", 720)) * 60)
