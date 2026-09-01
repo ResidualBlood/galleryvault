@@ -1177,9 +1177,12 @@ async def authentication(request: Request, call_next):
                 )
             # Prefer X-Forwarded-Host if behind trusted proxy, else Host
             host_header = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
-            # Normalize host (strip port handling via urlparse)
+            # Compare hostname only, ignoring port: nginx $host strips the port
+            # (e.g. Host=192.168.1.123 vs Origin=http://192.168.1.123:8000). Using
+            # netloc would false-positive on every non-80 port. hostname still
+            # blocks genuine cross-site (evil.com vs gallery host).
             parsed_host = urlparse("//" + host_header)
-            request_netloc = (parsed_host.netloc or parsed_host.hostname or "").lower()
+            request_host = (parsed_host.hostname or "").lower()
             # Origin check (primary)
             origin = request.headers.get("origin")
             referer = request.headers.get("referer")
@@ -1187,16 +1190,16 @@ async def authentication(request: Request, call_next):
             csrf_header = request.headers.get("x-csrf-token")
             if origin:
                 parsed_origin = urlparse(origin)
-                origin_netloc = (parsed_origin.netloc or parsed_origin.hostname or "").lower()
-                if origin_netloc and request_netloc and origin_netloc != request_netloc:
+                origin_host = (parsed_origin.hostname or "").lower()
+                if origin_host and request_host and origin_host != request_host:
                     return JSONResponse(
                         {"detail": "Cross-origin request rejected"},
                         status_code=403,
                     )
             elif referer:
                 parsed_referer = urlparse(referer)
-                referer_netloc = (parsed_referer.netloc or parsed_referer.hostname or "").lower()
-                if referer_netloc and request_netloc and referer_netloc != request_netloc:
+                referer_host = (parsed_referer.hostname or "").lower()
+                if referer_host and request_host and referer_host != request_host:
                     return JSONResponse(
                         {"detail": "Cross-origin request rejected"},
                         status_code=403,
