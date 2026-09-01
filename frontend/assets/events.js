@@ -31,6 +31,7 @@ function onClick(e) {
   if (action === "clear-tag") { e.preventDefault(); location.hash = navHash("library", {}, { q: app.query.q || "", category: app.query.category || "" }); return; }
   if (action === "remove-tag") { e.preventDefault(); location.hash = removeTagHash(el.getAttribute("data-tag")); return; }
   if (action === "clear-history") { clearHistory(); return; }
+  if (action === "clear-progress") { clearProgress(); return; }
   if (action === "cancel-download") { cancelDownload(el.getAttribute("data-id")); return; }
   if (action === "retry-download") { retryDownload(el.getAttribute("data-id")); return; }
   if (action === "delete-download") { deleteDownload(el.getAttribute("data-id")); return; }
