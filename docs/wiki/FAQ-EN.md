@@ -82,14 +82,16 @@ Edit the `ports` mapping in `docker-compose.yml` (e.g. `8000:80` →
 `8080:80`) and run `docker compose up -d`. Domain binding is handled by nginx /
 a reverse proxy — see [Deployment → Security hardening](Deployment-EN).
 
-## Write operations (delete/submit) fail with "Cross-origin request rejected" when accessed over IPv6?
+## Write operations (delete/submit) fail with "Cross-origin request rejected" behind reverse proxy or across subnets?
 
-A bug in v1.2.3 and earlier: the CSRF origin check parsed the `Host` header with
-`split(":", 1)[0]`, which splits inside an IPv6 literal (e.g.
-`[240e:...]:8000`), so the `Origin` never matched the `Host` and every write
-(`DELETE`/`POST`/`PUT`) returned 403. Fixed in v1.2.4 (`Host` is parsed with
-`urlparse`). Upgrade to operate over IPv6, or access via a hostname / reverse
-proxy instead.
+This is CSRF protection checking `Origin` / `Referer` against `Host` / `X-Forwarded-Host`.
+1. **Lost port in reverse proxy**: ensure your reverse proxy (Nginx/Caddy) passes the full host, e.g. `proxy_set_header Host $http_host;` (using `$host` drops non-standard ports like `:8000`).
+2. **Same-hostname allowance**: the latest release normalizes port mismatches on matching hostnames and automatically sends `X-CSRF-Token`.
+3. **IPv6**: IPv6 literal addresses are fully supported since v1.2.4.
+
+## Do archive download retries or Range resumes charge GP multiple times?
+
+**No**. When an archive download starts, the ExHentai zip URL is persisted under the task's metadata (`.archive.json`). Any subsequent resume (HTTP Range) or error retry continues with the same URL and **never charges GP again**. If an archive channel is completely unavailable, the task falls back cleanly to page-by-page downloading over H@H (which costs 0 GP).
 
 ## Favorites aren't auto-downloading?
 
