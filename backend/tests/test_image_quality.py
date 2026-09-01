@@ -471,3 +471,51 @@ async def test_download_original_conflicts_with_active_task(monkeypatch):
     with pytest.raises(Exception) as exc_info:
         await download_gallery_original(1, DownloadOriginalRequest(archive=False))
     assert "already exists" in str(exc_info.value)
+
+
+async def test_ingest_downloaded_gallery_handles_tuple_tags(tmp_path, monkeypatch):
+    """Ensure tuple tags (from Downloader.execute) ingest correctly without AttributeError."""
+    from galleryvault.services.downloader import DownloadResult
+
+    new = tmp_path / "4161431-gallery"
+    new.mkdir()
+    (new / "00000001.jpg").write_bytes(b"x")
+    (new / "00000002.jpg").write_bytes(b"y")
+
+    session = _FakeSession(None)
+    ingested: list[main.GalleryMeta] = []
+
+    class _FakeIngest:
+        def __init__(self, _session):
+            pass
+
+        async def ingest(self, galleries):
+            ingested.extend(galleries)
+
+    monkeypatch.setattr(main, "_settings_session", lambda: session)
+    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
+    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+
+    result = DownloadResult(
+        gid=4161431,
+        path=new,
+        pages=2,
+        category="misc",
+        title="Sample Gallery",
+        title_jpn="サンプル",
+        token="tok123",
+        tags=(("artist", "test_artist"), ("female", "sole female")),
+        quality="resample",
+        new_files=(),
+    )
+    await main._ingest_downloaded_gallery(result)
+
+    assert len(ingested) == 1
+    assert ingested[0].gid == 4161431
+    assert ingested[0].tags == [
+        {"namespace": "artist", "name": "test_artist"},
+        {"namespace": "female", "name": "sole female"},
+    ]
+    assert ingested[0].file_count == 2
+

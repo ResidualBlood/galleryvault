@@ -93,11 +93,27 @@ async def ingest_downloaded_gallery(result: Any) -> None:
             )
             for i, item in enumerate(files)
         ]
-        tags = [
-            (ns, name)
-            for ns, names in (getattr(result, "tags", {}) or {}).items()
-            for name in names
-        ]
+        raw_tags = getattr(result, "tags", None) or ()
+        if isinstance(raw_tags, dict):
+            tags = [
+                {"namespace": ns, "name": name}
+                for ns, names in raw_tags.items()
+                for name in (names if isinstance(names, (list, tuple, set)) else [names])
+            ]
+        elif isinstance(raw_tags, (list, tuple)):
+            tags = []
+            for item in raw_tags:
+                if isinstance(item, (tuple, list)) and len(item) >= 2:
+                    tags.append({"namespace": str(item[0]), "name": str(item[1])})
+                elif isinstance(item, dict):
+                    tags.append({
+                        "namespace": str(item.get("namespace", "misc")),
+                        "name": str(item.get("name", "")),
+                    })
+                elif isinstance(item, str):
+                    tags.append({"namespace": "misc", "name": item})
+        else:
+            tags = []
         quality = getattr(result, "quality", None)
         if quality is None:
             storage_size = sum(p.size for p in pages)
@@ -121,7 +137,7 @@ async def ingest_downloaded_gallery(result: Any) -> None:
             file_count=len(pages),
             file_size=sum(p.size or 0 for p in pages),
             rating=getattr(result, "rating", None),
-            tags=[{"namespace": ns, "name": name} for ns, name in tags] if tags and isinstance(tags[0], tuple) else tags,
+            tags=tags,
             image_quality=quality,
             storage_signature=sig,
             storage_mtime_ns=mtime,
@@ -131,7 +147,7 @@ async def ingest_downloaded_gallery(result: Any) -> None:
 
         ingest_cls = getattr(main, "GalleryIngestService", GalleryIngestService)
         remove_fn = getattr(main, "_remove_superseded_copy", remove_superseded_copy)
-        session_cm = getattr(main, "_settings_session", None)
+        session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
         old_copy: tuple[Path, int] | None = None
 
         if session_cm is not None:
@@ -318,6 +334,12 @@ async def run_download(task: DownloadTask) -> None:
                     str(result.path),
                     result.category,
                 )
+                if getattr(row, "total_pages", None):
+                    row.current_page = row.total_pages
+                elif getattr(result, "pages", None) and hasattr(row, "current_page"):
+                    row.current_page = result.pages
+                    if hasattr(row, "total_pages"):
+                        row.total_pages = result.pages
                 row.error_message = None
                 row.retry_count = 0
                 row.retry_at = None
