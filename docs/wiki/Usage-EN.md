@@ -215,17 +215,17 @@ manually to revisit it.
 
 ## Logs (`#/logs`)
 
-A single place for background tasks (library scan, tag sync, thumbnail
-generation, favorites metadata sync), split into two sections:
+Split into two tabs:
 
-- **Running**: start time · task name · `running · done/total` · progress bar ·
-  description · **Cancel** button; multiple tasks run side by side.
-- **Finished**: start time · task name · status badge (success / failed /
-  cancelled) · description & reason · **duration** · finish time; finished tasks
-  no longer show a progress bar.
+1. **Task Activity**: Displays background tasks (library scan, tag sync, thumbnail generation, favorites metadata sync):
+   - **Running**: start time · task name · `running · done/total` · progress bar · description · **Cancel** button; multiple tasks run side by side.
+   - **Finished**: start time · task name · status badge (success / failed / cancelled) · description & reason · **duration** · finish time; finished tasks no longer show a progress bar.
+2. **System Logs**: Live diagnostic runtime logs from backend memory ring buffer:
+   - **Dynamic log level**: Change runtime log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`) on the fly without restarting containers;
+   - **Real-time filtering & search**: Filter by minimum severity level (`INFO+`, `WARN+`, `ERROR+`) and instant text search;
+   - **Exception tracebacks & context**: Expandable exception tracebacks, request IDs, worker correlation context (`gid` / `task_id`), and automated sensitive credential masking (`ipb_*` cookies, Telegram bot token, secrets).
 
-The page auto-refreshes every 2 seconds. The "Sync tags now / Generate now /
-Update translations now" buttons in Settings also leave a trace here.
+The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / Update translations now" buttons in Settings also leave a trace here.
 
 ## Favorites (`#/favorites`)
 
