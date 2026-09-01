@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
+from ..scanners.ehviewer import natural_key
 from .eh_client import (
     ArchiveExpiredError,
     EhImageSlowError,
@@ -457,7 +458,7 @@ class Downloader:
         manifest = temp / ".download-manifest.json"
         if manifest.exists():
             manifest.unlink()
-        return self._finalize_target(task, temp, gallery, pages, quality)
+        return await self._finalize_target(task, temp, gallery, pages, quality)
 
     def _write_metadata(
         self,
@@ -509,7 +510,7 @@ class Downloader:
             encoding="utf-8",
         )
 
-    def _finalize_target(
+    async def _finalize_target(
         self,
         task: DownloadTask,
         temp: Path,
@@ -540,10 +541,10 @@ class Downloader:
             # Merge into the existing directory (already-downloaded pages were
             # copied into temp during resume) instead of deleting it, so files
             # a previous run or the user left behind are preserved.
-            shutil.copytree(temp, target, dirs_exist_ok=True)
-            shutil.rmtree(temp)
+            await asyncio.to_thread(shutil.copytree, temp, target, dirs_exist_ok=True)
+            await asyncio.to_thread(shutil.rmtree, temp)
         else:
-            temp.rename(target)
+            await asyncio.to_thread(shutil.move, str(temp), str(target))
         return DownloadResult(
             gallery.gid,
             target,
@@ -660,14 +661,14 @@ class Downloader:
             await progress(len(pages), len(pages))
         unzip_dir = temp / "_unzip"
         if unzip_dir.exists():
-            shutil.rmtree(unzip_dir, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, unzip_dir, True)
         try:
-            self._extract_zip(zip_path, unzip_dir)
+            await asyncio.to_thread(self._extract_zip, zip_path, unzip_dir)
         except Exception:
             zip_path.unlink(missing_ok=True)
             state_file.unlink(missing_ok=True)
             if unzip_dir.exists():
-                shutil.rmtree(unzip_dir, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, unzip_dir, True)
             raise
         images = sorted(
             (
@@ -675,17 +676,21 @@ class Downloader:
                 for item in unzip_dir.rglob("*")
                 if item.is_file() and item.suffix.casefold() in _ARCHIVE_IMAGE_SUFFIXES
             ),
-            key=lambda item: item.name,
+            # Natural sort on the relative path so ``2.jpg`` sorts before ``10.jpg``
+            # and subdirectories do not collapse duplicate basenames. The previous
+            # ``item.name`` order matched only zero-padded names; non-padded
+            # archives (e.g. ``2.jpg`` / ``10.jpg``) would be silently reordered.
+            key=lambda item: natural_key(str(item.relative_to(unzip_dir))),
         )
         if not images:
             zip_path.unlink(missing_ok=True)
             state_file.unlink(missing_ok=True)
-            shutil.rmtree(unzip_dir, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, unzip_dir, True)
             raise ArchiveNotRetryableError("archive contained no images")
         if len(images) != len(pages):
             zip_path.unlink(missing_ok=True)
             state_file.unlink(missing_ok=True)
-            shutil.rmtree(unzip_dir, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, unzip_dir, True)
             raise ArchiveNotRetryableError(
                 f"archive image count {len(images)} != gallery page count {len(pages)}"
             )
@@ -693,29 +698,45 @@ class Downloader:
             extension = image.suffix.casefold() or ".jpg"
             image.rename(temp / f"{index + 1:08d}{extension}")
         zip_path.unlink(missing_ok=True)
-        shutil.rmtree(unzip_dir, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, unzip_dir, True)
         # The archive state was consumed; drop it so it does not leak into the
         # final gallery folder (dotfiles are hidden but unnecessary).
         state_file.unlink(missing_ok=True)
         self._write_metadata(temp, gallery, pages, quality)
-        return self._finalize_target(task, temp, gallery, pages, quality)
+        return await self._finalize_target(task, temp, gallery, pages, quality)
 
     @staticmethod
     def _extract_zip(zip_path: Path, dest: Path) -> None:
-        """Extract an archive zip into ``dest`` (created if needed)."""
+        """Extract an archive zip into ``dest`` safely without Zip Slip or Symlink escape."""
+        import shutil
         import zipfile
 
+        from ..scanners.archive import _is_symlink, _is_unsafe_path
+
         dest.mkdir(parents=True, exist_ok=True)
+        dest_resolved = dest.resolve()
         with zipfile.ZipFile(zip_path) as archive:
             for member in archive.infolist():
-                # Guard against zip-slip: never let a crafted member escape the
-                # extraction directory.
-                target = (dest / member.filename).resolve()
-                if not target.is_relative_to(dest.resolve()):
+                if _is_unsafe_path(member.filename):
                     raise ArchiveNotRetryableError(
                         f"archive member escapes extraction dir: {member.filename}"
                     )
-            archive.extractall(dest)
+                if _is_symlink(member):
+                    raise ArchiveNotRetryableError(
+                        f"archive member is a symlink: {member.filename}"
+                    )
+                normalized = member.filename.replace("\\", "/")
+                target = (dest / normalized).resolve()
+                if not target.is_relative_to(dest_resolved):
+                    raise ArchiveNotRetryableError(
+                        f"archive member escapes extraction dir: {member.filename}"
+                    )
+                if member.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(member, "r") as src, open(target, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
 
     @staticmethod
     def _resolve_image_url(page, quality: str) -> str:

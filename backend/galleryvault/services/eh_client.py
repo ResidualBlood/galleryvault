@@ -17,6 +17,7 @@ import httpx
 
 from ..config import Settings, get_settings
 from ..logging import log_extra
+from ..observability import observe_histogram
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +354,20 @@ def _content_range_total(value: str | None) -> int | None:
 
 
 def parse_gallery_url(value: str, base_url: str = "https://exhentai.org") -> tuple[int, str]:
+    # Host validation to avoid SSRF via user-supplied evil.com/g/... URLs.
+    # fetch_gallery builds its own URL from gid/token + base_url, but callers
+    # that blindly use the parsed gid/token could be misled; reject non-ExHentai hosts early.
+    try:
+        parsed_input = urlparse(value)
+        if parsed_input.scheme and parsed_input.hostname:
+            host = parsed_input.hostname.lower()
+            allowed = {"exhentai.org", "e-hentai.org"}
+            if host not in allowed and not host.endswith((".exhentai.org", ".e-hentai.org")):
+                raise ValueError("gallery URL must be on exhentai.org / e-hentai.org")
+    except ValueError:
+        raise
+    except Exception:  # noqa: BLE001, S110
+        pass
     match = GALLERY_RE.search(value)
     if not match:
         compact = re.fullmatch(r"\s*(\d+)\s*/\s*([0-9a-fA-F]+)\s*", value)
@@ -535,7 +550,19 @@ class EhClient:
             self.client = client
         else:
             proxy = self.settings.socks5_proxy or self.settings.http_proxy
-            cookies = dict(self.settings.exhentai_cookies)
+            raw_cookies = self.settings.exhentai_cookies
+            if isinstance(raw_cookies, dict):
+                cookies = dict(raw_cookies)
+            elif isinstance(raw_cookies, str) and raw_cookies.strip():
+                try:
+                    import json as _json
+
+                    parsed = _json.loads(raw_cookies)
+                    cookies = dict(parsed) if isinstance(parsed, dict) else {}
+                except Exception:  # noqa: BLE001
+                    cookies = {}
+            else:
+                cookies = {}
             # Ehviewer-compatible behaviour flags expressed as ExHentai cookies.
             # uh: load images through the H@H network (y) or not (n).
             # oi: always fetch the original (full) image instead of the resample.
@@ -566,8 +593,16 @@ class EhClient:
             await self.client.aclose()
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        t_wait_start = time.perf_counter()
         async with self._semaphore:
-            return await self.client.request(method, url, **kwargs)
+            wait_elapsed = time.perf_counter() - t_wait_start
+            observe_histogram("gv_ehclient_semaphore_wait_seconds", wait_elapsed, {"type": "page"})
+            t_req_start = time.perf_counter()
+            try:
+                return await self.client.request(method, url, **kwargs)
+            finally:
+                req_elapsed = time.perf_counter() - t_req_start
+                observe_histogram("gv_ehclient_request_duration_seconds", req_elapsed, {"method": method})
 
     async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
         try:
@@ -582,7 +617,7 @@ class EhClient:
             # Buffer the body inside the try so a connection reset while reading
             # is wrapped as EhClientError below instead of leaking a raw
             # RemoteProtocolError to the download worker.
-            response.read()
+            await response.aread()
             return response
         except httpx.RequestError as exc:
             # Covers TimeoutException, ConnectError, ReadError,
@@ -632,12 +667,23 @@ class EhClient:
     async def fetch_gallery_metadata(self, gid: int, token: str) -> GalleryData:
         """Fetch only gallery metadata; tag sync must not enumerate or download pages."""
         response = await self._get(f"/g/{int(gid)}/{token}/")
+        # Mirror fetch_gallery's anti-abuse challenge guard: ExHentai sometimes
+        # 302s through remoteapi.php and lands on "/" with no content. The
+        # cookie is still valid — treat as transient, not "gone".
+        if not str(response.url.path).startswith("/g/"):
+            raise EhClientError("ExHentai is challenging this client (temporary anti-abuse)")
         body = response.text
+        if _is_auth_failure_page(body):
+            raise EhClientError("ExHentai authentication is required or expired")
+        if not body or not body.strip():
+            raise EhClientError("ExHentai returned empty gallery page (temporary anti-abuse)")
         title, title_jpn = _parse_gallery_titles(body)
         tags = _parse_tags(body)
         if not title:
             # ExHentai answers non-existent / deleted galleries with a tiny
-            # 200 page that has no title (or a real 404). Treat both as gone.
+            # 200 page that has no title (or a real 404). But an empty/challenged
+            # page also has no title — the guards above already filtered those, so
+            # this remaining case is a genuine gone gallery.
             raise GalleryGoneError("gallery does not exist on ExHentai")
         return GalleryData(
             int(gid), token, title, [], tags, _parse_category(body), title_jpn,
@@ -727,18 +773,30 @@ class EhClient:
                 # from the end of the concurrent batch until a page is empty.
                 start = max(offsets) + 1
         if not truncated_by_limit:
-            # Serial tail walk.  The old ``range(start, 512)`` silently skipped
-            # everything past offset 512 (~10240 pages): a gallery whose gdata
-            # filecount implies more sub-pages got truncated.  Walk page by page
-            # instead, stopping at the first empty page with a sentinel that
-            # prevents an infinite loop when a server echoes the same content.
+            # Serial tail walk. Fix for stale gdata under-report: the old
+            # ``gallery_pages + 2`` guard truncated long galleries when gdata
+            # file_count was outdated (e.g. actual 255 pages but gdata said 20
+            # => only 2 extra pages walked). Now walk until two consecutive
+            # empty pages, which tolerates a single glitched page but still
+            # terminates, and is unbounded when estimate==0. A hard 5000-offset
+            # cap (~100k images) prevents an infinite loop if the server echoes
+            # content.
             offset = start
+            empty_streak = 0
             while True:
-                if gallery_pages > 0 and offset > gallery_pages + 2:
+                if offset > 5000:
                     break
                 page_response = await self._get(f"{base}?p={offset}")
-                if _collect_hrefs(page_response.text, max_pages) == 0:
-                    break
+                collected = _collect_hrefs(page_response.text, max_pages)
+                if collected == 0:
+                    empty_streak += 1
+                    if empty_streak >= 2:
+                        break
+                    # One empty after we have passed estimate+2 could be real tail,
+                    # but require two empties to be safe against a transient gap.
+                    offset += 1
+                    continue
+                empty_streak = 0
                 if max_pages is not None and max_pages > 0 and len(page_hrefs) >= max_pages:
                     break
                 offset += 1
@@ -1022,15 +1080,16 @@ class EhClient:
         if i7 is not None:
             origin_match = SHOWPAGE_ORIGIN_RE.search(i7)
             if origin_match:
-                origin_url = (
+                origin_url = urljoin(
+                    str(response.url),
                     html.unescape(origin_match.group(1))
                     + "fullimg"
-                    + html.unescape(origin_match.group(2))
+                    + html.unescape(origin_match.group(2)),
                 )
         if origin_url is None:
             prompt_match = SHOWPAGE_ORIGIN_PROMPT_RE.search(i6)
             if prompt_match:
-                origin_url = html.unescape(prompt_match.group(1))
+                origin_url = urljoin(str(response.url), html.unescape(prompt_match.group(1)))
         return {
             "image_url": image_url,
             "origin_url": origin_url,
@@ -1344,8 +1403,16 @@ class EhClient:
                     )
                 if response.status_code == 416:
                     total = _content_range_total(response.headers.get("content-range"))
-                    if total is not None and offset >= total:
+                    if total is not None and offset == total:
                         return total
+                    # Oversized or truncated partial: 416 with offset != total indicates
+                    # corrupt/oversized local file. Clear so next attempt restarts cleanly.
+                    if offset != 0:
+                        logger.warning(
+                            "archive download 416 range error, clearing corrupt partial file",
+                            extra=log_extra(dest=str(dest), offset=offset, total=total),
+                        )
+                        dest.unlink(missing_ok=True)
                     raise EhClientError("ExHentai archive range is not satisfiable")
                 if response.status_code == 200:
                     if offset > 0:
@@ -1359,13 +1426,25 @@ class EhClient:
                     response.headers.get("content-range")
                 ) or (offset + int(content_length) if content_length.isdigit() else None)
                 downloaded = offset
+                last_cb_time = 0.0
+                last_cb_bytes = downloaded
                 mode = "ab" if offset > 0 else "wb"
                 with dest.open(mode) as handle:
                     async for chunk in response.aiter_bytes():
                         handle.write(chunk)
                         downloaded += len(chunk)
                         if cb is not None:
-                            await cb(downloaded, total)
+                            now = time.monotonic()
+                            if (
+                                now - last_cb_time >= 0.2
+                                or (total is not None and downloaded == total)
+                                or (downloaded - last_cb_bytes >= 1024 * 1024)
+                            ):
+                                await cb(downloaded, total)
+                                last_cb_time = now
+                                last_cb_bytes = downloaded
+                    if cb is not None and last_cb_bytes != downloaded:
+                        await cb(downloaded, total)
             if total is not None and downloaded != total:
                 raise EhClientError("ExHentai archive download was incomplete")
             return total if total is not None else downloaded
@@ -1406,11 +1485,25 @@ class EhClient:
         if not match:
             raise GalleryGoneError("gallery has no cover")
         cover_url = urljoin(str(response.url), html.unescape(match.group(1)))
-        cover_response = await self._request(
-            "GET",
-            cover_url,
-            headers={"Referer": str(response.url)},
-        )
+        # Route cover through the correct limiter (H@H images vs site pages),
+        # mirroring download_image_with_metadata's host-based budget.
+        host = (urlparse(cover_url).hostname or "").lower()
+        use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
+        semaphore = self._image_semaphore if use_image_budget else self._semaphore
+        t_wait_start = time.perf_counter()
+        async with semaphore:
+            wait_elapsed = time.perf_counter() - t_wait_start
+            observe_histogram(
+                "gv_ehclient_semaphore_wait_seconds",
+                wait_elapsed,
+                {"type": "image" if use_image_budget else "page"},
+            )
+            cover_response = await self.client.get(
+                cover_url,
+                headers={"Referer": str(response.url)},
+                timeout=httpx.Timeout(120.0, read=30.0),
+                follow_redirects=True,
+            )
         if cover_response.status_code in (401, 403) or "login" in str(cover_response.url).lower():
             raise EhClientError("ExHentai authentication is required or expired")
         cover_response.raise_for_status()
@@ -1431,8 +1524,15 @@ class EhClient:
         # don't trip anti-abuse on the site itself.
         use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
         semaphore = self._image_semaphore if use_image_budget else self._semaphore
+        t_wait_start = time.perf_counter()
         try:
             async with semaphore:
+                wait_elapsed = time.perf_counter() - t_wait_start
+                observe_histogram(
+                    "gv_ehclient_semaphore_wait_seconds",
+                    wait_elapsed,
+                    {"type": "image" if use_image_budget else "page"},
+                )
                 # read=30s acts as a zero-progress watchdog (Ehviewer_CN_SXJ
                 # aborts stalled downloads after ~3s of no bytes): a hanging H@H
                 # node fails fast instead of holding the worker until the

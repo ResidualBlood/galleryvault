@@ -110,3 +110,29 @@ def test_cbr_is_recognized_without_import_time_failure(tmp_path: Path) -> None:
     assert scanner.matches(path)
     with pytest.raises((RuntimeError, ValueError)):
         scanner.scan(path)
+
+
+def test_candidates_pruning_does_not_descend_into_gallery_subdirs(tmp_path: Path) -> None:
+    """Candidates should yield gallery directories and archives without listing images."""
+    gallery_dir = tmp_path / "123-My Gallery"
+    gallery_dir.mkdir()
+    (gallery_dir / "00000001.jpg").write_bytes(b"image 1")
+    (gallery_dir / "00000002.jpg").write_bytes(b"image 2")
+
+    nested_sub = tmp_path / "category" / "456-Nested Gallery"
+    nested_sub.mkdir(parents=True)
+    (nested_sub / ".ehviewer").write_text("VERSION2\n")
+    (nested_sub / "00000001.jpg").write_bytes(b"image 1")
+
+    archive_file = tmp_path / "category" / "789-archive.cbz"
+    archive_file.write_bytes(b"dummy cbz")
+
+    service = LibraryService([tmp_path])
+    candidates = list(service.candidates())
+    candidate_paths = [c[0] for c in candidates]
+
+    assert gallery_dir in candidate_paths
+    assert nested_sub in candidate_paths
+    assert archive_file in candidate_paths
+    # Images inside galleries must NOT be returned as candidates
+    assert not any(p.suffix == ".jpg" for p in candidate_paths)

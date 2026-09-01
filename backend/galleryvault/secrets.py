@@ -20,6 +20,14 @@ from functools import lru_cache
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 PREFIX = "enc:v1:"
+# Fixed salt for at-rest encryption: this is NOT an authentication salt. The
+# key is derived from ENCRYPTION_KEY via PBKDF2; a fixed salt means the same
+# key always yields the same derived key, which is intentional for at-rest
+# protection (the key is the secret, not the salt). Multiple instances sharing
+# the same ENCRYPTION_KEY will produce identical ciphertexts for the same
+# plaintext — acceptable because the threat model is DB dump theft, not
+# multi-instance rainbow. Rotation requires re-encrypting stored values after
+# changing ENCRYPTION_KEY; no automated rotation script is provided yet.
 _SALT = b"galleryvault-at-rest-v1"
 _ITERATIONS = 200_000
 _NONCE_BYTES = 12

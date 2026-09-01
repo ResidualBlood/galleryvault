@@ -75,6 +75,9 @@ class LibraryService:
         self._seen_signatures: set[tuple[str, str]] = set()
 
     def candidates(self) -> Iterable[tuple[Path, int]]:
+        import os
+
+        archive_exts = {".cbz", ".zip", ".cbr", ".rar"}
         for priority, root in enumerate(self.roots):
             if not root.exists():
                 logger.warning("library root missing", extra=log_extra(root=str(root)))
@@ -82,15 +85,31 @@ class LibraryService:
             if registry.for_path(root) is not None:
                 yield root, priority
                 continue
-            yield from (
-                (item, priority)
-                for item in root.rglob("*")
-                if (
-                    item.is_dir()
-                    and ((item / ".ehviewer").is_file() or _BARE_DIR_NAME.match(item.name))
+            try:
+                for dirpath, dirnames, filenames in os.walk(root):
+                    # Exclude hidden directories (e.g. .git, .gv-*)
+                    dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                    current_path = Path(dirpath)
+                    # Check if current directory is an Ehviewer gallery directory
+                    if current_path != root and (
+                        (current_path / ".ehviewer").is_file()
+                        or _BARE_DIR_NAME.match(current_path.name)
+                    ):
+                        yield current_path, priority
+                        # Prune: do not traverse into gallery directory's subdirectories
+                        dirnames.clear()
+                        continue
+                    for fname in filenames:
+                        if fname.startswith("."):
+                            continue
+                        fpath = current_path / fname
+                        if fpath.suffix.casefold() in archive_exts:
+                            yield fpath, priority
+            except OSError as exc:
+                logger.warning(
+                    "library scan error on root",
+                    extra=log_extra(root=str(root), error=str(exc)),
                 )
-                or (item.is_file() and item.suffix.casefold() in {".cbz", ".zip", ".cbr", ".rar"})
-            )
 
     def scan_batches(self, should_stop=None) -> Iterator[list[GalleryMeta]]:
         """Two-phase scan: collect every copy first, then resolve duplicates.

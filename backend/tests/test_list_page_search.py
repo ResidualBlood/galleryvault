@@ -102,3 +102,14 @@ async def test_list_page_without_exclude_favorited_has_no_favorites_filter():
     repo = GalleryRepository(session)
     await repo.list_page(1, 24, q="")
     assert "favorite_items" not in session.sql[-1].lower()
+
+
+async def test_list_page_wildcards_escaped():
+    from galleryvault.db.repository import escape_like_wildcards
+
+    assert escape_like_wildcards("100%_match\\test") == "100\\%\\_match\\\\test"
+
+    rows = [_gallery(1, "100%_match")]
+    sql = await _list_sql(1, rows, q="100%_match")
+    # % and _ in the user token must be escaped so they are not treated as SQL wildcards
+    assert "100" in sql and "\\_match" in sql

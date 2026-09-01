@@ -1464,6 +1464,19 @@ def test_thumbnail_service_rejects_corrupt_input(tmp_path: Path) -> None:
         service.get_or_create(1, 0, b"not-an-image")
 
 
+def test_thumbnail_service_decompression_bomb_protected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from PIL import Image
+
+    from galleryvault.services.thumbnails import ThumbnailError, ThumbnailService
+
+    service = ThumbnailService(tmp_path / "thumbs")
+    buf = _make_jpeg_bytes(100, 100)
+    # Mock MAX_IMAGE_PIXELS to a tiny number so standard image triggers DecompressionBombError
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 50)
+    with pytest.raises(ThumbnailError, match="maximum safe dimensions"):
+        service.get_or_create(1, 0, buf)
+
+
 @pytest.mark.asyncio
 async def test_upsert_many_all_gidless_batch_does_not_crash() -> None:
     """A scan batch of only gid-less galleries must not raise TypeError.
@@ -1545,3 +1558,54 @@ def test_resolve_display_title_modes(monkeypatch) -> None:
     assert main.resolve_display_title(None, None, "") == ""
     assert main.resolve_display_title("en", None) == "en"
     assert main.resolve_display_title("", "jp") == "jp"
+
+
+def test_observability_gauges_and_counters() -> None:
+    from galleryvault.observability import inc_counter, render_metrics, set_gauge
+
+    inc_counter("gv_download_tasks_total", 3, {"status": "completed"})
+    set_gauge("gv_scan_running", 1)
+    rendered = render_metrics()
+    assert 'gv_download_tasks_total{status="completed"} 3' in rendered
+    assert "gv_scan_running 1" in rendered
+
+
+@pytest.mark.asyncio
+async def test_task_history_persistence_and_restoration(monkeypatch) -> None:
+    from galleryvault.app import main
+
+    saved_rows = {}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+        async def get(self, model, key):
+            from galleryvault.db.models import AppConfig
+            if key in saved_rows:
+                return AppConfig(key=key, value=saved_rows[key])
+            return None
+
+        def add(self, item):
+            saved_rows[item.key] = item.value
+
+    monkeypatch.setattr(main, "_settings_session", lambda: FakeSession())
+
+    main.task_history.clear()
+    main._record_task("scan", "2026-08-31T00:00:00Z", "2026-08-31T00:01:00Z", "success", done=10)
+    await main._persist_task_history()
+    assert len(main.task_history) == 1
+    assert "task_history" in saved_rows
+
+    main.task_history.clear()
+    assert len(main.task_history) == 0
+    await main._restore_task_history()
+    assert len(main.task_history) == 1
+    assert main.task_history[0]["task"] == "scan"
+    assert main.task_history[0]["done"] == 10

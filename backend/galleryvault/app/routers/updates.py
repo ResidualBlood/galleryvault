@@ -1,7 +1,4 @@
-"""
-Gallery-updates endpoints: local galleries superseded by re-uploaded
-(new-gid) ExHentai versions.
-"""
+"""Gallery-updates endpoints: local galleries superseded by re-uploaded (new-gid) ExHentai versions."""
 
 from __future__ import annotations
 
@@ -11,8 +8,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 
-from galleryvault.app import main
-from galleryvault.db.repository import FavoritesRepository, GalleryUpdatesRepository
+from ...db.repository import FavoritesRepository, GalleryUpdatesRepository
+from ...services.updates_worker import detect_gallery_updates, run_gallery_updates
+from ..dependencies import db_error, get_session, get_task_manager, spawn_task
 
 router = APIRouter()
 
@@ -35,18 +33,19 @@ async def gallery_updates_list(
         raise HTTPException(status_code=422, detail="invalid state")
     status_filter = None
     if state == "active":
-        status_filter = None  # everything except ignored
+        status_filter = None
     elif state != "all":
         status_filter = state
     try:
-        async with main._settings_session() as session:
+        async for session in get_session():
             total, rows = await GalleryUpdatesRepository(session).list_page(
                 page, page_size, status_filter
             )
             favcats = [r.favcat for r in rows]
             names = await FavoritesRepository(session).category_names(favcats)
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
     items = []
     for row in rows:
         if status_filter == "ignored":
@@ -80,26 +79,30 @@ async def gallery_updates_list(
 
 @router.post("/api/updates/scan", status_code=202)
 async def gallery_updates_scan() -> dict[str, Any]:
-    main._spawn(main._detect_gallery_updates(), "gallery updates detect")
+    from .. import main
+    spawn_fn = getattr(main, "_spawn", spawn_task)
+    spawn_fn(detect_gallery_updates(), "gallery updates detect")
     return {"status": "started"}
 
 
 @router.get("/api/updates/status")
 async def gallery_updates_status() -> dict[str, Any]:
+    tm = get_task_manager()
     counts: dict[str, int] = {}
     try:
-        async with main._settings_session() as session:
+        async for session in get_session():
             for st in ("pending", "downloading", "failed", "ignored"):
                 total, _ = await GalleryUpdatesRepository(session).list_page(1, 1, st)
                 counts[st] = total
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
     return {
-        "detecting": bool(main.gallery_updates_state["detecting"]),
-        "last_detected_at": main.gallery_updates_state.get("last_detected_at"),
-        "last_run": main.gallery_updates_state.get("last_run"),
-        "last_error": main.gallery_updates_state.get("last_error"),
-        "last_found": main.gallery_updates_state.get("found", 0),
+        "detecting": bool(tm.gallery_updates_state.get("detecting")),
+        "last_detected_at": tm.gallery_updates_state.get("last_detected_at"),
+        "last_run": tm.gallery_updates_state.get("last_run"),
+        "last_error": tm.gallery_updates_state.get("last_error"),
+        "last_found": tm.gallery_updates_state.get("found", 0),
         "counts": counts,
     }
 
@@ -109,9 +112,7 @@ async def gallery_updates_run(body: UpdateIdsRequest) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
     quality = (body.quality or None) if body.archive else None
-    result = await main._run_gallery_updates(
-        body.ids, archive=body.archive, quality=quality
-    )
+    result = await run_gallery_updates(body.ids, archive=body.archive, quality=quality)
     return {"status": "started", **result}
 
 
@@ -120,10 +121,12 @@ async def gallery_updates_ignore(body: UpdateIdsRequest) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
     try:
-        async with main._settings_session() as session, session.begin():
-            ignored = await GalleryUpdatesRepository(session).mark_ignored(body.ids)
+        async for session in get_session():
+            async with session.begin():
+                ignored = await GalleryUpdatesRepository(session).mark_ignored(body.ids)
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
     return {"ignored": ignored}
 
 
@@ -137,10 +140,12 @@ async def gallery_updates_unignore(body: UpdateIdsRequest) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
     try:
-        async with main._settings_session() as session, session.begin():
-            restored = await GalleryUpdatesRepository(session).unignore(body.ids)
+        async for session in get_session():
+            async with session.begin():
+                restored = await GalleryUpdatesRepository(session).unignore(body.ids)
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
     return {"restored": restored}
 
 
@@ -149,8 +154,10 @@ async def gallery_updates_delete(body: UpdateIdsRequest) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
     try:
-        async with main._settings_session() as session, session.begin():
-            deleted = await GalleryUpdatesRepository(session).delete_many(body.ids)
+        async for session in get_session():
+            async with session.begin():
+                deleted = await GalleryUpdatesRepository(session).delete_many(body.ids)
+            break
     except SQLAlchemyError as exc:
-        raise main._db_error(exc) from exc
+        raise db_error(exc) from exc
     return {"deleted": deleted}

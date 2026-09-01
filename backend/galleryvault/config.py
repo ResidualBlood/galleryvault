@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     tag_sync_interval_seconds: float = 1.5
     tag_sync_concurrency: int = Field(default=4, ge=1, le=32)
     favorites_poll_interval_minutes: int = 720
+    trusted_proxies: list[str] = Field(default_factory=list)
     telegram_bot_token: str | None = None
     telegram_chat_ids: list[str] = Field(default_factory=list)
     telegram_allowed_user_ids: list[int] = Field(default_factory=list)
@@ -113,7 +114,7 @@ class Settings(BaseSettings):
             raise ValueError("exhentai_base_url must be on exhentai.org / e-hentai.org")
         return value
 
-    @field_validator("telegram_chat_ids", "favorites_categories", mode="before")
+    @field_validator("telegram_chat_ids", "favorites_categories", "trusted_proxies", mode="before")
     @classmethod
     def parse_list(cls, value: object) -> list[object]:
         if isinstance(value, list):
@@ -240,6 +241,7 @@ EDITABLE_SETTINGS = {
     "tag_translation_update_interval_minutes",
     "generate_thumbnails",
     "duplicate_policy",
+    "trusted_proxies",
 }
 
 

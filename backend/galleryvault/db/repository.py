@@ -37,6 +37,11 @@ def path_hash(path: Path) -> str:
 _CHUNK_SIZE = 500
 
 
+def escape_like_wildcards(val: str) -> str:
+    """Escape SQL LIKE/ILIKE wildcards (%, _, \\) to treat user input as literal text."""
+    return val.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _chunked(values: Sequence[int], size: int = _CHUNK_SIZE) -> list[list[int]]:
     """Split ``values`` into fixed-size slices for ``in_``-style queries."""
     values = list(values)
@@ -389,7 +394,7 @@ class GalleryRepository:
             # than one contiguous pattern, so "mimu gif" matches any title that
             # contains both words anywhere (order- and position-independent).
             for token in q.split():
-                pattern = f"%{token}%"
+                pattern = f"%{escape_like_wildcards(token)}%"
                 query = query.where(Gallery.title.ilike(pattern) | Gallery.title_jpn.ilike(pattern))
         if category:
             query = query.where(Gallery.category == category)
@@ -401,7 +406,8 @@ class GalleryRepository:
         if tags:
             tag_conditions = []
             for namespace, name in tags:
-                pattern = name if tag_match == "exact" else f"%{name}%"
+                escaped_name = escape_like_wildcards(name)
+                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
                 condition = [Tag.name.ilike(pattern)]
                 if namespace:
                     condition.append(Tag.namespace == namespace)
@@ -437,7 +443,7 @@ class GalleryRepository:
     async def search_tags(
         self, q: str | None, page: int, page_size: int, namespace: str | None = None
     ) -> tuple[int, list[tuple[str, str, int]]]:
-        pattern = f"%{q.strip()}%" if q and q.strip() else None
+        pattern = f"%{escape_like_wildcards(q.strip())}%" if q and q.strip() else None
         match = select(Tag.id).select_from(Tag)
         if namespace:
             match = match.where(Tag.namespace == namespace)
@@ -690,6 +696,50 @@ class GalleryRepository:
             if category:
                 row.category = category
         await self.session.flush()
+
+    async def repair_deleted_misclassified(self, gids: list[int] | None = None) -> int:
+        """Requeue galleries mis-marked as ``deleted`` that are not expunged.
+
+        Clears ``tags_synced_at``/``category_refreshed_at`` and restores
+        ``category`` from ``gallery_metadata`` when it says the gallery is
+        still alive (``expunged=false``) or when no explicit deleted verdict
+        exists.  If ``gids`` is given only those gids are considered;
+        otherwise every ``deleted`` row is checked.  Returns repaired count.
+        """
+        # Build base filter: deleted, not expunged, has gid
+        filt = [Gallery.category == "deleted", Gallery.expunged.is_(False), Gallery.gid.is_not(None)]
+        if gids:
+            filt.append(Gallery.gid.in_(list(dict.fromkeys(gids))))
+        result = await self.session.execute(select(Gallery).where(and_(*filt)))
+        rows = list(result.scalars().all())
+        if not rows:
+            return 0
+        # Fetch metadata verdicts for these gids
+        gid_list = [int(r.gid) for r in rows if r.gid is not None]
+        meta_map = await self.metadata_map(gid_list)
+        repaired = 0
+        for row in rows:
+            gid = int(row.gid) if row.gid is not None else None
+            meta = meta_map.get(gid) if gid is not None else None
+            # If metadata says expunged=true, keep deleted (true positive)
+            if meta is not None and meta.get("expunged"):
+                continue
+            # Otherwise restore: prefer metadata category, else "other" to
+            # trigger category backfill
+            new_cat = None
+            if meta and meta.get("category") and meta.get("category") != "deleted":
+                new_cat = meta["category"]
+            elif meta is None:
+                new_cat = "other"
+            else:
+                # meta exists but category is deleted/missing — let backfill fix
+                new_cat = "other"
+            row.category = new_cat
+            row.tags_synced_at = None
+            row.category_refreshed_at = None
+            repaired += 1
+        await self.session.flush()
+        return repaired
 
     async def refresh_category(self, gallery_id: int, category: str) -> None:
         """Update a gallery's category in place (used by category backfill)."""
@@ -1247,18 +1297,38 @@ class DownloadRepository:
 
     async def claim_pending(self) -> DownloadTask | None:
         now = datetime.now(UTC)
-        row = await self.session.scalar(
-            select(DownloadTask)
-            .where(
-                DownloadTask.status == "pending",
-                DownloadTask.retry_count < DownloadTask.max_retries,
-                (DownloadTask.retry_at.is_(None))
-                | (DownloadTask.retry_at <= now),
+        # SKIP LOCKED is not supported on SQLite (tests) — omit locking there to avoid
+        # silent duplication or errors.
+        dialect = ""
+        try:
+            bind = self.session.get_bind()
+            dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
+        except Exception:  # noqa: BLE001
+            dialect = ""
+        if dialect == "sqlite":
+            stmt = (
+                select(DownloadTask)
+                .where(
+                    DownloadTask.status == "pending",
+                    DownloadTask.retry_count < DownloadTask.max_retries,
+                    (DownloadTask.retry_at.is_(None)) | (DownloadTask.retry_at <= now),
+                )
+                .order_by(DownloadTask.id)
+                .limit(1)
             )
-            .order_by(DownloadTask.id)
-            .with_for_update(skip_locked=True)
-            .limit(1)
-        )
+        else:
+            stmt = (
+                select(DownloadTask)
+                .where(
+                    DownloadTask.status == "pending",
+                    DownloadTask.retry_count < DownloadTask.max_retries,
+                    (DownloadTask.retry_at.is_(None)) | (DownloadTask.retry_at <= now),
+                )
+                .order_by(DownloadTask.id)
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+        row = await self.session.scalar(stmt)
         if row is not None:
             row.status = "downloading"
             row.started_at = datetime.now(UTC)
@@ -1281,6 +1351,15 @@ class DownloadRepository:
             .values(status="pending", retry_at=now, updated_at=now)
         )
         return int(result.rowcount or 0)
+
+    async def sweep_auto_retry(self) -> int:
+        """Alias for the retry sweep expected by download_worker_loop.
+
+        The worker imports ``sweep_auto_retry``; keep it as a thin wrapper
+        over ``rearm_failed`` so tests that patch either name work. Future
+        improvements could filter by error type (skip ArchiveNotRetryable).
+        """
+        return await self.rearm_failed()
 
     async def count_active(self) -> int:
         """Number of download tasks still pending or in progress."""
@@ -1593,18 +1672,37 @@ class BackgroundJobsRepository:
     ) -> list[tuple[int, int]]:
         """Claim up to ``limit`` due jobs, returning ``(gallery_id, attempts)``."""
         now = now or datetime.now(UTC)
-        subquery = (
-            select(BackgroundJob.id)
-            .where(
-                BackgroundJob.job_type == job_type,
-                BackgroundJob.status == "pending",
-                (BackgroundJob.next_attempt_at.is_(None))
-                | (BackgroundJob.next_attempt_at <= now),
+        dialect = ""
+        try:
+            bind = self.session.get_bind()
+            dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
+        except Exception:  # noqa: BLE001
+            dialect = ""
+        if dialect == "sqlite":
+            subquery = (
+                select(BackgroundJob.id)
+                .where(
+                    BackgroundJob.job_type == job_type,
+                    BackgroundJob.status == "pending",
+                    (BackgroundJob.next_attempt_at.is_(None))
+                    | (BackgroundJob.next_attempt_at <= now),
+                )
+                .order_by(BackgroundJob.id)
+                .limit(max(1, limit))
             )
-            .order_by(BackgroundJob.id)
-            .with_for_update(skip_locked=True)
-            .limit(max(1, limit))
-        )
+        else:
+            subquery = (
+                select(BackgroundJob.id)
+                .where(
+                    BackgroundJob.job_type == job_type,
+                    BackgroundJob.status == "pending",
+                    (BackgroundJob.next_attempt_at.is_(None))
+                    | (BackgroundJob.next_attempt_at <= now),
+                )
+                .order_by(BackgroundJob.id)
+                .with_for_update(skip_locked=True)
+                .limit(max(1, limit))
+            )
         stmt = (
             update(BackgroundJob)
             .where(BackgroundJob.id.in_(subquery))
