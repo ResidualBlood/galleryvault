@@ -17,7 +17,7 @@ jobs:
   secrets-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: gitleaks
@@ -39,7 +39,7 @@ jobs:
           --health-cmd "pg_isready -U galleryvault -d galleryvault"
           --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [secrets-scan, test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up QEMU (multi-arch builds under emulation)
         uses: docker/setup-qemu-action@v4
