@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-01
+
 ### Fixed
 
 - **Multi-chapter and bilingual gallery update normalization** (`services/updates_worker.py`, `db/repository.py`, `alembic/versions/0025_gallery_metadata_versioning.py`): `normalize_update_title` now strips multi-chapter/episode ranges, volume/part/date ranges, and bilingual separator segments. `GalleryRepository.list_page` and `FavoritesRepository.favcats_for_gid` now track active superseded updates so local galleries with newer versions in favorites are not misclassified under `__not_fav__`.
