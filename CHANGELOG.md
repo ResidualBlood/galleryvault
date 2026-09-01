@@ -45,6 +45,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **P2 favorites poll interval** (`services/favorites_worker.py:444`): `favorites_poll_interval_seconds` (non-existent) → `favorites_poll_interval_minutes * 60`; `run_favorites_check` now tolerates test stubs missing `favorites_archive_*` via `getattr(..., default)` and uses `_main_settings()` to avoid `app_state` stub pollution.
 - **P2 skeleton/cover UX** (`frontend assets/components.js:46`, `assets/utils.js:203`, `assets/views/library.js:32`, `assets/styles.css:74`): `library` initial uses `renderSkeleton(8)`; `galleryCard` no-cover uses `var(--panel-2)` placeholder with `t("noCover")` (added to `zh.js`/`en.js`); `library`/`history` fixed `renderError` double escaping; `input:focus` now shows `var(--focus-ring)` like `.btn`.
 - **P2 encryption error message** (`app/routers/settings.py:144`): `ENCRYPTION_KEY not configured` → `encryption not enabled` (no deployment detail leak); `secrets.py` documents fixed `_SALT` as at-rest (not auth) and lack of rotation script.
+- **2026-09-01 已删除误判三合一修复**（`services/eh_client.py:667`, `services/tag_sync_worker.py:234,383`, `services/updates_worker.py:24`, `services/favorites_worker.py:417`）：
+  - **空体挑战误判为已删除**：`fetch_gallery_metadata` `/g/{gid}/{token}/` 收到空体/挑战页（`200 len 0` 或 `/?poni` 302 后小页）时曾直接 `GalleryGoneError` → `mark_tag_synced(category="deleted")` 批量污染；现补与 `fetch_gallery` 同款鉴别（`url.path` 校验 + `_is_auth_failure_page` + 空体 `EhClientError`），并在 `tag_sync` 两处 `GalleryGoneError` 前增加 `_confirm_gone` 经 `fetch_gmetadata` 的 `expunged` 双源确认（`false`/`None` 则重入队而非打 `deleted`）。
+  - **已删除自愈**：新增 `GalleryRepository.repair_deleted_misclassified`（`db/repository.py:700`），对 `category=deleted` 且 `gallery_metadata.expunged=false` 或仍在 `favorite_items` 的记录清 `tags_synced_at/category_refreshed_at` 并回写真实分类（生产 40→7 真删，其余回队待重同步）。
+  - **更新画廊漏扫**：`normalize_update_title` 补 `中国翻译/汉化/漢化/无修正/翻譯版` 等 9 个变体，去除全半角/标点更稳；`favorites_worker.run_favorites_check` 成功后自动 `spawn detect_gallery_updates`，避免新 `gid` 已入收藏但旧本地仍停在 `deleted`。
 
 ### Changed
 
