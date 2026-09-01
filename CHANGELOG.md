@@ -9,6 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Structured logging, diagnostic ring buffer & dynamic log level APIs** (`logging.py`, `app/routers/settings.py`, `app/schemas.py`, frontend `views/logs.js`, `styles.css`): Added exception traceback formatting, ANSI terminal colors, sensitive credential masking (`ipb_*` cookies, Telegram tokens, passwords/secrets), background worker correlation context (`bind_log_context`), an in-memory RingBuffer with `GET /api/system/logs`, `POST /api/system/logs/level` (dynamic runtime log level adjustment without restart), `DELETE /api/system/logs`, and a real-time System Runtime Logs viewer tab in the web UI.
+- **Dozzle container integration in compose template** (`docker-compose.yml`): Integrated lightweight Dozzle log viewer service bound securely to the local loopback interface (`127.0.0.1:8888:8080`) with read-only Docker socket mount (`/var/run/docker.sock:ro`) and container name filtering (`DOZZLE_FILTER=name=galleryvault*`).
 
 ### Fixed
 
