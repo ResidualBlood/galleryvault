@@ -88,8 +88,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      # Bound to loopback interface for security. Access via SSH tunnel or reverse proxy.
-      - "127.0.0.1:8888:8080"
+      - "52017:8080"
     logging:
       driver: json-file
       options:

@@ -9,7 +9,7 @@
 | 前端 nginx SPA | `galleryvault-frontend` | 8000 |
 | FastAPI 后端 | `galleryvault-backend` | 127.0.0.1:8001（仅本机） |
 | PostgreSQL | `galleryvault-db` | 内部 |
-| Dozzle 实时日志面板 | `galleryvault-dozzle` | 127.0.0.1:8888（仅本机） |
+| Dozzle 实时日志面板 | `galleryvault-dozzle` | 52017 |
 
 ```bash
 docker compose up -d
