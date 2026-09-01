@@ -18,10 +18,10 @@ and back/forward need no server round trip.
 
 ## History (`#/history`)
 
-- Lists reading history per gallery (last reading position and time); clear it
-  whenever you like.
-- The reading position is saved automatically by the reader and restored when
-  you reopen a gallery / reader.
+- Lists reading history per gallery (last reading position and time).
+- **Clear history**: clears timeline entries (does not affect progress bookmarks on galleries).
+- **Clear reading progress**: resets reading progress for all galleries after confirmation (marks all as unread / progress reset to 0).
+- The reading position is saved automatically by the reader and restored when you reopen a gallery / reader.
 
 ## First-run wizard (`#/welcome`)
 
