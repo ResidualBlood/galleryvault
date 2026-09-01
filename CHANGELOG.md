@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-01
+
 ### Added
 
 - **Clear all gallery reading progress endpoint and UI button** (`routers/galleries.py`, `db/repository.py`, frontend `history.js`, `events.js`): Added `DELETE /api/galleries/progress` to reset reading progress across all galleries with confirmation dialog on the History page, alongside `DELETE /api/galleries/{identifier}/progress` for single-gallery resets.
