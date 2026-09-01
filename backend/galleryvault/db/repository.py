@@ -697,6 +697,50 @@ class GalleryRepository:
                 row.category = category
         await self.session.flush()
 
+    async def repair_deleted_misclassified(self, gids: list[int] | None = None) -> int:
+        """Requeue galleries mis-marked as ``deleted`` that are not expunged.
+
+        Clears ``tags_synced_at``/``category_refreshed_at`` and restores
+        ``category`` from ``gallery_metadata`` when it says the gallery is
+        still alive (``expunged=false``) or when no explicit deleted verdict
+        exists.  If ``gids`` is given only those gids are considered;
+        otherwise every ``deleted`` row is checked.  Returns repaired count.
+        """
+        # Build base filter: deleted, not expunged, has gid
+        filt = [Gallery.category == "deleted", Gallery.expunged.is_(False), Gallery.gid.is_not(None)]
+        if gids:
+            filt.append(Gallery.gid.in_(list(dict.fromkeys(gids))))
+        result = await self.session.execute(select(Gallery).where(and_(*filt)))
+        rows = list(result.scalars().all())
+        if not rows:
+            return 0
+        # Fetch metadata verdicts for these gids
+        gid_list = [int(r.gid) for r in rows if r.gid is not None]
+        meta_map = await self.metadata_map(gid_list)
+        repaired = 0
+        for row in rows:
+            gid = int(row.gid) if row.gid is not None else None
+            meta = meta_map.get(gid) if gid is not None else None
+            # If metadata says expunged=true, keep deleted (true positive)
+            if meta is not None and meta.get("expunged"):
+                continue
+            # Otherwise restore: prefer metadata category, else "other" to
+            # trigger category backfill
+            new_cat = None
+            if meta and meta.get("category") and meta.get("category") != "deleted":
+                new_cat = meta["category"]
+            elif meta is None:
+                new_cat = "other"
+            else:
+                # meta exists but category is deleted/missing — let backfill fix
+                new_cat = "other"
+            row.category = new_cat
+            row.tags_synced_at = None
+            row.category_refreshed_at = None
+            repaired += 1
+        await self.session.flush()
+        return repaired
+
     async def refresh_category(self, gallery_id: int, category: str) -> None:
         """Update a gallery's category in place (used by category backfill)."""
         row = await self.session.get(Gallery, gallery_id)

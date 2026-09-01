@@ -231,6 +231,30 @@ def _is_public_site(url: str | None) -> bool:
     return "e-hentai.org" in host or not host
 
 
+async def _confirm_gone(gid: int, token: str | None) -> bool | None:
+    """Double-check a ``GalleryGoneError`` via gdata (``expunged``).
+
+    Returns ``True`` if gdata confirms the gallery is gone (expunged or
+    missing with a valid token), ``False`` if gdata says it still exists,
+    ``None`` if the check itself failed (network) — caller should requeue.
+    """
+    if gid is None or not token:
+        return None
+    client = app_state.eh_client
+    if client is None or not hasattr(client, "fetch_gmetadata"):
+        return None
+    try:
+        result = await client.fetch_gmetadata([(int(gid), str(token))])
+    except Exception:  # noqa: BLE001 - transient, do not mark deleted
+        return None
+    entry = result.get(int(gid))
+    if entry is None:
+        # gdata did not return the gid — token mismatch or API hiccup, treat
+        # as not confirmed to avoid false deleted.
+        return None
+    return bool(entry.get("expunged"))
+
+
 async def category_refresh_once() -> int:
     """Backfill the 大分类 for galleries stuck in ``other``."""
     tm = app_state.task_manager
@@ -259,6 +283,34 @@ async def category_refresh_once() -> int:
                     ).refresh_category(gallery_id)
                 refreshed += 1
             except GalleryGoneError:
+                # Confirm via gdata before reclassifying — an empty/challenge
+                # HTML page must not mass-mark live galleries as deleted.
+                gid_token: tuple[int | None, str | None] = (None, None)
+                try:
+                    async with app_state.session_factory() as session:
+                        g = await GalleryRepository(session).get_for_tag_sync(gallery_id)
+                        if g is not None:
+                            gid_token = (g.gid, g.token)
+                except Exception:  # noqa: BLE001
+                    gid_token = (None, None)
+                confirmed = None
+                if gid_token[0] is not None:
+                    confirmed = await _confirm_gone(int(gid_token[0]), gid_token[1])
+                if confirmed is False:
+                    # gdata says still present — transient HTML gone, requeue
+                    logger.warning(
+                        "category refresh gone not confirmed by gdata, requeueing",
+                        extra=log_extra(gallery_id=gallery_id, gid=gid_token[0]),
+                    )
+                    continue
+                if confirmed is None:
+                    # gdata check failed or inconclusive — do not mark deleted,
+                    # let the next backfill attempt handle it
+                    logger.warning(
+                        "category refresh gdata check inconclusive, skipping deleted mark",
+                        extra=log_extra(gallery_id=gallery_id, gid=gid_token[0]),
+                    )
+                    continue
                 settings = app_state.settings or get_settings()
                 if _is_public_site(settings.exhentai_base_url):
                     try:
@@ -381,30 +433,85 @@ async def tag_sync_worker_loop() -> None:
                 interval[0] = max(base_interval, interval[0] / 2)
             return True
         except GalleryGoneError as exc:
-            if _is_public_site(settings.exhentai_base_url):
-                try:
-                    async with app_state.session_factory() as session, session.begin():
-                        await GalleryRepository(session).mark_tag_not_visible(gallery_id)
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "could not mark gallery not-visible on public mirror",
-                        extra=log_extra(gallery_id=gallery_id),
-                    )
+            # Confirm via gdata before reclassifying — see category_refresh_once.
+            gid_for_confirm: int | None = None
+            token_for_confirm: str | None = None
+            try:
+                async with app_state.session_factory() as session:
+                    gr = await GalleryRepository(session).get_for_tag_sync(gallery_id)
+                    if gr is not None:
+                        gid_for_confirm = gr.gid
+                        token_for_confirm = gr.token
+            except Exception:  # noqa: BLE001, S110
+                pass
+            confirmed = None
+            if gid_for_confirm is not None:
+                confirmed = await _confirm_gone(int(gid_for_confirm), token_for_confirm)
+            if confirmed is False:
+                # gdata says still alive → transient HTML gone, requeue for retry
+                logger.warning(
+                    "tag sync gone not confirmed by gdata, requeueing",
+                    extra=log_extra(gallery_id=gallery_id, gid=gid_for_confirm),
+                )
+                interval[0] = min(MAX_BACKOFF, interval[0] * 2)
+                success_streak[0] = 0
+                if attempts < MAX_ATTEMPTS:
+                    tag_sync_state["retries"] += 1
+                    await requeue_job(JOB_TAG_SYNC, gallery_id)
+                    return
+                # fall through to mark synced without deleted after retries
+            elif confirmed is None and gid_for_confirm is not None:
+                logger.warning(
+                    "tag sync gdata check inconclusive, requeueing",
+                    extra=log_extra(gallery_id=gallery_id, gid=gid_for_confirm),
+                )
+                interval[0] = min(MAX_BACKOFF, interval[0] * 2)
+                success_streak[0] = 0
+                if attempts < MAX_ATTEMPTS:
+                    tag_sync_state["retries"] += 1
+                    await requeue_job(JOB_TAG_SYNC, gallery_id)
+                    return
             else:
-                try:
-                    async with app_state.session_factory() as session, session.begin():
-                        await GalleryRepository(session).mark_tag_synced(
-                            gallery_id, category="deleted"
+                if _is_public_site(settings.exhentai_base_url):
+                    try:
+                        async with app_state.session_factory() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_not_visible(gallery_id)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "could not mark gallery not-visible on public mirror",
+                            extra=log_extra(gallery_id=gallery_id),
                         )
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "could not mark deleted gallery synced",
-                        extra=log_extra(gallery_id=gallery_id),
-                    )
+                else:
+                    try:
+                        async with app_state.session_factory() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_synced(
+                                gallery_id, category="deleted"
+                            )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "could not mark deleted gallery synced",
+                            extra=log_extra(gallery_id=gallery_id),
+                        )
+                await complete_job(JOB_TAG_SYNC, gallery_id)
+                tag_sync_state["failed"] += 1
+                logger.warning(
+                    "tag sync skipped (gallery gone)",
+                    extra=log_extra(gallery_id=gallery_id, error=str(exc)),
+                )
+                return
+            # Requeued case: treat as transient failure without marking deleted
+            try:
+                async with app_state.session_factory() as session, session.begin():
+                    await GalleryRepository(session).mark_tag_synced(gallery_id)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "could not mark requeued gallery synced",
+                    extra=log_extra(gallery_id=gallery_id),
+                )
             await complete_job(JOB_TAG_SYNC, gallery_id)
             tag_sync_state["failed"] += 1
             logger.warning(
-                "tag sync skipped (gallery gone)",
+                "tag sync requeued after unconfirmed gone",
                 extra=log_extra(gallery_id=gallery_id, error=str(exc)),
             )
         except Exception as exc:  # noqa: BLE001

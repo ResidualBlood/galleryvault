@@ -22,9 +22,10 @@ from .deletion import delete_galleries_local
 logger = logging.getLogger(__name__)
 
 _UPDATE_TITLE_VARIANTS = (
-    "中国翻訳", "中文翻譯", "中文", "english", "dl版", "無修正", "デジタル版",
-    "デジタル", "digital", "colorized", "color", "スキャナー", "修正版",
-    "未修正", "翻訳版", "アニメ", "実写", "総集編",
+    "中国翻訳", "中国翻译", "中文翻譯", "中文翻译", "中文", "汉化", "漢化",
+    "汉化组", "漢化組", "翻译", "翻訳", "english", "dl版", "無修正", "无修正",
+    "デジタル版", "デジタル", "digital", "colorized", "color", "スキャナー",
+    "修正版", "未修正", "翻訳版", "翻譯版", "アニメ", "実写", "総集編",
 )
 
 

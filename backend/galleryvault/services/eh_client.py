@@ -667,12 +667,23 @@ class EhClient:
     async def fetch_gallery_metadata(self, gid: int, token: str) -> GalleryData:
         """Fetch only gallery metadata; tag sync must not enumerate or download pages."""
         response = await self._get(f"/g/{int(gid)}/{token}/")
+        # Mirror fetch_gallery's anti-abuse challenge guard: ExHentai sometimes
+        # 302s through remoteapi.php and lands on "/" with no content. The
+        # cookie is still valid — treat as transient, not "gone".
+        if not str(response.url.path).startswith("/g/"):
+            raise EhClientError("ExHentai is challenging this client (temporary anti-abuse)")
         body = response.text
+        if _is_auth_failure_page(body):
+            raise EhClientError("ExHentai authentication is required or expired")
+        if not body or not body.strip():
+            raise EhClientError("ExHentai returned empty gallery page (temporary anti-abuse)")
         title, title_jpn = _parse_gallery_titles(body)
         tags = _parse_tags(body)
         if not title:
             # ExHentai answers non-existent / deleted galleries with a tiny
-            # 200 page that has no title (or a real 404). Treat both as gone.
+            # 200 page that has no title (or a real 404). But an empty/challenged
+            # page also has no title — the guards above already filtered those, so
+            # this remaining case is a genuine gone gallery.
             raise GalleryGoneError("gallery does not exist on ExHentai")
         return GalleryData(
             int(gid), token, title, [], tags, _parse_category(body), title_jpn,

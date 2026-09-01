@@ -414,6 +414,16 @@ async def run_favorites_check(
         entry["error"] = None
         async with session_cm() as session, session.begin():
             await FavoritesRepository(session).checked(favcat, True)
+        # Auto-detect gallery updates after a successful favorites check so a
+        # re-uploaded gallery (old gid gone, new gid in favorites) does not
+        # linger as ``deleted`` or in the wrong category.
+        try:
+            from ..app.dependencies import spawn_task
+            from .updates_worker import detect_gallery_updates
+
+            spawn_task(detect_gallery_updates(), "gallery updates detect")
+        except Exception:  # noqa: BLE001, S110
+            pass
     except Exception as exc:  # noqa: BLE001
         entry["error"] = str(exc)
         logger.error(
