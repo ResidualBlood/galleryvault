@@ -27,11 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Start native PostgreSQL & init db
+      - name: Start Postgres (in-memory background)
         run: |
-          sudo systemctl start postgresql
-          sudo -u postgres psql -c "CREATE USER galleryvault WITH PASSWORD 'galleryvault' SUPERUSER;"
-          sudo -u postgres createdb -O galleryvault galleryvault
+          docker run -d \
+            --name postgres \
+            --tmpfs /var/lib/postgresql/data \
+            -e POSTGRES_USER=galleryvault \
+            -e POSTGRES_PASSWORD=galleryvault \
+            -e POSTGRES_DB=galleryvault \
+            -p 5432:5432 \
+            postgres:16-alpine \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -47,13 +53,25 @@ jobs:
         run: |
           uv pip install --system -e ".[dev]"
 
-      - name: Migrate, Lint & Test
+      - name: Migrate database
         env:
-          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@127.0.0.1:5432/galleryvault
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
         run: |
+          for i in $(seq 1 30); do
+            if docker exec postgres pg_isready -U galleryvault -d galleryvault >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.5
+          done
           alembic upgrade head
-          ruff check .
-          pytest -q -n auto -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test (with coverage gate)
+        env:
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: pytest -q -n auto -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
 
   build:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
