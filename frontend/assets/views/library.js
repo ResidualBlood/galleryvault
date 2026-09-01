@@ -45,7 +45,7 @@ async function renderLibrary() {
     gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
-  } catch (e) { $view().innerHTML = renderError(esc(e.message)); }
+  } catch (e) { $view().innerHTML = renderError(e.message); }
 }
 
 async function deleteFiltered() {

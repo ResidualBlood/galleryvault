@@ -28,7 +28,7 @@ window.GV_LOCALES.en = {
   save: "Save", testLogin: "Test login", cookieSet: "set (not shown)", cookieUnset: "not set",
   filterAll: "All", filterPending: "Pending", filterSuccess: "Success", filterFailed: "Failed",
   cancel: "Cancel", noTasks: "No download tasks.", noGalleries: "No matching galleries, click Scan.",
-  noHistory: "No reading history.", noTags: "No local tags found.", clearAll: "clear all", search: "Search",
+  noHistory: "No reading history.", noTags: "No local tags found.", noCover: "No cover", clearAll: "clear all", search: "Search",
   openEh: "Open on ExHentai", ehLoginNote: "Requires ExHentai login in your browser", custom: "Custom",
   ehPublicNotice: "Public E-Hentai: ExHentai-only galleries pause tag sync and are not reclassified; switching back to exhentai.org resumes them automatically.",
   progress: "progress", loading: "Loading…", language: "中文", latest: "Latest",
