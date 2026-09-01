@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Startup & connection pool acceleration** (`app/main.py`): `seed_thumbnails` now runs as a non-blocking spawned background task instead of synchronously blocking the FastAPI lifespan and `/healthz` readiness. The database connection pool is pre-warmed on startup (`SELECT 1`) to eliminate cold connection latency on the first client request.
+- **Tag reverse-search autocomplete acceleration** (`services/tag_translation.py`): `search_zh` now queries against a pre-built, pre-cased flat list `_ZH_SEARCH_ENTRIES` in namespace priority order with early-exit on limit, replacing full-table regex cleaning (`clean_display`) and case-folding on every keystroke.
+- **Thumbnail generation & Pillow DCT decoding** (`services/thumbnails.py`): JPEG thumbnail generation now uses Pillow's fast `.draft('RGB', ...)` DCT-scale decoding for large image inputs and drops the redundant multi-pass `optimize=True` Huffman overhead during JPEG encoding.
+- **Query performance & Anti-Join rewrite** (`db/repository.py`): Rewrote `exclude_favorited` in `list_page` from `NOT IN (subquery)` to correlated `NOT EXISTS` anti-joins, enabling direct PostgreSQL index seeks on `favorite_items` and `gallery_updates`.
+- **Nginx compression & Frontend parallelization** (`nginx.conf`, frontend `views/reader.js`, `views/browse.js`, `views/gallery.js`): Nginx now enables on-the-fly Gzip compression (`level 5`) across static CSS/JS assets and JSON APIs. The reader view caches gallery metadata in memory (`app.readerGallery`) across page flips within the same gallery, avoiding redundant full gallery manifest GET requests. View initialization calls in browse and gallery views run in parallel via `Promise.allSettled`.
+
 ## [1.4.1] - 2026-09-01
 
 ### Added
