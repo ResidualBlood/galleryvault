@@ -50,9 +50,16 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 修改 `docker-compose.yml` 的 `ports`（如 `8000:80` → `8080:80`）后 `docker compose up -d`。绑定域名由 nginx / 反代处理，参见 [部署 → 安全加固](Deployment)。
 
-## 通过 IPv6 地址访问时，删除/提交操作报「Cross-origin request rejected」？
+## 跨网段或反代访问时，提交操作报「Cross-origin request rejected」？
 
-这是 v1.2.3 及更早版本的一个 bug：CSRF 的 Origin 校验用 `Host` 头的 `split(":", 1)[0]` 解析主机名，遇到 IPv6 字面量（如 `[240e:...]:8000`）会被错误截断，导致 `Origin` 与 `Host` 比较不一致、所有写操作（`DELETE`/`POST`/`PUT`）返回 403。已从 v1.2.4 修复（`Host` 改用 `urlparse` 解析）。升级后即可用 IPv6 地址正常操作；亦可通过域名 / nginx 反代访问以绕过。
+这是 CSRF 防护校验了客户端的 `Origin` / `Referer` 与服务端的 `Host` / `X-Forwarded-Host`。
+1. **端口丢失**：前置 Nginx 反代请确保配置 `proxy_set_header Host $http_host;` 或 `proxy_set_header Host $host:$server_port;`（如果写成 `$host` 会丢失非 80/443 端口号）。
+2. **已自动放行同主机**：最新版本已将端口比对放宽至同主机校验并自动兼容 `X-CSRF-Token`；
+3. **IPv6**：从 v1.2.4 起已全面支持 IPv6 字面量地址访问。
+
+## 归档下载重试或断点续传会重复扣除 GP 吗？
+
+**不会**。归档任务创建后，ExHentai 生成的专属下载 URL 会持久化在本地缓存（`.archive.json`）中。后续发生网络断流、暂停续传（HTTP Range）或失败重试时，系统均直接复用该 URL 续传，**绝不会重新打包或二次扣除 GP**。当画廊归档通道不可用或 GP 不足时，系统还会自动无缝降级为逐页 H@H 下载（不消耗 GP）。
 
 ## 收藏夹不自动下载？
 

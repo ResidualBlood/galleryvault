@@ -12,7 +12,9 @@ and back/forward need no server round trip.
   Group / Female / Male / Language) and a **random gallery** button (🎲, opens
   a random gallery's detail page).
 - The **global search box** in the top bar jumps to the library and runs the
-  title search on Enter.
+  title search on Enter; pressing **`/`** anywhere focuses the search box.
+- The gallery grid supports **keyboard arrow navigation** (`←`/`→`/`↑`/`↓`
+  moves focus, `Enter` opens the detail page).
 
 ## History (`#/history`)
 
@@ -43,8 +45,9 @@ manually to revisit it.
   pagination.
 - **"Not in favorites" filter**: the category dropdown ends with "Not in
   favorites", showing local galleries whose gid is not in any ExHentai favorite
-  folder (gid-less local archives count as not favorited). Before favorites
-  have ever been synced this item is equivalent to "All".
+  folder (gid-less local archives count as not favorited; older local copies with
+  a newer favorited version are excluded and routed to Gallery Updates instead).
+  Before favorites have ever been synced this item is equivalent to "All".
 - This page uses **infinite scroll**: the next page (24 galleries by default)
   is appended as you near the bottom; the numbered pager at the bottom stays
   as a fallback. Your page-size choice is remembered across visits.
@@ -66,6 +69,14 @@ manually to revisit it.
   and every word must appear (each as an independent substring, order- and
   position-independent), so `mimu gif` matches any title containing both
   mimu and gif. Single-word and CJK-sentence searches behave as before.
+- **Bulk & filtered deletion**:
+  - Ticking gallery cards reveals a **Delete selected** action, with an option
+    to delete corresponding files on disk;
+  - **Delete filtered** removes all galleries matching the active category,
+    search query, or tag filter at once. A 5,000-row safety guard rejects
+    excessive matches with `409` to prevent accidental library wipes; deletion
+    runs safely in 500-row batches, keeping the DB row and logging a notice
+    if disk files are read-only.
 - **Scan library** triggers a filesystem scan: new archives are ingested, and
   galleries that are missing are soft-deleted (they come back after a rescan
   once the directory is restored). The completion Telegram notification
