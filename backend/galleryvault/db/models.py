@@ -227,6 +227,9 @@ class GalleryMetadata(Base):
     rating: Mapped[float | None] = mapped_column(Float)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expunged: Mapped[bool] = mapped_column(Boolean, default=False)
+    parent_gid: Mapped[int | None] = mapped_column(BigInteger)
+    newer_gid: Mapped[int | None] = mapped_column(BigInteger)
+    is_replaced: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[list[Any] | None] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

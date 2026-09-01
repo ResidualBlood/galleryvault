@@ -399,10 +399,22 @@ class GalleryRepository:
         if category:
             query = query.where(Gallery.category == category)
         if exclude_favorited:
-            # Local galleries whose gid is not in any favorite folder; gid-less
-            # galleries (e.g. calibre CBZ exports) can never be favorited.
+            # Local galleries whose gid is not in any favorite folder and
+            # not superseded by a tracked update whose new_gid is in favorites.
             fav_gids = select(FavoriteItem.gid)
-            query = query.where(Gallery.gid.is_(None) | Gallery.gid.not_in(fav_gids))
+            updated_gallery_ids = (
+                select(GalleryUpdate.gallery_id).where(
+                    GalleryUpdate.status != "ignored",
+                    GalleryUpdate.new_gid.in_(fav_gids),
+                )
+            )
+            query = query.where(
+                Gallery.gid.is_(None)
+                | (
+                    Gallery.gid.not_in(fav_gids)
+                    & Gallery.id.not_in(updated_gallery_ids)
+                )
+            )
         if tags:
             tag_conditions = []
             for namespace, name in tags:
@@ -2104,13 +2116,26 @@ class FavoritesRepository:
             removed += result.rowcount or 0
         return removed
 
-    async def favcats_for_gid(self, gid: int | None) -> list[int]:
+    async def favcats_for_gid(
+        self, gid: int | None, gallery_id: int | None = None
+    ) -> list[int]:
         if gid is None:
             return []
         rows = await self.session.scalars(
             select(FavoriteItem.favcat).where(FavoriteItem.gid == gid)
         )
-        return sorted({int(f) for f in rows.all()})
+        direct = {int(f) for f in rows.all()}
+        if direct or gallery_id is None:
+            return sorted(direct)
+        update_favs = await self.session.scalars(
+            select(FavoriteItem.favcat)
+            .join(GalleryUpdate, GalleryUpdate.new_gid == FavoriteItem.gid)
+            .where(
+                GalleryUpdate.gallery_id == gallery_id,
+                GalleryUpdate.status != "ignored",
+            )
+        )
+        return sorted({int(f) for f in update_favs.all()})
 
     async def category_names(self, favcats: list[int]) -> dict[int, str]:
         if not favcats:

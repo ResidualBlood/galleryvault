@@ -42,6 +42,20 @@ def test_normalize_update_title_strips_prefix_variants_punctuation():
     )
     assert n("AI generated large insertions and size difference") == "aigeneratedlargeinsertionsandsizedifference"
     assert n("  101-gid prefix title  ") == "gidprefixtitle"
+    # Serialized chapter/episode range normalization
+    assert n("[Kase Daiki] Real o Tsuikyuu 1-4 | 追求真實感 1-4 [Chinese]") == (
+        n("[Kase Daiki] Real o Tsuikyuu 1-5 | 追求真實感 1-5 [Chinese]")
+    )
+    assert n("3240842-[にぎりうさぎ] 呪いのせいでMPが足りません!! ①〜⑨ [中国翻訳]") == (
+        n("[にぎりうさぎ] 呪いのせいでMPが足りません!!【全話】[中国翻訳]")
+    )
+    assert n("3181885-[湊ゆう] えちんぽカード (01-06)") == n("[湊ゆう] えちんぽカード (01-10)")
+    assert n("2896212-[雪村] セフレ契約結んじゃいました… 第1-7 話 [中国翻訳]") == (
+        n("[雪村] セフレ契約結んじゃいました… 第1-10 話 [中国翻訳]")
+    )
+    assert n("3037111-[武田] だれでも抱けるキミが好き  喜欢来者不拒的你 [连载中]") == (
+        n("[武田] だれでも抱けるキミが好き [進行中]")
+    )
 
 
 # --- detection scan ---------------------------------------------------------
@@ -53,10 +67,10 @@ async def test_detect_gallery_updates_finds_old_versions(monkeypatch):
         (201, "tokc", "Title B", 1),
     ]
     gallery_rows = [
-        (1, 100, "100-Title A [中国翻訳]"),  # old version of fav 200 (title matches, gid not favorited)
-        (2, 101, "Title B"),  # title matches fav 201, gid not favorited
-        (3, 200, "Title A"),  # gid IS favorited -> excluded
-        (4, 999, "Completely Different Title"),
+        (1, 100, "100-Title A [中国翻訳]", None),  # old version of fav 200 (title matches, gid not favorited)
+        (2, 101, "Title B", None),  # title matches fav 201, gid not favorited
+        (3, 200, "Title A", None),  # gid IS favorited -> excluded
+        (4, 999, "Completely Different Title", None),
     ]
 
     class Sess:
@@ -104,7 +118,7 @@ async def test_detect_gallery_updates_finds_old_versions(monkeypatch):
 
 async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
     fav_rows = [(200, "tok", "Title A", 0)]
-    gallery_rows = [(1, 100, "Title A")]
+    gallery_rows = [(1, 100, "Title A", None)]
 
     class Sess:
         async def __aenter__(self):
@@ -487,3 +501,19 @@ async def test_updates_delete_deletes_rows(monkeypatch):
     body = await updates_router.gallery_updates_delete(updates_router.UpdateIdsRequest(ids=[1, 2]))
 
     assert body == {"deleted": 2}
+
+
+async def test_favcats_for_gid_with_update_fallback(monkeypatch):
+    from galleryvault.db.repository import FavoritesRepository
+
+    class FakeSession:
+        async def scalars(self, stmt):
+            sql = str(stmt).lower()
+            if "gallery_updates" in sql:
+                return _Res([6])
+            return _Res([])
+
+    repo = FavoritesRepository(FakeSession())
+    favcats = await repo.favcats_for_gid(100, gallery_id=1)
+    assert favcats == [6]
+

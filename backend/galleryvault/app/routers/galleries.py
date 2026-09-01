@@ -495,7 +495,7 @@ async def gallery_favorite_status(identifier: int) -> dict[str, object]:
     try:
         async for session in get_session():
             row, _ = await _gallery(identifier)
-            favcats = await FavoritesRepository(session).favcats_for_gid(row.gid)
+            favcats = await FavoritesRepository(session).favcats_for_gid(row.gid, gallery_id=row.id)
             names = await FavoritesRepository(session).category_names(favcats)
             break
     except SQLAlchemyError as exc:
