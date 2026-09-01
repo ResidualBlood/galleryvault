@@ -891,12 +891,15 @@ async def _refresh_services() -> None:
 
 def _start_telegram_bot() -> None:
     _sync_state()
-    if getattr(app.state, "telegram_bot_task", None) is not None and hasattr(app.state.telegram_bot_task, "cancel"):
-        try:
-            app.state.telegram_bot_task.cancel()
-        except Exception:  # noqa: BLE001, S110
-            pass
-        app_state.extra.get("spawned_tasks", set()).discard(app.state.telegram_bot_task)
+    for task_obj in (getattr(app.state, "telegram_bot_task", None), app_state.extra.get("telegram_bot_task")):
+        if task_obj is not None and hasattr(task_obj, "cancel"):
+            try:
+                task_obj.cancel()
+            except Exception:  # noqa: BLE001, S110
+                pass
+            app_state.extra.get("spawned_tasks", set()).discard(task_obj)
+    app.state.telegram_bot_task = None
+    app_state.extra.pop("telegram_bot_task", None)
     bot_cls = globals().get("TelegramBotService", TelegramBotService)
     fav_queue_cls = globals().get("_FavoriteDownloadQueue", _FavoriteDownloadQueue)
     if _settings().telegram_bot_token and getattr(app_state, "telegram", None) is not None:
@@ -924,6 +927,7 @@ def _start_telegram_bot() -> None:
                 task = None
         if task is not None:
             app.state.telegram_bot_task = task
+            app_state.extra["telegram_bot_task"] = task
             # Also keep in app_state for shutdown discovery
             app_state.extra.setdefault("spawned_tasks", set()).add(task)
 

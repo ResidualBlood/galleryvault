@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -119,9 +118,26 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
 
 
 def start_telegram_bot() -> None:
+    from ..app import main
+
     task = app_state.extra.get("telegram_bot_task")
-    if task is not None and isinstance(task, asyncio.Task):
-        task.cancel()
+    if task is not None and hasattr(task, "cancel"):
+        try:
+            task.cancel()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        app_state.extra.get("spawned_tasks", set()).discard(task)
+
+    if hasattr(main, "app") and hasattr(main.app, "state"):
+        bot_task = getattr(main.app.state, "telegram_bot_task", None)
+        if bot_task is not None and hasattr(bot_task, "cancel"):
+            try:
+                bot_task.cancel()
+            except Exception:  # noqa: BLE001, S110
+                pass
+            app_state.extra.get("spawned_tasks", set()).discard(bot_task)
+            main.app.state.telegram_bot_task = None
+
     settings = app_state.settings or get_settings()
     if settings.telegram_bot_token and app_state.telegram is not None:
         from ..app.dependencies import spawn_task
@@ -137,10 +153,19 @@ def start_telegram_bot() -> None:
         )
         if new_task is not None:
             app_state.extra["telegram_bot_task"] = new_task
+            app_state.extra.setdefault("spawned_tasks", set()).add(new_task)
+            if hasattr(main, "app") and hasattr(main.app, "state"):
+                main.app.state.telegram_bot_task = new_task
 
 
 async def refresh_services() -> None:
     """Rebuild network-bound services so changed proxy/cookies apply immediately."""
+    from ..app import main
+
+    if hasattr(main, "_refresh_services"):
+        await main._refresh_services()
+        return
+
     settings = app_state.settings or get_settings()
     old_client = app_state.eh_client
     old_telegram = app_state.telegram
@@ -151,18 +176,31 @@ async def refresh_services() -> None:
         await old_client.aclose()
 
     client = EhClient(settings, max_concurrency=settings.exhentai_max_concurrency)
-    app_state.eh_client = client
-    app_state.downloader = Downloader(
+    downloader = Downloader(
         client,
         settings.download_root,
         concurrency=settings.download_concurrency,
         page_concurrency=settings.page_concurrency,
     )
-    app_state.telegram = TelegramNotifier(settings)
-    start_telegram_bot()
-    app_state.favorites_service = FavoritesService(
-        client, FavoritesRepositoryProxy(), FavoriteDownloadQueue(), app_state.telegram
+    telegram = TelegramNotifier(settings)
+    favorites_service = FavoritesService(
+        client, FavoritesRepositoryProxy(), FavoriteDownloadQueue(), telegram
     )
+
+    for key, obj in (
+        ("eh_client", client),
+        ("downloader", downloader),
+        ("telegram", telegram),
+        ("favorites_service", favorites_service),
+    ):
+        setattr(app_state, key, obj)
+        if hasattr(main, "app") and hasattr(main.app, "state"):
+            try:
+                setattr(main.app.state, key, obj)
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+    start_telegram_bot()
 
 
 def settings_public() -> dict[str, Any]:

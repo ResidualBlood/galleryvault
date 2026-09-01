@@ -288,6 +288,61 @@ async def test_refresh_services_restarts_telegram_bot(monkeypatch: pytest.Monkey
     assert started == [1]
 
 
+@pytest.mark.asyncio
+async def test_settings_service_refresh_services_syncs_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """settings_service.refresh_services must update both app_state and main.app.state."""
+    from galleryvault.app import dependencies, main
+    from galleryvault.app.state import app_state
+    from galleryvault.services import settings_service
+
+    closed = []
+
+    class FakeClient:
+        async def aclose(self):
+            closed.append("eh_client")
+
+    class FakeNotifier:
+        client = object()
+
+        async def aclose(self):
+            closed.append("telegram")
+
+        async def flush_summary(self) -> bool:
+            return False
+
+    old_client = FakeClient()
+    old_notifier = FakeNotifier()
+    app_state.eh_client = old_client
+    app_state.telegram = old_notifier
+    main.app.state.eh_client = old_client
+    main.app.state.telegram = old_notifier
+
+    new_client = FakeClient()
+    new_dl = object()
+    new_tg = FakeNotifier()
+    new_fav = object()
+
+    monkeypatch.setattr(settings_service, "EhClient", lambda *a, **k: new_client)
+    monkeypatch.setattr(settings_service, "Downloader", lambda *a, **k: new_dl)
+    monkeypatch.setattr(settings_service, "TelegramNotifier", lambda *a, **k: new_tg)
+    monkeypatch.setattr(settings_service, "FavoritesService", lambda *a, **k: new_fav)
+    monkeypatch.setattr(settings_service, "start_telegram_bot", lambda: None)
+    monkeypatch.delattr(main, "_refresh_services", raising=False)
+
+    await settings_service.refresh_services()
+
+    assert "eh_client" in closed
+    assert "telegram" in closed
+    assert app_state.downloader is new_dl
+    assert main.app.state.downloader is new_dl
+    assert app_state.eh_client is new_client
+    assert main.app.state.eh_client is new_client
+    assert dependencies.get_downloader() is new_dl
+    assert dependencies.get_eh_client() is new_client
+
+
 def test_gallery_search_and_pagination_api(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
