@@ -61,3 +61,5 @@ jobs:
             ${{ github.ref_type == 'tag' && format('{0}/galleryvault-frontend:latest', secrets.DOCKERHUB_USERNAME) || '' }}
             ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.sha }}
           platforms: ${{ env.PLATFORMS }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
