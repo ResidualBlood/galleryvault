@@ -35,8 +35,16 @@ function toast(msg) {
   toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
 }
 
+function getCsrfToken() {
+  const m = document.cookie.match(/(?:^|;\s*)galleryvault_csrf=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
 async function api(method, path, body) {
   const opts = { method, credentials: "include", headers: {} };
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
+    const csrf = getCsrfToken();
+    if (csrf) opts.headers["X-CSRF-Token"] = csrf;
+  }
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
