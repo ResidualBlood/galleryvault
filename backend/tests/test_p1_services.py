@@ -1609,3 +1609,44 @@ async def test_task_history_persistence_and_restoration(monkeypatch) -> None:
     assert len(main.task_history) == 1
     assert main.task_history[0]["task"] == "scan"
     assert main.task_history[0]["done"] == 10
+
+
+async def test_clear_progress_repository_methods() -> None:
+    """Test GalleryRepository clear_progress and delete_progress methods."""
+    from galleryvault.db.models import ReadingProgress
+    from galleryvault.db.repository import GalleryRepository
+
+    class FakeSession:
+        def __init__(self):
+            self.progress_rows = {
+                1: ReadingProgress(gallery_id=1, current_page=10, total_pages=20),
+                2: ReadingProgress(gallery_id=2, current_page=5, total_pages=15),
+            }
+            self.executed_statements = []
+
+        async def get(self, model, pk):
+            if model is ReadingProgress:
+                return self.progress_rows.get(pk)
+            return None
+
+        async def execute(self, statement):
+            self.executed_statements.append(statement)
+            self.progress_rows.clear()
+
+        async def delete(self, model):
+            if isinstance(model, ReadingProgress):
+                self.progress_rows.pop(model.gallery_id, None)
+
+    session = FakeSession()
+    repo = GalleryRepository(session)
+
+    # test delete_progress for single item
+    assert await repo.delete_progress(1) is True
+    assert 1 not in session.progress_rows
+    assert await repo.delete_progress(999) is False
+
+    # test clear_progress for all items
+    await repo.clear_progress()
+    assert len(session.progress_rows) == 0
+    assert len(session.executed_statements) == 1
+

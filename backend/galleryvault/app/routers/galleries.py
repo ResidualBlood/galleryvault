@@ -635,6 +635,23 @@ async def clear_history() -> None:
         break
 
 
+@router.delete("/api/galleries/progress", status_code=204)
+async def clear_all_gallery_progress() -> None:
+    async for session in get_session():
+        async with session.begin():
+            await GalleryRepository(session).clear_progress()
+        break
+
+
+@router.delete("/api/galleries/{identifier}/progress", status_code=204)
+async def clear_gallery_progress(identifier: int) -> None:
+    row, _ = await _gallery(identifier)
+    async for session in get_session():
+        async with session.begin():
+            await GalleryRepository(session).delete_progress(row.id)
+        break
+
+
 @router.post("/api/galleries/{identifier}/redownload", status_code=202)
 async def redownload_gallery(
     identifier: int, quality: str | None = None, archive: bool = False

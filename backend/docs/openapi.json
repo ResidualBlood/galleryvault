@@ -734,6 +734,36 @@
             }
           }
         }
+      },
+      "delete": {
+        "summary": "Clear Gallery Progress",
+        "operationId": "clear_gallery_progress_api_galleries__identifier__progress_delete",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/galleries/{identifier}/read": {
@@ -831,6 +861,17 @@
       "delete": {
         "summary": "Clear History",
         "operationId": "clear_history_api_history_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/galleries/progress": {
+      "delete": {
+        "summary": "Clear All Gallery Progress",
+        "operationId": "clear_all_gallery_progress_api_galleries_progress_delete",
         "responses": {
           "204": {
             "description": "Successful Response"

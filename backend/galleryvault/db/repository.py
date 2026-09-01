@@ -634,6 +634,16 @@ class GalleryRepository:
     async def clear_history(self) -> None:
         await self.session.execute(delete(ReadingHistory))
 
+    async def clear_progress(self) -> None:
+        await self.session.execute(delete(ReadingProgress))
+
+    async def delete_progress(self, gallery_id: int) -> bool:
+        row = await self.session.get(ReadingProgress, gallery_id)
+        if row is not None:
+            await self.session.delete(row)
+            return True
+        return False
+
     async def get(self, gid: int) -> tuple[Gallery, list[GalleryPage]] | None:
         model = await self.session.scalar(select(Gallery).where(Gallery.gid == gid))
         if model is None:
