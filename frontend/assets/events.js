@@ -27,6 +27,9 @@ function onClick(e) {
   if (action === "welcome-check-favs") { checkAllFavorites(); return; }
   if (action === "welcome-finish") { welcomeFinish(); return; }
   if (action === "welcome-later") { welcomeLater(); return; }
+  if (action === "log-tab") { switchLogTab(el.getAttribute("data-tab")); return; }
+  if (action === "refresh-system-logs") { fetchSystemLogs(); return; }
+  if (action === "clear-system-logs") { clearSystemLogs(); return; }
   if (action === "cancel-task") { cancelTask(el.getAttribute("data-task")); return; }
   if (action === "clear-tag") { e.preventDefault(); location.hash = navHash("library", {}, { q: app.query.q || "", category: app.query.category || "" }); return; }
   if (action === "remove-tag") { e.preventDefault(); location.hash = removeTagHash(el.getAttribute("data-tag")); return; }
@@ -208,6 +211,9 @@ function bindTagSuggest() {
 function onChange(e) {
   const el = e.target;
   if (!el) return;
+  if (el.matches("#syslog-runtime-level")) { changeRuntimeLogLevel(el.value); return; }
+  if (el.matches("#syslog-filter-level")) { systemLogMinLevel = el.value; fetchSystemLogs(); return; }
+  if (el.matches("#syslog-search-input")) { systemLogSearch = el.value; fetchSystemLogs(); return; }
   if (el.matches("select[data-eh-select]")) { toggleEhCustom(el); return; }
   if (el.matches(".page-jump")) {
     const last = parseInt(el.max, 10) || 1;
@@ -294,3 +300,15 @@ document.addEventListener('keydown', e => {
   }
   if (next !== idx) cards[next].focus();
 });
+
+let _syslogSearchTimer = null;
+document.addEventListener("input", e => {
+  if (e.target && e.target.id === "syslog-search-input") {
+    if (_syslogSearchTimer) clearTimeout(_syslogSearchTimer);
+    _syslogSearchTimer = setTimeout(() => {
+      systemLogSearch = e.target.value.trim();
+      fetchSystemLogs();
+    }, 300);
+  }
+});
+

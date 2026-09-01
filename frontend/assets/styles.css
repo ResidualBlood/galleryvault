@@ -406,6 +406,28 @@ a.row:hover { border-color: var(--accent); }
 .log-row .log-progress { flex: 1; min-width: 160px; max-width: 280px; }
 .log-row .log-desc { color: var(--muted); font-size: .84rem; flex: 1; min-width: 160px; }
 .log-row .log-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.log-tabs { display: flex; gap: 8px; margin: 16px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.log-tab-btn { background: transparent; border: none; padding: 6px 14px; font-weight: 600; color: var(--muted); cursor: pointer; border-radius: var(--radius-md); font-size: 0.95rem; }
+.log-tab-btn.active { color: var(--ink); background: var(--panel-2); }
+.syslog-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; background: var(--panel); padding: 10px 14px; border: 1px solid var(--line); border-radius: 6px; }
+.syslog-controls label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--muted); }
+.syslog-controls select, .syslog-controls input { background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; color: var(--ink); font-size: 0.86rem; }
+.syslog-rows { display: flex; flex-direction: column; gap: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.85rem; }
+.syslog-row { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; line-height: 1.5; }
+.syslog-meta { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+.syslog-time { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+.syslog-level { font-weight: 700; font-size: 0.78rem; padding: 1px 6px; border-radius: 3px; }
+.syslog-DEBUG { background: #263238; color: #80deea; }
+.syslog-INFO { background: #1b382b; color: #81c784; }
+.syslog-WARNING { background: #423215; color: #ffb74d; }
+.syslog-ERROR, .syslog-CRITICAL { background: #441919; color: #e57373; }
+.syslog-logger { color: var(--muted); font-size: 0.8rem; }
+.syslog-msg { word-break: break-word; color: var(--ink); }
+.syslog-context { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-left: 6px; }
+.syslog-tag { background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; font-size: 0.75rem; color: var(--muted); }
+.syslog-trace { margin-top: 6px; padding: 8px 10px; background: #0f1117; border: 1px solid var(--line); border-radius: 4px; color: #e57373; font-size: 0.78rem; overflow-x: auto; white-space: pre; }
+.syslog-trace-details { margin-top: 4px; }
+.syslog-trace-details summary { cursor: pointer; color: var(--danger); font-size: 0.8rem; font-weight: 600; }
 .page-jump-wrap { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .page-jump {
   width: 62px; padding: 4px 6px; background: var(--panel-2);
