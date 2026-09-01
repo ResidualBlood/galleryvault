@@ -95,6 +95,8 @@ the nginx frontend proxy; login is rate-limited per real client IP (10 attempts
 / 60 s) and `/api` is throttled at 30 r/s (implemented by the frontend nginx
 `limit_req`).
 
+> **Trusted proxy whitelist `TRUSTED_PROXIES`**: `X-Forwarded-For` / `X-Real-IP` are only trusted when the direct peer is `127.0.0.1` / `::1` / `testclient` or listed in `TRUSTED_PROXIES` (single IP or CIDR, e.g. `10.0.0.0/8,192.168.1.10`). Private ranges are **not** implicitly trusted — set the whitelist to your reverse-proxy's IP range when behind a proxy to avoid spoofed XFF bypassing the login rate limit.
+
 ### TLS (optional)
 
 To serve the UI over HTTPS, terminate TLS at nginx (or in front of it with

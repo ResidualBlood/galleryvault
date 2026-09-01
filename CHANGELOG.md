@@ -6,6 +6,66 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-01
+
+### Fixed
+
+- **Multi-chapter and bilingual gallery update normalization** (`services/updates_worker.py`, `db/repository.py`, `alembic/versions/0025_gallery_metadata_versioning.py`): `normalize_update_title` now strips multi-chapter/episode ranges, volume/part/date ranges, and bilingual separator segments. `GalleryRepository.list_page` and `FavoritesRepository.favcats_for_gid` now track active superseded updates so local galleries with newer versions in favorites are not misclassified under `__not_fav__`.
+- **Download ingest tuple tags** (`services/download_worker.py`): `ingest_downloaded_gallery` previously called `.items()` on `result.tags`, crashing with `AttributeError` when given the tuple-of-tuples tag format returned by `Downloader.execute`. Tag unpacking now supports `tuple`, `list`, and `dict` formats. Completed download tasks now also align `current_page = total_pages`.
+- **Unit of Work transaction semantics** (`db/uow.py`): `async_sessionmaker` was mis-detected as an external session, so `get_uow` never committed. Factory vs session is now distinguished by `isinstance(AsyncSession)` + callable check with `_began` tracking, and `from_factory`/`from_session` are available.
+- **Download progress + SQLite concurrency** (`services/download_worker.py`, `db/repository.py`): `task.id=None` no longer crashes `download_progress`/`is_download_cancelled`; `claim_pending`/`BackgroundJob.claim` fall back without `FOR UPDATE SKIP LOCKED` on SQLite and the download worker limits itself to 1 worker there.
+- **App state double-write** (`app/main.py`, `app/state.py`): `app_state` is the single source of truth, `app.state` is mirrored; `_refresh_services` and `startup` now keep `library_service`/`tag_service`/`thumbnail_service` in sync.
+- **Background task leaks** (`services/*_worker.py`): `asyncio.create_task(persist_history)` not tracked by `shutdown` — all fire-and-forget history persists now go through `spawn_task`.
+- **Archive validation unified** (`scanners/archive.py`, `services/downloader.py`): Zip-Slip/symlink checks share `_is_symlink`/`_is_unsafe_path`/`validate_archive_member`; `CbrRarScanner` now checks symlinks on both `scan` and `open_page` with `is_relative_to`.
+- **Observability double-count** (`observability.py`): drop unlabeled `gv_http_requests_total` bump and dedupe `HELP`/`TYPE` per base name.
+- **Thumbnail meta mismatch** (`services/thumbnail_worker.py`): `_meta` now maps to `GalleryMeta` (`file_count`/`file_size`/`path`/`posted_at`/`storage_signature`).
+- **Downloader cross-filesystem** (`services/downloader.py`): `temp.rename` → `shutil.move` + `to_thread`.
+- **EhClient parity** (`services/eh_client.py`): `await response.aread()`, JSON-string cookies accepted, `fetch_gallery_cover` respects `image_semaphore` for `hath.network`/`ehgt.org`, `tag_sync_concurrency` clamped to 8 in the worker, `download_archive` 416 only succeeds when `offset==total` (oversized partials are cleared and retried).
+- **Filtered delete guard** (`app/routers/galleries.py:738`): `POST /api/galleries/delete-filtered` caps the matched set at 5000 rows (409 when exceeded; refine filter or delete in batches) to prevent full-library wipe on empty filters; paging is 500-row batches.
+- **Duplicate resolution no longer blocks the event loop** (`routers/duplicates.py:118`): `shutil.rmtree`/`unlink`/`is_dir` now run via `run_in_threadpool`.
+- **Favorites cover is non-blocking** (`routers/favorites.py:598`): `is_file`/`write_bytes`/`replace` via `run_in_threadpool`, served as `FileResponse` with `Cache-Control: public, max-age=86400`.
+- **Translation updater tracking** (`app/main.py:754`): `asyncio.create_task(_translation_update_loop())` now goes through `spawn_task` so `shutdown` waits for it.
+- **Category backfill restored** (`services/tag_sync_worker.py:234`): `category_refresh_once` was a stub — restored full one-time 大分类 backfill (`pending_category_refresh_ids` → `TagSyncService.refresh_category`, `GalleryGoneError` → `mark_tag_not_visible`/`deleted`, `category_refreshed`/`category_refresh_running` status, 0.3s pacing).
+- **Frontend filtered-delete tag mode** (`frontend assets/views/library.js:55`): default `tag_mode` corrected from `or` to `and` to match `renderLibrary`.
+- **Frontend infinite scroll leak** (`frontend assets/utils.js:27`): `IntersectionObserver` now `disconnect()`s before `sentinel.remove()` on `finished`.
+- **Frontend checkbox duplication** (`frontend assets/components.js:6`): `renderCardCheckboxes` now guards with `dataset.bound` to avoid stacking listeners.
+- **Frontend archive dialog leak** (`frontend assets/components.js:99`): `keydown` listener is now removed in `close()` (not only on Escape).
+- **Frontend API empty-body handling** (`frontend assets/core.js:55`): `204` or `content-length: 0` short-circuits; non-JSON error bodies fall back to `res.text()` so Chinese `detail` is not lost.
+- **2026-08-31 fullstack review — P0 archive ordering** (`services/downloader.py:672`): `sorted(rglob, key=name)` mis-ordered non-zero-padded zips (`2.jpg` before `10.jpg`) and ignored subdirectories; now `natural_key(relative_path)` ensures page-accurate renaming.
+- **P1 `esc()` single-quote** (`frontend assets/core.js:25`): missing `'` escape allowed `data-tag`/`data-gi` attribute breakout; now `&#39;` and `window.GV` namespace guards `esc`/`api`/`router` for future `type=module`.
+- **P1 dual-state mirror** (`app/main.py:516,857,923`): extract `sync_state()` + `_create_services()` factory, `app_state` is canonical, `app.state` is legacy monkeypatch alias (tests still pass), `get_current_settings` prefers `app_state`, startup no longer double-writes per-service; `assert` guard added.
+- **P1 long-gallery tail truncation** (`services/eh_client.py:750`): `gallery_pages+2` hard stop dropped; tail now walks until two consecutive empty pages (5000-offset hard cap) so stale `gdata` under-report no longer truncates 40+ pages.
+- **P1 global pollution** (`frontend index.html:40`, `assets/app.js:30`): add `window.GV = {app, esc, api, router}` convergence and document script order; plan `type=module` for next iteration.
+- **P2 origin_url** (`services/eh_client.py:1058`): `showpage` now `urljoin(response.url, html.unescape(...))` so protocol-relative `//exhentai.org/...` is not malformed.
+- **P2 SSRF guard** (`services/eh_client.py:356`): `parse_gallery_url` rejects non-`exhentai.org`/`e-hentai.org` hosts (user pastes `https://evil.com/g/...`) before `gid/token` are used.
+- **P2 download retry backoff** (`services/download_worker.py:368`): non-`challenge` `EhClientError` now always gets `retry_backoff()` (was `now` → instant re-queue by 60s sweep, burning retries); `claim_pending`/`sweep_auto_retry` alias added for SQLite `SKIP LOCKED` parity.
+- **P2 Cookie Secure auto** (`app/routers/auth.py:62`, `app/main.py:1138`): `auth_cookie_secure` now auto-enables when `X-Forwarded-Proto: https` or `request.url.scheme == https`, so TLS deployments without `AUTH_COOKIE_SECURE=True` still get `Secure` cookies.
+- **P2 CSRF Referer fallback** (`app/main.py:1160`): `/api/` writes now check `Origin` → `Referer` → `X-CSRF-Token` (with `X-Forwarded-Host` support); `Sec-Fetch-Site: cross-site` still 403; CSRF cookie (`galleryvault_csrf`) is set on GET (30-day `lax`, non-`httponly`) for future `X-CSRF-Token` validation.
+- **P2 `Referer`/`X-CSRF-Token` for old browsers**: non-`Origin` POSTs that lack `Sec-Fetch-Site` no longer bypass; `/api/` mutation without `Origin`/`Referer` requires valid `X-CSRF-Token` if cookie is present.
+- **P2 infinite scroll abort** (`frontend assets/utils.js:11`): `stopInfinite()` now aborts `AbortController` + removes sentinel; `startInfinite` stores `{observer, controller, sentinel}` and drops `fetchPage` results if route changed or container detached.
+- **P2 browse error boundary** (`frontend assets/views/browse.js:26`): `Promise.all` split into separate `try` blocks so `browse-ns` tag cloud still renders when `galleryGrid` fails, and `galleryGrid` itself retries 422 with clamped `page_size`.
+- **P2 keyboard** (`frontend assets/events.js:234`): arrow navigation now `closest('.gc')` so focus on `.gc-wrap`/`img` still works; `prefPageSize` clamps `1–500` (was unbounded → 422 on `?page_size=9999`); `reader.js` click now advances on `.reader` background and `toggleReaderFit` only toggles `reader-fit` class (no inline `style.width` leak).
+- **P2 Telegram bot** (`app/main.py:884`): `_start_telegram_bot` now `_spawn(..., "telegram bot")` with `spawned_tasks` tracking + `CancelledError` swallow guard; `translation` load is `_spawn(asyncio.to_thread(...))` so `/healthz` is not blocked by `load_translations`.
+- **P2 favorites poll interval** (`services/favorites_worker.py:444`): `favorites_poll_interval_seconds` (non-existent) → `favorites_poll_interval_minutes * 60`; `run_favorites_check` now tolerates test stubs missing `favorites_archive_*` via `getattr(..., default)` and uses `_main_settings()` to avoid `app_state` stub pollution.
+- **P2 skeleton/cover UX** (`frontend assets/components.js:46`, `assets/utils.js:203`, `assets/views/library.js:32`, `assets/styles.css:74`): `library` initial uses `renderSkeleton(8)`; `galleryCard` no-cover uses `var(--panel-2)` placeholder with `t("noCover")` (added to `zh.js`/`en.js`); `library`/`history` fixed `renderError` double escaping; `input:focus` now shows `var(--focus-ring)` like `.btn`.
+- **P2 encryption error message** (`app/routers/settings.py:144`): `ENCRYPTION_KEY not configured` → `encryption not enabled` (no deployment detail leak); `secrets.py` documents fixed `_SALT` as at-rest (not auth) and lack of rotation script.
+- **2026-09-01 已删除误判三合一修复**（`services/eh_client.py:667`, `services/tag_sync_worker.py:234,383`, `services/updates_worker.py:24`, `services/favorites_worker.py:417`）：
+  - **空体挑战误判为已删除**：`fetch_gallery_metadata` `/g/{gid}/{token}/` 收到空体/挑战页（`200 len 0` 或 `/?poni` 302 后小页）时曾直接 `GalleryGoneError` → `mark_tag_synced(category="deleted")` 批量污染；现补与 `fetch_gallery` 同款鉴别（`url.path` 校验 + `_is_auth_failure_page` + 空体 `EhClientError`），并在 `tag_sync` 两处 `GalleryGoneError` 前增加 `_confirm_gone` 经 `fetch_gmetadata` 的 `expunged` 双源确认（`false`/`None` 则重入队而非打 `deleted`）。
+  - **已删除自愈**：新增 `GalleryRepository.repair_deleted_misclassified`（`db/repository.py:700`），对 `category=deleted` 且 `gallery_metadata.expunged=false` 或仍在 `favorite_items` 的记录清 `tags_synced_at/category_refreshed_at` 并回写真实分类（生产 40→7 真删，其余回队待重同步）。
+  - **更新画廊漏扫**：`normalize_update_title` 补 `中国翻译/汉化/漢化/无修正/翻譯版` 等 9 个变体，去除全半角/标点更稳；`favorites_worker.run_favorites_check` 成功后自动 `spawn detect_gallery_updates`，避免新 `gid` 已入收藏但旧本地仍停在 `deleted`。
+  - **更新画廊立即检测跨域误拒**（`backend 7d819bd` `frontend 83703bd`）：`app/main.py:1180` `Origin/Referer` vs `Host` 曾 `netloc`（含 `:8000`）比对，而 `nginx Host $host` 丢端口恒不等（`192.168.1.123` vs `192.168.1.123:8000`）→ `403 Cross-origin request rejected`；改为 `hostname` 比对 + `X-Forwarded-Host`，`frontend nginx.conf` 改 `$http_host`，`core.js` 对 `POST/PUT/DELETE/PATCH` 自动带 `X-CSRF-Token`。
+
+### Changed
+
+- **Proxy trust is now a whitelist** (`config.py` `trusted_proxies`, `auth.py`): `X-Forwarded-For`/`X-Real-IP` are only trusted when the peer is loopback or listed in `trusted_proxies` (CIDR or IP); private ranges are no longer implicitly trusted. `trusted_proxies` is now editable via `POST /api/settings` (and `tag_translation_update_interval_minutes` added to the allowed set).
+- **Tag sync concurrency bounded** (`services/tag_sync_worker.py`): worker concurrency is clamped to 8 regardless of `tag_sync_concurrency` (settings still allow 1–32, but the worker never exhausts the httpx pool).
+- **Input validation tightened**: login password truncated to 256 chars, `POST /api/galleries/{id}/progress` rejects `current_page < 0`, `POST /api/galleries/{id}/favorite` validates `favcat 0–9`.
+
+### Security
+
+- **Password hash downgrade blocked** (`auth.py`): `verify_password` now rejects `pbkdf2_sha256` with `<200k` iterations (was `<100k`).
+- **At-rest encryption guard** (`app/main.py`, `routers/settings.py`): startup warns when `ENCRYPTION_KEY` is missing; `POST /api/settings` refuses to persist `exhentai_cookies` in plaintext (422) until the key is configured.
+
 ## [1.3.2] - 2026-08-31
 
 ### Fixed
