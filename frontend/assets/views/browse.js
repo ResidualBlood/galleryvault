@@ -25,15 +25,19 @@ async function renderBrowse() {
     </section>`);
   let data = null;
   let tagData = null;
-  try {
-    data = await galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() });
-  } catch (e) {
+  const [dataResult, tagDataResult] = await Promise.allSettled([
+    galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() }),
+    api("GET", "/api/tags/search?page=1&page_size=1"),
+  ]);
+  if (dataResult.status === "fulfilled") {
+    data = dataResult.value;
+  } else {
     const el = document.getElementById("browse-grid");
-    if (el) el.innerHTML = renderError(e.message);
+    if (el) el.innerHTML = renderError(dataResult.reason?.message || "Failed to load");
   }
-  try {
-    tagData = await api("GET", "/api/tags/search?page=1&page_size=1");
-  } catch (_) { tagData = null; }
+  if (tagDataResult.status === "fulfilled") {
+    tagData = tagDataResult.value;
+  }
   try {
     const totalEl = document.getElementById("browse-total");
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;

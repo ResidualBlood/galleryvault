@@ -7,7 +7,11 @@ async function renderReader() {
   const id = app.params.id;
   const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   try {
-    const g = await api("GET", `/api/galleries/${id}`);
+    let g = app.readerGallery;
+    if (!g || String(g.id) !== String(id)) {
+      g = await api("GET", `/api/galleries/${id}`);
+      app.readerGallery = g;
+    }
     const total = g.page_count;
     app.readerTotal = total;
     let preload = "";
