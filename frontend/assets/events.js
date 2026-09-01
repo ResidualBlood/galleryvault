@@ -235,6 +235,8 @@ document.addEventListener('keydown', e => {
 // Phase 2 keyboard: arrow keys navigate .gc cards (when focused)
 document.addEventListener('keydown', e => {
   if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) return;
+  if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+
   // Allow navigation when focus is on the card, its wrapper, or an image inside
   const active = document.activeElement;
   let activeCard = null;
@@ -252,8 +254,43 @@ document.addEventListener('keydown', e => {
   const cards = Array.from(document.querySelectorAll('#view .gc'));
   const idx = cards.indexOf(activeCard);
   if (idx < 0) return;
+
+  // Calculate dynamic grid columns
+  let cols = 1;
+  const gridEl = activeCard.closest('.gc-grid, .grid') || activeCard.parentElement;
+  if (gridEl) {
+    const style = window.getComputedStyle(gridEl);
+    if (style.display === 'grid' || style.display === 'inline-grid') {
+      const template = style.gridTemplateColumns;
+      if (template && template !== 'none') {
+        const count = template.split(/\s+/).filter(Boolean).length;
+        if (count > 0) cols = count;
+      }
+    }
+  }
+  if (cols <= 1 && cards.length > 1) {
+    const firstTop = cards[0].offsetTop;
+    let count = 0;
+    for (let i = 0; i < cards.length; i++) {
+      if (Math.abs(cards[i].offsetTop - firstTop) < 4) count++;
+      else break;
+    }
+    if (count > 0) cols = count;
+  }
+
   let next = idx;
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = Math.min(idx + 1, cards.length - 1);
-  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = Math.max(idx - 1, 0);
+  if (e.key === 'ArrowRight') {
+    next = Math.min(idx + 1, cards.length - 1);
+  } else if (e.key === 'ArrowLeft') {
+    next = Math.max(idx - 1, 0);
+  } else if (e.key === 'ArrowDown') {
+    if (idx + cols < cards.length) {
+      next = idx + cols;
+    }
+  } else if (e.key === 'ArrowUp') {
+    if (idx - cols >= 0) {
+      next = idx - cols;
+    }
+  }
   if (next !== idx) cards[next].focus();
 });
