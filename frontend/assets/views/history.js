@@ -7,7 +7,10 @@ async function renderHistory() {
   const page = app.query.page || "1";
   renderView(`
     <header><p class="eyebrow">READING LOG</p><h1>${esc(t("history"))}</h1>
-    <button class="secondary" data-action="clear-history" type="button">${esc(t("clearHistory"))}</button></header>
+    <div class="row-actions" style="display:flex;gap:8px;align-items:center;">
+      <button class="secondary" data-action="clear-history" type="button">${esc(t("clearHistory"))}</button>
+      <button class="secondary" data-action="clear-progress" type="button">${esc(t("clearProgress"))}</button>
+    </div></header>
     <div id="hist-list">${renderLoading()}</div>
     <div class="pages" id="hist-pages"></div>`);
   try {
@@ -37,4 +40,15 @@ async function renderHistory() {
 async function clearHistory() {
   try { await api("DELETE", "/api/history"); renderHistory(); }
   catch (e) { toast(e.message); }
+}
+
+async function clearProgress() {
+  if (!window.confirm(t("confirmClearProgress"))) return;
+  try {
+    await api("DELETE", "/api/galleries/progress");
+    toast(t("progressCleared"));
+    renderHistory();
+  } catch (e) {
+    toast(e.message);
+  }
 }
