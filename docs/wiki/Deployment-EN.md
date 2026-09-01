@@ -10,7 +10,6 @@ container names:
 | Frontend nginx SPA | `galleryvault-frontend` | 8000 |
 | FastAPI backend | `galleryvault-backend` | 127.0.0.1:8001 (loopback only) |
 | PostgreSQL | `galleryvault-db` | internal |
-| Dozzle log viewer | `galleryvault-dozzle` | 52017 |
 
 ```bash
 docker compose up -d
