@@ -195,3 +195,37 @@ async def test_success_path_when_no_cancel() -> None:
     assert row.retry_count == 0
     assert notifications == [("ok", "t", "5")]
     monkeypatch.undo()
+
+
+async def test_gallery_gone_error_marks_failed_without_retry() -> None:
+    """GalleryGoneError (404) must fail immediately and exhaust the retry budget."""
+    from galleryvault.services.eh_client import GalleryGoneError
+
+    class _FailingDownloader:
+        async def execute(self, task, *, progress=None, **_):
+            raise GalleryGoneError("gallery does not exist on ExHentai (404)")
+
+    main._download_cancelled = set()
+    monkeypatch = pytest.MonkeyPatch()
+
+    row = _Row(45)
+
+    def row_provider():
+        return row
+
+    notifications = _patched(
+        monkeypatch,
+        row_provider=row_provider,
+        downloader=_FailingDownloader(),
+    )
+
+    await main._run_download(DownloadTask(7, "token", "t", id=45))
+
+    assert row.status == "failed"
+    assert row.retry_at is None
+    assert row.retry_count >= row.max_retries
+    assert "GalleryGoneError" in (row.error_message or "")
+    assert len(notifications) == 1
+    assert notifications[0][0] == "fail"
+    monkeypatch.undo()
+

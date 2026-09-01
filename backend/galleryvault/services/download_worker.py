@@ -28,7 +28,10 @@ from .downloader import (
     DownloadCancelledError,
     DownloadTask,
 )
-from .eh_client import EhClientError  # noqa: F401  # kept for backoff classification docs
+from .eh_client import (  # noqa: F401  # kept for backoff classification docs
+    EhClientError,
+    GalleryGoneError,
+)
 from .ingest import GalleryIngestService
 
 logger = logging.getLogger(__name__)
@@ -374,12 +377,16 @@ async def run_download(task: DownloadTask) -> None:
                 if row and row.status != "cancelled":
                     now = datetime.now(UTC)
                     auth_failure = "authenticat" in str(exc)
-                    not_retryable = isinstance(exc, ArchiveNotRetryableError)
+                    not_retryable = (
+                        isinstance(exc, (ArchiveNotRetryableError, GalleryGoneError))
+                        or "does not exist on ExHentai" in str(exc)
+                    )
                     row.retry_count += 1
                     if auth_failure or not_retryable or row.retry_count >= row.max_retries:
                         row.status = "failed"
                         row.retry_at = None
                         row.finished_at = now
+                        row.retry_count = max(row.retry_count, row.max_retries)
                     else:
                         row.status = "pending"
                         # Always apply exponential backoff for transient errors so the
