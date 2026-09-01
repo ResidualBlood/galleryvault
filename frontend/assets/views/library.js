@@ -29,7 +29,7 @@ async function renderLibrary() {
       <button class="btn btn-danger" data-action="delete-filtered" type="button">${esc(t("deleteFiltered"))}</button>
     </form>
     <div class="filters">${filterPill}</div>
-    <div id="lib-grid"><p>${esc(t("loading"))}</p></div>
+    <div id="lib-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="lib-pager"></div>`);
   try {
     const extra = { page_size: prefPageSize() };
@@ -45,14 +45,14 @@ async function renderLibrary() {
     gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
-  } catch (e) { $view().innerHTML = renderError(esc(e.message)); }
+  } catch (e) { $view().innerHTML = renderError(e.message); }
 }
 
 async function deleteFiltered() {
   const q = app.query.q || "";
   const category = app.query.category || "";
   const tags = app.query.tags || "";
-  const tag_mode = app.query.tag_mode || "or";
+  const tag_mode = app.query.tag_mode || "and";
   if (!window.confirm(t("confirmDeleteFiltered"))) return;
   const deleteFiles = window.confirm(t("deleteFiles"));
   try {

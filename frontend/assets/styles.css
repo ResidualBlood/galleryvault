@@ -75,6 +75,11 @@ input, select, textarea {
   background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
   border-radius: var(--radius-sm); padding: var(--space-sm) var(--space-md); font: inherit;
 }
+input:focus, select:focus, textarea:focus {
+  outline: none; box-shadow: var(--focus-ring); border-color: var(--accent);
+}
+input:focus { outline: none; }
+select:focus { outline: none; }
 label { display: block; margin: 10px 0; }
 label.checkbox, label.inline { display: flex; gap: 8px; align-items: center; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 20px; }

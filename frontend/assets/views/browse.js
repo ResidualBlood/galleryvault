@@ -23,15 +23,24 @@ async function renderBrowse() {
       <h2>${esc(t("tags"))}</h2>
       <div id="browse-ns" class="ns-strip"></div>
     </section>`);
+  let data = null;
+  let tagData = null;
   try {
-    const [data, tagData] = await Promise.all([
-      galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() }),
-      api("GET", "/api/tags/search?page=1&page_size=1").catch(() => null),
-    ]);
+    data = await galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() });
+  } catch (e) {
+    const el = document.getElementById("browse-grid");
+    if (el) el.innerHTML = renderError(e.message);
+  }
+  try {
+    tagData = await api("GET", "/api/tags/search?page=1&page_size=1");
+  } catch (_) { tagData = null; }
+  try {
     const totalEl = document.getElementById("browse-total");
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;
-    gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
-    startInfinite("browse-grid", p => galleryGrid(null, p, { page_size: prefPageSize() }), galleryCard);
+    if (data) {
+      gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
+      startInfinite("browse-grid", p => galleryGrid(null, p, { page_size: prefPageSize() }), galleryCard);
+    }
     const strip = document.getElementById("browse-ns");
     if (strip && tagData) {
       const counts = {};
@@ -40,8 +49,13 @@ async function renderBrowse() {
         .filter(g => g.ns && counts[g.ns])
         .map(g => `<a class="pill" href="${navHash("tags", {}, { ns: g.ns })}">${esc(groupLabel(g.key))} <b>${counts[g.ns]}</b></a>`)
         .join("");
+    } else if (strip && !tagData) {
+      strip.innerHTML = `<span class="muted">${esc(t("noData"))}</span>`;
     }
-  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  } catch (e) {
+    // Pager/infinite errors should not wipe the whole view
+    console.warn("browse pager error", e);
+  }
 }
 
 async function randomGallery() {

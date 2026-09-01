@@ -31,7 +31,7 @@ async function renderHistory() {
       `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
       pages.join(" ") +
       ` ${pagerJump(data.page, last)} · ${esc(t("perPage"))} ${pageSizeSelect(data.page_size, "history")}`;
-  } catch (e) { document.getElementById("hist-list").innerHTML = renderError(esc(e.message)); }
+  } catch (e) { document.getElementById("hist-list").innerHTML = renderError(e.message); }
 }
 
 async function clearHistory() {

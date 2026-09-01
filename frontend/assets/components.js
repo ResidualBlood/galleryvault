@@ -5,6 +5,8 @@
 
 function renderCardCheckboxes() {
   document.querySelectorAll(".gc-check input").forEach(cb => {
+    if (cb.dataset.bound) return;
+    cb.dataset.bound = "1";
     cb.addEventListener("change", () => {
       const id = parseInt(cb.getAttribute("data-gallery-id"), 10);
       if (cb.checked) selGalleries.add(id); else selGalleries.delete(id);
@@ -13,6 +15,8 @@ function renderCardCheckboxes() {
     });
   });
   document.querySelectorAll('.gc-check input[data-fav-gid]').forEach(cb => {
+    if (cb.dataset.bound) return;
+    cb.dataset.bound = "1";
     cb.addEventListener("change", () => {
       const gid = parseInt(cb.getAttribute("data-fav-gid"), 10);
       if (cb.checked) selFav.add(gid); else selFav.delete(gid);
@@ -29,6 +33,8 @@ function renderCardCheckboxes() {
     });
   });
   document.querySelectorAll('#dup-groups input[data-dup-gid]').forEach(cb => {
+    if (cb.dataset.bound) return;
+    cb.dataset.bound = "1";
     cb.addEventListener("change", () => {
       const gid = parseInt(cb.getAttribute("data-dup-gid"), 10);
       if (cb.checked) selDup.add(gid); else selDup.delete(gid);
@@ -43,7 +49,7 @@ function galleryCard(it) {
   return `<div class="gc-wrap">
     <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}" role="link" aria-label="${esc(it.title)} (${cat}, ${it.page_count} pages)">
       <div class="gc-cover">
-        ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<span class="badge">no cover</span>`}
+        ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover") || "no cover")}</div>`}
         <span class="gc-cat">${cat}</span>
         <span class="gc-pages">${it.page_count} P</span>
       </div>
@@ -100,6 +106,7 @@ function showArchiveDialog(gids, opts) {
     const close = (value) => {
       if (settled) return;
       settled = true;
+      try { document.removeEventListener('keydown', onKey); } catch (_) {}
       overlay.remove();
       resolve(value);
     };
@@ -114,7 +121,7 @@ function showArchiveDialog(gids, opts) {
     const focusables = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
     if (focusables.length) focusables[0].focus();
     const onKey = (e) => {
-      if (e.key === 'Escape') { close(null); document.removeEventListener('keydown', onKey); }
+      if (e.key === 'Escape') { close(null); return; }
       if (e.key === 'Tab' && focusables.length) {
         const first = focusables[0], last = focusables[focusables.length-1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }

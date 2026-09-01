@@ -24,7 +24,7 @@ function updateBanner() {
 
 function esc(s) {
   return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 let toastTimer = null;
@@ -35,8 +35,16 @@ function toast(msg) {
   toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
 }
 
+function getCsrfToken() {
+  const m = document.cookie.match(/(?:^|;\s*)galleryvault_csrf=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
 async function api(method, path, body) {
   const opts = { method, credentials: "include", headers: {} };
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
+    const csrf = getCsrfToken();
+    if (csrf) opts.headers["X-CSRF-Token"] = csrf;
+  }
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
@@ -52,14 +60,18 @@ async function api(method, path, body) {
     }
     throw err;
   }
-  if (res.status === 204) return null;
+  if (res.status === 204 || res.headers.get("content-length") === "0") return null;
+  let text = "";
+  try { text = await res.text(); } catch (_) {}
   let data = null;
-  try { data = await res.json(); } catch (_) {}
+  if (text) { try { data = JSON.parse(text); } catch (_) {} }
   if (!res.ok) {
-    const detail = (data && (data.detail || data.message)) || res.statusText;
+    const detail = (data && (data.detail || data.message)) || text || res.statusText;
     throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
   }
-  return data;
+  // Empty body on success -> null, JSON object/array -> parsed, otherwise raw text
+  if (data !== null) return data;
+  return text ? text : null;
 }
 
 async function checkAuth() {

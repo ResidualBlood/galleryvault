@@ -28,7 +28,7 @@ window.GV_LOCALES.zh = {
   save: "保存", testLogin: "测试登录", cookieSet: "已设置（不回显）", cookieUnset: "未设置",
   filterAll: "全部", filterPending: "进行中", filterSuccess: "成功", filterFailed: "失败",
   cancel: "取消", noTasks: "暂无下载任务。", noGalleries: "没有匹配的画廊，请点击扫描。",
-  noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", clearAll: "清空标签", search: "搜索",
+  noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", noCover: "无封面", clearAll: "清空标签", search: "搜索",
   openEh: "打开原站", ehLoginNote: "需浏览器已登录 ExHentai", custom: "自定义",
   ehPublicNotice: "外站 E-Hentai：里站专属画廊会暂停标签同步（不会被误判为已删除），切回 exhentai.org 后自动恢复。",
   progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
