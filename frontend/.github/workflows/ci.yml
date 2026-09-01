@@ -109,7 +109,3 @@ jobs:
           TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.sha }}"
           
           docker buildx imagetools create $TAG_ARGS $(printf '${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend@sha256:%s ' *)
-
-      - name: Inspect image
-        run: |
-          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.sha }}
