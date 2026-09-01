@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Clear all gallery reading progress endpoint and UI button** (`routers/galleries.py`, `db/repository.py`, frontend `history.js`, `events.js`): Added `DELETE /api/galleries/progress` to reset reading progress across all galleries with confirmation dialog on the History page, alongside `DELETE /api/galleries/{identifier}/progress` for single-gallery resets.
+
 ### Fixed
 
 - **Download worker GalleryGoneError (404) terminal classification** (`services/download_worker.py`): When an online gallery is removed (HTTP 404 / `GalleryGoneError`), the download worker now treats it as a non-retryable terminal failure, marks it `failed` immediately, and exhausts the retry count (`retry_count = max_retries`) so periodic sweeps do not repeatedly retry deleted galleries.
