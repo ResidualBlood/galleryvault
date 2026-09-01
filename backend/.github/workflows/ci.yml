@@ -24,29 +24,25 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: galleryvault
-          POSTGRES_PASSWORD: galleryvault
-          POSTGRES_DB: galleryvault
-        ports: ["5432:5432"]
-        options: >-
-          --tmpfs /var/lib/postgresql/data
-          --health-cmd "pg_isready -U galleryvault -d galleryvault"
-          --health-interval 1s --health-timeout 2s --health-retries 20
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Start Postgres (in-memory background)
+        run: |
+          docker run -d \
+            --name postgres \
+            --tmpfs /var/lib/postgresql/data \
+            -e POSTGRES_USER=galleryvault \
+            -e POSTGRES_PASSWORD=galleryvault \
+            -e POSTGRES_DB=galleryvault \
+            -p 5432:5432 \
+            postgres:16-alpine \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off
 
-      - name: Set up uv
+      - name: Set up uv & Python
         uses: astral-sh/setup-uv@v5
         with:
+          python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
 
       - name: Install
@@ -56,7 +52,14 @@ jobs:
       - name: Migrate database
         env:
           DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
-        run: alembic upgrade head
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec postgres pg_isready -U galleryvault -d galleryvault >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.5
+          done
+          alembic upgrade head
 
       - name: Lint
         run: ruff check .
@@ -149,7 +152,3 @@ jobs:
           TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}"
           
           docker buildx imagetools create $TAG_ARGS $(printf '${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend@sha256:%s ' *)
-
-      - name: Inspect image
-        run: |
-          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}
