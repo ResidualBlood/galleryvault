@@ -43,8 +43,9 @@ manually to revisit it.
   pagination.
 - **"Not in favorites" filter**: the category dropdown ends with "Not in
   favorites", showing local galleries whose gid is not in any ExHentai favorite
-  folder (gid-less local archives count as not favorited). Before favorites
-  have ever been synced this item is equivalent to "All".
+  folder (gid-less local archives count as not favorited; older local copies with
+  a newer favorited version are excluded and routed to Gallery Updates instead).
+  Before favorites have ever been synced this item is equivalent to "All".
 - This page uses **infinite scroll**: the next page (24 galleries by default)
   is appended as you near the bottom; the numbered pager at the bottom stays
   as a fallback. Your page-size choice is remembered across visits.
