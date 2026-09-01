@@ -78,6 +78,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {}
 # :func:`search_zh_exact` is an O(1) lookup instead of a full table walk.
 _ZH_EXACT: dict[str, tuple[str, str, str]] = {}
 
+# Flattened, pre-ranked and pre-casefolded list for substring search:
+# (rank, namespace, name, display, display_casefold)
+_ZH_SEARCH_ENTRIES: list[tuple[int, str, str, str, str]] = []
+
 # Namespace walk order for reverse lookups: high-traffic namespaces first so
 # ties resolve deterministically (shared by search_zh and the exact index).
 _ZH_ORDER = [
@@ -94,7 +98,7 @@ _ZH_ORDER = [
 
 
 def _rebuild_zh_exact_index() -> None:
-    """Rebuild ``_ZH_EXACT`` from the active translation table.
+    """Rebuild ``_ZH_EXACT`` and ``_ZH_SEARCH_ENTRIES`` from the active translation table.
 
     First match wins, matching the pre-index ``search_zh_exact`` behaviour:
     namespaces in ``_ZH_ORDER`` priority order, entries in insertion order
@@ -102,15 +106,19 @@ def _rebuild_zh_exact_index() -> None:
     translation) resolve to whichever namespace the original table kept.
     """
     _ZH_EXACT.clear()
+    _ZH_SEARCH_ENTRIES.clear()
     for ns in sorted(
         _TRANSLATIONS, key=lambda ns: _ZH_ORDER.index(ns) if ns in _ZH_ORDER else len(_ZH_ORDER)
     ):
+        rank = _ZH_ORDER.index(ns) if ns in _ZH_ORDER else len(_ZH_ORDER)
         for name, zh in _TRANSLATIONS[ns].items():
             display = clean_display(str(zh)) if zh else ""
             if display:
                 key = display.casefold()
                 if key not in _ZH_EXACT:
                     _ZH_EXACT[key] = ns, name, display
+                _ZH_SEARCH_ENTRIES.append((rank, ns, name, display, key))
+    _ZH_SEARCH_ENTRIES.sort(key=lambda item: item[0])
 
 
 def load_translations(path: str | Path | None = None, *, reset: bool = False) -> int:
@@ -211,15 +219,13 @@ def search_zh(query: str, limit: int = 20) -> list[tuple[str, str, str]]:
     needle = query.casefold().strip()
     if not needle:
         return []
-    scored: list[tuple[int, str, str, str]] = []
-    for ns, table in _TRANSLATIONS.items():
-        rank = _ZH_ORDER.index(ns) if ns in _ZH_ORDER else len(_ZH_ORDER)
-        for name, zh in table.items():
-            display = clean_display(str(zh)) if zh else ""
-            if needle in display.casefold():
-                scored.append((rank, ns, name, display))
-    scored.sort(key=lambda item: item[0])
-    return [(ns, name, display) for _, ns, name, display in scored[:limit]]
+    results: list[tuple[str, str, str]] = []
+    for _rank, ns, name, display, cf in _ZH_SEARCH_ENTRIES:
+        if needle in cf:
+            results.append((ns, name, display))
+            if len(results) >= limit:
+                break
+    return results
 
 
 def search_zh_exact(query: str) -> tuple[str, str, str] | None:

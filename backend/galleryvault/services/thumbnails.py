@@ -87,6 +87,11 @@ class ThumbnailService:
 
         try:
             with Image.open(BytesIO(page_bytes)) as source:
+                if hasattr(source, "draft"):
+                    try:
+                        source.draft("RGB", (THUMB_MAX_WIDTH * 2, THUMB_MAX_HEIGHT * 2))
+                    except Exception:  # noqa: BLE001, S110
+                        pass
                 source.load()
                 image = source.convert("RGB")
                 image.thumbnail((THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT))
@@ -98,5 +103,5 @@ class ThumbnailService:
             raise ThumbnailError(f"could not decode image: {exc}") from exc
 
         buf = BytesIO()
-        image.save(buf, format="JPEG", quality=THUMB_QUALITY, optimize=True)
+        image.save(buf, format="JPEG", quality=THUMB_QUALITY)
         return buf.getvalue()

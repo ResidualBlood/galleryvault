@@ -401,18 +401,21 @@ class GalleryRepository:
         if exclude_favorited:
             # Local galleries whose gid is not in any favorite folder and
             # not superseded by a tracked update whose new_gid is in favorites.
-            fav_gids = select(FavoriteItem.gid)
-            updated_gallery_ids = (
-                select(GalleryUpdate.gallery_id).where(
+            fav_exists = select(1).select_from(FavoriteItem).where(FavoriteItem.gid == Gallery.gid)
+            updated_fav_exists = (
+                select(1)
+                .select_from(GalleryUpdate)
+                .join(FavoriteItem, FavoriteItem.gid == GalleryUpdate.new_gid)
+                .where(
+                    GalleryUpdate.gallery_id == Gallery.id,
                     GalleryUpdate.status != "ignored",
-                    GalleryUpdate.new_gid.in_(fav_gids),
                 )
             )
             query = query.where(
                 Gallery.gid.is_(None)
                 | (
-                    Gallery.gid.not_in(fav_gids)
-                    & Gallery.id.not_in(updated_gallery_ids)
+                    ~fav_exists.exists()
+                    & ~updated_fav_exists.exists()
                 )
             )
         if tags:

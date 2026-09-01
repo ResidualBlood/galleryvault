@@ -93,7 +93,7 @@ async def test_list_page_exclude_favorited_adds_not_in_subquery():
     repo = GalleryRepository(session)
     await repo.list_page(1, 24, q="", exclude_favorited=True)
     sql = session.sql[-1].lower()
-    assert "not in" in sql and "favorite_items" in sql
+    assert "favorite_items" in sql and ("not in" in sql or "exists" in sql)
 
 
 async def test_list_page_without_exclude_favorited_has_no_favorites_filter():

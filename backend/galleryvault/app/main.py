@@ -944,6 +944,13 @@ async def startup() -> None:
     # Ensure app_state mirrors app.state for spawned_tasks
     _sync_state()
 
+    # Warm up database pool
+    try:
+        async with _settings_session() as session:
+            await session.execute(select(1))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("database pool warmup failed", extra=log_extra(error=type(exc).__name__))
+
     try:
         async with _settings_session() as session:
             repo_cls = globals().get("SettingsRepository", SettingsRepository)
@@ -1040,10 +1047,13 @@ async def startup() -> None:
             "Set ENCRYPTION_KEY to enable at-rest encryption and avoid plaintext persistence."
         )
     if _settings().generate_thumbnails:
-        try:
-            await globals().get("_seed_thumbnails", _seed_thumbnails)()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("thumbnail seeding failed", extra=log_extra(error=type(exc).__name__))
+        seed_coro = globals().get("_seed_thumbnails", _seed_thumbnails)()
+        seed_task = _spawn(seed_coro, "thumbnail seeding startup")
+        if seed_task is None:
+            try:
+                await seed_coro
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("thumbnail seeding failed", extra=log_extra(error=type(exc).__name__))
     globals().get("_ensure_translation_updater", _ensure_translation_updater)()
     # Do not block lifespan on translation DB load; /healthz should be ready ASAP.
     try:
