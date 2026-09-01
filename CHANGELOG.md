@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Download ingest tuple tags** (`services/download_worker.py`): `ingest_downloaded_gallery` previously called `.items()` on `result.tags`, crashing with `AttributeError` when given the tuple-of-tuples tag format returned by `Downloader.execute`. Tag unpacking now supports `tuple`, `list`, and `dict` formats. Completed download tasks now also align `current_page = total_pages`.
 - **Unit of Work transaction semantics** (`db/uow.py`): `async_sessionmaker` was mis-detected as an external session, so `get_uow` never committed. Factory vs session is now distinguished by `isinstance(AsyncSession)` + callable check with `_began` tracking, and `from_factory`/`from_session` are available.
 - **Download progress + SQLite concurrency** (`services/download_worker.py`, `db/repository.py`): `task.id=None` no longer crashes `download_progress`/`is_download_cancelled`; `claim_pending`/`BackgroundJob.claim` fall back without `FOR UPDATE SKIP LOCKED` on SQLite and the download worker limits itself to 1 worker there.
 - **App state double-write** (`app/main.py`, `app/state.py`): `app_state` is the single source of truth, `app.state` is mirrored; `_refresh_services` and `startup` now keep `library_service`/`tag_service`/`thumbnail_service` in sync.
