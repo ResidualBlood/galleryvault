@@ -37,7 +37,7 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U galleryvault -d galleryvault"
-          --health-interval 5s --health-timeout 5s --health-retries 12
+          --health-interval 1s --health-timeout 2s --health-retries 20
     steps:
       - uses: actions/checkout@v7
 
@@ -46,9 +46,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Install
         run: |
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
 
       - name: Migrate database
         env:
@@ -61,7 +66,7 @@ jobs:
       - name: Test (with coverage gate)
         env:
           DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
-        run: pytest -q -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
+        run: pytest -q -n auto -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
 
   build-push:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
