@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Download worker GalleryGoneError (404) terminal classification** (`services/download_worker.py`): When an online gallery is removed (HTTP 404 / `GalleryGoneError`), the download worker now treats it as a non-retryable terminal failure, marks it `failed` immediately, and exhausts the retry count (`retry_count = max_retries`) so periodic sweeps do not repeatedly retry deleted galleries.
 - **Settings refresh state synchronization & Telegram bot task cancellation** (`services/settings_service.py`, `app/main.py`): `refresh_services()` in `settings_service` now delegates to `main._refresh_services()` (or synchronously updates both `app_state` and `main.app.state`), ensuring background workers (`download_worker`) and `get_downloader()`/`get_eh_client()` immediately adopt the newly created client instead of holding closed client references (`RuntimeError: Cannot send a request, as the client has been closed.`). `start_telegram_bot` now cancels previous polling tasks across both `app.state` and `app_state.extra` so polling loops do not leak on closed clients after saving settings.
 
 ## [1.4.0] - 2026-09-01
