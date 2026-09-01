@@ -15,7 +15,7 @@ from ..app.state import app_state
 from ..config import get_settings
 from ..db.models import Gallery, GalleryPage
 from ..db.repository import BackgroundJobsRepository
-from ..logging import log_extra
+from ..logging import bind_log_context, log_extra
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
 from .tag_sync_worker import claim_jobs, complete_job, jobs_count, requeue_job
@@ -120,35 +120,36 @@ async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
 async def seed_thumbnails() -> None:
     if not app_state.session_factory:
         return
-    async with app_state.session_factory() as session:
-        rows = await session.execute(
-            select(Gallery.id, Gallery.page_count).where(
-                Gallery.page_count.is_not(None), Gallery.expunged.is_(False)
+    with bind_log_context(worker="thumbnails"):
+        async with app_state.session_factory() as session:
+            rows = await session.execute(
+                select(Gallery.id, Gallery.page_count).where(
+                    Gallery.page_count.is_not(None), Gallery.expunged.is_(False)
+                )
             )
-        )
-        pairs = [(int(row[0]), int(row[1])) for row in rows if row[1]]
-    service = _thumb_service()
-    missing: list[int] = []
-    missing_total = 0
-    for gallery_id, _page_count in pairs:
-        if service.cached(gallery_id, 0) is not None:
-            continue
-        missing_total += 1
-        missing.append(gallery_id)
-    added = 0
-    for start in range(0, len(missing), 500):
-        async with app_state.session_factory() as session, session.begin():
-            added += await BackgroundJobsRepository(session).enqueue_many(
-                JOB_THUMB, missing[start : start + 500]
-            )
-    tm = app_state.task_manager
-    thumb_state = tm.thumb_state if tm else {}
-    thumb_state["total"] = missing_total
-    thumb_state["queued"] = await jobs_count(JOB_THUMB)
-    if added:
-        thumb_state["running"] = True
-        thumb_state["completed_at"] = None
-    logger.info("thumbnail seeding complete", extra=log_extra(queued=added, pending=missing_total))
+            pairs = [(int(row[0]), int(row[1])) for row in rows if row[1]]
+        service = _thumb_service()
+        missing: list[int] = []
+        missing_total = 0
+        for gallery_id, _page_count in pairs:
+            if service.cached(gallery_id, 0) is not None:
+                continue
+            missing_total += 1
+            missing.append(gallery_id)
+        added = 0
+        for start in range(0, len(missing), 500):
+            async with app_state.session_factory() as session, session.begin():
+                added += await BackgroundJobsRepository(session).enqueue_many(
+                    JOB_THUMB, missing[start : start + 500]
+                )
+        tm = app_state.task_manager
+        thumb_state = tm.thumb_state if tm else {}
+        thumb_state["total"] = missing_total
+        thumb_state["queued"] = await jobs_count(JOB_THUMB)
+        if added:
+            thumb_state["running"] = True
+            thumb_state["completed_at"] = None
+        logger.info("thumbnail seeding complete", extra=log_extra(queued=added, pending=missing_total))
 
 
 async def thumbnail_worker_loop() -> None:

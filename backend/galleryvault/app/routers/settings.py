@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from ...config import normalize_library_roots
 from ...db.models import FavoritesMonitor
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
+from ...logging import clear_recent_logs, get_log_level, get_recent_logs, set_log_level
 from ...secrets import encrypt, encrypt_json, encryption_enabled, is_encrypted
 from ...services.settings_service import (
     decrypt_user_settings,
@@ -20,7 +21,7 @@ from ...services.settings_service import (
     update_runtime_settings,
 )
 from ..dependencies import db_error, get_current_settings, get_eh_client, get_session
-from ..schemas import SettingsRequest
+from ..schemas import LogLevelRequest, SettingsRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -183,3 +184,30 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
             logger.warning("could not resume not-visible galleries", extra={"error": str(exc)})
     await refresh_services()
     return settings_public()
+
+
+@router.get("/api/system/logs")
+async def system_logs_get(
+    min_level: str = "INFO", limit: int = 100, search: str | None = None
+) -> dict[str, object]:
+    """Retrieve recent system logs from the in-memory ring buffer."""
+    capped_limit = max(1, min(limit, 500))
+    return {
+        "level": get_log_level(),
+        "logs": get_recent_logs(min_level=min_level, limit=capped_limit, search=search),
+    }
+
+
+@router.post("/api/system/logs/level")
+async def system_logs_set_level(body: LogLevelRequest) -> dict[str, str]:
+    """Dynamically change the active log level without container restart."""
+    applied = set_log_level(body.level)
+    return {"level": applied}
+
+
+@router.delete("/api/system/logs")
+async def system_logs_clear() -> dict[str, str]:
+    """Clear the in-memory ring buffer logs."""
+    clear_recent_logs()
+    return {"status": "cleared"}
+

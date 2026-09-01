@@ -13,7 +13,7 @@ import httpx
 from ..app.state import app_state
 from ..config import get_settings
 from ..db.repository import BackgroundJobsRepository, GalleryRepository
-from ..logging import log_extra
+from ..logging import bind_log_context, log_extra
 from .eh_client import EhClientError, GalleryGoneError
 from .tag_sync import TagSyncService
 from .tag_translation import load_translations, merge_translation_data
@@ -393,150 +393,151 @@ async def tag_sync_worker_loop() -> None:
     _TAG_SYNC_IDLE_SECONDS = 5.0
 
     async def _sync_one(gallery_id: int, attempts: int) -> bool | None:
-        try:
-            if favorites_check_state.get("running"):
-                holds = tag_sync_holds.get(gallery_id, 0)
-                cached_tags = False
-                if holds < MAX_TAG_SYNC_HOLDS:
-                    async with app_state.session_factory() as session:
-                        repo = GalleryRepository(session)
-                        gallery = await repo.get_for_tag_sync(gallery_id)
-                        if gallery is not None and gallery.gid is not None:
-                            cached = await repo.metadata_for_gid(gallery.gid)
-                            cached_tags = bool(cached and cached.get("tags"))
-                    if not cached_tags:
-                        tag_sync_holds[gallery_id] = holds + 1
-                        await requeue_job(
-                            JOB_TAG_SYNC,
-                            gallery_id,
-                            next_attempt_at=datetime.now(UTC) + timedelta(seconds=60),
-                        )
-                        tag_sync_state["queued"] = await jobs_count(JOB_TAG_SYNC)
-                        await asyncio.sleep(interval[0])
-                        return False
-                tag_sync_holds.pop(gallery_id, None)
-
-            async with app_state.session_factory() as session:
-                plan = await TagSyncService(
-                    app_state.eh_client, GalleryRepository(session)
-                ).fetch_plan(gallery_id)
-
-            async with app_state.session_factory() as session, session.begin():
-                await TagSyncService(
-                    app_state.eh_client, GalleryRepository(session)
-                ).apply_plan(gallery_id, plan)
-
-            tag_sync_state["succeeded"] += 1
-            await complete_job(JOB_TAG_SYNC, gallery_id)
-            success_streak[0] += 1
-            if success_streak[0] >= 10 and interval[0] > base_interval:
-                interval[0] = max(base_interval, interval[0] / 2)
-            return True
-        except GalleryGoneError as exc:
-            # Confirm via gdata before reclassifying — see category_refresh_once.
-            gid_for_confirm: int | None = None
-            token_for_confirm: str | None = None
+        with bind_log_context(worker="tag_sync", gallery_id=gallery_id):
             try:
-                async with app_state.session_factory() as session:
-                    gr = await GalleryRepository(session).get_for_tag_sync(gallery_id)
-                    if gr is not None:
-                        gid_for_confirm = gr.gid
-                        token_for_confirm = gr.token
-            except Exception:  # noqa: BLE001, S110
-                pass
-            confirmed = None
-            if gid_for_confirm is not None:
-                confirmed = await _confirm_gone(int(gid_for_confirm), token_for_confirm)
-            if confirmed is False:
-                # gdata says still alive → transient HTML gone, requeue for retry
-                logger.warning(
-                    "tag sync gone not confirmed by gdata, requeueing",
-                    extra=log_extra(gallery_id=gallery_id, gid=gid_for_confirm),
-                )
-                interval[0] = min(MAX_BACKOFF, interval[0] * 2)
-                success_streak[0] = 0
-                if attempts < MAX_ATTEMPTS:
-                    tag_sync_state["retries"] += 1
-                    await requeue_job(JOB_TAG_SYNC, gallery_id)
-                    return
-                # fall through to mark synced without deleted after retries
-            elif confirmed is None and gid_for_confirm is not None:
-                logger.warning(
-                    "tag sync gdata check inconclusive, requeueing",
-                    extra=log_extra(gallery_id=gallery_id, gid=gid_for_confirm),
-                )
-                interval[0] = min(MAX_BACKOFF, interval[0] * 2)
-                success_streak[0] = 0
-                if attempts < MAX_ATTEMPTS:
-                    tag_sync_state["retries"] += 1
-                    await requeue_job(JOB_TAG_SYNC, gallery_id)
-                    return
-            else:
-                if _is_public_site(settings.exhentai_base_url):
-                    try:
-                        async with app_state.session_factory() as session, session.begin():
-                            await GalleryRepository(session).mark_tag_not_visible(gallery_id)
-                    except Exception:  # noqa: BLE001
-                        logger.warning(
-                            "could not mark gallery not-visible on public mirror",
-                            extra=log_extra(gallery_id=gallery_id),
-                        )
-                else:
-                    try:
-                        async with app_state.session_factory() as session, session.begin():
-                            await GalleryRepository(session).mark_tag_synced(
-                                gallery_id, category="deleted"
+                if favorites_check_state.get("running"):
+                    holds = tag_sync_holds.get(gallery_id, 0)
+                    cached_tags = False
+                    if holds < MAX_TAG_SYNC_HOLDS:
+                        async with app_state.session_factory() as session:
+                            repo = GalleryRepository(session)
+                            gallery = await repo.get_for_tag_sync(gallery_id)
+                            if gallery is not None and gallery.gid is not None:
+                                cached = await repo.metadata_for_gid(gallery.gid)
+                                cached_tags = bool(cached and cached.get("tags"))
+                        if not cached_tags:
+                            tag_sync_holds[gallery_id] = holds + 1
+                            await requeue_job(
+                                JOB_TAG_SYNC,
+                                gallery_id,
+                                next_attempt_at=datetime.now(UTC) + timedelta(seconds=60),
                             )
-                    except Exception:  # noqa: BLE001
-                        logger.warning(
-                            "could not mark deleted gallery synced",
-                            extra=log_extra(gallery_id=gallery_id),
-                        )
+                            tag_sync_state["queued"] = await jobs_count(JOB_TAG_SYNC)
+                            await asyncio.sleep(interval[0])
+                            return False
+                    tag_sync_holds.pop(gallery_id, None)
+
+                async with app_state.session_factory() as session:
+                    plan = await TagSyncService(
+                        app_state.eh_client, GalleryRepository(session)
+                    ).fetch_plan(gallery_id)
+
+                async with app_state.session_factory() as session, session.begin():
+                    await TagSyncService(
+                        app_state.eh_client, GalleryRepository(session)
+                    ).apply_plan(gallery_id, plan)
+
+                tag_sync_state["succeeded"] += 1
+                await complete_job(JOB_TAG_SYNC, gallery_id)
+                success_streak[0] += 1
+                if success_streak[0] >= 10 and interval[0] > base_interval:
+                    interval[0] = max(base_interval, interval[0] / 2)
+                return True
+            except GalleryGoneError as exc:
+                # Confirm via gdata before reclassifying — see category_refresh_once.
+                gid_for_confirm: int | None = None
+                token_for_confirm: str | None = None
+                try:
+                    async with app_state.session_factory() as session:
+                        gr = await GalleryRepository(session).get_for_tag_sync(gallery_id)
+                        if gr is not None:
+                            gid_for_confirm = gr.gid
+                            token_for_confirm = gr.token
+                except Exception:  # noqa: BLE001, S110
+                    pass
+                confirmed = None
+                if gid_for_confirm is not None:
+                    confirmed = await _confirm_gone(int(gid_for_confirm), token_for_confirm)
+                if confirmed is False:
+                    # gdata says still alive → transient HTML gone, requeue for retry
+                    logger.warning(
+                        "tag sync gone not confirmed by gdata, requeueing",
+                        extra=log_extra(gallery_id=gallery_id, gid=gid_for_confirm),
+                    )
+                    interval[0] = min(MAX_BACKOFF, interval[0] * 2)
+                    success_streak[0] = 0
+                    if attempts < MAX_ATTEMPTS:
+                        tag_sync_state["retries"] += 1
+                        await requeue_job(JOB_TAG_SYNC, gallery_id)
+                        return
+                    # fall through to mark synced without deleted after retries
+                elif confirmed is None and gid_for_confirm is not None:
+                    logger.warning(
+                        "tag sync gdata check inconclusive, requeueing",
+                        extra=log_extra(gallery_id=gallery_id, gid=gid_for_confirm),
+                    )
+                    interval[0] = min(MAX_BACKOFF, interval[0] * 2)
+                    success_streak[0] = 0
+                    if attempts < MAX_ATTEMPTS:
+                        tag_sync_state["retries"] += 1
+                        await requeue_job(JOB_TAG_SYNC, gallery_id)
+                        return
+                else:
+                    if _is_public_site(settings.exhentai_base_url):
+                        try:
+                            async with app_state.session_factory() as session, session.begin():
+                                await GalleryRepository(session).mark_tag_not_visible(gallery_id)
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "could not mark gallery not-visible on public mirror",
+                                extra=log_extra(gallery_id=gallery_id),
+                            )
+                    else:
+                        try:
+                            async with app_state.session_factory() as session, session.begin():
+                                await GalleryRepository(session).mark_tag_synced(
+                                    gallery_id, category="deleted"
+                                )
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "could not mark deleted gallery synced",
+                                extra=log_extra(gallery_id=gallery_id),
+                            )
+                    await complete_job(JOB_TAG_SYNC, gallery_id)
+                    tag_sync_state["failed"] += 1
+                    logger.warning(
+                        "tag sync skipped (gallery gone)",
+                        extra=log_extra(gallery_id=gallery_id, error=str(exc)),
+                    )
+                    return
+                # Requeued case: treat as transient failure without marking deleted
+                try:
+                    async with app_state.session_factory() as session, session.begin():
+                        await GalleryRepository(session).mark_tag_synced(gallery_id)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "could not mark requeued gallery synced",
+                        extra=log_extra(gallery_id=gallery_id),
+                    )
                 await complete_job(JOB_TAG_SYNC, gallery_id)
                 tag_sync_state["failed"] += 1
                 logger.warning(
-                    "tag sync skipped (gallery gone)",
+                    "tag sync requeued after unconfirmed gone",
                     extra=log_extra(gallery_id=gallery_id, error=str(exc)),
                 )
-                return
-            # Requeued case: treat as transient failure without marking deleted
-            try:
-                async with app_state.session_factory() as session, session.begin():
-                    await GalleryRepository(session).mark_tag_synced(gallery_id)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                tag_sync_state["failed"] += 1
+                tag_sync_state["last_error"] = f"{type(exc).__name__}: {exc}"
                 logger.warning(
-                    "could not mark requeued gallery synced",
-                    extra=log_extra(gallery_id=gallery_id),
+                    "tag sync failed",
+                    extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__, message=str(exc)),
                 )
-            await complete_job(JOB_TAG_SYNC, gallery_id)
-            tag_sync_state["failed"] += 1
-            logger.warning(
-                "tag sync requeued after unconfirmed gone",
-                extra=log_extra(gallery_id=gallery_id, error=str(exc)),
-            )
-        except Exception as exc:  # noqa: BLE001
-            tag_sync_state["failed"] += 1
-            tag_sync_state["last_error"] = f"{type(exc).__name__}: {exc}"
-            logger.warning(
-                "tag sync failed",
-                extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
-            )
-            if isinstance(exc, (EhClientError, asyncio.TimeoutError)):
-                interval[0] = min(MAX_BACKOFF, interval[0] * 2)
-                success_streak[0] = 0
-                if attempts < MAX_ATTEMPTS:
-                    tag_sync_state["retries"] += 1
-                    await requeue_job(JOB_TAG_SYNC, gallery_id)
-                    return
-            try:
-                async with app_state.session_factory() as session, session.begin():
-                    await GalleryRepository(session).mark_tag_synced(gallery_id)
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "could not mark failed gallery synced",
-                    extra=log_extra(gallery_id=gallery_id),
-                )
-            await complete_job(JOB_TAG_SYNC, gallery_id)
+                if isinstance(exc, (EhClientError, asyncio.TimeoutError)):
+                    interval[0] = min(MAX_BACKOFF, interval[0] * 2)
+                    success_streak[0] = 0
+                    if attempts < MAX_ATTEMPTS:
+                        tag_sync_state["retries"] += 1
+                        await requeue_job(JOB_TAG_SYNC, gallery_id)
+                        return
+                try:
+                    async with app_state.session_factory() as session, session.begin():
+                        await GalleryRepository(session).mark_tag_synced(gallery_id)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "could not mark failed gallery synced",
+                        extra=log_extra(gallery_id=gallery_id),
+                    )
+                await complete_job(JOB_TAG_SYNC, gallery_id)
 
     async def _worker() -> None:
         while True:

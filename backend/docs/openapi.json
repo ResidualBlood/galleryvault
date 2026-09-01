@@ -1463,6 +1463,139 @@
         }
       }
     },
+    "/api/system/logs": {
+      "get": {
+        "summary": "System Logs Get",
+        "description": "Retrieve recent system logs from the in-memory ring buffer.",
+        "operationId": "system_logs_get_api_system_logs_get",
+        "parameters": [
+          {
+            "name": "min_level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "INFO",
+              "title": "Min Level"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response System Logs Get Api System Logs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "System Logs Clear",
+        "description": "Clear the in-memory ring buffer logs.",
+        "operationId": "system_logs_clear_api_system_logs_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response System Logs Clear Api System Logs Delete"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/logs/level": {
+      "post": {
+        "summary": "System Logs Set Level",
+        "description": "Dynamically change the active log level without container restart.",
+        "operationId": "system_logs_set_level_api_system_logs_level_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogLevelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response System Logs Set Level Api System Logs Level Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/favorites/{favcat}/items": {
       "get": {
         "summary": "Favorite Items",
@@ -3635,6 +3768,20 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LogLevelRequest": {
+        "properties": {
+          "level": {
+            "type": "string",
+            "title": "Level",
+            "description": "Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL"
+          }
+        },
+        "type": "object",
+        "required": [
+          "level"
+        ],
+        "title": "LogLevelRequest"
       },
       "ProgressRequest": {
         "properties": {

@@ -13,7 +13,7 @@ from typing import Any
 from ..app.state import app_state
 from ..config import get_settings
 from ..db.repository import DownloadRepository, FavoritesRepository, GalleryRepository
-from ..logging import log_extra
+from ..logging import bind_log_context, log_extra
 from ..services.tag_translation import translated_tag
 from .duplicates import find_duplicate_groups
 from .favorites import FavoritesService
@@ -315,6 +315,13 @@ async def favorite_size_sync(favcat: int) -> None:
 
 
 async def run_favorites_check(
+    favcat: int, service: FavoritesService, *, scheduled: bool = False
+) -> None:
+    with bind_log_context(worker="favorites", favcat=favcat):
+        await _run_favorites_check_inner(favcat, service, scheduled=scheduled)
+
+
+async def _run_favorites_check_inner(
     favcat: int, service: FavoritesService, *, scheduled: bool = False
 ) -> None:
     from ..app import main

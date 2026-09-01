@@ -16,7 +16,7 @@ from ..app.state import app_state
 from ..db.models import DownloadTask as DownloadTaskModel
 from ..db.models import FavoriteItem, Gallery
 from ..db.repository import DownloadRepository, GalleryUpdatesRepository
-from ..logging import log_extra
+from ..logging import bind_log_context, log_extra
 from .deletion import delete_galleries_local
 
 logger = logging.getLogger(__name__)
@@ -155,89 +155,91 @@ async def detect_gallery_updates() -> None:
 
     if bool(gallery_updates_state.get("detecting")):
         return
-    gallery_updates_state.update({"detecting": True, "last_error": None})
-    detected: list[dict[str, Any]] = []
-    found = 0
-    try:
-        async with session_cm() as session:
-            fav_rows = await session.execute(
-                select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.title, FavoriteItem.favcat)
-            )
-            fav_gids: set[int] = set()
-            by_title: dict[str, tuple[int, str, int]] = {}
-            for gid, token, title, favcat in fav_rows:
-                gid = int(gid)
-                fav_gids.add(gid)
-                nt = normalize_update_title(title or "")
-                if nt and nt not in by_title:
-                    by_title[nt] = (gid, str(token), int(favcat))
-                if "|" in (title or ""):
-                    for part in title.split("|"):
-                        p_nt = normalize_update_title(part)
-                        if p_nt and p_nt not in by_title:
-                            by_title[p_nt] = (gid, str(token), int(favcat))
-            repo = repo_cls(session)
-            tracked = await repo.tracked_gallery_ids()
-            page = 1
-            while True:
-                rows = await session.execute(
-                    select(Gallery.id, Gallery.gid, Gallery.title, Gallery.title_jpn)
-                    .where(Gallery.expunged.is_(False))
-                    .order_by(Gallery.id)
-                    .offset((page - 1) * 500)
-                    .limit(500)
+    with bind_log_context(worker="updates"):
+        gallery_updates_state.update({"detecting": True, "last_error": None})
+        detected: list[dict[str, Any]] = []
+        found = 0
+        try:
+            async with session_cm() as session:
+                fav_rows = await session.execute(
+                    select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.title, FavoriteItem.favcat)
                 )
-                batch = rows.all()
-                if not batch:
-                    break
-                for gallery_id, gid, title, title_jpn in batch:
-                    if gallery_id in tracked or gid is None or gid in fav_gids:
-                        continue
+                fav_gids: set[int] = set()
+                by_title: dict[str, tuple[int, str, int]] = {}
+                for gid, token, title, favcat in fav_rows:
+                    gid = int(gid)
+                    fav_gids.add(gid)
                     nt = normalize_update_title(title or "")
-                    match = by_title.get(nt)
-                    if not match and title_jpn:
-                        match = by_title.get(normalize_update_title(title_jpn))
-                    if not match and "|" in (title or ""):
+                    if nt and nt not in by_title:
+                        by_title[nt] = (gid, str(token), int(favcat))
+                    if "|" in (title or ""):
                         for part in title.split("|"):
-                            match = by_title.get(normalize_update_title(part))
-                            if match:
-                                break
-                    if match and match[0] != int(gid):
-                        new_gid, new_token, favcat = match
-                        detected.append(
-                            {
-                                "gallery_id": int(gallery_id),
-                                "old_gid": int(gid),
-                                "new_gid": new_gid,
-                                "new_token": new_token,
-                                "title": title,
-                                "favcat": favcat,
-                            }
-                        )
-                if len(batch) < 500:
-                    break
-                page += 1
-        if detected:
-            async with session_cm() as session, session.begin():
-                found = await repo_cls(session).detect_many(
-                    detected, known_gallery_ids=tracked
-                )
-        gallery_updates_state.update(
-            {"found": found, "last_detected_at": datetime.now(UTC).isoformat()}
-        )
-        if found:
-            logger.info(
-                "gallery update scan found new-version candidates",
-                extra=log_extra(found=found),
+                            p_nt = normalize_update_title(part)
+                            if p_nt and p_nt not in by_title:
+                                by_title[p_nt] = (gid, str(token), int(favcat))
+                repo = repo_cls(session)
+                tracked = await repo.tracked_gallery_ids()
+                page = 1
+                while True:
+                    rows = await session.execute(
+                        select(Gallery.id, Gallery.gid, Gallery.title, Gallery.title_jpn)
+                        .where(Gallery.expunged.is_(False))
+                        .order_by(Gallery.id)
+                        .offset((page - 1) * 500)
+                        .limit(500)
+                    )
+                    batch = rows.all()
+                    if not batch:
+                        break
+                    for gallery_id, gid, title, title_jpn in batch:
+                        if gallery_id in tracked or gid is None or gid in fav_gids:
+                            continue
+                        nt = normalize_update_title(title or "")
+                        match = by_title.get(nt)
+                        if not match and title_jpn:
+                            match = by_title.get(normalize_update_title(title_jpn))
+                        if not match and "|" in (title or ""):
+                            for part in title.split("|"):
+                                match = by_title.get(normalize_update_title(part))
+                                if match:
+                                    break
+                        if match and match[0] != int(gid):
+                            new_gid, new_token, favcat = match
+                            detected.append(
+                                {
+                                    "gallery_id": int(gallery_id),
+                                    "old_gid": int(gid),
+                                    "new_gid": new_gid,
+                                    "new_token": new_token,
+                                    "title": title,
+                                    "favcat": favcat,
+                                }
+                            )
+                    if len(batch) < 500:
+                        break
+                    page += 1
+            if detected:
+                async with session_cm() as session, session.begin():
+                    found = await repo_cls(session).detect_many(
+                        detected, known_gallery_ids=tracked
+                    )
+            gallery_updates_state.update(
+                {"found": found, "last_detected_at": datetime.now(UTC).isoformat()}
             )
-    except Exception as exc:  # noqa: BLE001
-        gallery_updates_state["last_error"] = f"{type(exc).__name__}: {exc}"
-        logger.warning(
-            "gallery update detection failed", extra=log_extra(error=type(exc).__name__)
-        )
-    finally:
-        gallery_updates_state["detecting"] = False
-        gallery_updates_state["last_run"] = datetime.now(UTC).isoformat()
+            if found:
+                logger.info(
+                    "gallery update scan found new-version candidates",
+                    extra=log_extra(found=found),
+                )
+        except Exception as exc:  # noqa: BLE001
+            gallery_updates_state["last_error"] = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "gallery update detection failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+        finally:
+            gallery_updates_state["detecting"] = False
+            gallery_updates_state["last_run"] = datetime.now(UTC).isoformat()
 
 
 async def run_gallery_updates(

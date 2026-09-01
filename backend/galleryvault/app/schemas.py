@@ -216,3 +216,16 @@ class SettingsRequest(BaseModel):
                 f"duplicate_policy must be one of {', '.join(DUPLICATE_POLICIES)}"
             )
         return self
+
+
+class LogLevelRequest(BaseModel):
+    level: str = Field(..., description="Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+
+    @model_validator(mode="after")
+    def validate_level(self) -> LogLevelRequest:
+        lvl = self.level.upper()
+        if lvl not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
+        self.level = lvl
+        return self
+

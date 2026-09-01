@@ -18,7 +18,7 @@ from ..config import get_settings
 from ..db.models import DownloadTask as DownloadTaskModel
 from ..db.models import Gallery
 from ..db.repository import DownloadRepository
-from ..logging import log_extra
+from ..logging import bind_log_context, log_extra
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
 from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key
@@ -167,10 +167,10 @@ async def ingest_downloaded_gallery(result: Any) -> None:
             await remove_fn(result, old_copy[0], old_copy[1])
 
         logger.info("download ingest succeeded", extra=log_extra(gid=result.gid, path=str(path)))
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
+    except Exception as exc:
+        logger.exception(
             "download ingest failed",
-            extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__),
+            extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__, message=str(exc)),
         )
 
 
@@ -275,6 +275,11 @@ async def run_download(task: DownloadTask) -> None:
     if task.id is None:
         logger.warning("download task missing id; skipping", extra=log_extra(gid=task.gid))
         return
+    with bind_log_context(worker="download", task_id=task.id, gid=task.gid):
+        await _run_download_inner(task)
+
+
+async def _run_download_inner(task: DownloadTask) -> None:
     from ..app import main
     session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
     if session_cm is None:
@@ -367,9 +372,10 @@ async def run_download(task: DownloadTask) -> None:
             pass
         clear_download_cancelled(task.id)
         logger.info("download cancelled", extra=log_extra(gid=task.gid))
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "download task failed", extra=log_extra(gid=task.gid, error=type(exc).__name__)
+    except Exception as exc:
+        logger.exception(
+            "download task failed",
+            extra=log_extra(gid=task.gid, error=type(exc).__name__, message=str(exc)),
         )
         try:
             async with session_cm() as session, session.begin():
