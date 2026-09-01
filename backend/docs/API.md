@@ -68,9 +68,11 @@ curl -b cookies.txt http://localhost:8001/api/settings
   "download_concurrency": 2,
   "page_concurrency": 4,
   "download_quality": "resample",
+  "download_title": "japanese",
   "archive_quality": "resample",
   "favorites_archive_enabled": false,
   "favorites_archive_max_pages": 0,
+  "archive_fallback_pages": true,
   "use_hah": false,
   "image_download_timeout_seconds": 120,
   "image_slow_warmup_seconds": 30,
@@ -154,8 +156,10 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | GET | `/api/favorites/duplicates/status` | Scan progress (`stage`, `done`, `total`) and result `groups` (`key`, `artist`, `items: [{favcat, gid, token, title, url, gallery_id, file_size, posted_at, first_seen_at, title_jpn, cover_data, tags}]`), `group_count`, `item_count`, plus `ignored` (previously hidden groups, restorable). Cloud items are enriched via the batched gdata API (cover, size, posted date, tags); local items' posted dates are persisted onto `galleries.posted_at`. |
 | POST | `/api/favorites/duplicates/ignore` | Body `{key, title?, gids?}` – hide a duplicate group from every later scan. |
 | DELETE | `/api/favorites/duplicates/ignore?key=` | Restore a previously ignored group. |
+| POST | `/api/favorites/duplicates/unignore` | Body `{key, title?, gids?}` – restore an ignored duplicate group (alias for DELETE ignore). |
 | GET | `/api/favorites/duplicates/ignored` | List the currently ignored duplicate groups (each with `key`, `title`, `items`) so they can be restored. |
-| GET | `/api/galleries/{identifier}/favorite` | Which favorite folders a gallery is in: `{gid, favorite: bool, favcats: [...]}`.
+| POST | `/api/favorites/sync` | Force refresh and sync favorites metadata cache. |
+| GET | `/api/galleries/{identifier}/favorite` | Which favorite folders a gallery is in: `{gid, favorite: bool, favcats: [...]}`. |
 
 ## Archives (ExHentai zip channel)
 
@@ -189,15 +193,21 @@ tier, the rest download page-by-page.
 | POST | `/api/updates/ignore` | Body `{ids: [...]}` – mark rows ignored (hidden from the active list, restorable). |
 | POST | `/api/updates/unignore` | Body `{ids: [...]}` – restore ignored rows to `pending`. |
 | GET | `/api/updates/ignored` | Paginated list of currently ignored rows (for the restore page). |
+| POST | `/api/updates/delete` | Body `{ids: [...]}` – permanently remove failed/ignored update records (`200 {deleted}`). |
 
 ## Galleries (local library)
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/galleries` | Search/browse. Query: `page`, `page_size`, `q`, `tags` (csv `ns:name`), `tag_mode` (and/or), `tag_match` (exact/fuzzy), `category` (`doujinshi`, `manga`, `artistcg`, `gamecg`, `western`, `non-h`, `image_set`, `cosplay`, `asianporn`, `misc`, `deleted`, or pseudo-category `__not_fav__` for local galleries not in any favorite folder). `q` supports **smart parsing**: whitespace-separated tokens that are `ns:name` syntax, a Chinese word mapping one-to-one onto a tag translation, or an exact tag name are promoted to tag filters (AND with any explicit `tags`), the rest stays a title keyword; the response carries the normalized `q`/`tags` plus a `resolved` flag. `misc` is the generic bucket — it also holds what used to be `other`; galleries deleted from ExHentai (or without usable coordinates) live under `deleted`. |
+| GET | `/api/galleries/categories` | Count of galleries per category dictionary, including `__not_fav__` and total `all`. |
 | GET | `/api/galleries/random` | `{id}` of a random non-expunged gallery (`404` when empty). |
 | GET | `/api/galleries/{identifier}/next` | `{id}` of the next non-expunged gallery (ascending by id) — used by the reader to advance past the last page (`404` when none). |
 | GET | `/api/galleries/{identifier}` | Metadata (`file_size` included), page list, tags (each with Chinese `display` when available), `spider_info`, and `eh_url` (deep link `{base_url}/g/{gid}/{token}/` built from the configured base URL; empty for local galleries without a token). `identifier` may be the DB `id` or the ExHentai `gid`. |
+| POST | `/api/galleries/{identifier}/download-original` | `202` – enqueue download for original quality. Body `{archive?: bool}` (supports page-by-page or ExHentai archive channel). Superseded resampled copy is removed upon completion. |
+| POST | `/api/galleries/{identifier}/redownload` | `202` – enqueue redownloading this gallery. |
+| POST | `/api/galleries/{identifier}/favorite` | Body `{favcat: int}` (0-9). Modify the ExHentai favorite category folder for this gallery. |
+| POST | `/api/galleries/{identifier}/read` | Mark gallery as read / update reading timestamp. |
 | DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes the on-disk files (directory or single archive); the row is kept when deletion fails. |
 | POST | `/api/galleries/delete-bulk` | Body `{ids: [...], delete_files?: bool}`. Bulk remove galleries by id; `delete_files` also deletes on-disk files, keeping each row whose files failed to delete. Returns `{deleted, failed_deletions}`. Ids are processed in 500-row batches to stay under asyncpg's parameter limit. |
 | POST | `/api/galleries/delete-filtered` | Body `{q?, category?, tags?, tag_mode?, tag_match?, delete_files?}`. Remove every gallery matching the current library filter (same semantics as `GET /api/galleries`). The backend pages the filter and deletes in 500-row batches, so the client never sends a huge id list. Returns `{deleted, matched, failed_deletions}`. When `matched` exceeds 5000 the request is rejected with `409` (refine the filter or delete in batches). |

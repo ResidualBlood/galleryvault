@@ -189,6 +189,8 @@ class SettingsRequest(BaseModel):
     generate_thumbnails: bool | None = None
     duplicate_policy: str | None = None
     auth_required: bool | None = None
+    trusted_proxies: list[str] | None = None
+    tag_translation_update_interval_minutes: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_values(self) -> SettingsRequest:

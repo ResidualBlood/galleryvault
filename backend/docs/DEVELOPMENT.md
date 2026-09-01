@@ -166,9 +166,11 @@ column (one-time category backfill), `0010` merged `other` into `misc` and
 moved coordinate-less galleries to `deleted`, `0011` added
 `download_tasks.max_pages` so partial/sample downloads survive the worker,
 `0012` added `favorite_items.file_size` for exact cloud-size estimates,
-`0015` added pg_trgm title indexes, and `0018` added `favorite_items.thumb`
-(cover URLs captured from the favorites listing). `0021` added the
-`background_jobs` table backing the thumbnail / tag-sync queues (see below).
+`0015` added pg_trgm title indexes, `0018` added `favorite_items.thumb`
+(cover URLs captured from the favorites listing), `0021` added the
+`background_jobs` table backing the thumbnail / tag-sync queues, and `0025`
+added `gallery_metadata` versioning columns (`parent_gid`, `newer_gid`,
+`is_replaced`) for multi-chapter update tracking.
 
 ## Background job queues
 
