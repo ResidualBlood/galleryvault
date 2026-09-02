@@ -18,7 +18,7 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 - **ExHentai 集成**：自有 cookie 同步元数据与标签；收藏夹监控自动下载与查重；画廊重传自动更新；一键打开原站。
 - **下载管理**：Ehviewer 风格并发下载、断点续传、失败自动重试；ExHentai 归档（zip，GP 换速度，断点续传不重复扣 GP）；下载完即入库；Telegram 通知与 bot 命令。
 - **阅读器与界面**：流式阅读器（全屏/自动跳下一本）、阅读历史、任务日志、首次运行向导。
-- **安全与运维**：PBKDF2 认证、可选静态加密（AES-256-GCM）、非 root 运行；单命令部署与一键备份。
+- **安全与运维**：PBKDF2 认证、可选静态加密（AES-256-GCM）、默认 root 亦可 `PUID`/`PGID` 降权；单命令部署与一键备份。
 
 ## 界面截图
 
@@ -74,7 +74,7 @@ docker compose up -d
 
 库目录（每行一个路径）与下载目录在「设置」中分开配置；把其他 Ehviewer 下载目录挂载为**仅扫描不下载**的库，见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
 
-> **权限**：backend 容器内以 `app` 用户（uid **10001**）运行。挂载已有目录或放入归档前，确保宿主目录对 10001 **可读**（删除画廊需**可写**）：首次启动前 `chown -R 10001:10001 ./library ./downloads`。`./cache` 自动处理；**`./db-data` 属 postgres（uid 999），切勿 chown**。
+> **权限**：backend **默认以 root (0:0) 运行**，也可用 `PUID`/`PGID`（如 `1000:1000`）降权。非 root 时请确保挂载目录对该 UID 可读写。`./cache` 启动时按运行用户对齐；**`./db-data` 属 postgres（uid 999），切勿 chown**。详见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
 
 ## 升级
 

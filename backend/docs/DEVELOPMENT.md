@@ -32,9 +32,11 @@ Key points:
   performed by `POST /login` (form-encoded) which sets the session cookie, and
   `POST /logout` clears it. `/healthz`, `/metrics`, `/login`, `/logout` are
   exempt.
-- **CSRF**: the legacy double-submit CSRF token is only needed for browser HTML
-  forms. The SPA only issues `application/json` requests to `/api/*` (excluded
-  from the CSRF check), so no CSRF token is required.
+- **CSRF**: `/api/` mutations check `Origin` → `Referer` → `X-CSRF-Token`
+  (cookie `galleryvault_csrf`, set on GET, 30-day `lax`, readable by JS). The
+  SPA (`frontend/assets/core.js`) sends `X-CSRF-Token` on POST/PUT/DELETE/PATCH.
+  `Sec-Fetch-Site: cross-site` is rejected. HTML form POSTs still use the
+  double-submit cookie.
 - **Observability**: `GET /metrics` (exempt from auth) exposes Prometheus-style
   counters (requests, download/scan/tag-sync activity); every request carries a
   `X-Request-ID` correlation header (echoed in responses and structured logs),
@@ -57,10 +59,13 @@ backend/
       lifespan.py      # Lifespan startup/shutdown and background workers
       dependencies.py  # FastAPI dependencies and injection helpers
       routers/         # route handlers split by domain
-        core.py tasks.py settings.py downloads.py favorites.py galleries.py tags.py
+        auth.py core.py tasks.py settings.py downloads.py favorites.py
+        galleries.py tags.py duplicates.py updates.py
     auth.py            # password hashing + session cookies
     config.py          # Settings model + DB persistence
-    db/                # SQLAlchemy models, repositories, session
+    db/                # SQLAlchemy models, session, Unit of Work
+      models.py repositories/  # galleries/favorites/downloads/updates/jobs/settings
+      repository.py    # backward-compatible re-exports
     logging.py         # structured log formatter
     observability.py   # request-id middleware + /metrics counters
     secrets.py         # at-rest encryption (ENCRYPTION_KEY)
@@ -134,23 +139,26 @@ project free of any Node toolchain and works fully offline.
    uvicorn galleryvault.app.main:app --reload --port 8001
    ```
 
-4. Serve the frontend separately (from the `galleryvault-frontend` repo),
-   pointing `/api`, `/login`, `/logout` at `http://localhost:8001`.
+4. Serve the frontend separately from `frontend/` in this monorepo,
+   pointing `/api`, `/login`, `/logout` at `http://localhost:8001`. Prefer
+   `docker compose -f docker-compose.dev.yml up -d --build` for hot reload.
 
 ## Building the container
 
+From the **monorepo root** (`galleryvault/`):
+
 ```bash
-docker-compose build
-docker-compose up -d
+docker compose build
+docker compose up -d
 ```
 
-This builds the backend image (this directory) and the frontend image
-(`../frontend`), starts PostgreSQL with persistence in `./db-data`, and maps
-frontend to host port 8000 and backend to host port 8001.
+This builds `backend/` and `frontend/` images, starts PostgreSQL with
+persistence in `./db-data`, and maps frontend to host port 8000 and backend
+to host port 8001.
 
-The container is the **authoritative** runtime: `docker cp` edits to a running
-container do **not** persist. Always `docker-compose build` after changing
-`galleryvault/` (backend) or `../frontend` (frontend).
+Published images are `residualblood/galleryvault-backend` and
+`residualblood/galleryvault-frontend`. Runtime containers are **authoritative**:
+`docker cp` edits do **not** persist across recreation.
 
 ## Testing
 
@@ -239,18 +247,18 @@ load `/api/galleries/{id}/thumb/{page}` instead of the full-size page.
 
 ## Building & deploying
 
-This is a local deployment: build the two images locally (fast, dependency
-layer is cached), then `docker compose up -d` — no need to wait for CI.
+Prefer pulling published images (`docker compose pull && docker compose up -d`).
+To build locally from the monorepo root:
 
 ```bash
-cd /mnt/GalleryVault/backend && docker build -t residualblood/galleryvault-backend:latest .
-cd /mnt/GalleryVault/frontend && docker build -t residualblood/galleryvault-frontend:latest .
-cd /mnt/ehviewer && docker compose up -d backend frontend
+docker build -t residualblood/galleryvault-backend:latest ./backend
+docker build -t residualblood/galleryvault-frontend:latest ./frontend
+docker compose up -d backend frontend
 ```
 
-`git push` afterwards runs CI (test + lint + build-push to Docker Hub) for
-other machines. Runtime containers are authoritative: `docker cp` edits do not
-persist across recreation.
+`git push` to `dev` runs CI (test + lint + build-push `:dev` to Docker Hub).
+Runtime containers are authoritative: `docker cp` edits do not persist across
+recreation.
 
 ## Tag translations
 
@@ -315,11 +323,11 @@ You can confirm loading in the container logs:
 For zero-build development with live reloading for both frontend and backend:
 
 ```bash
-cd galleryvault  # meta repository root
+cd galleryvault  # monorepo root
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-- Frontend static assets are mounted live (`../frontend/assets`), browser refresh updates instantly;
+- Frontend static assets are mounted live (`./frontend/assets`), browser refresh updates instantly;
 - Backend runs with `uvicorn --reload --reload-dir /app/galleryvault --proxy-headers --forwarded-allow-ips="172.16.0.0/12,127.0.0.1"` (proxy flags ensure real client IP is resolved behind nginx for rate limiting and logging);
 - Development database runs isolated on `./db-data-dev`; host data directories `./library`, `./downloads`, and `./cache` are mapped locally.
 

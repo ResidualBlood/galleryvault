@@ -155,10 +155,10 @@ Other formats:
 
 **Reader & UI**
 
-- **Reader** — one-page streaming, keyboard/space/click paging, three-page
-  preload, auto-advance after the last page, fullscreen and fit modes, 1-hour
-  browser caching, saved reading position, and the search context is kept
-  throughout.
+- **Reader** — one-page streaming, LTR / RTL manga / double-page spread,
+  keyboard/space/click paging, three-page preload, auto-advance after the last
+  page, fullscreen and fit modes, 1-hour browser caching, saved reading
+  position, and the search context is kept throughout.
 - **Browse & history** — newest-gallery browse (random gallery, tag namespace
   strip), a global top-bar search, a reading-history page, an activity log
   page, and a first-run wizard.
@@ -166,8 +166,9 @@ Other formats:
 **Security & operations**
 
 - **Security** — PBKDF2 auth, login rate limiting, cross-origin checks and a
-  domain whitelist, password change revokes every session, non-root runtime;
-  optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM).
+  domain whitelist, password change revokes every session; backend runs as
+  root by default or drops privileges with `PUID`/`PGID`; optional
+  **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM).
 - **Proxy** — HTTP or SOCKS5 (pick one), used for ExHentai access, downloads
   and translation updates.
 - **One-command deployment** — two Docker Hub images plus PostgreSQL with a
