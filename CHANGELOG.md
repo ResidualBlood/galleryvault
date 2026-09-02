@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Container logging permissions, rotated log hydration & multiline traceback parsing** (`entrypoint.sh`, `logging.py`, `app/lifespan.py`, `app/routers/settings.py`): Ensured `/gv-cache/logs` is created with `app:app` (uid 10001) ownership before privilege dropping. Enhanced `hydrate_from_file` to merge rotated history backups (`.log.X`) in chronological order and parse multiline exception tracebacks via a state machine without truncation. Moved log hydration to the asynchronous startup lifespan.
 - **Exception traceback loss in log formatters & workers** (`logging.py`, `services/download_worker.py`, `services/scan_worker.py`, `services/tag_sync_worker.py`): Fixed `_Formatter` ignoring `record.exc_info` and `record.stack_info`, and replaced opaque `error=type(exc).__name__` across backend workers with `logger.exception` and full error context.
 
 ### Changed
