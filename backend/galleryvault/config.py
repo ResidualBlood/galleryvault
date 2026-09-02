@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     favorites_categories: list[int] = Field(default_factory=lambda: list(range(8)))
     download_favorites_enabled: bool = False
     duplicate_policy: str = "keep_first"
+    global_paused: bool = False
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
 
     @field_validator("library_roots", mode="before")
@@ -245,6 +246,7 @@ EDITABLE_SETTINGS = {
     "generate_thumbnails",
     "duplicate_policy",
     "trusted_proxies",
+    "global_paused",
 }
 
 

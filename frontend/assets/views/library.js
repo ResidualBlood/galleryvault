@@ -10,6 +10,9 @@ async function renderLibrary() {
   const tags = app.query.tags || "";
   const order_by = app.query.order_by || "id_desc";
   const read_status = app.query.read_status || "";
+  const page_min = app.query.page_min || app.query.min_pages || "";
+  const page_max = app.query.page_max || app.query.max_pages || "";
+  const min_rating = app.query.min_rating || "";
   const filterPill = tagFilterPills(tags);
   const selCount = selGalleries.size;
   renderView(`
@@ -38,9 +41,19 @@ async function renderLibrary() {
         <option value="reading"${read_status === "reading" ? " selected" : ""}>${esc(t("readStatusReading"))}</option>
         <option value="completed"${read_status === "completed" ? " selected" : ""}>${esc(t("readStatusCompleted"))}</option>
       </select>
+      <input name="page_min" type="number" min="1" max="9999" placeholder="${esc(t("pageMin"))}" value="${esc(page_min)}" style="width:92px" title="${esc(t("pageMin"))}">
+      <input name="page_max" type="number" min="1" max="9999" placeholder="${esc(t("pageMax"))}" value="${esc(page_max)}" style="width:92px" title="${esc(t("pageMax"))}">
+      <select name="min_rating" title="${esc(t("minRating"))}">
+        <option value=""${!min_rating ? " selected" : ""}>${esc(t("minRating"))}</option>
+        <option value="2"${min_rating === "2" ? " selected" : ""}>≥2</option>
+        <option value="3"${min_rating === "3" ? " selected" : ""}>≥3</option>
+        <option value="4"${min_rating === "4" ? " selected" : ""}>≥4</option>
+        <option value="4.5"${min_rating === "4.5" ? " selected" : ""}>≥4.5</option>
+      </select>
       <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
       <button class="btn btn-secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
       <button class="btn btn-secondary" data-action="sel-clear" type="button">${esc(t("clearSel"))}</button>
+      <button class="btn btn-secondary" data-action="lib-batch-fav" type="button">${esc(selCount ? t("batchFavCount").replace("{count}", selCount) : t("batchFav"))}</button>
       <button class="btn btn-danger" data-action="sel-delete" type="button">${esc(t("deleteSel"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="btn btn-danger" data-action="delete-filtered" type="button">${esc(t("deleteFiltered"))}</button>
     </form>
@@ -127,6 +140,99 @@ async function deleteFiltered() {
       + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
     location.hash = navHash("library");
   } catch (e) { toast(e.message); }
+}
+
+async function libraryBatchAddFavorite() {
+  const ids = [...selGalleries];
+  if (!ids.length) { toast(t("select")); return; }
+  // Resolve gid/token for selected ids via cache/DOM, skip those without gid
+  const items = [];
+  const noGidIds = [];
+  const cache = (app._libCache && typeof app._libCache.get === "function") ? app._libCache : null;
+  for (const id of ids) {
+    let gid = null, token = null, title = null;
+    if (cache && cache.has(Number(id))) {
+      const entry = cache.get(Number(id));
+      gid = entry.gid; token = entry.token; title = entry.title;
+    }
+    if (!gid) {
+      const el = document.querySelector(`.gc-check input[data-gallery-id="${id}"]`);
+      if (el) {
+        gid = el.getAttribute("data-gid") || el.dataset.gid;
+        token = el.getAttribute("data-token") || el.dataset.token;
+        // title from sibling gc-title
+        const wrap = el.closest && el.closest(".gc-wrap");
+        if (wrap) {
+          const tEl = wrap.querySelector(".gc-title");
+          if (tEl) title = tEl.textContent.trim();
+        }
+      }
+    }
+    if (gid) {
+      gid = parseInt(String(gid), 10);
+      if (!isNaN(gid) && gid > 0) {
+        items.push({ gid, token: token || "", title: title || "" });
+      } else {
+        noGidIds.push(id);
+      }
+    } else {
+      noGidIds.push(id);
+    }
+  }
+  if (noGidIds.length) {
+    toast(t("favAddNoGid").replace("{count}", noGidIds.length));
+    // if all missing, stop
+    if (!items.length) return;
+  }
+  // Fallback: for ids still unresolved, try single fetch (rare, e.g. pagination)
+  const unresolved = ids.filter(id => !items.some(it => {
+    const cached = cache && cache.get(Number(id));
+    return cached && cached.gid === it.gid;
+  }) && !noGidIds.includes(id));
+  // Actually previous loop already handled, so no extra fetch needed for now; keep hook for future
+  if (!items.length) { toast(t("favAddFail")); return; }
+  const targetFavcat = await showMoveFavoritesDialog(items.map(it => it.gid), null, {
+    title: t("favAddTitle"),
+    confirmText: t("favAddConfirm"),
+    targetLabel: t("favMoveTarget"),
+  });
+  if (targetFavcat == null) return;
+  try {
+    // Batch in 25 as per EhClient convention (old API chunk size)
+    const CHUNK = 25;
+    let totalAdded = 0, totalFailed = 0, totalSkippedGid = noGidIds.length;
+    const allFailedGids = [];
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const chunk = items.slice(i, i + CHUNK);
+      const r = await api("POST", "/api/favorites/add", {
+        items: chunk,
+        target_favcat: targetFavcat,
+      });
+      const added = r.local_added != null ? r.local_added : (r.successful_gids ? r.successful_gids.length : 0);
+      const failed = r.cloud_failed ? r.cloud_failed.length : 0;
+      totalAdded += added;
+      totalFailed += failed;
+      if (r.cloud_failed) allFailedGids.push(...r.cloud_failed);
+      if (r.cloud_ok === false && failed === chunk.length) {
+        // auth failure etc – break early
+        toast(t("favAddFail"));
+        break;
+      }
+      // small delay to avoid hammering semaphore
+      if (i + CHUNK < items.length) await new Promise(res => setTimeout(res, 200));
+    }
+    const msg = t("favAddBatch").replace("{count}", totalAdded).replace("{failed}", totalFailed + totalSkippedGid);
+    toast(msg);
+    if (totalFailed === 0 && totalSkippedGid === 0) {
+      selGalleries.clear();
+      router();
+    } else if (totalAdded > 0) {
+      // keep selection for retry, but update button
+      router();
+    }
+  } catch (e) {
+    toast(e.message || t("favAddFail"));
+  }
 }
 
 async function deleteSelected() {

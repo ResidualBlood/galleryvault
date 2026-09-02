@@ -114,6 +114,10 @@ async def run_scan() -> None:
     tm = app_state.task_manager
     scan_state = tm.scan_state if tm else {}
     settings = app_state.settings or get_settings()
+    if getattr(settings, "global_paused", False):
+        logger.info("scan skipped: global paused", extra=log_extra(reason="global_paused"))
+        scan_state["running"] = False
+        return
 
     with bind_log_context(worker="scan"):
         async with scan_lock:

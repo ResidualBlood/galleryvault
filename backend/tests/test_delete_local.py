@@ -192,7 +192,7 @@ async def test_delete_partial_failure_keeps_db_row(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_delete_files_false_only_removes_db_row(tmp_path):
-    """delete_files=False never touches the disk but removes the row."""
+    """delete_files=False soft-deletes to trash (keeps file, keeps row as trashed)."""
     copy = tmp_path / "g-6"
     copy.mkdir()
     gallery = _gallery(6, 666, copy)
@@ -203,9 +203,12 @@ async def test_delete_files_false_only_removes_db_row(tmp_path):
     )
 
     assert copy.exists()
-    assert results[0]["db_removed"] is True
+    # Now soft-deletes to recycle bin (trashed) instead of hard delete
+    assert results[0]["db_removed"] is False
+    assert results[0]["trashed"] is True
     assert results[0]["failed_paths"] == []
-    assert session.deleted_galleries == [6]
+    assert session.deleted_galleries == []
+    assert getattr(gallery, "trashed", False) is True
 
 
 def test_chunked_splits_into_batches():

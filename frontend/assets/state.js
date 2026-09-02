@@ -68,5 +68,10 @@ let dupGalFilter = "all";
 let dupGalCache = null;
 const DUPGAL_STATUSES = { open: "dupGalOpen", dismissed: "dupGalDismissed" };
 
+const selRecycle = new Set();
+const selIntegrity = new Set();
+window.selRecycle = selRecycle;
+window.selIntegrity = selIntegrity;
+
 // 未来扩展 viewState
 // app.viewState = app.viewState || {};

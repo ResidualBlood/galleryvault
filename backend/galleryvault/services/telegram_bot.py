@@ -57,20 +57,47 @@ class TelegramBotService:
         text = str(message.get("text", "")).strip()
         chat_id = message.get("chat", {}).get("id")
         lang = self.settings.telegram_notify_lang
+        # Global pause is the SSOT (persisted in settings); self.paused mirrors it for compat
+        from ..app.state import app_state
+        from ..config import get_settings
+        from ..db.repository import SettingsRepository
+        from ..services.settings_service import update_runtime_settings
+
+        def _is_global_paused() -> bool:
+            s = self.settings or app_state.settings or get_settings()
+            return bool(getattr(s, "global_paused", False))
+
+        async def _set_global_paused(value: bool) -> None:
+            s = self.settings or app_state.settings or get_settings()
+            new_s = s.model_copy(update={"global_paused": value})
+            # Update both global and instance settings for consistency
+            app_state.settings = new_s
+            self.settings = new_s
+            self.paused = value
+            update_runtime_settings({"global_paused": value})
+            try:
+                if app_state.session_factory:
+                    async with app_state.session_factory() as session, session.begin():
+                        await SettingsRepository(session).save({"global_paused": value})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("global pause persist failed", extra={"error": type(exc).__name__})
+
         if text == "/pause":
-            self.paused = True
+            await _set_global_paused(True)
             await self.notifier.send_message(bot_paused(lang), chat_id, force=True)
         elif text == "/resume":
-            self.paused = False
+            await _set_global_paused(False)
             await self.notifier.send_message(bot_resumed(lang), chat_id, force=True)
         elif text == "/status":
-            await self.notifier.send_message(bot_status(self.paused, lang), chat_id, force=True)
+            paused = _is_global_paused()
+            self.paused = paused
+            await self.notifier.send_message(bot_status(paused, lang), chat_id, force=True)
         else:
             try:
                 gid, token = parse_gallery_url(text, self.settings.exhentai_base_url)
             except (ValueError, TypeError):
                 return
-            if not self.paused:
+            if not _is_global_paused() and not self.paused:
                 await self.queue.enqueue(
                     TelegramGalleryItem(gid=gid, token=token, title=text)
                 )

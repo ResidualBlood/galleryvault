@@ -39,6 +39,8 @@ class Gallery(Base):
     file_size: Mapped[int | None] = mapped_column(BigInteger)
     rating: Mapped[float | None] = mapped_column(Float)
     expunged: Mapped[bool] = mapped_column(Boolean, default=False)
+    trashed: Mapped[bool] = mapped_column(Boolean, default=False)
+    trashed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     storage_type: Mapped[str] = mapped_column(String(16))
     storage_path: Mapped[str] = mapped_column(Text)
     path_hash: Mapped[str] = mapped_column(String(64))
@@ -62,6 +64,8 @@ class Gallery(Base):
         Index("idx_galleries_rating", "rating"),
         Index("idx_galleries_page_count", "page_count"),
         Index("idx_galleries_file_size", "file_size"),
+        Index("idx_galleries_trashed", "trashed"),
+        Index("idx_galleries_expunged", "expunged"),
     )
 
 

@@ -5,9 +5,19 @@
 
 async function renderDownloads() {
   const filter = app.query.filter || "all";
+  // Fetch pause status and GP in background
+  let pauseInfo = null;
+  try { pauseInfo = await api("GET", "/api/pause"); } catch (_) {}
+  const isPaused = !!(pauseInfo && pauseInfo.paused);
   renderView(`
     <header><p class="eyebrow">DOWNLOADS</p><h1>${esc(t("downloads"))}</h1>
     <p class="sub">${esc(t("downloadsSub"))}</p></header>
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+      <button class="btn ${isPaused ? "btn-primary" : "btn-secondary"}" data-action="toggle-pause" type="button" title="${esc(t("pauseHint"))}">${esc(isPaused ? t("resume") : t("pause"))} ${isPaused ? "▶" : "⏸"}</button>
+      <span id="gp-display" class="muted" style="font-size:13px;">${esc(t("gpTitle"))}: …</span>
+      <span id="quota-display" class="muted" style="font-size:13px;"></span>
+      ${isPaused ? `<span class="badge" style="background:var(--warning, #ff9800);color:#000;padding:4px 8px;border-radius:4px;font-weight:600;">${esc(t("paused"))}</span>` : ""}
+    </div>
     <div class="dl-add-card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
         <strong style="font-size:14px;">${esc(t("dlAddTitle"))}</strong>
@@ -38,10 +48,29 @@ async function renderDownloads() {
     <div id="dl-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="dl-pages"></div>`);
   loadDownloads(filter, app.query.page || "1");
+  loadQuota();
   if (dlTimer) clearInterval(dlTimer);
   dlTimer = setInterval(() => {
     if (location.hash.startsWith("#/downloads")) loadDownloads(filter, app.query.page || "1");
   }, 2000);
+}
+
+async function loadQuota() {
+  const gpEl = document.getElementById("gp-display");
+  const quotaEl = document.getElementById("quota-display");
+  if (!gpEl) return;
+  try {
+    const data = await api("GET", "/api/quota");
+    const gp = data.gp != null ? `${data.gp} GP` : "—";
+    const at = data.checked_at ? fmtDateTime(data.checked_at) : "";
+    gpEl.textContent = `${t("gpTitle")}: ${gp}${at ? ` (${at})` : ""}` + (data.cached ? " · cached" : "");
+    if (quotaEl) {
+      if (data.error) quotaEl.textContent = ` · ${data.error}`;
+      else quotaEl.textContent = "";
+    }
+  } catch (_) {
+    gpEl.textContent = `${t("gpTitle")}: —`;
+  }
 }
 
 function dlProgressHtml(x) {

@@ -12,6 +12,8 @@ function updateLangButton() {
 
 let cookieHealthTimer = null;
 let cookieHealthInFlight = false;
+let pauseTimer = null;
+let pauseInFlight = false;
 
 function updateBanner() {
   const el = document.getElementById("banner");
@@ -19,6 +21,11 @@ function updateBanner() {
   if (app.authenticated && app.session && app.session.must_change_password) {
     el.hidden = false;
     el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="btn btn-primary" href="#/welcome">${esc(t("changePassword"))}</a>`;
+    return;
+  }
+  if (app.authenticated && app.paused) {
+    el.hidden = false;
+    el.innerHTML = `<span style="color:var(--warning, #ff9800);font-weight:600;">⏸ ${esc(t("paused"))} — ${esc(t("pauseHint"))}</span> <button class="btn btn-secondary" data-action="toggle-pause" type="button" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("resume"))}</button>`;
     return;
   }
   const ch = app.session && app.session.cookie_health;
@@ -59,6 +66,33 @@ function stopCookieHealthPolling() {
   if (cookieHealthTimer) {
     clearInterval(cookieHealthTimer);
     cookieHealthTimer = null;
+  }
+}
+
+async function refreshPause() {
+  if (!app.authenticated || pauseInFlight) return;
+  pauseInFlight = true;
+  try {
+    const r = await api("GET", "/api/pause");
+    if (r && typeof r.paused === "boolean") {
+      const wasPaused = !!app.paused;
+      app.paused = r.paused;
+      if (wasPaused !== r.paused) updateBanner();
+    }
+  } catch (_) {}
+  finally { pauseInFlight = false; }
+}
+
+function startPausePolling() {
+  if (pauseTimer) return;
+  setTimeout(refreshPause, 1500);
+  pauseTimer = setInterval(refreshPause, 30 * 1000);
+}
+
+function stopPausePolling() {
+  if (pauseTimer) {
+    clearInterval(pauseTimer);
+    pauseTimer = null;
   }
 }
 
@@ -122,6 +156,7 @@ async function checkAuth() {
     const session = await api("GET", "/api/auth/session");
     app.authenticated = true;
     app.session = session || {};
+    app.paused = false;
     $topbar().hidden = false;
     updateBanner();
     // Cookie health from session may be stale/"unknown" if startup probe
@@ -139,6 +174,11 @@ async function checkAuth() {
       }
       startCookieHealthPolling();
     }
+    // Global pause polling (30s)
+    {
+      refreshPause();
+      startPausePolling();
+    }
     // Normalise the address bar: after logging in the SPA is served at /login
     // (the middleware redirect target) but the app lives at "/"; rewrite the
     // path so the URL reads e.g. /#/browse instead of /login#/browse.
@@ -152,8 +192,10 @@ async function checkAuth() {
   } catch (_) {
     app.authenticated = false;
     app.session = {};
+    app.paused = false;
     $topbar().hidden = true;
     stopCookieHealthPolling();
+    stopPausePolling();
     renderLogin();
   }
 }
@@ -177,8 +219,10 @@ async function doLogin(password) {
 
 async function doLogout() {
   stopCookieHealthPolling();
+  stopPausePolling();
   await fetch("/logout", { method: "POST", credentials: "include" });
   app.authenticated = false;
+  app.paused = false;
   $topbar().hidden = true;
   location.hash = "";
   renderLogin();
@@ -233,6 +277,8 @@ function router() {
   if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
+  if (app.view !== "recycle") selRecycle.clear();
+  if (app.view !== "integrity") selIntegrity.clear();
   if (app.view !== "reader" && readerFsActive) exitReaderFullscreen();
   stopInfinite();
   beforeRender(app.view);
@@ -247,6 +293,8 @@ function router() {
     case "logs": renderLogs(); break;
     case "settings": renderSettings(); break;
     case "duplicates": renderDuplicates(); break;
+    case "recycle": renderRecycle(); break;
+    case "integrity": renderIntegrity(); break;
     case "welcome": renderWelcome(); break;
     case "favorites": renderFavorites(); break;
     case "favmanage": renderFavManage(); break;

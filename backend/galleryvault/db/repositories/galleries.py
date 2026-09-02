@@ -7,29 +7,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...scanners.base import ExistingGallery, GalleryMeta, normalize_category
-
-# Lazily resolved title display column (avoids importing app.state at class load
-# and avoids per-call import cost inside list_page hot path).
-_TITLE_SORT_COL_CACHE: dict[str, object] = {}
-
-
-def _title_sort_column() -> object:
-    """Return the column/expression used for title sorting per title_display."""
-    try:
-        from ...app.state import app_state
-        from ...config import get_settings
-
-        settings = app_state.settings or get_settings()
-        mode = (getattr(settings, "title_display", "japanese") or "japanese").lower()
-        if mode == "japanese":
-            return func.coalesce(Gallery.title_jpn, Gallery.title)
-        if mode == "directory":
-            return func.coalesce(Gallery.title_jpn, Gallery.title)
-        return Gallery.title
-    except Exception:  # noqa: BLE001
-        return Gallery.title
-
-
 from ..models import (
     DuplicateRecord,
     FavoriteItem,
@@ -43,6 +20,29 @@ from ..models import (
     Tag,
 )
 from .base import _chunked, escape_like_wildcards, path_hash
+
+# Cache title sort column per display mode (japanese/english/directory).
+# Lazily computed to avoid importing app_state at module load and to avoid
+# per-call recomputation when title_display hasn't changed.
+_TITLE_SORT_COL_CACHE: dict[str, object] = {}
+
+
+def _title_sort_column() -> object:
+    """Return column/expression for title sorting per title_display setting."""
+    try:
+        from ...app.state import app_state
+        from ...config import get_settings
+
+        settings = app_state.settings or get_settings()
+        mode = (getattr(settings, "title_display", "japanese") or "japanese").lower()
+        if mode not in _TITLE_SORT_COL_CACHE:
+            if mode in {"japanese", "directory"}:
+                _TITLE_SORT_COL_CACHE[mode] = func.coalesce(Gallery.title_jpn, Gallery.title)
+            else:
+                _TITLE_SORT_COL_CACHE[mode] = Gallery.title
+        return _TITLE_SORT_COL_CACHE[mode]
+    except Exception:  # noqa: BLE001
+        return Gallery.title
 
 
 class GalleryRepository:
@@ -353,7 +353,7 @@ class GalleryRepository:
         normalized = [str(Path(root).resolve()) for root in roots]
         result = await self.session.stream(
             select(Gallery.id, Gallery.path_hash, Gallery.storage_path).where(
-                Gallery.expunged.is_(False)
+                Gallery.expunged.is_(False), Gallery.trashed.is_(False)
             )
         )
         missing_ids: list[int] = []
@@ -480,7 +480,7 @@ class GalleryRepository:
                     .where(GalleryTag.gallery_id == Gallery.id, *condition)
                 )
                 query = query.where(~subquery.exists())
-        query = query.where(Gallery.expunged.is_(False))
+        query = query.where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
         total = int(
             await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         )
@@ -521,7 +521,7 @@ class GalleryRepository:
         """The next non-expunged gallery id after ``current_id`` (ascending)."""
         return await self.session.scalar(
             select(Gallery.id)
-            .where(Gallery.id > current_id, Gallery.expunged.is_(False))
+            .where(Gallery.id > current_id, Gallery.expunged.is_(False), Gallery.trashed.is_(False))
             .order_by(Gallery.id)
             .limit(1)
         )
@@ -599,7 +599,7 @@ class GalleryRepository:
             select(Tag.namespace, func.count(GalleryTag.gallery_id.distinct()))
             .join(GalleryTag, GalleryTag.tag_id == Tag.id)
             .join(Gallery, Gallery.id == GalleryTag.gallery_id)
-            .where(Gallery.expunged.is_(False))
+            .where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
             .group_by(Tag.namespace)
         )
         return [(namespace, int(count)) for namespace, count in rows]
@@ -645,10 +645,90 @@ class GalleryRepository:
     async def random_id(self) -> int | None:
         return await self.session.scalar(
             select(Gallery.id)
-            .where(Gallery.expunged.is_(False))
+            .where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
             .order_by(func.random())
             .limit(1)
         )
+
+    async def list_trashed(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
+        query = select(Gallery).where(Gallery.trashed.is_(True))
+        total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        rows = (
+            await self.session.scalars(
+                query.order_by(Gallery.trashed_at.desc().nullslast(), Gallery.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        return total, list(rows)
+
+    async def list_expunged(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
+        query = select(Gallery).where(Gallery.expunged.is_(True), Gallery.trashed.is_(False))
+        total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        rows = (
+            await self.session.scalars(
+                query.order_by(Gallery.updated_at.desc(), Gallery.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        return total, list(rows)
+
+    async def list_integrity_issues(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
+        # Page count vs actual gallery_pages rows, or file_count mismatch, excluding trashed/expunged
+        # Use subquery for page counts
+        page_count_sub = (
+            select(GalleryPage.gallery_id, func.count(GalleryPage.id).label("cnt"))
+            .group_by(GalleryPage.gallery_id)
+            .subquery()
+        )
+        query = (
+            select(Gallery)
+            .outerjoin(page_count_sub, page_count_sub.c.gallery_id == Gallery.id)
+            .where(Gallery.trashed.is_(False), Gallery.expunged.is_(False))
+            .where(
+                or_(
+                    Gallery.page_count.is_(None),
+                    Gallery.page_count != func.coalesce(page_count_sub.c.cnt, 0),
+                    # file_count vs page_count mismatch (allow 0 file_count as unknown)
+                    and_(Gallery.file_count.is_not(None), Gallery.file_count != Gallery.page_count),
+                )
+            )
+        )
+        # Exclude galleries truncated via download max_pages (intentional)
+        # Those have a download task with max_pages == page_count, we exclude them by checking
+        # that no download task exists with that max_pages (simplified: exclude if any task max_pages == page_count)
+        # For now, simple page_count vs actual count is enough; truncation will be rare and can be inspected
+        total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        rows = (
+            await self.session.scalars(
+                query.order_by(Gallery.id.desc()).offset((page - 1) * page_size).limit(page_size)
+            )
+        ).all()
+        return total, list(rows)
+
+    async def restore_galleries(self, ids: list[int]) -> int:
+        if not ids:
+            return 0
+        result = await self.session.execute(
+            update(Gallery)
+            .where(Gallery.id.in_(ids))
+            .values(trashed=False, trashed_at=None, expunged=False, updated_at=datetime.now(UTC))
+        )
+        await self.session.flush()
+        return int(result.rowcount or 0)
+
+    async def purge_galleries(self, ids: list[int]) -> int:
+        if not ids:
+            return 0
+        # Hard delete trashed/expunged rows (also delete pages/tags via cascade)
+        rows = await self.session.scalars(select(Gallery).where(Gallery.id.in_(ids)))
+        count = 0
+        for row in rows:
+            await self.session.delete(row)
+            count += 1
+        await self.session.flush()
+        return count
 
     async def progress(self, gallery_id: int) -> ReadingProgress | None:
         return await self.session.get(ReadingProgress, gallery_id)

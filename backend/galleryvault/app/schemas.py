@@ -229,6 +229,7 @@ class SettingsRequest(BaseModel):
     auth_required: bool | None = None
     trusted_proxies: list[str] | None = None
     tag_translation_update_interval_minutes: int | None = Field(default=None, ge=0)
+    global_paused: bool | None = None
 
     @model_validator(mode="after")
     def validate_values(self) -> SettingsRequest:
