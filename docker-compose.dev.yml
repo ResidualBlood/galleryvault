@@ -20,7 +20,7 @@ services:
       dockerfile: Dockerfile
     container_name: galleryvault-dev-backend
     restart: unless-stopped
-    command: ["uvicorn", "galleryvault.app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--reload-dir", "/app/galleryvault"]
+    command: ["uvicorn", "galleryvault.app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--reload-dir", "/app/galleryvault", "--proxy-headers", "--forwarded-allow-ips=172.16.0.0/12,127.0.0.1"]
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads

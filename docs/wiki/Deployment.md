@@ -33,8 +33,8 @@ docker compose -f docker-compose.dev.yml up -d
 ```
 
 - **前端热更**：直接修改 `frontend/assets/` 下的 CSS/JS，刷新浏览器即可生效（无需构建工具）；
-- **后端热更**：后端容器启动覆盖传入 `uvicorn --reload`，修改 `backend/galleryvault/` 代码自动重载生效；
-- **环境隔离**：开发数据库独立持久化于 `./db-data-dev`（不污染生产或集成测试库）；
+- **后端热更**：后端容器启动覆盖传入 `uvicorn --reload`（带 `--proxy-headers --forwarded-allow-ips` 保证 Nginx 反代下登录限流与日志拿到真实客户端 IP），修改 `backend/galleryvault/` 代码自动重载生效；
+- **环境与数据隔离**：开发数据库独立持久化于 `./db-data-dev`，挂载本地 `./library`、`./downloads` 与 `./cache` 目录（若不存在 Docker 会自动创建，不影响生产/测试库）；
 - **端口配置**：前端映射至 `:8200`，后端映射至 `:8201`（可通过环境变量 `DEV_FRONTEND_PORT` / `DEV_BACKEND_PORT` 自定义）。
 
 ## 数据目录
