@@ -3,7 +3,7 @@
 // events.js — 事件委托 (onClick/onSubmit/onChange + bind*)
 // 扩展现有 document 级委托
 
-function onClick(e) {
+async function onClick(e) {
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const action = el.getAttribute("data-action");
@@ -122,6 +122,21 @@ function onClick(e) {
     }
     return;
   }
+  if (action === "toggle-pause") {
+    e.preventDefault();
+    try {
+      const cur = await api("GET", "/api/pause");
+      const next = !cur.paused;
+      await api("POST", "/api/pause", { paused: next });
+      toast(next ? t("paused") : t("resume"));
+      router();
+    } catch (err) { toast(err.message); }
+    return;
+  }
+  if (action === "lib-batch-fav") { libraryBatchAddFavorite(); return; }
+  if (action === "recycle-restore") { recycleRestore(); return; }
+  if (action === "recycle-purge") { recyclePurge(); return; }
+  if (action === "integrity-repair") { integrityRepair(); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
@@ -140,17 +155,22 @@ function onSubmit(e) {
   if (action === "search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
   if (action === "library-search") {
     e.preventDefault();
+    const getVal = (name) => {
+      const el = form.elements[name];
+      return el && el.value ? String(el.value).trim() : "";
+    };
+    const pageMin = getVal("page_min");
+    const pageMax = getVal("page_max");
+    const minRating = getVal("min_rating");
     location.hash = navHash("library", {}, {
       ...(form.q.value.trim() ? { q: form.q.value.trim() } : {}),
       ...(form.category.value ? { category: form.category.value } : {}),
       ...(form.order_by && form.order_by.value !== "id_desc" ? { order_by: form.order_by.value } : {}),
       ...(form.read_status && form.read_status.value ? { read_status: form.read_status.value } : {}),
+      ...(pageMin ? { page_min: pageMin } : {}),
+      ...(pageMax ? { page_max: pageMax } : {}),
+      ...(minRating ? { min_rating: minRating } : {}),
       ...(app.query.tags ? { tags: app.query.tags, tag_mode: app.query.tag_mode || "and", ...(app.query.tag_match && app.query.tag_match !== "exact" ? { tag_match: app.query.tag_match } : {}) } : {}),
-      ...(app.query.min_rating ? { min_rating: app.query.min_rating } : {}),
-      ...(app.query.page_min ? { page_min: app.query.page_min } : {}),
-      ...(app.query.page_max ? { page_max: app.query.page_max } : {}),
-      ...(app.query.min_pages ? { min_pages: app.query.min_pages } : {}),
-      ...(app.query.max_pages ? { max_pages: app.query.max_pages } : {})
     });
     return;
   }
@@ -375,6 +395,23 @@ document.addEventListener("input", e => {
       systemLogSearch = e.target.value.trim();
       fetchSystemLogs();
     }, 300);
+  }
+});
+
+// filter-tag keyboard: Enter/Space triggers same as click, Shift+Enter/Space excludes
+document.addEventListener("keydown", e => {
+  const el = e.target.closest && e.target.closest('[data-action="filter-tag"]');
+  if (!el) return;
+  if (e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  e.stopPropagation();
+  const ns = el.getAttribute("data-ns") || "";
+  const name = el.getAttribute("data-name") || "";
+  if (!name) return;
+  if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) {
+    location.hash = addExcludeTagHash(ns || null, name);
+  } else {
+    location.hash = addTagHash(ns || null, name);
   }
 });
 

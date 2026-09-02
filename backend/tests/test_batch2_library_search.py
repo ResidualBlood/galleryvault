@@ -109,6 +109,13 @@ async def test_gallery_sorting_and_filtering_sql() -> None:
     sql = session.sql[-1].lower()
     assert "gallery_tags" in sql and ("not exists" in sql or "not (exists" in sql)
 
+    # 8. Exclude tag with Chinese characters (regression for 2尾巴)
+    await repo.list_page(1, 10, exclude_tags=[("female", "巨乳")])
+    sql = session.sql[-1].lower()
+    assert "gallery_tags" in sql and ("not exists" in sql or "not (exists" in sql)
+    # The Chinese name should appear in the compiled SQL as a literal
+    assert "巨乳" in session.sql[-1]
+
 
 @pytest.mark.asyncio
 async def test_favorite_repo_search_and_sort_sql() -> None:

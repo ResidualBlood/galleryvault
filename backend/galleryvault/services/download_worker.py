@@ -433,6 +433,14 @@ async def download_worker_loop() -> None:
     async def _worker() -> None:
         while True:
             try:
+                # Global pause: stop claiming new galleries (current page finishes)
+                try:
+                    _settings = app_state.settings or get_settings()
+                    if getattr(_settings, "global_paused", False):
+                        await asyncio.sleep(5)
+                        continue
+                except Exception:  # noqa: BLE001, S110
+                    pass
                 row = None
                 async with app_state.session_factory() as session, session.begin():
                     row = await DownloadRepository(session).claim_pending()

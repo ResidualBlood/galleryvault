@@ -264,6 +264,13 @@ async function galleryGrid(container, page, extraQuery) {
       throw e;
     }
   }
+  // cache for batch operations (id -> {gid, token, title})
+  if (data && Array.isArray(data.items)) {
+    app._libCache = app._libCache || new Map();
+    for (const it of data.items) {
+      if (it && it.id != null) app._libCache.set(Number(it.id), { gid: it.gid, token: it.token, title: it.title });
+    }
+  }
   if (container == null) return data;
   const el = document.getElementById(container);
   if (!el) return data;

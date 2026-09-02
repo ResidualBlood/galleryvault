@@ -12,6 +12,11 @@ function renderCardCheckboxes() {
       if (cb.checked) selGalleries.add(id); else selGalleries.delete(id);
       const btn = document.querySelector('[data-action="sel-delete"]');
       if (btn) btn.textContent = `${t("deleteSel")}${selGalleries.size ? ` (${selGalleries.size})` : ""}`;
+      const favBtn = document.querySelector('[data-action="lib-batch-fav"]');
+      if (favBtn) {
+        const count = selGalleries.size;
+        favBtn.textContent = count ? t("batchFavCount").replace("{count}", count) : t("batchFav");
+      }
     });
   });
   document.querySelectorAll('.gc-check input[data-fav-gid]').forEach(cb => {
@@ -48,7 +53,7 @@ function renderCardCheckboxes() {
 function galleryCard(it) {
   const cat = esc(catLabel(it.category));
   const ctx = app.view === "library" ? libraryContext() : {};
-  return `<div class="gc-wrap">
+  return `<div class="gc-wrap" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}">
     <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}" role="link" aria-label="${esc(it.title)} (${cat}, ${it.page_count} pages)">
       <div class="gc-cover">
         ${it.cover_url ? `<img loading="lazy" src="${it.cover_url}" alt="">` : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover") || "no cover")}</div>`}
@@ -56,9 +61,9 @@ function galleryCard(it) {
         <span class="gc-pages">${it.page_count} P</span>
       </div>
       <div class="gc-title">${esc(it.title)}</div>
-      <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}" data-action="filter-tag" data-ns="${esc(tg.namespace)}" data-name="${esc(tg.name)}" role="button" tabindex="0" title="${esc(tg.namespace ? tg.namespace + ':' + tg.name : tg.name)} — ${esc(t("search"))} (Shift+click to exclude)">${esc(tagText(tg))}</span>`).join("")}</div>
+      <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}" data-action="filter-tag" data-ns="${esc(tg.namespace)}" data-name="${esc(tg.name)}" role="button" tabindex="0" title="${esc(tg.namespace ? tg.namespace + ':' + tg.name : tg.name)} — ${esc(t("tagFilterHint"))} / ${esc(t("tagExcludeHint"))}">${esc(tagText(tg))}</span>`).join("")}</div>
     </a>
-    <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-gallery-id="${it.id}"${selGalleries.has(it.id) ? " checked" : ""}></label>
+    <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-gallery-id="${it.id}" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}"${selGalleries.has(it.id) ? " checked" : ""}></label>
   </div>`;
 }
 

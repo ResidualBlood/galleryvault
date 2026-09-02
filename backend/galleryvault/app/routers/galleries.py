@@ -381,6 +381,157 @@ async def list_galleries(
 gallery_list = list_galleries
 
 
+@router.get("/api/galleries/trash")
+async def list_trash(page: int = 1, page_size: int = 24) -> dict[str, object]:
+    if page < 1 or not 1 <= page_size <= 500:
+        raise HTTPException(status_code=422, detail="invalid pagination")
+    try:
+        async for session in get_session():
+            total, rows = await GalleryRepository(session).list_trashed(page, page_size)
+            g_ids = [r.id for r in rows]
+            tag_map = await GalleryRepository(session).tags_for_galleries(g_ids)
+            progress_map = await GalleryRepository(session).progress_for_galleries(g_ids)
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": row.id,
+                "gid": getattr(row, "gid", None),
+                "token": getattr(row, "token", None),
+                "title": display_title(row),
+                "title_jpn": getattr(row, "title_jpn", None),
+                "category": getattr(row, "category", "other") or "other",
+                "page_count": getattr(row, "page_count", 0) or 0,
+                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
+                "trashed_at": row.trashed_at.isoformat() if getattr(row, "trashed_at", None) else None,
+                "storage_path": getattr(row, "storage_path", ""),
+                "tags": [
+                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                    for ns, name in tag_map.get(row.id, [])
+                ],
+                "reading_progress": progress_map.get(row.id),
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/api/galleries/expunged")
+async def list_expunged(page: int = 1, page_size: int = 24) -> dict[str, object]:
+    if page < 1 or not 1 <= page_size <= 500:
+        raise HTTPException(status_code=422, detail="invalid pagination")
+    try:
+        async for session in get_session():
+            total, rows = await GalleryRepository(session).list_expunged(page, page_size)
+            g_ids = [r.id for r in rows]
+            tag_map = await GalleryRepository(session).tags_for_galleries(g_ids)
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": row.id,
+                "gid": getattr(row, "gid", None),
+                "title": display_title(row),
+                "page_count": getattr(row, "page_count", 0) or 0,
+                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
+                "updated_at": row.updated_at.isoformat() if getattr(row, "updated_at", None) else None,
+                "storage_path": getattr(row, "storage_path", ""),
+                "tags": [
+                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                    for ns, name in tag_map.get(row.id, [])
+                ],
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/api/galleries/integrity")
+async def list_integrity(page: int = 1, page_size: int = 24) -> dict[str, object]:
+    if page < 1 or not 1 <= page_size <= 500:
+        raise HTTPException(status_code=422, detail="invalid pagination")
+    try:
+        async for session in get_session():
+            total, rows = await GalleryRepository(session).list_integrity_issues(page, page_size)
+            g_ids = [r.id for r in rows]
+            tag_map = await GalleryRepository(session).tags_for_galleries(g_ids)
+            from sqlalchemy import func, select
+
+            from ...db.models import GalleryPage
+
+            counts = {}
+            if g_ids:
+                res = await session.execute(
+                    select(GalleryPage.gallery_id, func.count(GalleryPage.id)).where(GalleryPage.gallery_id.in_(g_ids)).group_by(GalleryPage.gallery_id)
+                )
+                counts = {gid: cnt for gid, cnt in res}
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": row.id,
+                "gid": getattr(row, "gid", None),
+                "title": display_title(row),
+                "page_count": getattr(row, "page_count", 0) or 0,
+                "actual_pages": counts.get(row.id, 0),
+                "file_count": getattr(row, "file_count", None),
+                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
+                "storage_path": getattr(row, "storage_path", ""),
+                "tags": [
+                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                    for ns, name in tag_map.get(row.id, [])
+                ],
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/api/galleries/restore", status_code=200)
+async def restore_galleries(body: BulkDeleteRequest) -> dict[str, object]:
+    ids = body.ids or body.gallery_ids or []
+    if not ids:
+        raise HTTPException(status_code=422, detail="No gallery ids provided")
+    try:
+        async for session in get_session():
+            async with session.begin():
+                restored = await GalleryRepository(session).restore_galleries(ids)
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {"restored": restored}
+
+
+@router.post("/api/galleries/purge", status_code=200)
+async def purge_galleries(body: BulkDeleteRequest) -> dict[str, object]:
+    ids = body.ids or body.gallery_ids or []
+    if not ids:
+        raise HTTPException(status_code=422, detail="No gallery ids provided")
+    try:
+        async for session in get_session():
+            async with session.begin():
+                purged = await GalleryRepository(session).purge_galleries(ids)
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {"purged": purged}
+
+
 @router.get("/api/galleries/categories")
 async def list_categories() -> dict[str, object]:
     try:
@@ -574,6 +725,12 @@ async def gallery_favorite_status(identifier: int) -> dict[str, object]:
 async def toggle_gallery_favorite(
     identifier: int, favcat: int = 0
 ) -> dict[str, object]:
+    """Deprecated: prefer POST /api/favorites/add for single/batch adds.
+
+    Kept for backward compat (single gallery toggle). Batch adds MUST use
+    /api/favorites/add which batches via successful_gids and respects cloud
+    success before writing favorite_items.
+    """
     if not 0 <= favcat <= 9:
         raise HTTPException(status_code=422, detail="favcat must be between 0 and 9")
     row, _ = await _gallery(identifier)
@@ -967,10 +1124,15 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
 def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: bool) -> None:
     now = datetime.now(UTC).isoformat()
     deleted = sum(1 for r in results if r.get("db_removed"))
+    trashed = sum(1 for r in results if r.get("trashed"))
     failed = [p for r in results for p in r.get("failed_paths", [])]
     status = "failed" if failed else "success"
     mode_text = "database record + files" if delete_files else "database record only"
+    if trashed:
+        mode_text += f", trashed {trashed}"
     reason = f"deleted {deleted}/{len(results)} galleries ({mode_text})"
+    if trashed:
+        reason += f", trashed {trashed}"
     if failed:
         reason += f", file deletion failed: {', '.join(str(p) for p in failed[:3])}"
     tm = get_task_manager()

@@ -101,8 +101,18 @@ async def delete_galleries_local(
     delete_files: bool,
     delete_all_copies: bool,
     delete_fn: Callable[[Path], bool] | None = None,
+    trash: bool | None = None,
 ) -> list[dict]:
-    """Delete galleries (DB rows + optional on-disk copies) with safety boundary checks."""
+    """Delete galleries (DB rows + optional on-disk copies) with safety boundary checks.
+
+    When ``trash`` is None (default), ``delete_files=False`` soft-deletes to
+    recycle bin (trashed=True, files kept), while ``delete_files=True`` hard-deletes
+    only if all file deletions succeed. Pass ``trash=True`` to force soft-delete
+    even when files are removed (keeps row for purge), or ``trash=False`` to force
+    hard-delete.
+    """
+    from datetime import UTC, datetime
+
     from ..db.repository import GalleryRepository
 
     deleter_fn = delete_local_copy
@@ -115,6 +125,8 @@ async def delete_galleries_local(
         except TypeError:
             return deleter_fn(p)
 
+    # Auto-decide trash vs hard-delete when not explicitly set
+    auto_trash = trash
     results: list[dict] = []
     for gallery in galleries:
         gid = gallery.gid
@@ -133,18 +145,34 @@ async def delete_galleries_local(
                     deleted_paths.append(str(target))
                 else:
                     failed_paths.append(str(target))
-        if not delete_files or not failed_paths:
-            await session.delete(gallery)
-            if delete_all_copies and gid is not None and not failed_paths:
-                await GalleryRepository(session).delete_duplicate(gid)
-            db_removed = True
-        else:
+        # Decide soft vs hard delete
+        should_trash = auto_trash
+        if should_trash is None:
+            should_trash = not delete_files
+        if should_trash:
+            # Soft-delete to recycle bin (keep row, mark trashed, files may be kept or already deleted)
+            gallery.trashed = True
+            gallery.trashed_at = datetime.now(UTC)
+            gallery.updated_at = datetime.now(UTC)
+            # If delete_files was requested and succeeded, files are already gone, but row stays trashed for purge
             db_removed = False
+            trashed = True
+        else:
+            if not delete_files or not failed_paths:
+                await session.delete(gallery)
+                if delete_all_copies and gid is not None and not failed_paths:
+                    await GalleryRepository(session).delete_duplicate(gid)
+                db_removed = True
+                trashed = False
+            else:
+                db_removed = False
+                trashed = False
         results.append(
             {
                 "gallery_id": gallery.id,
                 "gid": gid,
                 "db_removed": db_removed,
+                "trashed": trashed,
                 "deleted_paths": deleted_paths,
                 "failed_paths": failed_paths,
             }
