@@ -20,6 +20,7 @@ from ..db.repository import (
 )
 from ..logging import bind_log_context, log_extra
 from ..services.tag_translation import translated_tag
+from .download_worker import infer_image_quality
 from .duplicates import find_duplicate_groups
 from .eh_client import EXHENTAI_API_CHUNK_SIZE
 from .favorites import FavoritesService
@@ -348,12 +349,17 @@ async def favorite_size_sync(favcat: int) -> None:
         return
     if favcat in _size_sync_inflight:
         return
+    first = not _size_sync_inflight
     _size_sync_inflight.add(favcat)
     tm = app_state.task_manager
     metadata_sync_state = tm.metadata_sync_state if tm else {}
     metadata_sync_state["running"] = True
     metadata_sync_state["stage"] = "listing"
-    metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
+    if first:
+        metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
+        metadata_sync_state["applied"] = 0
+        metadata_sync_state["last_error"] = None
+        metadata_sync_state["history_recorded"] = False
     if tm:
         tm.clear_cancelled("metadata")
     fetched: dict[int, dict[str, Any]] = {}
@@ -393,7 +399,8 @@ async def favorite_size_sync(favcat: int) -> None:
             metadata_sync_state["done"] = min(len(missing), start + batch_size)
         if fetched:
             async with app_state.session_factory() as session, session.begin():
-                await GalleryRepository(session).upsert_metadata(
+                gal = GalleryRepository(session)
+                await gal.upsert_metadata(
                     [{"gid": gid, **meta} for gid, meta in fetched.items()]
                 )
                 repo = FavoritesRepository(session)
@@ -401,6 +408,21 @@ async def favorite_size_sync(favcat: int) -> None:
                     size = meta.get("file_size")
                     if size:
                         await repo.set_file_size(favcat, gid, int(size))
+                local = await gal.storage_size_map(list(fetched))
+                inferred = {
+                    gid: quality
+                    for gid, meta in fetched.items()
+                    if gid in local
+                    and (
+                        quality := infer_image_quality(
+                            local[gid][0],
+                            meta.get("file_size"),
+                            local[gid][1],
+                        )
+                    )
+                }
+                if inferred:
+                    await gal.set_image_qualities(inferred)
             cached_meta.update(fetched)
 
         metadata_sync_state["stage"] = "covers"
@@ -432,15 +454,61 @@ async def favorite_size_sync(favcat: int) -> None:
                 "favorite covers healed",
                 extra=log_extra(favcat=favcat, healed=len(coverless)),
             )
+
+        metadata_sync_state["stage"] = "apply"
+        applied = 0
+        for _ in range(100):
+            if tm and tm.is_cancelled("metadata"):
+                break
+            async with app_state.session_factory() as session, session.begin():
+                applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
+                    favcat, 200
+                )
+            if not applied_round:
+                break
+            applied += applied_round
+            metadata_sync_state["applied"] = (
+                int(metadata_sync_state.get("applied") or 0) + applied_round
+            )
+        if applied:
+            logger.info(
+                "favorite metadata applied", extra=log_extra(favcat=favcat, applied=applied)
+            )
     except Exception as exc:  # noqa: BLE001
         metadata_sync_state["last_error"] = str(exc)
     finally:
         _size_sync_inflight.discard(favcat)
-        if not _size_sync_inflight:
+        finishing = not _size_sync_inflight
+        if finishing:
             metadata_sync_state["running"] = False
-        metadata_sync_state["completed_at"] = datetime.now(UTC).isoformat()
-        if tm:
-            tm.clear_cancelled("metadata")
+            metadata_sync_state["completed_at"] = datetime.now(UTC).isoformat()
+            metadata_sync_state["stage"] = None
+            if tm and not metadata_sync_state.get("history_recorded"):
+                metadata_sync_state["history_recorded"] = True
+                cancelled = tm.is_cancelled("metadata")
+                status = (
+                    "cancelled"
+                    if cancelled
+                    else ("failed" if metadata_sync_state.get("last_error") else "success")
+                )
+                tm.record_task(
+                    "metadata",
+                    metadata_sync_state.get("started_at"),
+                    metadata_sync_state["completed_at"],
+                    status,
+                    reason=(
+                        "cancelled"
+                        if cancelled
+                        else str(metadata_sync_state.get("last_error") or "")
+                    ),
+                    done=int(metadata_sync_state.get("done") or 0),
+                    total=int(metadata_sync_state.get("total") or 0),
+                )
+                from ..app.dependencies import spawn_task
+
+                spawn_task(tm.persist_history(), "persist task history")
+            if tm:
+                tm.clear_cancelled("metadata")
 
 
 async def run_favorites_check(
