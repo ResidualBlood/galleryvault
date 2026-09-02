@@ -1,9 +1,10 @@
 """Regression tests for P0/P1/P2 pause/purge/integrity/quota fixes."""
 
 import pytest
+
 from galleryvault.app.state import app_state
 from galleryvault.config import get_settings
-from galleryvault.db.models import DownloadTask, Gallery, GalleryPage
+from galleryvault.db.models import Gallery
 from galleryvault.services.settings_service import update_runtime_settings
 
 
@@ -15,7 +16,6 @@ async def test_pause_save_merges_not_overwrites(monkeypatch):
     Cookie / library_roots. The web and bot paths now get() then merge.
     """
     from galleryvault.app.routers import tasks as tasks_module
-    from galleryvault.services import settings_service
 
     # Start from a known settings with cookies + roots
     base = get_settings()
@@ -92,6 +92,7 @@ async def test_telegram_pause_merges(monkeypatch):
     """Telegram /pause must also merge, not overwrite (code uses get() + merge)."""
     # Verify the fixed code path does a merge – inspect source
     import inspect
+
     from galleryvault.services import telegram_bot
     src = inspect.getsource(telegram_bot.TelegramBotService.handle_update)
     assert "await SettingsRepository(session).get()" in src
@@ -108,7 +109,6 @@ async def test_telegram_pause_merges(monkeypatch):
 async def test_purge_uses_delete_galleries_local_with_delete_files(monkeypatch, tmp_path):
     """Purge must call delete_galleries_local with trash=False and respect delete_files."""
     from galleryvault.app.routers import galleries as gal_mod
-    from galleryvault.services.deletion import delete_local_copy
 
     # Create a fake gallery row that would be deleted
     # Use a real DB via the test DB? Instead, mock the helper and verify args
@@ -156,7 +156,7 @@ async def test_purge_uses_delete_galleries_local_with_delete_files(monkeypatch, 
     assert result["purged"] == 2
 
     # delete_files=False also forces trash=False (hard delete without files)
-    result2 = await gal_mod.purge_galleries(BulkDeleteRequest(ids=[1], delete_files=False))
+    await gal_mod.purge_galleries(BulkDeleteRequest(ids=[1], delete_files=False))
     assert called["delete_files"] is False
     assert called["trash"] is False
 
@@ -221,17 +221,15 @@ async def test_scan_returns_paused_not_423(monkeypatch):
     app_state.settings = base2
     # Mock task manager
     class FakeTM:
-        scan_state = {"running": False}
         def __init__(self):
             self.scan_state = {"running": False}
         def clear_cancelled(self, *a): pass
     monkeypatch.setattr(tasks_mod, "get_task_manager", lambda: FakeTM())
     def fake_spawn(coro, name):
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             coro.close()
-        except Exception:
-            pass
-        return None
     monkeypatch.setattr(tasks_mod, "spawn_task", fake_spawn)
     result2 = await tasks_mod.trigger_scan()
     assert result2["status"] in ("running", "started", "paused")
@@ -243,6 +241,7 @@ async def test_integrity_excludes_none_and_max_pages(monkeypatch):
     # This test hits the real DB repository logic via the test DB fixture would be needed.
     # Instead, we verify the query structure by inspecting the function source.
     import inspect
+
     from galleryvault.db.repositories.galleries import GalleryRepository
     src = inspect.getsource(GalleryRepository.list_integrity_issues)
     assert "Gallery.page_count.is_(None)" not in src or "is_not(None)" in src  # should not be or_ with is_(None)
