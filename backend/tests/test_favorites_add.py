@@ -1,6 +1,5 @@
 """Tests for favorites/add endpoint and EhClient.add_favorite / add_favorites."""
 
-from datetime import UTC, datetime
 from typing import Any
 
 import httpx
