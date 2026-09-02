@@ -13,6 +13,7 @@ from galleryvault.app.state import app_state
 from galleryvault.services import updates_worker
 from galleryvault.services.updates_worker import (
     detect_gallery_updates,
+    finalize_updates_for_new_gid,
     gallery_updates_finalize_loop,
     normalize_update_title,
     run_gallery_updates,
@@ -101,8 +102,14 @@ async def test_detect_gallery_updates_finds_old_versions(monkeypatch):
         def __init__(self, session):
             pass
 
-        async def tracked_gallery_ids(self):
+        async def tracking_by_gallery_id(self):
+            return {}
+
+        async def local_new_gids(self, gids):
             return set()
+
+        async def active_task_ids_for_gids(self, gids):
+            return {}
 
         async def detect_many(self, entries, *, known_gallery_ids):
             seen.extend(entries)
@@ -152,8 +159,14 @@ async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
         def __init__(self, session):
             pass
 
-        async def tracked_gallery_ids(self):
-            return {1}  # already pending/failed/ignored
+        async def tracking_by_gallery_id(self):
+            return {1: SimpleNamespace(id=9, status="pending", gallery_id=1)}
+
+        async def local_new_gids(self, gids):
+            return set()
+
+        async def active_task_ids_for_gids(self, gids):
+            return {}
 
         async def detect_many(self, entries, *, known_gallery_ids):
             seen.extend(entries)
@@ -169,6 +182,168 @@ async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
         app_state.session_factory = orig_factory
 
     assert seen == []
+
+
+async def test_detect_gallery_updates_finalizes_when_new_gid_local(monkeypatch):
+    fav_rows = [(200, "tok", "Title A", 0)]
+    gallery_rows = [(1, 100, "Title A", None)]
+    finalized = []
+    seen = []
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+        async def execute(self, stmt):
+            if "favorite_items" in str(stmt):
+                return _Res(fav_rows)
+            return _Res(gallery_rows)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def tracking_by_gallery_id(self):
+            return {1: SimpleNamespace(id=9, status="pending", gallery_id=1)}
+
+        async def local_new_gids(self, gids):
+            return {200}
+
+        async def active_task_ids_for_gids(self, gids):
+            return {}
+
+        async def detect_many(self, entries, *, known_gallery_ids):
+            seen.extend(entries)
+            return len(entries)
+
+    async def fake_finalize(row):
+        finalized.append(row.gallery_id)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+
+    try:
+        await detect_gallery_updates()
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert seen == []
+    assert finalized == [1]
+
+
+async def test_detect_gallery_updates_skips_ignored_even_if_new_local(monkeypatch):
+    fav_rows = [(200, "tok", "Title A", 0)]
+    gallery_rows = [(1, 100, "Title A", None)]
+    finalized = []
+    seen = []
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+        async def execute(self, stmt):
+            if "favorite_items" in str(stmt):
+                return _Res(fav_rows)
+            return _Res(gallery_rows)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def tracking_by_gallery_id(self):
+            return {1: SimpleNamespace(id=9, status="ignored", gallery_id=1)}
+
+        async def local_new_gids(self, gids):
+            return {200}
+
+        async def active_task_ids_for_gids(self, gids):
+            return {}
+
+        async def detect_many(self, entries, *, known_gallery_ids):
+            seen.extend(entries)
+            return len(entries)
+
+    async def fake_finalize(row):
+        finalized.append(row.gallery_id)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+
+    try:
+        await detect_gallery_updates()
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert seen == []
+    assert finalized == []
+
+
+async def test_detect_gallery_updates_pins_active_download(monkeypatch):
+    fav_rows = [(200, "tok", "Title A", 0)]
+    gallery_rows = [(1, 100, "Title A", None)]
+    seen = []
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+        async def execute(self, stmt):
+            if "favorite_items" in str(stmt):
+                return _Res(fav_rows)
+            return _Res(gallery_rows)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def tracking_by_gallery_id(self):
+            return {}
+
+        async def local_new_gids(self, gids):
+            return set()
+
+        async def active_task_ids_for_gids(self, gids):
+            return {200: 77}
+
+        async def detect_many(self, entries, *, known_gallery_ids):
+            seen.extend(entries)
+            return len(entries)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+
+    try:
+        await detect_gallery_updates()
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert len(seen) == 1
+    assert seen[0]["new_gid"] == 200
+    assert seen[0]["status"] == "downloading"
+    assert seen[0]["download_task_id"] == 77
 
 
 # --- update execution -------------------------------------------------------
@@ -191,6 +366,9 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
 
         async def get(self, update_id):
             return FakeUpdate()
+
+        async def local_new_gids(self, gids):
+            return set()
 
         async def mark_downloading(self, update_id, task_id):
             return True
@@ -245,6 +423,9 @@ async def test_run_gallery_updates_archives(monkeypatch):
 
         async def get(self, update_id):
             return FakeUpdate()
+
+        async def local_new_gids(self, gids):
+            return set()
 
         async def mark_downloading(self, update_id, task_id):
             return True
@@ -326,6 +507,102 @@ async def test_run_gallery_updates_skips_non_pending(monkeypatch):
 
     assert result == {"started": 0, "skipped": 1}
     assert called == []
+
+
+async def test_run_gallery_updates_finalizes_when_already_local(monkeypatch):
+    created = []
+    finalized = []
+
+    class FakeUpdate:
+        status = "pending"
+        id = 4
+        gallery_id = 12
+        new_gid = 500
+        new_token = "tok"
+        title = "New version"
+        download_task_id = None
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, update_id):
+            return FakeUpdate()
+
+        async def local_new_gids(self, gids):
+            return {500}
+
+        async def mark_downloading(self, update_id, task_id):
+            raise AssertionError("should not enqueue")
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+    async def fake_create(self, gid, token, title, mode, max_pages=None, quality=None):
+        created.append(gid)
+        return SimpleNamespace(id=77)
+
+    async def fake_finalize(row):
+        finalized.append((row.id, row.gallery_id))
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
+    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+
+    try:
+        result = await run_gallery_updates([4])
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert result == {"started": 1, "skipped": 0}
+    assert created == []
+    assert finalized == [(4, 12)]
+
+
+async def test_finalize_updates_for_new_gid_skips_ignored(monkeypatch):
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def actionable_by_new_gid(self, new_gid):
+            return [
+                SimpleNamespace(id=1, gallery_id=10, status="pending"),
+                SimpleNamespace(id=2, gallery_id=11, status="downloading"),
+            ]
+
+    finalized = []
+
+    async def fake_finalize(row):
+        finalized.append(row.gallery_id)
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+
+    try:
+        done = await finalize_updates_for_new_gid(200)
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert done == 2
+    assert finalized == [10, 11]
 
 
 # --- API surface ------------------------------------------------------------

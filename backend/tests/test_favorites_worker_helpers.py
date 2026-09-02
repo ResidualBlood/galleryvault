@@ -142,11 +142,24 @@ async def test_favorite_download_queue():
                 return self
 
         app_state.session_factory = lambda: FakeSession()
+        attached = []
+
+        class FakeUpdatesRepo:
+            def __init__(self, session):
+                pass
+
+            async def attach_download(self, new_gid, task_id):
+                attached.append((new_gid, task_id))
+                return 1
+
         from unittest.mock import patch
-        with patch("galleryvault.services.favorites_worker.DownloadRepository", FakeDownloadRepo):
+        with patch("galleryvault.services.favorites_worker.DownloadRepository", FakeDownloadRepo), patch(
+            "galleryvault.services.favorites_worker.GalleryUpdatesRepository", FakeUpdatesRepo
+        ):
             queue = FavoriteDownloadQueue()
             item = SimpleNamespace(gid=123, token="tok", title="Title")
             assert await queue.enqueue(item) is True
+            assert attached == [(123, 42)]
     finally:
         app_state.session_factory = orig_session
 
