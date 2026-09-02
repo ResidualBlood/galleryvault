@@ -27,6 +27,23 @@ Then open `http://<host>:8000` and log in with the default password
 `p1a2s3s4` — **change it in Settings right away** (the default is for first
 login only).
 
+## Local Development (Dev Compose)
+
+To develop with zero-build live reloading for both frontend and backend source code (with sibling repositories layout):
+
+```bash
+# First time or after Dockerfile changes:
+docker compose -f docker-compose.dev.yml up -d --build
+
+# Daily hot-reloading:
+docker compose -f docker-compose.dev.yml up -d
+```
+
+- **Frontend live reload**: edit HTML/CSS/JS in `frontend/assets/` and refresh the browser directly (no node/bundler needed);
+- **Backend hot reload**: the backend runs under `uvicorn --reload --proxy-headers --forwarded-allow-ips` to auto-restart upon code changes in `backend/galleryvault/` while properly extracting client IPs behind nginx;
+- **Data isolation**: the development database lives in `./db-data-dev` with local `./library`, `./downloads`, and `./cache` mounts without interfering with production or test data;
+- **Port overrides**: defaults to frontend `:8200` and backend `:8201` (customizable via `DEV_FRONTEND_PORT` and `DEV_BACKEND_PORT` environment variables).
+
 ## Data directories
 
 | Path | Purpose |
