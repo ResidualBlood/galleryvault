@@ -106,11 +106,15 @@ Other formats:
 **Search & tags**
 
 - **Multi-tag & mixed search** — clicking tags (suggestions / detail page /
-  tag cloud) stacks AND filters; the box accepts `动图 中国` combos and
-  `ns:name` syntax, tags are opt-in (click a suggestion), and Enter runs a
-  plain title search (multi-word = every word must match).
+  tag cloud) stacks AND/OR filters; exclude `-tag`; the box accepts `动图 中国`
+  combos and `ns:name` syntax, tags are opt-in (click a suggestion), and Enter
+  runs a plain title search (multi-word = every word must match).
+- **Library filters** — sort by ingest / posted / title / pages / size /
+  rating; filter by read status, page range and minimum rating; Shift-click a
+  card tag to exclude it.
 - **Tag translations** — pulls the latest EhTagTranslation database; Chinese
-  input reverse-matches (typing 巨乳 suggests `big breasts`).
+  input reverse-matches (typing 巨乳 suggests `big breasts`); the tags-page
+  search box uses the same Chinese autocomplete.
 - **Bilingual UI** — English / 中文, switchable at any time; tags show their
   translations in the Chinese view.
 - **Tag cloud** — namespace groups (Tag / Artist / Character / Parody / Group
@@ -126,23 +130,28 @@ Other formats:
 - **Favorites monitor & management** — watches the ten folders (incremental /
   watch-only / force modes), auto-downloads missing galleries, per-folder
   lists, a skip heuristic to save bandwidth, and duplicate scan with
-  ignore/restore.
+  ignore/restore; detail and library pages can add/move favorites (cloud-first).
 - **Gallery updates** (`#/updates`) — detects local copies of galleries that
   ExHentai has re-uploaded (a new gid); one click downloads the new version and
   deletes the old local copy. If the new gid is already in the library,
   detection finalizes automatically.
 - **Open on ExHentai** — a one-click link to the original gallery from the
   detail page (built from the configured base URL).
+- **Cookie health** — startup and periodic probes; expired cookies or no
+  ExHentai access show a red top banner linking to Settings.
 
 **Download manager**
 
 - **Ehviewer-style downloads** — concurrent page downloads, live progress,
   resumable retries (missing pages only), partial downloads (`max_pages`),
-  cancel and bulk retry.
+  cancel and bulk retry; paste URL/`gid/token` on the downloads page (pages or
+  archive) and follow newer versions when ExHentai replaced the listing.
 - **Archive downloads (ExHentai zip)** — the official whole-gallery zip
   channel: spend GP for big galleries, per-task quality override
   (original/resample), single-connection streaming with Range resume, retries
   never re-charge GP, and a read-only GP cost preview dialog.
+- **Global pause & quota** — pause persists (same switch on Web and bot);
+  the downloads page shows GP and image quota (~30 min cache).
 - **Slow-node watchdog** — per-image total-time budget + warm-up window +
   minimum speed; a sluggish H@H node no longer holds a whole gallery hostage.
 - **Self-healing failures** — transient errors re-queue with **exponential
@@ -157,12 +166,14 @@ Other formats:
 **Reader & UI**
 
 - **Reader** — one-page streaming, LTR / RTL manga / double-page spread,
-  keyboard/space/click paging, three-page preload, auto-advance after the last
-  page, fullscreen and fit modes, 1-hour browser caching, saved reading
-  position, and the search context is kept throughout.
+  keyboard/space/click paging, `G` to jump, three-page preload, auto-advance
+  after the last page, fullscreen and fit modes, 1-hour browser caching, saved
+  reading position, and the search context is kept throughout.
 - **Browse & history** — newest-gallery browse (random gallery, tag namespace
-  strip), a global top-bar search, a reading-history page, an activity log
-  page, and a first-run wizard.
+  strip), **Continue reading** cards, a global top-bar search, a
+  reading-history page, an activity log page, and a first-run wizard.
+- **Recycle bin & missing pages** — user-deleted / scan-missing galleries are
+  restorable; integrity check re-downloads missing pages.
 
 **Security & operations**
 
@@ -181,7 +192,7 @@ Other formats:
 | Topic | Page |
 |-------|------|
 | Deployment, volumes, scan-only libraries, TLS | [Deployment](Deployment-EN) |
-| Using the UI (browse, reader, tags, downloads, favorites, settings) | [Usage](Usage-EN) |
+| Using the UI (browse, reader, tags, downloads, favorites, recycle, settings) | [Usage](Usage-EN) |
 | Backup & restore | [Backup](Backup-EN) |
 | At-rest encryption & lost-key recovery | [Encryption](Encryption-EN) |
 | REST API reference | [API](API) · browsable [openapi.json](openapi.json) |

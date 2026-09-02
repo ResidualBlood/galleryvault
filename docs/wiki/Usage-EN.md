@@ -1,7 +1,8 @@
 # Usage Guide
 
 The SPA uses hash routing (`#/library`, `#/gallery/7`, …), so browser refresh
-and back/forward need no server round trip.
+and back/forward need no server round trip. The top banner can stack a yellow
+global-pause bar, a red Cookie-expired bar, and an image-quota warning.
 
 ## Browse (`#/browse`)
 
@@ -48,6 +49,7 @@ manually to revisit it.
 - Search by title, filter by category, sort across multiple fields, filter by reading status, and browse indexed galleries.
 - **Multi-criteria Sorting**: Order by **Ingest date (default)**, **Posted date**, **Title**, **Pages**, **Size**, and **Rating**, backed by dedicated database indexes for sub-second responses on large collections.
 - **Reading Status Filter**: Quickly filter by **All**, **Unread** (never read or progress is 0), **Reading** (in-progress), or **Completed** (read to last page).
+- **Page count & rating range**: the toolbar has min/max page inputs and a minimum rating (≥2 / ≥3 / ≥4 / ≥4.5); these stick with sort, read status and tag filters (tag clicks and returning from detail keep them).
 - **"Not in favorites" filter**: the category dropdown ends with "Not in
   favorites", showing local galleries whose gid is not in any ExHentai favorite
   folder (gid-less local archives count as not favorited; older local copies with
@@ -72,19 +74,24 @@ manually to revisit it.
   and every word must appear (each as an independent substring, order- and
   position-independent), so `mimu gif` matches any title containing both
   mimu and gif. Single-word and CJK-sentence searches behave as before.
+- **Batch add to favorites**: after selecting cards, **Add to favorites** picks
+  folder 0–9 and submits in chunks of 25; **only cloud-confirmed gids are
+  written locally**; gid-less local archives are skipped with a toast.
 - **Bulk & filtered deletion**:
   - Ticking gallery cards reveals a **Delete selected** action, with an option
-    to delete corresponding files on disk;
+    to delete corresponding files on disk (**leaving files on disk sends the
+    row to `#/recycle` → User deleted**, restorable);
   - **Delete filtered** removes all galleries matching the active category,
-    search query, or tag filter at once. A 5,000-row safety guard rejects
+    search query, read status, or tag filter at once. A 5,000-row safety guard rejects
     excessive matches with `409` to prevent accidental library wipes; deletion
     runs safely in 500-row batches, keeping the DB row and logging a notice
     if disk files are read-only.
 - **Scan library** triggers a filesystem scan: new archives are ingested, and
-  galleries that are missing are soft-deleted (they come back after a rescan
-  once the directory is restored). The completion Telegram notification
+  galleries missing from disk go to `#/recycle` → Scan missing (restorable;
+  purge removes them from the index). The completion Telegram notification
   appends `N duplicate-copy group(s) found (gid …)` when duplicates were
-  detected, pointing to the Duplicate copies page.
+  detected, pointing to the Duplicate copies page. A **global pause** skips
+  the scan (the trigger returns `paused`).
 
 ## Duplicate copies (`#/duplicates`)
 
@@ -103,6 +110,19 @@ manually to revisit it.
   the scan roots), **Dismiss group** (hide it; restorable).
 - The **Scan library** button re-scans immediately to refresh the list;
   dismissed groups stay hidden until the on-disk copies actually change.
+
+## Recycle Bin (`#/recycle`)
+
+- Two tabs: **User deleted** (library delete without removing files) and **Scan
+  missing** (not found on disk during a scan).
+- **Restore** puts galleries back in the library; **Purge** asks again whether
+  to delete files on disk (purged-with-files will not be re-ingested on scan).
+
+## Missing pages (`#/integrity`)
+
+- Lists galleries whose recorded `page_count` disagrees with pages on disk
+  (unset page counts and intentional `max_pages` truncation are excluded).
+- **Repair / re-download** only fetches the missing pages.
 
 ## Gallery detail (`#/gallery/<id>`)
 
@@ -189,6 +209,11 @@ manually to revisit it.
 
 - **Batch URL & GID/Token Enqueue**: Paste one or more gallery URLs or `gid/token` lines. **Enqueue pages** can override image quality; **Archive download** opens the same GP/tier preview as Favorites. Task titles follow the Title display setting (English/Japanese) instead of `gid xxx`.
 - **Follow newer versions**: if ExHentai marks the listing as replaced, the download switches to the new gid (max 5 hops). 404/deleted galleries fail without retry, with plain-language errors in the list and Telegram. Gallery-detail “download original for this copy” does not follow.
+- **Global pause**: the page toggle and Telegram `/pause` are the same switch
+  (see Settings); it stops claiming and dispatching new pages, and skips scans;
+  it survives restart. The yellow top bar stacks with the Cookie red bar.
+- **GP & image quota**: the page header shows a cached GP balance and Image
+  Limit (~30 min TTL); above ~80% the top banner warns you to pause (avoid 509).
 - Lists download tasks with their status (waiting / downloading / success /
   failed / cancelled), filterable by status.
 - A **channel badge** next to each task title marks how it downloads: archive
@@ -408,7 +433,10 @@ additions again.
 - **Account**: change password (this **revokes every logged-in session**) and
   toggle *Require login*.
 - **ExHentai**: base URL and `ipb_member_id` / `ipb_pass_hash` / `igneous`
-  cookies, with a **Test login** button; cookies are never echoed back.
+  cookies, with a **Test login** button; cookies are never echoed back. A
+  health probe runs at startup and every 30 minutes; expired cookies or no
+  ExHentai access show a red top banner linking to Settings (also refreshed
+  once right after login).
 - **Proxy**: HTTP or SOCKS5 (choose one).
 - **Tag sync**: automatic sync after scans/startup, interval and concurrency,
   and a **Sync tags now** button.

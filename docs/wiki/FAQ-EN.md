@@ -89,6 +89,29 @@ This is CSRF protection checking `Origin` / `Referer` against `Host` / `X-Forwar
 2. **Same-hostname allowance**: the latest release normalizes port mismatches on matching hostnames and automatically sends `X-CSRF-Token`.
 3. **IPv6**: IPv6 literal addresses are fully supported since v1.2.4.
 
+## Red top banner says the ExHentai cookie is invalid?
+
+A probe runs at startup and every 30 minutes, plus once right after login.
+Follow the banner to Settings, re-enter cookies and use *Test login*. Cloud
+sync pauses while the cookie is invalid.
+
+## Can I get a deleted gallery back?
+
+**Without deleting files** → [Usage](Usage-EN) `#/recycle` *User deleted* can
+restore it. Missing on disk after a scan → *Scan missing*. **Purge with delete
+files** cannot be undone from that page (a later scan will not re-ingest it).
+
+## I hit Pause — why are downloads / scans still running?
+
+The current page finishes; no new pages are dispatched and no new tasks are
+claimed. Scans return `paused`. The downloads-page toggle and Telegram
+`/pause` `/resume` are the same switch and survive restart. See [Usage](Usage-EN).
+
+## Downloads page warns that image quota is near the limit?
+
+That is ExHentai Image Limit (cached ~30 min with GP). Above ~80% the top
+banner warns you — pause to avoid HTTP 509.
+
 ## Do archive download retries or Range resumes charge GP multiple times?
 
 **No**. When an archive download starts, the ExHentai zip URL is persisted under the task's metadata (`.archive.json`). Any subsequent resume (HTTP Range) or error retry continues with the same URL and **never charges GP again**. If an archive channel is completely unavailable, the task falls back cleanly to page-by-page downloading over H@H (which costs 0 GP).
