@@ -21,7 +21,8 @@ services:
       DOWNLOAD_ROOT: /downloads
       TZ: Asia/Shanghai
       # Optional: User/Group ID for backend process execution (e.g. NAS/Linux user).
-      # Defaults to root (0:0) if unset.
+      # Defaults to root (0:0) if unset. On NAS / shared storage, setting PUID/PGID
+      # (e.g. 1000) avoids creating root-owned download and log files on the host.
       # PUID: 1000
       # PGID: 1000
       # Optional at-rest encryption for ExHentai cookies / Telegram bot token /

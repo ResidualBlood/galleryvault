@@ -140,8 +140,8 @@ and never echoed back.
 ### Custom Permissions / Non-root runtime (PUID / PGID)
 
 The backend image supports configurable runtime user identity via environment variables:
-- **Default (no `PUID`/`PGID` set)**: Runs directly as `root (0:0)` with zero setup and no manual host permission adjustments required.
-- **Custom unprivileged user (NAS / standard Linux host)**: Set `PUID` and `PGID` in `docker-compose.yml` (e.g. `PUID=1000`, `PGID=1000`). The container drops privileges at startup and automatically aligns ownership on `/downloads` and `/gv-cache`. To allow gallery deletions under library roots (e.g. `./library`), ensure the host directory is writable by that UID (e.g. `chown -R 1000:1000 <host-folder>`).
+- **Default (no `PUID`/`PGID` set)**: Runs directly as `root (0:0)` with zero setup and no manual host permission adjustments required. Note that in root mode, newly downloaded archives and system logs will be owned by `root` on the host.
+- **Custom unprivileged user (NAS / standard Linux host, recommended)**: Set `PUID` and `PGID` in `docker-compose.yml` (e.g. `PUID=1000`, `PGID=1000`). The container validates parameters, drops privileges at startup, and automatically aligns ownership on `/downloads` and `/gv-cache`. To allow gallery deletions under library roots (e.g. `./library`), ensure the host directory is writable by that UID (e.g. `chown -R 1000:1000 <host-folder>`).
 
 ### Optional: View container logs in real time with Dozzle
 
