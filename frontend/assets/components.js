@@ -70,8 +70,58 @@ function renderLoading(msg) {
   return `<p class="loading">${esc(msg || t("loading"))}</p>`;
 }
 
-function renderEmpty(msg) {
-  return `<div class="empty-state"><p>${esc(msg || t("noData"))}</p></div>`;
+function renderEmpty(msg, opts) {
+  opts = opts || {};
+  const icon = opts.icon || "📂";
+  const actionHtml = opts.actionHtml || "";
+  return `<div class="empty-state" role="status">
+    <div class="empty-icon">${icon}</div>
+    <p>${esc(msg || t("noData"))}</p>
+    ${actionHtml ? `<div class="empty-action" style="margin-top:8px">${actionHtml}</div>` : ""}
+  </div>`;
+}
+
+function trapModalFocus(overlay, closeFn) {
+  const previouslyFocused = document.activeElement;
+  const modalEl = overlay.querySelector('.gv-modal') || overlay;
+  const getFocusables = () => Array.from(modalEl.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+
+  setTimeout(() => {
+    const initial = getFocusables();
+    if (initial.length) initial[0].focus();
+  }, 10);
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFn(null);
+      return;
+    }
+    if (e.key === 'Tab') {
+      const els = getFocusables();
+      if (!els.length) {
+        e.preventDefault();
+        return;
+      }
+      const first = els[0];
+      const last = els[els.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !modalEl.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !modalEl.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
+
+  document.addEventListener('keydown', onKey);
+  return () => {
+    try { document.removeEventListener('keydown', onKey); } catch (_) {}
+    if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      try { previouslyFocused.focus(); } catch (_) {}
+    }
+  };
 }
 
 function renderError(msg) {
@@ -105,10 +155,11 @@ function showArchiveDialog(gids, opts) {
       </div>
     </div>`;
     let settled = false;
+    let cleanupFocus = null;
     const close = (value) => {
       if (settled) return;
       settled = true;
-      try { document.removeEventListener('keydown', onKey); } catch (_) {}
+      if (cleanupFocus) cleanupFocus();
       overlay.remove();
       resolve(value);
     };
@@ -119,18 +170,7 @@ function showArchiveDialog(gids, opts) {
       close(tier ? tier.value : null);
     });
     document.body.appendChild(overlay);
-    const modalEl = overlay.querySelector('.gv-modal');
-    const focusables = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-    if (focusables.length) focusables[0].focus();
-    const onKey = (e) => {
-      if (e.key === 'Escape') { close(null); return; }
-      if (e.key === 'Tab' && focusables.length) {
-        const first = focusables[0], last = focusables[focusables.length-1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener('keydown', onKey);
+    cleanupFocus = trapModalFocus(overlay, close);
     api("POST", "/api/archives/preview", { gids })
       .then(data => {
         if (settled) return;
@@ -230,10 +270,11 @@ async function showMoveFavoritesDialog(gids, currentFavcat) {
     </div>`;
 
     let settled = false;
+    let cleanupFocus = null;
     const close = (value) => {
       if (settled) return;
       settled = true;
-      try { document.removeEventListener('keydown', onKey); } catch (_) {}
+      if (cleanupFocus) cleanupFocus();
       overlay.remove();
       resolve(value);
     };
@@ -261,19 +302,8 @@ async function showMoveFavoritesDialog(gids, currentFavcat) {
       } else if (confirmBtn) {
         confirmBtn.disabled = true;
       }
-      selEl.focus();
     }
 
-    const modalEl = overlay.querySelector('.gv-modal');
-    const focusables = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-    const onKey = (e) => {
-      if (e.key === 'Escape') { close(null); return; }
-      if (e.key === 'Tab' && focusables.length) {
-        const first = focusables[0], last = focusables[focusables.length-1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener('keydown', onKey);
+    cleanupFocus = trapModalFocus(overlay, close);
   });
 }

@@ -93,6 +93,7 @@ window.GV_LOCALES.zh = {
   updScanning: "正在检测更新", updDetectedAt: "上次检测", updUnignore: "取消忽略", updUnignoreSel: "恢复选中", updNone: "没有已忽略的更新。",
   downloading: "下载中", perPage: "每页",
   readerFit: "适应", readerFullscreen: "全屏",
+  readerMode: "模式", readerModeLtr: "顺序", readerModeRtl: "日漫 (RTL)", readerModeDouble: "双页", readerModeDoubleRtl: "双页 (RTL)",
   delete: "删除", deleteGallery: "删除画廊", deleteFiltered: "删除筛选结果",
   unfavorite: "取消收藏", unfavoriteFail: "无法取消收藏", unfavorited: "已取消收藏",
   unfavoritedLocal: "云端移除失败，仅移除本地记录", confirmUnfavorite: "确定从收藏夹移除该画廊？",

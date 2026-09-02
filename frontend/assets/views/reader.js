@@ -1,11 +1,38 @@
 "use strict";
 
-// views/reader.js — Phase 1 continue
-// renderReader + reader helpers moved from app.js
+// views/reader.js — Reader with LTR, RTL Manga, and Double-page modes + gestures
+
+function getReaderMode() {
+  return localStorage.getItem("gv_reader_mode") || "ltr";
+}
+
+function setReaderMode(mode) {
+  localStorage.setItem("gv_reader_mode", mode);
+}
+
+function readerModeLabel(mode) {
+  mode = mode || getReaderMode();
+  if (mode === "rtl") return t("readerModeRtl") || "RTL";
+  if (mode === "double") return t("readerModeDouble") || "Double";
+  if (mode === "double-rtl") return t("readerModeDoubleRtl") || "Double RTL";
+  return t("readerModeLtr") || "LTR";
+}
+
+function cycleReaderMode() {
+  const modes = ["ltr", "rtl", "double", "double-rtl"];
+  const current = getReaderMode();
+  const next = modes[(modes.indexOf(current) + 1) % modes.length];
+  setReaderMode(next);
+  renderReader();
+}
 
 async function renderReader() {
   const id = app.params.id;
   const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  const mode = getReaderMode();
+  const isDouble = mode.startsWith("double") && page > 0;
+  const isRtl = mode === "rtl" || mode === "double-rtl";
+
   try {
     let g = app.readerGallery;
     if (!g || String(g.id) !== String(id)) {
@@ -14,33 +41,68 @@ async function renderReader() {
     }
     const total = g.page_count;
     app.readerTotal = total;
+
+    // Directional Preloading
     let preload = "";
-    for (let i = 1; i <= 3 && page + i < total; i++) {
+    const preloadStep = isDouble ? 4 : 3;
+    for (let i = 1; i <= preloadStep && page + i < total; i++) {
       preload += `<link rel="preload" as="image" href="/api/galleries/${id}/pages/${page + i}">`;
     }
+
+    let imgHtml = "";
+    if (isDouble) {
+      const p1 = page;
+      const p2 = page + 1 < total ? page + 1 : null;
+      const rtlClass = mode === "double-rtl" ? " reader-spread-rtl" : "";
+      imgHtml = `
+        <div class="reader-spread${rtlClass}">
+          <div class="reader-img-wrap"><img id="reader-img" src="/api/galleries/${id}/pages/${p1}" alt="Page ${p1 + 1}" data-page="${p1}"></div>
+          ${p2 !== null ? `<div class="reader-img-wrap"><img src="/api/galleries/${id}/pages/${p2}" alt="Page ${p2 + 1}" data-page="${p2}"></div>` : ""}
+        </div>`;
+    } else {
+      imgHtml = `
+        <div class="reader-img-wrap">
+          <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-page="${page}" data-next="${page + 1 < total ? page + 1 : ""}">
+        </div>`;
+    }
+
+    const step = isDouble ? 2 : 1;
+    const prevPage = page === 1 ? 0 : Math.max(0, page - (page === 2 ? 1 : step));
+    const nextPage = page === 0 ? 1 : (page + step < total ? page + step : null);
+
+    const prevBtn = page > 0
+      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: prevPage }, libraryContext())}">${esc(t("prev"))}</a>`
+      : `<span>${esc(t("prev"))}</span>`;
+    const nextBtn = nextPage !== null
+      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nextPage }, libraryContext())}">${esc(t("next"))}</a>`
+      : `<span>${esc(t("next"))}</span>`;
+
+    const navHtml = isRtl
+      ? `<div class="nav">${nextBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>${prevBtn}</div>`
+      : `<div class="nav">${prevBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>${nextBtn}</div>`;
+
     $view().innerHTML = `
       <div class="reader">
         <div class="reader-bar toolbar">
           <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
-          <span>${page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
+          <span>${isDouble && page + 1 < total ? `${page + 1}-${page + 2}` : page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
           <span class="reader-actions">
+            <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
             <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
             <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
           </span>
         </div>
         ${preload}
-        <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-next="${page + 1 < total ? page + 1 : ""}">
-        <div class="nav">
-          ${page > 0 ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: page - 1 }, libraryContext())}">${esc(t("prev"))}</a>` : `<span>${esc(t("prev"))}</span>`}
-          <a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>
-          ${page + 1 < total ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: page + 1 }, libraryContext())}">${esc(t("next"))}</a>` : `<span>${esc(t("next"))}</span>`}
-        </div>
+        ${imgHtml}
+        ${navHtml}
       </div>`;
-    try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
-  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
-}
 
-// readerKeyHandler moved to state.js
+    initReaderGestures();
+    try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
+  } catch (e) {
+    $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
 
 function bindReaderKeys() {
   if (readerKeyHandler) {
@@ -49,67 +111,134 @@ function bindReaderKeys() {
     readerKeyHandler = null;
   }
   if (app.view !== "reader") return;
+
   const id = app.params.id;
   const current = () => Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  const mode = () => getReaderMode();
+  const isRtl = () => mode() === "rtl" || mode() === "double-rtl";
+  const isDouble = () => mode().startsWith("double");
+
   const advance = () => {
-    const n = current() + 1;
+    const cur = current();
+    const step = isDouble() && cur > 0 ? 2 : 1;
+    const n = cur === 0 && isDouble() ? 1 : cur + step;
     if (app.readerTotal && n >= app.readerTotal) { goReaderNext(id); return; }
     if (readerFsActive) { readerSwapPage(id, n); return; }
     location.hash = navHash("reader", { id, page: n }, libraryContext());
   };
+
+  const retreat = () => {
+    const cur = current();
+    const step = isDouble() && cur > 1 ? 2 : 1;
+    const n = Math.max(0, cur - step);
+    if (readerFsActive) { readerSwapPage(id, n); return; }
+    location.hash = navHash("reader", { id, page: n }, libraryContext());
+  };
+
   readerKeyHandler = (e) => {
     if (e.type === "click") {
-      // Allow clicking the image or empty reader area to advance (mobile)
-      const img = e.target.closest && e.target.closest("#reader-img");
-      const readerArea = e.target.closest && e.target.closest(".reader");
-      const isButton = e.target.closest && e.target.closest("button, a");
+      const isButton = e.target.closest && e.target.closest("button, a, input, select");
       if (isButton) return;
-      if (img) {
-        const next = parseInt(img.dataset.next, 10);
-        if (readerFsActive) {
-          if (!isNaN(next)) { readerSwapPage(id, next); }
-          else { exitReaderFullscreen(); goReaderNext(id); }
-          return;
-        }
-        if (img.dataset.next) {
-          location.hash = navHash("reader", { id, page: next }, libraryContext());
-        } else {
-          goReaderNext(id);
-        }
-        return;
-      }
-      if (readerArea) {
-        // Click on empty reader background — advance
-        if (readerFsActive) {
-          const cur = current() + 1;
-          if (cur < (app.readerTotal || 0)) readerSwapPage(id, cur);
-          else { exitReaderFullscreen(); goReaderNext(id); }
-        } else {
-          advance();
-        }
-        return;
+
+      const readerArea = e.target.closest && e.target.closest(".reader");
+      if (!readerArea) return;
+
+      const rect = readerArea.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const isRightSide = clickX > rect.width / 2;
+
+      if (isRtl()) {
+        if (isRightSide) retreat();
+        else advance();
+      } else {
+        if (isRightSide) advance();
+        else retreat();
       }
       return;
     }
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-    if (e.key === "ArrowRight" || e.key === " " || e.key === "Spacebar") {
+
+    const tEl = e.target;
+    if (tEl && (tEl.tagName === "INPUT" || tEl.tagName === "TEXTAREA" || tEl.tagName === "SELECT")) return;
+
+    if (e.key === " " || e.key === "Spacebar") {
       e.preventDefault();
       advance();
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (isRtl()) retreat();
+      else advance();
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      if (readerFsActive) { readerSwapPage(id, current() - 1); }
-      else { location.hash = navHash("reader", { id, page: Math.max(0, current() - 1) }, libraryContext()); }
+      if (isRtl()) advance();
+      else retreat();
     } else if (e.key === "f" || e.key === "F") {
       e.preventDefault();
       toggleReaderFullscreen();
     }
   };
+
   document.addEventListener("keydown", readerKeyHandler);
   document.addEventListener("click", readerKeyHandler);
 }
 
-// readerFs* moved to state.js
+function initReaderGestures() {
+  const wraps = document.querySelectorAll(".reader-img-wrap");
+  wraps.forEach(wrap => {
+    const img = wrap.querySelector("img");
+    if (!img) return;
+
+    let lastTap = 0;
+    let initialDist = 0;
+    let currentScale = 1;
+
+    wrap.addEventListener("touchend", (e) => {
+      if (e.touches.length === 0) {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          // Double-tap zoom toggle
+          e.preventDefault();
+          if (currentScale > 1.2) {
+            currentScale = 1;
+            img.style.transform = "";
+            wrap.classList.remove("zoomed");
+          } else {
+            currentScale = 2.2;
+            img.style.transform = `scale(${currentScale})`;
+            wrap.classList.add("zoomed");
+          }
+        }
+        lastTap = now;
+        if (currentScale <= 1.05) {
+          currentScale = 1;
+          img.style.transform = "";
+          wrap.classList.remove("zoomed");
+        }
+      }
+    }, { passive: false });
+
+    wrap.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        initialDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      }
+    }, { passive: true });
+
+    wrap.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 2 && initialDist > 0) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const factor = dist / initialDist;
+        currentScale = Math.min(3.5, Math.max(1, currentScale * factor));
+        initialDist = dist;
+        img.style.transform = `scale(${currentScale})`;
+        if (currentScale > 1.2) wrap.classList.add("zoomed");
+        else wrap.classList.remove("zoomed");
+      }
+    }, { passive: true });
+  });
+}
 
 function toggleReaderFullscreen() {
   if (document.fullscreenElement) { exitReaderFullscreen(); }
@@ -169,13 +298,13 @@ function readerSwapPage(id, target) {
 }
 
 function toggleReaderFit() {
-  const img = document.getElementById("reader-img");
-  if (!img) return;
-  img.classList.toggle("reader-fit");
-  // Clear any legacy inline styles that conflict with CSS variables
-  img.style.width = "";
-  img.style.maxWidth = "";
-  img.style.height = "";
+  const imgs = document.querySelectorAll(".reader img");
+  imgs.forEach(img => {
+    img.classList.toggle("reader-fit");
+    img.style.width = "";
+    img.style.maxWidth = "";
+    img.style.height = "";
+  });
 }
 
 async function goReaderNext(id) {

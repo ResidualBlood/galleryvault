@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "checkJs": false,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "baseUrl": "./",
+    "paths": {
+      "*": ["assets/*"]
+    }
+  },
+  "include": [
+    "assets/**/*"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

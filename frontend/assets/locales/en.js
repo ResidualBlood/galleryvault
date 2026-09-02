@@ -118,6 +118,7 @@ window.GV_LOCALES.en = {
   updScanning: "Scanning for updates", updDetectedAt: "Last scan", updUnignore: "Unignore", updUnignoreSel: "Restore selected", updNone: "No ignored updates.",
   downloading: "downloading", perPage: "per page",
   readerFit: "Fit", readerFullscreen: "Fullscreen",
+  readerMode: "Mode", readerModeLtr: "LTR", readerModeRtl: "Manga (RTL)", readerModeDouble: "Double", readerModeDoubleRtl: "Double (RTL)",
   delete: "Delete", deleteGallery: "Delete gallery", deleteFiltered: "Delete filtered",
   deleteFiles: "Also delete files on disk", confirmDelete: "Delete this gallery?",
   confirmDeleteFiltered: "Delete all matching galleries?", deleted: "Deleted",
