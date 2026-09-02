@@ -89,12 +89,20 @@ ARCHIVER_DOWNLOAD_LINK_RE = re.compile(
 )
 ARCHIVER_LOCATION_RE = re.compile(r'document\.location\s*=\s*["\']([^"\']+)["\']')
 
-# Image Limits box on the ExHentai homepage: "You are currently at <b>1234</b> towards a limit of <b>5000</b>."
+# Image Limits box on the ExHentai homepage /home.php:
+# Old: "You are currently at <strong>538</strong> towards a limit of <strong>50,000</strong>"
+# New: "You are currently at <strong>538</strong> towards your account limit of <strong>50,000</strong>"
+# JDownloader parses with: "You are currently at (\d+)" and "towards a limit of (\d+)" (case-insensitive)
 IMAGE_LIMIT_RE = re.compile(
-    r"You are currently at\s*<[^>]*>\s*([0-9][0-9,]*)\s*</[^>]*>\s*towards a limit of\s*<[^>]*>\s*([0-9][0-9,]*)\s*</",
+    r"You are currently at\s*<[^>]*>\s*([0-9][0-9,]*)\s*</[^>]*>\s*towards\s+(?:your\s+account\s+)?a?\s*limit of\s*<[^>]*>\s*([0-9][0-9,]*)\s*</",
     re.IGNORECASE,
 )
 IMAGE_LIMIT_SIMPLE_RE = re.compile(r"Image Limit[^0-9]*([0-9][0-9,]*)\s*/\s*([0-9][0-9,]*)", re.IGNORECASE)
+# Fallback plain text without tags (e.g. "You are currently at 123 towards a limit of 5000")
+IMAGE_LIMIT_PLAIN_RE = re.compile(
+    r"You are currently at\s*([0-9][0-9,]*)\s*towards\s+(?:your\s+account\s+)?a?\s*limit of\s*([0-9][0-9,]*)",
+    re.IGNORECASE,
+)
 
 
 def _page_token_from_href(absolute: str) -> str | None:
@@ -1478,31 +1486,43 @@ class EhClient:
             return None
         return int(float(match.group(1).replace(",", "")) * 1000)
 
-    async def fetch_image_limits(self) -> dict[str, int] | None:
-        """Read current / max image limits from the ExHentai homepage.
+    def _parse_image_limits(self, body: str) -> dict[str, int] | None:
+        """Parse ``You are currently at X towards a limit of Y`` from a homepage body.
 
-        The homepage box says "You are currently at X towards a limit of Y".
-        Returns ``{"current": int, "limit": int}`` or None if unreachable or
-        not logged in (Sad Panda page has no limits).
+        Handles old/new markup with or without ``<strong>`` tags and plain text.
+        Returns ``{"current": int, "limit": int}`` or None.
         """
-        try:
-            response = await self._get("/")
-        except EhClientError:
-            return None
-        body = response.text
-        if _is_auth_failure_page(body):
-            return None
-        match = IMAGE_LIMIT_RE.search(body)
-        if not match:
-            match = IMAGE_LIMIT_SIMPLE_RE.search(body)
-        if not match:
-            return None
-        try:
-            current = int(match.group(1).replace(",", ""))
-            limit = int(match.group(2).replace(",", ""))
-        except (ValueError, IndexError):
-            return None
-        return {"current": current, "limit": limit}
+        for pattern in (IMAGE_LIMIT_RE, IMAGE_LIMIT_SIMPLE_RE, IMAGE_LIMIT_PLAIN_RE):
+            match = pattern.search(body)
+            if match:
+                try:
+                    current = int(match.group(1).replace(",", ""))
+                    limit = int(match.group(2).replace(",", ""))
+                    return {"current": current, "limit": limit}
+                except (ValueError, IndexError):
+                    continue
+        return None
+
+    async def fetch_image_limits(self) -> dict[str, int] | None:
+        """Read current / max image limits from the ExHentai homepage (home.php).
+
+        The homepage box says "You are currently at X towards a limit of Y"
+        (old) or "towards your account limit of Y" (new). Returns
+        ``{"current": int, "limit": int}`` or None if unreachable, not logged
+        in (Sad Panda), or the new IP-based quota hides the limit (post-2024).
+        """
+        for path in ("/home.php", "/"):
+            try:
+                response = await self._get(path)
+            except EhClientError:
+                continue
+            body = response.text
+            if _is_auth_failure_page(body):
+                return None
+            parsed = self._parse_image_limits(body)
+            if parsed:
+                return parsed
+        return None
 
     async def request_archive(self, url: str, dltype: str) -> str:
         """Ask ExHentai to build the archive zip and return its download URL.

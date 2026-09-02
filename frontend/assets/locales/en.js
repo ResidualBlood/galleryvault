@@ -149,7 +149,7 @@ window.GV_LOCALES.en = {
   batchFav: "Batch add favorite", batchFavCount: "Batch add ({count})", favAddBatch: "Added {count}, failed {failed}", favAddNoGid: "{count} without GID skipped",
   pageMin: "Min pages", pageMax: "Max pages", minRating: "Min rating",
   paused: "Paused", resume: "Resume", pause: "Pause", pauseHint: "Pause stops claiming new tasks; current page finishes",
-  gpTitle: "GP Balance", imageLimitTitle: "Image Quota", recycleTitle: "Recycle Bin", recycleSub: "User deleted vs scan missing",
+  gpTitle: "GP Balance", imageLimitTitle: "Image Quota", quotaWarning: "Image quota near limit", quotaWarningHint: "Image quota {current}/{limit} — near limit, consider pausing", quotaNearLimit: "Image quota {current}/{limit} — near limit", recycleTitle: "Recycle Bin", recycleSub: "User deleted vs scan missing",
   missingPagesTitle: "Missing Pages", missingPagesSub: "Galleries with page count mismatch",
   restore: "Restore", purge: "Purge", trash: "Trash", expunged: "Expunged", userDeleted: "User", scanMissing: "Scan",
   repair: "Repair",

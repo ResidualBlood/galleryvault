@@ -69,10 +69,13 @@ async function loadQuota() {
       let limText = "";
       if (lim && lim.current != null && lim.limit) {
         limText = ` · ${t("imageLimitTitle")}: ${lim.current}/${lim.limit}`;
-        // Near limit warning (>80%) – also push to top banner
+        // Near limit warning (>80%) – also push to top banner with dedicated quota copy
         try {
           if (lim.limit > 0 && lim.current / lim.limit > 0.8) {
-            app.session.quota_warning = `${t("imageLimitTitle")}: ${lim.current}/${lim.limit} — ${t("pauseHint") || "near limit"}`;
+            const hint = (t("quotaWarningHint") && t("quotaWarningHint") !== "quotaWarningHint")
+              ? t("quotaWarningHint").replace("{current}", lim.current).replace("{limit}", lim.limit)
+              : `${t("quotaWarning") || t("imageLimitTitle")}: ${lim.current}/${lim.limit}`;
+            app.session.quota_warning = hint;
             updateBanner();
           } else if (app.session && app.session.quota_warning) {
             delete app.session.quota_warning;

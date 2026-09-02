@@ -3090,7 +3090,7 @@
     "/api/quota": {
       "get": {
         "summary": "Get Quota",
-        "description": "Cached GP balance + 509 hint (low-frequency, 30 min TTL).",
+        "description": "Cached GP balance + Image Limits (low-frequency, 30 min TTL).",
         "operationId": "get_quota_api_quota_get",
         "responses": {
           "200": {
