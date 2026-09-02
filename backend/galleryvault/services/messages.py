@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 LANGS = ("zh", "en")
+GONE_DETAIL = "gallery deleted or not found (404)"
 # Single downloads list their title; larger batches only show counts for the
 # success side (failures are always listed, capped to the Telegram 4096 limit).
 LIST_TITLES_LIMIT = 5
@@ -49,6 +50,18 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_status_running": "📋 下载状态：运行中",
         "bot_status_paused": "📋 下载状态：已暂停",
         "bot_queued": "📥 已入队 gid <code>{gid}</code>",
+        "bot_queued_title": "📥 已入队 <b>{title}</b>（gid <code>{gid}</code>）",
+        "bot_queued_updated": (
+            "📥 原 gid <code>{old}</code> 已更新为 gid <code>{new}</code>，"
+            "已入队 <b>{title}</b>"
+        ),
+        "bot_gone": "❌ <b>{title}</b>已删除或不存在（404），未入队",
+        "bot_already_local": "✅ 新版已在库中：<b>{title}</b>（gid <code>{gid}</code>）",
+        "download_gone": "❌ <b>{title}</b>已删除或不存在（404）",
+        "download_updated": (
+            "🔄 原 gid <code>{old}</code> → 新版 gid <code>{new}</code>，"
+            "改为下载 <b>{title}</b>"
+        ),
         "test": "📡 Telegram 连接测试 OK",
     },
     "en": {
@@ -75,6 +88,18 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_status_running": "📋 GalleryVault downloads are running",
         "bot_status_paused": "📋 GalleryVault downloads are paused",
         "bot_queued": "📥 Queued gallery <code>{gid}</code>",
+        "bot_queued_title": "📥 Queued <b>{title}</b> (gid <code>{gid}</code>)",
+        "bot_queued_updated": (
+            "📥 Original gid <code>{old}</code> updated to gid <code>{new}</code>, "
+            "queued <b>{title}</b>"
+        ),
+        "bot_gone": "❌ <b>{title}</b> deleted or not found (404), not queued",
+        "bot_already_local": "✅ Newer version already in library: <b>{title}</b> (gid <code>{gid}</code>)",
+        "download_gone": "❌ <b>{title}</b> deleted or not found (404)",
+        "download_updated": (
+            "🔄 Original gid <code>{old}</code> → new gid <code>{new}</code>, "
+            "downloading <b>{title}</b>"
+        ),
         "test": "📡 Telegram connection test OK",
     },
 }
@@ -124,9 +149,30 @@ def download_ok(title: str, pages: str | None = None, lang: str = "zh") -> str:
     return "✅ " + _t(lang, "download_ok_verb") + _entry_ok(title, pages, lang)
 
 
+def is_gone_detail(detail: str | None) -> bool:
+    if not detail:
+        return False
+    text = detail.lower()
+    return (
+        "gallerygoneerror" in text
+        or "deleted or not found" in text
+        or "does not exist on exhentai" in text
+    )
+
+
 def download_fail(title: str, detail: str | None = None, lang: str = "zh") -> str:
     """Single failed-download message."""
+    if is_gone_detail(detail):
+        return _t(lang, "download_gone").format(title=esc(title))
     return "❌ " + _t(lang, "download_fail_verb") + _entry_fail(title, detail, lang)
+
+
+def download_updated(
+    old_gid: object, new_gid: object, title: str, lang: str = "zh"
+) -> str:
+    return _t(lang, "download_updated").format(
+        old=esc(old_gid), new=esc(new_gid), title=esc(title)
+    )
 
 
 def download_summary(
@@ -139,7 +185,7 @@ def download_summary(
     if ok == 1 and fail == 0:
         return download_ok(*ok_entries[0], lang)
     if ok == 0 and fail == 1:
-        return download_fail(*fail_entries[0], lang)
+        return download_fail(*fail_entries[0], lang=lang)
     text = _t(lang, "download_summary_head").format(ok=ok, fail=fail)
     if ok and ok <= LIST_TITLES_LIMIT:
         text += "\n✅ " + _t(lang, "list_sep").join(
@@ -148,7 +194,10 @@ def download_summary(
     if fail:
         lines: list[str] = []
         for title, detail in fail_entries:
-            entry = _entry_fail(title, detail, lang)
+            if is_gone_detail(detail):
+                entry = _t(lang, "download_gone").format(title=esc(title)).removeprefix("❌ ").strip()
+            else:
+                entry = _entry_fail(title, detail, lang)
             candidate = "\n❌ " + "\n".join(lines + [entry])
             if _plain_len(text) + _plain_len(candidate) > MAX_MESSAGE_CHARS - 100:
                 lines.append(
@@ -225,8 +274,26 @@ def bot_status(paused: bool, lang: str = "zh") -> str:
     return _t(lang, "bot_status_paused" if paused else "bot_status_running")
 
 
-def bot_queued(gid: object, lang: str = "zh") -> str:
+def bot_queued(gid: object, lang: str = "zh", title: object | None = None) -> str:
+    if title:
+        return _t(lang, "bot_queued_title").format(gid=esc(gid), title=esc(title))
     return _t(lang, "bot_queued").format(gid=esc(gid))
+
+
+def bot_queued_updated(
+    old_gid: object, new_gid: object, title: object, lang: str = "zh"
+) -> str:
+    return _t(lang, "bot_queued_updated").format(
+        old=esc(old_gid), new=esc(new_gid), title=esc(title)
+    )
+
+
+def bot_gone(title: object, lang: str = "zh") -> str:
+    return _t(lang, "bot_gone").format(title=esc(title))
+
+
+def bot_already_local(gid: object, title: object, lang: str = "zh") -> str:
+    return _t(lang, "bot_already_local").format(gid=esc(gid), title=esc(title))
 
 
 # --- misc -------------------------------------------------------------------

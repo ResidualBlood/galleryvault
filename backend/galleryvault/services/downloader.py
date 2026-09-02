@@ -18,6 +18,7 @@ from .eh_client import (
     EhImageSlowError,
     GalleryData,
     GalleryPageData,
+    GalleryReplacedError,
     ShowkeyState,
 )
 
@@ -88,6 +89,23 @@ class DownloadClient(Protocol):
     async def download_archive(
         self, url: str, dest: Path, cb: ProgressCallback | None = None
     ) -> int: ...
+
+
+def follow_download_updates(mode: str | None) -> bool:
+    """Page-by-page / archive / favorites follow replacement chains; not 'this copy'."""
+    return not str(mode or "").startswith("gallery")
+
+
+def raise_if_replaced(task: DownloadTask, gallery: GalleryData) -> None:
+    replaced = getattr(gallery, "replaced_by", None)
+    if not replaced or not follow_download_updates(task.mode):
+        return
+    new_gid, new_token = replaced
+    if int(new_gid) == int(task.gid):
+        return
+    raise GalleryReplacedError(
+        task.gid, int(new_gid), str(new_token), gallery.title, gallery.title_jpn
+    )
 
 
 def safe_title(title: str) -> str:
@@ -291,6 +309,7 @@ class Downloader:
             max_pages=task.max_pages,
             resolve_urls=False,
         )
+        raise_if_replaced(task, gallery)
         pages = list(gallery.pages)
         if task.max_pages is not None and task.max_pages > 0:
             pages = pages[: task.max_pages]
@@ -591,6 +610,7 @@ class Downloader:
         gallery = await self.client.fetch_gallery(
             task.gid, task.token, resolve_urls=False
         )
+        raise_if_replaced(task, gallery)
         pages = list(gallery.pages)
         if progress is not None:
             await progress(0, len(pages))

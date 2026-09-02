@@ -12,7 +12,15 @@ from typing import Any
 
 from ..config import Settings
 from ..services.eh_client import parse_gallery_url
-from ..services.messages import bot_paused, bot_queued, bot_resumed, bot_status
+from ..services.messages import (
+    bot_already_local,
+    bot_gone,
+    bot_paused,
+    bot_queued,
+    bot_queued_updated,
+    bot_resumed,
+    bot_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +30,7 @@ class TelegramGalleryItem:
     gid: int
     token: str
     title: str
+    title_jpn: str | None = None
 
 
 class TelegramBotService:
@@ -100,10 +109,57 @@ class TelegramBotService:
             except (ValueError, TypeError):
                 return
             if not _is_global_paused() and not self.paused:
+                from ..app.dependencies import resolve_display_title
+                from ..services.download_prepare import prepare_galleries
+
+                try:
+                    prepared = (await prepare_galleries([(gid, token)]))[0]
+                except Exception:  # noqa: BLE001
+                    prepared = None
+                if prepared is not None and prepared.gone:
+                    label = (
+                        resolve_display_title(prepared.title, prepared.title_jpn)
+                        or prepared.title
+                        or str(gid)
+                    )
+                    await self.notifier.send_message(bot_gone(label, lang), chat_id, force=True)
+                    return
+                if prepared is not None and prepared.already_local:
+                    label = (
+                        resolve_display_title(prepared.title, prepared.title_jpn)
+                        or prepared.title
+                        or str(prepared.gid)
+                    )
+                    await self.notifier.send_message(
+                        bot_already_local(prepared.gid, label, lang), chat_id, force=True
+                    )
+                    return
+                item_gid, item_token, item_title, item_jpn, old_gid = gid, token, text, None, None
+                if prepared is not None:
+                    item_gid = prepared.gid
+                    item_token = prepared.token
+                    item_jpn = prepared.title_jpn
+                    old_gid = prepared.old_gid
+                    item_title = (
+                        resolve_display_title(prepared.title, prepared.title_jpn)
+                        or prepared.title
+                        or str(prepared.gid)
+                    )
                 await self.queue.enqueue(
-                    TelegramGalleryItem(gid=gid, token=token, title=text)
+                    TelegramGalleryItem(
+                        gid=item_gid, token=item_token, title=item_title, title_jpn=item_jpn
+                    )
                 )
-                await self.notifier.send_message(bot_queued(gid, lang), chat_id, force=True)
+                if old_gid:
+                    await self.notifier.send_message(
+                        bot_queued_updated(old_gid, item_gid, item_title, lang),
+                        chat_id,
+                        force=True,
+                    )
+                else:
+                    await self.notifier.send_message(
+                        bot_queued(item_gid, lang, title=item_title), chat_id, force=True
+                    )
 
     async def run(self) -> None:
         while True:

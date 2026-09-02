@@ -101,8 +101,34 @@ class FavoritesAddRequest(BaseModel):
         return self
 
 
+class ArchivePreviewItem(BaseModel):
+    gid: int = Field(gt=0)
+    token: str
+    title: str | None = None
+
+
 class ArchivePreviewRequest(BaseModel):
-    gids: list[int]
+    gids: list[int] = Field(default_factory=list)
+    items: list[ArchivePreviewItem] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def need_source(self) -> ArchivePreviewRequest:
+        if not self.gids and not self.items:
+            raise ValueError("gids or items is required")
+        return self
+
+
+class DownloadBatchRequest(BaseModel):
+    items: list[DownloadRequest] = Field(min_length=1)
+    mode: str | None = None
+    quality: str | None = None
+    max_pages: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def valid_quality(self) -> DownloadBatchRequest:
+        if self.quality is not None and self.quality not in {"original", "resample"}:
+            raise ValueError("quality must be 'original' or 'resample'")
+        return self
 
 
 class DownloadSelectedRequest(BaseModel):

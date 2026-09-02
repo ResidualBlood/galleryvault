@@ -128,7 +128,7 @@ async def test_favorite_download_queue():
             def __init__(self, session):
                 pass
 
-            async def create(self, gid, token, title, mode, quality=None):
+            async def create(self, gid, token, title, mode, quality=None, title_jpn=None):
                 return SimpleNamespace(id=42)
 
         class FakeSession:

@@ -66,7 +66,12 @@ class FavoriteDownloadQueue:
             return False
         async with app_state.session_factory() as session, session.begin():
             task = await DownloadRepository(session).create(
-                item.gid, item.token, item.title, mode, quality=quality
+                item.gid,
+                item.token,
+                item.title,
+                mode,
+                quality=quality,
+                title_jpn=getattr(item, "title_jpn", None),
             )
             if task is None:
                 return False

@@ -7,71 +7,178 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ...db.models import DownloadTask as DownloadTaskModel
-from ...db.repository import DownloadRepository, GalleryUpdatesRepository
+from ...db.models import Gallery
+from ...db.repository import DownloadRepository, GalleryRepository, GalleryUpdatesRepository
+from ...services.download_prepare import PreparedGallery, prepare_galleries
 from ...services.download_worker import (
     clear_download_cancelled,
     mark_download_cancelled,
 )
-from ...services.downloader import DownloadTask
+from ...services.messages import GONE_DETAIL
 from ..dependencies import (
     db_error,
     get_current_settings,
     get_session,
     get_task_manager,
+    resolve_display_title,
     spawn_task,
 )
-from ..schemas import DownloadRequest
+from ..schemas import DownloadBatchRequest, DownloadRequest
 from ..state import app_state
 
 router = APIRouter()
 
 
-@router.post("/api/downloads", status_code=202)
-async def create_download(body: DownloadRequest) -> dict[str, object]:
-    task_data = None
+async def _create_from_prepared(
+    prepared: PreparedGallery,
+    *,
+    mode: str | None,
+    max_pages: int | None,
+    quality: str | None,
+    fallback_title: str | None = None,
+) -> tuple[str, dict[str, object]]:
+    if prepared.gone:
+        return "gone", {
+            "gid": prepared.gid,
+            "old_gid": prepared.old_gid,
+            "title": prepared.title or str(prepared.gid),
+            "detail": GONE_DETAIL,
+        }
+    if prepared.already_local:
+        return "skipped", {
+            "gid": prepared.gid,
+            "old_gid": prepared.old_gid,
+            "title": prepared.title or str(prepared.gid),
+            "detail": "newer version already in library",
+        }
+    title = prepared.title or fallback_title
     try:
         async for session in get_session():
             async with session.begin():
                 task = await DownloadRepository(session).create(
-                    body.gid,
-                    body.token,
-                    body.title,
-                    body.mode,
-                    body.max_pages,
-                    body.quality,
+                    prepared.gid,
+                    prepared.token,
+                    title,
+                    mode,
+                    max_pages,
+                    quality,
+                    title_jpn=prepared.title_jpn,
                 )
                 if task is None:
-                    raise HTTPException(
-                        status_code=409, detail="An active download already exists for this gid"
-                    )
-                task_data = DownloadTask(
-                    task.gid,
-                    task.token,
-                    task.title or str(task.gid),
-                    task.id,
-                    max_retries=task.max_retries,
-                    mode=task.mode,
-                    max_pages=body.max_pages,
-                    quality=task.quality,
-                )
+                    return "skipped", {
+                        "gid": prepared.gid,
+                        "old_gid": prepared.old_gid,
+                        "title": title or str(prepared.gid),
+                        "detail": "already queued",
+                    }
+                payload = {
+                    "id": task.id,
+                    "gid": task.gid,
+                    "old_gid": prepared.old_gid,
+                    "title": resolve_display_title(task.title, task.title_jpn) or str(task.gid),
+                    "status": "pending",
+                }
             break
-    except HTTPException:
-        raise
-    except IntegrityError as exc:
-        raise HTTPException(
-            status_code=409, detail="An active download already exists for this gid"
-        ) from exc
+    except IntegrityError:
+        return "skipped", {
+            "gid": prepared.gid,
+            "old_gid": prepared.old_gid,
+            "title": title or str(prepared.gid),
+            "detail": "already queued",
+        }
     except Exception as exc:
         raise db_error(exc) from exc
+    status = "updated" if prepared.old_gid else "queued"
+    return status, payload
 
-    downloader = app_state.downloader
-    if downloader is None:
+
+@router.post("/api/downloads", status_code=202)
+async def create_download(body: DownloadRequest) -> dict[str, object]:
+    if app_state.downloader is None:
         raise HTTPException(status_code=503, detail="Downloader is unavailable")
-    assert task_data is not None
-    return {"id": task_data.id, "gid": task_data.gid, "status": "pending"}
+    prepared = (
+        await prepare_galleries([(int(body.gid), str(body.token))])
+    )[0]
+    if body.title and not prepared.title:
+        prepared.title = body.title
+    status, payload = await _create_from_prepared(
+        prepared,
+        mode=body.mode,
+        max_pages=body.max_pages,
+        quality=body.quality,
+        fallback_title=body.title,
+    )
+    if status == "gone":
+        raise HTTPException(status_code=404, detail=GONE_DETAIL)
+    if status == "skipped":
+        raise HTTPException(
+            status_code=409,
+            detail=str(payload.get("detail") or "An active download already exists for this gid"),
+        )
+    return payload
+
+
+@router.post("/api/downloads/batch", status_code=202)
+async def create_downloads_batch(body: DownloadBatchRequest) -> dict[str, object]:
+    if app_state.downloader is None:
+        raise HTTPException(status_code=503, detail="Downloader is unavailable")
+    pairs = [(int(item.gid), str(item.token)) for item in body.items]
+    prepared_list = await prepare_galleries(pairs)
+    queued = skipped = gone = updated = failed = 0
+    results: list[dict[str, object]] = []
+    for item, prepared in zip(body.items, prepared_list, strict=True):
+        mode = body.mode or item.mode
+        quality = body.quality if body.quality is not None else item.quality
+        max_pages = body.max_pages if body.max_pages is not None else item.max_pages
+        if item.title and not prepared.title:
+            prepared.title = item.title
+        try:
+            status, payload = await _create_from_prepared(
+                prepared,
+                mode=mode,
+                max_pages=max_pages,
+                quality=quality,
+                fallback_title=item.title,
+            )
+        except Exception:  # noqa: BLE001
+            failed += 1
+            results.append({"gid": prepared.gid, "status": "failed"})
+            continue
+        payload["status"] = status
+        results.append(payload)
+        if status == "queued":
+            queued += 1
+        elif status == "updated":
+            updated += 1
+            queued += 1
+        elif status == "gone":
+            gone += 1
+        else:
+            skipped += 1
+    now = datetime.now(UTC).isoformat()
+    tm = get_task_manager()
+    tm.record_task(
+        "download-enqueue",
+        now,
+        now,
+        "success" if not failed else "failed",
+        reason=f"queued {queued}, updated {updated}, gone {gone}, skipped {skipped}",
+        done=queued,
+        total=len(body.items),
+    )
+    spawn_task(tm.persist_history(), "persist task history")
+    return {
+        "queued": queued,
+        "skipped": skipped,
+        "gone": gone,
+        "updated": updated,
+        "failed": failed,
+        "items": results,
+    }
 
 
 @router.get("/api/downloads")
@@ -83,16 +190,36 @@ async def list_downloads(
     try:
         async for session in get_session():
             total, rows = await DownloadRepository(session).list_page(page, page_size, status)
+            missing = [x.gid for x in rows if not x.title and not getattr(x, "title_jpn", None)]
+            meta: dict[int, dict] = {}
+            if missing:
+                meta = await GalleryRepository(session).metadata_map(missing)
+                still = [g for g in missing if g not in meta]
+                if still:
+                    gal_rows = (
+                        await session.scalars(select(Gallery).where(Gallery.gid.in_(still)))
+                    ).all()
+                    for gal in gal_rows:
+                        meta[int(gal.gid)] = {
+                            "title": gal.title,
+                            "title_jpn": getattr(gal, "title_jpn", None),
+                        }
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     downloader = app_state.downloader
     items: list[dict[str, Any]] = []
     for x in rows:
+        title = x.title
+        title_jpn = getattr(x, "title_jpn", None)
+        if not title and not title_jpn:
+            cached = meta.get(int(x.gid)) or {}
+            title = cached.get("title")
+            title_jpn = cached.get("title_jpn")
         item: dict[str, Any] = {
             "id": x.id,
             "gid": x.gid,
-            "title": x.title,
+            "title": resolve_display_title(title, title_jpn) or title,
             "status": x.status,
             "retry_count": x.retry_count,
             "max_retries": x.max_retries,

@@ -147,6 +147,25 @@ class GalleryGoneError(EhClientError):
     """
 
 
+class GalleryReplacedError(EhClientError):
+    """The gallery listing points at a newer replacement gid/token."""
+
+    def __init__(
+        self,
+        old_gid: int,
+        new_gid: int,
+        new_token: str,
+        title: str | None = None,
+        title_jpn: str | None = None,
+    ) -> None:
+        super().__init__(f"gallery {old_gid} replaced by {new_gid}")
+        self.old_gid = old_gid
+        self.new_gid = new_gid
+        self.new_token = new_token
+        self.title = title
+        self.title_jpn = title_jpn
+
+
 class EhParseError(EhClientError):
     pass
 
@@ -229,6 +248,7 @@ class GalleryData:
     category: str = "other"
     title_jpn: str | None = None
     file_size: int | None = None
+    replaced_by: tuple[int, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -401,6 +421,30 @@ def parse_gallery_url(value: str, base_url: str = "https://exhentai.org") -> tup
 
 def _text(value: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", value))).strip()
+
+
+_NEWER_HINT = re.compile(
+    r"replaced with a newer version|newer version of (?:this |the )?gallery|"
+    r"a newer version is available|listing is no longer available|"
+    r"新しいバージョン",
+    re.IGNORECASE,
+)
+
+
+def parse_newer_gallery(body: str, current_gid: int) -> tuple[int, str] | None:
+    """Return ``(gid, token)`` of a replacement gallery advertised on the page.
+
+    ExHentai shows a banner plus a ``/g/<gid>/<token>/`` link when a listing has
+    been replaced. Parent (older) links are ignored by requiring the hint text
+    and skipping ``current_gid``.
+    """
+    if not body or not _NEWER_HINT.search(body):
+        return None
+    for match in GALLERY_RE.finditer(body):
+        gid = int(match["gid"])
+        if gid != int(current_gid):
+            return gid, match["token"]
+    return None
 
 
 def _parse_gallery_titles(body: str) -> tuple[str, str | None]:
@@ -700,7 +744,8 @@ class EhClient:
             raise EhClientError("ExHentai returned empty gallery page (temporary anti-abuse)")
         title, title_jpn = _parse_gallery_titles(body)
         tags = _parse_tags(body)
-        if not title:
+        newer = parse_newer_gallery(body, int(gid))
+        if not title and newer is None:
             # ExHentai answers non-existent / deleted galleries with a tiny
             # 200 page that has no title (or a real 404). But an empty/challenged
             # page also has no title — the guards above already filtered those, so
@@ -708,7 +753,7 @@ class EhClient:
             raise GalleryGoneError("gallery does not exist on ExHentai")
         return GalleryData(
             int(gid), token, title, [], tags, _parse_category(body), title_jpn,
-            _parse_file_size(body),
+            _parse_file_size(body), newer,
         )
 
     async def fetch_gallery(
@@ -731,6 +776,19 @@ class EhClient:
             raise EhClientError("ExHentai is challenging this client (temporary anti-abuse)")
         body = response.text
         title, title_jpn = _parse_gallery_titles(body)
+        newer = parse_newer_gallery(body, int(gid))
+        if newer is not None:
+            return GalleryData(
+                int(gid),
+                token,
+                title,
+                [],
+                _parse_tags(body),
+                _parse_category(body),
+                title_jpn,
+                _parse_file_size(body),
+                newer,
+            )
         # ExHentai lists roughly 20 page links per gallery page and paginates
         # long galleries with ?p=N.  Enumerate every gallery sub-page so whole
         # galleries are downloaded, not just the first screenful.
@@ -1417,7 +1475,11 @@ class EhClient:
             except ValueError as exc:
                 raise EhClientError("ExHentai gdata response was not JSON") from exc
             for gallery in body.get("gmetadata", []) or []:
+                if gallery.get("error") or gallery.get("gid") is None:
+                    continue
                 gid = int(gallery.get("gid"))
+                parent = gallery.get("parent") or gallery.get("parent_gid") or ""
+                parent_gid = int(parent) if str(parent).isdigit() else None
                 result[gid] = {
                     "token": gallery.get("token") or "",
                     "thumb": html.unescape(gallery.get("thumb", "") or ""),
@@ -1431,6 +1493,7 @@ class EhClient:
                     "expunged": bool(gallery.get("expunged")),
                     "uploader": gallery.get("uploader") or None,
                     "rating": float(gallery.get("rating") or 0) or None,
+                    "parent_gid": parent_gid,
                 }
         return result
 
