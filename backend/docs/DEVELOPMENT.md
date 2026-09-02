@@ -57,7 +57,6 @@ galleryvault/
     dependencies.py    # FastAPI dependencies and injection helpers
     routers/           # route handlers split by domain
       core.py tasks.py settings.py downloads.py favorites.py galleries.py tags.py
-  api/                 # package note; authoritative reference is docs/API.md
   auth/                # password hashing + session cookies
   config.py            # Settings model + DB persistence
   db/                  # SQLAlchemy models, repositories, session
