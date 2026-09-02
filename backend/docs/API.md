@@ -128,6 +128,7 @@ manual cleanup on the *Duplicate copies* page). All duplicates are recorded in
 | POST | `/api/downloads/{task_id}/cancel` | Cancel a pending/active task. An in-flight download is interrupted (page writes stop, the partial temp dir is removed). Cancel latency is bounded by the page-progress ticks (at most one in-flight page finishes first). |
 | POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`). Retries are otherwise automatic: transient failures re-queue with an exponential backoff up to `max_retries` (default 10), and a periodic sweep re-activates `failed` tasks that still have budget left. |
 | DELETE | `/api/downloads/{task_id}` | `204` – permanently remove a download task and its attempt log. |
+| POST | `/api/downloads/clear-success` | Remove every task with `status=success`. Returns `{deleted}`. Does not delete ingested gallery files. |
 
 ```bash
 curl -b cookies.txt -X POST http://localhost:8001/api/downloads \

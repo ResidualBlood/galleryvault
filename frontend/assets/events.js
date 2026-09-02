@@ -41,6 +41,7 @@ function onClick(e) {
   if (action === "dl-select-all") { selectAllDownloads(); return; }
   if (action === "dl-retry-selected") { retrySelectedDownloads(); return; }
   if (action === "dl-delete-selected") { deleteSelectedDownloads(); return; }
+  if (action === "dl-clear-success") { clearSuccessDownloads(); return; }
   if (action === "test-exhentai") { testExhentai(); return; }
   if (action === "favcats-save") { saveFavoriteCategories(); return; }
   if (action === "favcats-sync") { syncFavoriteCategories(); return; }

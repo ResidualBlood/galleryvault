@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import DownloadAttempt, DownloadTask
@@ -175,5 +175,11 @@ class DownloadRepository:
             return False
         await self.session.delete(task)
         return True
+
+    async def delete_success(self) -> int:
+        result = await self.session.execute(
+            delete(DownloadTask).where(DownloadTask.status == "success")
+        )
+        return int(result.rowcount or 0)
 
 

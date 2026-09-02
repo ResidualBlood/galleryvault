@@ -6,8 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Clear all successful download tasks** (`POST /api/downloads/clear-success`, downloads UI): one-click bulk delete of `status=success` task rows (confirmation shows the count). Ingested gallery files are not touched; failed/cancelled/in-progress tasks stay.
+
 ### Fixed
 
+- **Favorites duplicate scan crash on cached tags** (`services/favorites_worker.py`): `_parse_gdata_tags` treated `metadata_map` dict tags (`{namespace, name}`) as gdata strings and called `.strip()` on them (`AttributeError` at enriching, UI `error N/N`). Parser now accepts dict / `[ns, name]` / `"ns:name"`.
 - **System Logs no longer flooded by Telegram long-poll** (`logging.py`): `_HttpAccessFilter` (drop httpx 2xx/3xx) is now attached to the in-memory RingBuffer as well as stdout/file. The runtime logs page was still showing `getUpdates` 200 every 30s because the filter never reached the buffer the UI reads.
 
 ### Changed

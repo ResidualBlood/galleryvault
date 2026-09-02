@@ -16,6 +16,7 @@ async function renderDownloads() {
       <button class="secondary" data-action="dl-select-all" type="button">${esc(t("selectAll"))}</button>
       <button class="primary" data-action="dl-retry-selected" type="button">${esc(t("retrySelected"))}</button>
       <button class="secondary danger" data-action="dl-delete-selected" type="button">${esc(t("deleteSel"))}</button>
+      <button class="secondary danger" data-action="dl-clear-success" type="button">${esc(t("clearSuccessDl"))}</button>
     </div>
     <div id="dl-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="dl-pages"></div>`);
@@ -132,6 +133,21 @@ async function deleteSelectedDownloads() {
   }
   toast(`${ok} ${t("deleted")}${fail ? `, ${fail} failed` : ""}`);
   loadDownloads(app.query.filter || "all", app.query.page || "1");
+}
+
+async function clearSuccessDownloads() {
+  let total = 0;
+  try {
+    const data = await api("GET", "/api/downloads?page=1&page_size=1&status=success");
+    total = (data && data.total) || 0;
+  } catch (e) { toast(e.message); return; }
+  if (!total) { toast(t("noTasks")); return; }
+  if (!window.confirm(t("confirmClearSuccessDl") + " (" + total + ")")) return;
+  try {
+    const res = await api("POST", "/api/downloads/clear-success");
+    toast(t("clearedSuccessDl").replace("{count}", String((res && res.deleted) || 0)));
+    loadDownloads(app.query.filter || "all", app.query.page || "1");
+  } catch (e) { toast(e.message); }
 }
 
 async function retrySelectedDownloads() {

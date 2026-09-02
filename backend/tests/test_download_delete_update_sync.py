@@ -112,3 +112,43 @@ async def test_delete_missing_task_404(monkeypatch):
         assert exc_info.value.status_code == 404
     finally:
         app_state.session_factory = orig_factory
+
+
+async def test_clear_success_downloads(monkeypatch):
+    recorded = []
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def delete_success(self):
+            return 7
+
+    class FakeTM:
+        def record_task(self, *args, **kwargs):
+            recorded.append((args, kwargs))
+
+        async def persist_history(self):
+            return None
+
+    monkeypatch.setattr(downloads_router, "DownloadRepository", FakeRepo)
+    monkeypatch.setattr(downloads_router, "get_task_manager", lambda: FakeTM())
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    try:
+        res = await downloads_router.clear_success_downloads()
+        assert res == {"deleted": 7}
+        assert recorded[0][0][0] == "download-clear-success"
+        assert recorded[0][1]["done"] == 7
+    finally:
+        app_state.session_factory = orig_factory

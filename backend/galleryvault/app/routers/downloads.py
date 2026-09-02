@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,13 @@ from ...services.download_worker import (
     mark_download_cancelled,
 )
 from ...services.downloader import DownloadTask
-from ..dependencies import db_error, get_current_settings, get_session
+from ..dependencies import (
+    db_error,
+    get_current_settings,
+    get_session,
+    get_task_manager,
+    spawn_task,
+)
 from ..schemas import DownloadRequest
 from ..state import app_state
 
@@ -112,6 +119,31 @@ async def list_downloads(
         "page_size": page_size,
         "items": items,
     }
+
+
+@router.post("/api/downloads/clear-success")
+async def clear_success_downloads() -> dict[str, object]:
+    deleted = 0
+    try:
+        async for session in get_session():
+            async with session.begin():
+                deleted = await DownloadRepository(session).delete_success()
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    now = datetime.now(UTC).isoformat()
+    tm = get_task_manager()
+    tm.record_task(
+        "download-clear-success",
+        now,
+        now,
+        "success",
+        reason=f"cleared {deleted} successful download tasks",
+        done=deleted,
+        total=deleted,
+    )
+    spawn_task(tm.persist_history(), "persist task history")
+    return {"deleted": deleted}
 
 
 @router.post("/api/downloads/{task_id}/retry")

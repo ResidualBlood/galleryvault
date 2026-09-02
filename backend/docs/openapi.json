@@ -1275,6 +1275,26 @@
         }
       }
     },
+    "/api/downloads/clear-success": {
+      "post": {
+        "summary": "Clear Success Downloads",
+        "operationId": "clear_success_downloads_api_downloads_clear_success_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Clear Success Downloads Api Downloads Clear Success Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/downloads/{task_id}/retry": {
       "post": {
         "summary": "Retry Download",
@@ -1590,6 +1610,23 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/logs/download": {
+      "get": {
+        "summary": "System Logs Download",
+        "description": "Download the current on-disk system log file or serialize memory ring buffer.",
+        "operationId": "system_logs_download_api_system_logs_download_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
