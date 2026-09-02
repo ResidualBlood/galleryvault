@@ -147,8 +147,10 @@ manually to revisit it.
 ## Reader (`#/reader/<id>/<page>`)
 
 - Streams one page at a time. Page with **←/→ arrows**, **space** or **click**.
+- **Multi-mode reading (LTR / RTL Manga / Double-page spread)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, and **Double RTL** modes with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1).
+- **Mobile Touch Gestures**: Supports double-tap zoom (2.2x) and two-finger pinch-to-zoom.
 - **Advances to the next gallery after the last page**.
-- Preloads the next three pages, so paging is instant.
+- Preloads the next three pages (four pages in double-spread mode), so paging is instant.
 - **Page images are browser-cached for an hour**: going back a page or
   re-reading a gallery reuses the browser cache instead of downloading again;
   thumbnails are cached for 24 h.
@@ -215,17 +217,19 @@ manually to revisit it.
 
 ## Logs (`#/logs`)
 
-A single place for background tasks (library scan, tag sync, thumbnail
-generation, favorites metadata sync), split into two sections:
+Split into two tabs:
 
-- **Running**: start time · task name · `running · done/total` · progress bar ·
-  description · **Cancel** button; multiple tasks run side by side.
-- **Finished**: start time · task name · status badge (success / failed /
-  cancelled) · description & reason · **duration** · finish time; finished tasks
-  no longer show a progress bar.
+1. **Task Activity**: Displays background tasks (library scan, tag sync, thumbnail generation, favorites metadata sync):
+   - **Running**: start time · task name · `running · done/total` · progress bar · description · **Cancel** button; multiple tasks run side by side.
+   - **Finished**: start time · task name · status badge (success / failed / cancelled) · description & reason · **duration** · finish time; finished tasks no longer show a progress bar.
+2. **System Logs**: Live diagnostic runtime logs from backend memory ring buffer:
+   - **Dynamic log level**: Change runtime log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`) on the fly without restarting containers;
+   - **Real-time filtering & search**: Filter by minimum severity level (`INFO+`, `WARN+`, `ERROR+`) and instant text search;
+   - **Exception tracebacks & context**: Expandable exception tracebacks, request IDs, worker correlation context (`gid` / `task_id`), and automated sensitive credential masking (`ipb_*` cookies, Telegram bot token, secrets).
 
-The page auto-refreshes every 2 seconds. The "Sync tags now / Generate now /
-Update translations now" buttons in Settings also leave a trace here.
+The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / Update translations now" buttons in Settings also leave a trace here.
+
+> Tip: To inspect raw real-time container streams across Nginx, backend, and PostgreSQL side by side, see the [Deployment](Deployment) guide for an optional Dozzle configuration recipe.
 
 ## Favorites (`#/favorites`)
 
@@ -246,10 +250,12 @@ Update translations now" buttons in Settings also leave a trace here.
   count changes, full checks resume automatically.
 - Click a folder name to open `#/favorites/<favcat>`: that folder's gallery
   grid (checkboxes, **download selected**, **download selected original**,
-  **archive download selected**, **remove from favorites**, and an
+  **archive download selected**, **move selected**, **remove from favorites**, and an
   **All / local only / cloud only** state filter), with inline cloud covers
   and real sizes for cloud galleries. The list uses numbered pagination with
   24 galleries per page by default.
+  - **Move selected**: Move selected galleries to another favorite folder (0–9),
+    syncing both ExHentai cloud favorites and local records.
 - The **Download missing items** button on the Favorites overview spawns a
   per-folder pass that downloads cover files for every gallery missing one on
   disk (shown inline in lists and duplicate groups).

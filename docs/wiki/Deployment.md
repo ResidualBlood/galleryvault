@@ -20,6 +20,23 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 启动后打开 `http://<host>:8000`，用默认密码 `p1a2s3s4` 登录——**登录后请立即在设置中修改密码**（默认密码只供首次使用）。
 
+## 本地开发环境 (Dev Compose)
+
+如需在本地对前后端源码进行即时调试与热重载，可使用 `docker-compose.dev.yml`（要求三仓库同级克隆）：
+
+```bash
+# 首次运行或修改 Dockerfile 后构建启动：
+docker compose -f docker-compose.dev.yml up -d --build
+
+# 日常热重载启动：
+docker compose -f docker-compose.dev.yml up -d
+```
+
+- **前端热更**：直接修改 `frontend/assets/` 下的 CSS/JS，刷新浏览器即可生效（无需构建工具）；
+- **后端热更**：后端容器启动覆盖传入 `uvicorn --reload`（带 `--proxy-headers --forwarded-allow-ips` 保证 Nginx 反代下登录限流与日志拿到真实客户端 IP），修改 `backend/galleryvault/` 代码自动重载生效；
+- **环境与数据隔离**：开发数据库独立持久化于 `./db-data-dev`，挂载本地 `./library`、`./downloads` 与 `./cache` 目录（若不存在 Docker 会自动创建，不影响生产/测试库）；
+- **端口配置**：前端映射至 `:8200`，后端映射至 `:8201`（可通过环境变量 `DEV_FRONTEND_PORT` / `DEV_BACKEND_PORT` 自定义）。
+
 ## 数据目录
 
 | 路径 | 说明 |
@@ -50,7 +67,7 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 `library_roots` 是库根：画廊会被索引、标签同步正常，但新下载只会落到 `download_root`，绝不会写入这些目录。删除画廊时**若挂载可写**会一并删除库根下的对应文件；若挂载为只读，删除会失败并在 toast 与日志页提示（DB 行保留，不会被下次扫描当作新画廊重新入库）。
 
-> **权限**：backend 以容器内 `app`（uid 10001）运行，需能读取挂载的宿主目录（≥ 可读即可）。挂载前建议直接 `chown -R 10001:10001 <宿主目录>` 一劳永逸；删除画廊需该目录对 10001 可写（只读挂载时删除会如实失败）。`./db-data` 属 postgres（999），**勿 chown**。
+> **权限**：backend 默认以 root (0:0) 运行，也可通过环境变量 `PUID` / `PGID`（如 `1000:1000`）指定非特权用户运行。若指定了非 root 权限，需确保挂载的宿主目录对该 UID 可读写；`./db-data` 属 postgres（999），**切勿 chown**。
 
 > **多个已有画廊目录**：有几个就挂几条 volume（容器内路径各取一个唯一名字，如 `/gallery1`、`/gallery2`），然后在「库根目录」每行填一个容器内路径。`download_root` 会被自动并入库根，无需重复填写。
 
@@ -89,9 +106,33 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 > 注意：**不要**在 `docker-compose.yml` 里写 `EXHENTAI_COOKIES` 环境变量——设置的单数据源是数据库；环境变量缺失时收藏夹检查会 302 回首页、静默空跑（收藏夹无封面、列表为空），误以为是网络/风控问题。
 
-### 非 root 运行
+### 自定义权限 / 非 root 运行 (PUID / PGID)
 
-后端镜像默认以非特权用户运行（容器内 `app`，uid 10001），启动时会自动调整 `/downloads`、`/gv-cache` 属主并降权。若想让 `./library` 等库根目录支持删除画廊，需确保该目录对容器内 `app` 用户（uid 10001）可写（宿主 `chown -R 10001:10001` 或组写权限），否则删除会失败并如实报告。
+后端镜像支持通过环境变量指定运行身份：
+- **默认（未配置 `PUID`/`PGID`）**：直接以 `root (0:0)` 权限运行，无需手动 `chown` 挂载目录，启动即用。注意：以 root 模式运行时，新下载的画廊文件和系统日志在宿主机上的属主为 `root`。
+- **自定义指定（如 NAS / 非特权 Linux 用户，推荐）**：在 `docker-compose.yml` 中指定 `PUID` 与 `PGID`（如 `PUID=1000` / `PGID=1000`），容器启动时会自动校验参数、动态映射并降权运行，同时在初次启动时自动修复 `/downloads`、`/gv-cache` 等可写目录属主。若想让 `./library` 库根支持删除画廊，请确保宿主目录对该 UID 可写（如 `chown -R 1000:1000 <宿主目录>`）。
+
+### 可选：集成 Dozzle 实时查看容器日志
+
+如果需要更直观地在浏览器中分屏查看 Nginx、FastAPI 后端及 PostgreSQL 容器的实时日志输出流，可在 `docker-compose.yml` 中按需追加轻量级的 [Dozzle](https://github.com/amir20/dozzle) 容器（占用 ~10MB 内存）：
+
+```yaml
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: galleryvault-dozzle
+    restart: always
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_LEVEL: "info"
+      DOZZLE_FILTER: "name=galleryvault*"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # 建议绑定本地回环端口或指定内网端口；公网访问建议置于反向代理或身份认证后
+      - "127.0.0.1:8888:8080"
+```
+
+> **安全提示**：挂载 `/var/run/docker.sock` 时请务必保留 `:ro`（只读），并建议仅绑定 `127.0.0.1` 本地回环接口或通过 SSH 隧道/反向代理访问，避免直接将 Docker 控制接口暴露到公网。
 
 ## 升级
 
