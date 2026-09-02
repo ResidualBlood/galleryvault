@@ -279,6 +279,7 @@ function router() {
   updateBanner();
   if (!app.authenticated) { renderLogin(); return; }
   if (app.view !== "library") selGalleries.clear();
+  if (app.view !== "discover") selDiscover.clear();
   if (app.view !== "favorites" && app.view !== "favlist" && favTimer) { clearInterval(favTimer); favTimer = null; }
   if (app.view !== "updates" && app.view !== "updignored" && updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; }
   if (app.view !== "downloads" && dlTimer) { clearInterval(dlTimer); dlTimer = null; }
@@ -292,6 +293,7 @@ function router() {
   beforeRender(app.view);
   switch (app.view) {
     case "browse": renderBrowse(); break;
+    case "discover": renderDiscover(); break;
     case "library": renderLibrary(); break;
     case "gallery": renderGallery(); break;
     case "reader": renderReader(); break;

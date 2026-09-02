@@ -120,6 +120,12 @@ copy wins), `prefer_more_pages`, `prefer_newer`, `prefer_larger`,
 manual cleanup on the *Duplicate copies* page). All duplicates are recorded in
 `duplicate_records` regardless of policy.
 
+## ExHentai search (discover)
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/eh/search` | Live ExHentai listing. Query: `q` (search text), `category` (site `f_cats` 0–1023, or comma-separated enabled names such as `manga`), `min_rating` (mapped to `f_srdd`), `next` (`gid-ts` cursor). **Never** `page=N`. Response `{state, items, next}`. `state` is `ok` / `empty` / `not_logged_in` / `no_exhentai_access` / `challenge` / `rate_limited` — empty-body anti-bot, Sad Panda, HTTP 509, and cookie expiry are not collapsed into “no hits”. A 302 through `remoteapi.php` is `challenge`, not cookie failure. Each item has `gid`, `token`, `title`, `url`, `thumb`, `category`, `pages`, `rating`, plus local badges `in_library` / `gallery_id` / `favorited` / `favcat` / `downloaded` from one IN JOIN on `galleries` + `favorite_items`. EH payload is cached 90s (errors 15s) keyed by query+cursor; badges are joined on every request. Download/favorite reuse `POST /api/downloads` and `POST /api/favorites/add` (not `POST /api/galleries/{id}/favorite`). |
+
 ## Downloads
 
 | Method | Path | Description |

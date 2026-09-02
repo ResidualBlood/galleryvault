@@ -20,6 +20,7 @@ from .routers import (
     core,
     downloads,
     duplicates,
+    eh,
     favorites,
     galleries,
     tags,
@@ -72,6 +73,7 @@ def create_app(*, enable_workers: bool | None = None, settings: Settings | None 
         tasks,
         duplicates,
         updates,
+        eh,
     ):
         application.include_router(mod.router)
     sync_state(application)

@@ -538,6 +538,15 @@ a.row:hover { border-color: var(--accent); }
 .gc-cover { position: relative; }
 .active-pill { border-color: var(--accent); color: var(--accent); background: rgba(88,101,242,.12); }
 .fav-state-filter { display: inline-flex; gap: 6px; margin-left: auto; }
+.disc-badges { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; z-index: 2; }
+.disc-badge { padding: 1px 7px; border-radius: 10px; font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
+.disc-badge.in { background: #1c5c2c; color: #c9f5d4; }
+.disc-badge.fav { background: #24456e; color: #cfe3ff; }
+.disc-badge.nodl { background: #6b3a12; color: #ffd7b0; }
+.disc-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.disc-actions .btn { font-size: 12px; padding: 2px 8px; }
+.disc-cats { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; flex-basis: 100%; width: 100%; margin-top: 4px; font-size: .82rem; color: var(--muted); }
+.disc-cats label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
 /* ---- Mobile ---- */
 @media (max-width: 900px) {
   .topbar { gap: 10px; padding: 0 10px; }

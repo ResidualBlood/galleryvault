@@ -137,6 +137,11 @@ async function onClick(e) {
     return;
   }
   if (action === "lib-batch-fav") { libraryBatchAddFavorite(); return; }
+  if (action === "discover-dl") { discoverDownloadOne(el); return; }
+  if (action === "discover-fav") { discoverFavoriteOne(el); return; }
+  if (action === "disc-batch-dl") { discoverBatchDownload(); return; }
+  if (action === "disc-batch-fav") { discoverBatchFavorite(); return; }
+  if (action === "disc-clear") { selDiscover.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "recycle-restore") { recycleRestore(); return; }
   if (action === "recycle-purge") { recyclePurge(); return; }
   if (action === "integrity-repair") { integrityRepair(); return; }
@@ -156,6 +161,23 @@ function onSubmit(e) {
   if (action === "login") { e.preventDefault(); doLogin(form.password.value); return; }
   if (action === "change-password") { e.preventDefault(); changePassword(form); return; }
   if (action === "search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
+  if (action === "discover-search") {
+    e.preventDefault();
+    const getVal = (name) => {
+      const el = form.elements[name];
+      return el && el.value ? String(el.value).trim() : "";
+    };
+    const fCats = discoverFCatsFromForm(form);
+    const minRating = getVal("min_rating");
+    const quality = getVal("quality");
+    location.hash = navHash("discover", {}, {
+      ...(form.q.value.trim() ? { q: form.q.value.trim() } : {}),
+      ...(fCats ? { category: fCats } : {}),
+      ...(minRating ? { min_rating: minRating } : {}),
+      ...(quality && quality !== "resample" ? { quality } : {}),
+    });
+    return;
+  }
   if (action === "library-search") {
     e.preventDefault();
     const getVal = (name) => {
