@@ -1,0 +1,46 @@
+services:
+  frontend:
+    image: residualblood/galleryvault-frontend:dev
+    container_name: galleryvault-dev-frontend
+    restart: unless-stopped
+    ports: ["8200:80"]
+    volumes:
+      - ../frontend/assets:/usr/share/nginx/html/assets:ro
+      - ../frontend/index.html:/usr/share/nginx/html/index.html:ro
+    depends_on:
+      - backend
+
+  backend:
+    image: residualblood/galleryvault-backend:dev
+    container_name: galleryvault-dev-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
+      DOWNLOAD_ROOT: /downloads
+      TZ: Asia/Shanghai
+    ports: ["8201:8001"]
+    volumes:
+      - ../backend/galleryvault:/app/galleryvault
+      - ../backend/tests:/app/tests
+      - ./library:/library
+      - ./downloads:/downloads
+      - ./cache:/gv-cache
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: galleryvault-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: galleryvault
+      POSTGRES_PASSWORD: galleryvault
+      POSTGRES_DB: galleryvault
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U galleryvault"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
