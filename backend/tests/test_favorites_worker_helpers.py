@@ -6,9 +6,11 @@ from galleryvault.app.state import app_state
 from galleryvault.services.favorites_worker import (
     FavoriteDownloadQueue,
     FavoritesRepositoryProxy,
+    _fav_counts_cache,
     _img_data_uri,
     _parse_gdata_tags,
     _unix_to_iso,
+    favorite_counts_cached,
 )
 
 
@@ -123,3 +125,34 @@ async def test_favorite_download_queue():
             assert await queue.enqueue(item) is True
     finally:
         app_state.session_factory = orig_session
+
+
+@pytest.mark.asyncio
+async def test_favorite_counts_cached_wait_on_cold_concurrent(monkeypatch):
+    call_count = 0
+
+    class FakeEhClient:
+        async def fetch_favorite_counts(self):
+            nonlocal call_count
+            call_count += 1
+            import asyncio
+            await asyncio.sleep(0.05)
+            return {0: 10, 1: 20}
+
+    orig_client = app_state.eh_client
+    app_state.eh_client = FakeEhClient()
+    _fav_counts_cache["ts"] = 0.0
+    _fav_counts_cache["counts"] = {}
+    try:
+        import asyncio
+        results = await asyncio.gather(
+            favorite_counts_cached(wait_on_cold=True),
+            favorite_counts_cached(wait_on_cold=True),
+            favorite_counts_cached(wait_on_cold=True),
+        )
+        assert call_count == 1
+        assert results == [{0: 10, 1: 20}, {0: 10, 1: 20}, {0: 10, 1: 20}]
+    finally:
+        app_state.eh_client = orig_client
+        _fav_counts_cache["ts"] = 0.0
+        _fav_counts_cache["counts"] = {}

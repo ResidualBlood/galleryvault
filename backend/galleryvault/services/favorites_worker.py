@@ -71,7 +71,7 @@ class FavoriteDownloadQueue:
 FAVORITES_SKIP_LIMIT = 5
 _FAV_COUNTS_TTL = 300.0
 _fav_counts_cache: dict[str, Any] = {"ts": 0.0, "counts": {}}
-_fav_counts_refreshing = False
+_fav_counts_refresh_task: asyncio.Task[None] | None = None
 
 
 def _unix_to_iso(val: Any) -> str | None:
@@ -218,11 +218,9 @@ def favorites_skip_decision(
     return True, next_count
 
 
-async def refresh_favorite_counts() -> None:
-    global _fav_counts_refreshing
-    if _fav_counts_refreshing or app_state.eh_client is None:
+async def _do_refresh_favorite_counts() -> None:
+    if app_state.eh_client is None:
         return
-    _fav_counts_refreshing = True
     try:
         async with asyncio.timeout(60):
             counts = await app_state.eh_client.fetch_favorite_counts()
@@ -232,8 +230,20 @@ async def refresh_favorite_counts() -> None:
         logger.warning(
             "favorite counts refresh failed", extra=log_extra(error=type(exc).__name__)
         )
+
+
+async def refresh_favorite_counts() -> None:
+    global _fav_counts_refresh_task
+    if _fav_counts_refresh_task is not None and not _fav_counts_refresh_task.done():
+        await _fav_counts_refresh_task
+        return
+    task = asyncio.create_task(_do_refresh_favorite_counts())
+    _fav_counts_refresh_task = task
+    try:
+        await task
     finally:
-        _fav_counts_refreshing = False
+        if _fav_counts_refresh_task is task:
+            _fav_counts_refresh_task = None
 
 
 async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False) -> dict[int, int]:

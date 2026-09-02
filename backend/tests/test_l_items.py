@@ -17,6 +17,7 @@ from sqlalchemy.dialects import postgresql
 from galleryvault.app import main
 from galleryvault.app.routers import downloads, galleries
 from galleryvault.db import repository as repo
+from galleryvault.services import favorites_worker
 
 
 @pytest.mark.asyncio
@@ -85,7 +86,8 @@ async def test_l8_first_count_call_never_blocks_on_network(
             coro.close()
 
     monkeypatch.setattr(main, "_spawn", fake_spawn)
-    monkeypatch.setattr(main, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
+    monkeypatch.setattr(favorites_worker, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
+    monkeypatch.setattr(main, "_fav_counts_cache", favorites_worker._fav_counts_cache)
     monkeypatch.setattr(main.app.state, "eh_client", object())
 
     counts = await main._favorite_counts_cached()

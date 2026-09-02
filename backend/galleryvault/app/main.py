@@ -1096,8 +1096,10 @@ async def shutdown() -> None:
     if engine is not None:
         try:
             await engine.dispose()
-        except Exception:  # noqa: BLE001, S110
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "database engine dispose failed", extra=log_extra(error=type(exc).__name__)
+            )
 
 
 @asynccontextmanager
