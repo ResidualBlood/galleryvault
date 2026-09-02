@@ -68,11 +68,7 @@ when the mount is writable**; on a read-only mount the deletion fails and is
 reported in the toast and on the Logs page (the DB row is kept so the next scan
 does not re-import it as a fresh gallery).
 
-> **Permissions**: the backend runs as the in-container `app` user (uid 10001),
-> so the mounted host directories must be readable by it. Before mounting, the
-> cleanest fix is `chown -R 10001:10001 <host-folder>`; deleting galleries also
-> needs the directory to be writable by uid 10001 (on a read-only mount deletion
-> fails honestly). `./db-data` belongs to postgres (999) — **do not chown it**.
+> **Permissions**: the backend runs as root (0:0) by default, or as a custom user if configured via `PUID` / `PGID` environment variables (e.g. `1000:1000`). If running with a non-root user, ensure mounted host folders are accessible by that UID; `./db-data` belongs to postgres (999) — **do not chown it**.
 
 > **Multiple existing gallery folders**: add one volume per folder (give each a
 > unique in-container path such as `/gallery1`, `/gallery2`), then list each
@@ -141,14 +137,11 @@ and never echoed back.
 > silently record nothing (no covers, empty lists), which is easy to mistake
 > for a network/anti-abuse problem.
 
-### Non-root runtime
+### Custom Permissions / Non-root runtime (PUID / PGID)
 
-The backend image runs as an unprivileged user (`app`, uid 10001). On startup
-it fixes ownership of `/downloads` and `/gv-cache` and drops privileges. To let
-gallery deletion remove files under a library root (e.g. `./library`), make that
-directory writable by the in-container `app` user (host
-`chown -R 10001:10001` or group-write permission); otherwise deletion fails and
-is reported honestly.
+The backend image supports configurable runtime user identity via environment variables:
+- **Default (no `PUID`/`PGID` set)**: Runs directly as `root (0:0)` with zero setup and no manual host permission adjustments required.
+- **Custom unprivileged user (NAS / standard Linux host)**: Set `PUID` and `PGID` in `docker-compose.yml` (e.g. `PUID=1000`, `PGID=1000`). The container drops privileges at startup and automatically aligns ownership on `/downloads` and `/gv-cache`. To allow gallery deletions under library roots (e.g. `./library`), ensure the host directory is writable by that UID (e.g. `chown -R 1000:1000 <host-folder>`).
 
 ### Optional: View container logs in real time with Dozzle
 
