@@ -88,8 +88,7 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 ## 收藏夹检查成功但没有封面 / 列表是空的？
 
 - 后端必须配置 **ExHentai cookie**（设置 → ExHentai → 填 `ipb_member_id` / `ipb_pass_hash` / `igneous` 并「测试登录」）。cookie 会**加密存库**（`ENCRYPTION_KEY`），不要在 `docker-compose.yml` 里设 `EXHENTAI_COOKIES`。没有 cookie 时 `favorites.php` 会 302 到首页，检查形同空跑。
-- 封面缩略图在检查时从收藏夹列表的缩略图单元格抓取（`favorite_items.thumb`）；「检查」后需在收藏夹总览点**下载缺失项目**（或等自动同步）才会把封面文件下载到磁盘缓存。
-- 检查对多个文件夹进行中时，新文件夹的封面会陆续出现；favcat 6/8 等大文件夹耗时较长。
+- 封面在**立即检查**时后台预热到磁盘（`/gv-cache/remote-covers/{gid}.img`）；进夹只读缓存（`<img>` 走 `/api/favorites/cover`），不再等外网。大夹封面会陆续出现。若仍缺图，可在总览点**下载缺失项目**补漏。
 
 ## 每页显示的数量不是 25？
 
