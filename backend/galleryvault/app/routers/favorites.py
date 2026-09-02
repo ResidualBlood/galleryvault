@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
-from ...db.models import FavoritesMonitor, Gallery, GalleryMetadata
+from ...db.models import FavoriteItem, FavoritesMonitor, Gallery, GalleryMetadata
 from ...db.repository import (
     FavoritesRepository,
     GalleryRepository,
@@ -391,7 +391,7 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
     if not gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
     mode = "favorite_archive" if body.archive else "favorite"
-    quality = (body.quality or None) if body.archive else None
+    quality = body.quality or None
     try:
         async for session in get_session():
             detail = await FavoritesRepository(session).favorite_items_detail_by_gids(gids)
@@ -495,14 +495,17 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
         cloud_failed = list(gids)
         logger.warning("cloud favorite removal failed", extra=log_extra(error=type(exc).__name__))
 
+    successful_gids = [g for g in gids if g not in set(cloud_failed)]
     local_removed = 0
     deleted_local_galleries = 0
     failed_deletions: list[str] = []
     try:
         async for session in get_session():
             async with session.begin():
-                if body.delete_local or body.delete_files:
-                    mapping = await FavoritesRepository(session).galleries_for_gids(gids)
+                if successful_gids and (body.delete_local or body.delete_files):
+                    mapping = await FavoritesRepository(session).galleries_for_gids(
+                        successful_gids
+                    )
                     galleries: list[Gallery] = []
                     for gallery_id in mapping.values():
                         gallery = await session.get(Gallery, gallery_id)
@@ -514,7 +517,10 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
                     deleted_local_galleries = sum(1 for r in results if r.get("db_removed"))
                     for r in results:
                         failed_deletions.extend(r.get("failed_paths", []))
-                local_removed = await FavoritesRepository(session).remove_gids(gids)
+                if successful_gids:
+                    local_removed = await FavoritesRepository(session).remove_gids(
+                        successful_gids
+                    )
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -706,8 +712,10 @@ async def favorites_add(body: FavoritesAddRequest) -> dict[str, object]:
             cloud_ok = not cloud_failed
         except Exception as exc:  # noqa: BLE001
             cloud_ok = False
-            cloud_failed.extend([p[0] for p in valid_pairs])
             logger.warning("cloud favorite add failed", extra=log_extra(error=type(exc).__name__))
+            failed_set = set(cloud_failed)
+            cloud_failed.extend(gid for gid, _ in valid_pairs if gid not in failed_set)
+            cloud_added = 0
 
     successful_gids = [it["gid"] for it in items_to_add if it["gid"] not in set(cloud_failed)]
     local_added = 0
@@ -735,6 +743,9 @@ async def favorites_add(body: FavoritesAddRequest) -> dict[str, object]:
                 async with session.begin():
                     await FavoritesRepository(session).remember_many(
                         body.target_favcat, favorite_items_to_save
+                    )
+                    await FavoritesRepository(session).move_gids(
+                        successful_gids, body.target_favcat
                     )
                     local_added = len(favorite_items_to_save)
                 break
@@ -883,10 +894,33 @@ async def favorite_cover(gid: int, token: str) -> Response:
         client = app_state.eh_client
         if client is None:
             raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
+        thumb_url: str | None = None
         try:
-            data, _ = await client.fetch_gallery_cover(int(gid), token)
-        except (GalleryGoneError, EhClientError) as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            async for session in get_session():
+                thumb_url = await session.scalar(
+                    select(FavoriteItem.thumb).where(
+                        FavoriteItem.gid == int(gid),
+                        FavoriteItem.thumb.is_not(None),
+                    ).limit(1)
+                )
+                if not thumb_url:
+                    meta = await GalleryRepository(session).metadata_for_gid(int(gid))
+                    if meta:
+                        thumb_url = meta.get("thumb") or None
+                break
+        except SQLAlchemyError:
+            thumb_url = None
+        data: bytes | None = None
+        if thumb_url:
+            try:
+                data = await client.download_image(str(thumb_url))
+            except Exception:  # noqa: BLE001
+                data = None
+        if data is None:
+            try:
+                data, _ = await client.fetch_gallery_cover(int(gid), token)
+            except (GalleryGoneError, EhClientError) as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
         path = cache_dir / f"{int(gid)}.img"
 
         def _write_atomic() -> None:

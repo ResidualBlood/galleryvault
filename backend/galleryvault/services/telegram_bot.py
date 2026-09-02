@@ -73,8 +73,8 @@ class TelegramBotService:
         from ..services.settings_service import update_runtime_settings
 
         def _is_global_paused() -> bool:
-            s = self.settings or app_state.settings or get_settings()
-            return bool(getattr(s, "global_paused", False))
+            s = app_state.settings
+            return bool(s and getattr(s, "global_paused", False))
 
         async def _set_global_paused(value: bool) -> None:
             s = self.settings or app_state.settings or get_settings()
@@ -108,7 +108,8 @@ class TelegramBotService:
                 gid, token = parse_gallery_url(text, self.settings.exhentai_base_url)
             except (ValueError, TypeError):
                 return
-            if not _is_global_paused() and not self.paused:
+            self.paused = _is_global_paused()
+            if not self.paused:
                 from ..app.dependencies import resolve_display_title
                 from ..services.download_prepare import prepare_galleries
 

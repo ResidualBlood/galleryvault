@@ -83,6 +83,7 @@ class GalleryUpdatesRepository:
             select(Gallery.gid).where(
                 Gallery.gid.in_(list(dict.fromkeys(int(g) for g in gids))),
                 Gallery.expunged.is_(False),
+                Gallery.trashed.is_(False),
             )
         )
         return {int(gid) for gid in rows.all() if gid is not None}

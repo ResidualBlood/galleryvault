@@ -20,6 +20,13 @@ function readerModeLabel(mode) {
   return t("readerModeLtr") || "LTR";
 }
 
+function readerJumpSuffix(p1, p2, total, fileSize, isDouble) {
+  if (isDouble && p2 != null) {
+    return `${p1 + 1}-${p2 + 1} / ${total}`;
+  }
+  return `/ ${total} · ${fmtSize(fileSize || 0)}`;
+}
+
 function getReaderNav(page, total, mode) {
   mode = mode || getReaderMode();
   const isDouble = mode.startsWith("double");
@@ -125,7 +132,7 @@ async function renderReader() {
           <form data-action="reader-jump" style="display:inline-flex;align-items:center;margin:0;padding:0;">
             <input id="reader-jump-input" class="reader-jump-input" type="number" min="1" max="${total}" value="${page + 1}" style="width:4.2em;padding:2px 4px;text-align:center;font-size:13px;border-radius:4px;border:1px solid var(--line);background:var(--panel-2);color:inherit;" title="${esc(t("jumpToPageHint"))}" aria-label="${esc(t("pageNumber"))}">
           </form>
-          <span>/ ${total} · ${fmtSize(g.file_size || 0)}</span>
+          <span>${readerJumpSuffix(page, isDouble && page + 1 < total ? page + 1 : null, total, g.file_size || 0, isDouble)}</span>
         </span>
         <span class="reader-actions">
           <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
@@ -434,8 +441,10 @@ function readerSwapPage(id, target) {
         imgs[1].alt = "";
         imgs[1].parentElement.style.display = "none";
       }
-      const bar = document.querySelector(".reader-bar span");
-      if (bar) bar.textContent = `${p1 + 1}${p2 !== null ? `-${p2 + 1}` : ""} / ${total} · ${fmtSize((app.readerGallery && app.readerGallery.file_size) || 0)}`;
+       const jump = document.getElementById("reader-jump-input");
+      if (jump) jump.value = String(p1 + 1);
+      const suffix = document.querySelector(".reader-page-indicator > span");
+      if (suffix) suffix.textContent = readerJumpSuffix(p1, p2, total, (app.readerGallery && app.readerGallery.file_size) || 0, true);
     } else {
       renderReader();
       return;
@@ -448,8 +457,10 @@ function readerSwapPage(id, target) {
       img.alt = `Page ${target + 1}`;
       img.dataset.next = target + 1 < total ? String(target + 1) : "";
     }
-    const bar = document.querySelector(".reader-bar span");
-    if (bar) bar.textContent = `${target + 1} / ${total} · ${fmtSize((app.readerGallery && app.readerGallery.file_size) || 0)}`;
+    const jump = document.getElementById("reader-jump-input");
+    if (jump) jump.value = String(target + 1);
+    const suffix = document.querySelector(".reader-page-indicator > span");
+    if (suffix) suffix.textContent = readerJumpSuffix(target, null, total, (app.readerGallery && app.readerGallery.file_size) || 0, false);
   } else {
     // Structural transition between single cover and double spread: in-place re-render (preserves .reader fullscreen)
     renderReader();

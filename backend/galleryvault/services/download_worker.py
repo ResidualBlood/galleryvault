@@ -33,7 +33,7 @@ from .eh_client import (  # noqa: F401  # kept for backoff classification docs
     GalleryReplacedError,
 )
 from .ingest import GalleryIngestService
-from .messages import GONE_DETAIL
+from .messages import GONE_DETAIL, HOPS_DETAIL
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +277,20 @@ async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> D
     session_cm = app_state.session_factory
     if session_cm is None or task.id is None:
         return None
+    from .download_prepare import _local_gids
+
+    local = await _local_gids([exc.new_gid])
+    if exc.new_gid in local:
+        logger.info(
+            "download retarget skipped; newer gid already in library",
+            extra=log_extra(gid=task.gid, new_gid=exc.new_gid),
+        )
+        try:
+            async with session_cm() as session, session.begin():
+                await DownloadRepository(session).cancel(task.id)
+        except SQLAlchemyError:
+            pass
+        return None
     ok = False
     try:
         async with session_cm() as session, session.begin():
@@ -412,7 +426,9 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             await notify_fn("ok", result.title or str(task.gid), str(result.pages))
             maybe_scan_fn(result)
     except GalleryReplacedError as exc:
-        if follow_hops >= 5:
+        from .download_prepare import MAX_FOLLOW_HOPS
+
+        if follow_hops >= MAX_FOLLOW_HOPS:
             logger.warning(
                 "download replacement hop limit",
                 extra=log_extra(gid=task.gid, new_gid=exc.new_gid),
@@ -422,7 +438,7 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
                     row = await session.get(DownloadTaskModel, task.id)
                     if row is not None and row.status != "cancelled":
                         row.status = "failed"
-                        row.error_message = GONE_DETAIL
+                        row.error_message = HOPS_DETAIL
                         row.retry_count = row.max_retries
                         row.finished_at = datetime.now(UTC)
             except SQLAlchemyError:

@@ -336,8 +336,9 @@ async def test_integrity_excludes_none_and_max_pages(monkeypatch):
     from galleryvault.db.repositories.galleries import GalleryRepository
     src = inspect.getsource(GalleryRepository.list_integrity_issues)
     assert "Gallery.page_count.is_(None)" not in src or "is_not(None)" in src  # should not be or_ with is_(None)
-    assert "file_count" not in src or "DownloadTask" in src  # old file_count check removed
-    assert "max_pages" in src or "DownloadTask" in src
+    assert "file_count" not in src
+    assert "max_pages" not in src
+    assert "DownloadTask" not in src
     assert "trashed.is_(False)" in src
 
 
@@ -438,3 +439,100 @@ async def test_quota_includes_image_limits(monkeypatch):
     # Cleanup
     app_state.eh_client = None
     app_state.extra.pop("gp_cache", None)
+
+
+@pytest.mark.asyncio
+async def test_quota_image_limit_failure_uses_short_ttl(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from galleryvault.app.routers import tasks as tasks_mod
+
+    il_calls: list[int] = []
+    gp_calls: list[int] = []
+
+    class FakeClient:
+        async def fetch_gp_balance(self):
+            gp_calls.append(1)
+            return 99
+
+        async def fetch_image_limits(self):
+            il_calls.append(1)
+            raise RuntimeError("il down")
+
+    app_state.extra["gp_cache"] = {}
+    app_state.eh_client = FakeClient()
+    app_state.settings = get_settings()
+    tasks_mod._GP_LOCK = None
+    try:
+        result = await tasks_mod.get_quota()
+        assert result["gp"] == 99
+        assert result["image_limit"] is None
+        assert result["cached"] is False
+        assert len(il_calls) == 1
+        assert len(gp_calls) == 1
+
+        result2 = await tasks_mod.get_quota()
+        assert result2["cached"] is True
+        assert result2["gp"] == 99
+        assert result2["image_limit"] is None
+        assert len(il_calls) == 1
+        assert len(gp_calls) == 1
+
+        cache = app_state.extra["gp_cache"]
+        cache["il_checked_at"] = (datetime.now(UTC) - timedelta(seconds=61)).isoformat()
+        result3 = await tasks_mod.get_quota()
+        assert result3["gp"] == 99
+        assert len(il_calls) == 2
+        assert len(gp_calls) == 1
+    finally:
+        app_state.eh_client = None
+        app_state.extra.pop("gp_cache", None)
+
+
+@pytest.mark.asyncio
+async def test_quota_image_limit_none_uses_short_ttl(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from galleryvault.app.routers import tasks as tasks_mod
+
+    il_calls: list[int] = []
+    gp_calls: list[int] = []
+
+    class FakeClient:
+        async def fetch_gp_balance(self):
+            gp_calls.append(1)
+            return 99
+
+        async def fetch_image_limits(self):
+            il_calls.append(1)
+            return None
+
+    app_state.extra["gp_cache"] = {}
+    app_state.eh_client = FakeClient()
+    app_state.settings = get_settings()
+    tasks_mod._GP_LOCK = None
+    try:
+        result = await tasks_mod.get_quota()
+        assert result["gp"] == 99
+        assert result["image_limit"] is None
+        assert result["cached"] is False
+        assert app_state.extra["gp_cache"]["il_error"] is True
+        assert len(il_calls) == 1
+        assert len(gp_calls) == 1
+
+        result2 = await tasks_mod.get_quota()
+        assert result2["cached"] is True
+        assert result2["image_limit"] is None
+        assert len(il_calls) == 1
+        assert len(gp_calls) == 1
+
+        cache = app_state.extra["gp_cache"]
+        cache["il_checked_at"] = (datetime.now(UTC) - timedelta(seconds=61)).isoformat()
+        result3 = await tasks_mod.get_quota()
+        assert result3["gp"] == 99
+        assert len(il_calls) == 2
+        assert len(gp_calls) == 1
+        assert app_state.extra["gp_cache"]["il_error"] is True
+    finally:
+        app_state.eh_client = None
+        app_state.extra.pop("gp_cache", None)

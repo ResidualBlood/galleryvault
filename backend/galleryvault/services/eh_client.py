@@ -436,11 +436,16 @@ def parse_newer_gallery(body: str, current_gid: int) -> tuple[int, str] | None:
 
     ExHentai shows a banner plus a ``/g/<gid>/<token>/`` link when a listing has
     been replaced. Parent (older) links are ignored by requiring the hint text
-    and skipping ``current_gid``.
+    and skipping ``current_gid``. Only the hint block and the nearest gallery
+    URL after the hint are considered.
     """
-    if not body or not _NEWER_HINT.search(body):
+    if not body:
         return None
-    for match in GALLERY_RE.finditer(body):
+    hint = _NEWER_HINT.search(body)
+    if not hint:
+        return None
+    rest = body[hint.start() :]
+    for match in GALLERY_RE.finditer(rest):
         gid = int(match["gid"])
         if gid != int(current_gid):
             return gid, match["token"]
@@ -1428,17 +1433,40 @@ class EhClient:
         if not (0 <= favcat <= 9):
             raise ValueError("favcat must be between 0 and 9")
         failed: list[int] = []
-        for gid, token in items:
-            try:
-                await self.add_favorite(gid, token, favcat, note=note)
-            except EhClientError:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "add favorite failed on cloud",
-                    extra=log_extra(gid=gid, favcat=favcat, error=str(exc)),
-                )
-                failed.append(gid)
+        finished: set[int] = set()
+        try:
+            for i, (gid, token) in enumerate(items):
+                try:
+                    await self.add_favorite(gid, token, favcat, note=note)
+                    finished.add(gid)
+                except EhClientError as exc:
+                    logger.warning(
+                        "add favorite failed on cloud",
+                        extra=log_extra(gid=gid, favcat=favcat, error=str(exc)),
+                    )
+                    failed.append(gid)
+                    finished.add(gid)
+                    msg = str(exc).lower()
+                    if "authentication" in msg or "expired" in msg:
+                        failed.extend(g for g, _ in items[i + 1 :])
+                        break
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "add favorite failed on cloud",
+                        extra=log_extra(gid=gid, favcat=favcat, error=str(exc)),
+                    )
+                    failed.append(gid)
+                    finished.add(gid)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "add favorites aborted",
+                extra=log_extra(favcat=favcat, error=str(exc)),
+            )
+            failed.extend(
+                items[idx][0]
+                for idx in range(len(items))
+                if items[idx][0] not in finished
+            )
         return failed
 
     async def fetch_gmetadata(

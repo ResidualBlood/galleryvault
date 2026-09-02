@@ -70,6 +70,7 @@ async def set_pause(body: dict) -> dict[str, object]:
 
 
 _GP_CACHE_TTL = 1800  # 30 min, same as cookie probe
+_IL_FAIL_TTL = 60  # retry Image Limit sooner than GP after a fetch error
 _GP_LOCK = None
 
 
@@ -90,85 +91,118 @@ async def get_quota() -> dict[str, object]:
     settings = app_state.settings or get_settings()
     cache = app_state.extra.get("gp_cache") if isinstance(app_state.extra.get("gp_cache"), dict) else {}
     now = datetime.now(UTC)
-    checked_at = cache.get("checked_at")
-    # TTL check
-    is_stale = True
-    if checked_at:
+    if cache.get("gp_checked_at") is None and cache.get("checked_at"):
+        cache["gp_checked_at"] = cache["checked_at"]
+        cache["il_checked_at"] = cache.get("il_checked_at") or cache["checked_at"]
+
+    def _age(key: str) -> float | None:
+        checked = cache.get(key)
+        if not checked:
+            return None
         try:
-            age = (now - datetime.fromisoformat(str(checked_at))).total_seconds()
-            is_stale = age > _GP_CACHE_TTL
+            return (now - datetime.fromisoformat(str(checked))).total_seconds()
         except Exception:  # noqa: BLE001
-            is_stale = True
-    if not is_stale and cache.get("balance") is not None:
+            return None
+
+    def _il_is_fresh(age: float | None, err: object) -> bool:
+        if age is None:
+            return False
+        return age <= (_IL_FAIL_TTL if err else _GP_CACHE_TTL)
+
+    gp_age = _age("gp_checked_at")
+    il_age = _age("il_checked_at")
+    gp_fresh = gp_age is not None and gp_age <= _GP_CACHE_TTL and cache.get("balance") is not None
+    il_fresh = _il_is_fresh(il_age, cache.get("il_error"))
+    if gp_fresh and il_fresh:
         return {
             "gp": cache.get("balance"),
             "image_limit": cache.get("image_limit"),
             "image_limits": cache.get("image_limit"),
-            "checked_at": cache.get("checked_at"),
+            "checked_at": cache.get("gp_checked_at") or cache.get("checked_at"),
             "error": cache.get("error"),
             "cached": True,
         }
-    # Need refresh; try to acquire lock without blocking long
     lock = _get_gp_lock()
     if lock.locked():
-        # Return stale cache while refresh is in progress
         return {
             "gp": cache.get("balance"),
             "image_limit": cache.get("image_limit"),
             "image_limits": cache.get("image_limit"),
-            "checked_at": cache.get("checked_at"),
+            "checked_at": cache.get("gp_checked_at") or cache.get("checked_at"),
             "error": cache.get("error"),
             "cached": True,
             "refreshing": True,
         }
     async with lock:
-        # Double-check after acquiring
         cache = app_state.extra.get("gp_cache", {}) if isinstance(app_state.extra.get("gp_cache"), dict) else {}
-        checked_at = cache.get("checked_at")
-        if checked_at:
-            try:
-                age = (now - datetime.fromisoformat(str(checked_at))).total_seconds()
-                if age <= _GP_CACHE_TTL and cache.get("balance") is not None:
-                    return {
-                        "gp": cache["balance"],
-                        "image_limit": cache.get("image_limit"),
-                        "image_limits": cache.get("image_limit"),
-                        "checked_at": checked_at,
-                        "error": cache.get("error"),
-                        "cached": True,
-                    }
-            except Exception:  # noqa: BLE001, S110
-                pass
-        # Fetch GP + Image Limits (both low-frequency, same cache)
-        balance = None
+        if cache.get("gp_checked_at") is None and cache.get("checked_at"):
+            cache["gp_checked_at"] = cache["checked_at"]
+            cache["il_checked_at"] = cache.get("il_checked_at") or cache["checked_at"]
+        gp_age = _age("gp_checked_at")
+        il_age = _age("il_checked_at")
+        gp_fresh = gp_age is not None and gp_age <= _GP_CACHE_TTL and cache.get("balance") is not None
+        il_fresh = _il_is_fresh(il_age, cache.get("il_error"))
+        if gp_fresh and il_fresh:
+            return {
+                "gp": cache["balance"],
+                "image_limit": cache.get("image_limit"),
+                "image_limits": cache.get("image_limit"),
+                "checked_at": cache.get("gp_checked_at"),
+                "error": cache.get("error"),
+                "cached": True,
+            }
+        balance = cache.get("balance")
         image_limit = cache.get("image_limit")
-        error = None
+        error = cache.get("error")
+        gp_checked_at = cache.get("gp_checked_at")
+        il_checked_at = cache.get("il_checked_at")
+        il_error = bool(cache.get("il_error"))
+        stamp = datetime.now(UTC).isoformat()
+
+        async def _load_image_limit(c: object) -> None:
+            nonlocal image_limit, il_checked_at, il_error
+            try:
+                fetched = await c.fetch_image_limits()
+            except Exception:  # noqa: BLE001
+                il_checked_at = stamp
+                il_error = True
+                return
+            il_checked_at = stamp
+            if fetched:
+                image_limit = fetched
+                il_error = False
+            else:
+                il_error = True
+
         try:
             client = app_state.eh_client
             if client is None:
                 from ...services.eh_client import EhClient
 
                 async with EhClient(settings, max_concurrency=settings.exhentai_max_concurrency) as tmp:
-                    balance = await tmp.fetch_gp_balance()
-                    try:
-                        image_limit = await tmp.fetch_image_limits()
-                    except Exception:  # noqa: BLE001, S110
-                        pass
+                    if not gp_fresh:
+                        balance = await tmp.fetch_gp_balance()
+                        gp_checked_at = stamp
+                    if not il_fresh:
+                        await _load_image_limit(tmp)
             else:
-                balance = await client.fetch_gp_balance()
-                try:
-                    image_limit = await client.fetch_image_limits()
-                except Exception:  # noqa: BLE001, S110
-                    pass
+                if not gp_fresh:
+                    balance = await client.fetch_gp_balance()
+                    gp_checked_at = stamp
+                if not il_fresh:
+                    await _load_image_limit(client)
+            error = None
         except Exception as exc:  # noqa: BLE001
             error = type(exc).__name__ + ": " + str(exc)[:120]
-            # Keep old balance if exists
-            balance = cache.get("balance")
-            image_limit = cache.get("image_limit")
+            if not gp_fresh:
+                balance = cache.get("balance")
         new_cache = {
             "balance": balance,
             "image_limit": image_limit,
-            "checked_at": datetime.now(UTC).isoformat(),
+            "gp_checked_at": gp_checked_at,
+            "il_checked_at": il_checked_at,
+            "il_error": il_error,
+            "checked_at": gp_checked_at or il_checked_at or stamp,
             "error": error,
         }
         app_state.extra["gp_cache"] = new_cache

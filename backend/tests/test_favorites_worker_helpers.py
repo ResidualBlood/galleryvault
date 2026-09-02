@@ -339,6 +339,9 @@ async def test_favorite_size_sync_heals_missing_covers(tmp_path, monkeypatch):
         async def metadata_map(self, gids):
             return {}
 
+        async def null_image_quality_gids(self, gids):
+            return set()
+
         async def upsert_metadata(self, entries):
             return 0
 
@@ -417,6 +420,9 @@ async def test_favorite_size_sync_applies_metadata_infers_quality_and_records_hi
         async def metadata_map(self, gids):
             return {}
 
+        async def null_image_quality_gids(self, gids):
+            return set()
+
         async def upsert_metadata(self, entries):
             return len(entries)
 
@@ -458,6 +464,92 @@ async def test_favorite_size_sync_applies_metadata_infers_quality_and_records_hi
         assert tm.task_history[0]["task"] == "metadata"
         assert tm.task_history[0]["status"] == "success"
         assert len(tm.task_history) == before + 1
+    finally:
+        app_state.session_factory = orig_factory
+        app_state.eh_client = orig_client
+        fw._size_sync_inflight.clear()
+        if tm.task_history and tm.task_history[0].get("task") == "metadata":
+            tm.task_history.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_favorite_size_sync_fetches_gdata_when_seeded_metadata_lacks_file_size(
+    tmp_path, monkeypatch
+):
+    from galleryvault.services import favorites_worker as fw
+    from galleryvault.services.favorites_worker import favorite_size_sync
+
+    monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    fetched_pairs: list[tuple[int, str]] = []
+    qualities: dict[int, str] = {}
+
+    class Client:
+        async def fetch_gmetadata(self, pairs):
+            fetched_pairs.extend((int(gid), tok) for gid, tok in pairs)
+            return {int(gid): {"file_size": 1000, "thumb": ""} for gid, tok in pairs}
+
+        async def download_image(self, url):
+            return b""
+
+    class FavRepo:
+        def __init__(self, session):
+            pass
+
+        async def all_gids_for_favcat(self, favcat):
+            return [(10, "tok", None)]
+
+        async def set_file_size(self, *args, **kwargs):
+            pass
+
+    class GalRepo:
+        def __init__(self, session):
+            pass
+
+        async def seed_metadata_from_galleries(self, favcat):
+            return 1
+
+        async def metadata_map(self, gids):
+            return {10: {"file_size": None, "title": "seeded"}}
+
+        async def null_image_quality_gids(self, gids):
+            return {10}
+
+        async def upsert_metadata(self, entries):
+            return len(entries)
+
+        async def storage_size_map(self, gids):
+            return {10: (950, None)}
+
+        async def set_image_qualities(self, mapping):
+            qualities.update(mapping)
+            return len(mapping)
+
+        async def apply_metadata_to_galleries(self, favcat, limit=200):
+            return 0
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+    orig_factory = app_state.session_factory
+    orig_client = app_state.eh_client
+    tm = app_state.task_manager
+    try:
+        app_state.session_factory = lambda: Session()
+        app_state.eh_client = Client()
+        monkeypatch.setattr(fw, "FavoritesRepository", FavRepo)
+        monkeypatch.setattr(fw, "GalleryRepository", GalRepo)
+        fw._size_sync_inflight.clear()
+        tm.metadata_sync_state["history_recorded"] = False
+        await favorite_size_sync(1)
+        assert fetched_pairs == [(10, "tok")]
+        assert qualities == {10: "original"}
     finally:
         app_state.session_factory = orig_factory
         app_state.eh_client = orig_client

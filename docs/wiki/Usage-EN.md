@@ -50,7 +50,7 @@ manually to revisit it.
 
 - Search by title, filter by category, sort across multiple fields, filter by reading status, and browse indexed galleries.
 - **Multi-criteria Sorting**: Order by **Ingest date (default)**, **Posted date**, **Title**, **Pages**, **Size**, and **Rating**, backed by dedicated database indexes for sub-second responses on large collections.
-- **Reading Status Filter**: Quickly filter by **All**, **Unread** (never read or progress is 0), **Reading** (in-progress), or **Completed** (read to last page).
+- **Reading Status Filter**: Quickly filter by **All**, **Unread**, **Reading**, or **Completed**; the three are mutually exclusive. Unread excludes completed. Completed requires actually having read (progress > 0 and at the last page; a 1-page gallery with progress 0 is not completed).
 - **Page count & rating range**: the toolbar has min/max page inputs and a minimum rating (≥2 / ≥3 / ≥4 / ≥4.5); these stick with sort, read status and tag filters (tag clicks and returning from detail keep them).
 - **"Not in favorites" filter**: the category dropdown ends with "Not in
   favorites", showing local galleries whose gid is not in any ExHentai favorite
@@ -78,8 +78,9 @@ manually to revisit it.
   position-independent), so `mimu gif` matches any title containing both
   mimu and gif. Single-word and CJK-sentence searches behave as before.
 - **Batch add to favorites**: after selecting cards, **Add to favorites** picks
-  folder 0–9 and submits in chunks of 25; **only cloud-confirmed gids are
-  written locally**; gid-less local archives are skipped with a toast.
+  a folder 0–9 and submits in chunks of 25; **only cloud-confirmed gids are
+  written locally** (add is a move — one gid lives in one favcat); gid-less
+  local archives are skipped with a toast.
 - **Bulk & filtered deletion**:
   - Ticking gallery cards reveals a **Delete selected** action, with an option
     to delete corresponding files on disk (**leaving files on disk sends the
@@ -118,13 +119,16 @@ manually to revisit it.
 
 - Two tabs: **User deleted** (library delete without removing files) and **Scan
   missing** (not found on disk during a scan).
-- **Restore** puts galleries back in the library; **Purge** asks again whether
+- **Restore** puts galleries back in the library (user-deleted only; scan-missing
+  ghosts are not restored into the library); **Purge** asks again whether
   to delete files on disk (purged-with-files will not be re-ingested on scan).
+- Galleries in the recycle bin are **not** treated as “newer version already
+  local” and will not trigger a hard-delete of the old copy.
 
 ## Missing pages (`#/integrity`)
 
 - Lists galleries whose recorded `page_count` disagrees with pages on disk
-  (unset page counts and intentional `max_pages` truncation are excluded).
+  (unset page counts are excluded).
 - **Repair / re-download** only fetches the missing pages.
 
 ## Gallery detail (`#/gallery/<id>`)
@@ -150,7 +154,7 @@ manually to revisit it.
   *pause* tag sync instead of being misclassified as deleted (their category is
   untouched) and resume automatically once Settings switch back to
   `exhentai.org`.
-- The favorite folders the gallery belongs to are shown as badges. Galleries support **Add to Favorites** (modal folder selector 0–9), **Change Folder** (Move), and **Unfavorite**, with strict cloud-success verification before updating local database records.
+- The favorite folders the gallery belongs to are shown as badges. Galleries support **Add to Favorites** (modal folder selector 0–9; cloud success writes locally and moves the gid out of other folders), **Change Folder** (Move), and **Unfavorite**, with strict cloud-success verification before updating local database records.
 - **Original / resampled**: next to the favorite badges the detail page shows
   whether the local copy is original or resampled (hidden when unknown).
   Quality is recorded when a gallery is downloaded and inferred for existing
@@ -211,10 +215,11 @@ manually to revisit it.
 ## Downloads (`#/downloads`)
 
 - **Batch URL & GID/Token Enqueue**: Paste one or more gallery URLs or `gid/token` lines. **Enqueue pages** can override image quality; **Archive download** opens the same GP/tier preview as Favorites. Task titles follow the Title display setting (English/Japanese) instead of `gid xxx`.
-- **Follow newer versions**: if ExHentai marks the listing as replaced, the download switches to the new gid (max 5 hops). 404/deleted galleries fail without retry, with plain-language errors in the list and Telegram. Gallery-detail “download original for this copy” does not follow.
+- **Follow newer versions**: if ExHentai marks the listing as replaced, the download switches to the new gid (max 5 hops). Only the replacement link after the banner is followed — **Parent links are ignored**. 404/deleted galleries fail without retry, with plain-language errors in the list and Telegram. Gallery-detail “download original for this copy” does not follow.
 - **Global pause**: the page toggle and Telegram `/pause` are the same switch
-  (see Settings); it stops claiming and dispatching new pages, and skips scans;
-  it survives restart. The yellow top bar stacks with the Cookie red bar.
+  (see Settings); **after pause, no new pages are claimed; the current in-flight
+  page finishes**, claiming and scans stop; it survives restart; Bot matches the web
+  pause. The yellow top bar stacks with the Cookie red bar.
 - **GP & image quota**: the page header shows a cached GP balance and Image
   Limit (~30 min TTL); above ~80% the top banner warns you to pause (avoid 509).
 - Lists download tasks with their status (waiting / downloading / success /
@@ -456,11 +461,12 @@ additions again.
   `/pause` pauses intake (URLs pasted while paused are ignored, not enqueued),
   `/resume` re-enables intake, `/status` shows the pause state; `/pause` is a
   **global pause** (persisted to `app_config.user_settings`, survives
-  restarts): it **stops claiming new galleries + stops dispatching new pages
-  (current pages finish, queued galleries are kept and resume later)**, also
-  pauses **auto scans** and **Web-triggered scans** (trigger returns `paused`).
-  The Web downloads page toggle and bot `/pause`/`/resume` operate **the same
-  switch** (`GET/POST /api/pause`), and the top yellow pause banner stacks with
+  restart): it **stops claiming new galleries and does not claim new pages**
+  (the current in-flight page finishes; queued galleries are kept and resume
+  later), and pauses **auto scans** and **Web-triggered scans** (trigger returns
+  `paused`). The Web downloads page toggle and bot `/pause`/`/resume` operate
+  **the same switch** (`GET/POST /api/pause`); after a web pause the Bot matches
+  it, and the top yellow pause banner stacks with
   the Cookie red banner. **Pasting a gallery URL** (e.g.
   `https://exhentai.org/g/2325283/d3722b6aa8/`) parses the gid/token and
   enqueues it immediately. The bot reply includes the **gallery title** (and

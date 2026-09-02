@@ -201,7 +201,7 @@ async def detect_gallery_updates() -> None:
                 while True:
                     rows = await session.execute(
                         select(Gallery.id, Gallery.gid, Gallery.title, Gallery.title_jpn)
-                        .where(Gallery.expunged.is_(False))
+                        .where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
                         .order_by(Gallery.id)
                         .offset((page - 1) * 500)
                         .limit(500)

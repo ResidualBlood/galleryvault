@@ -633,16 +633,23 @@ async def test_telegram_bot_uses_mock_transport_and_allowed_user() -> None:
     settings = Settings(
         telegram_bot_token="secret", telegram_allowed_user_ids=[7], telegram_notify_lang="en"
     )
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        bot = TelegramBotService(settings, client=client, queue=queue, notifier=notifier)
-        await bot.handle_update(
-            {"message": {"from": {"id": 8}, "text": "/status", "chat": {"id": 8}}}
-        )
-        await bot.handle_update(
-            {"message": {"from": {"id": 7}, "text": "/pause", "chat": {"id": 7}}}
-        )
-        assert not requests
-        assert notifier.messages == [("⏸ Downloads paused", 7)]
+    from galleryvault.app.state import app_state
+
+    orig_settings = app_state.settings
+    app_state.settings = settings.model_copy(update={"global_paused": False})
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            bot = TelegramBotService(settings, client=client, queue=queue, notifier=notifier)
+            await bot.handle_update(
+                {"message": {"from": {"id": 8}, "text": "/status", "chat": {"id": 8}}}
+            )
+            await bot.handle_update(
+                {"message": {"from": {"id": 7}, "text": "/pause", "chat": {"id": 7}}}
+            )
+            assert not requests
+            assert notifier.messages == [("⏸ Downloads paused", 7)]
+    finally:
+        app_state.settings = orig_settings
 
 
 @pytest.mark.asyncio
@@ -667,15 +674,22 @@ async def test_telegram_bot_status_reply_uses_force() -> None:
     settings = Settings(
         telegram_bot_token="secret", telegram_allowed_user_ids=[7], telegram_notify_lang="en"
     )
-    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: None)) as client:
-        bot = TelegramBotService(settings, client=client, queue=queue, notifier=notifier)
-        await bot.handle_update({"message": {"from": {"id": 7}, "text": "/status", "chat": {"id": 7}}})
-        await bot.handle_update({"message": {"from": {"id": 7}, "text": "/resume", "chat": {"id": 7}}})
-        assert [c[2] for c in notifier.calls] == [True, True]
-        assert [c[0] for c in notifier.calls] == [
-            "📋 GalleryVault downloads are running",
-            "▶️ Downloads resumed",
-        ]
+    from galleryvault.app.state import app_state
+
+    orig_settings = app_state.settings
+    app_state.settings = settings.model_copy(update={"global_paused": False})
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: None)) as client:
+            bot = TelegramBotService(settings, client=client, queue=queue, notifier=notifier)
+            await bot.handle_update({"message": {"from": {"id": 7}, "text": "/status", "chat": {"id": 7}}})
+            await bot.handle_update({"message": {"from": {"id": 7}, "text": "/resume", "chat": {"id": 7}}})
+            assert [c[2] for c in notifier.calls] == [True, True]
+            assert [c[0] for c in notifier.calls] == [
+                "📋 GalleryVault downloads are running",
+                "▶️ Downloads resumed",
+            ]
+    finally:
+        app_state.settings = orig_settings
 
 
 @pytest.mark.asyncio
