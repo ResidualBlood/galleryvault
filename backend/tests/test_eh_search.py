@@ -59,6 +59,16 @@ SEARCH_LIST_HTML = """
 </body></html>
 """
 
+SEARCH_THUMBNAIL_LAZY_HTML = """
+<html><body>
+<div class="gl1t">
+  <a href="/g/111111/aaaaaa/"><img src="blank.gif" data-src="https://ehgt.org/real.jpg"></a>
+  <a href="/g/111111/aaaaaa/"><div class="glink">Lazy Cover</div></a>
+  <div>12 pages</div>
+</div>
+</body></html>
+"""
+
 
 def test_parse_search_page_extracts_rows_and_cursor() -> None:
     items, cursor = parse_search_page(SEARCH_LIST_HTML)
@@ -74,6 +84,12 @@ def test_parse_search_page_extracts_rows_and_cursor() -> None:
     assert items[1].category == "manga"
     assert items[1].pages == 36
     assert items[1].rating == 3.25
+
+
+def test_parse_search_page_prefers_data_src_over_blank_gif() -> None:
+    items, _ = parse_search_page(SEARCH_THUMBNAIL_LAZY_HTML)
+    assert [it.gid for it in items] == [111111]
+    assert items[0].thumb == "https://ehgt.org/real.jpg"
 
 
 def test_classify_search_body_sad_panda_empty_expired() -> None:

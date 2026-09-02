@@ -597,15 +597,38 @@ def _search_item_window(body: str, gid: int, token: str) -> str:
     return body[start:end]
 
 
+def _usable_thumb_src(url: str | None) -> str | None:
+    if not url:
+        return None
+    src = html.unescape(url).strip()
+    low = src.lower()
+    if not src or src.startswith("data:"):
+        return None
+    if any(skip in low for skip in ("/509.gif", "/509s.gif", "blank.gif")):
+        return None
+    return src
+
+
+def _thumb_from_img_attrs(attrs: str) -> str | None:
+    data_src = re.search(r"\bdata-src=[\"']([^\"']+)[\"']", attrs, re.IGNORECASE)
+    src = re.search(r"(?<![\w-])src=[\"']([^\"']+)[\"']", attrs, re.IGNORECASE)
+    picked = _usable_thumb_src(data_src.group(1) if data_src else None)
+    if picked:
+        return picked
+    return _usable_thumb_src(src.group(1) if src else None)
+
+
 def _search_thumb(snippet: str) -> str | None:
-    for match in re.finditer(r'<img[^>]+src=["\']([^"\']+)["\']', snippet, re.IGNORECASE):
-        src = html.unescape(match.group(1)).strip()
-        low = src.lower()
-        if not src or src.startswith("data:"):
-            continue
-        if any(skip in low for skip in ("/509.gif", "/509s.gif", "blank.gif")):
-            continue
-        return src
+    for match in re.finditer(r"<img([^>]+)>", snippet, re.IGNORECASE):
+        attrs = match.group(1)
+        src = re.search(r"(?<![\w-])src=[\"']([^\"']+)[\"']", attrs, re.IGNORECASE)
+        picked = _usable_thumb_src(src.group(1) if src else None)
+        if picked:
+            return picked
+        data_src = re.search(r"\bdata-src=[\"']([^\"']+)[\"']", attrs, re.IGNORECASE)
+        picked = _usable_thumb_src(data_src.group(1) if data_src else None)
+        if picked:
+            return picked
     return None
 
 
@@ -655,7 +678,7 @@ def parse_search_page(
     thumbs: dict[int, str] = {}
     for tm in re.finditer(
         r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>'
-        r'\s*<img[^>]+src=["\']([^"\']+)["\']',
+        r"\s*<img([^>]+)>",
         body,
         re.IGNORECASE | re.DOTALL,
     ):
@@ -663,7 +686,9 @@ def parse_search_page(
             tgid, _ = parse_gallery_url(tm.group(1), base_url)
         except ValueError:
             continue
-        thumbs[tgid] = html.unescape(tm.group(2))
+        thumb = _thumb_from_img_attrs(tm.group(2))
+        if thumb:
+            thumbs[tgid] = thumb
     items: list[SearchGallery] = []
     seen: set[int] = set()
     for href, label in re.findall(

@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Discover search covers used `blank.gif`** (`services/eh_client.py`): thumbnail-mode listings with `src="blank.gif"` + `data-src` now skip placeholder gifs (`blank.gif` / `509.gif`) and prefer `data-src`, so discover cards keep the real ehgt cover.
+
 ## [1.6.0] - 2026-09-03
 
 ### Added
