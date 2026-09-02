@@ -92,8 +92,8 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 ### 自定义权限 / 非 root 运行 (PUID / PGID)
 
 后端镜像支持通过环境变量指定运行身份：
-- **默认（未配置 `PUID`/`PGID`）**：直接以 `root (0:0)` 权限运行，无需手动 `chown` 挂载目录，启动即用。
-- **自定义指定（如 NAS / 非特权 Linux 用户）**：在 `docker-compose.yml` 中指定 `PUID` 与 `PGID`（如 `PUID=1000` / `PGID=1000`），容器启动时会自动降权并在初次启动时调整 `/downloads`、`/gv-cache` 等可写目录属主。若想让 `./library` 库根支持删除画廊，请确保宿主目录对该 UID 可写（如 `chown -R 1000:1000 <宿主目录>`）。
+- **默认（未配置 `PUID`/`PGID`）**：直接以 `root (0:0)` 权限运行，无需手动 `chown` 挂载目录，启动即用。注意：以 root 模式运行时，新下载的画廊文件和系统日志在宿主机上的属主为 `root`。
+- **自定义指定（如 NAS / 非特权 Linux 用户，推荐）**：在 `docker-compose.yml` 中指定 `PUID` 与 `PGID`（如 `PUID=1000` / `PGID=1000`），容器启动时会自动校验参数、动态映射并降权运行，同时在初次启动时自动修复 `/downloads`、`/gv-cache` 等可写目录属主。若想让 `./library` 库根支持删除画廊，请确保宿主目录对该 UID 可写（如 `chown -R 1000:1000 <宿主目录>`）。
 
 ### 可选：集成 Dozzle 实时查看容器日志
 
