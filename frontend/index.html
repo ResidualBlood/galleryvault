@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GalleryVault</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div id="app">
+    <nav class="topbar" id="topbar" role="navigation" aria-label="Main navigation" hidden>
+      <a class="brand" href="#/browse">GalleryVault</a>
+      <form class="top-search" data-action="search" role="search" aria-label="Search library">
+        <div class="search-box search-box-top">
+          <input id="global-search" name="q" placeholder="Search library..." aria-label="Search library" autocomplete="off">
+          <div id="tag-suggest-top" class="tag-suggest" hidden></div>
+        </div>
+        <button type="submit" aria-label="Search">⌕</button>
+      </form>
+      <button class="btn btn-ghost icon-button" data-action="random" title="Random" aria-label="Random">🎲</button>
+      <button class="btn btn-ghost hamburger" data-action="toggle-nav" aria-label="Toggle menu" aria-expanded="false">☰</button>
+      <div class="links">
+        <a href="#/browse" data-i18n="browse">Browse</a>
+        <a href="#/library" data-i18n="library">Library</a>
+        <a href="#/tags" data-i18n="tags">Tags</a>
+        <a href="#/downloads" data-i18n="downloads">Downloads</a>
+        <a href="#/favorites" data-i18n="favorites">Favorites</a>
+        <a href="#/duplicates" data-i18n="dupGalTitle">Duplicate copies</a>
+        <a href="#/history" data-i18n="history">History</a>
+        <a href="#/settings" data-i18n="settings">Settings</a>
+        <a href="#/logs" data-i18n="logs">Logs</a>
+        <button class="btn btn-ghost link-button" data-action="toggle-lang">中文</button>
+        <button class="btn btn-ghost link-button" data-action="logout" data-i18n="logout">Logout</button>
+      </div>
+    </nav>
+    <div id="banner" class="banner" hidden></div>
+    <main id="view"></main>
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+  </div>
+  <script src="/assets/i18n.js"></script>
+  <script src="/assets/locales/zh.js"></script>
+  <script src="/assets/core.js"></script>
+  <script src="/assets/state.js"></script>
+  <script src="/assets/utils.js"></script>
+  <script src="/assets/components.js"></script>
+  <script src="/assets/events.js"></script>
+  <script src="/assets/views/welcome.js"></script>
+  <script src="/assets/views/browse.js"></script>
+  <script src="/assets/views/library.js"></script>
+  <script src="/assets/views/gallery.js"></script>
+  <script src="/assets/views/reader.js"></script>
+  <script src="/assets/views/favorites.js"></script>
+  <script src="/assets/views/downloads.js"></script>
+  <script src="/assets/views/tags.js"></script>
+  <script src="/assets/views/history.js"></script>
+  <script src="/assets/views/settings.js"></script>
+  <script src="/assets/views/logs.js"></script>
+  <script src="/assets/views/updates.js"></script>
+  <script src="/assets/views/duplicates.js"></script>
+  <!-- Phase 1: more views in /assets/views/ ; renderView + hooks ; Phase 3: i18n split + virtual + eslint -->
+  <!-- Vanilla global order: core->state->utils->components->events->views->app. GV namespace exposed in app.js for future type=module. -->
+  <script src="/assets/app.js"></script>
+</body>
+</html>

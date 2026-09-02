@@ -1,0 +1,63 @@
+{
+  "env": {
+    "browser": true,
+    "es6": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2020
+  },
+  "rules": {
+    "no-unused-vars": "off",
+    "no-undef": "off",
+    "no-redeclare": "off",
+    "semi": ["warn", "always"],
+    "no-console": "off"
+  },
+  "globals": {
+    "app": "readonly",
+    "state": "readonly",
+    "selGalleries": "writable",
+    "selFav": "writable",
+    "selDup": "writable",
+    "infiniteState": "writable",
+    "t": "readonly",
+    "esc": "readonly",
+    "toast": "readonly",
+    "api": "readonly",
+    "navHash": "readonly",
+    "router": "readonly",
+    "renderView": "readonly",
+    "renderCardCheckboxes": "readonly",
+    "galleryCard": "readonly",
+    "favCard": "readonly",
+    "catLabel": "readonly",
+    "fmtSize": "readonly",
+    "nsClass": "readonly",
+    "tagText": "readonly",
+    "prefPageSize": "readonly",
+    "libraryContext": "readonly",
+    "startInfinite": "readonly",
+    "stopInfinite": "readonly",
+    "gridPager": "readonly",
+    "parseTags": "readonly",
+    "renderLoading": "readonly",
+    "renderEmpty": "readonly",
+    "renderError": "readonly",
+    "renderSkeleton": "readonly",
+    "$view": "readonly",
+    "PAGE_SIZES": "readonly",
+    "FAV_MODES": "readonly",
+    "DL_STATUSES": "readonly",
+    "updateLangButton": "readonly",
+    "checkAuth": "readonly",
+    "onClick": "readonly",
+    "onChange": "readonly",
+    "onSubmit": "readonly",
+    "onFullscreenChange": "readonly",
+    "pollLogs": "readonly",
+    "pollFavoriteRings": "readonly",
+    "updateDupButtons": "readonly",
+    "renderFavPager": "readonly",
+    "renderDupGroupsFromCache": "readonly"
+  }
+}
