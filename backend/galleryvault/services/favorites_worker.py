@@ -81,8 +81,11 @@ class FavoriteDownloadQueue:
 
 FAVORITES_SKIP_LIMIT = 5
 _FAV_COUNTS_TTL = 300.0
+_COVER_SUFFIXES = (".img", ".jpg")
+_COVER_HEAL_CHUNK = 25
 _fav_counts_cache: dict[str, Any] = {"ts": 0.0, "counts": {}}
 _fav_counts_refresh_task: asyncio.Task[None] | None = None
+_size_sync_inflight: set[int] = set()
 
 
 def _unix_to_iso(val: Any) -> str | None:
@@ -141,6 +144,25 @@ def _remote_cover_cache_dir() -> Path:
     return d
 
 
+def _cover_cache_file(cache_dir: Path, gid: int) -> Path | None:
+    for suffix in _COVER_SUFFIXES:
+        path = cache_dir / f"{int(gid)}{suffix}"
+        if path.is_file():
+            return path
+    return None
+
+
+def _cover_cache_write_path(cache_dir: Path, gid: int) -> Path:
+    return cache_dir / f"{int(gid)}.img"
+
+
+def _write_cover_file(path: Path, raw: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(raw)
+    tmp.replace(path)
+
+
 def _img_data_uri(raw: bytes) -> str | None:
     if not raw:
         return None
@@ -197,43 +219,44 @@ async def favorites_metadata(
 async def remote_cover_data_batch(
     pairs: list[tuple[int, str]],
     metadata: dict[int, dict[str, Any]] | None = None,
+    *,
+    download: bool = True,
+    encode: bool = True,
 ) -> dict[int, str]:
     if not pairs:
         return {}
-    if metadata is None:
+    if metadata is None and (download or encode):
         metadata = await favorites_metadata(pairs)
+    metadata = metadata or {}
     cache_dir = _remote_cover_cache_dir()
     result: dict[int, str] = {}
     need_download: list[tuple[int, str]] = []
     for gid, _ in pairs:
-        thumb_url = (metadata.get(gid) or {}).get("thumb")
-        if not thumb_url:
+        cached_file = _cover_cache_file(cache_dir, gid)
+        if cached_file is not None:
+            if encode:
+                try:
+                    uri = _img_data_uri(cached_file.read_bytes())
+                    if uri:
+                        result[gid] = uri
+                except OSError:
+                    pass
             continue
-        cached_file = cache_dir / f"{gid}.jpg"
-        if cached_file.exists():
-            try:
-                uri = _img_data_uri(cached_file.read_bytes())
-                if uri:
-                    result[gid] = uri
-                continue
-            except OSError:
-                pass
-        need_download.append((gid, thumb_url))
+        thumb_url = str((metadata.get(gid) or {}).get("thumb") or "")
+        if download and thumb_url:
+            need_download.append((gid, thumb_url))
 
     if need_download and app_state.eh_client is not None:
-        # Rely on EhClient's own image/page semaphores — no extra local limiter
-        # to avoid double throttling (previous Semaphore(6) stacked with client's 12).
-
         async def _fetch(gid: int, url: str) -> None:
             try:
                 assert app_state.eh_client is not None
                 raw = await app_state.eh_client.download_image(url)
                 if raw:
-                    cached_file = cache_dir / f"{gid}.jpg"
-                    cached_file.write_bytes(raw)
-                    uri = _img_data_uri(raw)
-                    if uri:
-                        result[gid] = uri
+                    _write_cover_file(_cover_cache_write_path(cache_dir, gid), raw)
+                    if encode:
+                        uri = _img_data_uri(raw)
+                        if uri:
+                            result[gid] = uri
             except Exception as exc:  # noqa: BLE001
                 logger.debug("cover download failed", extra=log_extra(gid=gid, error=str(exc)))
 
@@ -323,27 +346,38 @@ def estimate_cloud_size(cloud_count: int, local_count: int, local_size: int) -> 
 async def favorite_size_sync(favcat: int) -> None:
     if not app_state.session_factory or not app_state.eh_client:
         return
+    if favcat in _size_sync_inflight:
+        return
+    _size_sync_inflight.add(favcat)
     tm = app_state.task_manager
     metadata_sync_state = tm.metadata_sync_state if tm else {}
-    if metadata_sync_state.get("running"):
-        return
     metadata_sync_state["running"] = True
     metadata_sync_state["stage"] = "listing"
     metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
     if tm:
         tm.clear_cancelled("metadata")
+    fetched: dict[int, dict[str, Any]] = {}
     try:
-        async with app_state.session_factory() as session:
-            gids = await FavoritesRepository(session).gids_for_favcat(favcat)
-            cached_meta = await GalleryRepository(session).metadata_map(gids)
-            missing = [(gid, "") for gid in gids if gid not in cached_meta]
+        try:
+            async with app_state.session_factory() as session, session.begin():
+                await GalleryRepository(session).seed_metadata_from_galleries(favcat)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "favorite metadata seed skipped", extra=log_extra(favcat=favcat, error=type(exc).__name__)
+            )
 
+        async with app_state.session_factory() as session:
+            folder_items = await FavoritesRepository(session).all_gids_for_favcat(favcat)
+            cached_meta = await GalleryRepository(session).metadata_map(
+                [gid for gid, _, _ in folder_items]
+            )
+        missing = [
+            (gid, token) for gid, token, _thumb in folder_items if gid not in cached_meta and token
+        ]
         metadata_sync_state["total"] = len(missing)
         metadata_sync_state["done"] = 0
         metadata_sync_state["stage"] = "fetching"
-
         batch_size = EXHENTAI_API_CHUNK_SIZE
-        fetched: dict[int, dict[str, Any]] = {}
         for start in range(0, len(missing), batch_size):
             if tm and tm.is_cancelled("metadata"):
                 break
@@ -357,16 +391,53 @@ async def favorite_size_sync(favcat: int) -> None:
                     extra=log_extra(error=type(exc).__name__, count=len(chunk)),
                 )
             metadata_sync_state["done"] = min(len(missing), start + batch_size)
-
         if fetched:
             async with app_state.session_factory() as session, session.begin():
                 await GalleryRepository(session).upsert_metadata(
                     [{"gid": gid, **meta} for gid, meta in fetched.items()]
                 )
+                repo = FavoritesRepository(session)
+                for gid, meta in fetched.items():
+                    size = meta.get("file_size")
+                    if size:
+                        await repo.set_file_size(favcat, gid, int(size))
+            cached_meta.update(fetched)
+
+        metadata_sync_state["stage"] = "covers"
+        cache_dir = _remote_cover_cache_dir()
+        coverless: list[tuple[int, str]] = []
+        thumb_meta: dict[int, dict[str, Any]] = {}
+        for gid, token, listing_thumb in folder_items:
+            if _cover_cache_file(cache_dir, gid) is not None:
+                continue
+            thumb = listing_thumb or (cached_meta.get(gid) or {}).get("thumb")
+            if thumb:
+                coverless.append((gid, token))
+                thumb_meta[gid] = {"thumb": thumb}
+        metadata_sync_state["total"] = len(coverless)
+        metadata_sync_state["done"] = 0
+        for start in range(0, len(coverless), _COVER_HEAL_CHUNK):
+            if tm and tm.is_cancelled("metadata"):
+                break
+            chunk = coverless[start : start + _COVER_HEAL_CHUNK]
+            await remote_cover_data_batch(
+                chunk,
+                {gid: thumb_meta[gid] for gid, _token in chunk},
+                download=True,
+                encode=False,
+            )
+            metadata_sync_state["done"] = min(len(coverless), start + _COVER_HEAL_CHUNK)
+        if coverless:
+            logger.info(
+                "favorite covers healed",
+                extra=log_extra(favcat=favcat, healed=len(coverless)),
+            )
     except Exception as exc:  # noqa: BLE001
         metadata_sync_state["last_error"] = str(exc)
     finally:
-        metadata_sync_state["running"] = False
+        _size_sync_inflight.discard(favcat)
+        if not _size_sync_inflight:
+            metadata_sync_state["running"] = False
         metadata_sync_state["completed_at"] = datetime.now(UTC).isoformat()
         if tm:
             tm.clear_cancelled("metadata")
@@ -474,8 +545,10 @@ async def _run_favorites_check_inner(
         # Auto-detect gallery updates after a successful favorites check so a
         # re-uploaded gallery (old gid gone, new gid in favorites) does not
         # linger as ``deleted`` or in the wrong category.
+        from ..app.dependencies import spawn_task
+
+        spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
         try:
-            from ..app.dependencies import spawn_task
             from .updates_worker import detect_gallery_updates
 
             spawn_task(detect_gallery_updates(), "gallery updates detect")

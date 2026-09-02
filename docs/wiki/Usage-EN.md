@@ -283,8 +283,9 @@ The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / U
 - Click a folder name to open `#/favorites/<favcat>`: that folder's gallery
   grid (with **title search**, **multi-criteria sorting**, checkboxes, **download selected**, **download selected original**,
   **archive download selected**, **move selected**, **remove from favorites**, and an
-  **All / local only / cloud only** state filter), with inline cloud covers
-  and real sizes for cloud galleries. The list uses numbered pagination with
+  **All / local only / cloud only** state filter). **Check now** warms cloud
+  covers onto disk; opening a folder only reads that cache (`<img>` via
+  `/api/favorites/cover`) and does not wait on ExHentai. The list uses numbered pagination with
   24 galleries per page by default.
   - **In-folder Search & Sorting**: Top toolbar provides instant title filtering and sorting by last seen, first seen, posted date, title, and size.
   - **Move selected**: Move selected galleries to another favorite folder (0–9),

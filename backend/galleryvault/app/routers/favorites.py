@@ -26,11 +26,11 @@ from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import EhClient, EhClientError, FavoriteData, GalleryGoneError
 from ...services.favorites_worker import (
     FavoriteDownloadQueue,
+    _cover_cache_file,
     estimate_cloud_size,
     favorite_counts_cached,
     favorite_size_sync,
     favorites_metadata,
-    remote_cover_data_batch,
     run_duplicates_scan,
     run_favorites_check,
 )
@@ -190,7 +190,6 @@ async def favorite_items(
             entry = metadata.setdefault(int(item.gid), {})
             if not entry.get("thumb"):
                 entry["thumb"] = item.thumb
-    cover_data = await remote_cover_data_batch(cloud_pairs, metadata)
     items = []
     for item, gallery in rows:
         if gallery is not None:
@@ -217,7 +216,11 @@ async def favorite_items(
             title_jpn = meta.get("title_jpn")
             category = meta.get("category")
             page_count = meta.get("file_count") or meta.get("filecount")
-            cover_url = None
+            cover_url = (
+                f"/api/favorites/cover?gid={int(item.gid)}&token={item.token}"
+                if item.token
+                else None
+            )
             file_size = meta.get("file_size") or item.file_size
             tags = [
                 {
@@ -240,7 +243,7 @@ async def favorite_items(
                 "page_count": page_count,
                 "filecount": page_count,
                 "cover_url": cover_url,
-                "cover_data": cover_data.get(item.gid),
+                "cover_data": None,
                 "file_size": file_size,
                 "filesize": file_size,
                 "first_seen_at": item.first_seen_at,
@@ -798,7 +801,6 @@ async def duplicates_ignored_list() -> list[dict[str, object]]:
                     if detail.get("gallery_id") is None and detail.get("token")
                 ]
                 gmeta = await favorites_metadata(cloud_pairs) if cloud_pairs else {}
-                cover_map = await remote_cover_data_batch(cloud_pairs, gmeta)
                 for gid, detail in items.items():
                     tags = detail.get("tags") or []
                     if tags:
@@ -813,7 +815,11 @@ async def duplicates_ignored_list() -> list[dict[str, object]]:
                     if detail.get("gallery_id") is not None:
                         continue
                     meta = gmeta.get(gid, {})
-                    detail["cover_data"] = cover_map.get(gid)
+                    token = str(detail.get("token") or "")
+                    detail["cover_url"] = (
+                        f"/api/favorites/cover?gid={int(gid)}&token={token}" if token else None
+                    )
+                    detail["cover_data"] = None
                     detail["file_size"] = detail.get("file_size") or meta.get("file_size")
                     detail["posted_at"] = detail.get("posted_at") or _unix_to_iso(meta.get("posted"))
                     if meta.get("tags"):
@@ -872,8 +878,8 @@ async def favorite_cover(gid: int, token: str) -> Response:
     if not re.fullmatch(r"[0-9a-fA-F]{8,64}", token):
         raise HTTPException(status_code=422, detail="invalid token")
     cache_dir = Path(settings.thumbnail_cache_dir).parent / "remote-covers"
-    path = cache_dir / f"{int(gid)}.img"
-    if not await run_in_threadpool(path.is_file):
+    path = await run_in_threadpool(_cover_cache_file, cache_dir, int(gid))
+    if path is None:
         client = app_state.eh_client
         if client is None:
             raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
@@ -881,10 +887,11 @@ async def favorite_cover(gid: int, token: str) -> Response:
             data, _ = await client.fetch_gallery_cover(int(gid), token)
         except (GalleryGoneError, EhClientError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        path = cache_dir / f"{int(gid)}.img"
 
         def _write_atomic() -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
+            tmp = path.with_name(path.name + ".tmp")
             tmp.write_bytes(data)
             tmp.replace(path)
 
