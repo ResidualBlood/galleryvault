@@ -133,10 +133,11 @@ or "force download". See [Usage → Favorites](Usage-EN).
   They are stored **encrypted in the database** (`ENCRYPTION_KEY`) — do **not**
   set `EXHENTAI_COOKIES` in `docker-compose.yml`. Without cookies `favorites.php`
   redirects to the home page and the check silently records nothing.
-- Cover thumbnails are captured from the listing's thumbnail cells during a
-  check (`favorite_items.thumb`); run **Download missing items** on the
-  Favorites overview (or let the scheduled sync) to download the cover files
-  to the disk cache.
+- **Check now** warms covers onto disk (`/gv-cache/remote-covers/{gid}.img`)
+  in the background; opening a folder only reads that cache (`<img>` via
+  `/api/favorites/cover`) and does not wait on ExHentai. Large folders fill in
+  over time. Use **Download missing items** on the overview if some covers are
+  still absent.
 
 ## The page shows a different number per page?
 
