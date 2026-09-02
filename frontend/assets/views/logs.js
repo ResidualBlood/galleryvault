@@ -55,10 +55,11 @@ async function renderLogs() {
           </select>
         </label>
         <input type="search" id="syslog-search-input" placeholder="${esc(t("searchLogs"))}" value="${esc(systemLogSearch)}" style="flex:1; min-width:180px;">
-        <a class="btn btn-secondary" href="/api/system/logs/download" download="galleryvault.log" style="display:inline-flex;align-items:center;padding:5px 12px;font-size:13px;text-decoration:none;border-radius:4px" target="_blank">${esc(t("downloadLogs"))}</a>
+        <a class="btn btn-secondary" href="/api/system/logs/download" download style="display:inline-flex;align-items:center;padding:5px 12px;font-size:13px;text-decoration:none;border-radius:4px" target="_blank">${esc(t("downloadLogs"))}</a>
         <button class="secondary" data-action="refresh-system-logs" type="button">${esc(t("refreshLogs"))}</button>
         <button class="secondary" data-action="clear-system-logs" type="button">${esc(t("clearLogs"))}</button>
       </div>
+      <div id="syslog-storage-info" style="font-size:11px;color:var(--muted);margin-bottom:8px;"></div>
       <div id="syslog-container"><p>${esc(t("loading"))}</p></div>
     </div>
   `);
@@ -154,6 +155,12 @@ async function fetchSystemLogs() {
       systemLogLevel = data.level;
       const sel = document.getElementById("syslog-runtime-level");
       if (sel && sel.value !== data.level) sel.value = data.level;
+    }
+    const infoEl = document.getElementById("syslog-storage-info");
+    if (infoEl) {
+      infoEl.textContent = data.log_mode === "file" && data.log_file
+        ? `Storage: File (${data.log_file})`
+        : "Storage: In-memory RingBuffer";
     }
     const logs = data.logs || [];
     if (!logs.length) {
