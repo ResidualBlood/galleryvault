@@ -81,6 +81,8 @@ async def test_l8_first_count_call_never_blocks_on_network(
 
     def fake_spawn(coro, operation):
         spawned.append(operation)
+        if hasattr(coro, "close"):
+            coro.close()
 
     monkeypatch.setattr(main, "_spawn", fake_spawn)
     monkeypatch.setattr(main, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
