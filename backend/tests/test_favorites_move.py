@@ -180,3 +180,80 @@ async def test_favorites_move_endpoint_happy_path(monkeypatch) -> None:
     assert res["local_moved"] == 2
     assert res["target_favcat"] == 3
 
+
+@pytest.mark.asyncio
+async def test_favorites_move_endpoint_partial_cloud_failure(monkeypatch) -> None:
+    from galleryvault.app.routers.favorites import favorites_move
+    from galleryvault.app.schemas import FavoritesMoveRequest
+    from galleryvault.app.state import app_state
+
+    moved_locally: list[int] = []
+
+    class DummyClient:
+        async def move_favorites(self, gids: list[int], target_favcat: int) -> list[int]:
+            # gid 200 fails in cloud
+            return [200]
+
+    class DummyRepo:
+        def __init__(self, session):
+            pass
+
+        async def move_gids(self, gids: list[int], target_favcat: int) -> int:
+            moved_locally.extend(gids)
+            return len(gids)
+
+    class DummySession:
+        def begin(self):
+            class DummyCtx:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return DummyCtx()
+
+    async def dummy_get_session():
+        yield DummySession()
+
+    monkeypatch.setattr(app_state, "eh_client", DummyClient())
+    monkeypatch.setattr("galleryvault.app.routers.favorites.FavoritesRepository", DummyRepo)
+    monkeypatch.setattr("galleryvault.app.routers.favorites.get_session", dummy_get_session)
+
+    res = await favorites_move(FavoritesMoveRequest(gids=[100, 200], target_favcat=3))
+    assert res["cloud_ok"] is False
+    assert res["cloud_moved"] == 1
+    assert res["cloud_failed"] == [200]
+    assert res["local_moved"] == 1
+    # Only gid 100 was moved locally, 200 was skipped
+    assert moved_locally == [100]
+
+
+def test_record_favorites_move_log(monkeypatch) -> None:
+    from galleryvault.app import main
+    from galleryvault.app.routers.favorites import _record_favorites_move_log
+
+    entries: list[dict[str, object]] = []
+
+    def record(kind, start, end, status, *, reason="", done=0, total=0):
+        entries.append(
+            {"kind": kind, "status": status, "reason": reason, "done": done, "total": total}
+        )
+
+    monkeypatch.setattr(main, "_record_task", record)
+
+    # Success case
+    _record_favorites_move_log([1, 2], 3, [], 2)
+    assert entries[0]["kind"] == "favorites-move"
+    assert entries[0]["status"] == "success"
+    assert entries[0]["reason"] == "moved 2 to #3"
+    assert entries[0]["done"] == 2
+    assert entries[0]["total"] == 2
+
+    # Partial failure case
+    _record_favorites_move_log([1, 2, 3], 4, [3], 2)
+    assert entries[1]["status"] == "failed"
+    assert "moved 2 to #4" in entries[1]["reason"]
+    assert "cloud move failed 1: 3" in entries[1]["reason"]
+
+

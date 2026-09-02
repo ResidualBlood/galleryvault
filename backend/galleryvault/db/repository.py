@@ -2152,12 +2152,32 @@ class FavoritesRepository:
                     )
                 )
             if other_gids:
-                result = await self.session.execute(
-                    update(FavoriteItem)
-                    .where(FavoriteItem.gid.in_(other_gids))
-                    .values(favcat=target_favcat, last_seen_at=func.now())
+                rows = await self.session.execute(
+                    select(FavoriteItem.id, FavoriteItem.gid).where(
+                        FavoriteItem.gid.in_(other_gids)
+                    )
                 )
-                moved += result.rowcount or 0
+                keep_ids: list[int] = []
+                drop_ids: list[int] = []
+                seen_gids: set[int] = set()
+                for row_id, gid in rows:
+                    if gid not in seen_gids:
+                        seen_gids.add(gid)
+                        keep_ids.append(row_id)
+                    else:
+                        drop_ids.append(row_id)
+
+                if drop_ids:
+                    await self.session.execute(
+                        delete(FavoriteItem).where(FavoriteItem.id.in_(drop_ids))
+                    )
+                if keep_ids:
+                    result = await self.session.execute(
+                        update(FavoriteItem)
+                        .where(FavoriteItem.id.in_(keep_ids))
+                        .values(favcat=target_favcat, last_seen_at=func.now())
+                    )
+                    moved += result.rowcount or 0
             moved += len(target_gids)
         return moved
 

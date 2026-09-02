@@ -150,6 +150,59 @@ def _record_favorites_remove_log(
     spawn_task(tm.persist_history(), "persist task history")
 
 
+def _record_favorites_move_log(
+    gids: list[int],
+    target_favcat: int,
+    cloud_failed: list[int],
+    local_moved: int,
+) -> None:
+    from .. import main
+    now = datetime.now(UTC).isoformat()
+    status = "failed" if cloud_failed else "success"
+    reason = f"moved {local_moved} to #{target_favcat}"
+    if cloud_failed:
+        reason += f", cloud move failed {len(cloud_failed)}: {', '.join(map(str, cloud_failed[:5]))}"
+        if len(cloud_failed) > 5:
+            reason += f" (+{len(cloud_failed) - 5} more)"
+
+    record_fn = getattr(main, "_record_task", None)
+    if record_fn is not None:
+        try:
+            record_fn(
+                "favorites-move",
+                now,
+                now,
+                status,
+                reason=reason,
+                done=local_moved,
+                total=len(gids),
+            )
+            return
+        except TypeError:
+            record_fn(
+                "favorites-move",
+                now,
+                now,
+                status,
+                reason,
+                local_moved,
+                len(gids),
+            )
+            return
+
+    tm = get_task_manager()
+    tm.record_task(
+        "favorites-move",
+        now,
+        now,
+        status,
+        reason=reason,
+        done=local_moved,
+        total=len(gids),
+    )
+    spawn_task(tm.persist_history(), "persist task history")
+
+
 @router.get("/api/favorites/{favcat}/items")
 async def favorite_items(
     favcat: int, page: int = 1, page_size: int = 24, state: str = "all"
@@ -484,7 +537,7 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
 
 @router.post("/api/favorites/move")
 async def favorites_move(body: FavoritesMoveRequest) -> dict[str, object]:
-    if not body.gids and not body.items:
+    if not body.gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
     if not (0 <= body.target_favcat <= 9):
         raise HTTPException(status_code=422, detail="target_favcat must be between 0 and 9")
@@ -507,16 +560,20 @@ async def favorites_move(body: FavoritesMoveRequest) -> dict[str, object]:
         cloud_failed = list(gids)
         logger.warning("cloud favorite move failed", extra=log_extra(error=type(exc).__name__))
 
+    successful_gids = [g for g in gids if g not in set(cloud_failed)]
     local_moved = 0
-    try:
-        async for session in get_session():
-            async with session.begin():
-                local_moved = await FavoritesRepository(session).move_gids(
-                    gids, body.target_favcat
-                )
-            break
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
+    if successful_gids:
+        try:
+            async for session in get_session():
+                async with session.begin():
+                    local_moved = await FavoritesRepository(session).move_gids(
+                        successful_gids, body.target_favcat
+                    )
+                break
+        except SQLAlchemyError as exc:
+            raise db_error(exc) from exc
+
+    _record_favorites_move_log(gids, body.target_favcat, cloud_failed, local_moved)
 
     return {
         "gids": gids,
