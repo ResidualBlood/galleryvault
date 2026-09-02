@@ -6,11 +6,14 @@ from galleryvault.app.state import app_state
 from galleryvault.services.favorites_worker import (
     FavoriteDownloadQueue,
     FavoritesRepositoryProxy,
+    _cover_cache_file,
+    _cover_cache_write_path,
     _fav_counts_cache,
     _img_data_uri,
     _parse_gdata_tags,
     _unix_to_iso,
     favorite_counts_cached,
+    remote_cover_data_batch,
 )
 
 
@@ -55,6 +58,70 @@ def test_parse_gdata_tags_accepts_metadata_map_dicts():
         ("female", "sole female"),
         ("misc", "nonamespace"),
     ]
+
+
+def test_cover_cache_file_prefers_img(tmp_path):
+    gid = 42
+    jpg = tmp_path / f"{gid}.jpg"
+    img = tmp_path / f"{gid}.img"
+    jpg.write_bytes(b"jpg")
+    assert _cover_cache_file(tmp_path, gid) == jpg
+    img.write_bytes(b"img")
+    assert _cover_cache_file(tmp_path, gid) == img
+    assert _cover_cache_write_path(tmp_path, gid) == img
+    assert _cover_cache_file(tmp_path, 99) is None
+
+
+@pytest.mark.asyncio
+async def test_remote_cover_batch_uses_img_or_jpg_without_download(tmp_path, monkeypatch):
+    from galleryvault.services import favorites_worker as fw
+
+    monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    (tmp_path / "1.img").write_bytes(b"\xff\xd8\xff" + b"a" * 8)
+    (tmp_path / "2.jpg").write_bytes(b"\x89PNG\r\n\x1a\n")
+    orig = app_state.eh_client
+    app_state.eh_client = object()
+    try:
+        result = await remote_cover_data_batch(
+            [(1, "tok"), (2, "tok"), (3, "tok")],
+            {1: {"thumb": "http://x/1"}, 2: {"thumb": "http://x/2"}, 3: {"thumb": "http://x/3"}},
+            download=False,
+        )
+        assert 1 in result and result[1].startswith("data:image/jpeg")
+        assert 2 in result and result[2].startswith("data:image/png")
+        assert 3 not in result
+        assert not (tmp_path / "3.img").exists()
+    finally:
+        app_state.eh_client = orig
+
+
+@pytest.mark.asyncio
+async def test_remote_cover_batch_writes_img_not_jpg(tmp_path, monkeypatch):
+    from galleryvault.services import favorites_worker as fw
+
+    monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    downloaded = []
+
+    class Client:
+        async def download_image(self, url):
+            downloaded.append(url)
+            return b"\xff\xd8\xff" + b"x" * 20
+
+    orig = app_state.eh_client
+    app_state.eh_client = Client()
+    try:
+        result = await remote_cover_data_batch(
+            [(9, "tok")],
+            {9: {"thumb": "http://ehgt.org/9"}},
+            download=True,
+            encode=False,
+        )
+        assert result == {}
+        assert downloaded == ["http://ehgt.org/9"]
+        assert (tmp_path / "9.img").is_file()
+        assert not (tmp_path / "9.jpg").exists()
+    finally:
+        app_state.eh_client = orig
 
 
 def test_img_data_uri():
@@ -229,3 +296,75 @@ async def test_favorite_counts_cached_cancelled_caller_shares_task():
         app_state.eh_client = orig_client
         _fav_counts_cache["ts"] = 0.0
         _fav_counts_cache["counts"] = {}
+
+
+@pytest.mark.asyncio
+async def test_favorite_size_sync_heals_missing_covers(tmp_path, monkeypatch):
+    from galleryvault.services import favorites_worker as fw
+    from galleryvault.services.favorites_worker import favorite_size_sync
+
+    monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    (tmp_path / "2.img").write_bytes(b"cached")
+    downloaded: list[str] = []
+
+    class Client:
+        async def fetch_gmetadata(self, pairs):
+            return {}
+
+        async def download_image(self, url):
+            downloaded.append(url)
+            return b"\xff\xd8\xff" + b"x" * 20
+
+    class FavRepo:
+        def __init__(self, session):
+            pass
+
+        async def all_gids_for_favcat(self, favcat):
+            return [
+                (1, "tok1", "http://ehgt.org/1"),
+                (2, "tok2", "http://ehgt.org/2"),
+                (3, "tok3", None),
+            ]
+
+        async def set_file_size(self, *args, **kwargs):
+            pass
+
+    class GalRepo:
+        def __init__(self, session):
+            pass
+
+        async def seed_metadata_from_galleries(self, favcat):
+            return 0
+
+        async def metadata_map(self, gids):
+            return {}
+
+        async def upsert_metadata(self, entries):
+            return 0
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+    orig_factory = app_state.session_factory
+    orig_client = app_state.eh_client
+    try:
+        app_state.session_factory = lambda: Session()
+        app_state.eh_client = Client()
+        monkeypatch.setattr(fw, "FavoritesRepository", FavRepo)
+        monkeypatch.setattr(fw, "GalleryRepository", GalRepo)
+        fw._size_sync_inflight.clear()
+        await favorite_size_sync(4)
+        assert downloaded == ["http://ehgt.org/1"]
+        assert (tmp_path / "1.img").is_file()
+        assert not (tmp_path / "3.img").exists()
+    finally:
+        app_state.session_factory = orig_factory
+        app_state.eh_client = orig_client
+        fw._size_sync_inflight.clear()

@@ -121,19 +121,26 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
         return {3: 10}
 
     orig_factory = app_state.session_factory
+    spawned: list[str] = []
+
+    def fake_spawn(coro, operation):
+        spawned.append(operation)
+        if hasattr(coro, "close"):
+            coro.close()
+
     try:
-        # Reset per-test state and patch seams.
         app_state.session_factory = lambda: _FakeSession(Repo())
         app_state.favorites_service = Service()
         monkeypatch.setattr(favorites_worker, "FavoritesRepository", lambda session: session._repo)
-        monkeypatch.setattr(favorites_worker, "favorite_size_sync", lambda favcat: None)
         monkeypatch.setattr(favorites_worker, "favorite_counts_cached", _fake_counts)
+        monkeypatch.setattr("galleryvault.app.dependencies.spawn_task", fake_spawn)
         monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
 
         for _ in range(5):
             await run_favorites_check(3, Service(), scheduled=True)
         assert full_checks == [3], "the 5th scheduled poll must run a full pass"
         assert tm.favorites_check_state["skip_counts"] == {"3": 0}
+        assert "favorite size sync 3" in spawned
     finally:
         tm.favorites_check_state = original_state
         app_state.session_factory = orig_factory
