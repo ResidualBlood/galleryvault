@@ -14,7 +14,7 @@ from ..models import (
     GalleryUpdate,
     Tag,
 )
-from .base import _chunked
+from .base import _chunked, escape_like_wildcards
 
 
 class FavoritesRepository:
@@ -270,7 +270,13 @@ class FavoritesRepository:
         await self.session.flush()
 
     async def list_items(
-        self, favcat: int, page: int, page_size: int, state: str = "all"
+        self,
+        favcat: int,
+        page: int,
+        page_size: int,
+        state: str = "all",
+        q: str | None = None,
+        order_by: str = "last_seen_desc",
     ) -> tuple[int, list[tuple[object, object | None]]]:
         """Paginated favorite items for a folder, joined with the local gallery.
 
@@ -287,15 +293,39 @@ class FavoritesRepository:
             query = query.where(Gallery.id.is_not(None))
         elif state == "cloud":
             query = query.where(Gallery.id.is_(None))
+        if q and q.strip():
+            for token in q.split():
+                pattern = f"%{escape_like_wildcards(token)}%"
+                query = query.where(
+                    FavoriteItem.title.ilike(pattern)
+                    | Gallery.title.ilike(pattern)
+                    | Gallery.title_jpn.ilike(pattern)
+                )
         total = int(
             await self.session.scalar(
                 select(func.count()).select_from(query.subquery())
             )
             or 0
         )
+        order_map = {
+            "last_seen_desc": [FavoriteItem.last_seen_at.desc()],
+            "first_seen_desc": [FavoriteItem.first_seen_at.desc()],
+            "first_seen_asc": [FavoriteItem.first_seen_at.asc()],
+            "title_asc": [FavoriteItem.title.asc()],
+            "title_desc": [FavoriteItem.title.desc()],
+            "posted_at_desc": [
+                Gallery.posted_at.desc().nullslast(),
+                FavoriteItem.last_seen_at.desc(),
+            ],
+            "file_size_desc": [
+                func.coalesce(Gallery.file_size, FavoriteItem.file_size).desc().nullslast(),
+                FavoriteItem.last_seen_at.desc(),
+            ],
+        }
+        order_clauses = order_map.get(order_by, [FavoriteItem.last_seen_at.desc()])
         rows = (
             await self.session.execute(
-                query.order_by(FavoriteItem.last_seen_at.desc())
+                query.order_by(*order_clauses)
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )

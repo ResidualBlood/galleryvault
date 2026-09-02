@@ -154,7 +154,12 @@ def _record_favorites_move_log(
 
 @router.get("/api/favorites/{favcat}/items")
 async def favorite_items(
-    favcat: int, page: int = 1, page_size: int = 24, state: str = "all"
+    favcat: int,
+    page: int = 1,
+    page_size: int = 24,
+    state: str = "all",
+    q: str | None = None,
+    order_by: str = "last_seen_desc",
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
@@ -163,7 +168,7 @@ async def favorite_items(
     try:
         async for session in get_session():
             total, rows = await FavoritesRepository(session).list_items(
-                favcat, page, page_size, state
+                favcat, page, page_size, state, q=q, order_by=order_by
             )
             tag_map = await GalleryRepository(session).tags_for_galleries(
                 [g.id for _, g in rows if (g is not None) and g.id is not None]

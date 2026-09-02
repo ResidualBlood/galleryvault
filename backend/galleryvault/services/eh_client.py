@@ -1762,3 +1762,44 @@ class EhClient:
                 extra=log_extra(error=type(exc).__name__),
             )
             raise EhClientError("ExHentai image download failed") from exc
+
+
+async def probe_cookie_health() -> dict[str, Any]:
+    from datetime import UTC, datetime
+
+    from ..app.dependencies import get_current_settings
+    from ..app.state import app_state
+
+    settings = get_current_settings()
+    if not settings.exhentai_cookies:
+        health = {
+            "state": "not_configured",
+            "detail": "Cookies not configured",
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+        app_state.extra["cookie_health"] = health
+        return health
+    client = app_state.eh_client
+    if client is None:
+        health = {
+            "state": "not_configured",
+            "detail": "Client unavailable",
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+        app_state.extra["cookie_health"] = health
+        return health
+    try:
+        state, detail = await client.check_login()
+        health = {
+            "state": state,
+            "detail": detail,
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        health = {
+            "state": "failed",
+            "detail": type(exc).__name__,
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+    app_state.extra["cookie_health"] = health
+    return health

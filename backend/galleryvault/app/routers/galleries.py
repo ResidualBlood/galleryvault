@@ -163,12 +163,19 @@ def _dedupe_tags(tags: list[tuple[str | None, str]]) -> list[tuple[str | None, s
     return out
 
 
-def _parse_tag_filter(tags: str | None) -> list[tuple[str | None, str]]:
-    parsed_tags: list[tuple[str | None, str]] = []
+def _parse_tag_filter(
+    tags: str | None,
+) -> tuple[list[tuple[str | None, str]], list[tuple[str | None, str]]]:
+    include_tags: list[tuple[str | None, str]] = []
+    exclude_tags: list[tuple[str | None, str]] = []
     for value in (tags or "").split(","):
         value = value.strip()
         if not value:
             continue
+        is_exclude = False
+        if value.startswith("-") and len(value) > 1:
+            is_exclude = True
+            value = value[1:].strip()
         if ":" in value:
             namespace, name = value.split(":", 1)
             namespace = namespace.strip() or None
@@ -176,8 +183,12 @@ def _parse_tag_filter(tags: str | None) -> list[tuple[str | None, str]]:
             namespace, name = None, value
         if not name.strip() or len(name) > 200 or (namespace and len(namespace) > 32):
             raise HTTPException(status_code=422, detail="invalid tag")
-        parsed_tags.append((namespace, name.strip()))
-    return parsed_tags
+        tag_tuple = (namespace, name.strip())
+        if is_exclude:
+            exclude_tags.append(tag_tuple)
+        else:
+            include_tags.append(tag_tuple)
+    return include_tags, exclude_tags
 
 
 async def _resolve_search_tokens(
@@ -208,9 +219,15 @@ async def list_galleries(
     page_size: int = 24,
     q: str | None = None,
     tags: str | None = None,
+    exclude_tags: str | None = None,
     tag_mode: str = "or",
     tag_match: str = "exact",
     category: str | None = None,
+    order_by: str = "id_desc",
+    read_status: str | None = None,
+    min_rating: float | None = None,
+    page_min: int | None = None,
+    page_max: int | None = None,
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(
@@ -218,6 +235,8 @@ async def list_galleries(
         )
     if tag_mode not in {"and", "or"} or tag_match not in {"exact", "fuzzy"}:
         raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
+    if read_status and read_status not in {"all", "unread", "reading", "completed", "read"}:
+        raise HTTPException(status_code=422, detail="invalid read_status")
     if category == "":
         category = None
     exclude_favorited = False
@@ -227,16 +246,29 @@ async def list_galleries(
     elif category and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail=f"category must be one of {', '.join(CATEGORIES)}")
 
-    parsed_tags = _parse_tag_filter(tags)
+    parsed_inc_tags, parsed_exc_tags = _parse_tag_filter(tags)
+    if exclude_tags:
+        extra_inc, extra_exc = _parse_tag_filter(exclude_tags)
+        parsed_exc_tags.extend(extra_inc)
+        parsed_exc_tags.extend(extra_exc)
+
     resolved_q = q or ""
     resolved = False
     if q and q.strip():
         auto_tags, keywords, changed = await _resolve_search_tokens(q)
         resolved = changed
         if changed:
-            parsed_tags.extend(auto_tags)
-            parsed_tags = _dedupe_tags(parsed_tags)
+            for ns, name in auto_tags:
+                if ns and ns.startswith("-") and len(ns) > 1:
+                    parsed_exc_tags.append((ns[1:], name))
+                elif name and name.startswith("-") and len(name) > 1:
+                    parsed_exc_tags.append((ns, name[1:]))
+                else:
+                    parsed_inc_tags.append((ns, name))
             resolved_q = keywords
+
+    parsed_inc_tags = _dedupe_tags(parsed_inc_tags)
+    parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
     try:
         async for session in get_session():
             repo_cls = GalleryRepository
@@ -244,26 +276,48 @@ async def list_galleries(
                 page,
                 page_size,
                 q=resolved_q,
-                tags=parsed_tags if parsed_tags else (),
+                tags=parsed_inc_tags if parsed_inc_tags else (),
+                exclude_tags=parsed_exc_tags if parsed_exc_tags else (),
                 tag_mode=tag_mode,
                 tag_match=tag_match,
                 category=category,
                 exclude_favorited=exclude_favorited,
+                order_by=order_by,
+                read_status=read_status,
+                min_rating=min_rating,
+                page_min=page_min,
+                page_max=page_max,
             )
-            tag_map = await repo_cls(session).tags_for_galleries([r.id for r in rows if getattr(r, "id", None)])
+            g_ids = [r.id for r in rows if getattr(r, "id", None)]
+            tag_map = await repo_cls(session).tags_for_galleries(g_ids)
+            progress_map = await repo_cls(session).progress_for_galleries(g_ids)
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
+
+    tag_str_parts = []
+    if parsed_inc_tags:
+        tag_str_parts.extend(
+            f"{namespace}:{name}" if namespace else name
+            for namespace, name in parsed_inc_tags
+        )
+    if parsed_exc_tags:
+        tag_str_parts.extend(
+            f"-{namespace}:{name}" if namespace else f"-{name}"
+            for namespace, name in parsed_exc_tags
+        )
 
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
         "q": resolved_q,
-        "tags": ",".join(f"{namespace}:{name}" if namespace else name for namespace, name in parsed_tags),
+        "tags": ",".join(tag_str_parts),
         "resolved": resolved,
         "tag_mode": tag_mode,
         "tag_match": tag_match,
+        "order_by": order_by,
+        "read_status": read_status or "all",
         "category": "__not_fav__" if exclude_favorited else (category or ""),
         "query_tags": (
             [
@@ -272,7 +326,7 @@ async def list_galleries(
                     "name": name,
                     "display": translated_tag(ns or "misc", name)[1],
                 }
-                for ns, name in parsed_tags
+                for ns, name in parsed_inc_tags
             ]
             if resolved
             else []
@@ -304,7 +358,7 @@ async def list_galleries(
                 "rating": getattr(row, "rating", None),
                 "favorite": getattr(row, "favorite", False),
                 "favorite_category": getattr(row, "favorite_category", None),
-                "reading_progress": getattr(row, "reading_progress", None),
+                "reading_progress": progress_map.get(row.id, getattr(row, "reading_progress", None)),
                 "expunged": getattr(row, "expunged", False),
                 "image_quality": getattr(row, "image_quality", None),
             }
@@ -821,15 +875,17 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
         category = None
     if category is not None and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail="invalid category")
-    parsed_tags = _parse_tag_filter(body.tags or body.tag)
+    parsed_tags, parsed_exc_tags = _parse_tag_filter(body.tags or body.tag)
     _MAX_FILTERED_DELETE = 5000
     try:
         resolved_q = body.q or ""
         if body.q and body.q.strip():
-            auto_tags, keywords, changed = await _resolve_search_tokens(body.q)
+            auto_inc, auto_exc, keywords, changed = await _resolve_search_tokens(body.q)
             if changed:
-                parsed_tags.extend(auto_tags)
+                parsed_tags.extend(auto_inc)
+                parsed_exc_tags.extend(auto_exc)
                 parsed_tags = _dedupe_tags(parsed_tags)
+                parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
                 resolved_q = keywords
         matching_ids: list[int] = []
         async for session in get_session():
@@ -841,6 +897,7 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                     500,
                     q=resolved_q,
                     tags=parsed_tags,
+                    exclude_tags=parsed_exc_tags,
                     tag_mode=body.tag_mode,
                     tag_match=body.tag_match,
                     category=category,

@@ -13,13 +13,20 @@ function updateLangButton() {
 function updateBanner() {
   const el = document.getElementById("banner");
   if (!el) return;
-  if (app.authenticated && app.session.must_change_password) {
+  if (app.authenticated && app.session && app.session.must_change_password) {
     el.hidden = false;
     el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="btn btn-primary" href="#/welcome">${esc(t("changePassword"))}</a>`;
-  } else {
-    el.hidden = true;
-    el.innerHTML = "";
+    return;
   }
+  const ch = app.session && app.session.cookie_health;
+  if (app.authenticated && ch && (ch.state === "not_logged_in" || ch.state === "no_exhentai_access" || ch.state === "failed")) {
+    el.hidden = false;
+    const msg = ch.state === "failed" ? `${esc(t("cookieExpiredNotice"))} (${esc(ch.detail || "")})` : esc(t("cookieExpiredNotice"));
+    el.innerHTML = `<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${msg}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`;
+    return;
+  }
+  el.hidden = true;
+  el.innerHTML = "";
 }
 
 function esc(s) {

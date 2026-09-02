@@ -27,8 +27,15 @@ from ...services.settings_service import (
     settings_public,
     update_runtime_settings,
 )
-from ..dependencies import db_error, get_current_settings, get_eh_client, get_session
+from ..dependencies import (
+    db_error,
+    get_current_settings,
+    get_eh_client,
+    get_session,
+    spawn_task,
+)
 from ..schemas import LogLevelRequest, SettingsRequest
+from ..state import app_state
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -52,16 +59,38 @@ async def settings_save(body: SettingsRequest) -> dict[str, object]:
     return await _save_settings(body)
 
 
+@router.get("/api/settings/cookie-health")
+async def settings_cookie_health() -> dict[str, object]:
+    from ...services.eh_client import probe_cookie_health
+
+    health = app_state.extra.get("cookie_health")
+    if health is None:
+        health = await probe_cookie_health()
+    return health
+
+
 @router.post("/api/settings/exhentai/test")
 async def settings_test_exhentai() -> JSONResponse:
     settings = get_current_settings()
     if not settings.exhentai_cookies:
+        health = {
+            "state": "not_configured",
+            "detail": "ExHentai Cookie 未设置",
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+        app_state.extra["cookie_health"] = health
         return JSONResponse(
             {"status": "not_configured", "message": "ExHentai Cookie 未设置"},
             status_code=400,
         )
     client = get_eh_client()
     state, detail = await client.check_login()
+    health = {
+        "state": state,
+        "detail": detail,
+        "checked_at": datetime.now(UTC).isoformat(),
+    }
+    app_state.extra["cookie_health"] = health
     if state == "ok":
         return JSONResponse({"status": "ok", "message": "登录成功"}, status_code=200)
     if state == "no_exhentai_access":
@@ -190,6 +219,9 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not resume not-visible galleries", extra={"error": str(exc)})
     await refresh_services()
+    from ...services.eh_client import probe_cookie_health
+
+    spawn_task(probe_cookie_health(), "cookie health probe after settings save")
     return settings_public()
 
 

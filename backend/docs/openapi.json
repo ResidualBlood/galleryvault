@@ -221,6 +221,22 @@
             }
           },
           {
+            "name": "exclude_tags",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Tags"
+            }
+          },
+          {
             "name": "tag_mode",
             "in": "query",
             "required": false,
@@ -254,6 +270,80 @@
                 }
               ],
               "title": "Category"
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "id_desc",
+              "title": "Order By"
+            }
+          },
+          {
+            "name": "read_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Read Status"
+            }
+          },
+          {
+            "name": "min_rating",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Rating"
+            }
+          },
+          {
+            "name": "page_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Min"
+            }
+          },
+          {
+            "name": "page_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Max"
             }
           }
         ],
@@ -1467,6 +1557,26 @@
         }
       }
     },
+    "/api/settings/cookie-health": {
+      "get": {
+        "summary": "Settings Cookie Health",
+        "operationId": "settings_cookie_health_api_settings_cookie_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Settings Cookie Health Api Settings Cookie Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings/exhentai/test": {
       "post": {
         "summary": "Settings Test Exhentai",
@@ -1675,6 +1785,32 @@
               "type": "string",
               "default": "all",
               "title": "State"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "last_seen_desc",
+              "title": "Order By"
             }
           }
         ],

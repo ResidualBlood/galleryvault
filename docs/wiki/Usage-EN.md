@@ -45,8 +45,9 @@ manually to revisit it.
 
 ## Library (`#/library`)
 
-- Search by title, filter by category, and browse the indexed galleries with
-  pagination.
+- Search by title, filter by category, sort across multiple fields, filter by reading status, and browse indexed galleries.
+- **Multi-criteria Sorting**: Order by **Ingest date (default)**, **Posted date**, **Title**, **Pages**, **Size**, and **Rating**, backed by dedicated database indexes for sub-second responses on large collections.
+- **Reading Status Filter**: Quickly filter by **All**, **Unread** (never read or progress is 0), **Reading** (in-progress), or **Completed** (read to last page).
 - **"Not in favorites" filter**: the category dropdown ends with "Not in
   favorites", showing local galleries whose gid is not in any ExHentai favorite
   folder (gid-less local archives count as not favorited; older local copies with
@@ -56,12 +57,10 @@ manually to revisit it.
   is appended as you near the bottom; the numbered pager at the bottom stays
   as a fallback. Your page-size choice is remembered across visits.
 - Click a cover to open the gallery detail page.
-- **Multi-tag filtering (AND)**: clicking a tag in the suggestions, on the
-  gallery detail page or in the tag cloud **appends** it to the active filter
-  (all selected tags must match) instead of replacing the existing filter. The
-  filter bar above the grid shows each active tag as a removable pill (per-pill
-  ×) plus an "AND" badge and a clear-all action; resubmitting the title search
-  keeps the current tag filter.
+- **Multi-tag filtering (AND / OR) & Exclude Tags (`-tag`)**:
+  - Clicking tags appends to the filter;
+  - The tag filter bar lets you toggle **AND / OR** mode;
+  - Exclude tags (`-namespace:name` or `-tag`, e.g. `-female:lolicon`) are displayed with distinct red badges, excluding matching galleries.
 - **Tag filters are opt-in, never guessed**: while you type, tag suggestions
   appear under the search box — **clicking a suggestion** adds that tag to the
   filter (and consumes the clicked word from the query text so it doesn't also
@@ -254,11 +253,12 @@ The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / U
   avoid needless network traffic and missed-detection risk; the moment the
   count changes, full checks resume automatically.
 - Click a folder name to open `#/favorites/<favcat>`: that folder's gallery
-  grid (checkboxes, **download selected**, **download selected original**,
+  grid (with **title search**, **multi-criteria sorting**, checkboxes, **download selected**, **download selected original**,
   **archive download selected**, **move selected**, **remove from favorites**, and an
   **All / local only / cloud only** state filter), with inline cloud covers
   and real sizes for cloud galleries. The list uses numbered pagination with
   24 galleries per page by default.
+  - **In-folder Search & Sorting**: Top toolbar provides instant title filtering and sorting by last seen, first seen, posted date, title, and size.
   - **Move selected**: Move selected galleries to another favorite folder (0–9),
     syncing both ExHentai cloud favorites and local records.
 - The **Download missing items** button on the Favorites overview spawns a

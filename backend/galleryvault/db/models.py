@@ -59,6 +59,9 @@ class Gallery(Base):
         Index("idx_galleries_tags_synced_at", "tags_synced_at"),
         Index("idx_galleries_storage_type", "storage_type"),
         Index("idx_galleries_posted_at", "posted_at"),
+        Index("idx_galleries_rating", "rating"),
+        Index("idx_galleries_page_count", "page_count"),
+        Index("idx_galleries_file_size", "file_size"),
     )
 
 

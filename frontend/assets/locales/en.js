@@ -5,6 +5,11 @@ window.GV_LOCALES = window.GV_LOCALES || {};
 window.GV_LOCALES.en = {
   loginSub: "Password required to access the local library.",
   searchPlaceholder: "Search library...",
+  allCategories: "All categories",
+  orderDefault: "Ingest date (default)", orderPosted: "Posted date", orderTitle: "Title", orderPages: "Pages", orderSize: "Size", orderRating: "Rating", orderFirstSeen: "First favorited",
+  readStatusAll: "All reading status", readStatusUnread: "Unread", readStatusReading: "Reading", readStatusCompleted: "Completed",
+  favSearchPlaceholder: "Search titles in folder...", sortBy: "Sort",
+  cookieExpiredNotice: "ExHentai Cookie is invalid or expired. Cloud sync paused.", cookieNotConfiguredNotice: "ExHentai Cookie not configured.", goToSettings: "Settings",
   username: "Username",
   password: "Password", login: "Login", wrong: "Wrong password, please retry.",
   mustChange: "Default password in use — please change it now.",
