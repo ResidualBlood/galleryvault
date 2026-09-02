@@ -252,6 +252,14 @@ async function loadTagSuggest(q, box, input) {
         const i = tag.indexOf(":");
         const ns = tag.slice(0, i);
         const name = tag.slice(i + 1);
+        const form = input && input.closest("form");
+        if (form && form.getAttribute("data-action") === "tags-search") {
+          location.hash = navHash("tags", {}, {
+            ...(name ? { q: name } : {}),
+            ...(ns ? { ns } : {}),
+          });
+          return;
+        }
         // Consume the clicked tag's text from the input so it does not also
         // act as a title keyword; the remaining words stay the text query.
         const consumed = new Set([name, display, tag, ns ? `${ns}:${display}` : ""]

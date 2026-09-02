@@ -19,6 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Reader page jump input & `G` keyboard shortcut** (frontend `views/reader.js`, `events.js`, `styles.css`, `locales/`): Reader toolbar now features direct page number input with Enter / form submission jumping, and `G` shortcut key to focus the jump input or prompt in fullscreen mode.
 - **Home/Browse page "Continue Reading" cards & single gallery progress clearing** (`app/routers/galleries.py`, frontend `views/browse.js`, `views/history.js`, `styles.css`, `locales/`): Browse view now renders a "Continue Reading / 继续阅读" grid of recently read galleries with cover thumbnails, progress bars, one-click reader resumption, and per-gallery "Mark as unread / ✕" progress reset.
 
+### Changed
+
+- **Tags page Chinese autocomplete** (`frontend/views/tags.js`, `frontend/assets/events.js`, `frontend/assets/locales/`): the tags search box now uses the same CJK tag-suggest dropdown as the top bar; picking a suggestion stays on `#/tags` and filters the cloud (namespace + English name). Submitting Chinese uses `zh=1` and keeps only local tags (`usage_count>0`). Button/placeholder renamed to 「搜索标签」 / "Search tags". Top-bar search is unchanged.
+
 ### Fixed
 
 - **Pause overwrote user settings** (`app/routers/tasks.py:53`, `services/telegram_bot.py:81`, `services/settings_service.py:63`): `POST /api/pause` and Telegram `/pause` now `get()` then merge `{"global_paused": …}` before `save()`, so a pause no longer wipes `exhentai_cookies`/`library_roots`/`download_root`. Added `global_paused` to `update_runtime_settings` allowlist so the flag hydrates from DB on restart (persistent).

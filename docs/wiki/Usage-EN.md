@@ -180,6 +180,7 @@ manually to revisit it.
 
 - Search the local tag taxonomy and view usage counts; filter by namespace strip (All / Tag / Artist / Character / Parody / Group / Female / Male / Language / Category).
 - The namespace filter strip stays intact across page turns.
+- The search box supports Chinese autocomplete (same reverse-translation matching as the top bar, e.g. 「巨乳」). **Picking a suggestion stays on the tags page and filters the cloud** (switches to that namespace, queries by English name). Submitting Chinese also matches local tags via translations. The button is “Search tags”. The top-bar search still searches galleries and jumps to the library.
 - Clicking a tag in the cloud appends it to the library filter (multi-tag AND); tags on detail pages can also be appended.
 - In Chinese UI, tags display translations; multi-value tags display only the translated portion.
 - Results are fixed at 100 items per page (API limit 500).
