@@ -20,6 +20,31 @@ function readerModeLabel(mode) {
   return t("readerModeLtr") || "LTR";
 }
 
+function getReaderNav(page, total, mode) {
+  mode = mode || getReaderMode();
+  const isDouble = mode.startsWith("double");
+  if (!isDouble) {
+    const prevPage = page > 0 ? page - 1 : null;
+    const nextPage = page + 1 < total ? page + 1 : null;
+    return { prevPage, nextPage, curPage: page };
+  }
+  // Double mode: page 0 is single cover; page 1+ are spreads [1,2], [3,4], [5,6]...
+  const normalized = page === 0 ? 0 : (page % 2 === 1 ? page : page - 1);
+  let prevPage = null;
+  if (normalized === 1) {
+    prevPage = 0;
+  } else if (normalized > 1) {
+    prevPage = Math.max(1, normalized - 2);
+  }
+  let nextPage = null;
+  if (normalized === 0) {
+    nextPage = total > 1 ? 1 : null;
+  } else if (normalized + 2 < total) {
+    nextPage = normalized + 2;
+  }
+  return { prevPage, nextPage, curPage: normalized };
+}
+
 function cycleReaderMode() {
   const modes = ["ltr", "rtl", "double", "double-rtl"];
   const current = getReaderMode();
@@ -34,9 +59,14 @@ async function renderReader() {
     readerTouchCleanup = null;
   }
   const id = app.params.id;
-  const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const mode = getReaderMode();
-  const isDouble = mode.startsWith("double") && page > 0;
+  const isDoubleMode = mode.startsWith("double");
+  const page = isDoubleMode && rawPage > 0 && rawPage % 2 === 0 ? rawPage - 1 : rawPage;
+  if (page !== rawPage) {
+    app.params.page = String(page);
+  }
+  const isDouble = isDoubleMode && page > 0;
   const isRtl = mode === "rtl" || mode === "double-rtl";
 
   try {
@@ -72,36 +102,38 @@ async function renderReader() {
         </div>`;
     }
 
-    const step = isDouble ? 2 : 1;
-    const prevPage = page === 1 ? 0 : Math.max(0, page - (page === 2 ? 1 : step));
-    const nextPage = page === 0 ? 1 : (page + step < total ? page + step : null);
-
-    const prevBtn = page > 0
-      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: prevPage }, libraryContext())}">${esc(t("prev"))}</a>`
+    const nav = getReaderNav(page, total, mode);
+    const prevBtn = nav.prevPage !== null
+      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.prevPage }, libraryContext())}">${esc(t("prev"))}</a>`
       : `<span>${esc(t("prev"))}</span>`;
-    const nextBtn = nextPage !== null
-      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nextPage }, libraryContext())}">${esc(t("next"))}</a>`
+    const nextBtn = nav.nextPage !== null
+      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.nextPage }, libraryContext())}">${esc(t("next"))}</a>`
       : `<span>${esc(t("next"))}</span>`;
 
     const navHtml = isRtl
       ? `<div class="nav">${nextBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>${prevBtn}</div>`
       : `<div class="nav">${prevBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>${nextBtn}</div>`;
 
-    $view().innerHTML = `
-      <div class="reader">
-        <div class="reader-bar toolbar">
-          <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
-          <span>${isDouble && page + 1 < total ? `${page + 1}-${page + 2}` : page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
-          <span class="reader-actions">
-            <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
-            <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
-            <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
-          </span>
-        </div>
-        ${preload}
-        ${imgHtml}
-        ${navHtml}
-      </div>`;
+    const innerHtml = `
+      <div class="reader-bar toolbar">
+        <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
+        <span>${isDouble && page + 1 < total ? `${page + 1}-${page + 2}` : page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
+        <span class="reader-actions">
+          <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
+          <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
+          <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
+        </span>
+      </div>
+      ${preload}
+      ${imgHtml}
+      ${navHtml}`;
+
+    const existingReader = $view().querySelector(".reader");
+    if (existingReader) {
+      existingReader.innerHTML = innerHtml;
+    } else {
+      $view().innerHTML = `<div class="reader">${innerHtml}</div>`;
+    }
 
     initReaderGestures();
     try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
@@ -126,25 +158,29 @@ function bindReaderKeys() {
 
   const advance = () => {
     const cur = current();
-    const step = isDouble() && cur > 0 ? 2 : 1;
-    const n = cur === 0 && isDouble() ? 1 : cur + step;
-    if (app.readerTotal && n >= app.readerTotal) { goReaderNext(id); return; }
-    if (readerFsActive) { readerSwapPage(id, n); return; }
-    location.hash = navHash("reader", { id, page: n }, libraryContext());
+    const nav = getReaderNav(cur, app.readerTotal || 0, mode());
+    if (nav.nextPage !== null) {
+      if (readerFsActive) { readerSwapPage(id, nav.nextPage); return; }
+      location.hash = navHash("reader", { id, page: nav.nextPage }, libraryContext());
+    } else {
+      exitReaderFullscreen();
+      goReaderNext(id);
+    }
   };
 
   const retreat = () => {
     const cur = current();
-    const step = isDouble() && cur > 1 ? 2 : 1;
-    const n = Math.max(0, cur - step);
-    if (readerFsActive) { readerSwapPage(id, n); return; }
-    location.hash = navHash("reader", { id, page: n }, libraryContext());
+    const nav = getReaderNav(cur, app.readerTotal || 0, mode());
+    if (nav.prevPage !== null) {
+      if (readerFsActive) { readerSwapPage(id, nav.prevPage); return; }
+      location.hash = navHash("reader", { id, page: nav.prevPage }, libraryContext());
+    }
   };
 
   readerKeyHandler = (e) => {
     if (e.type === "click") {
-      const isButton = e.target.closest && e.target.closest("button, a, input, select, textarea");
-      if (isButton) return;
+      const isInteractive = e.target.closest && e.target.closest(".reader-bar, .toolbar, .nav, button, a, input, select, textarea");
+      if (isInteractive) return;
 
       const readerArea = e.target.closest && e.target.closest(".reader");
       if (!readerArea) return;
@@ -307,10 +343,15 @@ function readerSwapPage(id, target) {
   const total = app.readerTotal || 0;
   if (target >= total) { exitReaderFullscreen(); goReaderNext(id); return; }
   if (target < 0) { exitReaderFullscreen(); return; }
-  app.params.page = String(target);
 
   const mode = getReaderMode();
-  const isDouble = mode.startsWith("double") && target > 0;
+  const isDoubleMode = mode.startsWith("double");
+  if (isDoubleMode && target > 0 && target % 2 === 0) {
+    target = target - 1;
+  }
+  app.params.page = String(target);
+
+  const isDouble = isDoubleMode && target > 0;
   const spreadEl = document.querySelector(".reader-spread");
 
   if (isDouble && spreadEl) {
@@ -320,10 +361,12 @@ function readerSwapPage(id, target) {
     if (imgs.length >= 1) {
       imgs[0].src = `/api/galleries/${id}/pages/${p1}`;
       imgs[0].dataset.page = String(p1);
+      imgs[0].alt = `Page ${p1 + 1}`;
     }
     if (imgs.length >= 2 && p2 !== null) {
       imgs[1].src = `/api/galleries/${id}/pages/${p2}`;
       imgs[1].dataset.page = String(p2);
+      imgs[1].alt = `Page ${p2 + 1}`;
       imgs[1].parentElement.style.display = "";
     } else if (imgs.length >= 2) {
       imgs[1].parentElement.style.display = "none";
@@ -335,12 +378,13 @@ function readerSwapPage(id, target) {
     if (img) {
       img.src = `/api/galleries/${id}/pages/${target}`;
       img.dataset.page = String(target);
+      img.alt = `Page ${target + 1}`;
       img.dataset.next = target + 1 < total ? String(target + 1) : "";
     }
     const bar = document.querySelector(".reader-bar span");
     if (bar) bar.textContent = `${target + 1} / ${total} · ${fmtSize((app.readerGallery && app.readerGallery.file_size) || 0)}`;
   } else {
-    // Structural transition between single cover and double spread: full re-render
+    // Structural transition between single cover and double spread: in-place re-render (preserves .reader fullscreen)
     renderReader();
     return;
   }
