@@ -27,6 +27,23 @@ Then open `http://<host>:8000` and log in with the default password
 `p1a2s3s4` — **change it in Settings right away** (the default is for first
 login only).
 
+## Local Development (Dev Compose)
+
+To develop with zero-build live reloading for both frontend and backend source code (with sibling repositories layout):
+
+```bash
+# First time or after Dockerfile changes:
+docker compose -f docker-compose.dev.yml up -d --build
+
+# Daily hot-reloading:
+docker compose -f docker-compose.dev.yml up -d
+```
+
+- **Frontend live reload**: edit HTML/CSS/JS in `frontend/assets/` and refresh the browser directly (no node/bundler needed);
+- **Backend hot reload**: the backend runs under `uvicorn --reload --proxy-headers --forwarded-allow-ips` to auto-restart upon code changes in `backend/galleryvault/` while properly extracting client IPs behind nginx;
+- **Data isolation**: the development database lives in `./db-data-dev` with local `./library`, `./downloads`, and `./cache` mounts without interfering with production or test data;
+- **Port overrides**: defaults to frontend `:8200` and backend `:8201` (customizable via `DEV_FRONTEND_PORT` and `DEV_BACKEND_PORT` environment variables).
+
 ## Data directories
 
 | Path | Purpose |
@@ -68,11 +85,7 @@ when the mount is writable**; on a read-only mount the deletion fails and is
 reported in the toast and on the Logs page (the DB row is kept so the next scan
 does not re-import it as a fresh gallery).
 
-> **Permissions**: the backend runs as the in-container `app` user (uid 10001),
-> so the mounted host directories must be readable by it. Before mounting, the
-> cleanest fix is `chown -R 10001:10001 <host-folder>`; deleting galleries also
-> needs the directory to be writable by uid 10001 (on a read-only mount deletion
-> fails honestly). `./db-data` belongs to postgres (999) — **do not chown it**.
+> **Permissions**: the backend runs as root (0:0) by default, or as a custom user if configured via `PUID` / `PGID` environment variables (e.g. `1000:1000`). If running with a non-root user, ensure mounted host folders are accessible by that UID; `./db-data` belongs to postgres (999) — **do not chown it**.
 
 > **Multiple existing gallery folders**: add one volume per folder (give each a
 > unique in-container path such as `/gallery1`, `/gallery2`), then list each
@@ -141,14 +154,33 @@ and never echoed back.
 > silently record nothing (no covers, empty lists), which is easy to mistake
 > for a network/anti-abuse problem.
 
-### Non-root runtime
+### Custom Permissions / Non-root runtime (PUID / PGID)
 
-The backend image runs as an unprivileged user (`app`, uid 10001). On startup
-it fixes ownership of `/downloads` and `/gv-cache` and drops privileges. To let
-gallery deletion remove files under a library root (e.g. `./library`), make that
-directory writable by the in-container `app` user (host
-`chown -R 10001:10001` or group-write permission); otherwise deletion fails and
-is reported honestly.
+The backend image supports configurable runtime user identity via environment variables:
+- **Default (no `PUID`/`PGID` set)**: Runs directly as `root (0:0)` with zero setup and no manual host permission adjustments required. Note that in root mode, newly downloaded archives and system logs will be owned by `root` on the host.
+- **Custom unprivileged user (NAS / standard Linux host, recommended)**: Set `PUID` and `PGID` in `docker-compose.yml` (e.g. `PUID=1000`, `PGID=1000`). The container validates parameters, drops privileges at startup, and automatically aligns ownership on `/downloads` and `/gv-cache`. To allow gallery deletions under library roots (e.g. `./library`), ensure the host directory is writable by that UID (e.g. `chown -R 1000:1000 <host-folder>`).
+
+### Optional: View container logs in real time with Dozzle
+
+If you prefer viewing live multi-container log streams (Nginx, FastAPI backend, PostgreSQL) side by side in a web browser, you can append a lightweight [Dozzle](https://github.com/amir20/dozzle) container (~10MB memory usage) to your `docker-compose.yml`:
+
+```yaml
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: galleryvault-dozzle
+    restart: always
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_LEVEL: "info"
+      DOZZLE_FILTER: "name=galleryvault*"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # Recommended to bind to loopback or private LAN only; protect with reverse proxy if accessed publicly
+      - "127.0.0.1:8888:8080"
+```
+
+> **Security Note**: Keep the `:ro` (read-only) flag on `/var/run/docker.sock`, and bind only to `127.0.0.1` loopback or access via an SSH tunnel / authenticated reverse proxy to avoid exposing Docker daemon endpoints directly to the public network.
 
 ## Upgrading
 
