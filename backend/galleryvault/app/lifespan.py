@@ -92,7 +92,7 @@ async def stop_background_tasks(
             tasks_to_cancel.add(t)
     for task in list(tasks_to_cancel):
         if not task.done():
-            with contextlib.suppress(RuntimeError, Exception):
+            with contextlib.suppress(Exception):
                 task.cancel()
     for task in list(tasks_to_cancel):
         with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -192,8 +192,9 @@ def ensure_translation_updater() -> asyncio.Task | None:
         and not translation_update_task.done()
         and settings.tag_translation_update_interval_minutes <= 0
     ):
-        translation_update_task.cancel()
+        task = translation_update_task
         translation_update_task = None
+        task.cancel()
         return None
 
     if (
@@ -331,11 +332,17 @@ async def shutdown() -> None:
     ]
     await stop_background_tasks(all_spawned, specific)
     if app_state.telegram is not None:
-        await app_state.telegram.flush_summary()
-        await app_state.telegram.aclose()
+        if hasattr(app_state.telegram, "flush_summary") and callable(app_state.telegram.flush_summary):
+            with contextlib.suppress(Exception):
+                await app_state.telegram.flush_summary()
+        if hasattr(app_state.telegram, "aclose") and callable(app_state.telegram.aclose):
+            with contextlib.suppress(Exception):
+                await app_state.telegram.aclose()
         app_state.telegram = None
     if app_state.eh_client is not None:
-        await app_state.eh_client.aclose()
+        if hasattr(app_state.eh_client, "aclose") and callable(app_state.eh_client.aclose):
+            with contextlib.suppress(Exception):
+                await app_state.eh_client.aclose()
         app_state.eh_client = None
     app_state.downloader = None
     app_state.favorites_service = None
