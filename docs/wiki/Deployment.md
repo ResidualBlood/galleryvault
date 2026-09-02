@@ -22,14 +22,18 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 ## 本地开发环境 (Dev Compose)
 
-如需在本地对前后端源码进行即时调试与热重载，可使用 `docker-compose.dev.yml`：
+如需在本地对前后端源码进行即时调试与热重载，可使用 `docker-compose.dev.yml`（要求三仓库同级克隆）：
 
 ```bash
+# 首次运行或修改 Dockerfile 后构建启动：
+docker compose -f docker-compose.dev.yml up -d --build
+
+# 日常热重载启动：
 docker compose -f docker-compose.dev.yml up -d
 ```
 
 - **前端热更**：直接修改 `frontend/assets/` 下的 CSS/JS，刷新浏览器即可生效（无需构建工具）；
-- **后端热更**：后端容器覆盖启动 `uvicorn --reload`，修改 `backend/galleryvault/` 代码自动重载生效；
+- **后端热更**：后端容器启动覆盖传入 `uvicorn --reload`，修改 `backend/galleryvault/` 代码自动重载生效；
 - **环境隔离**：开发数据库独立持久化于 `./db-data-dev`（不污染生产或集成测试库）；
 - **端口配置**：前端映射至 `:8200`，后端映射至 `:8201`（可通过环境变量 `DEV_FRONTEND_PORT` / `DEV_BACKEND_PORT` 自定义）。
 

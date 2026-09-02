@@ -29,9 +29,13 @@ login only).
 
 ## Local Development (Dev Compose)
 
-To develop with zero-build live reloading for both frontend and backend source code, use `docker-compose.dev.yml`:
+To develop with zero-build live reloading for both frontend and backend source code (with sibling repositories layout):
 
 ```bash
+# First time or after Dockerfile changes:
+docker compose -f docker-compose.dev.yml up -d --build
+
+# Daily hot-reloading:
 docker compose -f docker-compose.dev.yml up -d
 ```
 
