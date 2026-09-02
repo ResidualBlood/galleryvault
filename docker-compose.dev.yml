@@ -3,7 +3,7 @@ services:
     image: residualblood/galleryvault-frontend:dev
     container_name: galleryvault-dev-frontend
     restart: unless-stopped
-    ports: ["8200:80"]
+    ports: ["${DEV_FRONTEND_PORT:-8200}:80"]
     volumes:
       - ../frontend/assets:/usr/share/nginx/html/assets:ro
       - ../frontend/index.html:/usr/share/nginx/html/index.html:ro
@@ -14,11 +14,12 @@ services:
     image: residualblood/galleryvault-backend:dev
     container_name: galleryvault-dev-backend
     restart: unless-stopped
+    command: ["uvicorn", "galleryvault.app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--reload-dir", "/app/galleryvault"]
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
       TZ: Asia/Shanghai
-    ports: ["8201:8001"]
+    ports: ["${DEV_BACKEND_PORT:-8201}:8001"]
     volumes:
       - ../backend/galleryvault:/app/galleryvault
       - ../backend/tests:/app/tests
@@ -38,7 +39,7 @@ services:
       POSTGRES_PASSWORD: galleryvault
       POSTGRES_DB: galleryvault
     volumes:
-      - ./db-data:/var/lib/postgresql/data
+      - ./db-data-dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U galleryvault"]
       interval: 5s
