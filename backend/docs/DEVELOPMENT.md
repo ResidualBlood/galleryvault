@@ -293,6 +293,19 @@ docker-compose up -d app
 You can confirm loading in the container logs:
 `docker logs galleryvault-backend | grep "tag translations"`.
 
+## Local Development
+
+For zero-build development with live reloading for both frontend and backend:
+
+```bash
+cd galleryvault  # meta repository root
+docker compose -f docker-compose.dev.yml up -d
+```
+
+- Frontend static assets are mounted live (`../frontend/assets`), browser refresh updates instantly;
+- Backend runs with `uvicorn --reload --reload-dir /app/galleryvault`;
+- Development database runs isolated on `./db-data-dev`.
+
 ## Conventions
 
 - Keep route handlers in `galleryvault/app/routers/` (one module per domain).
