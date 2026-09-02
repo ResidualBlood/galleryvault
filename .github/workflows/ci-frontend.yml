@@ -5,14 +5,41 @@ on:
     branches: [main, dev]
     paths:
       - "frontend/**"
+      - "!frontend/**/*.md"
       - ".github/workflows/ci-frontend.yml"
   pull_request:
     branches: [main, dev]
     paths:
       - "frontend/**"
+      - "!frontend/**/*.md"
       - ".github/workflows/ci-frontend.yml"
 
 jobs:
+  detect-image:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.d.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: d
+        run: |
+          BEFORE="${{ github.event.before }}"
+          SHA="${{ github.sha }}"
+          image=true
+          if [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -q '^0\+$'; then
+            if files=$(git diff --name-only "$BEFORE" "$SHA"); then
+              echo "$files"
+              if ! echo "$files" | grep -qE '^(frontend/Dockerfile|frontend/nginx.conf|frontend/index.html|frontend/assets/|frontend/\.dockerignore|\.github/workflows/ci-frontend\.yml)'; then
+                image=false
+              fi
+            fi
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "image=$image"
+
   secrets-scan:
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +60,8 @@ jobs:
         run: for f in assets/*.js assets/locales/*.js assets/views/*.js; do node --check "$f"; done
 
   build:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    needs: [detect-image]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && needs.detect-image.outputs.image == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -82,9 +110,9 @@ jobs:
           retention-days: 1
 
   merge:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && needs.detect-image.outputs.image == 'true'
     runs-on: ubuntu-latest
-    needs: [secrets-scan, syntax-check, build]
+    needs: [detect-image, secrets-scan, syntax-check, build]
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
