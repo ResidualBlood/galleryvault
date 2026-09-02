@@ -20,6 +20,19 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 启动后打开 `http://<host>:8000`，用默认密码 `p1a2s3s4` 登录——**登录后请立即在设置中修改密码**（默认密码只供首次使用）。
 
+## 本地开发环境 (Dev Compose)
+
+如需在本地对前后端源码进行即时调试与热重载，可使用 `docker-compose.dev.yml`：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+- **前端热更**：直接修改 `frontend/assets/` 下的 CSS/JS，刷新浏览器即可生效（无需构建工具）；
+- **后端热更**：后端容器覆盖启动 `uvicorn --reload`，修改 `backend/galleryvault/` 代码自动重载生效；
+- **环境隔离**：开发数据库独立持久化于 `./db-data-dev`（不污染生产或集成测试库）；
+- **端口配置**：前端映射至 `:8200`，后端映射至 `:8201`（可通过环境变量 `DEV_FRONTEND_PORT` / `DEV_BACKEND_PORT` 自定义）。
+
 ## 数据目录
 
 | 路径 | 说明 |
