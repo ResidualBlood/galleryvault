@@ -262,6 +262,7 @@ async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False
         fresh = _fav_counts_cache.get("counts")
         if isinstance(fresh, dict) and fresh:
             return fresh
+        return cached if isinstance(cached, dict) else {}
 
     from ..app import main
     spawn_fn = getattr(main, "_spawn", None)
