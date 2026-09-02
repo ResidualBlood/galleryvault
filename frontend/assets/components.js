@@ -21,10 +21,12 @@ function renderCardCheckboxes() {
       const gid = parseInt(cb.getAttribute("data-fav-gid"), 10);
       if (cb.checked) selFav.add(gid); else selFav.delete(gid);
       const update = () => {
-        document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-download-orig"], [data-action="favlist-archive"], [data-action="favlist-unfav"]').forEach(b => {
-          const base = b.getAttribute("data-action") === "favlist-download" ? t("favDl")
-            : b.getAttribute("data-action") === "favlist-download-orig" ? t("favDlOrig")
-            : b.getAttribute("data-action") === "favlist-archive" ? t("favDlArchive")
+        document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-download-orig"], [data-action="favlist-archive"], [data-action="favlist-move"], [data-action="favlist-unfav"]').forEach(b => {
+          const act = b.getAttribute("data-action");
+          const base = act === "favlist-download" ? t("favDl")
+            : act === "favlist-download-orig" ? t("favDlOrig")
+            : act === "favlist-archive" ? t("favDlArchive")
+            : act === "favlist-move" ? t("favMove")
             : t("favRemove");
           b.textContent = base + (selFav.size ? ` (${selFav.size})` : "");
         });
@@ -68,8 +70,63 @@ function renderLoading(msg) {
   return `<p class="loading">${esc(msg || t("loading"))}</p>`;
 }
 
-function renderEmpty(msg) {
-  return `<div class="empty-state"><p>${esc(msg || t("noData"))}</p></div>`;
+function renderEmpty(msg, opts) {
+  opts = opts || {};
+  const icon = opts.icon || "📂";
+  const actionHtml = opts.actionHtml || "";
+  return `<div class="empty-state" role="status">
+    <div class="empty-icon">${icon}</div>
+    <p>${esc(msg || t("noData"))}</p>
+    ${actionHtml ? `<div class="empty-action" style="margin-top:8px">${actionHtml}</div>` : ""}
+  </div>`;
+}
+
+function trapModalFocus(overlay, closeFn) {
+  const previouslyFocused = document.activeElement;
+  const modalEl = overlay.querySelector('.gv-modal') || overlay;
+  const getFocusables = () => Array.from(modalEl.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+
+  requestAnimationFrame(() => {
+    const initial = getFocusables();
+    if (initial.length) initial[0].focus();
+  });
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFn(null);
+      return;
+    }
+    if (e.key === 'Tab') {
+      const els = getFocusables();
+      if (!els.length) {
+        e.preventDefault();
+        return;
+      }
+      const first = els[0];
+      const last = els[els.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !modalEl.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !modalEl.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+  };
+
+  document.addEventListener('keydown', onKey);
+  return () => {
+    try { document.removeEventListener('keydown', onKey); } catch (_) {}
+    if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      try { previouslyFocused.focus(); } catch (_) {}
+    }
+  };
 }
 
 function renderError(msg) {
@@ -103,10 +160,11 @@ function showArchiveDialog(gids, opts) {
       </div>
     </div>`;
     let settled = false;
+    let cleanupFocus = null;
     const close = (value) => {
       if (settled) return;
       settled = true;
-      try { document.removeEventListener('keydown', onKey); } catch (_) {}
+      if (cleanupFocus) cleanupFocus();
       overlay.remove();
       resolve(value);
     };
@@ -117,21 +175,12 @@ function showArchiveDialog(gids, opts) {
       close(tier ? tier.value : null);
     });
     document.body.appendChild(overlay);
-    const modalEl = overlay.querySelector('.gv-modal');
-    const focusables = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-    if (focusables.length) focusables[0].focus();
-    const onKey = (e) => {
-      if (e.key === 'Escape') { close(null); return; }
-      if (e.key === 'Tab' && focusables.length) {
-        const first = focusables[0], last = focusables[focusables.length-1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener('keydown', onKey);
+    cleanupFocus = trapModalFocus(overlay, close);
     api("POST", "/api/archives/preview", { gids })
       .then(data => {
+        if (settled) return;
         const bodyEl = overlay.querySelector(".gv-modal-body");
+        if (!bodyEl) return;
         const items = data && data.items ? data.items : [];
         if (!items.length) {
           bodyEl.innerHTML = `<p>${esc(t("archiveNoItems"))}</p>`;
@@ -150,7 +199,7 @@ function showArchiveDialog(gids, opts) {
           }).join("");
           bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
           const first = items[0];
-          confirm.disabled = !!(first && !first.error && first.original_cost != null && !first.original_available);
+          if (confirm) confirm.disabled = !!(first && !first.error && first.original_cost != null && !first.original_available);
         } else {
           const rows = items.map(it => {
             if (it.error) {
@@ -165,10 +214,11 @@ function showArchiveDialog(gids, opts) {
             return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
           }).join("");
           bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th><th scope="col">${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
-          confirm.disabled = false;
+          if (confirm) confirm.disabled = false;
         }
         if (data && data.funds != null) {
-          overlay.querySelector(".archive-funds").textContent = t("archiveFunds") + ": " + data.funds + " GP";
+          const fundsEl = overlay.querySelector(".archive-funds");
+          if (fundsEl) fundsEl.textContent = t("archiveFunds") + ": " + data.funds + " GP";
         }
         if (!lockTier) {
           const defaultTier = app.settings && app.settings.archive_quality === "original" ? "original" : "resample";
@@ -177,8 +227,88 @@ function showArchiveDialog(gids, opts) {
         }
       })
       .catch(err => {
+        if (settled) return;
         const bodyEl = overlay.querySelector(".gv-modal-body");
-        bodyEl.innerHTML = `<p class="error">${esc(err.message || t("archivePreviewFail"))}</p>`;
+        if (bodyEl) bodyEl.innerHTML = `<p class="error">${esc(err.message || t("archivePreviewFail"))}</p>`;
       });
+  });
+}
+
+async function showMoveFavoritesDialog(gids, currentFavcat) {
+  let categories = [];
+  try {
+    categories = await api("GET", "/api/favorites/categories");
+  } catch (_) {}
+  if (!Array.isArray(categories) || !categories.length) {
+    categories = Array.from({length: 10}, (_, i) => ({
+      favcat: i,
+      name: favCatNames[i] || ("Folder " + i),
+      cloud_count: 0
+    }));
+  }
+
+  return new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.className = "gv-overlay";
+
+    const optionsHtml = categories.map(c => {
+      const isCurrent = c.favcat === currentFavcat;
+      const label = `#${c.favcat} ${c.name || ("Folder " + c.favcat)}` + (c.cloud_count != null ? ` (${c.cloud_count})` : "");
+      return `<option value="${c.favcat}"${isCurrent ? " disabled" : ""}>${esc(label)}${isCurrent ? ` (${esc(t("current") || "current")})` : ""}</option>`;
+    }).join("");
+
+    overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true" aria-labelledby="move-title" style="max-width:440px">
+      <h3 id="move-title">${esc(t("favMoveTitle"))}</h3>
+      <div class="gv-modal-body">
+        <p style="margin-bottom:12px">${esc(t("select"))}: <strong>${gids.length}</strong></p>
+        <label style="display:flex;flex-direction:column;gap:6px;font-weight:600">
+          <span>${esc(t("favMoveTarget"))}</span>
+          <select class="select" data-move-target style="width:100%;padding:8px 10px;font-size:14px">
+            ${optionsHtml}
+          </select>
+        </label>
+      </div>
+      <div class="gv-modal-foot" style="justify-content:flex-end">
+        <button class="btn btn-secondary" data-move-cancel type="button">${esc(t("cancel"))}</button>
+        <button class="btn btn-primary" data-move-confirm type="button">${esc(t("favMoveConfirm"))}</button>
+      </div>
+    </div>`;
+
+    let settled = false;
+    let cleanupFocus = null;
+    const close = (value) => {
+      if (settled) return;
+      settled = true;
+      if (cleanupFocus) cleanupFocus();
+      overlay.remove();
+      resolve(value);
+    };
+
+    overlay.addEventListener("click", e => { if (e.target === overlay) close(null); });
+    overlay.querySelector("[data-move-cancel]").addEventListener("click", () => close(null));
+    overlay.querySelector("[data-move-confirm]").addEventListener("click", () => {
+      const sel = overlay.querySelector("[data-move-target]");
+      const target = sel ? parseInt(sel.value, 10) : null;
+      if (target != null && !isNaN(target) && target >= 0 && target <= 9) {
+        close(target);
+      } else {
+        close(null);
+      }
+    });
+
+    document.body.appendChild(overlay);
+
+    const selEl = overlay.querySelector("[data-move-target]");
+    const confirmBtn = overlay.querySelector("[data-move-confirm]");
+    if (selEl) {
+      const validOpt = Array.from(selEl.options).find(o => !o.disabled);
+      if (validOpt) {
+        selEl.value = validOpt.value;
+      } else if (confirmBtn) {
+        confirmBtn.disabled = true;
+      }
+    }
+
+    cleanupFocus = trapModalFocus(overlay, close);
   });
 }

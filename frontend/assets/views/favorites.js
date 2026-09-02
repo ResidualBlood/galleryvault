@@ -60,6 +60,7 @@ async function renderFavList() {
       <button class="primary" data-action="favlist-download" data-favcat="${favcat}" type="button">${esc(t("favDl"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-download-orig" data-favcat="${favcat}" type="button">${esc(t("favDlOrig"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-archive" data-favcat="${favcat}" type="button">${esc(t("favDlArchive"))}${selCount ? ` (${selCount})` : ""}</button>
+      <button class="secondary" data-action="favlist-move" data-favcat="${favcat}" type="button">${esc(t("favMove"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary danger" data-action="favlist-unfav" data-favcat="${favcat}" type="button">${esc(t("favRemove"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-clear" type="button">${esc(t("clearSel"))}</button>
       <span class="fav-state-filter">
@@ -261,6 +262,25 @@ async function favListUnfavorite(favcat) {
   try {
     const r = await api("POST", "/api/favorites/remove", { gids: items, delete_local: false });
     toast(t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal")));
+    selFav.clear();
+    router();
+  } catch (e) { toast(e.message); }
+}
+
+async function favListMove(favcat) {
+  const items = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
+    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  if (!items.length) { toast(t("select")); return; }
+  const targetFavcat = await showMoveFavoritesDialog(items, favcat);
+  if (targetFavcat == null || targetFavcat === favcat) return;
+  try {
+    const r = await api("POST", "/api/favorites/move", { gids: items, target_favcat: targetFavcat });
+    if (r.cloud_ok) {
+      toast(t("favMoved"));
+    } else {
+      const failedCount = (r.cloud_failed || []).length;
+      toast(t("favMovedPartial").replace("{count}", r.local_moved).replace("{failed}", failedCount));
+    }
     selFav.clear();
     router();
   } catch (e) { toast(e.message); }

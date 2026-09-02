@@ -7,15 +7,23 @@ async function renderGallery() {
   const id = app.params.id;
   $view().innerHTML = `<p>${esc(t("loading"))}</p>`;
   try {
-    const g = await api("GET", `/api/galleries/${id}`);
+    const [galleryRes, progressRes] = await Promise.allSettled([
+      api("GET", `/api/galleries/${id}`),
+      api("GET", `/api/galleries/${id}/progress`),
+    ]);
+    if (galleryRes.status !== "fulfilled") {
+      throw galleryRes.reason || new Error("Failed to load gallery");
+    }
+    const g = galleryRes.value;
     const qualityBadge = g.image_quality === "original"
       ? `<span class="badge quality-badge">${esc(t("origBadge"))}</span>`
       : g.image_quality === "resample"
         ? `<span class="badge quality-badge">${esc(t("resampleBadge"))}</span>`
         : "";
     const showOrigBtns = !!(g.gid && g.image_quality !== "original");
-    let progress = { current_page: 0, total_pages: g.page_count };
-    try { progress = await api("GET", `/api/galleries/${id}/progress`); } catch (_) {}
+    let progress = progressRes.status === "fulfilled" && progressRes.value
+      ? progressRes.value
+      : { current_page: 0, total_pages: g.page_count };
     const order = ["parody", "character", "group", "artist", "language", "category", "misc"];
     const byNs = {};
     for (const tg of (g.tags || [])) (byNs[tg.namespace] = byNs[tg.namespace] || []).push(tg);
