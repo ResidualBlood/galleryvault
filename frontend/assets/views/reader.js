@@ -91,10 +91,13 @@ async function renderReader() {
       const p1 = page;
       const p2 = page + 1 < total ? page + 1 : null;
       const rtlClass = mode === "double-rtl" ? " reader-spread-rtl" : "";
+      const p2Img = p2 !== null
+        ? `<img src="/api/galleries/${id}/pages/${p2}" alt="Page ${p2 + 1}" data-page="${p2}">`
+        : `<img alt="" data-page="">`;
       imgHtml = `
         <div class="reader-spread${rtlClass}">
           <div class="reader-img-wrap"><img id="reader-img" src="/api/galleries/${id}/pages/${p1}" alt="Page ${p1 + 1}" data-page="${p1}"></div>
-          <div class="reader-img-wrap"${p2 === null ? ' style="display:none"' : ''}><img src="${p2 !== null ? `/api/galleries/${id}/pages/${p2}` : ''}" alt="${p2 !== null ? `Page ${p2 + 1}` : ''}" data-page="${p2 !== null ? p2 : ''}"></div>
+          <div class="reader-img-wrap"${p2 === null ? ' style="display:none"' : ''}>${p2Img}</div>
         </div>`;
     } else {
       imgHtml = `
@@ -385,6 +388,9 @@ function readerSwapPage(id, target) {
         imgs[1].alt = `Page ${p2 + 1}`;
         imgs[1].parentElement.style.display = "";
       } else {
+        imgs[1].removeAttribute("src");
+        imgs[1].dataset.page = "";
+        imgs[1].alt = "";
         imgs[1].parentElement.style.display = "none";
       }
       const bar = document.querySelector(".reader-bar span");

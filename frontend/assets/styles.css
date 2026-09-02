@@ -515,10 +515,8 @@ a.row:hover { border-color: var(--accent); }
   .reader:fullscreen .reader-spread { flex-direction: column; gap: 6px; }
   .reader:fullscreen .reader-spread.reader-spread-rtl { flex-direction: column; }
   .reader:fullscreen .reader-spread img { max-width: 100%; max-height: calc(50vh - 6px); }
-  .reader:fullscreen .reader-spread .reader-img-wrap[style*="display:none"] ~ .reader-img-wrap img,
-  .reader:fullscreen .reader-spread .reader-img-wrap[style*="display: none"] ~ .reader-img-wrap img,
-  .reader:fullscreen .reader-spread .reader-img-wrap:has(~ .reader-img-wrap[style*="display:none"]) img,
-  .reader:fullscreen .reader-spread .reader-img-wrap:has(~ .reader-img-wrap[style*="display: none"]) img {
+  .reader:fullscreen .reader-spread:has(> .reader-img-wrap[style*="display:none"]) img,
+  .reader:fullscreen .reader-spread:has(> .reader-img-wrap[style*="display: none"]) img {
     max-height: 100vh;
   }
   .pills { overflow-x: auto; white-space: nowrap; max-width: 100%; -webkit-overflow-scrolling: touch; }
