@@ -66,7 +66,7 @@ backend/
     db/                # SQLAlchemy models, session, Unit of Work
       models.py repositories/  # galleries/favorites/downloads/updates/jobs/settings
       repository.py    # backward-compatible re-exports
-    logging.py         # structured log formatter
+    logging.py         # structured log formatter, ring buffer, httpx 2xx filter
     observability.py   # request-id middleware + /metrics counters
     secrets.py         # at-rest encryption (ENCRYPTION_KEY)
     scanners/          # ehviewer / zip / rar / folder scanners + registry
