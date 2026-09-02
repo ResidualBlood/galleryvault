@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-02
+
 ### Added
 
 - **Multi-mode reader with RTL Manga, Double-page spread & mobile gestures** (frontend `views/reader.js`, `styles.css`, `locales/`): Added LTR, RTL Manga, and wide-screen Double-page spread modes with persisted preference, directional preloading, responsive layout, double-tap zoom, and mobile pinch-to-zoom gestures.
@@ -30,6 +32,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Pytest unawaited coroutines & Connection._cancel warnings** (`app/main.py`, `tests/test_l_items.py`, `tests/test_delete_local.py`): Fixed unawaited `refresh_favorite_counts` coroutine in test mock callbacks, added missing `@pytest.mark.asyncio` across chunked query tests, and added graceful `engine.dispose()` during lifespan shutdown.
 - **Container logging permissions, rotated log hydration & multiline traceback parsing** (`entrypoint.sh`, `logging.py`, `app/lifespan.py`, `app/routers/settings.py`): Ensured `/gv-cache/logs` is created with `app:app` (uid 10001) ownership before privilege dropping. Enhanced `hydrate_from_file` to merge rotated history backups (`.log.X`) in chronological order and parse multiline exception tracebacks via a state machine without truncation. Moved log hydration to the asynchronous startup lifespan.
 - **Exception traceback loss in log formatters & workers** (`logging.py`, `services/download_worker.py`, `services/scan_worker.py`, `services/tag_sync_worker.py`): Fixed `_Formatter` ignoring `record.exc_info` and `record.stack_info`, and replaced opaque `error=type(exc).__name__` across backend workers with `logger.exception` and full error context.
+- **Reader URL sync without hashchange loops** (frontend `views/reader.js`): `syncReaderUrl` now uses `history.replaceState` instead of assigning `location.hash`, avoiding a second `hashchange` → `renderReader` pass and history-stack growth.
+- **Hidden double-page slot empty src** (frontend `views/reader.js`, `styles.css`): Omit `src` on the unused second image when the last spread is a single page; fullscreen single-image layout uses `:has`.
+- **Favorite-count refresh cancellation** (backend `services/favorites_worker.py`): `asyncio.shield` plus a done callback so cancelling the caller does not drop the in-flight fetch and spawn a duplicate.
+- **Favorites move cloud-first consistency & favcat dedupe** (backend `app/routers/favorites.py`, `db/repository.py`): Local DB updates only for cloud-confirmed `successful_gids`; two-phase cleanup before unique `(favcat, gid)` writes.
+- **Lifespan settings whitelist, translation updater & shutdown** (backend `app/lifespan.py`, `services/settings_service.py`): Startup loads settings via `update_runtime_settings`; `refresh_services` restarts or cancels the translation updater; shutdown guards missing `aclose` and clears service pointers.
 
 ### Changed
 
@@ -1030,7 +1037,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.2.15...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.5.0
 [1.2.15]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.15
 [1.2.14]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.14
 [1.2.13]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.13
