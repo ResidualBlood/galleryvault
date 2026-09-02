@@ -47,22 +47,35 @@ async function renderLibrary() {
     <div class="filters">${filterPill}</div>
     <div id="lib-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="lib-pager"></div>`);
+  // Advanced filters that have API support but no dedicated UI yet remain sticky via query string
+  const min_rating = app.query.min_rating || "";
+  const page_min = app.query.page_min || app.query.min_pages || "";
+  const page_max = app.query.page_max || app.query.max_pages || "";
+  const tag_mode = app.query.tag_mode || "and";
+  const tag_match = app.query.tag_match || "exact";
   try {
     const extra = { page_size: prefPageSize() };
     if (q) extra.q = q;
     if (category) extra.category = category;
-    if (tags) { extra.tags = tags; extra.tag_mode = app.query.tag_mode || "and"; }
+    if (tags) { extra.tags = tags; extra.tag_mode = tag_mode; if (tag_match !== "exact") extra.tag_match = tag_match; }
     if (order_by && order_by !== "id_desc") extra.order_by = order_by;
     if (read_status) extra.read_status = read_status;
+    if (min_rating) extra.min_rating = min_rating;
+    if (page_min) extra.page_min = page_min;
+    if (page_max) extra.page_max = page_max;
     const data = await galleryGrid("lib-grid", page, extra);
     if (data && data.resolved && (data.q !== (app.query.q || "") || data.tags !== (app.query.tags || ""))) {
       location.hash = navHash("library", {}, {
         q: data.q,
         category: data.category,
         tags: data.tags,
-        tag_mode: app.query.tag_mode || "and",
+        tag_mode: tag_mode,
+        ...(tag_match !== "exact" ? { tag_match } : {}),
         ...(order_by && order_by !== "id_desc" ? { order_by } : {}),
-        ...(read_status ? { read_status } : {})
+        ...(read_status ? { read_status } : {}),
+        ...(min_rating ? { min_rating } : {}),
+        ...(page_min ? { page_min } : {}),
+        ...(page_max ? { page_max } : {})
       });
       return;
     }
@@ -70,9 +83,12 @@ async function renderLibrary() {
     gridPager("lib-pager", data, p => ({
       ...(q ? { q } : {}),
       ...(category ? { category } : {}),
-      ...(tags ? { tags, tag_mode: app.query.tag_mode || "and" } : {}),
+      ...(tags ? { tags, tag_mode: tag_mode, ...(tag_match !== "exact" ? { tag_match } : {}) } : {}),
       ...(order_by && order_by !== "id_desc" ? { order_by } : {}),
       ...(read_status ? { read_status } : {}),
+      ...(min_rating ? { min_rating } : {}),
+      ...(page_min ? { page_min } : {}),
+      ...(page_max ? { page_max } : {}),
       ...(p > 1 ? { page: p } : {}),
       page_size: prefPageSize()
     }));
@@ -86,13 +102,27 @@ async function deleteFiltered() {
   const category = app.query.category || "";
   const tags = app.query.tags || "";
   const tag_mode = app.query.tag_mode || "and";
+  const tag_match = app.query.tag_match || "exact";
+  const order_by = app.query.order_by || "";
+  const read_status = app.query.read_status || "";
   if (!window.confirm(t("confirmDeleteFiltered"))) return;
   const deleteFiles = window.confirm(t("deleteFiles"));
   try {
     // Server-side filtered delete: pass the filter, not a resolved id list.
-    const r = await api("POST", "/api/galleries/delete-filtered", {
-      q, category, tags, tag_mode, delete_files: deleteFiles
-    });
+    // Must mirror the current browse filter, especially read_status.
+    const payload = {
+      q, category, tags, tag_mode, tag_match, delete_files: deleteFiles
+    };
+    if (order_by && order_by !== "id_desc") payload.order_by = order_by;
+    if (read_status) payload.read_status = read_status;
+    const urlParams = new URLSearchParams(location.hash.split("?")[1] || "");
+    const minRating = urlParams.get("min_rating");
+    const pageMin = urlParams.get("page_min") || urlParams.get("min_pages");
+    const pageMax = urlParams.get("page_max") || urlParams.get("max_pages");
+    if (minRating) payload.min_rating = parseFloat(minRating);
+    if (pageMin) payload.min_pages = parseInt(pageMin, 10);
+    if (pageMax) payload.max_pages = parseInt(pageMax, 10);
+    const r = await api("POST", "/api/galleries/delete-filtered", payload);
     toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : (r.matched || 0))
       + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
     location.hash = navHash("library");

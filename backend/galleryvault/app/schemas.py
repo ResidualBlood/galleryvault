@@ -166,6 +166,9 @@ class FilteredDeleteRequest(BaseModel):
     storage_type: str | None = None
     min_posted_at: str | None = None
     max_posted_at: str | None = None
+    read_status: str | None = None
+    order_by: str | None = None
+    exclude_tags: str | None = None
 
     @model_validator(mode="after")
     def sync_tags(self) -> FilteredDeleteRequest:

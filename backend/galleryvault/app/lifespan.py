@@ -279,9 +279,19 @@ async def startup() -> None:
 
     spawn_task(refresh_favorite_counts(), "favorite counts startup warmup")
     try:
-        from ..services.eh_client import probe_cookie_health
+        from ..services.eh_client import cookie_health_loop, probe_cookie_health
 
         spawn_task(probe_cookie_health(), "cookie health startup probe")
+        loop_task = spawn_task(cookie_health_loop(1800), "cookie health periodic probe")
+        if loop_task is None:
+            try:
+                import asyncio as _asyncio
+
+                loop_task = _asyncio.create_task(cookie_health_loop(1800))
+            except RuntimeError:
+                loop_task = None
+        if loop_task is not None:
+            app_state.extra["cookie_health_task"] = loop_task
     except Exception:  # noqa: BLE001, S110
         pass
     await cleanup_partial_downloads(settings_obj.download_root, app_state.session_factory)
@@ -328,6 +338,7 @@ async def shutdown() -> None:
     specific = [
         translation_update_task,
         app_state.extra.get("favorite_poll_task"),
+        app_state.extra.get("cookie_health_task"),
         app_state.extra.get("telegram_bot_task"),
         app_state.extra.get("download_worker_task"),
         app_state.extra.get("download_retry_sweep_task"),

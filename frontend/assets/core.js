@@ -10,6 +10,9 @@ function updateLangButton() {
   });
 }
 
+let cookieHealthTimer = null;
+let cookieHealthInFlight = false;
+
 function updateBanner() {
   const el = document.getElementById("banner");
   if (!el) return;
@@ -27,6 +30,36 @@ function updateBanner() {
   }
   el.hidden = true;
   el.innerHTML = "";
+}
+
+async function refreshCookieHealth() {
+  if (!app.authenticated || cookieHealthInFlight) return;
+  cookieHealthInFlight = true;
+  try {
+    const h = await api("GET", "/api/settings/cookie-health");
+    if (h && typeof h === "object") {
+      app.session.cookie_health = h;
+      updateBanner();
+    }
+  } catch (_) {
+    // transient — keep last health, banner stays as-is
+  } finally {
+    cookieHealthInFlight = false;
+  }
+}
+
+function startCookieHealthPolling() {
+  if (cookieHealthTimer) return;
+  // Short delay so startup probe can finish, then poll every 10 min while authenticated
+  setTimeout(refreshCookieHealth, 3000);
+  cookieHealthTimer = setInterval(refreshCookieHealth, 10 * 60 * 1000);
+}
+
+function stopCookieHealthPolling() {
+  if (cookieHealthTimer) {
+    clearInterval(cookieHealthTimer);
+    cookieHealthTimer = null;
+  }
 }
 
 function esc(s) {
@@ -91,6 +124,21 @@ async function checkAuth() {
     app.session = session || {};
     $topbar().hidden = false;
     updateBanner();
+    // Cookie health from session may be stale/"unknown" if startup probe
+    // hasn't finished yet — fetch authoritative health once after login
+    // and start periodic polling (every 10 min) while authenticated.
+    {
+      const ch = app.session && app.session.cookie_health;
+      const needsRefresh = !ch || ch.state === "unknown" || ch.state == null;
+      if (needsRefresh) {
+        refreshCookieHealth();
+      } else {
+        // Even if session carries a state, refresh shortly in case it
+        // changed since server start (server also polls every 30 min).
+        setTimeout(refreshCookieHealth, 1500);
+      }
+      startCookieHealthPolling();
+    }
     // Normalise the address bar: after logging in the SPA is served at /login
     // (the middleware redirect target) but the app lives at "/"; rewrite the
     // path so the URL reads e.g. /#/browse instead of /login#/browse.
@@ -105,6 +153,7 @@ async function checkAuth() {
     app.authenticated = false;
     app.session = {};
     $topbar().hidden = true;
+    stopCookieHealthPolling();
     renderLogin();
   }
 }
@@ -127,6 +176,7 @@ async function doLogin(password) {
 }
 
 async function doLogout() {
+  stopCookieHealthPolling();
   await fetch("/logout", { method: "POST", credentials: "include" });
   app.authenticated = false;
   $topbar().hidden = true;
