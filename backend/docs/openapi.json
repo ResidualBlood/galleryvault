@@ -4082,6 +4082,39 @@
               }
             ],
             "title": "Max Posted At"
+          },
+          "read_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read Status"
+          },
+          "order_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By"
+          },
+          "exclude_tags": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclude Tags"
           }
         },
         "type": "object",

@@ -107,15 +107,24 @@ def test_download_worker_helpers() -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_search_tokens_changed_flag() -> None:
-    explicit, keywords, changed = await _resolve_search_tokens("female:maid big_breasts")
+    explicit_inc, explicit_exc, keywords, changed = await _resolve_search_tokens("female:maid big_breasts")
     assert changed is True
-    assert explicit == [("female", "maid")]
+    assert explicit_inc == [("female", "maid")]
+    assert explicit_exc == []
     assert keywords == "big_breasts"
 
-    explicit, keywords, changed = await _resolve_search_tokens("plain keywords only")
+    explicit_inc, explicit_exc, keywords, changed = await _resolve_search_tokens("plain keywords only")
     assert changed is False
-    assert explicit == []
+    assert explicit_inc == []
+    assert explicit_exc == []
     assert keywords == "plain keywords only"
+
+    # Exclude prefix -female:maid → explicit_exc
+    explicit_inc, explicit_exc, keywords, changed = await _resolve_search_tokens("-female:maid big_breasts")
+    assert changed is True
+    assert explicit_inc == []
+    assert explicit_exc == [("female", "maid")]
+    assert keywords == "big_breasts"
 
 
 def test_request_schemas_compatibility() -> None:

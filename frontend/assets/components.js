@@ -56,7 +56,7 @@ function galleryCard(it) {
         <span class="gc-pages">${it.page_count} P</span>
       </div>
       <div class="gc-title">${esc(it.title)}</div>
-      <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</div>
+      <div class="gc-tags">${(it.tags || []).map(tg => `<a href="#" class="nst ${nsClass(tg.namespace)}" data-action="filter-tag" data-ns="${esc(tg.namespace)}" data-name="${esc(tg.name)}" title="${esc(tg.namespace ? tg.namespace + ':' + tg.name : tg.name)} — ${esc(t("search"))} (Shift+click to exclude)">${esc(tagText(tg))}</a>`).join("")}</div>
     </a>
     <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-gallery-id="${it.id}"${selGalleries.has(it.id) ? " checked" : ""}></label>
   </div>`;

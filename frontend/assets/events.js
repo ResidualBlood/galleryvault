@@ -108,6 +108,19 @@ function onClick(e) {
     location.hash = navHash("library", {}, { ...app.query, tag_mode: curMode, page: undefined });
     return;
   }
+  if (action === "filter-tag") {
+    e.preventDefault();
+    const ns = el.getAttribute("data-ns") || "";
+    const name = el.getAttribute("data-name") || "";
+    if (!name) return;
+    // Shift/Alt/Ctrl+click → exclude tag (add "-ns:name"), otherwise include
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) {
+      location.hash = addExcludeTagHash(ns || null, name);
+    } else {
+      location.hash = addTagHash(ns || null, name);
+    }
+    return;
+  }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
@@ -131,7 +144,12 @@ function onSubmit(e) {
       ...(form.category.value ? { category: form.category.value } : {}),
       ...(form.order_by && form.order_by.value !== "id_desc" ? { order_by: form.order_by.value } : {}),
       ...(form.read_status && form.read_status.value ? { read_status: form.read_status.value } : {}),
-      ...(app.query.tags ? { tags: app.query.tags, tag_mode: app.query.tag_mode || "and" } : {})
+      ...(app.query.tags ? { tags: app.query.tags, tag_mode: app.query.tag_mode || "and", ...(app.query.tag_match && app.query.tag_match !== "exact" ? { tag_match: app.query.tag_match } : {}) } : {}),
+      ...(app.query.min_rating ? { min_rating: app.query.min_rating } : {}),
+      ...(app.query.page_min ? { page_min: app.query.page_min } : {}),
+      ...(app.query.page_max ? { page_max: app.query.page_max } : {}),
+      ...(app.query.min_pages ? { min_pages: app.query.min_pages } : {}),
+      ...(app.query.max_pages ? { max_pages: app.query.max_pages } : {})
     });
     return;
   }

@@ -83,10 +83,11 @@ async def test_gallery_sorting_and_filtering_sql() -> None:
     sql = session.sql[-1].lower()
     assert "order by galleries.rating desc" in sql
 
-    # 3. Sort by title asc
+    # 3. Sort by title asc (follows title_display; coalesce when japanese)
     await repo.list_page(1, 10, order_by="title_asc")
     sql = session.sql[-1].lower()
-    assert "order by galleries.title asc" in sql
+    assert "title" in sql and "asc" in sql
+    assert ("coalesce" in sql or "galleries.title asc" in sql)
 
     # 4. Filter reading status: unread
     await repo.list_page(1, 10, read_status="unread")

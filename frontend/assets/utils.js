@@ -119,7 +119,7 @@ function prefPageSize(fallback = 24) {
 
 function libraryContext() {
   const c = {};
-  for (const k of ["q", "tags", "tag_mode", "category", "page_size"]) {
+  for (const k of ["q", "tags", "tag_mode", "tag_match", "category", "order_by", "read_status", "page_size"]) {
     if (app.query[k]) c[k] = app.query[k];
   }
   return c;
@@ -129,19 +129,41 @@ function tagFilterHash(tagsArr) {
   const query = { tag_mode: "and" };
   if (app.query.q) query.q = app.query.q;
   if (app.query.category) query.category = app.query.category;
+  if (app.query.order_by) query.order_by = app.query.order_by;
+  if (app.query.read_status) query.read_status = app.query.read_status;
+  if (app.query.tag_match) query.tag_match = app.query.tag_match;
+  if (app.query.tag_mode && app.query.tag_mode !== "and") query.tag_mode = app.query.tag_mode;
+  // preserve hash-level page reset: filter changes always go to page 1 (no page param)
   if (tagsArr && tagsArr.length) query.tags = tagsArr.join(",");
   return navHash("library", {}, query);
 }
 
 function addTagHash(ns, name) {
-  const key = `${ns}:${name}`;
+  const key = ns ? `${ns}:${name}` : name;
   const cur = parseTags(app.query.tags || "");
-  if (!cur.includes(key)) cur.push(key);
+  if (!cur.includes(key)) {
+    // if an exclude version exists, replace it with include
+    const exKey = `-${key}`;
+    const idx = cur.indexOf(exKey);
+    if (idx !== -1) cur.splice(idx, 1);
+    cur.push(key);
+  }
   return tagFilterHash(cur);
 }
 
 function removeTagHash(tag) {
   const cur = parseTags(app.query.tags || "").filter(t => t !== tag);
+  return tagFilterHash(cur);
+}
+
+function addExcludeTagHash(ns, name) {
+  const key = ns ? `${ns}:${name}` : name;
+  const exKey = `-${key}`;
+  let cur = parseTags(app.query.tags || "");
+  // If already excluded, no-op; if included, replace include with exclude
+  if (cur.includes(exKey)) return tagFilterHash(cur);
+  cur = cur.filter(t => t !== key);
+  cur.push(exKey);
   return tagFilterHash(cur);
 }
 

@@ -461,13 +461,32 @@ class GalleryRepository:
         total = int(
             await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         )
+        # Title sorting follows the user's title_display preference:
+        # japanese → title_jpn (fallback title), english → title, directory → storage_path basename.
+        # We resolve the preference lazily to avoid importing app state at module load.
+        title_col = Gallery.title
+        try:
+            from ...app.state import app_state
+            from ...config import get_settings
+
+            _settings = app_state.settings or get_settings()
+            _mode = (getattr(_settings, "title_display", "japanese") or "japanese").lower()
+            if _mode == "japanese":
+                title_col = func.coalesce(Gallery.title_jpn, Gallery.title)
+            elif _mode == "directory":
+                # basename not trivial in SQL; coalesce title_jpn/title as fallback
+                title_col = func.coalesce(Gallery.title_jpn, Gallery.title)
+            else:
+                title_col = Gallery.title
+        except Exception:  # noqa: BLE001
+            title_col = Gallery.title
         order_map = {
             "id_desc": [Gallery.id.desc()],
             "id_asc": [Gallery.id.asc()],
             "posted_at_desc": [Gallery.posted_at.desc().nullslast(), Gallery.id.desc()],
             "posted_at_asc": [Gallery.posted_at.asc().nullslast(), Gallery.id.asc()],
-            "title_asc": [Gallery.title.asc(), Gallery.id.asc()],
-            "title_desc": [Gallery.title.desc(), Gallery.id.desc()],
+            "title_asc": [title_col.asc(), Gallery.id.asc()],
+            "title_desc": [title_col.desc(), Gallery.id.desc()],
             "page_count_desc": [Gallery.page_count.desc().nullslast(), Gallery.id.desc()],
             "page_count_asc": [Gallery.page_count.asc().nullslast(), Gallery.id.asc()],
             "file_size_desc": [Gallery.file_size.desc().nullslast(), Gallery.id.desc()],

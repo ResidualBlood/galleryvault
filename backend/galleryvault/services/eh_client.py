@@ -1803,3 +1803,28 @@ async def probe_cookie_health() -> dict[str, Any]:
         }
     app_state.extra["cookie_health"] = health
     return health
+
+
+async def cookie_health_loop(interval_seconds: int = 1800) -> None:
+    """Periodically probe ExHentai cookie health while the app is running.
+
+    Interval defaults to 30 min; loop is cancellable via task cancel.
+    """
+    import asyncio
+
+    # Initial delay so startup probe has a chance to run first
+    try:
+        await asyncio.sleep(60)
+    except asyncio.CancelledError:
+        return
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            return
+        try:
+            await probe_cookie_health()
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001, S110
+            pass

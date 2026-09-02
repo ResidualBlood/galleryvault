@@ -193,24 +193,40 @@ def _parse_tag_filter(
 
 async def _resolve_search_tokens(
     q: str,
-) -> tuple[list[tuple[str | None, str]], str, bool]:
+) -> tuple[list[tuple[str | None, str]], list[tuple[str | None, str]], str, bool]:
     tokens = q.split()
     if not tokens:
-        return [], "", False
-    explicit: list[tuple[str | None, str]] = []
+        return [], [], "", False
+    explicit_inc: list[tuple[str | None, str]] = []
+    explicit_exc: list[tuple[str | None, str]] = []
     keywords: list[str] = []
     for token in tokens:
+        # "-ns:name" or "-name" is an exclude tag, not a keyword
+        if token.startswith("-") and len(token) > 1 and not token.startswith("--"):
+            inner = token[1:]
+            if ":" in inner:
+                namespace, name = inner.split(":", 1)
+                namespace = namespace.strip() or None
+                name = name.strip()
+                if name:
+                    explicit_exc.append((namespace, name))
+                    continue
+            else:
+                name = inner.strip()
+                if name:
+                    explicit_exc.append((None, name))
+                    continue
         if ":" in token:
             namespace, name = token.split(":", 1)
             namespace = namespace.strip() or None
             name = name.strip()
             if name:
-                explicit.append((namespace, name))
+                explicit_inc.append((namespace, name))
             else:
                 keywords.append(token)
         else:
             keywords.append(token)
-    return explicit, " ".join(keywords), bool(explicit)
+    return explicit_inc, explicit_exc, " ".join(keywords), bool(explicit_inc or explicit_exc)
 
 
 @router.get("/api/galleries")
@@ -255,16 +271,11 @@ async def list_galleries(
     resolved_q = q or ""
     resolved = False
     if q and q.strip():
-        auto_tags, keywords, changed = await _resolve_search_tokens(q)
+        auto_inc, auto_exc, keywords, changed = await _resolve_search_tokens(q)
         resolved = changed
         if changed:
-            for ns, name in auto_tags:
-                if ns and ns.startswith("-") and len(ns) > 1:
-                    parsed_exc_tags.append((ns[1:], name))
-                elif name and name.startswith("-") and len(name) > 1:
-                    parsed_exc_tags.append((ns, name[1:]))
-                else:
-                    parsed_inc_tags.append((ns, name))
+            parsed_inc_tags.extend(auto_inc)
+            parsed_exc_tags.extend(auto_exc)
             resolved_q = keywords
 
     parsed_inc_tags = _dedupe_tags(parsed_inc_tags)
@@ -875,10 +886,21 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
         category = None
     if category is not None and category not in CATEGORIES:
         raise HTTPException(status_code=422, detail="invalid category")
+    if body.read_status and body.read_status not in {"all", "unread", "reading", "completed", "read"}:
+        raise HTTPException(status_code=422, detail="invalid read_status")
     parsed_tags, parsed_exc_tags = _parse_tag_filter(body.tags or body.tag)
+    if body.exclude_tags:
+        extra_inc, extra_exc = _parse_tag_filter(body.exclude_tags)
+        parsed_exc_tags.extend(extra_inc)
+        parsed_exc_tags.extend(extra_exc)
     _MAX_FILTERED_DELETE = 5000
     try:
         resolved_q = body.q or ""
+        order_by = body.order_by or "id_desc"
+        read_status = body.read_status
+        min_rating = body.min_rating
+        page_min = body.min_pages
+        page_max = body.max_pages
         if body.q and body.q.strip():
             auto_inc, auto_exc, keywords, changed = await _resolve_search_tokens(body.q)
             if changed:
@@ -887,6 +909,8 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                 parsed_tags = _dedupe_tags(parsed_tags)
                 parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
                 resolved_q = keywords
+        parsed_tags = _dedupe_tags(parsed_tags)
+        parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
         matching_ids: list[int] = []
         async for session in get_session():
             repo = GalleryRepository(session)
@@ -902,6 +926,11 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                     tag_match=body.tag_match,
                     category=category,
                     exclude_favorited=exclude_favorited,
+                    order_by=order_by,
+                    read_status=read_status,
+                    min_rating=min_rating,
+                    page_min=page_min,
+                    page_max=page_max,
                 )
                 if not rows:
                     break
