@@ -33,6 +33,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Removed unused leftover files**: dropped empty `galleryvault/api/` package (stale facade note, zero imports) and frontend `smoke.spec.js` (Playwright smoke not wired into CI).
 - **Backend main.py slimming & AppState SSOT architecture** (backend `galleryvault/app/`): Slimmed `app/main.py` from 1246 lines to <100 lines pure application factory. Extracted `app/middleware.py` (authentication & CSRF), `app/lifespan.py` (startup/shutdown & background worker lifecycle), and established `app/state.py` (`app_state`) as the single source of truth for runtime services and database session factories. Removed all facade re-exports and monkeypatch lookup anti-patterns across routers and workers, with strict AST guard tests (`tests/test_no_main_facade.py`) enforcing architecture boundaries.
 - **Database repository domain modularization** (`db/repositories/`, `db/repository.py`): Modularized `repository.py` into clean DDD domain submodules (`galleries.py`, `favorites.py`, `downloads.py`, `updates.py`, `jobs.py`, `settings.py`, `base.py`) while preserving full backward-compatible re-exports on `galleryvault.db.repository`.
 - **Worker & router test coverage expansion** (`tests/test_scan_worker.py`, `tests/test_tag_sync_worker.py`, `tests/test_duplicates_router.py`, `tests/test_favorites_worker_helpers.py`): Added unit and integration tests boosting backend code coverage to >62% with zero runtime warnings.
