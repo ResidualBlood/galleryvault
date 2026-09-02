@@ -236,15 +236,23 @@ async def refresh_favorite_counts() -> None:
         _fav_counts_refreshing = False
 
 
-async def favorite_counts_cached() -> dict[int, int]:
+async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False) -> dict[int, int]:
     now = _time.time()
     cached = _fav_counts_cache.get("counts")
     if (
-        isinstance(cached, dict)
+        not force
+        and isinstance(cached, dict)
         and cached
         and (now - float(_fav_counts_cache.get("ts", 0))) < _FAV_COUNTS_TTL
     ):
         return cached
+
+    if (wait_on_cold and not cached) or force:
+        await refresh_favorite_counts()
+        fresh = _fav_counts_cache.get("counts")
+        if isinstance(fresh, dict) and fresh:
+            return fresh
+
     from ..app import main
     spawn_fn = getattr(main, "_spawn", None)
     if spawn_fn is not None:
@@ -351,7 +359,10 @@ async def _run_favorites_check_inner(
         favorites_check_state["history_recorded"] = False
     try:
         try:
-            counts = await counts_cached_fn()
+            try:
+                counts = await counts_cached_fn(wait_on_cold=True)
+            except TypeError:
+                counts = await counts_cached_fn()
             entry["total"] = counts.get(favcat, 0)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
