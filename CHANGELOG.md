@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Pages Actions bumps** (`.github/workflows/pages.yml`): `configure-pages` v5→v6, `upload-pages-artifact` v3→v5, `deploy-pages` v4→v5 (closed Dependabot #7/#8 plus matching deploy action).
 - **CI skip noise**: `ci-backend` ignores `backend/docs/**`; `ci-frontend` ignores markdown. Image build/merge runs only when Dockerfile / runtime source / dependency files change (tests-only and docs-only commits no longer push Docker Hub).
 - **Monorepo layout**: backend and frontend live in one repository (`ResidualBlood/galleryvault`); CI path-filters `ci-backend.yml` / `ci-frontend.yml`, and a single `v*` tag publishes both images. Archived `galleryvault-backend` / `galleryvault-frontend` remotes are read-only.
 - **Dependency updates & CI action bumps** (`.github/workflows/`, `backend/pyproject.toml`, `backend/requirements.txt`, `.github/dependabot.yml`): Bumped `actions/download-artifact` from v4 to v8, `actions/upload-artifact` from v4 to v7, and `astral-sh/setup-uv` from v5 to v7 in GitHub Actions workflows. Updated backend dependencies `httpx` (`>=0.28.1,<1`), `rarfile` (`>=4.5,<5`), `cryptography` (`>=50.0.1,<51`), `pytest` (`>=9.1.1,<10`), and `pytest-cov` (`>=7.1.0,<8`). Configured Dependabot target branch to `dev`.
