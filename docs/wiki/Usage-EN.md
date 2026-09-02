@@ -147,8 +147,10 @@ manually to revisit it.
 ## Reader (`#/reader/<id>/<page>`)
 
 - Streams one page at a time. Page with **←/→ arrows**, **space** or **click**.
+- **Multi-mode reading (LTR / RTL Manga / Double-page spread)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, and **Double RTL** modes with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1).
+- **Mobile Touch Gestures**: Supports double-tap zoom (2.2x) and two-finger pinch-to-zoom.
 - **Advances to the next gallery after the last page**.
-- Preloads the next three pages, so paging is instant.
+- Preloads the next three pages (four pages in double-spread mode), so paging is instant.
 - **Page images are browser-cached for an hour**: going back a page or
   re-reading a gallery reuses the browser cache instead of downloading again;
   thumbnails are cached for 24 h.
