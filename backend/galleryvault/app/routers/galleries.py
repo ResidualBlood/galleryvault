@@ -525,11 +525,24 @@ async def purge_galleries(body: BulkDeleteRequest) -> dict[str, object]:
     try:
         async for session in get_session():
             async with session.begin():
-                purged = await GalleryRepository(session).purge_galleries(ids)
+                galleries: list[Gallery] = []
+                for chunk in _chunked(list(dict.fromkeys(ids))):
+                    rows = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
+                    galleries.extend(rows.all())
+                results = await delete_galleries_local(
+                    session,
+                    galleries,
+                    delete_files=body.delete_files,
+                    delete_all_copies=body.delete_all_copies,
+                    trash=False,
+                )
+                purged = sum(1 for r in results if r.get("db_removed"))
+                failed = [p for r in results for p in r.get("failed_paths", [])]
+                _record_gallery_delete_log(results, body.delete_files)
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    return {"purged": purged}
+    return {"purged": purged, "failed_deletions": failed, "results": results}
 
 
 @router.get("/api/galleries/categories")
@@ -1027,9 +1040,10 @@ async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    deleted = sum(1 for r in results if r.get("db_removed"))
+    deleted = sum(1 for r in results if r.get("db_removed") or r.get("trashed"))
+    trashed = sum(1 for r in results if r.get("trashed"))
     failed_deletions = [p for r in results for p in r.get("failed_paths", [])]
-    return {"deleted": deleted, "failed_deletions": failed_deletions, "results": results}
+    return {"deleted": deleted, "trashed": trashed, "failed_deletions": failed_deletions, "results": results}
 
 
 @router.post("/api/galleries/delete-filtered", status_code=200)
@@ -1116,9 +1130,10 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
         _record_gallery_delete_log(results, body.delete_files)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    deleted = sum(1 for r in results if r.get("db_removed"))
+    deleted = sum(1 for r in results if r.get("db_removed") or r.get("trashed"))
+    trashed = sum(1 for r in results if r.get("trashed"))
     failed_deletions = [p for r in results for p in r.get("failed_paths", [])]
-    return {"deleted": deleted, "matched": len(matching_ids), "failed_deletions": failed_deletions, "results": results}
+    return {"deleted": deleted, "trashed": trashed, "matched": len(matching_ids), "failed_deletions": failed_deletions, "results": results}
 
 
 def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: bool) -> None:

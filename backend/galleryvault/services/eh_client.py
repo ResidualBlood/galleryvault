@@ -89,6 +89,13 @@ ARCHIVER_DOWNLOAD_LINK_RE = re.compile(
 )
 ARCHIVER_LOCATION_RE = re.compile(r'document\.location\s*=\s*["\']([^"\']+)["\']')
 
+# Image Limits box on the ExHentai homepage: "You are currently at <b>1234</b> towards a limit of <b>5000</b>."
+IMAGE_LIMIT_RE = re.compile(
+    r"You are currently at\s*<[^>]*>\s*([0-9][0-9,]*)\s*</[^>]*>\s*towards a limit of\s*<[^>]*>\s*([0-9][0-9,]*)\s*</",
+    re.IGNORECASE,
+)
+IMAGE_LIMIT_SIMPLE_RE = re.compile(r"Image Limit[^0-9]*([0-9][0-9,]*)\s*/\s*([0-9][0-9,]*)", re.IGNORECASE)
+
 
 def _page_token_from_href(absolute: str) -> str | None:
     """Extract the 10-hex pToken from a viewer URL (mirrors Ehviewer_CN_SXJ).
@@ -1470,6 +1477,32 @@ class EhClient:
         if not match:
             return None
         return int(float(match.group(1).replace(",", "")) * 1000)
+
+    async def fetch_image_limits(self) -> dict[str, int] | None:
+        """Read current / max image limits from the ExHentai homepage.
+
+        The homepage box says "You are currently at X towards a limit of Y".
+        Returns ``{"current": int, "limit": int}`` or None if unreachable or
+        not logged in (Sad Panda page has no limits).
+        """
+        try:
+            response = await self._get("/")
+        except EhClientError:
+            return None
+        body = response.text
+        if _is_auth_failure_page(body):
+            return None
+        match = IMAGE_LIMIT_RE.search(body)
+        if not match:
+            match = IMAGE_LIMIT_SIMPLE_RE.search(body)
+        if not match:
+            return None
+        try:
+            current = int(match.group(1).replace(",", ""))
+            limit = int(match.group(2).replace(",", ""))
+        except (ValueError, IndexError):
+            return None
+        return {"current": current, "limit": limit}
 
     async def request_archive(self, url: str, dltype: str) -> str:
         """Ask ExHentai to build the archive zip and return its download URL.

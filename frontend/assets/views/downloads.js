@@ -65,8 +65,23 @@ async function loadQuota() {
     const at = data.checked_at ? fmtDateTime(data.checked_at) : "";
     gpEl.textContent = `${t("gpTitle")}: ${gp}${at ? ` (${at})` : ""}` + (data.cached ? " · cached" : "");
     if (quotaEl) {
-      if (data.error) quotaEl.textContent = ` · ${data.error}`;
-      else quotaEl.textContent = "";
+      const lim = data.image_limit || data.image_limits || null;
+      let limText = "";
+      if (lim && lim.current != null && lim.limit) {
+        limText = ` · ${t("imageLimitTitle")}: ${lim.current}/${lim.limit}`;
+        // Near limit warning (>80%) – also push to top banner
+        try {
+          if (lim.limit > 0 && lim.current / lim.limit > 0.8) {
+            app.session.quota_warning = `${t("imageLimitTitle")}: ${lim.current}/${lim.limit} — ${t("pauseHint") || "near limit"}`;
+            updateBanner();
+          } else if (app.session && app.session.quota_warning) {
+            delete app.session.quota_warning;
+            updateBanner();
+          }
+        } catch (_) {}
+      }
+      if (data.error) quotaEl.textContent = limText + ` · ${data.error}`;
+      else quotaEl.textContent = limText;
     }
   } catch (_) {
     gpEl.textContent = `${t("gpTitle")}: —`;

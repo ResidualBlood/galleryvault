@@ -78,7 +78,9 @@ class TelegramBotService:
             try:
                 if app_state.session_factory:
                     async with app_state.session_factory() as session, session.begin():
-                        await SettingsRepository(session).save({"global_paused": value})
+                        existing = await SettingsRepository(session).get()
+                        merged = {**existing, "global_paused": value}
+                        await SettingsRepository(session).save(merged)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("global pause persist failed", extra={"error": type(exc).__name__})
 

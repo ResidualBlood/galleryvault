@@ -50,7 +50,9 @@ async def set_pause(body: dict) -> dict[str, object]:
         if app_state.session_factory:
             async for session in get_session():
                 async with session.begin():
-                    await SettingsRepository(session).save({"global_paused": paused})
+                    existing = await SettingsRepository(session).get()
+                    merged = {**existing, "global_paused": paused}
+                    await SettingsRepository(session).save(merged)
                 break
     except Exception as exc:
         from ..dependencies import db_error
@@ -82,7 +84,7 @@ def _get_gp_lock():
 
 @router.get("/api/quota")
 async def get_quota() -> dict[str, object]:
-    """Cached GP balance + 509 hint (low-frequency, 30 min TTL)."""
+    """Cached GP balance + Image Limits (low-frequency, 30 min TTL)."""
     from datetime import UTC, datetime
 
     settings = app_state.settings or get_settings()
@@ -100,6 +102,8 @@ async def get_quota() -> dict[str, object]:
     if not is_stale and cache.get("balance") is not None:
         return {
             "gp": cache.get("balance"),
+            "image_limit": cache.get("image_limit"),
+            "image_limits": cache.get("image_limit"),
             "checked_at": cache.get("checked_at"),
             "error": cache.get("error"),
             "cached": True,
@@ -110,6 +114,8 @@ async def get_quota() -> dict[str, object]:
         # Return stale cache while refresh is in progress
         return {
             "gp": cache.get("balance"),
+            "image_limit": cache.get("image_limit"),
+            "image_limits": cache.get("image_limit"),
             "checked_at": cache.get("checked_at"),
             "error": cache.get("error"),
             "cached": True,
@@ -123,11 +129,19 @@ async def get_quota() -> dict[str, object]:
             try:
                 age = (now - datetime.fromisoformat(str(checked_at))).total_seconds()
                 if age <= _GP_CACHE_TTL and cache.get("balance") is not None:
-                    return {"gp": cache["balance"], "checked_at": checked_at, "error": cache.get("error"), "cached": True}
+                    return {
+                        "gp": cache["balance"],
+                        "image_limit": cache.get("image_limit"),
+                        "image_limits": cache.get("image_limit"),
+                        "checked_at": checked_at,
+                        "error": cache.get("error"),
+                        "cached": True,
+                    }
             except Exception:  # noqa: BLE001, S110
                 pass
-        # Fetch
+        # Fetch GP + Image Limits (both low-frequency, same cache)
         balance = None
+        image_limit = cache.get("image_limit")
         error = None
         try:
             client = app_state.eh_client
@@ -136,28 +150,43 @@ async def get_quota() -> dict[str, object]:
 
                 async with EhClient(settings, max_concurrency=settings.exhentai_max_concurrency) as tmp:
                     balance = await tmp.fetch_gp_balance()
+                    try:
+                        image_limit = await tmp.fetch_image_limits()
+                    except Exception:  # noqa: BLE001, S110
+                        pass
             else:
                 balance = await client.fetch_gp_balance()
+                try:
+                    image_limit = await client.fetch_image_limits()
+                except Exception:  # noqa: BLE001, S110
+                    pass
         except Exception as exc:  # noqa: BLE001
             error = type(exc).__name__ + ": " + str(exc)[:120]
             # Keep old balance if exists
             balance = cache.get("balance")
+            image_limit = cache.get("image_limit")
         new_cache = {
             "balance": balance,
+            "image_limit": image_limit,
             "checked_at": datetime.now(UTC).isoformat(),
             "error": error,
         }
         app_state.extra["gp_cache"] = new_cache
-        return {"gp": balance, "checked_at": new_cache["checked_at"], "error": error, "cached": False}
+        return {
+            "gp": balance,
+            "image_limit": image_limit,
+            "image_limits": image_limit,
+            "checked_at": new_cache["checked_at"],
+            "error": error,
+            "cached": False,
+        }
 
 
 @router.post("/api/scan", status_code=202)
 async def trigger_scan() -> dict[str, object]:
     settings = app_state.settings or get_settings()
     if getattr(settings, "global_paused", False):
-        from fastapi import HTTPException as _HTTPException
-
-        raise _HTTPException(status_code=423, detail="Global paused: scan is disabled")
+        return {"status": "paused", "detail": "Global paused: scan is disabled"}
     tm = get_task_manager()
     if not tm.scan_state["running"]:
         tm.scan_state["running"] = True
