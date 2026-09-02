@@ -29,6 +29,10 @@ function cycleReaderMode() {
 }
 
 async function renderReader() {
+  if (readerTouchCleanup) {
+    readerTouchCleanup();
+    readerTouchCleanup = null;
+  }
   const id = app.params.id;
   const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const mode = getReaderMode();
@@ -262,12 +266,7 @@ function toggleReaderFullscreen() {
 }
 
 function enterReaderFullscreen() {
-  const mode = getReaderMode();
-  const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
-  const isDouble = mode.startsWith("double") && page > 0;
-  const targetEl = isDouble
-    ? (document.querySelector(".reader-spread") || document.getElementById("reader-img"))
-    : document.getElementById("reader-img");
+  const targetEl = document.querySelector(".reader");
   if (!targetEl || !targetEl.requestFullscreen) return;
 
   readerFitBeforeFs = targetEl.getAttribute("style") || "";
@@ -285,7 +284,7 @@ function exitReaderFullscreen() {
 
 function clearReaderFsState() {
   readerFsActive = false;
-  const el = document.querySelector(".reader-spread") || document.getElementById("reader-img");
+  const el = document.querySelector(".reader");
   if (el && readerFitBeforeFs) el.setAttribute("style", readerFitBeforeFs);
   readerFitBeforeFs = "";
 }
