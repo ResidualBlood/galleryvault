@@ -7,8 +7,7 @@ RUN apt-get update \
     && rm -rf /usr/share/doc /usr/share/man /usr/share/locale \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 
-# Run the server as an unprivileged user (see entrypoint.sh, which chowns the
-# writable mount roots and drops privileges before starting uvicorn).
+# Base unprivileged user (can be mapped dynamically to PUID/PGID at runtime via entrypoint.sh)
 RUN useradd --uid 10001 --create-home app
 
 # Dependencies first: this layer is cached unless requirements.txt changes,

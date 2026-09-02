@@ -1,34 +1,43 @@
 #!/bin/sh
-# Entrypoint: run as the unprivileged `app` user after making the writable
-# mount roots owned by it. /library is read-only and never touched.
+# Entrypoint: run with custom PUID/PGID if specified, otherwise default to root.
+# /library is read-only and never touched.
 set -e
 
-# asyncpg probes ~/.postgresql for client certificates; point HOME at the app
-# user's home so it falls back to plain (non-SSL) connections instead of
-# trying to read /root/.postgresql as an unprivileged user.
-export HOME=/home/app
+TARGET_UID="${PUID:-0}"
+TARGET_GID="${PGID:-$TARGET_UID}"
 
-if [ "$(id -u)" = "0" ]; then
-    # Ownership of the mount roots. The thumbnail/cache tree is chowned
-    # recursively so legacy root-owned subdirectories (remote-covers, thumbs)
-    # stay writable for the app user; the downloads tree is only chowned at the
-    # root to keep startup fast (the app creates subdirectories as it goes).
-    chown app:app /downloads 2>/dev/null || true
-    # Ensure logs directory exists and is owned by app:app
-    mkdir -p /gv-cache/logs 2>/dev/null || true
-    chown -R app:app /gv-cache/logs 2>/dev/null || true
-    # The recursive cache chown walks 14 GB / hundreds of thousands of files
-    # and takes seconds, but is only needed to repair legacy root-owned files.
-    # Runtime writes come from the `app` user, so do it once (marker file) and
-    # skip it on later boots.  A fresh/emptied cache has no marker, so a reset
-    # re-runs the repair automatically.
-    if [ ! -f /gv-cache/.gv-ownership ]; then
-        chown -R app:app /gv-cache 2>/dev/null || true
-        touch /gv-cache/.gv-ownership
-    fi
-    exec setpriv --reuid=app --regid=app --init-groups "$0" "$@"
+if [ "$TARGET_UID" = "0" ] || [ -z "$TARGET_UID" ]; then
+    # Default: run as root (no privilege dropping or chown needed)
+    export HOME=/root
+    mkdir -p /downloads /gv-cache/logs 2>/dev/null || true
+    alembic upgrade head
+    exec uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips="172.16.0.0/12,127.0.0.1"
 fi
 
+# Custom UID/GID requested: drop privileges if currently running as root
+if [ "$(id -u)" = "0" ]; then
+    export HOME=/home/app
+
+    # Sync app user and group to the requested UID/GID
+    groupmod -o -g "$TARGET_GID" app 2>/dev/null || true
+    usermod -o -u "$TARGET_UID" -g "$TARGET_GID" app 2>/dev/null || true
+
+    mkdir -p /home/app /downloads /gv-cache/logs 2>/dev/null || true
+    chown "$TARGET_UID:$TARGET_GID" /home/app /downloads 2>/dev/null || true
+    chown -R "$TARGET_UID:$TARGET_GID" /gv-cache/logs 2>/dev/null || true
+
+    # Fix ownership for cache tree once per UID/GID combination
+    MARKER="/gv-cache/.gv-ownership-${TARGET_UID}-${TARGET_GID}"
+    if [ ! -f "$MARKER" ]; then
+        chown -R "$TARGET_UID:$TARGET_GID" /gv-cache 2>/dev/null || true
+        touch "$MARKER"
+    fi
+
+    exec setpriv --reuid="$TARGET_UID" --regid="$TARGET_GID" --init-groups "$0" "$@"
+fi
+
+# Re-executed as the unprivileged user
+export HOME=/home/app
 alembic upgrade head
 # --proxy-headers: trust the nginx reverse proxy's X-Forwarded-* so login rate
 # limiting keys on the real client IP instead of the shared proxy IP.  Only the
