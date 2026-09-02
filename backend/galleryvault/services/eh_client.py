@@ -635,7 +635,10 @@ class EhClient:
                 "ExHentai returned HTTP error", extra=log_extra(status=status)
             )
             if status == 404:
-                raise GalleryGoneError("gallery does not exist on ExHentai (404)") from exc
+                path = exc.request.url.path
+                if path.startswith("/g/"):
+                    raise GalleryGoneError("gallery does not exist on ExHentai (404)") from exc
+                raise EhClientError(f"ExHentai request returned 404: {path}") from exc
             if status in (429, 509):
                 raise EhClientError(f"ExHentai rate limited (HTTP {status})") from exc
             raise EhClientError("ExHentai returned an HTTP error") from exc
@@ -718,6 +721,7 @@ class EhClient:
         # galleries are downloaded, not just the first screenful.
         page_hrefs: list[str] = []
         seen: set[str] = set()
+        gid_pattern = re.compile(rf"/s/[0-9a-fA-F]+/{int(gid)}-\d+", re.IGNORECASE)
 
         def _collect_hrefs(page_body: str, limit: int | None = None) -> int:
             """Collect viewer hrefs from one gallery page; returns count added."""
@@ -725,7 +729,7 @@ class EhClient:
             for href in re.findall(
                 r'<a[^>]+href=["\']([^"\']+)["\']', page_body, re.IGNORECASE
             ):
-                if re.search(r"/s/", href) and href not in seen:
+                if gid_pattern.search(href) and href not in seen:
                     seen.add(href)
                     page_hrefs.append(href)
                     collected += 1

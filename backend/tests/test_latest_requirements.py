@@ -5,6 +5,7 @@ import pytest
 from galleryvault.config import EDITABLE_SETTINGS, Settings
 from galleryvault.services.eh_client import (
     EhClient,
+    EhClientError,
     GalleryGoneError,
     _parse_category,
     _parse_favorite_categories,
@@ -110,6 +111,58 @@ async def test_exhentai_404_raises_gallery_gone() -> None:
         client = EhClient(client=http_client)
         with pytest.raises(GalleryGoneError):
             await client.fetch_gallery_metadata(12345, "sometoken")
+
+
+@pytest.mark.asyncio
+async def test_exhentai_page_404_raises_eh_client_error_not_gallery_gone() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.startswith("/s/")
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(client=http_client)
+        with pytest.raises(EhClientError) as exc_info:
+            await client._get("/s/abc12345/12345-1")
+        assert not isinstance(exc_info.value, GalleryGoneError)
+
+
+@pytest.mark.asyncio
+async def test_fetch_gallery_filters_out_comment_and_external_links() -> None:
+    html_content = """
+    <html>
+    <head><title>Test Gallery - ExHentai.org</title></head>
+    <body>
+    <h1 id="gn">Test Gallery</h1>
+    <h1 id="gj">テストギャラリー</h1>
+    <div id="gdt">
+        <a href="https://exhentai.test/s/aaaa1111/12345-1">Page 1</a>
+        <a href="https://exhentai.test/s/bbbb2222/12345-2">Page 2</a>
+    </div>
+    <div id="cdiv">
+        <p>Check out another gallery at <a href="https://exhentai.test/s/cccc3333/99999-1">Other Gallery Page</a></p>
+        <p>Or invalid link <a href="https://exhentai.test/s/dddd4444/invalid">Invalid</a></p>
+    </div>
+    </body>
+    </html>
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api.php":
+            return httpx.Response(200, json={"gmetadata": [{"gid": 12345, "filecount": "2"}]})
+        if request.url.path.startswith("/g/12345/token123"):
+            return httpx.Response(200, text=html_content)
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.test", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(client=http_client)
+        gallery = await client.fetch_gallery(12345, "token123", resolve_urls=False)
+        assert len(gallery.pages) == 2
+        assert gallery.pages[0].url == "https://exhentai.test/s/aaaa1111/12345-1"
+        assert gallery.pages[1].url == "https://exhentai.test/s/bbbb2222/12345-2"
 
 
 @pytest.mark.asyncio
