@@ -261,6 +261,25 @@ class FavoriteData:
 
 
 @dataclass(frozen=True)
+class SearchGallery:
+    gid: int
+    token: str
+    title: str
+    url: str
+    thumb: str | None = None
+    category: str | None = None
+    pages: int | None = None
+    rating: float | None = None
+
+
+@dataclass
+class EhSearchResult:
+    items: list[SearchGallery]
+    next_cursor: str | None = None
+    state: str = "ok"
+
+
+@dataclass(frozen=True)
 class ArchiveInfo:
     """Cost / size / form data parsed from an ExHentai archiver.php page.
 
@@ -509,6 +528,209 @@ def _favorites_next_url(body: str) -> str:
     if not value or "next=" not in value:
         return ""
     return value
+
+
+_NEXT_CURSOR_RE = re.compile(r"^\d+-\d+$")
+
+
+def _cursor_from_url(value: str) -> str | None:
+    if not value:
+        return None
+    qs = parse_qs(urlparse(html.unescape(value)).query)
+    cur = (qs.get("next") or [""])[0].strip()
+    if _NEXT_CURSOR_RE.fullmatch(cur):
+        return cur
+    return None
+
+
+def _search_next_cursor(body: str) -> str | None:
+    """ExHentai list paging cursor (``next=gid-ts``), same source as favorites."""
+    cur = _cursor_from_url(_favorites_next_url(body))
+    if cur:
+        return cur
+    unext = re.search(
+        r'<a[^>]+id=["\']unext["\'][^>]*href=["\']([^"\']+)["\']',
+        body,
+        re.IGNORECASE,
+    )
+    if not unext:
+        unext = re.search(
+            r'<a[^>]+href=["\']([^"\']+)["\'][^>]*id=["\']unext["\']',
+            body,
+            re.IGNORECASE,
+        )
+    if unext:
+        cur = _cursor_from_url(unext.group(1))
+        if cur:
+            return cur
+    fallback = re.search(r"[?&]next=(\d+-\d+)", body)
+    if fallback:
+        return fallback.group(1)
+    return None
+
+
+def _search_item_window(body: str, gid: int, token: str) -> str:
+    needle = f"/g/{gid}/{token}"
+    idx = body.find(needle)
+    if idx < 0:
+        idx = body.find(f"/g/{gid}/")
+    if idx < 0:
+        return ""
+    start = body.rfind("<tr", 0, idx)
+    if start < 0:
+        gl1t = body.rfind('class="gl1t"', 0, idx)
+        if gl1t >= 0:
+            start = body.rfind("<div", 0, gl1t + 1)
+    if start < 0:
+        start = max(0, idx - 1500)
+        for match in re.finditer(r"/g/(\d+)/", body[start:idx]):
+            if int(match.group(1)) != gid:
+                start = start + match.end()
+    end = body.find("</tr>", idx)
+    if end < 0 or end > idx + 4000:
+        end = idx + 800
+        nxt = re.search(rf"/g/(?!{gid}\b)\d+/", body[idx + 10 : idx + 2000])
+        if nxt:
+            end = idx + 10 + nxt.start()
+    else:
+        end += 5
+    return body[start:end]
+
+
+def _search_thumb(snippet: str) -> str | None:
+    for match in re.finditer(r'<img[^>]+src=["\']([^"\']+)["\']', snippet, re.IGNORECASE):
+        src = html.unescape(match.group(1)).strip()
+        low = src.lower()
+        if not src or src.startswith("data:"):
+            continue
+        if any(skip in low for skip in ("/509.gif", "/509s.gif", "blank.gif")):
+            continue
+        return src
+    return None
+
+
+def _search_pages(snippet: str) -> int | None:
+    match = re.search(r"(\d+)\s*pages?", snippet, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def _search_rating(snippet: str) -> float | None:
+    match = re.search(r"Average:\s*([0-9]+(?:\.[0-9]+)?)", snippet, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _search_category(snippet: str) -> str | None:
+    match = re.search(
+        r'<div[^>]+class=["\']c[sn][^"\']*["\'][^>]*>(.*?)</div>',
+        snippet,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        match = re.search(
+            r'<td[^>]+class=["\'][^"\']*glcat[^"\']*["\'][^>]*>(.*?)</td>',
+            snippet,
+            re.IGNORECASE | re.DOTALL,
+        )
+    if not match:
+        return None
+    from ..scanners.base import normalize_category
+
+    return normalize_category(_text(match.group(1)))
+
+
+def parse_search_page(
+    body: str, base_url: str = "https://exhentai.org"
+) -> tuple[list[SearchGallery], str | None]:
+    """Parse an ExHentai gallery listing (search / front page) into rows + cursor.
+
+    Title / thumb / ``next=`` extraction matches ``fetch_favorites`` (same
+    ``parse_gallery_url`` + ``glink`` + ``var nexturl`` style). Category, page
+    count and rating are read from a window around each gallery URL.
+    """
+    thumbs: dict[int, str] = {}
+    for tm in re.finditer(
+        r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>'
+        r'\s*<img[^>]+src=["\']([^"\']+)["\']',
+        body,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        try:
+            tgid, _ = parse_gallery_url(tm.group(1), base_url)
+        except ValueError:
+            continue
+        thumbs[tgid] = html.unescape(tm.group(2))
+    items: list[SearchGallery] = []
+    seen: set[int] = set()
+    for href, label in re.findall(
+        r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>(?![^<]*<img)(.*?)</a>',
+        body,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        try:
+            gid, token = parse_gallery_url(href, base_url)
+        except ValueError:
+            continue
+        if gid in seen:
+            continue
+        seen.add(gid)
+        glink = re.search(
+            r'<div[^>]*class=["\']glink["\'][^>]*>(.*?)</div>',
+            label,
+            re.IGNORECASE | re.DOTALL,
+        )
+        title = _text(glink.group(1)) if glink else _text(label)
+        snippet = _search_item_window(body, gid, token)
+        items.append(
+            SearchGallery(
+                gid,
+                token,
+                title,
+                urljoin(base_url.rstrip("/") + "/", href),
+                thumbs.get(gid) or _search_thumb(snippet),
+                _search_category(snippet),
+                _search_pages(snippet),
+                _search_rating(snippet),
+            )
+        )
+    return items, _search_next_cursor(body)
+
+
+def _search_response_urls(response: httpx.Response) -> list[str]:
+    urls = [str(response.url)]
+    urls.extend(str(hist.url) for hist in (response.history or []))
+    loc = response.headers.get("location")
+    if loc:
+        urls.append(str(loc))
+    return urls
+
+
+def classify_search_response(response: httpx.Response) -> str:
+    """Classify HTTP-level search failures. ``ok`` means continue to the body."""
+    status = response.status_code
+    if status in (429, 509):
+        return "rate_limited"
+    if any("remoteapi.php" in url.lower() for url in _search_response_urls(response)):
+        return "challenge"
+    if status in (401, 403):
+        return "not_logged_in"
+    if "login" in str(response.url).lower():
+        return "not_logged_in"
+    return "ok"
+
+
+def classify_search_body(body: str) -> str:
+    if _is_auth_failure_page(body):
+        return "no_exhentai_access"
+    if not body or not str(body).strip():
+        return "challenge"
+    if "expired login session" in body:
+        return "not_logged_in"
+    return "ok"
 
 
 def _parse_file_size(body: str) -> int | None:
@@ -1257,6 +1479,63 @@ class EhClient:
             url = parsed.path or "/favorites.php"
             params = {key: values[0] for key, values in parse_qs(parsed.query).items()}
         return result
+
+    async def search_galleries(
+        self,
+        *,
+        q: str = "",
+        f_cats: int | None = None,
+        min_rating: float | None = None,
+        next_cursor: str | None = None,
+    ) -> EhSearchResult:
+        """Fetch one ExHentai search / front-page listing (cursor, not ``page=N``).
+
+        Always uses ``_semaphore``. Classifies Sad Panda, empty-body challenges,
+        HTTP 509, cookie expiry, and ``remoteapi.php`` 302 separately so callers
+        never treat them as "no hits".
+        """
+        params: dict[str, object] = {}
+        if q and str(q).strip():
+            params["f_search"] = str(q).strip()
+        if f_cats is not None:
+            params["f_cats"] = int(f_cats)
+        if next_cursor:
+            if not _NEXT_CURSOR_RE.fullmatch(str(next_cursor)):
+                raise ValueError("invalid next cursor")
+            params["next"] = str(next_cursor)
+        if min_rating is not None:
+            srdd = max(2, min(5, int(min_rating)))
+            params["advsearch"] = 1
+            params["f_sr"] = "on"
+            params["f_srdd"] = srdd
+        try:
+            response = await self._request("GET", "/", params=params)
+        except httpx.RequestError as exc:
+            logger.warning("ExHentai search failed", extra=log_extra(error=type(exc).__name__))
+            raise EhClientError("ExHentai request failed") from exc
+        state = classify_search_response(response)
+        if state != "ok":
+            return EhSearchResult(items=[], next_cursor=None, state=state)
+        if response.status_code >= 400:
+            raise EhClientError(f"ExHentai returned HTTP {response.status_code}")
+        try:
+            await response.aread()
+        except httpx.RequestError as exc:
+            raise EhClientError("ExHentai request failed") from exc
+        body = response.text
+        state = classify_search_body(body)
+        if state != "ok":
+            return EhSearchResult(items=[], next_cursor=None, state=state)
+        items, nxt = parse_search_page(body, str(self.settings.exhentai_base_url))
+        if items:
+            return EhSearchResult(items=items, next_cursor=nxt, state="ok")
+        if next_cursor:
+            return EhSearchResult(items=[], next_cursor=None, state="ok")
+        if re.search(r"No hits found", body, re.IGNORECASE):
+            return EhSearchResult(items=[], next_cursor=None, state="empty")
+        if 'name="f_search"' in body or "itg" in body.lower():
+            return EhSearchResult(items=[], next_cursor=None, state="empty")
+        return EhSearchResult(items=[], next_cursor=None, state="challenge")
 
     async def fetch_favorite_categories(self) -> dict[int, str]:
         response = await self._get("/favorites.php")

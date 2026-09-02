@@ -8,6 +8,7 @@ const $view = () => document.getElementById("view");
 const $topbar = () => document.getElementById("topbar");
 
 const selGalleries = new Set();
+const selDiscover = new Set();
 let suggestTimer = null;
 
 let infiniteState = null;

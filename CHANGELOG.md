@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **ExHentai discover search page** (`app/routers/eh.py`, `services/eh_client.py`, frontend `views/discover.js`): new `#/discover` browses/searches ExHentai (not Popular/Watched/Toplist). `GET /api/eh/search` (`q`, `category` as site `f_cats` mask, `min_rating`, `next=gid-ts` cursor — never `page=N`) parses listing HTML like favorites, JOINs local library/favorite badges, and caches the EH payload 90s. Cards show cover/title/category/pages/rating with stackable 已入库/已收藏/未下载 badges; one-click download (`POST /api/downloads`, default resample) and favorite (`POST /api/favorites/add`, cloud-success only). Sad Panda / empty-body challenge / 509 / cookie expiry are distinct from “no hits”; `remoteapi.php` 302 is not cookie failure.
+
 ### Changed
 
 ### Fixed

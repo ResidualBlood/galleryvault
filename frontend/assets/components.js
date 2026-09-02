@@ -39,6 +39,19 @@ function renderCardCheckboxes() {
       update();
     });
   });
+  document.querySelectorAll('.gc-check input[data-discover-gid]').forEach(cb => {
+    if (cb.dataset.bound) return;
+    cb.dataset.bound = "1";
+    cb.addEventListener("change", () => {
+      const gid = parseInt(cb.getAttribute("data-discover-gid"), 10);
+      if (cb.checked) selDiscover.add(gid); else selDiscover.delete(gid);
+      const count = selDiscover.size;
+      const dl = document.querySelector('[data-action="disc-batch-dl"]');
+      if (dl) dl.textContent = count ? `${t("discoverBatchDl")} (${count})` : t("discoverBatchDl");
+      const fav = document.querySelector('[data-action="disc-batch-fav"]');
+      if (fav) fav.textContent = count ? `${t("discoverBatchFav")} (${count})` : t("discoverBatchFav");
+    });
+  });
   document.querySelectorAll('#dup-groups input[data-dup-gid]').forEach(cb => {
     if (cb.dataset.bound) return;
     cb.dataset.bound = "1";

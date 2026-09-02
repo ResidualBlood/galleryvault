@@ -21,6 +21,15 @@ global-pause bar, a red Cookie-expired bar, and an image-quota warning.
 - The gallery grid supports **keyboard arrow navigation** (`←`/`→`/`↑`/`↓`
   moves focus, `Enter` opens the detail page).
 
+## Discover (`#/discover`)
+
+- Browse / search ExHentai in the Web UI (**not** Popular / Watched / Toplist).
+- Toolbar: query, category checkboxes (site `f_cats` bitmask), minimum rating, download quality (resample by default, original optional).
+- Cards: cover, title, category, page count, rating; stackable badges **in library / favorited / not downloaded**.
+- **Download** uses existing `POST /api/downloads`; **Add to favorites** picks folder 0–9 via `POST /api/favorites/add` (**local DB is written only after cloud success**).
+- Infinite scroll uses the site `next=gid-ts` cursor, **not** `page=N`; a short TTL cache avoids re-hitting the first page while scrolling.
+- No hits, Sad Panda, empty-body anti-bot, 509, and cookie expiry are **shown separately** and never treated as “no results” (which would keep paging). Cookie expiry still uses the top red banner.
+
 ## History (`#/history`)
 
 - Lists reading history per gallery (last reading position and time), with direct
