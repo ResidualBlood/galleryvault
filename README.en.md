@@ -16,17 +16,16 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Local gallery library** — scans Ehviewer exports, CBZ/CBR archives and
   plain image folders into a searchable local index (PostgreSQL);
   auto-dedupes same-gid copies across scan roots.
-- **Search & tags** — stackable multi-tag (AND) filters, mixed tag+text
-  queries, Chinese tag translations with reverse lookup, bilingual UI.
-- **ExHentai integration** — sync metadata and tags with your own cookies;
-  favorites monitoring with auto-download and dedupe; auto-update re-uploaded
-  galleries; one-click *Open on ExHentai*.
-- **Download manager** — Ehviewer-style concurrent downloads, resumable
-  retries, self-healing failures, instant ingestion on completion; ExHentai
-  archive (zip) downloads that trade GP for speed with resume without
-  re-charging; Telegram notifications and bot commands.
-- **Reader & UI** — streaming reader (fullscreen, auto-advance), reading
-  history, activity log, first-run wizard.
+- **Search & tags** — multi-tag AND/exclude, mixed tag+text queries, Chinese
+  reverse lookup, library sort and read-status filters, bilingual UI.
+- **ExHentai integration** — sync metadata and tags with your own cookies
+  (expired-cookie banner); favorites monitoring with auto-download and dedupe;
+  auto-update re-uploaded galleries; one-click *Open on ExHentai*.
+- **Download manager** — paste URLs or archive zips, resumable retries,
+  self-healing failures, global pause and GP/quota; instant ingestion;
+  Telegram notifications and bot commands.
+- **Reader & UI** — streaming reader (jump/fullscreen/auto-advance), continue
+  reading, recycle bin and missing-pages check, activity log, first-run wizard.
 - **Security & operations** — PBKDF2 auth, optional encryption at rest
   (AES-256-GCM), root by default or drop privileges with `PUID`/`PGID`;
   one-command deploy and one-click backup.
@@ -143,7 +142,7 @@ The frontend is a dependency-free vanilla-JavaScript SPA (no build step, no CDN)
 Full docs live on the **[📖 Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**:
 
 - [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — compose, volumes, scan-only libraries, hardening, TLS, upgrades
-- [Usage guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — browse, reader, tags, downloads, favorites, logs, settings
+- [Usage guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — browse, reader, tags, downloads, favorites, recycle, logs, settings
 - [Backup & restore](https://github.com/ResidualBlood/galleryvault/wiki/Backup)
 - [Encryption at rest](https://github.com/ResidualBlood/galleryvault/wiki/Encryption) — ENCRYPTION_KEY and lost-key recovery
 - [API reference](https://github.com/ResidualBlood/galleryvault/wiki/API)
