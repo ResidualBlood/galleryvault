@@ -44,6 +44,8 @@ window.GV_LOCALES.en = {
   favListSub: "Galleries in this favorite folder. Select and download or remove from favorites.",
   favDl: "Download selected", favDlQueued: "Download queued", favDlSkip: "already local/skipped",
   favDlOrig: "Download selected original", favDlArchive: "Archive download selected",
+  favMove: "Move selected", favMoveTitle: "Move selected to folder", favMoveTarget: "Target folder", favMoveConfirm: "Confirm Move",
+  favMoved: "Moved to target folder", favMovedPartial: "Moved {count} items, {failed} failed in cloud", current: "current",
   downloadMissing: "Download missing items", downloadMissingStarted: "Backfilling covers & tags…",
   favStateAll: "Show all", favStateLocal: "Local only", favStateCloud: "Cloud only",
   favRemove: "Remove from favorites", confirmFavRemove: "Remove selected from favorites?",

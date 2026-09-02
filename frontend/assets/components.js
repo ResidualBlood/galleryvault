@@ -182,3 +182,87 @@ function showArchiveDialog(gids, opts) {
       });
   });
 }
+
+function showMoveFavoritesDialog(gids, currentFavcat) {
+  return new Promise(async resolve => {
+    let categories = [];
+    try {
+      categories = await api("GET", "/api/favorites/categories");
+    } catch (_) {}
+    if (!Array.isArray(categories) || !categories.length) {
+      categories = Array.from({length: 10}, (_, i) => ({
+        favcat: i,
+        name: favCatNames[i] || ("Folder " + i),
+        cloud_count: 0
+      }));
+    }
+
+    const overlay = document.createElement("div");
+    overlay.className = "gv-overlay";
+
+    const optionsHtml = categories.map(c => {
+      const isCurrent = c.favcat === currentFavcat;
+      const label = `#${c.favcat} ${c.name || ("Folder " + c.favcat)}` + (c.cloud_count != null ? ` (${c.cloud_count})` : "");
+      return `<option value="${c.favcat}"${isCurrent ? " disabled" : ""}>${esc(label)}${isCurrent ? ` (${esc(t("current") || "current")})` : ""}</option>`;
+    }).join("");
+
+    overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true" aria-labelledby="move-title" style="max-width:440px">
+      <h3 id="move-title">${esc(t("favMoveTitle"))}</h3>
+      <div class="gv-modal-body">
+        <p style="margin-bottom:12px">${esc(t("select"))}: <strong>${gids.length}</strong></p>
+        <label style="display:flex;flex-direction:column;gap:6px;font-weight:600">
+          <span>${esc(t("favMoveTarget"))}</span>
+          <select class="select" data-move-target style="width:100%;padding:8px 10px;font-size:14px">
+            ${optionsHtml}
+          </select>
+        </label>
+      </div>
+      <div class="gv-modal-foot" style="justify-content:flex-end">
+        <button class="btn btn-secondary" data-move-cancel type="button">${esc(t("cancel"))}</button>
+        <button class="btn btn-primary" data-move-confirm type="button">${esc(t("favMoveConfirm"))}</button>
+      </div>
+    </div>`;
+
+    let settled = false;
+    const close = (value) => {
+      if (settled) return;
+      settled = true;
+      try { document.removeEventListener('keydown', onKey); } catch (_) {}
+      overlay.remove();
+      resolve(value);
+    };
+
+    overlay.addEventListener("click", e => { if (e.target === overlay) close(null); });
+    overlay.querySelector("[data-move-cancel]").addEventListener("click", () => close(null));
+    overlay.querySelector("[data-move-confirm]").addEventListener("click", () => {
+      const sel = overlay.querySelector("[data-move-target]");
+      const target = sel ? parseInt(sel.value, 10) : null;
+      if (target != null && !isNaN(target) && target >= 0 && target <= 9) {
+        close(target);
+      } else {
+        close(null);
+      }
+    });
+
+    document.body.appendChild(overlay);
+
+    const selEl = overlay.querySelector("[data-move-target]");
+    if (selEl) {
+      const validOpt = Array.from(selEl.options).find(o => !o.disabled);
+      if (validOpt) selEl.value = validOpt.value;
+      selEl.focus();
+    }
+
+    const modalEl = overlay.querySelector('.gv-modal');
+    const focusables = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    const onKey = (e) => {
+      if (e.key === 'Escape') { close(null); return; }
+      if (e.key === 'Tab' && focusables.length) {
+        const first = focusables[0], last = focusables[focusables.length-1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+  });
+}

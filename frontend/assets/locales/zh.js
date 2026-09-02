@@ -103,6 +103,8 @@ window.GV_LOCALES.zh = {
   favListSub: "该收藏夹内的画廊。勾选后可下载或从收藏移除。",
   favDl: "下载所选", favDlQueued: "已加入下载", favDlSkip: "已本地/跳过",
   favDlOrig: "下载所选原图", favDlArchive: "归档下载所选",
+  favMove: "移动所选", favMoveTitle: "移动所选到收藏夹", favMoveTarget: "目标收藏夹", favMoveConfirm: "确认移动",
+  favMoved: "已移动到目标收藏夹", favMovedPartial: "已移动 {count} 项，云端失败 {failed} 项", current: "当前",
   downloadMissing: "下载缺失项目", downloadMissingStarted: "正在补拉封面与标签…",
   favStateAll: "全部显示", favStateLocal: "仅显示本地", favStateCloud: "仅显示云端",
   favRemove: "移除收藏", confirmFavRemove: "将所选从收藏夹移除？",
