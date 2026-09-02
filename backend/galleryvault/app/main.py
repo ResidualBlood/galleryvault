@@ -278,6 +278,9 @@ from .lifespan import (
     cleanup_partial_downloads as _cleanup_partial_downloads,
 )
 from .lifespan import (
+    hydrate_startup_logs as _hydrate_startup_logs,
+)
+from .lifespan import (
     stop_background_tasks as _stop_background_tasks,
 )
 from .lifespan import (
@@ -954,6 +957,7 @@ async def startup() -> None:
 
     # Canonical source is app_state; keep app.state in sync for legacy monkeypatch compat
     _sync_state()
+    _hydrate_startup_logs()
     if not hasattr(app.state, "spawned_tasks") or not isinstance(getattr(app.state, "spawned_tasks", None), set):
         app.state.spawned_tasks = set()
     app_state.extra["spawned_tasks"] = app.state.spawned_tasks

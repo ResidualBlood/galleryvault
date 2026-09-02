@@ -73,3 +73,13 @@ async def stop_background_tasks(
     for task in list(tasks_to_cancel):
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
+
+
+def hydrate_startup_logs(max_lines: int = 500) -> None:
+    """Hydrate memory ring buffer from historical log files during startup."""
+    try:
+        from ..logging import hydrate_recent_logs
+
+        hydrate_recent_logs(max_lines=max_lines)
+    except Exception as exc:
+        logger.debug("startup log hydration skipped", exc_info=exc)

@@ -244,34 +244,48 @@ def test_system_logs_api_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     resp_dl = client.get("/api/system/logs/download")
     assert resp_dl.status_code == 200
     assert "text/plain" in resp_dl.headers.get("content-type", "")
-    assert "galleryvault.log" in resp_dl.headers.get("content-disposition", "")
+    assert "galleryvault-" in resp_dl.headers.get("content-disposition", "")
 
 
 def test_file_rotation_and_hydration(tmp_path: Path) -> None:
     log_file = tmp_path / "test_gv.log"
+    log_file_1 = tmp_path / "test_gv.log.1"
     handler = RingBufferHandler(capacity=50)
 
-    # Write synthetic log lines into file
+    # Write rotated backup (.1) and current (.log)
+    log_file_1.write_text(
+        "2026-09-02T12:00:00+08:00 INFO     test_runner: oldest line in backup [task_id=10]\n",
+        encoding="utf-8",
+    )
     log_file.write_text(
-        "2026-09-02T12:00:00+08:00 INFO     test_runner: first historical line [task_id=10]\n"
-        "2026-09-02T12:00:01+08:00 WARNING  test_runner: second historical warning [gid=123]\n"
-        '{"time": "2026-09-02T12:00:02+08:00", "level": "ERROR", "logger": "json_logger", "message": "json error line", "gid": 456}\n',
+        "2026-09-02T12:00:01+08:00 WARNING  test_runner: second warning [gid=123]\n"
+        "2026-09-02T12:00:02+08:00 ERROR    test_runner: crash occurred [gid=789]\n"
+        "Traceback (most recent call last):\n"
+        '  File "app.py", line 42, in crash\n'
+        "RuntimeError: connection severed\n"
+        '{"time": "2026-09-02T12:00:03+08:00", "level": "INFO", "logger": "json_logger", "message": "json line", "gid": 456}\n',
         encoding="utf-8",
     )
 
-    handler.hydrate_from_file(log_file, max_lines=10)
+    handler.hydrate_from_file(log_file, max_lines=10, backup_count=3)
     logs = handler.get_logs(min_level="DEBUG", limit=10)
 
-    assert len(logs) == 3
+    assert len(logs) == 4
     # logs are ordered newest first
-    assert logs[0]["message"] == "json error line"
-    assert logs[0]["level"] == "ERROR"
+    assert logs[0]["message"] == "json line"
+    assert logs[0]["level"] == "INFO"
     assert logs[0]["context"]["gid"] == 456
 
-    assert logs[1]["message"] == "second historical warning"
-    assert logs[1]["level"] == "WARNING"
-    assert logs[1]["context"]["gid"] == "123"
+    assert logs[1]["message"] == "crash occurred"
+    assert logs[1]["level"] == "ERROR"
+    assert logs[1]["exception_type"] == "RuntimeError"
+    assert "Traceback (most recent call last):" in logs[1]["exception"]
+    assert "RuntimeError: connection severed" in logs[1]["exception"]
 
-    assert logs[2]["message"] == "first historical line"
-    assert logs[2]["level"] == "INFO"
-    assert logs[2]["context"]["task_id"] == "10"
+    assert logs[2]["message"] == "second warning"
+    assert logs[2]["level"] == "WARNING"
+    assert logs[2]["context"]["gid"] == "123"
+
+    assert logs[3]["message"] == "oldest line in backup"
+    assert logs[3]["level"] == "INFO"
+    assert logs[3]["context"]["task_id"] == "10"

@@ -235,6 +235,109 @@ _default_formatter = logging.Formatter()
 _LOG_LINE_RE = re.compile(
     r"^(?P<time>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+(?P<level>[A-Z]+)\s+(?P<logger>[^:]+):\s+(?P<message>.*)$"
 )
+_EXC_TYPE_RE = re.compile(
+    r"^(?:[a-zA-Z0-9_\.]+\.)?(?P<type>[A-Za-z0-9_]*(?:Error|Exception|Warning)):"
+)
+
+
+def _parse_log_lines(raw_lines: list[str]) -> list[dict[str, Any]]:
+    parsed_entries: list[dict[str, Any]] = []
+    for raw_line in raw_lines:
+        line = raw_line.rstrip("\r\n")
+        if not line:
+            continue
+        # Case 1: JSON log line
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                data = json.loads(line)
+                level = str(data.get("level", "INFO")).upper()
+                parsed_entries.append({
+                    "id": 0,
+                    "time": str(data.get("time", "")),
+                    "timestamp": time.time(),
+                    "level": level,
+                    "levelno": getattr(logging, level, logging.INFO),
+                    "logger": str(data.get("logger", "app")),
+                    "message": str(data.get("message", "")),
+                    "request_id": str(data.get("request_id", "")) or None,
+                    "context": {
+                        k: v
+                        for k, v in data.items()
+                        if k
+                        not in (
+                            "time",
+                            "level",
+                            "logger",
+                            "message",
+                            "request_id",
+                            "exception",
+                            "exception_type",
+                            "stack_info",
+                        )
+                    },
+                    "exception": data.get("exception"),
+                    "exception_type": data.get("exception_type"),
+                })
+                continue
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        # Case 2: New standard text log line
+        m = _LOG_LINE_RE.match(line)
+        if m:
+            level = m.group("level").upper()
+            msg = m.group("message")
+            context: dict[str, Any] = {}
+            if " [" in msg and msg.endswith("]"):
+                prefix, suffix = msg.rsplit(" [", 1)
+                msg = prefix
+                suffix = suffix[:-1]
+                for pair in suffix.split(" "):
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        context[k] = v.strip("'\"")
+            parsed_entries.append({
+                "id": 0,
+                "time": m.group("time"),
+                "timestamp": time.time(),
+                "level": level,
+                "levelno": getattr(logging, level, logging.INFO),
+                "logger": m.group("logger").strip(),
+                "message": msg,
+                "request_id": context.pop("request_id", None),
+                "context": context,
+                "exception": None,
+                "exception_type": None,
+            })
+            continue
+
+        # Case 3: Continuation / Traceback line attached to previous entry
+        if parsed_entries:
+            prev = parsed_entries[-1]
+            if prev["exception"]:
+                prev["exception"] += f"\n{line}"
+            else:
+                prev["exception"] = line
+            if not prev["exception_type"]:
+                exc_m = _EXC_TYPE_RE.search(line)
+                if exc_m:
+                    prev["exception_type"] = exc_m.group("type")
+        else:
+            # Fallback unmatched line without predecessor
+            parsed_entries.append({
+                "id": 0,
+                "time": "",
+                "timestamp": time.time(),
+                "level": "INFO",
+                "levelno": logging.INFO,
+                "logger": "system",
+                "message": line,
+                "request_id": None,
+                "context": {},
+                "exception": None,
+                "exception_type": None,
+            })
+    return parsed_entries
 
 
 class RingBufferHandler(logging.Handler):
@@ -247,83 +350,38 @@ class RingBufferHandler(logging.Handler):
         self._lock = threading.Lock()
         self._seq = 0
 
-    def hydrate_from_file(self, file_path: str | Path, max_lines: int = 200) -> None:
-        """Preload the latest N lines from log file into buffer on startup."""
+    def hydrate_from_file(
+        self, file_path: str | Path, max_lines: int = 500, backup_count: int = 3
+    ) -> None:
+        """Preload recent lines across main log and rotated history files into buffer."""
         path = Path(file_path)
-        if not path.exists() or not path.is_file():
+        candidates = [
+            path.with_name(f"{path.name}.{i}") for i in range(backup_count, 0, -1)
+        ] + [path]
+        valid_files = [f for f in candidates if f.exists() and f.is_file()]
+        if not valid_files:
             return
+
+        all_lines: list[str] = []
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-            recent_lines = lines[-max_lines:] if len(lines) > max_lines else lines
-            with self._lock:
-                for raw_line in recent_lines:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    if line.startswith("{") and line.endswith("}"):
-                        try:
-                            data = json.loads(line)
-                            self._seq += 1
-                            level = str(data.get("level", "INFO")).upper()
-                            self.buffer.append({
-                                "id": self._seq,
-                                "time": str(data.get("time", "")),
-                                "timestamp": time.time(),
-                                "level": level,
-                                "levelno": getattr(logging, level, logging.INFO),
-                                "logger": str(data.get("logger", "app")),
-                                "message": str(data.get("message", "")),
-                                "request_id": str(data.get("request_id", "")) or None,
-                                "context": {
-                                    k: v
-                                    for k, v in data.items()
-                                    if k
-                                    not in (
-                                        "time",
-                                        "level",
-                                        "logger",
-                                        "message",
-                                        "request_id",
-                                        "exception",
-                                        "stack_info",
-                                    )
-                                },
-                                "exception": data.get("exception"),
-                                "exception_type": data.get("exception_type"),
-                            })
-                            continue
-                        except Exception:  # noqa: BLE001, S110
-                            pass
-                    m = _LOG_LINE_RE.match(line)
-                    if m:
-                        self._seq += 1
-                        level = m.group("level").upper()
-                        msg = m.group("message")
-                        context = {}
-                        if " [" in msg and msg.endswith("]"):
-                            prefix, suffix = msg.rsplit(" [", 1)
-                            msg = prefix
-                            suffix = suffix[:-1]
-                            for pair in suffix.split(" "):
-                                if "=" in pair:
-                                    k, v = pair.split("=", 1)
-                                    context[k] = v.strip("'\"")
-                        self.buffer.append({
-                            "id": self._seq,
-                            "time": m.group("time"),
-                            "timestamp": time.time(),
-                            "level": level,
-                            "levelno": getattr(logging, level, logging.INFO),
-                            "logger": m.group("logger").strip(),
-                            "message": msg,
-                            "request_id": context.pop("request_id", None),
-                            "context": context,
-                            "exception": None,
-                            "exception_type": None,
-                        })
-        except Exception:  # noqa: BLE001, S110
-            pass
+            for f in valid_files:
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    all_lines.extend(fh.readlines())
+        except Exception:  # noqa: BLE001
+            return
+
+        if not all_lines:
+            return
+
+        recent_lines = all_lines[-max_lines:] if len(all_lines) > max_lines else all_lines
+        parsed = _parse_log_lines(recent_lines)
+
+        with self._lock:
+            if not self.buffer:
+                for entry in parsed:
+                    self._seq += 1
+                    entry["id"] = self._seq
+                    self.buffer.append(entry)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -412,6 +470,13 @@ def clear_recent_logs() -> None:
     _ring_buffer_handler.clear()
 
 
+def hydrate_recent_logs(max_lines: int = 500) -> None:
+    """Explicitly trigger hydration from disk log files into the in-memory ring buffer."""
+    log_path = get_log_file_path()
+    if log_path:
+        _ring_buffer_handler.hydrate_from_file(log_path, max_lines=max_lines)
+
+
 def get_log_level() -> str:
     return logging.getLevelName(logging.getLogger().level)
 
@@ -461,9 +526,12 @@ def configure_logging(
             file_handler.addFilter(access_filter)
             handlers.append(file_handler)
             _current_log_file = log_path
-            _ring_buffer_handler.hydrate_from_file(log_path)
+        except (PermissionError, OSError) as exc:
+            sys.stderr.write(
+                f"Warning: could not initialize file logger at {log_file} ({exc}); falling back to in-memory logs.\n"
+            )
         except Exception as exc:  # noqa: BLE001
-            sys.stderr.write(f"Failed to initialize log file handler: {exc}\n")
+            sys.stderr.write(f"Warning: unexpected error initializing file logger ({exc})\n")
 
     root = logging.getLogger()
     root.handlers[:] = handlers

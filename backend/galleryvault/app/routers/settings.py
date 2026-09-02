@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Response
@@ -198,8 +199,12 @@ async def system_logs_get(
 ) -> dict[str, object]:
     """Retrieve recent system logs from the in-memory ring buffer."""
     capped_limit = max(1, min(limit, 500))
+    log_path = get_log_file_path()
+    file_exists = bool(log_path and log_path.exists() and log_path.is_file())
     return {
         "level": get_log_level(),
+        "log_mode": "file" if file_exists else "memory",
+        "log_file": str(log_path) if file_exists else None,
         "logs": get_recent_logs(min_level=min_level, limit=capped_limit, search=search),
     }
 
@@ -222,14 +227,21 @@ async def system_logs_clear() -> dict[str, str]:
 async def system_logs_download() -> Response:
     """Download the current on-disk system log file or serialize memory ring buffer."""
     log_path = get_log_file_path()
+    timestamp_str = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    download_filename = f"galleryvault-{timestamp_str}.log"
+
     if log_path and log_path.exists() and log_path.is_file():
         return FileResponse(
             str(log_path),
             media_type="text/plain; charset=utf-8",
-            filename="galleryvault.log",
+            filename=download_filename,
         )
     recent = get_recent_logs(min_level="DEBUG", limit=2000)
-    lines: list[str] = []
+    lines: list[str] = [
+        f"# [GalleryVault Runtime Logs - In-Memory Fallback - {datetime.now(UTC).isoformat()}]",
+        "# (Log file not present on disk; displaying recent memory ring buffer records)",
+        "",
+    ]
     for it in reversed(recent):
         ctx_str = " ".join(f"{k}={v!r}" for k, v in it.get("context", {}).items())
         line = f"{it.get('time')} {it.get('level', 'INFO'):<8} {it.get('logger', 'app')}: {it.get('message')}"
@@ -242,6 +254,6 @@ async def system_logs_download() -> Response:
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="galleryvault.log"'},
+        headers={"Content-Disposition": f'attachment; filename="{download_filename}"'},
     )
 

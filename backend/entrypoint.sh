@@ -14,6 +14,9 @@ if [ "$(id -u)" = "0" ]; then
     # stay writable for the app user; the downloads tree is only chowned at the
     # root to keep startup fast (the app creates subdirectories as it goes).
     chown app:app /downloads 2>/dev/null || true
+    # Ensure logs directory exists and is owned by app:app
+    mkdir -p /gv-cache/logs 2>/dev/null || true
+    chown -R app:app /gv-cache/logs 2>/dev/null || true
     # The recursive cache chown walks 14 GB / hundreds of thousands of files
     # and takes seconds, but is only needed to repair legacy root-owned files.
     # Runtime writes come from the `app` user, so do it once (marker file) and
