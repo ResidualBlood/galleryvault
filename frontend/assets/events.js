@@ -102,6 +102,12 @@ function onClick(e) {
     clearSingleProgress(el.getAttribute("data-id"));
     return;
   }
+  if (action === "toggle-tag-mode") {
+    e.preventDefault();
+    const curMode = (app.query.tag_mode === "or") ? "and" : "or";
+    location.hash = navHash("library", {}, { ...app.query, tag_mode: curMode, page: undefined });
+    return;
+  }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
@@ -118,7 +124,27 @@ function onSubmit(e) {
   if (action === "login") { e.preventDefault(); doLogin(form.password.value); return; }
   if (action === "change-password") { e.preventDefault(); changePassword(form); return; }
   if (action === "search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
-  if (action === "library-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim(), category: form.category.value, ...(app.query.tags ? { tags: app.query.tags, tag_mode: "and" } : {}) }); return; }
+  if (action === "library-search") {
+    e.preventDefault();
+    location.hash = navHash("library", {}, {
+      ...(form.q.value.trim() ? { q: form.q.value.trim() } : {}),
+      ...(form.category.value ? { category: form.category.value } : {}),
+      ...(form.order_by && form.order_by.value !== "id_desc" ? { order_by: form.order_by.value } : {}),
+      ...(form.read_status && form.read_status.value ? { read_status: form.read_status.value } : {}),
+      ...(app.query.tags ? { tags: app.query.tags, tag_mode: app.query.tag_mode || "and" } : {})
+    });
+    return;
+  }
+  if (action === "favlist-search") {
+    e.preventDefault();
+    const favcat = app.params.id;
+    location.hash = navHash("favlist", { id: favcat }, {
+      ...(form.q.value.trim() ? { q: form.q.value.trim() } : {}),
+      ...(form.order_by && form.order_by.value !== "last_seen_desc" ? { order_by: form.order_by.value } : {}),
+      ...(app.query.state && app.query.state !== "all" ? { state: app.query.state } : {})
+    });
+    return;
+  }
   if (action === "tags-search") { e.preventDefault(); location.hash = navHash("tags", {}, { ns: app.query.ns || "", q: form.q.value.trim() }); return; }
   if (action === "browse-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
   if (action === "settings-save") { e.preventDefault(); saveSettings(form); return; }

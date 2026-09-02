@@ -127,6 +127,7 @@ async def auth_session() -> dict[str, object]:
         "authenticated": True,
         "auth_required": settings.auth_required,
         "must_change_password": _must_change_password(),
+        "cookie_health": app_state.extra.get("cookie_health", {"state": "unknown"}),
     }
 
 

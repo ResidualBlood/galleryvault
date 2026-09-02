@@ -8,6 +8,8 @@ async function renderLibrary() {
   const q = app.query.q || "";
   const category = app.query.category || "";
   const tags = app.query.tags || "";
+  const order_by = app.query.order_by || "id_desc";
+  const read_status = app.query.read_status || "";
   const filterPill = tagFilterPills(tags);
   const selCount = selGalleries.size;
   renderView(`
@@ -18,9 +20,23 @@ async function renderLibrary() {
         <div id="tag-suggest" class="tag-suggest" hidden></div>
       </div>
       <select name="category">
-        <option value="">All categories</option>
+        <option value="">${esc(t("allCategories"))}</option>
         ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
         <option value="__not_fav__" ${"__not_fav__" === category ? "selected" : ""}>${esc(t("notFavorited"))}</option>
+      </select>
+      <select name="order_by">
+        <option value="id_desc"${order_by === "id_desc" ? " selected" : ""}>${esc(t("orderDefault"))}</option>
+        <option value="posted_at_desc"${order_by === "posted_at_desc" ? " selected" : ""}>${esc(t("orderPosted"))}</option>
+        <option value="title_asc"${order_by === "title_asc" ? " selected" : ""}>${esc(t("orderTitle"))}</option>
+        <option value="page_count_desc"${order_by === "page_count_desc" ? " selected" : ""}>${esc(t("orderPages"))}</option>
+        <option value="file_size_desc"${order_by === "file_size_desc" ? " selected" : ""}>${esc(t("orderSize"))}</option>
+        <option value="rating_desc"${order_by === "rating_desc" ? " selected" : ""}>${esc(t("orderRating"))}</option>
+      </select>
+      <select name="read_status">
+        <option value=""${!read_status ? " selected" : ""}>${esc(t("readStatusAll"))}</option>
+        <option value="unread"${read_status === "unread" ? " selected" : ""}>${esc(t("readStatusUnread"))}</option>
+        <option value="reading"${read_status === "reading" ? " selected" : ""}>${esc(t("readStatusReading"))}</option>
+        <option value="completed"${read_status === "completed" ? " selected" : ""}>${esc(t("readStatusCompleted"))}</option>
       </select>
       <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
       <button class="btn btn-secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
@@ -35,14 +51,31 @@ async function renderLibrary() {
     const extra = { page_size: prefPageSize() };
     if (q) extra.q = q;
     if (category) extra.category = category;
-    if (tags) { extra.tags = tags; extra.tag_mode = "and"; }
+    if (tags) { extra.tags = tags; extra.tag_mode = app.query.tag_mode || "and"; }
+    if (order_by && order_by !== "id_desc") extra.order_by = order_by;
+    if (read_status) extra.read_status = read_status;
     const data = await galleryGrid("lib-grid", page, extra);
     if (data && data.resolved && (data.q !== (app.query.q || "") || data.tags !== (app.query.tags || ""))) {
-      location.hash = navHash("library", {}, { q: data.q, category: data.category, tags: data.tags, tag_mode: "and" });
+      location.hash = navHash("library", {}, {
+        q: data.q,
+        category: data.category,
+        tags: data.tags,
+        tag_mode: app.query.tag_mode || "and",
+        ...(order_by && order_by !== "id_desc" ? { order_by } : {}),
+        ...(read_status ? { read_status } : {})
+      });
       return;
     }
     renderCardCheckboxes();
-    gridPager("lib-pager", data, p => ({ ...(q ? { q } : {}), ...(category ? { category } : {}), ...(tags ? { tags, tag_mode: "and" } : {}), ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
+    gridPager("lib-pager", data, p => ({
+      ...(q ? { q } : {}),
+      ...(category ? { category } : {}),
+      ...(tags ? { tags, tag_mode: app.query.tag_mode || "and" } : {}),
+      ...(order_by && order_by !== "id_desc" ? { order_by } : {}),
+      ...(read_status ? { read_status } : {}),
+      ...(p > 1 ? { page: p } : {}),
+      page_size: prefPageSize()
+    }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
   } catch (e) { $view().innerHTML = renderError(e.message); }

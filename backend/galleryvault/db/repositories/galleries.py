@@ -357,10 +357,16 @@ class GalleryRepository:
         page_size: int,
         q: str | None = None,
         tags: Sequence[tuple[str | None, str]] = (),
+        exclude_tags: Sequence[tuple[str | None, str]] = (),
         tag_mode: str = "or",
         tag_match: str = "exact",
         category: str | None = None,
         exclude_favorited: bool = False,
+        order_by: str = "id_desc",
+        read_status: str | None = None,
+        min_rating: float | None = None,
+        page_min: int | None = None,
+        page_max: int | None = None,
     ) -> tuple[int, list[Gallery]]:
         query = select(Gallery)
         if q and q.strip():
@@ -372,6 +378,12 @@ class GalleryRepository:
                 query = query.where(Gallery.title.ilike(pattern) | Gallery.title_jpn.ilike(pattern))
         if category:
             query = query.where(Gallery.category == category)
+        if min_rating is not None:
+            query = query.where(Gallery.rating >= min_rating)
+        if page_min is not None:
+            query = query.where(Gallery.page_count >= page_min)
+        if page_max is not None:
+            query = query.where(Gallery.page_count <= page_max)
         if exclude_favorited:
             # Local galleries whose gid is not in any favorite folder and
             # not superseded by a tracked update whose new_gid is in favorites.
@@ -392,6 +404,29 @@ class GalleryRepository:
                     & ~updated_fav_exists.exists()
                 )
             )
+        if read_status == "unread":
+            prog_exists = select(1).select_from(ReadingProgress).where(
+                ReadingProgress.gallery_id == Gallery.id,
+                ReadingProgress.current_page > 0,
+            )
+            query = query.where(~prog_exists.exists())
+        elif read_status == "reading":
+            prog_exists = select(1).select_from(ReadingProgress).where(
+                ReadingProgress.gallery_id == Gallery.id,
+                ReadingProgress.current_page > 0,
+                (
+                    ReadingProgress.total_pages.is_(None)
+                    | (ReadingProgress.current_page < ReadingProgress.total_pages - 1)
+                ),
+            )
+            query = query.where(prog_exists.exists())
+        elif read_status in {"completed", "read"}:
+            prog_exists = select(1).select_from(ReadingProgress).where(
+                ReadingProgress.gallery_id == Gallery.id,
+                ReadingProgress.total_pages.is_not(None),
+                ReadingProgress.current_page >= ReadingProgress.total_pages - 1,
+            )
+            query = query.where(prog_exists.exists())
         if tags:
             tag_conditions = []
             for namespace, name in tags:
@@ -409,16 +444,54 @@ class GalleryRepository:
                 query = query.where(*[subquery.exists() for subquery in tag_conditions])
             else:
                 query = query.where(or_(*[subquery.exists() for subquery in tag_conditions]))
+        if exclude_tags:
+            for namespace, name in exclude_tags:
+                escaped_name = escape_like_wildcards(name)
+                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
+                condition = [Tag.name.ilike(pattern)]
+                if namespace:
+                    condition.append(Tag.namespace == namespace)
+                subquery = (
+                    select(GalleryTag.gallery_id)
+                    .join(Tag, Tag.id == GalleryTag.tag_id)
+                    .where(GalleryTag.gallery_id == Gallery.id, *condition)
+                )
+                query = query.where(~subquery.exists())
         query = query.where(Gallery.expunged.is_(False))
         total = int(
             await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         )
+        order_map = {
+            "id_desc": [Gallery.id.desc()],
+            "id_asc": [Gallery.id.asc()],
+            "posted_at_desc": [Gallery.posted_at.desc().nullslast(), Gallery.id.desc()],
+            "posted_at_asc": [Gallery.posted_at.asc().nullslast(), Gallery.id.asc()],
+            "title_asc": [Gallery.title.asc(), Gallery.id.asc()],
+            "title_desc": [Gallery.title.desc(), Gallery.id.desc()],
+            "page_count_desc": [Gallery.page_count.desc().nullslast(), Gallery.id.desc()],
+            "page_count_asc": [Gallery.page_count.asc().nullslast(), Gallery.id.asc()],
+            "file_size_desc": [Gallery.file_size.desc().nullslast(), Gallery.id.desc()],
+            "file_size_asc": [Gallery.file_size.asc().nullslast(), Gallery.id.asc()],
+            "rating_desc": [Gallery.rating.desc().nullslast(), Gallery.id.desc()],
+            "rating_asc": [Gallery.rating.asc().nullslast(), Gallery.id.asc()],
+        }
+        order_clauses = order_map.get(order_by, [Gallery.id.desc()])
         rows = (
             await self.session.scalars(
-                query.order_by(Gallery.id.desc()).offset((page - 1) * page_size).limit(page_size)
+                query.order_by(*order_clauses).offset((page - 1) * page_size).limit(page_size)
             )
         ).all()
         return total, list(rows)
+
+    async def progress_for_galleries(self, gallery_ids: list[int]) -> dict[int, int]:
+        if not gallery_ids:
+            return {}
+        rows = (
+            await self.session.scalars(
+                select(ReadingProgress).where(ReadingProgress.gallery_id.in_(gallery_ids))
+            )
+        ).all()
+        return {r.gallery_id: r.current_page for r in rows}
 
     async def next_gallery_id(self, current_id: int) -> int | None:
         """The next non-expunged gallery id after ``current_id`` (ascending)."""

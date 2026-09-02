@@ -361,7 +361,11 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
         def __init__(self, session):
             self.session = session
 
-        async def list_page(self, page, page_size, q, tags, tag_mode, tag_match, category, exclude_favorited=False):
+        async def list_page(self, page, page_size, q, tags, *args, **kwargs):
+            category = kwargs.get("category")
+            exclude_favorited = kwargs.get("exclude_favorited", False)
+            tag_mode = kwargs.get("tag_mode", "or")
+            tag_match = kwargs.get("tag_match", "exact")
             page_calls.append((page, page_size, q, tags, tag_mode, tag_match, category, exclude_favorited))
             start = (page - 1) * page_size
             return len(galleries), galleries[start : start + page_size]
@@ -425,7 +429,9 @@ async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monke
         def __init__(self, session):
             self.session = session
 
-        async def list_page(self, page, page_size, q, tags, tag_mode, tag_match, category, exclude_favorited=False):
+        async def list_page(self, page, page_size, q, tags, *args, **kwargs):
+            category = kwargs.get("category")
+            exclude_favorited = kwargs.get("exclude_favorited", False)
             calls.append((category, exclude_favorited))
             return 0, []
 

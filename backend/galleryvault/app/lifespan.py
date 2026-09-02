@@ -278,6 +278,12 @@ async def startup() -> None:
         app_state.extra["favorite_poll_task"] = poll_task
 
     spawn_task(refresh_favorite_counts(), "favorite counts startup warmup")
+    try:
+        from ..services.eh_client import probe_cookie_health
+
+        spawn_task(probe_cookie_health(), "cookie health startup probe")
+    except Exception:  # noqa: BLE001, S110
+        pass
     await cleanup_partial_downloads(settings_obj.download_root, app_state.session_factory)
 
     app_state.extra["download_worker_task"] = asyncio.create_task(download_worker_loop())

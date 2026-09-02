@@ -148,10 +148,15 @@ function removeTagHash(tag) {
 function tagFilterPills(tags) {
   const arr = parseTags(tags);
   if (!arr.length) return "";
+  const tagMode = (app.query && app.query.tag_mode === "or") ? "OR" : "AND";
   const pills = arr.map(t => {
-    return `<span class="tag" title="${esc(t)}">${esc(t)} <a class="tag-x" data-action="remove-tag" data-tag="${esc(t)}" href="#">×</a></span>`;
+    const isExclude = t.startsWith("-");
+    const displayTag = isExclude ? t.slice(1) : t;
+    const cls = isExclude ? "tag tag-exclude" : "tag";
+    const label = isExclude ? `- ${displayTag}` : displayTag;
+    return `<span class="${cls}" title="${esc(t)}">${esc(label)} <a class="tag-x" data-action="remove-tag" data-tag="${esc(t)}" href="#">×</a></span>`;
   }).join("");
-  return `<span class="mode">AND</span>${pills} <a class="clear-all" data-action="clear-tag" href="#">${esc(t("clearAll"))}</a>`;
+  return `<a class="mode pill" data-action="toggle-tag-mode" href="#" title="Toggle AND/OR" style="cursor:pointer;font-weight:700;">${tagMode}</a>${pills} <a class="clear-all" data-action="clear-tag" href="#">${esc(t("clearAll"))}</a>`;
 }
 
 function cloudSizeClass(count, max) {

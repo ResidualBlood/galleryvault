@@ -361,8 +361,9 @@ def test_gallery_list_category_not_fav_forwards_exclude_favorited(
     calls = []
 
     async def list_page(self, page: int, page_size: int, q: str | None = None,
-                        tags=(), tag_mode="or", tag_match="exact", category=None,
-                        exclude_favorited=False):
+                        tags=(), *args, **kwargs):
+        category = kwargs.get("category")
+        exclude_favorited = kwargs.get("exclude_favorited", False)
         calls.append((category, exclude_favorited))
         return 0, []
 

@@ -165,6 +165,7 @@ button:disabled { opacity: .5; cursor: default; }
 .tag-group { display: flex; gap: 10px; align-items: baseline; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 2px 10px; font-size: var(--font-size-sm); }
+.tag.tag-exclude { border-color: var(--danger, #e53935); color: var(--danger, #e53935); }
 .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 12px; }
 .thumb img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 .login-wrap { max-width: 380px; margin: 12vh auto; }

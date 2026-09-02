@@ -44,6 +44,8 @@ async function renderFavList() {
   if (isNaN(favcat)) { location.hash = "#/favorites"; return; }
   const page = app.query.page || "1";
   const state = app.query.state || "all";
+  const q = app.query.q || "";
+  const order_by = app.query.order_by || "last_seen_desc";
   const selCount = selFav.size;
   const from = app.query.from;
   const backLinks = `<a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>`
@@ -56,6 +58,19 @@ async function renderFavList() {
     </div>
     <header style="margin-top:16px"><p class="eyebrow">FAVORITE FOLDER</p><h1>#${favcat}</h1>
     <p class="sub">${esc(t("favListSub"))}</p></header>
+    <form class="toolbar" data-action="favlist-search" style="margin-bottom:8px;">
+      <div class="search-box">
+        <input name="q" value="${esc(q)}" placeholder="${esc(t("favSearchPlaceholder"))}" autocomplete="off">
+      </div>
+      <select name="order_by">
+        <option value="last_seen_desc"${order_by === "last_seen_desc" ? " selected" : ""}>${esc(t("orderDefault"))}</option>
+        <option value="first_seen_desc"${order_by === "first_seen_desc" ? " selected" : ""}>${esc(t("orderFirstSeen"))}</option>
+        <option value="posted_at_desc"${order_by === "posted_at_desc" ? " selected" : ""}>${esc(t("orderPosted"))}</option>
+        <option value="title_asc"${order_by === "title_asc" ? " selected" : ""}>${esc(t("orderTitle"))}</option>
+        <option value="file_size_desc"${order_by === "file_size_desc" ? " selected" : ""}>${esc(t("orderSize"))}</option>
+      </select>
+      <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
+    </form>
     <div class="toolbar">
       <button class="primary" data-action="favlist-download" data-favcat="${favcat}" type="button">${esc(t("favDl"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-download-orig" data-favcat="${favcat}" type="button">${esc(t("favDlOrig"))}${selCount ? ` (${selCount})` : ""}</button>
@@ -72,8 +87,14 @@ async function renderFavList() {
     <div id="fav-items"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="favlist-pager"></div>`;
   try {
-    const qs = `page=${encodeURIComponent(page)}&page_size=${prefPageSize()}&state=${encodeURIComponent(state)}`;
-    const data = await api("GET", `/api/favorites/${favcat}/items?${qs}`);
+    const params = new URLSearchParams({
+      page,
+      page_size: String(prefPageSize()),
+      state,
+      ...(q ? { q } : {}),
+      ...(order_by && order_by !== "last_seen_desc" ? { order_by } : {})
+    });
+    const data = await api("GET", `/api/favorites/${favcat}/items?${params.toString()}`);
     const el = document.getElementById("fav-items");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
     else {
@@ -83,8 +104,14 @@ async function renderFavList() {
       });
       renderCardCheckboxes();
       startInfinite("fav-items", async (p) => {
-        const qs = `page=${encodeURIComponent(p)}&page_size=${prefPageSize()}&state=${encodeURIComponent(state)}`;
-        return await api("GET", `/api/favorites/${favcat}/items?${qs}`);
+        const pParams = new URLSearchParams({
+          page: String(p),
+          page_size: String(prefPageSize()),
+          state,
+          ...(q ? { q } : {}),
+          ...(order_by && order_by !== "last_seen_desc" ? { order_by } : {})
+        });
+        return await api("GET", `/api/favorites/${favcat}/items?${pParams.toString()}`);
       }, favCard);
     }
     renderFavPager("favlist-pager", data, page);
@@ -117,10 +144,18 @@ function renderFavPager(elId, data, page) {
   if (!el || !data) return;
   const favcat = parseInt(app.params.id, 10);
   const state = app.query.state || "all";
+  const q = app.query.q || "";
+  const order_by = app.query.order_by || "last_seen_desc";
   const total = data.total, pageSize = data.page_size || 24;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const cur = parseInt(page, 10) || 1;
-  const qp = p => navHash("favlist", { id: favcat }, { page: p, page_size: pageSize, state });
+  const qp = p => navHash("favlist", { id: favcat }, {
+    page: p,
+    page_size: pageSize,
+    ...(state !== "all" ? { state } : {}),
+    ...(q ? { q } : {}),
+    ...(order_by !== "last_seen_desc" ? { order_by } : {})
+  });
   const parts = [];
   if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
   for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) {
