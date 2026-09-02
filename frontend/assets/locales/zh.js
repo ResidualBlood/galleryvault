@@ -149,7 +149,7 @@ window.GV_LOCALES.zh = {
   batchFav: "批量加收藏", batchFavCount: "批量加收藏 ({count})", favAddBatch: "已加入 {count} 本，失败 {failed} 本", favAddNoGid: "选中 {count} 本无 GID，已跳过",
   pageMin: "最少页数", pageMax: "最多页数", minRating: "最低评分",
   paused: "已暂停", resume: "恢复", pause: "暂停", pauseHint: "暂停后不再 claim 新任务，当前页下完即停",
-  gpTitle: "GP 余额", imageLimitTitle: "图片配额", recycleTitle: "回收站", recycleSub: "用户删除与扫描失踪分开管理",
+  gpTitle: "GP 余额", imageLimitTitle: "图片配额", quotaWarning: "图片配额将达上限", quotaWarningHint: "图片配额紧张，已用 {current}/{limit}，建议暂停下载", quotaNearLimit: "图片配额 {current}/{limit} — 将达上限", recycleTitle: "回收站", recycleSub: "用户删除与扫描失踪分开管理",
   missingPagesTitle: "缺页体检", missingPagesSub: "页数与实际文件不一致的画廊",
   restore: "恢复", purge: "彻底删除", trash: "已删除", expunged: "已失踪", userDeleted: "用户删除", scanMissing: "扫描失踪",
   repair: "修复",

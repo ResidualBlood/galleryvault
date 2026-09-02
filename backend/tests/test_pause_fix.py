@@ -88,21 +88,112 @@ def test_update_runtime_settings_allows_global_paused():
 
 
 @pytest.mark.asyncio
-async def test_telegram_pause_merges(monkeypatch):
-    """Telegram /pause must also merge, not overwrite (code uses get() + merge)."""
-    # Verify the fixed code path does a merge – inspect source
-    import inspect
+async def test_telegram_pause_real_db_merge(monkeypatch):
+    """Telegram /pause and /resume must merge DB, persist global_paused and not clobber cookies.
 
-    from galleryvault.services import telegram_bot
-    src = inspect.getsource(telegram_bot.TelegramBotService.handle_update)
-    assert "await SettingsRepository(session).get()" in src
-    assert "merged" in src or "{**existing" in src
-    # Simulate merge keeps old keys
-    stored = {"exhentai_cookies": {"ipb_member_id": "x"}, "global_paused": False, "keep": 1}
-    existing = dict(stored)
-    merged = {**existing, "global_paused": True}
-    assert merged["keep"] == 1
-    assert merged["exhentai_cookies"] == {"ipb_member_id": "x"}
+    Runs the real TelegramBotService.handle_update with a fake DB and checks
+    that save() receives a merged dict and that enqueue is blocked while paused.
+    """
+    from galleryvault.config import Settings
+    from galleryvault.services.telegram_bot import TelegramBotService
+
+    stored = {"exhentai_cookies": {"ipb_member_id": "x", "ipb_pass_hash": "y"}, "library_roots": ["/library"], "keep": 1, "global_paused": False}
+    saved = {}
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+        async def get(self):
+            return dict(stored)
+        async def save(self, value):
+            saved.clear()
+            saved.update(value)
+            stored.clear()
+            stored.update(value)
+
+    # Patch the repository where handle_update imports it
+    monkeypatch.setattr("galleryvault.db.repository.SettingsRepository", FakeRepo)
+    # Also patch the direct import path used inside handle_update (it does `from ..db.repository import SettingsRepository` at call time)
+    # So patching db.repository is sufficient.
+
+    # Fake session_factory that yields a session usable as `async with ... as session, session.begin():`
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        def begin(self):
+            # begin() must be an async context manager
+            return self
+
+    class FakeFactory:
+        def __call__(self):
+            return FakeSession()
+        # Also allow `async with app_state.session_factory() as session`
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    # Need app_state to have a truthy session_factory
+    orig_factory = app_state.session_factory
+    orig_settings = app_state.settings
+    try:
+        # Install fake factory
+        app_state.session_factory = FakeFactory()  # type: ignore
+
+        # Initial settings (global_paused False)
+        base = Settings(telegram_bot_token="tok", telegram_allowed_user_ids=[7], telegram_chat_ids=["7"], telegram_notify_lang="en")
+        app_state.settings = base
+
+        class FakeNotifier:
+            def __init__(self):
+                self.messages = []
+            async def send_message(self, text, chat_id=None, force=False):
+                self.messages.append((text, chat_id, force))
+
+        class FakeQueue:
+            def __init__(self):
+                self.items = []
+            async def enqueue(self, item):
+                self.items.append(item)
+
+        notifier = FakeNotifier()
+        queue = FakeQueue()
+        # Bot's own settings copy
+        bot_settings = Settings(telegram_bot_token="tok", telegram_allowed_user_ids=[7], telegram_chat_ids=["7"], telegram_notify_lang="en")
+        bot = TelegramBotService(bot_settings, client=None, queue=queue, notifier=notifier)  # client not needed for /pause
+
+        # /pause from allowed user
+        await bot.handle_update({"message": {"from": {"id": 7}, "text": "/pause", "chat": {"id": 7}}})
+        assert stored.get("global_paused") is True
+        assert stored.get("exhentai_cookies") == {"ipb_member_id": "x", "ipb_pass_hash": "y"}
+        assert stored.get("library_roots") == ["/library"]
+        assert stored.get("keep") == 1
+        assert saved.get("global_paused") is True
+        assert app_state.settings.global_paused is True
+        assert bot.paused is True
+        assert any("paused" in m[0].lower() or "暂停" in m[0] for m in notifier.messages)
+
+        # While paused, a gallery URL must NOT be enqueued
+        notifier.messages.clear()
+        queue.items.clear()
+        await bot.handle_update({"message": {"from": {"id": 7}, "text": "https://exhentai.org/g/12345/abcdef/", "chat": {"id": 7}}})
+        assert queue.items == [], "URL should be ignored while paused"
+        assert notifier.messages == [], "should not send queued while paused"
+
+        # /resume
+        notifier.messages.clear()
+        await bot.handle_update({"message": {"from": {"id": 7}, "text": "/resume", "chat": {"id": 7}}})
+        assert stored.get("global_paused") is False
+        assert app_state.settings.global_paused is False
+        assert bot.paused is False
+
+        # After resume, URL should be enqueued
+        await bot.handle_update({"message": {"from": {"id": 7}, "text": "https://exhentai.org/g/12345/abcdef/", "chat": {"id": 7}}})
+        assert len(queue.items) == 1
+        assert queue.items[0].gid == 12345
+    finally:
+        app_state.session_factory = orig_factory
+        app_state.settings = orig_settings
 
 
 @pytest.mark.asyncio
@@ -248,6 +339,76 @@ async def test_integrity_excludes_none_and_max_pages(monkeypatch):
     assert "file_count" not in src or "DownloadTask" in src  # old file_count check removed
     assert "max_pages" in src or "DownloadTask" in src
     assert "trashed.is_(False)" in src
+
+
+def test_parse_image_limits_html_fixtures():
+    """_parse_image_limits must handle real ExHentai homepage variants (old/new, with/without tags, commas)."""
+    from galleryvault.services.eh_client import EhClient
+
+    client = EhClient(get_settings())
+    # Old format: <strong>538</strong> towards a limit of <strong>50,000</strong>
+    old_html = '<div class="homebox"><p>You are currently at <strong>538</strong> towards a limit of <strong>50,000</strong>.</p></div>'
+    assert client._parse_image_limits(old_html) == {"current": 538, "limit": 50000}
+    # New format: towards your account limit of
+    new_html = '<p>You are currently at <strong>1,234</strong> towards your account limit of <strong>5,000</strong>.</p>'
+    assert client._parse_image_limits(new_html) == {"current": 1234, "limit": 5000}
+    # Plain text without tags (fallback)
+    plain = 'You are currently at 99 towards a limit of 1000'
+    assert client._parse_image_limits(plain) == {"current": 99, "limit": 1000}
+    # With commas and mixed case
+    mixed = 'YOU ARE CURRENTLY AT <b>2,500</b> TOWARDS A LIMIT OF <b>25,000</b>'
+    assert client._parse_image_limits(mixed) == {"current": 2500, "limit": 25000}
+    # Simple Image Limit fallback: "Image Limit 123 / 5000"
+    simple = '<div>Image Limit: 123 / 5000</div>'
+    assert client._parse_image_limits(simple) == {"current": 123, "limit": 5000}
+    # Sad Panda / no limit should return None
+    assert client._parse_image_limits('<html>Sad Panda</html>') is None
+    assert client._parse_image_limits('<html>No limits here</html>') is None
+    # IP-based quota after 2024 hides limit – should return None (no match)
+    ip_quota = '<p>Your IP is currently not restricted</p>'
+    assert client._parse_image_limits(ip_quota) is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_image_limits_uses_home_php_and_fallback(monkeypatch):
+    """fetch_image_limits should try /home.php then / and use _parse_image_limits on each."""
+    from galleryvault.services.eh_client import EhClient
+
+    # Mock _get to return different bodies for each path
+    call_paths = []
+
+    async def fake_get(self, url, **kwargs):
+        call_paths.append(url)
+
+        class Resp:
+            pass
+
+        r = Resp()
+        r.text = '<p>You are currently at <strong>10</strong> towards a limit of <strong>100</strong>.</p>' if url == "/home.php" else '<html>no</html>'
+        r.url = url
+        return r
+
+    monkeypatch.setattr(EhClient, "_get", fake_get)
+    client = EhClient(get_settings())
+    result = await client.fetch_image_limits()
+    assert result == {"current": 10, "limit": 100}
+    assert call_paths[0] == "/home.php"
+    # When home.php has no limit but / does, it should fallback to /
+    call_paths.clear()
+    async def fake_get2(self, url, **kwargs):
+        call_paths.append(url)
+
+        class Resp:
+            pass
+
+        r = Resp()
+        r.text = '<html>no</html>' if url == "/home.php" else '<p>You are currently at 5 towards a limit of 50</p>'
+        r.url = url
+        return r
+    monkeypatch.setattr(EhClient, "_get", fake_get2)
+    result2 = await client.fetch_image_limits()
+    assert result2 == {"current": 5, "limit": 50}
+    assert call_paths == ["/home.php", "/"]
 
 
 @pytest.mark.asyncio
