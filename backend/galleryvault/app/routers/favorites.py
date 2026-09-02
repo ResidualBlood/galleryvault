@@ -473,7 +473,7 @@ async def favorites_sync() -> dict[str, object]:
 
 @router.post("/api/favorites/remove")
 async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
-    if not body.gids and not body.items:
+    if not body.gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
     gids = list(dict.fromkeys(body.gids))
     cloud_failed: list[int] = []
@@ -539,8 +539,6 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
 async def favorites_move(body: FavoritesMoveRequest) -> dict[str, object]:
     if not body.gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
-    if not (0 <= body.target_favcat <= 9):
-        raise HTTPException(status_code=422, detail="target_favcat must be between 0 and 9")
     gids = list(dict.fromkeys(body.gids))
     cloud_failed: list[int] = []
     cloud_moved = 0
