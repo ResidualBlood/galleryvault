@@ -10,7 +10,6 @@ container names:
 | Frontend nginx SPA | `galleryvault-frontend` | 8000 |
 | FastAPI backend | `galleryvault-backend` | 127.0.0.1:8001 (loopback only) |
 | PostgreSQL | `galleryvault-db` | internal |
-| Dozzle log viewer | `galleryvault-dozzle` | 127.0.0.1:8888 (loopback only) |
 
 ```bash
 docker compose up -d
@@ -150,6 +149,28 @@ gallery deletion remove files under a library root (e.g. `./library`), make that
 directory writable by the in-container `app` user (host
 `chown -R 10001:10001` or group-write permission); otherwise deletion fails and
 is reported honestly.
+
+### Optional: View container logs in real time with Dozzle
+
+If you prefer viewing live multi-container log streams (Nginx, FastAPI backend, PostgreSQL) side by side in a web browser, you can append a lightweight [Dozzle](https://github.com/amir20/dozzle) container (~10MB memory usage) to your `docker-compose.yml`:
+
+```yaml
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: galleryvault-dozzle
+    restart: always
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_LEVEL: "info"
+      DOZZLE_FILTER: "name=galleryvault*"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # Recommended to bind to loopback or private LAN only; protect with reverse proxy if accessed publicly
+      - "127.0.0.1:8888:8080"
+```
+
+> **Security Note**: Keep the `:ro` (read-only) flag on `/var/run/docker.sock`, and bind only to `127.0.0.1` loopback or access via an SSH tunnel / authenticated reverse proxy to avoid exposing Docker daemon endpoints directly to the public network.
 
 ## Upgrading
 

@@ -9,7 +9,6 @@
 | 前端 nginx SPA | `galleryvault-frontend` | 8000 |
 | FastAPI 后端 | `galleryvault-backend` | 127.0.0.1:8001（仅本机） |
 | PostgreSQL | `galleryvault-db` | 内部 |
-| Dozzle 实时日志面板 | `galleryvault-dozzle` | 127.0.0.1:8888（仅本机） |
 
 ```bash
 docker compose up -d
@@ -93,6 +92,28 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 ### 非 root 运行
 
 后端镜像默认以非特权用户运行（容器内 `app`，uid 10001），启动时会自动调整 `/downloads`、`/gv-cache` 属主并降权。若想让 `./library` 等库根目录支持删除画廊，需确保该目录对容器内 `app` 用户（uid 10001）可写（宿主 `chown -R 10001:10001` 或组写权限），否则删除会失败并如实报告。
+
+### 可选：集成 Dozzle 实时查看容器日志
+
+如果需要更直观地在浏览器中分屏查看 Nginx、FastAPI 后端及 PostgreSQL 容器的实时日志输出流，可在 `docker-compose.yml` 中按需追加轻量级的 [Dozzle](https://github.com/amir20/dozzle) 容器（占用 ~10MB 内存）：
+
+```yaml
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: galleryvault-dozzle
+    restart: always
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_LEVEL: "info"
+      DOZZLE_FILTER: "name=galleryvault*"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # 建议绑定本地回环端口或指定内网端口；公网访问建议置于反向代理或身份认证后
+      - "127.0.0.1:8888:8080"
+```
+
+> **安全提示**：挂载 `/var/run/docker.sock` 时请务必保留 `:ro`（只读），并建议仅绑定 `127.0.0.1` 本地回环接口或通过 SSH 隧道/反向代理访问，避免直接将 Docker 控制接口暴露到公网。
 
 ## 升级
 

@@ -77,23 +77,4 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  dozzle:
-    image: amir20/dozzle:latest
-    container_name: galleryvault-dozzle
-    restart: always
-    environment:
-      DOZZLE_NO_ANALYTICS: "true"
-      DOZZLE_LEVEL: "info"
-      DOZZLE_FILTER: "name=galleryvault*"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      # Bound to loopback interface for security. Access via SSH tunnel or reverse proxy.
-      - "127.0.0.1:8888:8080"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 

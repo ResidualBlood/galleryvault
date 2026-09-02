@@ -227,6 +227,8 @@ Split into two tabs:
 
 The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / Update translations now" buttons in Settings also leave a trace here.
 
+> Tip: To inspect raw real-time container streams across Nginx, backend, and PostgreSQL side by side, see the [Deployment](Deployment) guide for an optional Dozzle configuration recipe.
+
 ## Favorites (`#/favorites`)
 
 - Lists the ten ExHentai favorite folders: an enable toggle, a mode
