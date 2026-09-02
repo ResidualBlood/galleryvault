@@ -110,10 +110,11 @@ function onClick(e) {
   }
   if (action === "filter-tag") {
     e.preventDefault();
+    e.stopPropagation();
     const ns = el.getAttribute("data-ns") || "";
     const name = el.getAttribute("data-name") || "";
     if (!name) return;
-    // Shift/Alt/Ctrl+click → exclude tag (add "-ns:name"), otherwise include
+    // Shift/Alt/Ctrl/Cmd+click → exclude tag (add "-ns:name"), otherwise include
     if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) {
       location.hash = addExcludeTagHash(ns || null, name);
     } else {

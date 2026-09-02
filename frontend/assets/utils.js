@@ -119,7 +119,7 @@ function prefPageSize(fallback = 24) {
 
 function libraryContext() {
   const c = {};
-  for (const k of ["q", "tags", "tag_mode", "tag_match", "category", "order_by", "read_status", "page_size"]) {
+  for (const k of ["q", "tags", "tag_mode", "tag_match", "category", "order_by", "read_status", "min_rating", "page_min", "page_max", "min_pages", "max_pages", "page_size"]) {
     if (app.query[k]) c[k] = app.query[k];
   }
   return c;
@@ -133,6 +133,11 @@ function tagFilterHash(tagsArr) {
   if (app.query.read_status) query.read_status = app.query.read_status;
   if (app.query.tag_match) query.tag_match = app.query.tag_match;
   if (app.query.tag_mode && app.query.tag_mode !== "and") query.tag_mode = app.query.tag_mode;
+  if (app.query.min_rating) query.min_rating = app.query.min_rating;
+  if (app.query.page_min) query.page_min = app.query.page_min;
+  if (app.query.page_max) query.page_max = app.query.page_max;
+  if (app.query.min_pages) query.min_pages = app.query.min_pages;
+  if (app.query.max_pages) query.max_pages = app.query.max_pages;
   // preserve hash-level page reset: filter changes always go to page 1 (no page param)
   if (tagsArr && tagsArr.length) query.tags = tagsArr.join(",");
   return navHash("library", {}, query);

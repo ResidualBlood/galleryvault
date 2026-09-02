@@ -7,6 +7,29 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...scanners.base import ExistingGallery, GalleryMeta, normalize_category
+
+# Lazily resolved title display column (avoids importing app.state at class load
+# and avoids per-call import cost inside list_page hot path).
+_TITLE_SORT_COL_CACHE: dict[str, object] = {}
+
+
+def _title_sort_column() -> object:
+    """Return the column/expression used for title sorting per title_display."""
+    try:
+        from ...app.state import app_state
+        from ...config import get_settings
+
+        settings = app_state.settings or get_settings()
+        mode = (getattr(settings, "title_display", "japanese") or "japanese").lower()
+        if mode == "japanese":
+            return func.coalesce(Gallery.title_jpn, Gallery.title)
+        if mode == "directory":
+            return func.coalesce(Gallery.title_jpn, Gallery.title)
+        return Gallery.title
+    except Exception:  # noqa: BLE001
+        return Gallery.title
+
+
 from ..models import (
     DuplicateRecord,
     FavoriteItem,
@@ -461,25 +484,7 @@ class GalleryRepository:
         total = int(
             await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         )
-        # Title sorting follows the user's title_display preference:
-        # japanese → title_jpn (fallback title), english → title, directory → storage_path basename.
-        # We resolve the preference lazily to avoid importing app state at module load.
-        title_col = Gallery.title
-        try:
-            from ...app.state import app_state
-            from ...config import get_settings
-
-            _settings = app_state.settings or get_settings()
-            _mode = (getattr(_settings, "title_display", "japanese") or "japanese").lower()
-            if _mode == "japanese":
-                title_col = func.coalesce(Gallery.title_jpn, Gallery.title)
-            elif _mode == "directory":
-                # basename not trivial in SQL; coalesce title_jpn/title as fallback
-                title_col = func.coalesce(Gallery.title_jpn, Gallery.title)
-            else:
-                title_col = Gallery.title
-        except Exception:  # noqa: BLE001
-            title_col = Gallery.title
+        title_col = _title_sort_column()
         order_map = {
             "id_desc": [Gallery.id.desc()],
             "id_asc": [Gallery.id.asc()],

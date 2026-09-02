@@ -58,7 +58,7 @@ manually to revisit it.
   as a fallback. Your page-size choice is remembered across visits.
 - Click a cover to open the gallery detail page.
 - **Multi-tag filtering (AND / OR) & Exclude Tags (`-tag`)**:
-  - Clicking tags appends to the filter;
+  - Clicking a tag **appends it to the filter**; **Shift / Alt / Ctrl / Cmd + click** on a gallery card's tag **appends it as an exclude tag** (`-namespace:name`, e.g. `Shift+click female:lolicon → -female:lolicon`) — the click uses `stopPropagation` so it won't open the gallery, and the red badge shows the exclusion; excluded tags are honored by **Delete filtered** and sticky navigation;
   - The tag filter bar lets you toggle **AND / OR** mode;
   - Exclude tags (`-namespace:name` or `-tag`, e.g. `-female:lolicon`) are displayed with distinct red badges, excluding matching galleries.
 - **Tag filters are opt-in, never guessed**: while you type, tag suggestions

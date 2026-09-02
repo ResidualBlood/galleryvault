@@ -393,6 +393,126 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_delete_filtered_with_q_and_read_status(monkeypatch):
+    """delete-filtered must resolve q via _resolve_search_tokens (4-tuple) and
+    forward read_status/min_rating/page limits without ValueError 500.
+
+    Regression for b4f0934 → e653a15: empty-q tests covered paging but not
+    the title-search path where _resolve_search_tokens previously returned
+    3 values yet the caller unpacked 4 (ValueError 500).
+    """
+    from galleryvault.app.routers import galleries as galleries_module
+    from galleryvault.app.routers.galleries import delete_galleries_filtered
+
+    galleries = [
+        Gallery(id=10, gid=1010, title="Archive One", storage_path=""),
+        Gallery(id=11, gid=1011, title="Archive Two", storage_path=""),
+    ]
+    captured: dict[str, object] = {}
+
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+        def __iter__(self):
+            return iter(self._rows)
+
+    class Session:
+        def __init__(self):
+            self._by_id = {g.id: g for g in galleries}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        def begin(self):
+            return self
+
+        async def scalars(self, statement):
+            import re
+
+            from sqlalchemy.dialects import postgresql
+
+            try:
+                compiled = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+                ids = [
+                    int(v)
+                    for m in re.finditer(r"\bIN \(([0-9, ]+)\)", compiled)
+                    for v in m.group(1).split(",")
+                    if v.strip()
+                ]
+                if ids:
+                    return Result([self._by_id[i] for i in ids if i in self._by_id])
+            except Exception:  # noqa: BLE001, S110
+                pass
+            return Result([])
+
+    session = Session()
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
+
+    class Repo:
+        def __init__(self, _session):
+            pass
+
+        async def list_page(self, page, page_size, q, tags, *args, **kwargs):
+            # q should be the keyword remainder after tag extraction, not the raw q
+            captured["q"] = q
+            captured["tags"] = tags
+            captured["exclude_tags"] = kwargs.get("exclude_tags", ())
+            captured["read_status"] = kwargs.get("read_status")
+            captured["min_rating"] = kwargs.get("min_rating")
+            captured["page_min"] = kwargs.get("page_min")
+            captured["page_max"] = kwargs.get("page_max")
+            captured["order_by"] = kwargs.get("order_by")
+            return 2, galleries
+
+    monkeypatch.setattr(galleries_module, "GalleryRepository", Repo)
+
+    async def fake_delete(_session, batch, *, delete_files, delete_all_copies):
+        return [
+            {"gallery_id": g.id, "gid": g.gid, "db_removed": True, "deleted_paths": [], "failed_paths": []}
+            for g in batch
+        ]
+
+    monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete)
+
+    try:
+        # q contains a free-form title token and an exclude tag via minus prefix
+        body = FilteredDeleteRequest(
+            q="Archive -female:lolicon",
+            tags="artist:test",
+            tag_mode="or",
+            read_status="unread",
+            min_rating=4.0,
+            min_pages=10,
+            max_pages=100,
+            order_by="title_asc",
+            delete_files=False,
+        )
+        result = await delete_galleries_filtered(body)
+        assert result["matched"] == 2
+        assert result["deleted"] == 2
+        # q resolver must have stripped the tag token, leaving only the title keyword
+        assert captured["q"] == "Archive"
+        # include tag from tags + title q, exclude tag from minus prefix
+        assert ("artist", "test") in captured["tags"]
+        assert ("female", "lolicon") in captured["exclude_tags"]
+        assert captured["read_status"] == "unread"
+        assert captured["min_rating"] == 4.0
+        assert captured["page_min"] == 10
+        assert captured["page_max"] == 100
+        assert captured["order_by"] == "title_asc"
+    finally:
+        app_state.session_factory = orig_factory
+
+
+@pytest.mark.asyncio
 async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monkeypatch):
     """delete-filtered with the pseudo-category ``__not_fav__`` must translate it
     into ``exclude_favorited=True`` and a ``None`` category before paging."""
