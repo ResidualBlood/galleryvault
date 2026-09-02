@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Dev dependency lower bounds** (`backend/pyproject.toml`): `pytest-xdist>=3.8.0,<4`, `ruff>=0.16.5,<1`, `pre-commit>=4.6.2,<5` (Dependabot #17/#18/#19).
 - **Pages Actions bumps** (`.github/workflows/pages.yml`): `configure-pages` v5→v6, `upload-pages-artifact` v3→v5, `deploy-pages` v4→v5 (closed Dependabot #7/#8 plus matching deploy action).
 - **CI skip noise**: `ci-backend` ignores `backend/docs/**`; `ci-frontend` ignores markdown. Image build/merge runs only when Dockerfile / runtime source / dependency files change (tests-only and docs-only commits no longer push Docker Hub).
 - **Monorepo layout**: backend and frontend live in one repository (`ResidualBlood/galleryvault`); CI path-filters `ci-backend.yml` / `ci-frontend.yml`, and a single `v*` tag publishes both images. Archived `galleryvault-backend` / `galleryvault-frontend` remotes are read-only.
