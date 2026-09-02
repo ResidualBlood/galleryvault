@@ -60,10 +60,6 @@ async function renderLibrary() {
     <div class="filters">${filterPill}</div>
     <div id="lib-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="lib-pager"></div>`);
-  // Advanced filters that have API support but no dedicated UI yet remain sticky via query string
-  const min_rating = app.query.min_rating || "";
-  const page_min = app.query.page_min || app.query.min_pages || "";
-  const page_max = app.query.page_max || app.query.max_pages || "";
   const tag_mode = app.query.tag_mode || "and";
   const tag_match = app.query.tag_match || "exact";
   try {
