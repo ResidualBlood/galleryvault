@@ -78,6 +78,7 @@ function taskMeta(task, stage) {
     case "translation": return { label: t("translationUpdate"), desc: t("transDesc") };
     case "gallery-delete": return { label: t("deleteGalleryLog"), desc: t("deleteFiles") };
     case "favorites-remove": return { label: t("favoritesRemoveLog"), desc: t("confirmDupDelete") };
+    case "favorites-move": return { label: t("favoritesMoveLog"), desc: t("favMoveTitle") };
     default: return { label: task, desc: "" };
   }
 }

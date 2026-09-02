@@ -127,7 +127,7 @@ window.GV_LOCALES.en = {
   scanDone: "Scan complete", tagSyncDone: "Tag sync complete", thumbsDone: "Thumbnails complete",
   metaDone: "Metadata sync complete", completed: "done", scanned: "scanned", persisted: "persisted",
   favMetaSync: "Syncing favorite metadata", favMetaApply: "Applying favorite metadata", applied: "applied",
-  deleteGalleryLog: "Delete gallery", favoritesRemoveLog: "Remove from favorites",
+  deleteGalleryLog: "Delete gallery", favoritesRemoveLog: "Remove from favorites", favoritesMoveLog: "Move favorites",
   tagSyncFromCache: "Tags updated from cache", tagSyncFromNetwork: "Tags synced from ExHentai",
   noTasks: "No download tasks.", dlTasks: "Download tasks",
   logs: "Logs", logsSub: "Background tasks and recent activity.",
