@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-02
+
 ### Added
 
 - **Clear all successful download tasks** (`POST /api/downloads/clear-success`, downloads UI): one-click bulk delete of `status=success` task rows (confirmation shows the count). Ingested gallery files are not touched; failed/cancelled/in-progress tasks stay.
@@ -1054,7 +1056,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.5.1
 [1.5.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.5.0
 [1.2.15]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.15
 [1.2.14]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.14
