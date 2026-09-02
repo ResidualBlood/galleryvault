@@ -19,6 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Reader double-page spread slot persistence & single-spread retreat** (frontend `views/reader.js`, `styles.css`): Fixed missing second image slot in DOM when retreating from a single-page spread (such as an odd-numbered final page) back to dual-page spreads in fullscreen mode, ensuring permanent two-slot DOM layout, dynamic visibility toggle, and touch-point dynamic transform origin computation for 2.2x double-tap zoom.
 - **Reader fullscreen DOM preservation & seamless mode switching** (frontend `views/reader.js`): Fixed full-page container teardown during single cover ↔ double spread and reading mode transitions, preserving the top-level `.reader` fullscreen DOM state without browser fullscreen interruptions.
 - **Unified double-page spread navigation & step alignment** (frontend `views/reader.js`): Unified pagination logic across toolbar buttons, arrow keys, and side clicks via `getReaderNav`, standardizing odd-numbered spread pagination (`[1-2]`, `[3-4]`) and aligning `prev`/`next` steps across direct URL/history jumps.
 - **Mobile fullscreen double-page layout specificity** (frontend `styles.css`): Added high-specificity CSS rules under `@media (max-width: 640px)` for `.reader:fullscreen .reader-spread img` to properly apply full-width vertical column stacking on narrow viewports without 50vw distortion.
