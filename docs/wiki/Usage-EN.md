@@ -248,10 +248,12 @@ The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / U
   count changes, full checks resume automatically.
 - Click a folder name to open `#/favorites/<favcat>`: that folder's gallery
   grid (checkboxes, **download selected**, **download selected original**,
-  **archive download selected**, **remove from favorites**, and an
+  **archive download selected**, **move selected**, **remove from favorites**, and an
   **All / local only / cloud only** state filter), with inline cloud covers
   and real sizes for cloud galleries. The list uses numbered pagination with
   24 galleries per page by default.
+  - **Move selected**: Move selected galleries to another favorite folder (0–9),
+    syncing both ExHentai cloud favorites and local records.
 - The **Download missing items** button on the Favorites overview spawns a
   per-folder pass that downloads cover files for every gallery missing one on
   disk (shown inline in lists and duplicate groups).

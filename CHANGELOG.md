@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Batch move favorite galleries endpoint & UI modal** (`app/routers/favorites.py`, `services/eh_client.py`, `db/repository.py`, `app/schemas.py`, frontend `components.js`, `views/favorites.js`, `locales/`): Added `POST /api/favorites/move` endpoint supporting batch chunking (25/batch) to move selected galleries to target ExHentai favorite folders (0–9) via `POST /favorites.php` (`ddact=favX`), with local DB `favorite_items` updates and frontend modal folder selector.
 - **Structured logging, diagnostic ring buffer & dynamic log level APIs** (`logging.py`, `app/routers/settings.py`, `app/schemas.py`, frontend `views/logs.js`, `styles.css`): Added exception traceback formatting, ANSI terminal colors, sensitive credential masking (`ipb_*` cookies, Telegram tokens, passwords/secrets), background worker correlation context (`bind_log_context`), an in-memory RingBuffer with `GET /api/system/logs`, `POST /api/system/logs/level` (dynamic runtime log level adjustment without restart), `DELETE /api/system/logs`, and a real-time System Runtime Logs viewer tab in the web UI.
 - **Optional Dozzle container recipe** (`docs/wiki/Deployment.md`): Documented optional Dozzle integration recipe for real-time multi-container log viewing with read-only Docker socket mount and security guidelines.
 
