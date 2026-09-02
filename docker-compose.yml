@@ -20,6 +20,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://galleryvault:${POSTGRES_PASSWORD:-galleryvault}@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
       TZ: Asia/Shanghai
+      # Optional: User/Group ID for backend process execution (e.g. NAS/Linux user).
+      # Defaults to root (0:0) if unset.
+      # PUID: 1000
+      # PGID: 1000
       # Optional at-rest encryption for ExHentai cookies / Telegram bot token /
       # auth secrets. Set it ONCE to a long random string to enable; on an
       # existing install, plaintext values are encrypted automatically at
