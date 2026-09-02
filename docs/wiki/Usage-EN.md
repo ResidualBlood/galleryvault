@@ -206,6 +206,10 @@ manually to revisit it.
   is rarely needed.
 - Waiting/downloading tasks can be **cancelled**; failed/cancelled/successful
   tasks can be **retried** (individually or in bulk with checkboxes).
+- **Clear all successful**: one click removes every `success` task record (the
+  confirm dialog shows the count). This only clears the task list; **ingested
+  gallery files are not deleted**. Failed, cancelled, and in-progress tasks are
+  left alone.
 - **A finished download is ingested into the index immediately** — the gallery
   row, pages and tags are written straight from the download result (cover
   thumbnail generated on first view), with **no full library scan**. The stored

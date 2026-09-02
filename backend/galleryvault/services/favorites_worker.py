@@ -84,14 +84,25 @@ def _unix_to_iso(val: Any) -> str | None:
         return None
 
 
-def _parse_gdata_tags(tags: list[str]) -> list[tuple[str, str]]:
+def _parse_gdata_tags(tags: list[object] | None) -> list[tuple[str, str]]:
     parsed: list[tuple[str, str]] = []
-    for tag in tags:
-        if ":" in tag:
-            ns, name = tag.split(":", 1)
-            parsed.append((ns.strip(), name.strip()))
-        else:
-            parsed.append(("misc", tag.strip()))
+    for tag in tags or []:
+        if isinstance(tag, dict):
+            ns = str(tag.get("namespace") or "").strip() or "misc"
+            name = str(tag.get("name") or "").strip()
+            if name:
+                parsed.append((ns, name))
+        elif isinstance(tag, (list, tuple)) and len(tag) >= 2:
+            ns = str(tag[0] or "").strip() or "misc"
+            name = str(tag[1] or "").strip()
+            if name:
+                parsed.append((ns, name))
+        elif isinstance(tag, str) and tag.strip():
+            if ":" in tag:
+                ns, name = tag.split(":", 1)
+                parsed.append((ns.strip(), name.strip()))
+            else:
+                parsed.append(("misc", tag.strip()))
     return parsed
 
 

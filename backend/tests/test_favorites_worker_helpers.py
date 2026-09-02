@@ -33,6 +33,30 @@ def test_parse_gdata_tags():
     ]
 
 
+def test_parse_gdata_tags_accepts_metadata_map_dicts():
+    parsed = _parse_gdata_tags(
+        [
+            {"namespace": "artist", "name": "alice"},
+            {"namespace": "misc", "name": "twintails"},
+            {"namespace": "", "name": ""},
+            ["language", "chinese"],
+            ("group", "circle"),
+            "female:sole female",
+            "nonamespace",
+            None,
+            123,
+        ]
+    )
+    assert parsed == [
+        ("artist", "alice"),
+        ("misc", "twintails"),
+        ("language", "chinese"),
+        ("group", "circle"),
+        ("female", "sole female"),
+        ("misc", "nonamespace"),
+    ]
+
+
 def test_img_data_uri():
     assert _img_data_uri(b"") is None
     png_data = b"\x89PNG\r\n\x1a\n" + b"rest"
