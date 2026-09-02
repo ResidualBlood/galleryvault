@@ -2,7 +2,7 @@ name: ci-frontend
 
 on:
   push:
-    branches: [main, dev, monorepo]
+    branches: [main, dev]
     paths:
       - "frontend/**"
       - ".github/workflows/ci-frontend.yml"
