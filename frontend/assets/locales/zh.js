@@ -132,7 +132,7 @@ window.GV_LOCALES.zh = {
   noTasks: "暂无下载任务。", dlTasks: "下载任务",
   logs: "日志", logsSub: "后台任务与最近活动。",
   systemLogs: "系统运行时日志", taskLogs: "后台任务活动",
-  logLevel: "日志级别", clearLogs: "清空日志", refreshLogs: "刷新",
+  logLevel: "日志级别", clearLogs: "清空日志", refreshLogs: "刷新", downloadLogs: "导出日志",
   logLevelChanged: "日志级别已切换为", logsCleared: "系统日志已清空",
   searchLogs: "搜索日志/异常/上下文…", noLogs: "暂无系统日志记录。",
   runningTasks: "进行中", finishedTasks: "已完成",

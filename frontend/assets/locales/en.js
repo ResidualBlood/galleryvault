@@ -132,7 +132,7 @@ window.GV_LOCALES.en = {
   noTasks: "No download tasks.", dlTasks: "Download tasks",
   logs: "Logs", logsSub: "Background tasks and recent activity.",
   systemLogs: "System Logs", taskLogs: "Task Activity",
-  logLevel: "Log Level", clearLogs: "Clear Logs", refreshLogs: "Refresh",
+  logLevel: "Log Level", clearLogs: "Clear Logs", refreshLogs: "Refresh", downloadLogs: "Export Log",
   logLevelChanged: "Log level changed to", logsCleared: "System logs cleared",
   searchLogs: "Search logs/exceptions/context...", noLogs: "No system log records.",
   runningTasks: "Running now", finishedTasks: "Finished",

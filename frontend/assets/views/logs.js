@@ -55,6 +55,7 @@ async function renderLogs() {
           </select>
         </label>
         <input type="search" id="syslog-search-input" placeholder="${esc(t("searchLogs"))}" value="${esc(systemLogSearch)}" style="flex:1; min-width:180px;">
+        <a class="btn btn-secondary" href="/api/system/logs/download" download="galleryvault.log" style="display:inline-flex;align-items:center;padding:5px 12px;font-size:13px;text-decoration:none;border-radius:4px" target="_blank">${esc(t("downloadLogs"))}</a>
         <button class="secondary" data-action="refresh-system-logs" type="button">${esc(t("refreshLogs"))}</button>
         <button class="secondary" data-action="clear-system-logs" type="button">${esc(t("clearLogs"))}</button>
       </div>
