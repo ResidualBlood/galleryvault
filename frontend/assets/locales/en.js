@@ -5,6 +5,8 @@ window.GV_LOCALES = window.GV_LOCALES || {};
 window.GV_LOCALES.en = {
   loginSub: "Password required to access the local library.",
   searchPlaceholder: "Search library...",
+  searchTagsPlaceholder: "Search tags...",
+  searchTags: "Search tags",
   allCategories: "All categories",
   orderDefault: "Ingest date (default)", orderPosted: "Posted date", orderTitle: "Title", orderPages: "Pages", orderSize: "Size", orderRating: "Rating", orderFirstSeen: "First favorited",
   readStatusAll: "All reading status", readStatusUnread: "Unread", readStatusReading: "Reading", readStatusCompleted: "Completed",

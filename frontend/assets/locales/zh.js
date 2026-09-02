@@ -5,6 +5,8 @@ window.GV_LOCALES = window.GV_LOCALES || {};
 window.GV_LOCALES.zh = {
   loginSub: "需要密码才能访问本地画廊。",
   searchPlaceholder: "搜索画廊…",
+  searchTagsPlaceholder: "搜索标签…",
+  searchTags: "搜索标签",
   allCategories: "全部分类",
   orderDefault: "入库时间 (默认)", orderPosted: "发布时间", orderTitle: "标题", orderPages: "页数", orderSize: "体积", orderRating: "评分", orderFirstSeen: "初次收藏",
   readStatusAll: "全部阅读状态", readStatusUnread: "未读", readStatusReading: "在读", readStatusCompleted: "已读完",

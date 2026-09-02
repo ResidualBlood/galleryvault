@@ -42,8 +42,11 @@ async function renderTags() {
     <header><p class="eyebrow">LOCAL TAXONOMY</p><h1>${esc(title)}</h1></header>
     <div class="pills" id="tag-pills"></div>
     <form class="toolbar" data-action="tags-search">
-      <input name="q" value="${esc(q)}" placeholder="${esc(t("searchPlaceholder"))}">
-      <button class="btn btn-primary" type="submit">${esc(t("tags"))}</button>
+      <div class="search-box">
+        <input name="q" value="${esc(q)}" placeholder="${esc(t("searchTagsPlaceholder"))}" autocomplete="off">
+        <div id="tag-suggest-tags" class="tag-suggest" hidden></div>
+      </div>
+      <button class="btn btn-primary" type="submit">${esc(t("searchTags"))}</button>
     </form>
     <div id="tag-cloud" class="cloud"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="tag-pages"></div>`;
@@ -74,13 +77,18 @@ async function loadTagPills(activeNs) {
 }
 
 async function loadTags(q, ns, page) {
+  const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/u.test(q || "");
   try {
-    const url = `/api/tags/search?page=${encodeURIComponent(page)}&page_size=100`
-      + `${ns ? `&namespace=${encodeURIComponent(ns)}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+    const url = `/api/tags/search?page=${encodeURIComponent(isCjk ? "1" : page)}&page_size=100`
+      + `${!isCjk && ns ? `&namespace=${encodeURIComponent(ns)}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}${isCjk && q ? "&zh=1" : ""}`;
     const data = await api("GET", url);
     const cloud = document.getElementById("tag-cloud");
     if (!cloud) return;
-    const items = data.items;
+    let items = data.items || [];
+    if (isCjk && q) {
+      items = items.filter(it => it.usage_count > 0);
+      if (ns) items = items.filter(it => it.namespace === ns);
+    }
     if (!items.length) { cloud.innerHTML = `<p>${esc(t("noTags"))}</p>`; }
     else {
       const max = items.reduce((m, it) => Math.max(m, it.usage_count), 0);
@@ -90,17 +98,20 @@ async function loadTags(q, ns, page) {
     }
     const pagerEl = document.getElementById("tag-pages");
     if (pagerEl) {
-      const last = Math.max(1, Math.ceil(data.total / data.page_size));
-      const qp = p => navHash("tags", {}, { ...(ns ? { ns } : {}), ...(q ? { q } : {}), ...(p > 1 ? { page: p } : {}) });
-      const pages = [];
-      for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
-        pages.push(p === data.page ? `<strong class="cur" aria-current="page">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
+      if (isCjk && q) { pagerEl.innerHTML = ""; }
+      else {
+        const last = Math.max(1, Math.ceil(data.total / data.page_size));
+        const qp = p => navHash("tags", {}, { ...(ns ? { ns } : {}), ...(q ? { q } : {}), ...(p > 1 ? { page: p } : {}) });
+        const pages = [];
+        for (let p = Math.max(1, data.page - 2); p <= Math.min(last, data.page + 2); p++) {
+          pages.push(p === data.page ? `<strong class="cur" aria-current="page">${p}</strong>` : `<a class="page-link" href="${qp(p)}">${p}</a>`);
+        }
+        pagerEl.innerHTML =
+          `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
+          pages.join(" ") +
+          ` ${pagerJump(data.page, last)}` +
+          `${data.page < last ? ` <a class="page-link" href="${qp(data.page + 1)}">&gt;</a>` : ""}`;
       }
-      pagerEl.innerHTML =
-        `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
-        pages.join(" ") +
-        ` ${pagerJump(data.page, last)}` +
-        `${data.page < last ? ` <a class="page-link" href="${qp(data.page + 1)}">&gt;</a>` : ""}`;
     }
   } catch (e) {
     const cloud = document.getElementById("tag-cloud");
