@@ -2,8 +2,8 @@
 
 GalleryVault is a private, self-hosted library manager for local gallery archives. It indexes Ehviewer exports, CBZ/CBR archives and plain image folders into a searchable web library, and can optionally sync tags and metadata from ExHentai, download galleries, monitor favorite folders, and translate every tag. The interface is available in English and Chinese (中文).
 
-[![Backend CI](https://github.com/ResidualBlood/galleryvault-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-backend/actions)
-[![Frontend CI](https://github.com/ResidualBlood/galleryvault-frontend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-frontend/actions)
+[![Backend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml)
+[![Frontend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml)
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
 [![Wiki](https://img.shields.io/badge/docs-wiki-9cf?logo=github)](https://github.com/ResidualBlood/galleryvault/wiki)
 
@@ -120,7 +120,7 @@ The default password `p1a2s3s4` is for first login only — change it before exp
 
 ## Architecture
 
-The project is split into two source repositories that publish the Docker images used here:
+This project is organized as a monorepo containing both frontend and backend source trees, publishing two Docker images:
 
 ```
 ┌────────────┐   :8000   ┌──────────────────────┐   :8001   ┌────────────────┐
@@ -129,10 +129,10 @@ The project is split into two source repositories that publish the Docker images
                          └──────────────────────┘
 ```
 
-| Component | Repository | Docker image | Host port |
-|-----------|------------|--------------|-----------|
-| Frontend (nginx SPA) | [galleryvault-frontend](https://github.com/ResidualBlood/galleryvault-frontend) | `residualblood/galleryvault-frontend` | **8000** |
-| Backend (FastAPI + asyncpg) | [galleryvault-backend](https://github.com/ResidualBlood/galleryvault-backend) | `residualblood/galleryvault-backend` | **8001** |
+| Component | Source Path | Docker image | Host port |
+|-----------|-------------|--------------|-----------|
+| Frontend (nginx SPA) | `frontend/` | `residualblood/galleryvault-frontend` | **8000** |
+| Backend (FastAPI + asyncpg) | `backend/` | `residualblood/galleryvault-backend` | **8001** |
 | Database | — | `postgres:16-alpine` | internal |
 
 The frontend is a dependency-free vanilla-JavaScript SPA (no build step, no CDN). The backend runs Alembic migrations automatically on boot, so upgrading is a single `docker compose pull && docker compose up -d`.

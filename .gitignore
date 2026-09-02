@@ -4,12 +4,29 @@ downloads/
 media/
 TEMP/
 db-data/
+db-data-dev/
 volumes/
 .env
 .env.*
 !.env.example
 *.sqlite3
 .DS_Store
+
+# Python build artifacts and test caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Frontend / node build artifacts
+node_modules/
+dist/
+build/
+*.local
 
 # VitePress docs site (generated + deps)
 docs-site/node_modules

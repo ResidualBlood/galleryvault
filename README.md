@@ -2,8 +2,8 @@
 
 GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehviewer 导出目录、CBZ/CBR 压缩包与普通图片文件夹索引为可搜索的 Web 画廊库，并可选地从 ExHentai 同步标签与元数据、下载画廊、监控收藏文件夹以及翻译标签。支持 **中文 / English** 双语界面。
 
-[![Backend CI](https://github.com/ResidualBlood/galleryvault-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-backend/actions)
-[![Frontend CI](https://github.com/ResidualBlood/galleryvault-frontend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-frontend/actions)
+[![Backend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml)
+[![Frontend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml)
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
 [![Wiki](https://img.shields.io/badge/docs-wiki-9cf?logo=github)](https://github.com/ResidualBlood/galleryvault/wiki)
 
@@ -93,7 +93,7 @@ docker compose up -d
 
 ## 架构
 
-项目分为两个源码仓库，分别发布本仓库使用的 Docker 镜像：
+本项目采用 Monorepo 统一管理前后端源码，并分别构建发布对应的 Docker 镜像：
 
 ```
 ┌────────────┐   :8000   ┌──────────────────────┐   :8001   ┌────────────────┐
@@ -102,10 +102,10 @@ docker compose up -d
                          └──────────────────────┘
 ```
 
-| 组件 | 源码仓库 | Docker 镜像 | 宿主端口 |
+| 组件 | 源码路径 | Docker 镜像 | 宿主端口 |
 |------|----------|-------------|----------|
-| 前端（nginx SPA） | [galleryvault-frontend](https://github.com/ResidualBlood/galleryvault-frontend) | `residualblood/galleryvault-frontend` | **8000** |
-| 后端（FastAPI + asyncpg） | [galleryvault-backend](https://github.com/ResidualBlood/galleryvault-backend) | `residualblood/galleryvault-backend` | **8001** |
+| 前端（nginx SPA） | `frontend/` | `residualblood/galleryvault-frontend` | **8000** |
+| 后端（FastAPI + asyncpg） | `backend/` | `residualblood/galleryvault-backend` | **8001** |
 | 数据库 | — | `postgres:16-alpine` | 内部 |
 
 前端为无第三方依赖的原生 JavaScript SPA（无构建、无 CDN）；后端启动时自动执行 Alembic 迁移，升级仅需 `docker compose pull && docker compose up -d`。

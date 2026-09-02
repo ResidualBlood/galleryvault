@@ -29,7 +29,7 @@ login only).
 
 ## Local Development (Dev Compose)
 
-To develop with zero-build live reloading for both frontend and backend source code (with sibling repositories layout):
+To develop with zero-build live reloading for both frontend and backend source code:
 
 ```bash
 # First time or after Dockerfile changes:

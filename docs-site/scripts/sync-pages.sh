@@ -8,8 +8,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC_DIR="$REPO_ROOT/docs/wiki"
 # VitePress root = docs-site, pages are generated flat into it.
 DST_DIR="$REPO_ROOT/docs-site"
-# In CI the backend is checked out at ./backend; locally at /mnt/GalleryVault/backend.
-BACKEND_DOCS="${BACKEND_DOCS:-$(ls -d "$REPO_ROOT/backend/docs" 2>/dev/null || echo /mnt/GalleryVault/backend/docs)}"
+# Backend reference docs are at backend/docs in the monorepo.
+BACKEND_DOCS="${BACKEND_DOCS:-$REPO_ROOT/backend/docs}"
 
 mkdir -p "$DST_DIR"
 

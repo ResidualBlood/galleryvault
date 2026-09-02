@@ -1,11 +1,16 @@
-name: ci
+name: ci-frontend
 
 on:
   push:
-    branches: [main, dev]
-    tags: ["v*"]
+    branches: [main, dev, monorepo]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/ci-frontend.yml"
   pull_request:
     branches: [main, dev]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/ci-frontend.yml"
 
 jobs:
   secrets-scan:
@@ -24,10 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: JS syntax check
+        working-directory: frontend
         run: for f in assets/*.js assets/locales/*.js assets/views/*.js; do node --check "$f"; done
 
   build:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -55,11 +61,11 @@ jobs:
         id: build
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: frontend
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=build-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=build-${{ matrix.arch }}
+          cache-from: type=gha,scope=build-frontend-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=build-frontend-${{ matrix.arch }}
 
       - name: Export digest
         run: |
@@ -76,7 +82,7 @@ jobs:
           retention-days: 1
 
   merge:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
     needs: [secrets-scan, syntax-check, build]
     steps:
@@ -102,9 +108,6 @@ jobs:
           fi
           if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
             TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:dev"
-          fi
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.ref_name }} -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:latest"
           fi
           TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend:${{ github.sha }}"
           
