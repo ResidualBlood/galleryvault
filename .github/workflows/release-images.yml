@@ -183,7 +183,7 @@ jobs:
     needs: [secrets-scan, test-backend, build-backend]
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digests-backend-*
@@ -206,7 +206,7 @@ jobs:
     needs: [secrets-scan, syntax-check-frontend, build-frontend]
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digests-frontend-*
