@@ -78,13 +78,13 @@ function renderContinueReadingHtml(items) {
     const cur = h.current_page || 0;
     const total = h.total_pages || 1;
     const pct = Math.min(100, Math.round(((cur + 1) / total) * 100));
-    const title = h.title || ("#" + h.gallery_id);
+    const title = h.display_title || h.title || ("#" + h.gallery_id);
     const readUrl = navHash("reader", { id: h.gallery_id, page: cur });
     const galUrl = navHash("gallery", { id: h.gallery_id });
     return `
       <div class="cr-card">
         <a class="cr-thumb-wrap" href="${readUrl}">
-          <img loading="lazy" src="/api/galleries/${h.gallery_id}/thumbnail" alt="${esc(title)}">
+          <img loading="lazy" src="/api/galleries/${h.gallery_id}/thumb/0" alt="${esc(title)}">
           <div class="cr-progress-wrap">
             <div class="cr-progress-bar"><div class="cr-progress-fill" style="width:${pct}%"></div></div>
             <div class="cr-progress-text"><span>${esc(t("progress"))} ${cur + 1}/${total}</span><span>${pct}%</span></div>

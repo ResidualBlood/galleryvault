@@ -210,7 +210,8 @@ async function addDownloadsFromInput(form) {
       await api("POST", "/api/downloads", body);
       queued++;
     } catch (e) {
-      if (e && (e.status === 409 || (e.message && e.message.includes("409")))) {
+      const msg = (e && e.message) || "";
+      if (e && (e.status === 409 || msg.includes("409") || msg.toLowerCase().includes("already exists"))) {
         skipped++;
       } else {
         failed++;

@@ -67,7 +67,10 @@ async function api(method, path, body) {
   if (text) { try { data = JSON.parse(text); } catch (_) {} }
   if (!res.ok) {
     const detail = (data && (data.detail || data.message)) || text || res.statusText;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
   }
   // Empty body on success -> null, JSON object/array -> parsed, otherwise raw text
   if (data !== null) return data;

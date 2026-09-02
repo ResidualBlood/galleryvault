@@ -241,15 +241,15 @@ function bindReaderKeys() {
     } else if (e.key === "g" || e.key === "G") {
       e.preventDefault();
       const input = document.getElementById("reader-jump-input");
-      if (input) {
-        input.focus();
-        input.select();
-      } else {
+      if (readerFsActive || !input || input.offsetParent === null) {
         const val = window.prompt(t("jumpToPage") || `Jump to page (1-${app.readerTotal || 1}):`, String(current() + 1));
         if (val) {
           const p = parseInt(val, 10);
           if (!isNaN(p) && p >= 1) jumpToReaderPage(p - 1);
         }
+      } else {
+        input.focus();
+        input.select();
       }
     }
   };

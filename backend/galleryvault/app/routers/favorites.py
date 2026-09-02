@@ -658,6 +658,10 @@ async def favorites_add(body: FavoritesAddRequest) -> dict[str, object]:
     successful_gids = [it["gid"] for it in items_to_add if it["gid"] not in set(cloud_failed)]
     local_added = 0
     if successful_gids:
+        base_url = str(
+            getattr(settings, "exhentai_base_url", "https://exhentai.org")
+            or "https://exhentai.org"
+        ).rstrip("/")
         favorite_items_to_save = []
         for gid in successful_gids:
             it = item_map[gid]
@@ -668,7 +672,7 @@ async def favorites_add(body: FavoritesAddRequest) -> dict[str, object]:
                     gid=gid,
                     token=token,
                     title=title,
-                    url=f"https://exhentai.org/g/{gid}/{token}/",
+                    url=f"{base_url}/g/{gid}/{token}/",
                     thumb=None,
                 )
             )
