@@ -65,8 +65,9 @@ manually to revisit it.
   - Exclude tags (`-namespace:name` or `-tag`, e.g. `-female:lolicon`) are displayed with distinct red badges, excluding matching galleries.
 - **Tag filters are opt-in, never guessed**: while you type, tag suggestions
   appear under the search box — **clicking a suggestion** adds that tag to the
-  filter (and consumes the clicked word from the query text so it doesn't also
-  act as a title keyword). Tags can also be added with explicit `ns:name`
+  filter (and consumes matching query tokens — including partial input such as
+  「和泉」 when picking 「和泉纱雾」 — so they don't also act as a title keyword;
+  leftover words still search the title). Tags can also be added with explicit `ns:name`
   syntax (`parody:touhou`) or from the tag cloud / gallery detail page.
   Pressing Enter without `ns:name` performs a **title text search only** and
   never auto-promotes words into tag filters.

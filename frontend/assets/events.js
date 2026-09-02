@@ -227,6 +227,14 @@ function dismissTagSuggest(e) {
   });
 }
 
+function tokenCoveredByTag(token, name, display, tag) {
+  const t = String(token || "").trim().toLowerCase();
+  if (!t) return false;
+  const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/u.test(t);
+  if (!isCjk && t.length < 2) return false;
+  return [name, display, tag].some(s => s && String(s).toLowerCase().includes(t));
+}
+
 async function loadTagSuggest(q, box, input) {
   if (!box) return;
   try {
@@ -260,12 +268,8 @@ async function loadTagSuggest(q, box, input) {
           });
           return;
         }
-        // Consume the clicked tag's text from the input so it does not also
-        // act as a title keyword; the remaining words stay the text query.
-        const consumed = new Set([name, display, tag, ns ? `${ns}:${display}` : ""]
-          .filter(Boolean).map(s => s.trim()));
         const remaining = (input ? input.value : "").split(/\s+/).map(s => s.trim())
-          .filter(s => s && !consumed.has(s)).join(" ");
+          .filter(s => s && !tokenCoveredByTag(s, name, display, tag)).join(" ");
         if (input) input.value = remaining;
         const curTags = parseTags(app.query.tags);
         if (!curTags.includes(tag)) curTags.push(tag);
