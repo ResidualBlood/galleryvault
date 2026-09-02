@@ -18,6 +18,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Lifespan modularization & worker lifecycle extraction** (`app/lifespan.py`, `app/main.py`): Extracted database pool warmup, active-check temporary partial downloads cleanup, and graceful worker shutdown to `galleryvault.app.lifespan` while keeping full backward compatibility on `app.main` for monkeypatched tests and routers.
+- **ExHentai API chunking constantization** (`services/eh_client.py`, `services/favorites_worker.py`): Replaced hardcoded chunk size `25` across favorites delete/move and metadata resolution with `EXHENTAI_API_CHUNK_SIZE`.
+- **Frontend modal promise safety** (`assets/components.js`): Added `settled` guards for archive preview async callbacks and ensured move dialog confirm button disables when no selectable target folders exist.
 - **Startup & connection pool acceleration** (`app/main.py`): `seed_thumbnails` now runs as a non-blocking spawned background task instead of synchronously blocking the FastAPI lifespan and `/healthz` readiness. The database connection pool is pre-warmed on startup (`SELECT 1`) to eliminate cold connection latency on the first client request.
 - **Tag reverse-search autocomplete acceleration** (`services/tag_translation.py`): `search_zh` now queries against a pre-built, pre-cased flat list `_ZH_SEARCH_ENTRIES` in namespace priority order with early-exit on limit, replacing full-table regex cleaning (`clean_display`) and case-folding on every keystroke.
 - **Thumbnail generation & Pillow DCT decoding** (`services/thumbnails.py`): JPEG thumbnail generation now uses Pillow's fast `.draft('RGB', ...)` DCT-scale decoding for large image inputs and drops the redundant multi-pass `optimize=True` Huffman overhead during JPEG encoding.
