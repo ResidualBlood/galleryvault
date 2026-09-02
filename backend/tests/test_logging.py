@@ -15,6 +15,8 @@ from galleryvault.config import Settings
 from galleryvault.logging import (
     RingBufferHandler,
     _Formatter,
+    _HttpAccessFilter,
+    _ring_buffer_handler,
     bind_log_context,
     get_log_level,
     log_extra,
@@ -289,3 +291,74 @@ def test_file_rotation_and_hydration(tmp_path: Path) -> None:
     assert logs[3]["message"] == "oldest line in backup"
     assert logs[3]["level"] == "INFO"
     assert logs[3]["context"]["task_id"] == "10"
+
+
+def _httpx_record(status: str, *, url: str = "https://api.telegram.org/botTOKEN/getUpdates") -> logging.LogRecord:
+    return logging.LogRecord(
+        name="httpx",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg=f'HTTP Request: GET {url} "HTTP/1.1 {status}"',
+        args=(),
+        exc_info=None,
+    )
+
+
+def test_http_access_filter_drops_success_keeps_failures() -> None:
+    filt = _HttpAccessFilter()
+    assert filt.filter(_httpx_record("200 OK")) is False
+    assert filt.filter(_httpx_record("204 No Content")) is False
+    assert filt.filter(_httpx_record("301 Moved Permanently")) is False
+    assert filt.filter(_httpx_record("403 Forbidden")) is True
+    assert filt.filter(_httpx_record("502 Bad Gateway")) is True
+
+    warn = logging.LogRecord(
+        name="galleryvault.services.telegram_bot",
+        level=logging.WARNING,
+        pathname="",
+        lineno=0,
+        msg="Telegram bot polling failed",
+        args=(),
+        exc_info=None,
+    )
+    assert filt.filter(warn) is True
+
+    other = logging.LogRecord(
+        name="galleryvault.services.telegram",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="not an httpx access line",
+        args=(),
+        exc_info=None,
+    )
+    assert filt.filter(other) is True
+
+
+def test_ring_buffer_drops_httpx_2xx_including_telegram_poll() -> None:
+    handler = RingBufferHandler(capacity=20)
+    handler.addFilter(_HttpAccessFilter())
+
+    handler.handle(_httpx_record("200 OK"))
+    handler.handle(_httpx_record("403 Forbidden"))
+    warn = logging.LogRecord(
+        name="galleryvault.services.telegram_bot",
+        level=logging.WARNING,
+        pathname="",
+        lineno=0,
+        msg="Telegram bot polling failed",
+        args=(),
+        exc_info=None,
+    )
+    handler.handle(warn)
+
+    logs = handler.get_logs(min_level="INFO", limit=20)
+    messages = [item["message"] for item in logs]
+    assert not any("200 OK" in msg for msg in messages)
+    assert any("403 Forbidden" in msg for msg in messages)
+    assert any("Telegram bot polling failed" in msg for msg in messages)
+
+
+def test_runtime_ring_buffer_has_http_access_filter() -> None:
+    assert any(isinstance(f, _HttpAccessFilter) for f in _ring_buffer_handler.filters)

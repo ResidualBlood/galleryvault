@@ -509,6 +509,10 @@ def configure_logging(
     stream_handler.setFormatter(_Formatter(as_json, use_colors=use_colors))
     access_filter = _HttpAccessFilter()
     stream_handler.addFilter(access_filter)
+    _ring_buffer_handler.filters = [
+        f for f in _ring_buffer_handler.filters if not isinstance(f, _HttpAccessFilter)
+    ]
+    _ring_buffer_handler.addFilter(access_filter)
 
     handlers: list[logging.Handler] = [stream_handler, _ring_buffer_handler]
 

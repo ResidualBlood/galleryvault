@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **System Logs no longer flooded by Telegram long-poll** (`logging.py`): `_HttpAccessFilter` (drop httpx 2xx/3xx) is now attached to the in-memory RingBuffer as well as stdout/file. The runtime logs page was still showing `getUpdates` 200 every 30s because the filter never reached the buffer the UI reads.
+
 ### Changed
 
 - **Pages Actions bumps** (`.github/workflows/pages.yml`): `configure-pages` v5→v6, `upload-pages-artifact` v3→v5, `deploy-pages` v4→v5 (closed Dependabot #7/#8 plus matching deploy action).
