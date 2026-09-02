@@ -10,9 +10,13 @@ const app = {
 };
 async function scanLibrary() {
   try {
-    await api("POST", "/api/scan");
-    toast(t("scanning"));
-    pollLogs();
+    const r = await api("POST", "/api/scan");
+    if (r && r.status === "paused") {
+      toast(t("paused") + " — " + (r.detail || t("pauseHint")));
+    } else {
+      toast(t("scanning"));
+    }
+    if (typeof pollLogs === "function") pollLogs();
   } catch (e) { toast(e.message); }
 }
 

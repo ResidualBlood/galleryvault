@@ -96,6 +96,7 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         "auth_required",
         "trusted_proxies",
         "tag_translation_update_interval_minutes",
+        "global_paused",
     }
     filtered = {k: v for k, v in values.items() if k in allowed and v is not None}
     if "exhentai_cookies" in filtered:

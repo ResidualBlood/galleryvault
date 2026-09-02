@@ -63,11 +63,11 @@ async function recyclePurge() {
   if (!ids.length) { toast(t("select")); return; }
   if (!window.confirm(t("confirmDelete") + " (" + ids.length + ")")) return;
   const delFiles = window.confirm(t("deleteFiles"));
-  // purge currently hard-deletes DB; files already gone for expunged, for trash we hard-delete DB only (files kept unless delFiles)
-  // For simplicity, call purge (hard delete) – backend will delete row
   try {
-    const r = await api("POST", "/api/galleries/purge", { ids });
-    toast(`${esc(t("purge"))}: ${r.purged}`);
+    const r = await api("POST", "/api/galleries/purge", { ids, delete_files: delFiles });
+    const ok = r.purged != null ? r.purged : (r.deleted != null ? r.deleted : ids.length);
+    const failed = (r.failed_deletions || []).length;
+    toast(`${esc(t("purge"))}: ${ok}` + (failed ? ` · ${esc(t("dupDeleteFail"))}${failed}` : ""));
     selRecycle.clear();
     router();
   } catch (e) { toast(e.message); }

@@ -675,30 +675,28 @@ class GalleryRepository:
         return total, list(rows)
 
     async def list_integrity_issues(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
-        # Page count vs actual gallery_pages rows, or file_count mismatch, excluding trashed/expunged
-        # Use subquery for page counts
+        # Page count vs actual gallery_pages rows, excluding trashed/expunged and intentional truncations
         page_count_sub = (
             select(GalleryPage.gallery_id, func.count(GalleryPage.id).label("cnt"))
             .group_by(GalleryPage.gallery_id)
             .subquery()
         )
+        from ..models import DownloadTask
+
+        trunc_exists = (
+            select(1)
+            .select_from(DownloadTask)
+            .where(DownloadTask.gid == Gallery.gid, DownloadTask.max_pages == Gallery.page_count)
+            .exists()
+        )
         query = (
             select(Gallery)
             .outerjoin(page_count_sub, page_count_sub.c.gallery_id == Gallery.id)
             .where(Gallery.trashed.is_(False), Gallery.expunged.is_(False))
-            .where(
-                or_(
-                    Gallery.page_count.is_(None),
-                    Gallery.page_count != func.coalesce(page_count_sub.c.cnt, 0),
-                    # file_count vs page_count mismatch (allow 0 file_count as unknown)
-                    and_(Gallery.file_count.is_not(None), Gallery.file_count != Gallery.page_count),
-                )
-            )
+            .where(Gallery.page_count.is_not(None))
+            .where(Gallery.page_count != func.coalesce(page_count_sub.c.cnt, 0))
+            .where(~trunc_exists)
         )
-        # Exclude galleries truncated via download max_pages (intentional)
-        # Those have a download task with max_pages == page_count, we exclude them by checking
-        # that no download task exists with that max_pages (simplified: exclude if any task max_pages == page_count)
-        # For now, simple page_count vs actual count is enough; truncation will be rare and can be inspected
         total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
         rows = (
             await self.session.scalars(

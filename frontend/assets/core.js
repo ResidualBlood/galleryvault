@@ -23,20 +23,27 @@ function updateBanner() {
     el.innerHTML = `<span>${esc(t("mustChange"))}</span> <a class="btn btn-primary" href="#/welcome">${esc(t("changePassword"))}</a>`;
     return;
   }
+  const parts = [];
   if (app.authenticated && app.paused) {
-    el.hidden = false;
-    el.innerHTML = `<span style="color:var(--warning, #ff9800);font-weight:600;">⏸ ${esc(t("paused"))} — ${esc(t("pauseHint"))}</span> <button class="btn btn-secondary" data-action="toggle-pause" type="button" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("resume"))}</button>`;
-    return;
+    parts.push(`<span style="color:var(--warning, #ff9800);font-weight:600;">⏸ ${esc(t("paused"))} — ${esc(t("pauseHint"))}</span> <button class="btn btn-secondary" data-action="toggle-pause" type="button" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("resume"))}</button>`);
   }
   const ch = app.session && app.session.cookie_health;
   if (app.authenticated && ch && (ch.state === "not_logged_in" || ch.state === "no_exhentai_access" || ch.state === "failed")) {
-    el.hidden = false;
     const msg = ch.state === "failed" ? `${esc(t("cookieExpiredNotice"))} (${esc(ch.detail || "")})` : esc(t("cookieExpiredNotice"));
-    el.innerHTML = `<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${msg}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`;
-    return;
+    parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${msg}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
   }
-  el.hidden = true;
-  el.innerHTML = "";
+  // Also show image limit warning if near limit (>80%)
+  const quota = app.session && app.session.quota_warning;
+  if (app.authenticated && quota) {
+    parts.push(`<span style="color:var(--warning, #ff9800);font-weight:600;">⚠️ ${esc(quota)}</span>`);
+  }
+  if (parts.length) {
+    el.hidden = false;
+    el.innerHTML = parts.join('<br style="margin:4px 0;display:block;">');
+  } else {
+    el.hidden = true;
+    el.innerHTML = "";
+  }
 }
 
 async function refreshCookieHealth() {

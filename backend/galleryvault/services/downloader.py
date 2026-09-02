@@ -340,6 +340,20 @@ class Downloader:
 
         async def _download_page(index: int, page: GalleryPageData) -> None:
             nonlocal first_error
+            # Global pause: stop dispatching new pages while paused (current pages finish)
+            try:
+                from ..app.state import app_state as _app_state
+                from ..config import get_settings as _get_settings
+
+                while True:
+                    _s = _app_state.settings or _get_settings()
+                    if not getattr(_s, "global_paused", False):
+                        break
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001, S110
+                pass
             # Resume support (Ehviewer / SXJ style): pages already on disk in the
             # temp dir OR the final target dir are skipped, so a retry only
             # fetches the pages that failed or were never written.

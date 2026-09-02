@@ -128,6 +128,8 @@ async function onClick(e) {
       const cur = await api("GET", "/api/pause");
       const next = !cur.paused;
       await api("POST", "/api/pause", { paused: next });
+      app.paused = next;
+      updateBanner();
       toast(next ? t("paused") : t("resume"));
       router();
     } catch (err) { toast(err.message); }
