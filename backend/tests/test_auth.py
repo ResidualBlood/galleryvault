@@ -99,7 +99,9 @@ def test_tag_sync_success_and_upstream_failure_are_safe(
             raise RuntimeError("cookie=secret-token")
 
     orig_factory = app_state.session_factory
+    orig_client = app_state.eh_client
     app_state.session_factory = lambda: Session()
+    app_state.eh_client = object()
     monkeypatch.setattr(galleries_router, "TagSyncService", Service)
     try:
         client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
@@ -112,6 +114,7 @@ def test_tag_sync_success_and_upstream_failure_are_safe(
         assert "secret-token" not in failure.text
     finally:
         app_state.session_factory = orig_factory
+        app_state.eh_client = orig_client
 
 
 def test_pagination_validation_does_not_touch_database(client: TestClient) -> None:
@@ -153,6 +156,7 @@ def test_exhentai_test_endpoint_maps_status_codes(
             pass
 
     fake = FakeLogin()
+    orig_client = app_state.eh_client
     app_state.eh_client = fake
     real_settings = app_state.settings or get_settings()
     app_state.settings = real_settings.model_copy(
@@ -173,6 +177,7 @@ def test_exhentai_test_endpoint_maps_status_codes(
         assert client.post("/api/settings/exhentai/test").status_code == 400
     finally:
         app_state.settings = real_settings
+        app_state.eh_client = orig_client
 
 
 def test_settings_save_persists_auth_required(

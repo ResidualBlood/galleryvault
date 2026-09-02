@@ -22,8 +22,10 @@ def _check_ast_for_main_import(file_path: Path) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            if (node.level > 0 and module in ("", "app") and any(a.name == "main" for a in node.names)) or \
-               (module in ("galleryvault.app.main", "galleryvault.app") and any(a.name == "main" for a in node.names)):
+            is_main_module = module == "main" or module.endswith(".main")
+            is_main_symbol = (node.level > 0 and module in ("", "app") and any(a.name == "main" for a in node.names)) or \
+                (module in ("galleryvault.app",) and any(a.name == "main" for a in node.names))
+            if is_main_module or is_main_symbol:
                 violations.append(f"{file_path}:{node.lineno}: import from main ({ast.unparse(node)})")
         elif isinstance(node, ast.Import):
             for alias in node.names:

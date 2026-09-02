@@ -26,8 +26,8 @@ Browser ── :8001 ──▶ FastAPI app (galleryvault/app/main.py + app/route
 
 Key points:
 
-- **Authentication is cookie-based.** The `authentication` middleware
-  (`galleryvault/app/main.py`) returns `401` JSON for unauthenticated `/api/*`
+- **Authentication is cookie-based.** The `auth_and_csrf_middleware`
+  (`galleryvault/app/middleware.py`) returns `401` JSON for unauthenticated `/api/*`
   requests; the SPA detects the `401` and shows the login form. Login is
   performed by `POST /login` (form-encoded) which sets the session cookie, and
   `POST /logout` clears it. `/healthz`, `/metrics`, `/login`, `/logout` are

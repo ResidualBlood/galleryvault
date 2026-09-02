@@ -819,6 +819,8 @@ async def sync_gallery_tags(identifier: int, redirect: bool = False) -> dict[str
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (GalleryGidMissing, GalleryTokenMissing) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     except Exception as exc:

@@ -26,7 +26,11 @@ from ..secrets import (
     encryption_enabled,
     is_encrypted,
 )
-from ..services.settings_service import decrypt_user_settings, start_telegram_bot
+from ..services.settings_service import (
+    decrypt_user_settings,
+    start_telegram_bot,
+    update_runtime_settings,
+)
 from .dependencies import spawn_task
 from .state import app_state, create_services, sync_state
 
@@ -87,7 +91,9 @@ async def stop_background_tasks(
         if t is not None:
             tasks_to_cancel.add(t)
     for task in list(tasks_to_cancel):
-        task.cancel()
+        if not task.done():
+            with contextlib.suppress(RuntimeError, Exception):
+                task.cancel()
     for task in list(tasks_to_cancel):
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
@@ -182,6 +188,15 @@ def ensure_translation_updater() -> asyncio.Task | None:
     global translation_update_task
     settings = app_state.settings or get_settings()
     if (
+        translation_update_task is not None
+        and not translation_update_task.done()
+        and settings.tag_translation_update_interval_minutes <= 0
+    ):
+        translation_update_task.cancel()
+        translation_update_task = None
+        return None
+
+    if (
         translation_update_task is None or translation_update_task.done()
     ) and settings.tag_translation_update_interval_minutes > 0:
         from ..services.tag_sync_worker import translation_update_loop
@@ -207,11 +222,6 @@ async def startup() -> None:
     await warmup_database_pool(app_state.session_factory)
 
     if not enable_workers:
-        settings_obj = app_state.settings or get_settings()
-        services = create_services(settings_obj)
-        for key, obj in services.items():
-            if getattr(app_state, key, None) is None:
-                setattr(app_state, key, obj)
         sync_state()
         return
 
@@ -220,10 +230,7 @@ async def startup() -> None:
         if app_state.session_factory:
             async with app_state.session_factory() as session:
                 persisted = await SettingsRepository(session).get()
-            decrypted = decrypt_user_settings(persisted)
-            current = app_state.settings or get_settings()
-            app_state.settings = current.model_copy(update=decrypted)
-            sync_state()
+            update_runtime_settings(decrypt_user_settings(persisted))
     except Exception:  # noqa: BLE001
         logger.warning("user settings could not be loaded at startup")
 
@@ -326,13 +333,22 @@ async def shutdown() -> None:
     if app_state.telegram is not None:
         await app_state.telegram.flush_summary()
         await app_state.telegram.aclose()
+        app_state.telegram = None
     if app_state.eh_client is not None:
         await app_state.eh_client.aclose()
+        app_state.eh_client = None
+    app_state.downloader = None
+    app_state.favorites_service = None
+    app_state.library_service = None
+    app_state.thumbnail_service = None
+    if isinstance(app_state.extra.get("spawned_tasks"), set):
+        app_state.extra["spawned_tasks"].clear()
     if app_state.engine is not None:
         try:
             await app_state.engine.dispose()
         except Exception:  # noqa: BLE001, S110
             pass
+    sync_state()
 
 
 @asynccontextmanager

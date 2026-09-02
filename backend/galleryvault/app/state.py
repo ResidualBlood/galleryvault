@@ -48,14 +48,12 @@ app_state = AppState(task_manager=default_task_manager)
 
 def sync_state(app: Any = None) -> None:
     """Mirror app_state -> app.state for middleware / debug inspection."""
-    if app is None:
-        try:
-            from .main import app as main_app
+    if app is not None:
+        app_state.extra["app"] = app
+    else:
+        app = app_state.extra.get("app")
 
-            app = main_app
-        except ImportError:
-            return
-    if not hasattr(app, "state"):
+    if app is None or not hasattr(app, "state"):
         return
 
     for attr in (

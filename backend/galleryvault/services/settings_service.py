@@ -184,6 +184,9 @@ async def refresh_services() -> None:
 
     sync_state()
     start_telegram_bot()
+    from ..app.lifespan import ensure_translation_updater
+
+    ensure_translation_updater()
 
 
 def settings_public() -> dict[str, Any]:
