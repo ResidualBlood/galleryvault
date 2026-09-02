@@ -1092,6 +1092,12 @@ async def shutdown() -> None:
         await app.state.telegram.aclose()
     if getattr(app.state, "eh_client", None) is not None:
         await app.state.eh_client.aclose()
+    engine = getattr(app.state, "engine", None) or getattr(app_state, "engine", None)
+    if engine is not None:
+        try:
+            await engine.dispose()
+        except Exception:  # noqa: BLE001, S110
+            pass
 
 
 @asynccontextmanager

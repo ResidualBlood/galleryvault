@@ -238,6 +238,7 @@ class _EmptyResult:
         return iter(())
 
 
+@pytest.mark.asyncio
 async def test_metadata_map_chunks_in_queries():
     """metadata_map must issue chunked gid lookups for large gid lists."""
     from galleryvault.db import repository as repo_module
@@ -257,6 +258,7 @@ async def test_metadata_map_chunks_in_queries():
     assert sum(in_sizes) >= 1200
 
 
+@pytest.mark.asyncio
 async def test_galleries_for_gids_chunks_in_queries():
     """Favorites remove-path lookups must stay under asyncpg's param limit."""
     from galleryvault.db import repository as repo_module
@@ -276,6 +278,7 @@ async def test_galleries_for_gids_chunks_in_queries():
     assert sum(in_sizes) >= 1200
 
 
+@pytest.mark.asyncio
 async def test_favorite_items_detail_by_gids_chunks_in_queries():
     """favorite_items_detail_by_gids must chunk both the main and tag queries."""
     from galleryvault.db import repository as repo_module
@@ -295,6 +298,7 @@ async def test_favorite_items_detail_by_gids_chunks_in_queries():
     assert len(in_sizes) >= 3  # 1200 gids -> 3 chunks; tag query gated by local rows
 
 
+@pytest.mark.asyncio
 async def test_delete_filtered_pages_and_chunks(monkeypatch):
     """delete-filtered must page the filter and delete in 500-row batches."""
     from galleryvault.app import main
@@ -375,6 +379,7 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
     assert deleted_batches == [500, 500, 200]
 
 
+@pytest.mark.asyncio
 async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monkeypatch):
     """delete-filtered with the pseudo-category ``__not_fav__`` must translate it
     into ``exclude_favorited=True`` and a ``None`` category before paging."""
