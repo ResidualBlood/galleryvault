@@ -156,3 +156,39 @@ async def test_favorite_counts_cached_wait_on_cold_concurrent(monkeypatch):
         app_state.eh_client = orig_client
         _fav_counts_cache["ts"] = 0.0
         _fav_counts_cache["counts"] = {}
+
+
+@pytest.mark.asyncio
+async def test_favorite_counts_cached_cancelled_caller_shares_task():
+    call_count = 0
+
+    class FakeEhClient:
+        async def fetch_favorite_counts(self):
+            nonlocal call_count
+            call_count += 1
+            import asyncio
+            await asyncio.sleep(0.08)
+            return {0: 99}
+
+    orig_client = app_state.eh_client
+    app_state.eh_client = FakeEhClient()
+    _fav_counts_cache["ts"] = 0.0
+    _fav_counts_cache["counts"] = {}
+    try:
+        import asyncio
+
+        # Start caller 1 and cancel it midway
+        t1 = asyncio.create_task(favorite_counts_cached(wait_on_cold=True))
+        await asyncio.sleep(0.01)
+        t1.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t1
+
+        # Caller 2 starts before the background task completes, should share the task
+        res2 = await favorite_counts_cached(wait_on_cold=True)
+        assert res2 == {0: 99}
+        assert call_count == 1
+    finally:
+        app_state.eh_client = orig_client
+        _fav_counts_cache["ts"] = 0.0
+        _fav_counts_cache["counts"] = {}

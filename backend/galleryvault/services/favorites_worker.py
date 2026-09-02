@@ -232,18 +232,21 @@ async def _do_refresh_favorite_counts() -> None:
         )
 
 
+def _clear_refresh_task(task: asyncio.Task[None]) -> None:
+    global _fav_counts_refresh_task
+    if _fav_counts_refresh_task is task:
+        _fav_counts_refresh_task = None
+
+
 async def refresh_favorite_counts() -> None:
     global _fav_counts_refresh_task
     if _fav_counts_refresh_task is not None and not _fav_counts_refresh_task.done():
-        await _fav_counts_refresh_task
+        await asyncio.shield(_fav_counts_refresh_task)
         return
     task = asyncio.create_task(_do_refresh_favorite_counts())
+    task.add_done_callback(_clear_refresh_task)
     _fav_counts_refresh_task = task
-    try:
-        await task
-    finally:
-        if _fav_counts_refresh_task is task:
-            _fav_counts_refresh_task = None
+    await asyncio.shield(task)
 
 
 async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False) -> dict[int, int]:
