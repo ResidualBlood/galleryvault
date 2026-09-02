@@ -155,7 +155,8 @@ removable pill (per-pill ×, an `AND` badge and a clear-all action); resubmittin
 the title search keeps the current tag filter.
 
 While you type, tag suggestions appear — **click a suggestion** to add that
-tag (the clicked word is consumed from the title query). Explicit `ns:name`
+tag (matching tokens are consumed from the title query, including partial
+input such as 「和泉」 → 「和泉纱雾」). Explicit `ns:name`
 syntax (`parody:touhou`) also becomes a tag filter. Pressing Enter without
 `ns:name` is a **title text search only** and never auto-promotes Chinese or
 English words into tags. Multi-word title search ANDs each word.
