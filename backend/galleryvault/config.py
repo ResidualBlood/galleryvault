@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     generate_thumbnails: bool = True
     log_level: str = "INFO"
     log_json: bool = False
+    log_file: str | None = None
+    log_max_bytes: int = 10 * 1024 * 1024
+    log_backup_count: int = 3
     scan_batch_size: int = 500
     auth_secret: str | None = None
     auth_password_hash: str | None = None

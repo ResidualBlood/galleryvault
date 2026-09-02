@@ -10,6 +10,8 @@ import sys
 import threading
 import time
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 # Per-request correlation id (set by the request_id middleware, available to
@@ -230,17 +232,98 @@ class _HttpAccessFilter(logging.Filter):
 
 
 _default_formatter = logging.Formatter()
+_LOG_LINE_RE = re.compile(
+    r"^(?P<time>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+(?P<level>[A-Z]+)\s+(?P<logger>[^:]+):\s+(?P<message>.*)$"
+)
 
 
 class RingBufferHandler(logging.Handler):
     """Stores the latest N formatted log entries in memory for diagnostic retrieval."""
 
-    def __init__(self, capacity: int = 1000) -> None:
+    def __init__(self, capacity: int = 2000) -> None:
         super().__init__()
         self.capacity = capacity
         self.buffer: collections.deque[dict[str, Any]] = collections.deque(maxlen=capacity)
         self._lock = threading.Lock()
         self._seq = 0
+
+    def hydrate_from_file(self, file_path: str | Path, max_lines: int = 200) -> None:
+        """Preload the latest N lines from log file into buffer on startup."""
+        path = Path(file_path)
+        if not path.exists() or not path.is_file():
+            return
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            recent_lines = lines[-max_lines:] if len(lines) > max_lines else lines
+            with self._lock:
+                for raw_line in recent_lines:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("{") and line.endswith("}"):
+                        try:
+                            data = json.loads(line)
+                            self._seq += 1
+                            level = str(data.get("level", "INFO")).upper()
+                            self.buffer.append({
+                                "id": self._seq,
+                                "time": str(data.get("time", "")),
+                                "timestamp": time.time(),
+                                "level": level,
+                                "levelno": getattr(logging, level, logging.INFO),
+                                "logger": str(data.get("logger", "app")),
+                                "message": str(data.get("message", "")),
+                                "request_id": str(data.get("request_id", "")) or None,
+                                "context": {
+                                    k: v
+                                    for k, v in data.items()
+                                    if k
+                                    not in (
+                                        "time",
+                                        "level",
+                                        "logger",
+                                        "message",
+                                        "request_id",
+                                        "exception",
+                                        "stack_info",
+                                    )
+                                },
+                                "exception": data.get("exception"),
+                                "exception_type": data.get("exception_type"),
+                            })
+                            continue
+                        except Exception:  # noqa: BLE001, S110
+                            pass
+                    m = _LOG_LINE_RE.match(line)
+                    if m:
+                        self._seq += 1
+                        level = m.group("level").upper()
+                        msg = m.group("message")
+                        context = {}
+                        if " [" in msg and msg.endswith("]"):
+                            prefix, suffix = msg.rsplit(" [", 1)
+                            msg = prefix
+                            suffix = suffix[:-1]
+                            for pair in suffix.split(" "):
+                                if "=" in pair:
+                                    k, v = pair.split("=", 1)
+                                    context[k] = v.strip("'\"")
+                        self.buffer.append({
+                            "id": self._seq,
+                            "time": m.group("time"),
+                            "timestamp": time.time(),
+                            "level": level,
+                            "levelno": getattr(logging, level, logging.INFO),
+                            "logger": m.group("logger").strip(),
+                            "message": msg,
+                            "request_id": context.pop("request_id", None),
+                            "context": context,
+                            "exception": None,
+                            "exception_type": None,
+                        })
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -311,7 +394,12 @@ class RingBufferHandler(logging.Handler):
             self.buffer.clear()
 
 
-_ring_buffer_handler = RingBufferHandler(capacity=1000)
+_ring_buffer_handler = RingBufferHandler(capacity=2000)
+_current_log_file: Path | None = None
+
+
+def get_log_file_path() -> Path | None:
+    return _current_log_file
 
 
 def get_recent_logs(
@@ -344,17 +432,45 @@ def set_log_level(level: str) -> str:
 
 
 def configure_logging(
-    level: str = "INFO", as_json: bool = False, use_colors: bool | None = None
+    level: str = "INFO",
+    as_json: bool = False,
+    use_colors: bool | None = None,
+    log_file: str | Path | None = None,
+    log_max_bytes: int = 10 * 1024 * 1024,
+    log_backup_count: int = 3,
 ) -> None:
+    global _current_log_file
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(_Formatter(as_json, use_colors=use_colors))
     access_filter = _HttpAccessFilter()
     stream_handler.addFilter(access_filter)
 
+    handlers: list[logging.Handler] = [stream_handler, _ring_buffer_handler]
+
+    if log_file:
+        try:
+            log_path = Path(log_file)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                log_path,
+                maxBytes=log_max_bytes,
+                backupCount=log_backup_count,
+                encoding="utf-8",
+            )
+            file_handler.setFormatter(_Formatter(as_json=as_json, use_colors=False))
+            file_handler.addFilter(access_filter)
+            handlers.append(file_handler)
+            _current_log_file = log_path
+            _ring_buffer_handler.hydrate_from_file(log_path)
+        except Exception as exc:  # noqa: BLE001
+            sys.stderr.write(f"Failed to initialize log file handler: {exc}\n")
+
     root = logging.getLogger()
-    root.handlers[:] = [stream_handler, _ring_buffer_handler]
+    root.handlers[:] = handlers
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     root.setLevel(numeric_level)
+    for handler in root.handlers:
+        handler.setLevel(numeric_level)
 
     # uvicorn installs its own handler on the "uvicorn.access" logger (with
     # propagate=False), so access-log records never pass through the root

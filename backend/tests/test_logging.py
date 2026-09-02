@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -238,3 +239,39 @@ def test_system_logs_api_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     resp_del = client.delete("/api/system/logs")
     assert resp_del.status_code == 200
     assert resp_del.json()["status"] == "cleared"
+
+    # GET /api/system/logs/download
+    resp_dl = client.get("/api/system/logs/download")
+    assert resp_dl.status_code == 200
+    assert "text/plain" in resp_dl.headers.get("content-type", "")
+    assert "galleryvault.log" in resp_dl.headers.get("content-disposition", "")
+
+
+def test_file_rotation_and_hydration(tmp_path: Path) -> None:
+    log_file = tmp_path / "test_gv.log"
+    handler = RingBufferHandler(capacity=50)
+
+    # Write synthetic log lines into file
+    log_file.write_text(
+        "2026-09-02T12:00:00+08:00 INFO     test_runner: first historical line [task_id=10]\n"
+        "2026-09-02T12:00:01+08:00 WARNING  test_runner: second historical warning [gid=123]\n"
+        '{"time": "2026-09-02T12:00:02+08:00", "level": "ERROR", "logger": "json_logger", "message": "json error line", "gid": 456}\n',
+        encoding="utf-8",
+    )
+
+    handler.hydrate_from_file(log_file, max_lines=10)
+    logs = handler.get_logs(min_level="DEBUG", limit=10)
+
+    assert len(logs) == 3
+    # logs are ordered newest first
+    assert logs[0]["message"] == "json error line"
+    assert logs[0]["level"] == "ERROR"
+    assert logs[0]["context"]["gid"] == 456
+
+    assert logs[1]["message"] == "second historical warning"
+    assert logs[1]["level"] == "WARNING"
+    assert logs[1]["context"]["gid"] == "123"
+
+    assert logs[2]["message"] == "first historical line"
+    assert logs[2]["level"] == "INFO"
+    assert logs[2]["context"]["task_id"] == "10"

@@ -314,7 +314,16 @@ from .schemas import (
 from .state import app_state
 
 settings = get_settings()
-configure_logging(settings.log_level, settings.log_json)
+_log_file = settings.log_file
+if not _log_file and settings.thumbnail_cache_dir:
+    _log_file = str(Path(settings.thumbnail_cache_dir).parent / "logs" / "galleryvault.log")
+configure_logging(
+    settings.log_level,
+    settings.log_json,
+    log_file=_log_file,
+    log_max_bytes=settings.log_max_bytes,
+    log_backup_count=settings.log_backup_count,
+)
 logger = logging.getLogger(__name__)
 
 CSRF_COOKIE = "galleryvault_csrf"

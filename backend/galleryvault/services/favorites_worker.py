@@ -430,19 +430,19 @@ async def _run_favorites_check_inner(
             from .updates_worker import detect_gallery_updates
 
             spawn_task(detect_gallery_updates(), "gallery updates detect")
-        except Exception:  # noqa: BLE001, S110
-            pass
+        except Exception as exc:
+            logger.debug("ignoring error during post-check updates spawn", exc_info=exc)
     except Exception as exc:  # noqa: BLE001
         entry["error"] = str(exc)
         logger.error(
             "favorites check failed",
-            extra=log_extra(favcat=favcat, error=type(exc).__name__),
+            extra=log_extra(favcat=favcat, error=str(exc) or type(exc).__name__),
         )
         try:
             async with session_cm() as session, session.begin():
                 await FavoritesRepository(session).checked(favcat, False, str(exc))
-        except Exception:  # noqa: S110, BLE001
-            pass
+        except Exception as exc2:
+            logger.debug("ignoring error during favorites check failure record", exc_info=exc2)
     finally:
         entry["running"] = False
         entry["completed"] = datetime.now(UTC).isoformat()

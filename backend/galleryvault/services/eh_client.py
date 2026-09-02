@@ -1227,11 +1227,19 @@ class EhClient:
                 # Auth expiry is not a per-gallery failure: propagate so the
                 # caller can surface a dead session instead of swallowing it.
                 raise
-            except Exception:  # noqa: BLE001 - retry each gid on its own
+            except Exception as exc:  # noqa: BLE001 - retry each gid on its own
+                logger.info(
+                    "batch favorites remove failed; retrying per gid",
+                    extra=log_extra(chunk_size=len(chunk), error=str(exc)),
+                )
                 for gid in chunk:
                     try:
                         await _post([gid])
-                    except Exception:  # noqa: BLE001 - surface per-gid failures
+                    except Exception as single_exc:  # noqa: BLE001 - surface per-gid failures
+                        logger.warning(
+                            "per-gid favorites remove failed on cloud",
+                            extra=log_extra(gid=gid, error=str(single_exc)),
+                        )
                         failed.append(gid)
         return failed
 
@@ -1276,11 +1284,23 @@ class EhClient:
                 await _post(chunk)
             except EhClientError:
                 raise
-            except Exception:  # noqa: BLE001 - retry each gid on its own
+            except Exception as exc:  # noqa: BLE001 - retry each gid on its own
+                logger.info(
+                    "batch favorites move failed; retrying per gid",
+                    extra=log_extra(
+                        chunk_size=len(chunk), target_favcat=target_favcat, error=str(exc)
+                    ),
+                )
                 for gid in chunk:
                     try:
                         await _post([gid])
-                    except Exception:  # noqa: BLE001 - surface per-gid failures
+                    except Exception as single_exc:  # noqa: BLE001 - surface per-gid failures
+                        logger.warning(
+                            "per-gid favorites move failed on cloud",
+                            extra=log_extra(
+                                gid=gid, target_favcat=target_favcat, error=str(single_exc)
+                            ),
+                        )
                         failed.append(gid)
         return failed
 

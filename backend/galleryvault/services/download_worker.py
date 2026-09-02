@@ -228,7 +228,8 @@ async def telegram_flush_loop() -> None:
                     await notifier.flush_summary()
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "telegram summary flush failed", extra=log_extra(error=type(exc).__name__)
+                    "telegram summary flush failed",
+                    extra=log_extra(error=str(exc) or type(exc).__name__),
                 )
 
 
@@ -411,7 +412,8 @@ async def _run_download_inner(task: DownloadTask) -> None:
                 )
         except SQLAlchemyError as db_exc:
             logger.error(
-                "download status persistence failed", extra=log_extra(error=type(db_exc).__name__)
+                "download status persistence failed",
+                extra=log_extra(error=str(db_exc) or type(db_exc).__name__),
             )
 
 
@@ -423,7 +425,10 @@ async def download_worker_loop() -> None:
         async with app_state.session_factory() as session, session.begin():
             await DownloadRepository(session).recover_orphans()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("download recovery failed", extra=log_extra(error=type(exc).__name__))
+        logger.warning(
+            "download recovery failed",
+            extra=log_extra(error=str(exc) or type(exc).__name__),
+        )
 
     settings = app_state.settings or get_settings()
     concurrency = max(1, settings.download_concurrency)
@@ -462,7 +467,8 @@ async def download_worker_loop() -> None:
                 raise
             except Exception as exc:  # noqa: BLE001
                 logger.error(
-                    "download worker iteration failed", extra=log_extra(error=type(exc).__name__)
+                    "download worker iteration failed",
+                    extra=log_extra(error=str(exc) or type(exc).__name__),
                 )
                 await asyncio.sleep(2)
 
