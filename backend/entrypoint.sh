@@ -20,12 +20,18 @@ case "$TARGET_GID" in
         ;;
 esac
 
+DEFAULT_CMD="uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips=172.16.0.0/12,127.0.0.1"
+
 if [ "$TARGET_UID" = "0" ]; then
     # Default: run as root (no privilege dropping or chown needed)
     export HOME=/root
     mkdir -p /downloads /gv-cache/logs 2>/dev/null || true
     alembic upgrade head
-    exec uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips="172.16.0.0/12,127.0.0.1"
+    if [ $# -gt 0 ]; then
+        exec "$@"
+    else
+        exec $DEFAULT_CMD
+    fi
 fi
 
 # Custom UID/GID requested: drop privileges if currently running as root
@@ -59,4 +65,8 @@ alembic upgrade head
 # limiting keys on the real client IP instead of the shared proxy IP.  Only the
 # private docker/proxy range is allowed to rewrite forwarded headers; the login
 # bucket itself keys on X-Real-IP (set by nginx, unforgeable by clients).
-exec uvicorn galleryvault.app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips="172.16.0.0/12,127.0.0.1"
+if [ $# -gt 0 ]; then
+    exec "$@"
+else
+    exec $DEFAULT_CMD
+fi

@@ -1,9 +1,9 @@
 # Development Guide
 
 This document explains how GalleryVault is structured. The project is split
-into **two independent git repositories**: this backend (JSON API + PostgreSQL)
-and the [`galleryvault-frontend`](../frontend) repo (a static SPA served by
-nginx). This file covers the backend.
+into **three git repositories**: the meta repository (`galleryvault`), this backend
+(`galleryvault-backend`: JSON API + PostgreSQL), and the [`galleryvault-frontend`](../frontend)
+repo (a static SPA served by nginx). This file covers the backend.
 
 ## Architecture overview
 
@@ -19,7 +19,7 @@ Browser ── :8001 ──▶ FastAPI app (galleryvault/app/main.py + app/route
   served by nginx on port 8000. nginx reverse-proxies `/api`, `/login` and
   `/logout` to the backend service (`http://backend:8001`).
 - **Backend** (this repo) is a **pure JSON API** on port 8001 (container
-  port 8000): no HTML pages, no static files.
+  port 8001): no HTML pages, no static files.
 - **Database**: PostgreSQL 16 runs alongside the backend in the same
   `docker-compose.yml`; its data persists in `./db-data` (next to the compose
   file).
@@ -287,7 +287,7 @@ curl -L https://github.com/EhTagTranslation/Database/releases/latest/download/db
 #     TAG_TRANSLATIONS_FILE: /app/tag_translations.json
 #   volumes:
 #     - ./tag_translations.json:/app/tag_translations.json:ro
-docker-compose up -d app
+docker compose up -d backend
 ```
 
 You can confirm loading in the container logs:
