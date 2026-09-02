@@ -2129,6 +2129,38 @@ class FavoritesRepository:
             removed += result.rowcount or 0
         return removed
 
+    async def move_gids(self, gids: list[int], target_favcat: int) -> int:
+        if not gids:
+            return 0
+        unique_gids = list(dict.fromkeys(gids))
+        moved = 0
+        for chunk in _chunked(unique_gids):
+            existing_target = await self.session.scalars(
+                select(FavoriteItem.gid).where(
+                    FavoriteItem.gid.in_(chunk),
+                    FavoriteItem.favcat == target_favcat,
+                )
+            )
+            target_gids = set(existing_target.all())
+            other_gids = [g for g in chunk if g not in target_gids]
+
+            if target_gids:
+                await self.session.execute(
+                    delete(FavoriteItem).where(
+                        FavoriteItem.gid.in_(list(target_gids)),
+                        FavoriteItem.favcat != target_favcat,
+                    )
+                )
+            if other_gids:
+                result = await self.session.execute(
+                    update(FavoriteItem)
+                    .where(FavoriteItem.gid.in_(other_gids))
+                    .values(favcat=target_favcat, last_seen_at=func.now())
+                )
+                moved += result.rowcount or 0
+            moved += len(target_gids)
+        return moved
+
     async def favcats_for_gid(
         self, gid: int | None, gallery_id: int | None = None
     ) -> list[int]:

@@ -1229,6 +1229,52 @@ class EhClient:
                         failed.append(gid)
         return failed
 
+    async def move_favorites(self, gids: list[int], target_favcat: int) -> list[int]:
+        """Move galleries to an ExHentai favorite folder (target_favcat 0..9).
+
+        Mirrors favorites.php batch action: POST /favorites.php with
+        ``ddact=fav{target_favcat}``, ``apply=Apply``, and ``modifygids[]``.
+        Chunked at 25 gids per request.  Returns the list of gids that could
+        not be moved (empty on full success).
+        """
+        if not gids:
+            return []
+        if not (0 <= target_favcat <= 9):
+            raise ValueError("target_favcat must be between 0 and 9")
+        failed: list[int] = []
+
+        async def _post(gids_batch: list[int]) -> None:
+            form = {
+                "ddact": f"fav{int(target_favcat)}",
+                "apply": "Apply",
+                "modifygids[]": [str(int(g)) for g in gids_batch],
+            }
+            response = await self._request(
+                "POST",
+                "/favorites.php",
+                data=form,
+                headers={
+                    "Referer": urljoin(str(self.client.base_url), "/favorites.php"),
+                    "Origin": self.settings.exhentai_base_url.rstrip("/"),
+                },
+            )
+            if response.status_code in (401, 403) or "login" in str(response.url).lower():
+                raise EhClientError("ExHentai authentication is required or expired")
+            response.raise_for_status()
+
+        for chunk in (gids[i : i + 25] for i in range(0, len(gids), 25)):
+            try:
+                await _post(chunk)
+            except EhClientError:
+                raise
+            except Exception:  # noqa: BLE001 - retry each gid on its own
+                for gid in chunk:
+                    try:
+                        await _post([gid])
+                    except Exception:  # noqa: BLE001 - surface per-gid failures
+                        failed.append(gid)
+        return failed
+
     async def fetch_gmetadata(
         self, pairs: list[tuple[int, str]]
     ) -> dict[int, dict[str, Any]]:

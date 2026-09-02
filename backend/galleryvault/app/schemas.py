@@ -66,6 +66,25 @@ class FavoritesRemoveRequest(BaseModel):
         return self
 
 
+class FavoritesMoveRequest(BaseModel):
+    gids: list[int] = Field(default_factory=list)
+    target_favcat: int = Field(..., ge=0, le=9)
+    items: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def populate_gids(self) -> FavoritesMoveRequest:
+        if not self.gids and self.items:
+            extracted: list[int] = []
+            for it in self.items:
+                if isinstance(it, dict) and "gid" in it:
+                    try:
+                        extracted.append(int(it["gid"]))
+                    except (ValueError, TypeError):
+                        pass
+            object.__setattr__(self, "gids", extracted)
+        return self
+
+
 class ArchivePreviewRequest(BaseModel):
     gids: list[int]
 

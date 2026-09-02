@@ -49,6 +49,7 @@ from ..schemas import (
     DownloadSelectedRequest,
     DuplicateIgnoreRequest,
     FavoriteCategoryRequest,
+    FavoritesMoveRequest,
     FavoritesRemoveRequest,
 )
 from ..state import app_state
@@ -478,6 +479,52 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
         "local_removed": local_removed,
         "deleted_local_galleries": deleted_local_galleries,
         "failed_deletions": failed_deletions,
+    }
+
+
+@router.post("/api/favorites/move")
+async def favorites_move(body: FavoritesMoveRequest) -> dict[str, object]:
+    if not body.gids and not body.items:
+        raise HTTPException(status_code=422, detail="no galleries selected")
+    if not (0 <= body.target_favcat <= 9):
+        raise HTTPException(status_code=422, detail="target_favcat must be between 0 and 9")
+    gids = list(dict.fromkeys(body.gids))
+    cloud_failed: list[int] = []
+    cloud_moved = 0
+    cloud_ok = True
+    settings = get_current_settings()
+    try:
+        client = app_state.eh_client
+        if client is not None:
+            cloud_failed = await client.move_favorites(gids, body.target_favcat)
+        else:
+            async with EhClient(settings, max_concurrency=settings.exhentai_max_concurrency) as temp_client:
+                cloud_failed = await temp_client.move_favorites(gids, body.target_favcat)
+        cloud_moved = len(gids) - len(cloud_failed)
+        cloud_ok = not cloud_failed
+    except Exception as exc:  # noqa: BLE001
+        cloud_ok = False
+        cloud_failed = list(gids)
+        logger.warning("cloud favorite move failed", extra=log_extra(error=type(exc).__name__))
+
+    local_moved = 0
+    try:
+        async for session in get_session():
+            async with session.begin():
+                local_moved = await FavoritesRepository(session).move_gids(
+                    gids, body.target_favcat
+                )
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+
+    return {
+        "gids": gids,
+        "target_favcat": body.target_favcat,
+        "cloud_ok": cloud_ok,
+        "cloud_moved": cloud_moved,
+        "cloud_failed": cloud_failed,
+        "local_moved": local_moved,
     }
 
 

@@ -1850,6 +1850,46 @@
         }
       }
     },
+    "/api/favorites/move": {
+      "post": {
+        "summary": "Favorites Move",
+        "operationId": "favorites_move_api_favorites_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FavoritesMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Favorites Move Api Favorites Move Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/favorites/duplicates/scan": {
       "post": {
         "summary": "Duplicates Scan",
@@ -3534,6 +3574,36 @@
         },
         "type": "object",
         "title": "FavoriteCategoryRequest"
+      },
+      "FavoritesMoveRequest": {
+        "properties": {
+          "gids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Gids"
+          },
+          "target_favcat": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Target Favcat"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_favcat"
+        ],
+        "title": "FavoritesMoveRequest"
       },
       "FavoritesRemoveRequest": {
         "properties": {
