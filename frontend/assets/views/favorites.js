@@ -18,6 +18,7 @@ async function renderFavorites() {
     <div id="fav-list"><p>${esc(t("loading"))}</p></div>`;
   try {
     const cats = await api("GET", "/api/favorites/categories");
+    (Array.isArray(cats) ? cats : []).forEach(c => { favCatNames[c.favcat] = c.name || ""; });
     const rows = (Array.isArray(cats) ? cats : []).map(c => `
       <tr data-favcat="${c.favcat}">
         <td class="fav-name"><a href="#/favorites/${c.favcat}" class="fav-link">${esc(c.name || ("Folder " + c.favcat))}</a> <span class="badge">#${c.favcat}</span></td>
@@ -52,11 +53,16 @@ async function renderFavList() {
     + (from ? ` <a class="link-button" href="#/gallery/${esc(from)}">← ${esc(t("backToGallery"))}</a>` : "");
   const stateBtn = (s, label) =>
     `<button class="secondary${state === s ? " active-pill" : ""}" data-action="favlist-state" data-state="${s}" type="button">${esc(label)}</button>`;
+  await loadFavNames();
+  const folderName = (favCatNames[favcat] || "").trim();
+  const folderTitle = folderName
+    ? `${esc(folderName)} <span class="badge">#${favcat}</span>`
+    : `#${favcat}`;
   $view().innerHTML = `
     <div class="toolbar" style="margin-bottom:0">
       ${backLinks}
     </div>
-    <header style="margin-top:16px"><p class="eyebrow">FAVORITE FOLDER</p><h1>#${favcat}</h1>
+    <header style="margin-top:16px"><p class="eyebrow">FAVORITE FOLDER</p><h1>${folderTitle}</h1>
     <p class="sub">${esc(t("favListSub"))}</p></header>
     <form class="toolbar" data-action="favlist-search" style="margin-bottom:8px;">
       <div class="search-box">

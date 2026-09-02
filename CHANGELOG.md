@@ -25,6 +25,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Favorite folder page showed only `#N`** (`frontend/assets/views/favorites.js`): folder detail `#/favorites/<favcat>` now uses the ExHentai folder name from `/api/favorites/categories` (same source as the overview table), with `#N` as a badge.
 - **Tag suggest left partial query as title search** (`frontend/assets/events.js`): clicking a suggestion now consumes tokens that are substrings of the selected tag (CJK any length, ASCII length ≥2), so 「和泉」 + 「和泉纱雾」 no longer ANDs a leftover title keyword. Top bar, library, and browse share this path; tags-page suggest unchanged.
 - **Favorites check no longer applied metadata / inferred quality / recorded Tasks history** (`services/favorites_worker.py`): `favorite_size_sync` again runs `apply_metadata_to_galleries`, infers `image_quality` from local size vs gdata, and writes a `metadata` row to task history when the last in-flight folder finishes.
 - **Favorites folder open blocked on remote covers** (`services/favorites_worker.py`, `app/routers/favorites.py`): restoring the pre-`8daeeb5` contract — a folder check/`download-missing` warms `/gv-cache/remote-covers/{gid}.img`, and `#/favorites/<favcat>` returns `cover_url=/api/favorites/cover` instead of downloading+base64-inlining covers on the request path. Cache reads accept both `.img` and `.jpg`. `favorite_size_sync` no longer calls the missing `gids_for_favcat`.
