@@ -86,10 +86,10 @@ function trapModalFocus(overlay, closeFn) {
   const modalEl = overlay.querySelector('.gv-modal') || overlay;
   const getFocusables = () => Array.from(modalEl.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
 
-  setTimeout(() => {
+  requestAnimationFrame(() => {
     const initial = getFocusables();
     if (initial.length) initial[0].focus();
-  }, 10);
+  });
 
   const onKey = (e) => {
     if (e.key === 'Escape') {
@@ -105,12 +105,17 @@ function trapModalFocus(overlay, closeFn) {
       }
       const first = els[0];
       const last = els[els.length - 1];
-      if (e.shiftKey && (document.activeElement === first || !modalEl.contains(document.activeElement))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (document.activeElement === last || !modalEl.contains(document.activeElement))) {
-        e.preventDefault();
-        first.focus();
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !modalEl.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !modalEl.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     }
   };

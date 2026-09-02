@@ -2,6 +2,8 @@
 
 // views/reader.js — Reader with LTR, RTL Manga, and Double-page modes + gestures
 
+let readerTouchCleanup = null;
+
 function getReaderMode() {
   return localStorage.getItem("gv_reader_mode") || "ltr";
 }
@@ -137,7 +139,7 @@ function bindReaderKeys() {
 
   readerKeyHandler = (e) => {
     if (e.type === "click") {
-      const isButton = e.target.closest && e.target.closest("button, a, input, select");
+      const isButton = e.target.closest && e.target.closest("button, a, input, select, textarea");
       if (isButton) return;
 
       const readerArea = e.target.closest && e.target.closest(".reader");
@@ -182,62 +184,76 @@ function bindReaderKeys() {
 }
 
 function initReaderGestures() {
-  const wraps = document.querySelectorAll(".reader-img-wrap");
-  wraps.forEach(wrap => {
-    const img = wrap.querySelector("img");
-    if (!img) return;
+  if (readerTouchCleanup) {
+    readerTouchCleanup();
+    readerTouchCleanup = null;
+  }
 
-    let lastTap = 0;
-    let initialDist = 0;
-    let currentScale = 1;
+  const container = document.querySelector(".reader-spread") || document.querySelector(".reader-img-wrap");
+  if (!container) return;
 
-    wrap.addEventListener("touchend", (e) => {
-      if (e.touches.length === 0) {
-        const now = Date.now();
-        if (now - lastTap < 300) {
-          // Double-tap zoom toggle
-          e.preventDefault();
-          if (currentScale > 1.2) {
-            currentScale = 1;
-            img.style.transform = "";
-            wrap.classList.remove("zoomed");
-          } else {
-            currentScale = 2.2;
-            img.style.transform = `scale(${currentScale})`;
-            wrap.classList.add("zoomed");
-          }
-        }
-        lastTap = now;
-        if (currentScale <= 1.05) {
+  let lastTap = 0;
+  let initialDist = 0;
+  let currentScale = 1;
+
+  const onTouchEnd = (e) => {
+    if (e.touches.length === 0) {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        e.preventDefault();
+        const imgs = container.querySelectorAll("img");
+        if (currentScale > 1.2) {
           currentScale = 1;
-          img.style.transform = "";
-          wrap.classList.remove("zoomed");
+          imgs.forEach(img => { img.style.transform = ""; });
+          container.classList.remove("zoomed");
+        } else {
+          currentScale = 2.2;
+          imgs.forEach(img => { img.style.transform = `scale(${currentScale})`; });
+          container.classList.add("zoomed");
         }
       }
-    }, { passive: false });
-
-    wrap.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 2) {
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        initialDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      lastTap = now;
+      if (currentScale <= 1.05) {
+        currentScale = 1;
+        const imgs = container.querySelectorAll("img");
+        imgs.forEach(img => { img.style.transform = ""; });
+        container.classList.remove("zoomed");
       }
-    }, { passive: true });
+    }
+  };
 
-    wrap.addEventListener("touchmove", (e) => {
-      if (e.touches.length === 2 && initialDist > 0) {
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-        const factor = dist / initialDist;
-        currentScale = Math.min(3.5, Math.max(1, currentScale * factor));
-        initialDist = dist;
-        img.style.transform = `scale(${currentScale})`;
-        if (currentScale > 1.2) wrap.classList.add("zoomed");
-        else wrap.classList.remove("zoomed");
-      }
-    }, { passive: true });
-  });
+  const onTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      initialDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    }
+  };
+
+  const onTouchMove = (e) => {
+    if (e.touches.length === 2 && initialDist > 0) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const factor = dist / initialDist;
+      currentScale = Math.min(3.5, Math.max(1, currentScale * factor));
+      initialDist = dist;
+      const imgs = container.querySelectorAll("img");
+      imgs.forEach(img => { img.style.transform = `scale(${currentScale})`; });
+      if (currentScale > 1.2) container.classList.add("zoomed");
+      else container.classList.remove("zoomed");
+    }
+  };
+
+  container.addEventListener("touchend", onTouchEnd, { passive: false });
+  container.addEventListener("touchstart", onTouchStart, { passive: true });
+  container.addEventListener("touchmove", onTouchMove, { passive: true });
+
+  readerTouchCleanup = () => {
+    container.removeEventListener("touchend", onTouchEnd);
+    container.removeEventListener("touchstart", onTouchStart);
+    container.removeEventListener("touchmove", onTouchMove);
+  };
 }
 
 function toggleReaderFullscreen() {
@@ -246,12 +262,18 @@ function toggleReaderFullscreen() {
 }
 
 function enterReaderFullscreen() {
-  const img = document.getElementById("reader-img");
-  if (!img || !img.requestFullscreen) return;
-  readerFitBeforeFs = img.getAttribute("style") || "";
-  img.removeAttribute("style");
+  const mode = getReaderMode();
+  const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  const isDouble = mode.startsWith("double") && page > 0;
+  const targetEl = isDouble
+    ? (document.querySelector(".reader-spread") || document.getElementById("reader-img"))
+    : document.getElementById("reader-img");
+  if (!targetEl || !targetEl.requestFullscreen) return;
+
+  readerFitBeforeFs = targetEl.getAttribute("style") || "";
+  targetEl.removeAttribute("style");
   readerFsActive = true;
-  const p = img.requestFullscreen();
+  const p = targetEl.requestFullscreen();
   if (p && p.catch) p.catch(() => { clearReaderFsState(); });
 }
 
@@ -263,8 +285,8 @@ function exitReaderFullscreen() {
 
 function clearReaderFsState() {
   readerFsActive = false;
-  const img = document.getElementById("reader-img");
-  if (img && readerFitBeforeFs) img.setAttribute("style", readerFitBeforeFs);
+  const el = document.querySelector(".reader-spread") || document.getElementById("reader-img");
+  if (el && readerFitBeforeFs) el.setAttribute("style", readerFitBeforeFs);
   readerFitBeforeFs = "";
 }
 
@@ -287,14 +309,46 @@ function readerSwapPage(id, target) {
   if (target >= total) { exitReaderFullscreen(); goReaderNext(id); return; }
   if (target < 0) { exitReaderFullscreen(); return; }
   app.params.page = String(target);
-  const img = document.getElementById("reader-img");
-  if (!img) return;
-  img.src = `/api/galleries/${id}/pages/${target}`;
-  img.dataset.next = target + 1 < total ? String(target + 1) : "";
-  const bar = document.querySelector(".reader-bar span");
-  if (bar) bar.textContent = `${target + 1} / ${total}`;
+
+  const mode = getReaderMode();
+  const isDouble = mode.startsWith("double") && target > 0;
+  const spreadEl = document.querySelector(".reader-spread");
+
+  if (isDouble && spreadEl) {
+    const p1 = target;
+    const p2 = target + 1 < total ? target + 1 : null;
+    const imgs = spreadEl.querySelectorAll("img");
+    if (imgs.length >= 1) {
+      imgs[0].src = `/api/galleries/${id}/pages/${p1}`;
+      imgs[0].dataset.page = String(p1);
+    }
+    if (imgs.length >= 2 && p2 !== null) {
+      imgs[1].src = `/api/galleries/${id}/pages/${p2}`;
+      imgs[1].dataset.page = String(p2);
+      imgs[1].parentElement.style.display = "";
+    } else if (imgs.length >= 2) {
+      imgs[1].parentElement.style.display = "none";
+    }
+    const bar = document.querySelector(".reader-bar span");
+    if (bar) bar.textContent = `${p1 + 1}${p2 !== null ? `-${p2 + 1}` : ""} / ${total} · ${fmtSize((app.readerGallery && app.readerGallery.file_size) || 0)}`;
+  } else if (!isDouble && !spreadEl) {
+    const img = document.getElementById("reader-img");
+    if (img) {
+      img.src = `/api/galleries/${id}/pages/${target}`;
+      img.dataset.page = String(target);
+      img.dataset.next = target + 1 < total ? String(target + 1) : "";
+    }
+    const bar = document.querySelector(".reader-bar span");
+    if (bar) bar.textContent = `${target + 1} / ${total} · ${fmtSize((app.readerGallery && app.readerGallery.file_size) || 0)}`;
+  } else {
+    // Structural transition between single cover and double spread: full re-render
+    renderReader();
+    return;
+  }
+
   api("PUT", `/api/galleries/${id}/progress`, { current_page: target, total_pages: total }).catch(() => {});
   if (target + 1 < total) { const pre = new Image(); pre.src = `/api/galleries/${id}/pages/${target + 1}`; }
+  if (isDouble && target + 2 < total) { const pre2 = new Image(); pre2.src = `/api/galleries/${id}/pages/${target + 2}`; }
 }
 
 function toggleReaderFit() {
