@@ -200,7 +200,7 @@ tier, the rest download page-by-page.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/galleries` | Search/browse. Query: `page`, `page_size`, `q`, `tags` (csv `ns:name`), `tag_mode` (and/or), `tag_match` (exact/fuzzy), `category` (`doujinshi`, `manga`, `artistcg`, `gamecg`, `western`, `non-h`, `image_set`, `cosplay`, `asianporn`, `misc`, `deleted`, or pseudo-category `__not_fav__` for local galleries not in any favorite folder). `q` supports **smart parsing**: whitespace-separated tokens that are `ns:name` syntax, a Chinese word mapping one-to-one onto a tag translation, or an exact tag name are promoted to tag filters (AND with any explicit `tags`), the rest stays a title keyword; the response carries the normalized `q`/`tags` plus a `resolved` flag. `misc` is the generic bucket — it also holds what used to be `other`; galleries deleted from ExHentai (or without usable coordinates) live under `deleted`. |
+| GET | `/api/galleries` | Search/browse. Query: `page`, `page_size`, `q`, `tags` (csv `ns:name`), `tag_mode` (and/or), `tag_match` (exact/fuzzy), `category` (`doujinshi`, `manga`, `artistcg`, `gamecg`, `western`, `non-h`, `image_set`, `cosplay`, `asianporn`, `misc`, `deleted`, or pseudo-category `__not_fav__` for local galleries not in any favorite folder). In `q`, only explicit `ns:name` tokens are promoted to tag filters (AND with any `tags`); remaining tokens are **title keywords** (whitespace-split AND). Free-form Chinese/English words are **not** auto-promoted — the SPA adds tags when the user clicks a suggestion. The response carries the normalized `q`/`tags` plus a `resolved` flag when `ns:name` tokens were split out. `misc` is the generic bucket — it also holds what used to be `other`; galleries deleted from ExHentai (or without usable coordinates) live under `deleted`. |
 | GET | `/api/galleries/categories` | Count of galleries per category dictionary, including `__not_fav__` and total `all`. |
 | GET | `/api/galleries/random` | `{id}` of a random non-expunged gallery (`404` when empty). |
 | GET | `/api/galleries/{identifier}/next` | `{id}` of the next non-expunged gallery (ascending by id) — used by the reader to advance past the last page (`404` when none). |
@@ -261,6 +261,10 @@ refresh is available via the button in Settings. Markdown icon syntax
 | POST | `/api/thumbs/generate` | `202` – queue every gallery missing a cover thumbnail for background generation. |
 | GET | `/api/logs` | Aggregated activity log: `{running: [...], finished: [...]}`. `running` lists the live background tasks (each with `task` (scan/tag-sync/thumbs/metadata), `started_at`, `done`, `total`, `stage`, `cancellable`); `finished` is the latest-first history of completed tasks with `task`, `started_at`, `completed_at`, `status` (success/failed/cancelled), `reason`, `done`, `total`. |
 | POST | `/api/logs/{task}/cancel` | `202` – request cancellation of a running background task (`scan`, `tag-sync`, `thumbs`, `metadata`). The worker stops at the next safe point; the queue is drained for queue-based tasks. |
+| GET | `/api/system/logs` | In-memory diagnostic ring buffer (`level` filter, optional `q` text search). Items include timestamp, level, logger, message, and extras (request id, worker context); secrets are masked. |
+| POST | `/api/system/logs/level` | Body `{level}` (`DEBUG`/`INFO`/`WARNING`/`ERROR`) — change the process log level without restart. |
+| DELETE | `/api/system/logs` | Clear the in-memory ring buffer (`204`). |
+| GET | `/api/system/logs/download` | Download `galleryvault.log` (rotated file under `/gv-cache/logs` plus recent memory lines) as an attachment. |
 
 ## Errors
 

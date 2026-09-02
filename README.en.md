@@ -28,7 +28,8 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Reader & UI** — streaming reader (fullscreen, auto-advance), reading
   history, activity log, first-run wizard.
 - **Security & operations** — PBKDF2 auth, optional encryption at rest
-  (AES-256-GCM), non-root runtime; one-command deploy and one-click backup.
+  (AES-256-GCM), root by default or drop privileges with `PUID`/`PGID`;
+  one-command deploy and one-click backup.
 
 ## Screenshots
 
@@ -97,7 +98,7 @@ incremental for automatic follow-ups. Full steps in the
 
 Library roots (one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
 
-> **Permissions**: the backend container runs as the `app` user (uid **10001**). Before mounting an existing directory or adding archives, make sure the host directory is **readable** by uid 10001 (writable too for gallery deletion): run `chown -R 10001:10001 ./library ./downloads` before the first `docker compose up`. `./cache` is handled automatically; **`./db-data` belongs to postgres (uid 999) — never chown it**.
+> **Permissions**: the backend runs as **root (0:0)** by default, or as a custom user via `PUID`/`PGID` (e.g. `1000:1000`). If non-root, make sure mounted host folders are readable (and writable for gallery deletion) by that UID. `./cache` is aligned at startup; **`./db-data` belongs to postgres (uid 999) — never chown it**. See [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
 
 ## Upgrading
 

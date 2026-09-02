@@ -30,7 +30,7 @@ Optional: install [pre-commit](https://pre-commit.com) (`pip install pre-commit 
 ## Conventions
 
 - **Python (backend)**: format/line length follows `backend/pyproject.toml` (`ruff`, line length 100). Run `ruff check .` inside `backend/` before committing.
-- **JavaScript (frontend)**: keep the vanilla-JS, no-build, no-CDN rule — new code must not add build steps or third-party runtimes. `node --check assets/app.js` must pass.
+- **JavaScript (frontend)**: keep the vanilla-JS, no-build, no-CDN rule — new code must not add build steps or third-party runtimes. `node --check` must pass on `assets/*.js`, `assets/locales/*.js`, and `assets/views/*.js`.
 - **Migration**: schema changes go through Alembic (`alembic revision --autogenerate`), then `alembic upgrade head`. Never hand-edit committed migrations.
 - **Backward compatibility**: existing settings and stored data must keep working; prefer additive changes and auto-migration over breaking ones.
 - **Security**: never log cookies, tokens or secrets; sensitive values are stored via `galleryvault.secrets` (encrypted when `ENCRYPTION_KEY` is set).

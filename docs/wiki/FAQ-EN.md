@@ -127,10 +127,11 @@ instead of replacing it. The bar above the grid shows each active tag as a
 removable pill (per-pill ×, an `AND` badge and a clear-all action); resubmitting
 the title search keeps the current tag filter.
 
-You can also type a mixed query in the box: e.g. `动图 中国` is split
-automatically — `动图` is recognized as the tag `animated` (one-to-one Chinese
-translation lookup) and combined (AND) with the keyword `中国`. `ns:name`
-syntax (`parody:touhou`) and English tag names (`animated`) work too.
+While you type, tag suggestions appear — **click a suggestion** to add that
+tag (the clicked word is consumed from the title query). Explicit `ns:name`
+syntax (`parody:touhou`) also becomes a tag filter. Pressing Enter without
+`ns:name` is a **title text search only** and never auto-promotes Chinese or
+English words into tags. Multi-word title search ANDs each word.
 
 ## Does my search filter survive reading and coming back?
 
