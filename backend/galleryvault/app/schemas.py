@@ -85,6 +85,22 @@ class FavoritesMoveRequest(BaseModel):
         return self
 
 
+class FavoritesAddRequest(BaseModel):
+    gid: int | None = None
+    token: str | None = None
+    target_favcat: int = Field(default=0, ge=0, le=9)
+    note: str = ""
+    items: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def populate_items(self) -> FavoritesAddRequest:
+        if self.gid is not None and not self.items:
+            object.__setattr__(
+                self, "items", [{"gid": self.gid, "token": self.token, "note": self.note}]
+            )
+        return self
+
+
 class ArchivePreviewRequest(BaseModel):
     gids: list[int]
 

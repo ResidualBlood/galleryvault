@@ -8,6 +8,9 @@ and back/forward need no server round trip.
 - The default landing page (an empty hash / unspecified route also lands
   here): a grid of the newest galleries, reverse-chronological, with numbered
   pagination.
+- **Continue Reading Cards**: Top section automatically aggregates recently read
+  galleries with cover thumbnails, reading progress bars, one-click resumption,
+  and per-gallery "Mark as unread / ✕" progress reset.
 - The **tag namespace strip** on top (Tag / Artist / Character / Parody /
   Group / Female / Male / Language) and a **random gallery** button (🎲, opens
   a random gallery's detail page).
@@ -18,7 +21,8 @@ and back/forward need no server round trip.
 
 ## History (`#/history`)
 
-- Lists reading history per gallery (last reading position and time).
+- Lists reading history per gallery (last reading position and time), with direct
+  "Read Now" shortcuts and per-gallery "✕" progress reset buttons.
 - **Clear history**: clears timeline entries (does not affect progress bookmarks on galleries).
 - **Clear reading progress**: resets reading progress for all galleries after confirmation (marks all as unread / progress reset to 0).
 - The reading position is saved automatically by the reader and restored when you reopen a gallery / reader.
@@ -124,8 +128,7 @@ manually to revisit it.
   *pause* tag sync instead of being misclassified as deleted (their category is
   untouched) and resume automatically once Settings switch back to
   `exhentai.org`.
-- The favorite folders the gallery belongs to are shown as badges, with an
-  **Unfavorite** button.
+- The favorite folders the gallery belongs to are shown as badges. Galleries support **Add to Favorites** (modal folder selector 0–9), **Change Folder** (Move), and **Unfavorite**, with strict cloud-success verification before updating local database records.
 - **Original / resampled**: next to the favorite badges the detail page shows
   whether the local copy is original or resampled (hidden when unknown).
   Quality is recorded when a gallery is downloaded and inferred for existing
@@ -147,6 +150,7 @@ manually to revisit it.
 ## Reader (`#/reader/<id>/<page>`)
 
 - Streams one page at a time. Page with **←/→ arrows**, **space** or **click**.
+- **Page Jump Input & `G` Shortcut**: Direct page number input in the toolbar jumps immediately on Enter; pressing **`G`** anywhere focuses the page jump input or opens a quick jump prompt in fullscreen.
 - **Multi-mode reading (LTR / RTL Manga / Double-page spread)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, and **Double RTL** modes with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1).
 - **Mobile Touch Gestures**: Supports double-tap zoom (2.2x) and two-finger pinch-to-zoom.
 - **Advances to the next gallery after the last page**.
@@ -175,20 +179,15 @@ manually to revisit it.
 
 ## Tags (`#/tags`)
 
-- Search the local tag set and see usage counts; filter with the group bar on
-  top (All / Tag / Artist / Character / Parody / Group / Female / Male /
-  Language / Category).
-- **The group filter stays visible across pages.**
-- **Clicking a tag in the cloud** opens the library and **appends** the tag to
-  the active filter (multi-tag AND combination); tags on the gallery detail
-  page append the same way.
-- In the Chinese UI, tags show their translations; multi-value tags (`A | B`)
-  only show the translated part (untranslated English aliases are hidden).
-- Results are fixed at 100 per page (no page-size selector; the API ceiling is
-  500).
+- Search the local tag taxonomy and view usage counts; filter by namespace strip (All / Tag / Artist / Character / Parody / Group / Female / Male / Language / Category).
+- The namespace filter strip stays intact across page turns.
+- Clicking a tag in the cloud appends it to the library filter (multi-tag AND); tags on detail pages can also be appended.
+- In Chinese UI, tags display translations; multi-value tags display only the translated portion.
+- Results are fixed at 100 items per page (API limit 500).
 
 ## Downloads (`#/downloads`)
 
+- **Batch URL & GID/Token Enqueue**: Top panel lets you paste single or multi-line ExHentai gallery URLs or `gid/token` text, select quality override, and batch enqueue them directly (already queued tasks are automatically skipped with notification).
 - Lists download tasks with their status (waiting / downloading / success /
   failed / cancelled), filterable by status.
 - A **channel badge** next to each task title marks how it downloads: archive

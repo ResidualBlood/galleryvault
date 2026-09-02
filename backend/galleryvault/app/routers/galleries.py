@@ -25,6 +25,7 @@ from ...logging import log_extra
 from ...scanners import registry
 from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ...services.deletion import delete_galleries_local
+from ...services.eh_client import EhClient, FavoriteData
 from ...services.tag_sync import (
     GalleryGidMissing,
     GalleryNotFound,
@@ -497,6 +498,7 @@ async def gallery_favorite_status(identifier: int) -> dict[str, object]:
         raise db_error(exc) from exc
     return {
         "gid": row.gid,
+        "token": row.token,
         "favorite": bool(favcats),
         "favcats": favcats,
         "favcat_names": [{"favcat": f, "name": names.get(f, "")} for f in favcats],
@@ -510,29 +512,91 @@ async def toggle_gallery_favorite(
     if not 0 <= favcat <= 9:
         raise HTTPException(status_code=422, detail="favcat must be between 0 and 9")
     row, _ = await _gallery(identifier)
-    target_state = not row.favorite
-    if row.gid and row.token:
-        client = app_state.eh_client
-        if client is not None:
-            try:
-                if target_state:
-                    await client.add_favorite(row.gid, row.token, favcat)
-                else:
-                    await client.remove_favorite(row.gid)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "ExHentai cloud favorite sync failed",
-                    extra=log_extra(gid=row.gid, error=type(exc).__name__),
-                )
+    if not row.gid:
+        raise HTTPException(
+            status_code=400, detail="Gallery lacks gid for ExHentai favorites"
+        )
     try:
         async for session in get_session():
-            async with session.begin():
-                await GalleryRepository(session).set_favorite(
-                    row.id, target_state, favcat if target_state else None
-                )
+            favcats = await FavoritesRepository(session).favcats_for_gid(
+                row.gid, gallery_id=row.id
+            )
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
+
+    target_state = not bool(favcats)
+    settings = get_current_settings()
+    client = app_state.eh_client
+
+    if target_state:
+        if not row.token:
+            raise HTTPException(
+                status_code=400, detail="Gallery lacks token for ExHentai favorites"
+            )
+        try:
+            if client is not None:
+                await client.add_favorite(row.gid, row.token, favcat)
+            else:
+                async with EhClient(
+                    settings, max_concurrency=settings.exhentai_max_concurrency
+                ) as temp_client:
+                    await temp_client.add_favorite(row.gid, row.token, favcat)
+        except Exception as exc:
+            logger.warning(
+                "ExHentai cloud favorite sync failed",
+                extra=log_extra(gid=row.gid, error=type(exc).__name__),
+            )
+            raise HTTPException(
+                status_code=502, detail="ExHentai cloud favorite sync failed"
+            ) from exc
+
+        fav_item = FavoriteData(
+            gid=row.gid,
+            token=row.token,
+            title=row.title or str(row.gid),
+            url=f"https://exhentai.org/g/{row.gid}/{row.token}/",
+            thumb=None,
+        )
+        try:
+            async for session in get_session():
+                async with session.begin():
+                    await FavoritesRepository(session).remember(favcat, fav_item)
+                break
+        except SQLAlchemyError as exc:
+            raise db_error(exc) from exc
+    else:
+        try:
+            if client is not None:
+                failed = await client.remove_favorites([row.gid])
+            else:
+                async with EhClient(
+                    settings, max_concurrency=settings.exhentai_max_concurrency
+                ) as temp_client:
+                    failed = await temp_client.remove_favorites([row.gid])
+            if failed:
+                raise HTTPException(
+                    status_code=502, detail="ExHentai cloud favorite remove failed"
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "ExHentai cloud favorite remove failed",
+                extra=log_extra(gid=row.gid, error=type(exc).__name__),
+            )
+            raise HTTPException(
+                status_code=502, detail="ExHentai cloud favorite remove failed"
+            ) from exc
+
+        try:
+            async for session in get_session():
+                async with session.begin():
+                    await FavoritesRepository(session).remove_gids([row.gid])
+                break
+        except SQLAlchemyError as exc:
+            raise db_error(exc) from exc
+
     return {"favorite": target_state, "favorite_category": favcat if target_state else None}
 
 
@@ -615,6 +679,13 @@ async def history(page: int = 1, page_size: int = 24) -> dict[str, object]:
                 "total_pages": x.total_pages,
                 "last_read_at": x.last_read_at,
                 "title": galleries[x.gallery_id].title if x.gallery_id in galleries else None,
+                "title_jpn": (
+                    galleries[x.gallery_id].title_jpn if x.gallery_id in galleries else None
+                ),
+                "gid": galleries[x.gallery_id].gid if x.gallery_id in galleries else None,
+                "category": (
+                    galleries[x.gallery_id].category if x.gallery_id in galleries else None
+                ),
                 "url": f"/galleries/{x.gallery_id}",
             }
             for x in rows

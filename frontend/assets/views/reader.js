@@ -121,7 +121,12 @@ async function renderReader() {
     const innerHtml = `
       <div class="reader-bar toolbar">
         <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
-        <span>${isDouble && page + 1 < total ? `${page + 1}-${page + 2}` : page + 1} / ${total} · ${fmtSize(g.file_size || 0)}</span>
+        <span class="reader-page-indicator" style="display:inline-flex;align-items:center;gap:4px;">
+          <form data-action="reader-jump" style="display:inline-flex;align-items:center;margin:0;padding:0;">
+            <input id="reader-jump-input" class="reader-jump-input" type="number" min="1" max="${total}" value="${page + 1}" style="width:4.2em;padding:2px 4px;text-align:center;font-size:13px;border-radius:4px;border:1px solid var(--line);background:var(--panel-2);color:inherit;" title="${esc(t("jumpToPageHint"))}" aria-label="${esc(t("pageNumber"))}">
+          </form>
+          <span>/ ${total} · ${fmtSize(g.file_size || 0)}</span>
+        </span>
         <span class="reader-actions">
           <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
           <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
@@ -143,6 +148,20 @@ async function renderReader() {
     try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
   } catch (e) {
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+function jumpToReaderPage(targetPage) {
+  const id = app.params.id;
+  const total = app.readerTotal || 1;
+  const clamped = Math.max(0, Math.min(total - 1, targetPage));
+  const mode = getReaderMode();
+  const isDoubleMode = mode.startsWith("double");
+  const normalized = isDoubleMode && clamped > 0 && clamped % 2 === 0 ? clamped - 1 : clamped;
+  if (readerFsActive) {
+    readerSwapPage(id, normalized);
+  } else {
+    location.hash = navHash("reader", { id, page: normalized }, libraryContext());
   }
 }
 
@@ -219,6 +238,19 @@ function bindReaderKeys() {
     } else if (e.key === "f" || e.key === "F") {
       e.preventDefault();
       toggleReaderFullscreen();
+    } else if (e.key === "g" || e.key === "G") {
+      e.preventDefault();
+      const input = document.getElementById("reader-jump-input");
+      if (input) {
+        input.focus();
+        input.select();
+      } else {
+        const val = window.prompt(t("jumpToPage") || `Jump to page (1-${app.readerTotal || 1}):`, String(current() + 1));
+        if (val) {
+          const p = parseInt(val, 10);
+          if (!isNaN(p) && p >= 1) jumpToReaderPage(p - 1);
+        }
+      }
     }
   };
 

@@ -93,7 +93,15 @@ function onClick(e) {
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
   if (action === "download-original") { downloadOriginalGallery(el.getAttribute("data-id"), el.getAttribute("data-gid"), false); return; }
   if (action === "download-original-archive") { downloadOriginalGallery(el.getAttribute("data-id"), el.getAttribute("data-gid"), true); return; }
+  if (action === "favorite-gallery") { favoriteGallery(el); return; }
+  if (action === "move-gallery-favorite") { moveGalleryFavorite(el); return; }
   if (action === "unfavorite-gallery") { unfavoriteGallery(el); return; }
+  if (action === "clear-single-progress") {
+    e.preventDefault();
+    e.stopPropagation();
+    clearSingleProgress(el.getAttribute("data-id"));
+    return;
+  }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
@@ -114,6 +122,16 @@ function onSubmit(e) {
   if (action === "tags-search") { e.preventDefault(); location.hash = navHash("tags", {}, { ns: app.query.ns || "", q: form.q.value.trim() }); return; }
   if (action === "browse-search") { e.preventDefault(); location.hash = navHash("library", {}, { q: form.q.value.trim() }); return; }
   if (action === "settings-save") { e.preventDefault(); saveSettings(form); return; }
+  if (action === "dl-add-urls") { e.preventDefault(); addDownloadsFromInput(form); return; }
+  if (action === "reader-jump") {
+    e.preventDefault();
+    const input = form.querySelector("#reader-jump-input") || form.querySelector("input");
+    if (input) {
+      const val = parseInt(input.value, 10);
+      if (!isNaN(val) && val >= 1) jumpToReaderPage(val - 1);
+    }
+    return;
+  }
 }
 
 async function toggleLang() {
