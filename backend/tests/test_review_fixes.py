@@ -30,7 +30,7 @@ class _CaptureSession:
 
     async def execute(self, stmt):
         self.statements.append(stmt)
-        return SimpleNamespace(rowcount=0, all=lambda: [])
+        return SimpleNamespace(rowcount=0, all=list)
 
     async def scalar(self, stmt):
         self.statements.append(stmt)
@@ -43,7 +43,7 @@ class _CaptureSession:
 def _sql(stmt) -> str:
     try:
         return str(stmt.compile(compile_kwargs={"literal_binds": True})).lower()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return str(stmt).lower()
 
 

@@ -505,7 +505,6 @@ async def test_quota_image_limit_none_uses_short_ttl(monkeypatch):
 
         async def fetch_image_limits(self):
             il_calls.append(1)
-            return None
 
     app_state.extra["gp_cache"] = {}
     app_state.eh_client = FakeClient()
