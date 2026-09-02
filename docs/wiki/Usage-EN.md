@@ -283,9 +283,15 @@ The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / U
   "local gid not in any favorite folder, but normalized title matches a
   favorite item"), showing `old gid → new gid` per row. Check rows and hit
   **Update selected**: the new version downloads first, then the old local copy
-  is removed (its reading progress resets). Detection runs automatically after
-  every favorites check and can be triggered with **Scan now**; false positives
-  can be ignored, and ignored items are restored from `#/updates/ignored`.
+  is removed (its reading progress resets). If an incremental/force favorites
+  check **already downloaded the new gid**, detection deletes the old copy
+  immediately (the row disappears) — no need to click Update selected.
+  Enqueueing from favorites also pins any existing update row to that download
+  task, and a successful ingest finalizes the same way. Detection runs
+  automatically after every favorites check and can be triggered with **Scan
+  now**; false positives can be ignored (ignored rows are never auto-deleted
+  even if the new gid is already local), and ignored items are restored from
+  `#/updates/ignored`.
   When a download task is deleted from the tasks page, its update entry is
   marked **failed** and kept here; under the **failed** filter you can use
   **Delete selected** to permanently remove those records (this only cleans the

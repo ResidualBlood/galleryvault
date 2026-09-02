@@ -165,6 +165,15 @@ async def ingest_downloaded_gallery(result: Any) -> None:
             await remove_fn(result, old_copy[0], old_copy[1])
 
         logger.info("download ingest succeeded", extra=log_extra(gid=result.gid, path=str(path)))
+        try:
+            from .updates_worker import finalize_updates_for_new_gid
+
+            await finalize_updates_for_new_gid(int(result.gid))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "gallery update finalize after ingest failed",
+                extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__),
+            )
     except Exception as exc:
         logger.exception(
             "download ingest failed",

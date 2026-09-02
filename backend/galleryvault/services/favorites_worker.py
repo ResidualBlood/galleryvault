@@ -12,7 +12,12 @@ from typing import Any
 
 from ..app.state import app_state
 from ..config import get_settings
-from ..db.repository import DownloadRepository, FavoritesRepository, GalleryRepository
+from ..db.repository import (
+    DownloadRepository,
+    FavoritesRepository,
+    GalleryRepository,
+    GalleryUpdatesRepository,
+)
 from ..logging import bind_log_context, log_extra
 from ..services.tag_translation import translated_tag
 from .duplicates import find_duplicate_groups
@@ -65,6 +70,7 @@ class FavoriteDownloadQueue:
             )
             if task is None:
                 return False
+            await GalleryUpdatesRepository(session).attach_download(item.gid, task.id)
         logger.info("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
         return True
 

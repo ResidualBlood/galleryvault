@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
@@ -133,6 +134,8 @@ async def finalize_gallery_update(row: Any) -> None:
             "gallery update finalize failed",
             extra=log_extra(update_id=row.id, error=type(exc).__name__),
         )
+        if getattr(row, "id", None) is None:
+            return
         try:
             async with session_cm() as session, session.begin():
                 await repo_cls(session).mark_failed(row.id, str(exc))
@@ -141,6 +144,20 @@ async def finalize_gallery_update(row: Any) -> None:
                 "could not record gallery update failure",
                 extra=log_extra(update_id=row.id, error=type(exc2).__name__),
             )
+
+
+async def finalize_updates_for_new_gid(new_gid: int) -> int:
+    session_cm = app_state.session_factory
+    if session_cm is None:
+        return 0
+    async with session_cm() as session:
+        rows = await GalleryUpdatesRepository(session).actionable_by_new_gid(int(new_gid))
+        refs = [SimpleNamespace(id=r.id, gallery_id=r.gallery_id) for r in rows]
+    done = 0
+    for ref in refs:
+        await finalize_gallery_update(ref)
+        done += 1
+    return done
 
 
 async def detect_gallery_updates() -> None:
@@ -157,6 +174,9 @@ async def detect_gallery_updates() -> None:
         gallery_updates_state.update({"detecting": True, "last_error": None})
         detected: list[dict[str, Any]] = []
         found = 0
+        to_insert: list[dict[str, Any]] = []
+        to_finalize: list[Any] = []
+        to_attach: dict[int, int] = {}
         try:
             async with session_cm() as session:
                 fav_rows = await session.execute(
@@ -176,7 +196,7 @@ async def detect_gallery_updates() -> None:
                             if p_nt and p_nt not in by_title:
                                 by_title[p_nt] = (gid, str(token), int(favcat))
                 repo = repo_cls(session)
-                tracked = await repo.tracked_gallery_ids()
+                tracking = await repo.tracking_by_gallery_id()
                 page = 1
                 while True:
                     rows = await session.execute(
@@ -190,7 +210,10 @@ async def detect_gallery_updates() -> None:
                     if not batch:
                         break
                     for gallery_id, gid, title, title_jpn in batch:
-                        if gallery_id in tracked or gid is None or gid in fav_gids:
+                        if gid is None or gid in fav_gids:
+                            continue
+                        tracked_row = tracking.get(int(gallery_id))
+                        if tracked_row is not None and getattr(tracked_row, "status", None) == "ignored":
                             continue
                         nt = normalize_update_title(title or "")
                         match = by_title.get(nt)
@@ -211,16 +234,60 @@ async def detect_gallery_updates() -> None:
                                     "new_token": new_token,
                                     "title": title,
                                     "favcat": favcat,
+                                    "existing_id": getattr(tracked_row, "id", None),
+                                    "existing_status": getattr(tracked_row, "status", None),
                                 }
                             )
                     if len(batch) < 500:
                         break
                     page += 1
-            if detected:
+                local_new: set[int] = set()
+                active_tasks: dict[int, int] = {}
+                if detected:
+                    new_gids = [e["new_gid"] for e in detected]
+                    local_new = await repo.local_new_gids(new_gids)
+                    active_tasks = await repo.active_task_ids_for_gids(new_gids)
+            for entry in detected:
+                status = entry.get("existing_status")
+                if entry["new_gid"] in local_new:
+                    to_finalize.append(
+                        SimpleNamespace(
+                            id=entry.get("existing_id"),
+                            gallery_id=entry["gallery_id"],
+                        )
+                    )
+                    continue
+                extra: dict[str, Any] = {}
+                task_id = active_tasks.get(entry["new_gid"])
+                if status is None:
+                    if task_id:
+                        extra["status"] = "downloading"
+                        extra["download_task_id"] = task_id
+                    to_insert.append(
+                        {
+                            "gallery_id": entry["gallery_id"],
+                            "old_gid": entry["old_gid"],
+                            "new_gid": entry["new_gid"],
+                            "new_token": entry["new_token"],
+                            "title": entry["title"],
+                            "favcat": entry["favcat"],
+                            **extra,
+                        }
+                    )
+                elif status in {"pending", "failed"} and task_id:
+                    to_attach[int(entry["new_gid"])] = int(task_id)
+            if to_insert:
                 async with session_cm() as session, session.begin():
                     found = await repo_cls(session).detect_many(
-                        detected, known_gallery_ids=tracked
+                        to_insert, known_gallery_ids=set()
                     )
+            if to_attach:
+                async with session_cm() as session, session.begin():
+                    attached_repo = repo_cls(session)
+                    for gid, task_id in to_attach.items():
+                        await attached_repo.attach_download(gid, task_id)
+            for ref in to_finalize:
+                await finalize_gallery_update(ref)
             gallery_updates_state.update(
                 {"found": found, "last_detected_at": datetime.now(UTC).isoformat()}
             )
@@ -252,13 +319,26 @@ async def run_gallery_updates(
     started = 0
     skipped = 0
     mode = "archive" if archive else "favorite"
+    ready: list[Any] = []
     try:
         async with session_cm() as session, session.begin():
             repo = repo_cls(session)
+            pending_rows: list[Any] = []
             for update_id in list(dict.fromkeys(ids)):
                 row = await repo.get(update_id)
                 if row is None or row.status != "pending":
                     skipped += 1
+                    continue
+                pending_rows.append(row)
+            local = (
+                await repo.local_new_gids([row.new_gid for row in pending_rows])
+                if pending_rows
+                else set()
+            )
+            for row in pending_rows:
+                if row.new_gid in local:
+                    ready.append(SimpleNamespace(id=row.id, gallery_id=row.gallery_id))
+                    started += 1
                     continue
                 task = await dl_repo_cls(session).create(
                     row.new_gid,
@@ -270,10 +350,12 @@ async def run_gallery_updates(
                 if task is None:
                     skipped += 1
                     continue
-                await repo.mark_downloading(update_id, task.id)
+                await repo.mark_downloading(row.id, task.id)
                 started += 1
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
+    for ref in ready:
+        await finalize_gallery_update(ref)
     return {"started": started, "skipped": skipped}
 
 

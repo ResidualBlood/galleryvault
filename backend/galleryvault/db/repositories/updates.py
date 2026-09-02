@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import GalleryUpdate
+from ..models import DownloadTask, Gallery, GalleryUpdate
 
 
 class GalleryUpdatesRepository:
@@ -35,6 +35,8 @@ class GalleryUpdatesRepository:
                 new_token=e["new_token"],
                 title=e["title"],
                 favcat=e["favcat"],
+                status=e.get("status") or "pending",
+                download_task_id=e.get("download_task_id"),
             )
             for e in entries
             if e["gallery_id"] not in known_gallery_ids
@@ -69,6 +71,57 @@ class GalleryUpdatesRepository:
         """gallery_ids with any pending/failed/ignored row (skip re-detect)."""
         rows = await self.session.scalars(select(GalleryUpdate.gallery_id))
         return {int(r) for r in rows.all()}
+
+    async def tracking_by_gallery_id(self) -> dict[int, GalleryUpdate]:
+        rows = await self.session.scalars(select(GalleryUpdate))
+        return {int(r.gallery_id): r for r in rows.all()}
+
+    async def local_new_gids(self, gids: list[int]) -> set[int]:
+        if not gids:
+            return set()
+        rows = await self.session.scalars(
+            select(Gallery.gid).where(
+                Gallery.gid.in_(list(dict.fromkeys(int(g) for g in gids))),
+                Gallery.expunged.is_(False),
+            )
+        )
+        return {int(gid) for gid in rows.all() if gid is not None}
+
+    async def active_task_ids_for_gids(self, gids: list[int]) -> dict[int, int]:
+        if not gids:
+            return {}
+        rows = await self.session.execute(
+            select(DownloadTask.gid, DownloadTask.id).where(
+                DownloadTask.gid.in_(list(dict.fromkeys(int(g) for g in gids))),
+                DownloadTask.status.in_(["pending", "downloading"]),
+            )
+        )
+        return {int(gid): int(task_id) for gid, task_id in rows.all()}
+
+    async def attach_download(self, new_gid: int, task_id: int) -> int:
+        result = await self.session.execute(
+            update(GalleryUpdate)
+            .where(
+                GalleryUpdate.new_gid == int(new_gid),
+                GalleryUpdate.status.in_(["pending", "failed"]),
+            )
+            .values(
+                status="downloading",
+                download_task_id=int(task_id),
+                error_message=None,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        return int(result.rowcount or 0)
+
+    async def actionable_by_new_gid(self, new_gid: int) -> list[GalleryUpdate]:
+        rows = await self.session.scalars(
+            select(GalleryUpdate).where(
+                GalleryUpdate.new_gid == int(new_gid),
+                GalleryUpdate.status.in_(["pending", "downloading", "failed"]),
+            )
+        )
+        return list(rows.all())
 
     async def get(self, update_id: int) -> GalleryUpdate | None:
         return await self.session.get(GalleryUpdate, update_id)

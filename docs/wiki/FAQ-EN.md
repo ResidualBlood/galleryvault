@@ -93,6 +93,10 @@ This is CSRF protection checking `Origin` / `Referer` against `Host` / `X-Forwar
 
 **No**. When an archive download starts, the ExHentai zip URL is persisted under the task's metadata (`.archive.json`). Any subsequent resume (HTTP Range) or error retry continues with the same URL and **never charges GP again**. If an archive channel is completely unavailable, the task falls back cleanly to page-by-page downloading over H@H (which costs 0 GP).
 
+## Incremental already downloaded the new version, but Gallery updates still lists it?
+
+If the new gid is already in the local library, **Scan now** deletes the old copy and the row disappears — no need to click Update selected. Ignored rows are never auto-deleted. Favorites enqueue / ingest also pin and finalize the update row. See [Usage → Gallery updates](Usage-EN).
+
 ## Favorites aren't auto-downloading?
 
 All three must hold: the **download favorites** master switch in Settings is on

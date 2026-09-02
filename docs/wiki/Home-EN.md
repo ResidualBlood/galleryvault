@@ -129,7 +129,8 @@ Other formats:
   ignore/restore.
 - **Gallery updates** (`#/updates`) — detects local copies of galleries that
   ExHentai has re-uploaded (a new gid); one click downloads the new version and
-  deletes the old local copy.
+  deletes the old local copy. If the new gid is already in the library,
+  detection finalizes automatically.
 - **Open on ExHentai** — a one-click link to the original gallery from the
   detail page (built from the configured base URL).
 
