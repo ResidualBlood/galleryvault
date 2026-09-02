@@ -234,7 +234,7 @@ function showArchiveDialog(gids, opts) {
   });
 }
 
-async function showMoveFavoritesDialog(gids, currentFavcat) {
+async function showMoveFavoritesDialog(gids, currentFavcat, opts = {}) {
   let categories = [];
   try {
     categories = await api("GET", "/api/favorites/categories");
@@ -247,22 +247,26 @@ async function showMoveFavoritesDialog(gids, currentFavcat) {
     }));
   }
 
+  const title = (opts && opts.title) || t("favMoveTitle");
+  const confirmText = (opts && opts.confirmText) || t("favMoveConfirm");
+  const targetLabel = (opts && opts.targetLabel) || t("favMoveTarget");
+
   return new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.className = "gv-overlay";
 
     const optionsHtml = categories.map(c => {
-      const isCurrent = c.favcat === currentFavcat;
+      const isCurrent = currentFavcat != null && c.favcat === currentFavcat;
       const label = `#${c.favcat} ${c.name || ("Folder " + c.favcat)}` + (c.cloud_count != null ? ` (${c.cloud_count})` : "");
       return `<option value="${c.favcat}"${isCurrent ? " disabled" : ""}>${esc(label)}${isCurrent ? ` (${esc(t("current") || "current")})` : ""}</option>`;
     }).join("");
 
     overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true" aria-labelledby="move-title" style="max-width:440px">
-      <h3 id="move-title">${esc(t("favMoveTitle"))}</h3>
+      <h3 id="move-title">${esc(title)}</h3>
       <div class="gv-modal-body">
         <p style="margin-bottom:12px">${esc(t("select"))}: <strong>${gids.length}</strong></p>
         <label style="display:flex;flex-direction:column;gap:6px;font-weight:600">
-          <span>${esc(t("favMoveTarget"))}</span>
+          <span>${esc(targetLabel)}</span>
           <select class="select" data-move-target style="width:100%;padding:8px 10px;font-size:14px">
             ${optionsHtml}
           </select>
@@ -270,7 +274,7 @@ async function showMoveFavoritesDialog(gids, currentFavcat) {
       </div>
       <div class="gv-modal-foot" style="justify-content:flex-end">
         <button class="btn btn-secondary" data-move-cancel type="button">${esc(t("cancel"))}</button>
-        <button class="btn btn-primary" data-move-confirm type="button">${esc(t("favMoveConfirm"))}</button>
+        <button class="btn btn-primary" data-move-confirm type="button">${esc(confirmText)}</button>
       </div>
     </div>`;
 

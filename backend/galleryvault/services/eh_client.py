@@ -1308,6 +1308,66 @@ class EhClient:
                         failed.append(gid)
         return failed
 
+    async def add_favorite(
+        self, gid: int, token: str, favcat: int, note: str = ""
+    ) -> None:
+        """Add a single gallery to an ExHentai favorite folder (favcat 0..9).
+
+        Mirrors EhEngine.addFavorites: POST /gallerypopups.php?gid={gid}&t={token}&act=addfav
+        with favcat={favcat}, favnote={note}, update=1, submit=Apply Changes.
+        """
+        if not (0 <= favcat <= 9):
+            raise ValueError("favcat must be between 0 and 9")
+        form = {
+            "favcat": str(int(favcat)),
+            "favnote": note or "",
+            "update": "1",
+            "submit": "Apply Changes",
+        }
+        url = f"/gallerypopups.php?gid={int(gid)}&t={token}&act=addfav"
+        response = await self._request(
+            "POST",
+            url,
+            data=form,
+            headers={
+                "Referer": urljoin(str(self.client.base_url), url),
+                "Origin": self.settings.exhentai_base_url.rstrip("/"),
+            },
+        )
+        if (
+            response.status_code in (401, 403)
+            or "login" in str(response.url).lower()
+            or _is_auth_failure_page(response.text)
+        ):
+            raise EhClientError("ExHentai authentication is required or expired")
+        response.raise_for_status()
+
+    async def add_favorites(
+        self, items: list[tuple[int, str]], favcat: int, note: str = ""
+    ) -> list[int]:
+        """Add multiple galleries to an ExHentai favorite folder.
+
+        ExHentai does not provide a batch add endpoint, so galleries are processed
+        individually (bounded by the shared semaphore). Returns list of failed gids.
+        """
+        if not items:
+            return []
+        if not (0 <= favcat <= 9):
+            raise ValueError("favcat must be between 0 and 9")
+        failed: list[int] = []
+        for gid, token in items:
+            try:
+                await self.add_favorite(gid, token, favcat, note=note)
+            except EhClientError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "add favorite failed on cloud",
+                    extra=log_extra(gid=gid, favcat=favcat, error=str(exc)),
+                )
+                failed.append(gid)
+        return failed
+
     async def fetch_gmetadata(
         self, pairs: list[tuple[int, str]]
     ) -> dict[int, dict[str, Any]]:

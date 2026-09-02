@@ -14,6 +14,7 @@ async function renderBrowse() {
       <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
       <button class="btn btn-secondary big" data-action="random" type="button">🎲 ${esc(t("random"))}</button>
     </form>
+    <div id="browse-cr"></div>
     <section>
       <h2>${esc(t("latest"))} <span class="muted" id="browse-total"></span></h2>
       <div id="browse-grid">${renderLoading()}</div>
@@ -25,9 +26,11 @@ async function renderBrowse() {
     </section>`);
   let data = null;
   let tagData = null;
-  const [dataResult, tagDataResult] = await Promise.allSettled([
+  let historyData = null;
+  const [dataResult, tagDataResult, historyResult] = await Promise.allSettled([
     galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() }),
     api("GET", "/api/tags/search?page=1&page_size=1"),
+    api("GET", "/api/history?page=1&page_size=8"),
   ]);
   if (dataResult.status === "fulfilled") {
     data = dataResult.value;
@@ -38,7 +41,14 @@ async function renderBrowse() {
   if (tagDataResult.status === "fulfilled") {
     tagData = tagDataResult.value;
   }
+  if (historyResult.status === "fulfilled") {
+    historyData = historyResult.value;
+  }
   try {
+    const crEl = document.getElementById("browse-cr");
+    if (crEl && historyData && historyData.items && historyData.items.length) {
+      crEl.innerHTML = renderContinueReadingHtml(historyData.items);
+    }
     const totalEl = document.getElementById("browse-total");
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;
     if (data) {
@@ -60,6 +70,44 @@ async function renderBrowse() {
     // Pager/infinite errors should not wipe the whole view
     console.warn("browse pager error", e);
   }
+}
+
+function renderContinueReadingHtml(items) {
+  if (!items || !items.length) return "";
+  const cards = items.map(h => {
+    const cur = h.current_page || 0;
+    const total = h.total_pages || 1;
+    const pct = Math.min(100, Math.round(((cur + 1) / total) * 100));
+    const title = h.title || ("#" + h.gallery_id);
+    const readUrl = navHash("reader", { id: h.gallery_id, page: cur });
+    const galUrl = navHash("gallery", { id: h.gallery_id });
+    return `
+      <div class="cr-card">
+        <a class="cr-thumb-wrap" href="${readUrl}">
+          <img loading="lazy" src="/api/galleries/${h.gallery_id}/thumbnail" alt="${esc(title)}">
+          <div class="cr-progress-wrap">
+            <div class="cr-progress-bar"><div class="cr-progress-fill" style="width:${pct}%"></div></div>
+            <div class="cr-progress-text"><span>${esc(t("progress"))} ${cur + 1}/${total}</span><span>${pct}%</span></div>
+          </div>
+        </a>
+        <div class="cr-body">
+          <a class="cr-title" href="${galUrl}" title="${esc(title)}">${esc(title)}</a>
+          <div class="cr-actions">
+            <a class="btn btn-secondary btn-sm" href="${readUrl}" style="padding:2px 8px;font-size:12px;">${esc(t("readNow"))}</a>
+            <button class="cr-btn-clear" data-action="clear-single-progress" data-id="${h.gallery_id}" type="button" title="${esc(t("markUnread"))}">✕</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+
+  return `
+    <section class="cr-section">
+      <div class="cr-header">
+        <h2>${esc(t("continueReading"))}</h2>
+        <a class="link-button" href="#/history" style="font-size:13px;">${esc(t("viewAllHistory"))} →</a>
+      </div>
+      <div class="cr-grid">${cards}</div>
+    </section>`;
 }
 
 async function randomGallery() {

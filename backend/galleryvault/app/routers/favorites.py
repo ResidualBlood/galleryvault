@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
-from ...db.models import FavoritesMonitor, Gallery
+from ...db.models import FavoritesMonitor, Gallery, GalleryMetadata
 from ...db.repository import (
     FavoritesRepository,
     GalleryRepository,
@@ -49,6 +49,7 @@ from ..schemas import (
     DownloadSelectedRequest,
     DuplicateIgnoreRequest,
     FavoriteCategoryRequest,
+    FavoritesAddRequest,
     FavoritesMoveRequest,
     FavoritesRemoveRequest,
 )
@@ -524,6 +525,179 @@ async def favorites_move(body: FavoritesMoveRequest) -> dict[str, object]:
         "cloud_moved": cloud_moved,
         "cloud_failed": cloud_failed,
         "local_moved": local_moved,
+    }
+
+
+def _record_favorites_add_log(
+    gids: list[int],
+    target_favcat: int,
+    cloud_failed: list[int],
+    local_added: int,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    status = "failed" if cloud_failed else "success"
+    reason = f"added {local_added} to #{target_favcat}"
+    if cloud_failed:
+        reason += f", cloud add failed {len(cloud_failed)}: {', '.join(map(str, cloud_failed[:5]))}"
+        if len(cloud_failed) > 5:
+            reason += f" (+{len(cloud_failed) - 5} more)"
+
+    tm = get_task_manager()
+    tm.record_task(
+        "favorites-add",
+        now,
+        now,
+        status,
+        reason=reason,
+        done=local_added,
+        total=len(gids),
+    )
+    spawn_task(tm.persist_history(), "persist task history")
+
+
+@router.post("/api/favorites/add")
+async def favorites_add(body: FavoritesAddRequest) -> dict[str, object]:
+    if not body.items:
+        raise HTTPException(status_code=422, detail="no galleries selected")
+
+    items_to_add: list[dict[str, Any]] = []
+    seen_gids: set[int] = set()
+    for item in body.items:
+        if isinstance(item, dict) and "gid" in item:
+            try:
+                gid = int(item["gid"])
+                if gid not in seen_gids:
+                    seen_gids.add(gid)
+                    items_to_add.append(
+                        {
+                            "gid": gid,
+                            "token": item.get("token"),
+                            "title": item.get("title"),
+                            "note": item.get("note", body.note),
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
+
+    if not items_to_add:
+        raise HTTPException(status_code=422, detail="no valid galleries selected")
+
+    missing_token_gids = [it["gid"] for it in items_to_add if not it.get("token")]
+    if missing_token_gids:
+        try:
+            async for session in get_session():
+                galleries = (
+                    await session.scalars(
+                        select(Gallery).where(Gallery.gid.in_(missing_token_gids))
+                    )
+                ).all()
+                g_map = {g.gid: g for g in galleries if g.gid is not None}
+
+                remaining = [g for g in missing_token_gids if g not in g_map]
+                gm_map: dict[int, GalleryMetadata] = {}
+                if remaining:
+                    gmetas = (
+                        await session.scalars(
+                            select(GalleryMetadata).where(GalleryMetadata.gid.in_(remaining))
+                        )
+                    ).all()
+                    gm_map = {gm.gid: gm for gm in gmetas if gm.gid is not None}
+
+                for it in items_to_add:
+                    gid = it["gid"]
+                    if gid in g_map:
+                        g = g_map[gid]
+                        if not it.get("token"):
+                            it["token"] = g.token
+                        if not it.get("title"):
+                            it["title"] = g.title
+                    elif gid in gm_map:
+                        gm = gm_map[gid]
+                        if not it.get("token"):
+                            it["token"] = gm.token
+                        if not it.get("title"):
+                            it["title"] = gm.title
+                break
+        except SQLAlchemyError as exc:
+            raise db_error(exc) from exc
+
+    valid_pairs: list[tuple[int, str]] = []
+    missing_token_failed: list[int] = []
+    item_map = {it["gid"]: it for it in items_to_add}
+    for it in items_to_add:
+        if it.get("token"):
+            valid_pairs.append((it["gid"], str(it["token"])))
+        else:
+            missing_token_failed.append(it["gid"])
+
+    cloud_failed: list[int] = list(missing_token_failed)
+    cloud_added = 0
+    cloud_ok = True
+    settings = get_current_settings()
+
+    if valid_pairs:
+        try:
+            client = app_state.eh_client
+            if client is not None:
+                cf = await client.add_favorites(valid_pairs, body.target_favcat, note=body.note)
+            else:
+                async with EhClient(
+                    settings, max_concurrency=settings.exhentai_max_concurrency
+                ) as temp_client:
+                    cf = await temp_client.add_favorites(
+                        valid_pairs, body.target_favcat, note=body.note
+                    )
+            cloud_failed.extend(cf)
+            cloud_added = len(valid_pairs) - len(cf)
+            cloud_ok = not cloud_failed
+        except Exception as exc:  # noqa: BLE001
+            cloud_ok = False
+            cloud_failed.extend([p[0] for p in valid_pairs])
+            logger.warning("cloud favorite add failed", extra=log_extra(error=type(exc).__name__))
+
+    successful_gids = [it["gid"] for it in items_to_add if it["gid"] not in set(cloud_failed)]
+    local_added = 0
+    if successful_gids:
+        favorite_items_to_save = []
+        for gid in successful_gids:
+            it = item_map[gid]
+            title = it.get("title") or str(gid)
+            token = it.get("token") or ""
+            favorite_items_to_save.append(
+                FavoriteData(
+                    gid=gid,
+                    token=token,
+                    title=title,
+                    url=f"https://exhentai.org/g/{gid}/{token}/",
+                    thumb=None,
+                )
+            )
+        try:
+            async for session in get_session():
+                async with session.begin():
+                    await FavoritesRepository(session).remember_many(
+                        body.target_favcat, favorite_items_to_save
+                    )
+                    local_added = len(favorite_items_to_save)
+                break
+        except SQLAlchemyError as exc:
+            raise db_error(exc) from exc
+
+    _record_favorites_add_log(
+        [it["gid"] for it in items_to_add],
+        body.target_favcat,
+        cloud_failed,
+        local_added,
+    )
+
+    return {
+        "gids": [it["gid"] for it in items_to_add],
+        "target_favcat": body.target_favcat,
+        "cloud_ok": cloud_ok,
+        "cloud_added": cloud_added,
+        "cloud_failed": cloud_failed,
+        "successful_gids": successful_gids,
+        "local_added": local_added,
     }
 
 

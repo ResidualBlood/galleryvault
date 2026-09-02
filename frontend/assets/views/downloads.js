@@ -8,7 +8,24 @@ async function renderDownloads() {
   renderView(`
     <header><p class="eyebrow">DOWNLOADS</p><h1>${esc(t("downloads"))}</h1>
     <p class="sub">${esc(t("downloadsSub"))}</p></header>
-    <h2 style="margin-top:20px">${esc(t("dlTasks"))}</h2>
+    <div class="dl-add-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+        <strong style="font-size:14px;">${esc(t("dlAddTitle"))}</strong>
+        <span class="muted" style="font-size:12px;">${esc(t("dlAddHint"))}</span>
+      </div>
+      <form data-action="dl-add-urls" style="display:flex;flex-direction:column;gap:8px;">
+        <textarea id="dl-urls-input" rows="2" placeholder="${esc(t("dlAddPlaceholder"))}"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap;">
+          <select id="dl-urls-quality" class="select" style="font-size:13px;padding:6px 10px;">
+            <option value="">${esc(t("dlDefaultQuality"))}</option>
+            <option value="resample">${esc(t("qualityResample"))}</option>
+            <option value="original">${esc(t("qualityOriginal"))}</option>
+          </select>
+          <button class="btn btn-primary" type="submit" style="padding:6px 14px;">${esc(t("dlAddSubmit"))}</button>
+        </div>
+      </form>
+    </div>
+    <h2>${esc(t("dlTasks"))}</h2>
     <div class="toolbar">
       <div class="pills" style="margin:0">
         ${DL_STATUSES.map(s => `<a class="pill${s === filter ? " active" : ""}" href="${navHash("downloads", {}, s !== "all" ? { filter: s } : {})}">${esc(s === "all" ? t("filterAll") : s)}</a>`).join("")}
@@ -159,5 +176,56 @@ async function retrySelectedDownloads() {
     catch (_) { fail++; }
   }
   toast(`${ok} queued${fail ? `, ${fail} failed` : ""}`);
+  loadDownloads(app.query.filter || "all", app.query.page || "1");
+}
+
+async function addDownloadsFromInput(form) {
+  const textarea = form.querySelector("#dl-urls-input");
+  const qualitySelect = form.querySelector("#dl-urls-quality");
+  const rawText = (textarea && textarea.value) || "";
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) {
+    toast(t("dlAddEmpty"));
+    return;
+  }
+  const quality = (qualitySelect && qualitySelect.value) || undefined;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+
+  let queued = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const line of lines) {
+    let body = {};
+    const match = line.match(/^(\d+)[\s/]+([a-f0-9]+)$/i);
+    if (match) {
+      body = { gid: parseInt(match[1], 10), token: match[2] };
+    } else {
+      body = { url: line };
+    }
+    if (quality) body.quality = quality;
+
+    try {
+      await api("POST", "/api/downloads", body);
+      queued++;
+    } catch (e) {
+      if (e && (e.status === 409 || (e.message && e.message.includes("409")))) {
+        skipped++;
+      } else {
+        failed++;
+      }
+    }
+  }
+
+  if (submitBtn) submitBtn.disabled = false;
+  if (textarea) textarea.value = "";
+
+  const msgParts = [];
+  if (queued) msgParts.push(t("dlQueuedCount").replace("{count}", String(queued)));
+  if (skipped) msgParts.push(t("dlSkippedCount").replace("{count}", String(skipped)));
+  if (failed) msgParts.push(t("dlFailedCount").replace("{count}", String(failed)));
+  toast(msgParts.join(" · ") || t("dlAddEmpty"));
+
   loadDownloads(app.query.filter || "all", app.query.page || "1");
 }

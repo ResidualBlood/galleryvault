@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Download page batch URL & gid/token enqueue** (frontend `views/downloads.js`, `styles.css`, `locales/`): Added top paste box supporting single or multi-line gallery URLs and `gid/token` pairs with optional quality tier override (`resample`/`original`), batch enqueueing, 409 duplicate queue detection, and summary toast reporting.
+- **Gallery detail Add to Favorites & Folder Switching** (`app/routers/favorites.py`, `services/eh_client.py`, `app/schemas.py`, frontend `views/gallery.js`, `components.js`, `locales/`): Added `POST /api/favorites/add` and `EhClient.add_favorite`/`add_favorites` targeting ExHentai popup act (`gallerypopups.php?act=addfav`), writing to DB `favorite_items` only upon confirmed cloud success; gallery detail page now presents "Add to Favorites / 加入收藏" and "Change Folder / 更改收藏夹" modals with 0–9 folder selection.
+- **Reader page jump input & `G` keyboard shortcut** (frontend `views/reader.js`, `events.js`, `styles.css`, `locales/`): Reader toolbar now features direct page number input with Enter / form submission jumping, and `G` shortcut key to focus the jump input or prompt in fullscreen mode.
+- **Home/Browse page "Continue Reading" cards & single gallery progress clearing** (`app/routers/galleries.py`, frontend `views/browse.js`, `views/history.js`, `styles.css`, `locales/`): Browse view now renders a "Continue Reading / 继续阅读" grid of recently read galleries with cover thumbnails, progress bars, one-click reader resumption, and per-gallery "Mark as unread / ✕" progress reset.
+
+### Fixed
+
+- **ExHentai cloud favorite add consistency & error isolation** (`app/routers/galleries.py`, `app/routers/favorites.py`): Replaced legacy non-existent repository calls with cloud-first verification, ensuring local database records are never updated when cloud ExHentai requests fail.
+
 ## [1.5.1] - 2026-09-02
 
 ### Added
