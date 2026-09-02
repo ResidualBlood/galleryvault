@@ -1,6 +1,9 @@
 services:
   frontend:
     image: residualblood/galleryvault-frontend:dev
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
     container_name: galleryvault-dev-frontend
     restart: unless-stopped
     ports: ["${DEV_FRONTEND_PORT:-8200}:80"]
@@ -12,6 +15,9 @@ services:
 
   backend:
     image: residualblood/galleryvault-backend:dev
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
     container_name: galleryvault-dev-backend
     restart: unless-stopped
     command: ["uvicorn", "galleryvault.app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--reload-dir", "/app/galleryvault"]
