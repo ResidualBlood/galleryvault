@@ -230,8 +230,8 @@ async def test_favorites_move_endpoint_partial_cloud_failure(monkeypatch) -> Non
 
 
 def test_record_favorites_move_log(monkeypatch) -> None:
-    from galleryvault.app import main
     from galleryvault.app.routers.favorites import _record_favorites_move_log
+    from galleryvault.app.state import app_state
 
     entries: list[dict[str, object]] = []
 
@@ -240,7 +240,7 @@ def test_record_favorites_move_log(monkeypatch) -> None:
             {"kind": kind, "status": status, "reason": reason, "done": done, "total": total}
         )
 
-    monkeypatch.setattr(main, "_record_task", record)
+    monkeypatch.setattr(app_state.task_manager, "record_task", record)
 
     # Success case
     _record_favorites_move_log([1, 2], 3, [], 2)

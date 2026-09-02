@@ -97,7 +97,6 @@ def _record_favorites_remove_log(
     failed_deletions: list[str],
     cloud_failed: list[int],
 ) -> None:
-    from .. import main
     now = datetime.now(UTC).isoformat()
     status = "failed" if (cloud_failed or failed_deletions) else "success"
     reason = f"unfavorited {len(gids)}"
@@ -111,31 +110,6 @@ def _record_favorites_remove_log(
         reason += f", cloud remove failed {len(cloud_failed)}: {', '.join(map(str, cloud_failed[:5]))}"
         if len(cloud_failed) > 5:
             reason += f" (+{len(cloud_failed) - 5} more)"
-
-    record_fn = getattr(main, "_record_task", None)
-    if record_fn is not None:
-        try:
-            record_fn(
-                "favorites-remove",
-                now,
-                now,
-                status,
-                reason=reason,
-                done=deleted_local_galleries,
-                total=len(gids),
-            )
-            return
-        except TypeError:
-            record_fn(
-                "favorites-remove",
-                now,
-                now,
-                status,
-                reason,
-                deleted_local_galleries,
-                len(gids),
-            )
-            return
 
     tm = get_task_manager()
     tm.record_task(
@@ -156,7 +130,6 @@ def _record_favorites_move_log(
     cloud_failed: list[int],
     local_moved: int,
 ) -> None:
-    from .. import main
     now = datetime.now(UTC).isoformat()
     status = "failed" if cloud_failed else "success"
     reason = f"moved {local_moved} to #{target_favcat}"
@@ -164,31 +137,6 @@ def _record_favorites_move_log(
         reason += f", cloud move failed {len(cloud_failed)}: {', '.join(map(str, cloud_failed[:5]))}"
         if len(cloud_failed) > 5:
             reason += f" (+{len(cloud_failed) - 5} more)"
-
-    record_fn = getattr(main, "_record_task", None)
-    if record_fn is not None:
-        try:
-            record_fn(
-                "favorites-move",
-                now,
-                now,
-                status,
-                reason=reason,
-                done=local_moved,
-                total=len(gids),
-            )
-            return
-        except TypeError:
-            record_fn(
-                "favorites-move",
-                now,
-                now,
-                status,
-                reason,
-                local_moved,
-                len(gids),
-            )
-            return
 
     tm = get_task_manager()
     tm.record_task(
@@ -417,9 +365,7 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
-    from .. import main
-    fav_queue_cls = getattr(main, "_FavoriteDownloadQueue", FavoriteDownloadQueue)
-    queue = fav_queue_cls()
+    queue = FavoriteDownloadQueue()
     queued = 0
     skipped = 0
     for gid in gids:
@@ -500,8 +446,6 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
     try:
         async for session in get_session():
             async with session.begin():
-                from .. import main
-                delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
                 if body.delete_local or body.delete_files:
                     mapping = await FavoritesRepository(session).galleries_for_gids(gids)
                     galleries: list[Gallery] = []
@@ -509,7 +453,7 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
                         gallery = await session.get(Gallery, gallery_id)
                         if gallery is not None:
                             galleries.append(gallery)
-                    results = await delete_fn(
+                    results = await delete_galleries_local(
                         session, galleries, delete_files=True, delete_all_copies=body.delete_all_copies
                     )
                     deleted_local_galleries = sum(1 for r in results if r.get("db_removed"))

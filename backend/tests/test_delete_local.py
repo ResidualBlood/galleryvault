@@ -1,4 +1,4 @@
-"""Tests for the shared local-deletion helper (main.delete_galleries_local).
+"""Tests for the shared local-deletion helper (delete_galleries_local).
 
 Covers multi-copy collection, directory vs. single-file (CBZ) deletion,
 partial-failure keeping the DB row, and duplicate_records cleanup after a
@@ -9,8 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from galleryvault.app import main
+from galleryvault.app.schemas import FilteredDeleteRequest
+from galleryvault.app.state import app_state
 from galleryvault.db.models import DuplicateRecord, Gallery
+from galleryvault.services import deletion
+from galleryvault.services.deletion import delete_galleries_local, delete_local_copy
 
 
 def _session_factory(gallery_rows, dup_rows):
@@ -52,8 +55,10 @@ def _session_factory(gallery_rows, dup_rows):
 
 @pytest.fixture(autouse=True)
 def _scan_roots_isolated(monkeypatch, tmp_path):
-    """Point _scan_roots at tmp_path so _in_scan_roots passes tmp paths."""
-    monkeypatch.setattr(main, "_scan_roots", lambda: [str(tmp_path)])
+    """Point get_scan_roots at tmp_path so _in_scan_roots passes tmp paths."""
+    from galleryvault.app import dependencies
+
+    monkeypatch.setattr(dependencies, "get_scan_roots", lambda: [str(tmp_path)])
     return str(tmp_path)
 
 
@@ -75,7 +80,7 @@ async def test_delete_single_directory(tmp_path):
     gallery = _gallery(1, 111, copy)
 
     session = _session_factory([gallery], {})
-    results = await main.delete_galleries_local(
+    results = await delete_galleries_local(
         session, [gallery], delete_files=True, delete_all_copies=False
     )
 
@@ -93,7 +98,7 @@ async def test_delete_single_cbz_file(tmp_path):
     gallery = _gallery(2, 222, archive)
 
     session = _session_factory([gallery], {})
-    results = await main.delete_galleries_local(
+    results = await delete_galleries_local(
         session, [gallery], delete_files=True, delete_all_copies=False
     )
 
@@ -111,7 +116,7 @@ async def test_delete_outside_scan_roots_safely_blocked(tmp_path, monkeypatch):
     gallery = _gallery(3, 333, copy)
 
     session = _session_factory([gallery], {})
-    results = await main.delete_galleries_local(
+    results = await delete_galleries_local(
         session, [gallery], delete_files=True, delete_all_copies=False
     )
 
@@ -138,7 +143,7 @@ async def test_delete_all_copies_removes_every_copy_and_duplicate_record(tmp_pat
     )
 
     session = _session_factory([gallery], {444: dup})
-    results = await main.delete_galleries_local(
+    results = await delete_galleries_local(
         session, [gallery], delete_files=True, delete_all_copies=True
     )
 
@@ -165,17 +170,17 @@ async def test_delete_partial_failure_keeps_db_row(tmp_path, monkeypatch):
         copies=[{"path": str(ok)}, {"path": str(bad)}],
     )
 
-    real = main._delete_local_copy
+    real = delete_local_copy
 
-    def flaky(path):
-        if path == bad:
+    def flaky(path, scan_roots=None):
+        if Path(path) == bad:
             return False
-        return real(path)
+        return real(path, scan_roots)
 
-    monkeypatch.setattr(main, "_delete_local_copy", flaky)
+    monkeypatch.setattr(deletion, "delete_local_copy", flaky)
 
     session = _session_factory([gallery], {555: dup})
-    results = await main.delete_galleries_local(
+    results = await delete_galleries_local(
         session, [gallery], delete_files=True, delete_all_copies=True
     )
 
@@ -193,7 +198,7 @@ async def test_delete_files_false_only_removes_db_row(tmp_path):
     gallery = _gallery(6, 666, copy)
 
     session = _session_factory([gallery], {})
-    results = await main.delete_galleries_local(
+    results = await delete_galleries_local(
         session, [gallery], delete_files=False, delete_all_copies=False
     )
 
@@ -217,10 +222,11 @@ def test_chunked_splits_into_batches():
 
 async def _capture_in_sizes(session, statement, collector):
     """Run a scalars/execute against a no-op session and record ``in_`` sizes."""
+    import re
+
     from sqlalchemy.dialects import postgresql
 
     compiled = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
-    import re
 
     for match in re.finditer(r"\bIN \(([0-9, ]+)\)", compiled):
         collector.append(len([v for v in match.group(1).split(",") if v.strip()]))
@@ -301,7 +307,6 @@ async def test_favorite_items_detail_by_gids_chunks_in_queries():
 @pytest.mark.asyncio
 async def test_delete_filtered_pages_and_chunks(monkeypatch):
     """delete-filtered must page the filter and delete in 500-row batches."""
-    from galleryvault.app import main
     from galleryvault.app.routers import galleries as galleries_module
     from galleryvault.app.routers.galleries import delete_galleries_filtered
 
@@ -349,7 +354,8 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
             return Result([self._by_id[i] for i in ids if i in self._by_id])
 
     session = Session()
-    main._settings_session = lambda: session
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
 
     class Repo:
         def __init__(self, session):
@@ -369,21 +375,23 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
             for g in batch
         ]
 
-    monkeypatch.setattr(main, "delete_galleries_local", fake_delete)
+    monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete)
 
-    body = main.FilteredDeleteRequest(q="", category=None, tags="", tag_mode="or", delete_files=False)
-    result = await delete_galleries_filtered(body)
-    assert result["matched"] == 1200
-    assert result["deleted"] == 1200
-    assert len(page_calls) == 3  # 1200 rows / 500 per page
-    assert deleted_batches == [500, 500, 200]
+    try:
+        body = FilteredDeleteRequest(q="", category=None, tags="", tag_mode="or", delete_files=False)
+        result = await delete_galleries_filtered(body)
+        assert result["matched"] == 1200
+        assert result["deleted"] == 1200
+        assert len(page_calls) == 3  # 1200 rows / 500 per page
+        assert deleted_batches == [500, 500, 200]
+    finally:
+        app_state.session_factory = orig_factory
 
 
 @pytest.mark.asyncio
 async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monkeypatch):
     """delete-filtered with the pseudo-category ``__not_fav__`` must translate it
     into ``exclude_favorited=True`` and a ``None`` category before paging."""
-    from galleryvault.app import main
     from galleryvault.app.routers import galleries as galleries_module
     from galleryvault.app.routers.galleries import delete_galleries_filtered
 
@@ -410,7 +418,8 @@ async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monke
             return Result([])
 
     session = Session()
-    main._settings_session = lambda: session
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
 
     class Repo:
         def __init__(self, session):
@@ -425,9 +434,12 @@ async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monke
     async def fake_delete(session, batch, *, delete_files, delete_all_copies):
         return []
 
-    monkeypatch.setattr(main, "delete_galleries_local", fake_delete)
+    monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete)
 
-    body = main.FilteredDeleteRequest(q="", category="__not_fav__", tags="", tag_mode="or", delete_files=False)
-    result = await delete_galleries_filtered(body)
-    assert result["matched"] == 0
-    assert calls and calls[0] == (None, True)
+    try:
+        body = FilteredDeleteRequest(q="", category="__not_fav__", tags="", tag_mode="or", delete_files=False)
+        result = await delete_galleries_filtered(body)
+        assert result["matched"] == 0
+        assert calls and calls[0] == (None, True)
+    finally:
+        app_state.session_factory = orig_factory

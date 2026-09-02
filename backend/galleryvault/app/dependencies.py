@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import Settings, get_settings
+from ..config import Settings, get_settings, normalize_library_roots
 from ..db.uow import UnitOfWork
 from ..logging import log_extra
 from .state import app_state
@@ -33,27 +33,21 @@ _LEADING_NUMBER = re.compile(r"^\s*\d+[\s\-]+")
 
 def get_current_settings() -> Settings:
     """Return runtime settings or fallback to env settings."""
-    # Prefer the canonical app_state store; main._settings() already adopts
-    # monkeypatched app.state values, so call it first to keep test compat.
-    from . import main
-    if hasattr(main, "_settings"):
-        try:
-            return main._settings()
-        except Exception:  # noqa: S110, BLE001
-            pass
-    # Fallback: direct app_state read (single source of truth)
     if app_state.settings is not None:
         return app_state.settings
-    if hasattr(main, "app") and hasattr(main.app, "state") and getattr(main.app.state, "settings", None) is not None:
-        return main.app.state.settings
     return get_settings()
 
 
+def get_scan_roots() -> list[str]:
+    """Return normalized scan root paths derived from runtime settings."""
+    s = get_current_settings()
+    roots = list(s.library_roots)
+    if s.download_root not in roots:
+        roots.append(s.download_root)
+    return normalize_library_roots(roots)
+
+
 def get_session_factory() -> Any:
-    from . import main
-    session_cm = getattr(main, "_settings_session", None)
-    if session_cm is not None:
-        return session_cm
     if app_state.session_factory is not None:
         return app_state.session_factory
     raise HTTPException(status_code=503, detail="Database session factory not initialized")
@@ -61,12 +55,6 @@ def get_session_factory() -> Any:
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """Yield an async database session for request scope."""
-    from . import main
-    session_cm = getattr(main, "_settings_session", None)
-    if session_cm is not None:
-        async with session_cm() as session:
-            yield session
-            return
     if app_state.session_factory:
         async with app_state.session_factory() as session:
             yield session
@@ -83,30 +71,18 @@ async def get_uow(
 
 
 def get_eh_client() -> EhClient:
-    from . import main
-    state = getattr(getattr(main, "app", None), "state", None)
-    if state and getattr(state, "eh_client", None) is not None:
-        return state.eh_client
     if app_state.eh_client is not None:
         return app_state.eh_client
     raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
 
 
 def get_downloader() -> Downloader:
-    from . import main
-    state = getattr(getattr(main, "app", None), "state", None)
-    if state and getattr(state, "downloader", None) is not None:
-        return state.downloader
     if app_state.downloader is not None:
         return app_state.downloader
     raise HTTPException(status_code=503, detail="Downloader is unavailable")
 
 
 def get_favorites_service() -> FavoritesService:
-    from . import main
-    state = getattr(getattr(main, "app", None), "state", None)
-    if state and getattr(state, "favorites_service", None) is not None:
-        return state.favorites_service
     if app_state.favorites_service is not None:
         return app_state.favorites_service
     raise HTTPException(status_code=503, detail="Favorites service is unavailable")
@@ -149,7 +125,7 @@ def resolve_display_title(
 ) -> str:
     """Resolve a display title according to title_display setting preference."""
     settings = get_current_settings()
-    mode = (settings.title_display or "japanese").lower()
+    mode = (getattr(settings, "title_display", "japanese") or "japanese").lower()
     title = title or ""
     title_jpn = title_jpn or ""
     if mode == "english":

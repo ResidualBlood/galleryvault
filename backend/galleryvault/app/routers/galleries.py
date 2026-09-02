@@ -136,15 +136,11 @@ async def _gallery_tags_lookup(gallery_id: int) -> list[tuple[str, str]]:
 
 
 async def _gallery(identifier: int) -> tuple[Gallery, list[GalleryPage]]:
-    from .. import main
-    fn = getattr(main, "_gallery", _gallery_lookup)
-    return await fn(identifier)
+    return await _gallery_lookup(identifier)
 
 
 async def _gallery_tags(gallery_id: int) -> list[tuple[str, str]]:
-    from .. import main
-    fn = getattr(main, "_gallery_tags", _gallery_tags_lookup)
-    return await fn(gallery_id)
+    return await _gallery_tags_lookup(gallery_id)
 
 
 def _get_thumb_service() -> ThumbnailService:
@@ -242,8 +238,7 @@ async def list_galleries(
             resolved_q = keywords
     try:
         async for session in get_session():
-            from .. import main
-            repo_cls = getattr(main, "GalleryRepository", GalleryRepository)
+            repo_cls = GalleryRepository
             total, rows = await repo_cls(session).list_page(
                 page,
                 page_size,
@@ -688,9 +683,7 @@ async def delete_gallery(
                     row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
                 if row is None:
                     raise HTTPException(status_code=404, detail="Gallery not found")
-                from .. import main
-                delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
-                results = await delete_fn(
+                results = await delete_galleries_local(
                     session, [row], delete_files=delete_files, delete_all_copies=delete_all_copies
                 )
             _record_gallery_delete_log(results, delete_files)
@@ -715,9 +708,7 @@ async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
                         select(Gallery).where(Gallery.id.in_(chunk))
                     )
                     galleries.extend(rows.all())
-                from .. import main
-                delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
-                results = await delete_fn(
+                results = await delete_galleries_local(
                     session,
                     galleries,
                     delete_files=body.delete_files,
@@ -785,11 +776,9 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
         if matching_ids:
             async for session in get_session():
                 async with session.begin():
-                    from .. import main
-                    delete_fn = getattr(main, "delete_galleries_local", delete_galleries_local)
                     for chunk in _chunked(list(dict.fromkeys(matching_ids))):
                         batch = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
-                        res = await delete_fn(
+                        res = await delete_galleries_local(
                             session, list(batch), delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
                         )
                         results.extend(res)
@@ -820,13 +809,11 @@ def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: b
 async def sync_gallery_tags(identifier: int, redirect: bool = False) -> dict[str, object]:
     from fastapi.responses import RedirectResponse
 
-    from .. import main
     try:
         async for session in get_session():
             async with session.begin():
-                service_cls = getattr(main, "TagSyncService", TagSyncService)
                 client = get_eh_client()
-                result = await service_cls(client, GalleryRepository(session)).sync(identifier)
+                result = await TagSyncService(client, GalleryRepository(session)).sync(identifier)
             break
     except GalleryNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

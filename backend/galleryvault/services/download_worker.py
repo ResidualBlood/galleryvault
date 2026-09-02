@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time as _time
 from datetime import UTC, datetime, timedelta
@@ -62,10 +61,9 @@ def infer_image_quality(
 
 async def ingest_downloaded_gallery(result: Any) -> None:
     """Ingest a freshly downloaded gallery directly from memory metadata."""
-    from ..app import main
     try:
         path = Path(result.path)
-        reg = getattr(main, "registry", registry)
+        reg = registry
         scanner = reg.for_path(path)
         if scanner is None:
             logger.warning("download ingest: no scanner for path", extra=log_extra(path=str(path)))
@@ -148,9 +146,9 @@ async def ingest_downloaded_gallery(result: Any) -> None:
             source_meta={"title": result.title or path.name, "tags": tags},
         )
 
-        ingest_cls = getattr(main, "GalleryIngestService", GalleryIngestService)
-        remove_fn = getattr(main, "_remove_superseded_copy", remove_superseded_copy)
-        session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
+        ingest_cls = GalleryIngestService
+        remove_fn = remove_superseded_copy
+        session_cm = app_state.session_factory
         old_copy: tuple[Path, int] | None = None
 
         if session_cm is not None:
@@ -237,13 +235,7 @@ def is_download_cancelled(task_id: int | None) -> bool:
     if task_id is None:
         return False
     tm = app_state.task_manager
-    if tm and tm.is_cancelled(task_id):
-        return True
-    from ..app import main
-    cancelled_set = getattr(main, "_download_cancelled", None)
-    if cancelled_set is not None and (isinstance(cancelled_set, set) or hasattr(cancelled_set, "__contains__")):
-        return task_id in cancelled_set
-    return False
+    return bool(tm and tm.is_cancelled(task_id))
 
 
 def clear_download_cancelled(task_id: int | None) -> None:
@@ -252,11 +244,6 @@ def clear_download_cancelled(task_id: int | None) -> None:
     tm = app_state.task_manager
     if tm:
         tm.clear_cancelled(task_id)
-    from ..app import main
-    cancelled_set = getattr(main, "_download_cancelled", None)
-    if cancelled_set is not None and (isinstance(cancelled_set, set) or hasattr(cancelled_set, "discard")):
-        with contextlib.suppress(Exception):
-            cancelled_set.discard(task_id)
 
 
 def mark_download_cancelled(task_id: int | None) -> None:
@@ -265,11 +252,6 @@ def mark_download_cancelled(task_id: int | None) -> None:
     tm = app_state.task_manager
     if tm:
         tm.request_cancel(task_id)
-    from ..app import main
-    cancelled_set = getattr(main, "_download_cancelled", None)
-    if cancelled_set is not None and (isinstance(cancelled_set, set) or hasattr(cancelled_set, "add")):
-        with contextlib.suppress(Exception):
-            cancelled_set.add(task_id)
 
 
 async def run_download(task: DownloadTask) -> None:
@@ -281,16 +263,14 @@ async def run_download(task: DownloadTask) -> None:
 
 
 async def _run_download_inner(task: DownloadTask) -> None:
-    from ..app import main
-    session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
+    session_cm = app_state.session_factory
     if session_cm is None:
         return
-    st = getattr(getattr(main, "app", None), "state", None)
-    downloader = getattr(st, "downloader", None) or app_state.downloader
+    downloader = app_state.downloader
     if downloader is None:
         return
-    notify_fn = getattr(main, "_record_download_notification", record_download_notification)
-    maybe_scan_fn = getattr(main, "_maybe_scan_after_download", maybe_scan_after_download)
+    notify_fn = record_download_notification
+    maybe_scan_fn = maybe_scan_after_download
 
     row = None
     try:
@@ -363,7 +343,7 @@ async def _run_download_inner(task: DownloadTask) -> None:
             await notify_fn("ok", result.title or str(task.gid), str(result.pages))
             maybe_scan_fn(result)
     except DownloadCancelledError:
-        settings = getattr(main, "_settings", lambda: app_state.settings or get_settings())()
+        settings = app_state.settings or get_settings()
         try:
             temp = Path(settings.download_root) / f".gv-{task.gid}"
             if temp.exists():

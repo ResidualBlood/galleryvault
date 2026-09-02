@@ -8,8 +8,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from galleryvault.app import main
 from galleryvault.app.routers import updates as updates_router
+from galleryvault.app.state import app_state
+from galleryvault.services import updates_worker
+from galleryvault.services.updates_worker import (
+    detect_gallery_updates,
+    gallery_updates_finalize_loop,
+    normalize_update_title,
+    run_gallery_updates,
+)
 
 
 class _Res:
@@ -25,7 +32,7 @@ class _Res:
 
 @pytest.fixture(autouse=True)
 def reset_updates_state() -> None:
-    main.gallery_updates_state.update(
+    app_state.task_manager.gallery_updates_state.update(
         {"detecting": False, "found": 0, "last_error": None, "last_run": None, "last_detected_at": None}
     )
     yield
@@ -35,7 +42,7 @@ def reset_updates_state() -> None:
 
 
 def test_normalize_update_title_strips_prefix_variants_punctuation():
-    n = main._normalize_update_title
+    n = normalize_update_title
     assert n("123-[Circle] Title (Date) [中国翻訳] [DL版]") == "circletitledate"
     assert n("[高嶋しょあ] 押しかけヴァンプ - My little vamp (COMIC 2024年12月号)") == (
         "高嶋しょあ押しかけヴァンプmylittlevampcomic2024年12月号"
@@ -101,10 +108,14 @@ async def test_detect_gallery_updates_finds_old_versions(monkeypatch):
             seen.extend(entries)
             return len(entries)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
-    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
 
-    await main._detect_gallery_updates()
+    try:
+        await detect_gallery_updates()
+    finally:
+        app_state.session_factory = orig_factory
 
     assert len(seen) == 2
     assert {e["gallery_id"] for e in seen} == {1, 2}
@@ -112,8 +123,8 @@ async def test_detect_gallery_updates_finds_old_versions(monkeypatch):
     by_gid = {e["old_gid"]: e for e in seen}
     assert by_gid[100]["new_gid"] == 200 and by_gid[100]["new_token"] == "tokb"
     assert by_gid[101]["new_gid"] == 201
-    assert main.gallery_updates_state["found"] == 2
-    assert main.gallery_updates_state["last_error"] is None
+    assert app_state.task_manager.gallery_updates_state["found"] == 2
+    assert app_state.task_manager.gallery_updates_state["last_error"] is None
 
 
 async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
@@ -148,10 +159,14 @@ async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
             seen.extend(entries)
             return len(entries)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
-    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
 
-    await main._detect_gallery_updates()
+    try:
+        await detect_gallery_updates()
+    finally:
+        app_state.session_factory = orig_factory
 
     assert seen == []
 
@@ -199,11 +214,15 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
         created.append((gid, token, title, mode, quality))
         return SimpleNamespace(id=77)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
-    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(main.DownloadRepository, "create", fake_create)
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
 
-    result = await main._run_gallery_updates([1, 1])
+    try:
+        result = await run_gallery_updates([1, 1])
+    finally:
+        app_state.session_factory = orig_factory
 
     assert result == {"started": 1, "skipped": 0}
     assert created == [(500, "tok", "New version", "favorite", None)]
@@ -249,11 +268,15 @@ async def test_run_gallery_updates_archives(monkeypatch):
         created.append((gid, token, title, mode, quality))
         return SimpleNamespace(id=78)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
-    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(main.DownloadRepository, "create", fake_create)
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
 
-    result = await main._run_gallery_updates([3], archive=True, quality="original")
+    try:
+        result = await run_gallery_updates([3], archive=True, quality="original")
+    finally:
+        app_state.session_factory = orig_factory
 
     assert result == {"started": 1, "skipped": 0}
     assert created == [(501, "tok2", "Archive version", "archive", "original")]
@@ -285,17 +308,21 @@ async def test_run_gallery_updates_skips_non_pending(monkeypatch):
         def begin(self):
             return self
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
-    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
     called = []
 
     async def fake_create(self, gid, token, title, mode, max_pages=None, quality=None):
         called.append(gid)
         return SimpleNamespace(id=77)
 
-    monkeypatch.setattr(main.DownloadRepository, "create", fake_create)
+    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
 
-    result = await main._run_gallery_updates([2])
+    try:
+        result = await run_gallery_updates([2])
+    finally:
+        app_state.session_factory = orig_factory
 
     assert result == {"started": 0, "skipped": 1}
     assert called == []
@@ -349,12 +376,16 @@ async def test_finalize_loop_marks_removed_task_failed(monkeypatch):
         if sleeps["n"] > 1:
             raise RuntimeError("stop-loop")
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
-    monkeypatch.setattr(main, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(main, "asyncio", SimpleNamespace(sleep=fake_sleep))
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker.asyncio, "sleep", fake_sleep)
 
-    with pytest.raises(RuntimeError, match="stop-loop"):
-        await main._gallery_updates_finalize_loop()
+    try:
+        with pytest.raises(RuntimeError, match="stop-loop"):
+            await gallery_updates_finalize_loop()
+    finally:
+        app_state.session_factory = orig_factory
 
     assert marked == [(99, "download task removed")]
 
@@ -375,12 +406,17 @@ async def test_updates_status_reports_counts(monkeypatch):
         async def __aexit__(self, *_):
             return None
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
     monkeypatch.setattr(updates_router, "GalleryUpdatesRepository", FakeRepo)
-    main.gallery_updates_state["last_detected_at"] = "2026-01-01T00:00:00+00:00"
-    main.gallery_updates_state["found"] = 3
+    tm = app_state.task_manager
+    tm.gallery_updates_state["last_detected_at"] = "2026-01-01T00:00:00+00:00"
+    tm.gallery_updates_state["found"] = 3
 
-    body = await updates_router.gallery_updates_status()
+    try:
+        body = await updates_router.gallery_updates_status()
+    finally:
+        app_state.session_factory = orig_factory
 
     assert body["counts"]["pending"] == 3
     assert body["counts"]["ignored"] == 5
@@ -423,11 +459,15 @@ async def test_updates_list_shapes_rows(monkeypatch):
         async def category_names(self, favcats):
             return {3: "Wonderful"}
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
     monkeypatch.setattr(updates_router, "GalleryUpdatesRepository", FakeRepo)
     monkeypatch.setattr(updates_router, "FavoritesRepository", FakeFavRepo)
 
-    body = await updates_router.gallery_updates_list(page=1, page_size=24, state="active")
+    try:
+        body = await updates_router.gallery_updates_list(page=1, page_size=24, state="active")
+    finally:
+        app_state.session_factory = orig_factory
 
     assert body["total"] == 1
     item = body["items"][0]
@@ -443,7 +483,7 @@ async def test_updates_scan_spawns_detect(monkeypatch):
         spawned.append(op)
         coro.close()
 
-    monkeypatch.setattr(main, "_spawn", fake_spawn)
+    monkeypatch.setattr(updates_router, "spawn_task", fake_spawn)
 
     body = await updates_router.gallery_updates_scan()
 
@@ -469,10 +509,14 @@ async def test_updates_ignore_marks_ignored(monkeypatch):
         def begin(self):
             return self
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
     monkeypatch.setattr(updates_router, "GalleryUpdatesRepository", FakeRepo)
 
-    body = await updates_router.gallery_updates_ignore(updates_router.UpdateIdsRequest(ids=[1, 2]))
+    try:
+        body = await updates_router.gallery_updates_ignore(updates_router.UpdateIdsRequest(ids=[1, 2]))
+    finally:
+        app_state.session_factory = orig_factory
 
     assert body == {"ignored": 2}
 
@@ -495,10 +539,14 @@ async def test_updates_delete_deletes_rows(monkeypatch):
         def begin(self):
             return self
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Sess())
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
     monkeypatch.setattr(updates_router, "GalleryUpdatesRepository", FakeRepo)
 
-    body = await updates_router.gallery_updates_delete(updates_router.UpdateIdsRequest(ids=[1, 2]))
+    try:
+        body = await updates_router.gallery_updates_delete(updates_router.UpdateIdsRequest(ids=[1, 2]))
+    finally:
+        app_state.session_factory = orig_factory
 
     assert body == {"deleted": 2}
 
@@ -516,4 +564,3 @@ async def test_favcats_for_gid_with_update_fallback(monkeypatch):
     repo = FavoritesRepository(FakeSession())
     favcats = await repo.favcats_for_gid(100, gallery_id=1)
     assert favcats == [6]
-

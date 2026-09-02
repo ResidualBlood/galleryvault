@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from galleryvault.app.routers import downloads as downloads_router
+from galleryvault.app.state import app_state
 
 
 class _Row:
@@ -60,16 +61,16 @@ async def test_delete_task_syncs_gallery_update(monkeypatch):
         cleaned.append(gid)
 
     monkeypatch.setattr(downloads_router, "_cleanup_download_temp", fake_cleanup)
-    monkeypatch.setattr(
-        downloads_router.main,
-        "_settings_session",
-        lambda: _Sess(),
-    )
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: _Sess()
 
-    await downloads_router.delete_download_task(555)
+    try:
+        await downloads_router.delete_download_task(555)
 
-    assert marked == [(555, "download task removed")]
-    assert cleaned == [7]
+        assert marked == [(555, "download task removed")]
+        assert cleaned == [7]
+    finally:
+        app_state.session_factory = orig_factory
 
 
 async def test_delete_missing_task_404(monkeypatch):
@@ -102,12 +103,12 @@ async def test_delete_missing_task_404(monkeypatch):
 
     monkeypatch.setattr(downloads_router, "DownloadRepository", FakeRepo)
     monkeypatch.setattr(downloads_router, "GalleryUpdatesRepository", FakeUpdatesRepo)
-    monkeypatch.setattr(
-        downloads_router.main,
-        "_settings_session",
-        lambda: Sess(),
-    )
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
 
-    with pytest.raises(HTTPException) as exc_info:
-        await downloads_router.delete_download_task(999)
-    assert exc_info.value.status_code == 404
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await downloads_router.delete_download_task(999)
+        assert exc_info.value.status_code == 404
+    finally:
+        app_state.session_factory = orig_factory

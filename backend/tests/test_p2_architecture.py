@@ -156,32 +156,29 @@ def test_auth_client_ip_and_proxy_defense(monkeypatch) -> None:
     assert is_trusted_proxy("192.168.1.50") is False
     assert is_trusted_proxy("8.8.8.8") is False
     # Whitelisted CIDR becomes trusted
+    from galleryvault.app.state import app_state
     from galleryvault.config import Settings as _Settings
 
+    orig_settings = app_state.settings
+    app_state.settings = _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False)
     monkeypatch.setattr(
         "galleryvault.config.get_settings",
         lambda: _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False),
     )
-    # Also patch app.main._settings for any indirect path
     try:
-        from galleryvault.app import main as _main
+        assert is_trusted_proxy("192.168.1.50") is True
 
-        monkeypatch.setattr(
-            _main, "_settings", lambda: _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False)
-        )
-    except Exception:  # noqa: BLE001, S110
-        pass
-    assert is_trusted_proxy("192.168.1.50") is True
-
-    scope = {
-        "type": "http",
-        "client": ("127.0.0.1", 12345),
-        "headers": [
-            (b"x-forwarded-for", b"203.0.113.195, 70.41.3.18, 150.172.238.178"),
-        ],
-    }
-    req = Request(scope)
-    assert client_ip(req) == "203.0.113.195"
+        scope = {
+            "type": "http",
+            "client": ("127.0.0.1", 12345),
+            "headers": [
+                (b"x-forwarded-for", b"203.0.113.195, 70.41.3.18, 150.172.238.178"),
+            ],
+        }
+        req = Request(scope)
+        assert client_ip(req) == "203.0.113.195"
+    finally:
+        app_state.settings = orig_settings
 
 
 @pytest.mark.asyncio
@@ -214,31 +211,31 @@ async def test_uow_with_existing_session() -> None:
 
 
 def test_api_route_contracts_with_client(monkeypatch) -> None:
-    from galleryvault.app import main
+    from galleryvault.app.state import app_state
     from galleryvault.config import Settings
 
-    monkeypatch.setattr(
-        main,
-        "_settings",
-        lambda: Settings(auth_required=False, exhentai_base_url="https://exhentai.org"),
-    )
+    orig_settings = app_state.settings
+    app_state.settings = Settings(auth_required=False, exhentai_base_url="https://exhentai.org")
     client = TestClient(app)
 
-    # Test /api/logs
-    resp = client.get("/api/logs")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "running" in data
-    assert "finished" in data
+    try:
+        # Test /api/logs
+        resp = client.get("/api/logs")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "running" in data
+        assert "finished" in data
 
-    # Test /api/logs/{task}/cancel
-    resp = client.post("/api/logs/metadata/cancel")
-    assert resp.status_code == 202
-    assert resp.json()["status"] == "cancelling"
+        # Test /api/logs/{task}/cancel
+        resp = client.post("/api/logs/metadata/cancel")
+        assert resp.status_code == 202
+        assert resp.json()["status"] == "cancelling"
 
-    # Test invalid cancel task 404
-    resp = client.post("/api/logs/nonexistent_task/cancel")
-    assert resp.status_code == 404
+        # Test invalid cancel task 404
+        resp = client.post("/api/logs/nonexistent_task/cancel")
+        assert resp.status_code == 404
+    finally:
+        app_state.settings = orig_settings
 
 
 def test_gallery_router_aliases() -> None:

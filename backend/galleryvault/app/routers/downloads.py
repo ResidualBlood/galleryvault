@@ -15,7 +15,6 @@ from ...services.download_worker import (
     mark_download_cancelled,
 )
 from ...services.downloader import DownloadTask
-from .. import main  # noqa: F401
 from ..dependencies import db_error, get_current_settings, get_session
 from ..schemas import DownloadRequest
 from ..state import app_state

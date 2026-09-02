@@ -160,8 +160,9 @@ class TaskManager:
             self.task_history = self.task_history[:200]
 
     async def persist_history(self) -> None:
-        from ..app import main
-        session_cm = getattr(main, "_settings_session", None) or (self.session_factory if self.session_factory else None)
+        from ..app.state import app_state
+
+        session_cm = self.session_factory or app_state.session_factory
         if not session_cm:
             return
         try:
@@ -180,8 +181,9 @@ class TaskManager:
             logger.warning("failed to persist task history", extra={"error": str(exc)})
 
     async def restore_history(self) -> None:
-        from ..app import main
-        session_cm = getattr(main, "_settings_session", None) or (self.session_factory if self.session_factory else None)
+        from ..app.state import app_state
+
+        session_cm = self.session_factory or app_state.session_factory
         if not session_cm:
             return
         try:

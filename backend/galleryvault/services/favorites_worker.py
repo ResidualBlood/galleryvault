@@ -95,6 +95,23 @@ def _parse_gdata_tags(tags: list[str]) -> list[tuple[str, str]]:
     return parsed
 
 
+def _tags_to_gdata_strings(raw_tags: list[object] | None) -> list[str]:
+    out: list[str] = []
+    for tag in raw_tags or []:
+        if isinstance(tag, dict):
+            ns = str(tag.get("namespace") or "")
+            name = str(tag.get("name") or "")
+        elif isinstance(tag, (list, tuple)) and len(tag) >= 2:
+            ns, name = str(tag[0] or ""), str(tag[1] or "")
+        else:
+            continue
+        name = name.strip()
+        if not name:
+            continue
+        out.append(f"{ns}:{name}" if ns else name)
+    return out
+
+
 def _remote_cover_cache_dir() -> Path:
     settings = app_state.settings or get_settings()
     d = Path(settings.thumbnail_cache_dir).parent / "remote-covers"
@@ -267,13 +284,9 @@ async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False
             return fresh
         return cached if isinstance(cached, dict) else {}
 
-    from ..app import main
-    spawn_fn = getattr(main, "_spawn", None)
-    if spawn_fn is not None:
-        spawn_fn(refresh_favorite_counts(), "favorite counts warmup")
-    else:
-        from ..app.dependencies import spawn_task
-        spawn_task(refresh_favorite_counts(), "favorite counts warmup")
+    from ..app.dependencies import spawn_task
+
+    spawn_task(refresh_favorite_counts(), "favorite counts warmup")
     return cached if isinstance(cached, dict) else {}
 
 
@@ -347,14 +360,11 @@ async def run_favorites_check(
 async def _run_favorites_check_inner(
     favcat: int, service: FavoritesService, *, scheduled: bool = False
 ) -> None:
-    from ..app import main
     tm = app_state.task_manager
-    favorites_check_state = getattr(main, "favorites_check_state", None)
-    if favorites_check_state is None:
-        favorites_check_state = tm.favorites_check_state if tm else {}
-    skip_decision_fn = getattr(main, "_favorites_skip_decision", favorites_skip_decision)
-    counts_cached_fn = getattr(main, "_favorite_counts_cached", favorite_counts_cached)
-    session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
+    favorites_check_state = tm.favorites_check_state if tm else {}
+    skip_decision_fn = favorites_skip_decision
+    counts_cached_fn = favorite_counts_cached
+    session_cm = app_state.session_factory
     if session_cm is None:
         return
 
@@ -420,15 +430,7 @@ async def _run_favorites_check_inner(
         def _progress(done: int) -> None:
             entry["done"] = done
 
-        # Use main._settings() (which adopts monkeypatched app.state) when available,
-        # so tests that stub main.app.state.settings do not leave app_state.settings stale.
-        settings = None
-        try:
-            from ..app.main import _settings as _main_settings  # local import to avoid cycle
-
-            settings = _main_settings()
-        except Exception:  # noqa: BLE001
-            settings = app_state.settings or get_settings()
+        settings = app_state.settings or get_settings()
         # Test stubs (e.g. test_download_cancel_race) may lack archive fields — default safely
         archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
         archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
@@ -495,12 +497,7 @@ async def _run_favorites_check_inner(
 
 async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
     while True:
-        try:
-            from ..app.main import _settings as _main_settings
-
-            settings = _main_settings()
-        except Exception:  # noqa: BLE001
-            settings = app_state.settings or get_settings()
+        settings = app_state.settings or get_settings()
         # Config stores minutes; poll loop works in seconds — tolerate test stubs
         interval = max(60, int(getattr(settings, "favorites_poll_interval_minutes", 720)) * 60)
         await asyncio.sleep(interval)

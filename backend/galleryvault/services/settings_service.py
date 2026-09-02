@@ -112,14 +112,12 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
     current = app_state.settings or get_settings()
     updated = current.model_copy(update=filtered)
     app_state.settings = updated
-    from ..app import main
-    if hasattr(main, "app") and hasattr(main.app, "state"):
-        main.app.state.settings = updated
+    from ..app.state import sync_state
+
+    sync_state()
 
 
 def start_telegram_bot() -> None:
-    from ..app import main
-
     task = app_state.extra.get("telegram_bot_task")
     if task is not None and hasattr(task, "cancel"):
         try:
@@ -127,16 +125,7 @@ def start_telegram_bot() -> None:
         except Exception:  # noqa: BLE001, S110
             pass
         app_state.extra.get("spawned_tasks", set()).discard(task)
-
-    if hasattr(main, "app") and hasattr(main.app, "state"):
-        bot_task = getattr(main.app.state, "telegram_bot_task", None)
-        if bot_task is not None and hasattr(bot_task, "cancel"):
-            try:
-                bot_task.cancel()
-            except Exception:  # noqa: BLE001, S110
-                pass
-            app_state.extra.get("spawned_tasks", set()).discard(bot_task)
-            main.app.state.telegram_bot_task = None
+        app_state.extra["telegram_bot_task"] = None
 
     settings = app_state.settings or get_settings()
     if settings.telegram_bot_token and app_state.telegram is not None:
@@ -154,18 +143,14 @@ def start_telegram_bot() -> None:
         if new_task is not None:
             app_state.extra["telegram_bot_task"] = new_task
             app_state.extra.setdefault("spawned_tasks", set()).add(new_task)
-            if hasattr(main, "app") and hasattr(main.app, "state"):
-                main.app.state.telegram_bot_task = new_task
+
+    from ..app.state import sync_state
+
+    sync_state()
 
 
 async def refresh_services() -> None:
     """Rebuild network-bound services so changed proxy/cookies apply immediately."""
-    from ..app import main
-
-    if hasattr(main, "_refresh_services"):
-        await main._refresh_services()
-        return
-
     settings = app_state.settings or get_settings()
     old_client = app_state.eh_client
     old_telegram = app_state.telegram
@@ -194,12 +179,10 @@ async def refresh_services() -> None:
         ("favorites_service", favorites_service),
     ):
         setattr(app_state, key, obj)
-        if hasattr(main, "app") and hasattr(main.app, "state"):
-            try:
-                setattr(main.app.state, key, obj)
-            except Exception:  # noqa: BLE001, S110
-                pass
 
+    from ..app.state import sync_state
+
+    sync_state()
     start_telegram_bot()
 
 

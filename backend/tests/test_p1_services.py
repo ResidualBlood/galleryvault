@@ -45,7 +45,7 @@ def test_exhentai_tag_link_markup_is_parsed() -> None:
 
 
 def test_gdata_tag_normalization_from_cache_dicts() -> None:
-    from galleryvault.app.main import _parse_gdata_tags, _tags_to_gdata_strings
+    from galleryvault.services.favorites_worker import _parse_gdata_tags, _tags_to_gdata_strings
 
     # metadata_map returns {"namespace": ..., "name": ...} dicts; the favorites
     # metadata builder must NOT unpack the dict keys as the tag values.
@@ -596,17 +596,17 @@ async def test_downloader_escalates_after_five_page_attempts(tmp_path: Path) -> 
 
 
 def test_retry_backoff_progression() -> None:
-    from galleryvault.app import main as app_main
+    from galleryvault.services.download_worker import retry_backoff
 
-    assert app_main._retry_backoff(1) == 30
-    assert app_main._retry_backoff(2) == 120
-    assert app_main._retry_backoff(3) == 480
-    assert app_main._retry_backoff(4) == 1800
-    assert app_main._retry_backoff(5) == 3600
-    assert app_main._retry_backoff(10) == 21600
+    assert retry_backoff(1) == 30
+    assert retry_backoff(2) == 120
+    assert retry_backoff(3) == 480
+    assert retry_backoff(4) == 1800
+    assert retry_backoff(5) == 3600
+    assert retry_backoff(10) == 21600
     # Beyond the table the last (longest) backoff is reused.
-    assert app_main._retry_backoff(99) == 21600
-    assert app_main._retry_backoff(0) == 30
+    assert retry_backoff(99) == 21600
+    assert retry_backoff(0) == 30
 
 
 @pytest.mark.asyncio
@@ -1539,25 +1539,29 @@ async def test_upsert_many_all_gidless_batch_does_not_crash() -> None:
     assert len([item for item in session.added if isinstance(item, GalleryPage)]) == 2
 
 
-def test_resolve_display_title_modes(monkeypatch) -> None:
-    from types import SimpleNamespace
+def test_resolve_display_title_modes() -> None:
+    from galleryvault.app.dependencies import resolve_display_title
+    from galleryvault.app.state import app_state
+    from galleryvault.config import Settings
 
-    from galleryvault.app import main
+    orig = app_state.settings
+    try:
+        def with_mode(mode: str):
+            app_state.settings = Settings(title_display=mode)
 
-    def with_mode(mode: str):
-        monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(title_display=mode))
+        with_mode("japanese")
+        assert resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "フー・バー"
+        with_mode("english")
+        assert resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "Foo Bar"
+        with_mode("directory")
+        assert resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "dir"
 
-    with_mode("japanese")
-    assert main.resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "フー・バー"
-    with_mode("english")
-    assert main.resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "Foo Bar"
-    with_mode("directory")
-    assert main.resolve_display_title("Foo Bar", "フー・バー", "123-dir") == "dir"
-
-    with_mode("japanese")
-    assert main.resolve_display_title(None, None, "") == ""
-    assert main.resolve_display_title("en", None) == "en"
-    assert main.resolve_display_title("", "jp") == "jp"
+        with_mode("japanese")
+        assert resolve_display_title(None, None, "") == ""
+        assert resolve_display_title("en", None) == "en"
+        assert resolve_display_title("", "jp") == "jp"
+    finally:
+        app_state.settings = orig
 
 
 def test_observability_gauges_and_counters() -> None:
@@ -1571,8 +1575,9 @@ def test_observability_gauges_and_counters() -> None:
 
 
 @pytest.mark.asyncio
-async def test_task_history_persistence_and_restoration(monkeypatch) -> None:
-    from galleryvault.app import main
+async def test_task_history_persistence_and_restoration() -> None:
+    from galleryvault.app.state import app_state
+    from galleryvault.services.tasks import default_task_manager
 
     saved_rows = {}
 
@@ -1588,6 +1593,7 @@ async def test_task_history_persistence_and_restoration(monkeypatch) -> None:
 
         async def get(self, model, key):
             from galleryvault.db.models import AppConfig
+
             if key in saved_rows:
                 return AppConfig(key=key, value=saved_rows[key])
             return None
@@ -1595,20 +1601,26 @@ async def test_task_history_persistence_and_restoration(monkeypatch) -> None:
         def add(self, item):
             saved_rows[item.key] = item.value
 
-    monkeypatch.setattr(main, "_settings_session", lambda: FakeSession())
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: FakeSession()
+    default_task_manager.session_factory = app_state.session_factory
 
-    main.task_history.clear()
-    main._record_task("scan", "2026-08-31T00:00:00Z", "2026-08-31T00:01:00Z", "success", done=10)
-    await main._persist_task_history()
-    assert len(main.task_history) == 1
-    assert "task_history" in saved_rows
+    try:
+        default_task_manager.task_history.clear()
+        default_task_manager.record_task("scan", "2026-08-31T00:00:00Z", "2026-08-31T00:01:00Z", "success", done=10)
+        await default_task_manager.persist_history()
+        assert len(default_task_manager.task_history) == 1
+        assert "task_history" in saved_rows
 
-    main.task_history.clear()
-    assert len(main.task_history) == 0
-    await main._restore_task_history()
-    assert len(main.task_history) == 1
-    assert main.task_history[0]["task"] == "scan"
-    assert main.task_history[0]["done"] == 10
+        default_task_manager.task_history.clear()
+        assert len(default_task_manager.task_history) == 0
+        await default_task_manager.restore_history()
+        assert len(default_task_manager.task_history) == 1
+        assert default_task_manager.task_history[0]["task"] == "scan"
+        assert default_task_manager.task_history[0]["done"] == 10
+    finally:
+        app_state.session_factory = orig_factory
+        default_task_manager.session_factory = orig_factory
 
 
 async def test_clear_progress_repository_methods() -> None:

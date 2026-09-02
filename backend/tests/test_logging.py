@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from galleryvault.app import main
 from galleryvault.app.main import app
+from galleryvault.app.state import app_state
 from galleryvault.config import Settings
 from galleryvault.logging import (
     RingBufferHandler,
@@ -204,47 +204,47 @@ def test_dynamic_log_level() -> None:
 
 
 def test_system_logs_api_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        main,
-        "_settings",
-        lambda: Settings(auth_required=False, exhentai_base_url="https://exhentai.org"),
-    )
+    orig_settings = app_state.settings
+    app_state.settings = Settings(auth_required=False, exhentai_base_url="https://exhentai.org")
     client = TestClient(app)
 
-    # Log an event into global ring buffer
-    logging.getLogger("test_api").warning("system logs api test event", extra=log_extra(source="unit_test"))
-
-    # GET /api/system/logs
-    resp = client.get("/api/system/logs?min_level=WARNING&limit=50&search=api+test")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "level" in data
-    assert "logs" in data
-    assert any("system logs api test event" in item["message"] for item in data["logs"])
-
-    # POST /api/system/logs/level
-    orig = data["level"]
     try:
-        resp_level = client.post("/api/system/logs/level", json={"level": "DEBUG"})
-        assert resp_level.status_code == 200
-        assert resp_level.json()["level"] == "DEBUG"
+        # Log an event into global ring buffer
+        logging.getLogger("test_api").warning("system logs api test event", extra=log_extra(source="unit_test"))
 
-        # Invalid level
-        bad_level = client.post("/api/system/logs/level", json={"level": "INVALID_LEVEL"})
-        assert bad_level.status_code == 422
+        # GET /api/system/logs
+        resp = client.get("/api/system/logs?min_level=WARNING&limit=50&search=api+test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "level" in data
+        assert "logs" in data
+        assert any("system logs api test event" in item["message"] for item in data["logs"])
+
+        # POST /api/system/logs/level
+        orig = data["level"]
+        try:
+            resp_level = client.post("/api/system/logs/level", json={"level": "DEBUG"})
+            assert resp_level.status_code == 200
+            assert resp_level.json()["level"] == "DEBUG"
+
+            # Invalid level
+            bad_level = client.post("/api/system/logs/level", json={"level": "INVALID_LEVEL"})
+            assert bad_level.status_code == 422
+        finally:
+            set_log_level(orig)
+
+        # DELETE /api/system/logs
+        resp_del = client.delete("/api/system/logs")
+        assert resp_del.status_code == 200
+        assert resp_del.json()["status"] == "cleared"
+
+        # GET /api/system/logs/download
+        resp_dl = client.get("/api/system/logs/download")
+        assert resp_dl.status_code == 200
+        assert "text/plain" in resp_dl.headers.get("content-type", "")
+        assert "galleryvault-" in resp_dl.headers.get("content-disposition", "")
     finally:
-        set_log_level(orig)
-
-    # DELETE /api/system/logs
-    resp_del = client.delete("/api/system/logs")
-    assert resp_del.status_code == 200
-    assert resp_del.json()["status"] == "cleared"
-
-    # GET /api/system/logs/download
-    resp_dl = client.get("/api/system/logs/download")
-    assert resp_dl.status_code == 200
-    assert "text/plain" in resp_dl.headers.get("content-type", "")
-    assert "galleryvault-" in resp_dl.headers.get("content-disposition", "")
+        app_state.settings = orig_settings
 
 
 def test_file_rotation_and_hydration(tmp_path: Path) -> None:

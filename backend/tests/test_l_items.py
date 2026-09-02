@@ -14,10 +14,11 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
-from galleryvault.app import main
 from galleryvault.app.routers import downloads, galleries
+from galleryvault.app.state import app_state
 from galleryvault.db import repository as repo
 from galleryvault.services import favorites_worker
+from galleryvault.services.favorites_worker import favorite_counts_cached
 
 
 @pytest.mark.asyncio
@@ -25,7 +26,7 @@ async def test_l1_page_size_message_matches_500_bound() -> None:
     with pytest.raises(HTTPException) as excinfo:
         # The bound check runs before any DB access, so the router function can
         # be driven directly.
-        await galleries.gallery_list(page=1, page_size=501)
+        await galleries.list_galleries(page=1, page_size=501)
     assert excinfo.value.status_code == 422
     assert "between 1 and 500" in excinfo.value.detail
 
@@ -60,16 +61,20 @@ class _RetrySession:
 @pytest.mark.asyncio
 async def test_l2_manual_retry_resets_max_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     row = _RetryRow()
-    monkeypatch.setattr(main, "_settings_session", lambda: _RetrySession(row))
-    monkeypatch.setattr(main, "_download_cancelled", {42})
-    result = await downloads.retry_download(42)
-    assert result == {"id": 42, "status": "pending"}
-    assert row.max_retries == 10
-    assert row.retry_count == 0
-    assert row.retry_at is None
-    assert row.error_message is None
-    assert row.finished_at is None
-    assert 42 not in main._download_cancelled
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: _RetrySession(row)
+    app_state.task_manager.request_cancel(42)
+    try:
+        result = await downloads.retry_download(42)
+        assert result == {"id": 42, "status": "pending"}
+        assert row.max_retries == 10
+        assert row.retry_count == 0
+        assert row.retry_at is None
+        assert row.error_message is None
+        assert row.finished_at is None
+        assert not app_state.task_manager.is_cancelled(42)
+    finally:
+        app_state.session_factory = orig_factory
 
 
 @pytest.mark.asyncio
@@ -85,14 +90,19 @@ async def test_l8_first_count_call_never_blocks_on_network(
         if hasattr(coro, "close"):
             coro.close()
 
-    monkeypatch.setattr(main, "_spawn", fake_spawn)
-    monkeypatch.setattr(favorites_worker, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
-    monkeypatch.setattr(main, "_fav_counts_cache", favorites_worker._fav_counts_cache)
-    monkeypatch.setattr(main.app.state, "eh_client", object())
+    from galleryvault.app import dependencies
 
-    counts = await main._favorite_counts_cached()
-    assert counts == {}
-    assert spawned == ["favorite counts warmup"]
+    monkeypatch.setattr(dependencies, "spawn_task", fake_spawn)
+    monkeypatch.setattr(favorites_worker, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
+    orig_client = app_state.eh_client
+    app_state.eh_client = object()
+
+    try:
+        counts = await favorite_counts_cached()
+        assert counts == {}
+        assert spawned == ["favorite counts warmup"]
+    finally:
+        app_state.eh_client = orig_client
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""Regression tests for the cancel/completion race in _run_download.
+"""Regression tests for the cancel/completion race in run_download.
 
 A user can hit cancel just as a download finishes: the last progress callback
 already ran (so no DownloadCancelledError was raised mid-flight), but the
@@ -14,7 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from galleryvault.app import main
+from galleryvault.app.state import app_state
+from galleryvault.services import download_worker
+from galleryvault.services.download_worker import run_download
 from galleryvault.services.downloader import DownloadResult, DownloadTask
 
 
@@ -77,7 +79,7 @@ class _Downloader:
     async def execute(self, task, *, progress=None, **_):
         if self.cancel_between:
             self.cancelled_now = True
-            main._download_cancelled.add(task.id)
+            app_state.task_manager.request_cancel(task.id)
         return self.result
 
 
@@ -88,21 +90,22 @@ class _Settings:
 
 
 def _patched(monkeypatch, *, row_provider, downloader):
-    """Stub the DB + downloader + notification seams _run_download touches."""
-    monkeypatch.setattr(main, "_settings_session", lambda: _Session(row_provider))
-    monkeypatch.setattr(main.app.state, "downloader", downloader)
-    monkeypatch.setattr(main.app.state, "settings", _Settings(Path("/tmp")))
-    monkeypatch.setattr(main, "_maybe_scan_after_download", lambda result: None)
+    """Stub the DB + downloader + notification seams run_download touches."""
+    app_state.session_factory = lambda: _Session(row_provider)
+    app_state.downloader = downloader
+    app_state.settings = _Settings(Path("/tmp"))
+    monkeypatch.setattr(download_worker, "maybe_scan_after_download", lambda result: None)
     notifications: list[tuple[str, object, object]] = []
 
     async def record_notification(kind, title, detail=None):
         notifications.append((kind, title, detail))
 
-    monkeypatch.setattr(main, "_record_download_notification", record_notification)
+    monkeypatch.setattr(download_worker, "record_download_notification", record_notification)
     return notifications
 
 
-async def test_cancel_lands_after_download_completes() -> None:
+@pytest.mark.asyncio
+async def test_cancel_lands_after_download_completes(monkeypatch: pytest.MonkeyPatch) -> None:
     """A cancel armed just before the final commit must not mark success.
 
     The last progress callback has already run, so execute() returns normally;
@@ -110,9 +113,6 @@ async def test_cancel_lands_after_download_completes() -> None:
     the success branch commits.  The task must stay cancelled, no success
     attempt, no "ok" notification, and the flag must be consumed.
     """
-    main._download_cancelled = set()
-    monkeypatch = pytest.MonkeyPatch()
-
     row = _Row(42)
     phase = [0]
 
@@ -130,23 +130,20 @@ async def test_cancel_lands_after_download_completes() -> None:
         downloader=_Downloader(result, cancel_between=True),
     )
 
-    await main._run_download(DownloadTask(7, "token", "t", id=42))
+    await run_download(DownloadTask(7, "token", "t", id=42))
 
     assert row.status == "cancelled", "task must stay cancelled"
-    assert 42 not in main._download_cancelled, "in-flight flag must be discarded"
+    assert not app_state.task_manager.is_cancelled(42), "in-flight flag must be discarded"
     assert notifications == [], "no ok notification for a cancelled download"
-    monkeypatch.undo()
 
 
-async def test_cancel_via_db_status_before_commit() -> None:
+@pytest.mark.asyncio
+async def test_cancel_via_db_status_before_commit(monkeypatch: pytest.MonkeyPatch) -> None:
     """The row already reads "cancelled" when the success branch commits.
 
     The cancel route's DB commit happened before the success branch read the
     row (flag path above covers the in-between window).  Same expectations.
     """
-    main._download_cancelled = set()
-    monkeypatch = pytest.MonkeyPatch()
-
     row = _Row(43)
     phase = [0]
 
@@ -163,19 +160,16 @@ async def test_cancel_via_db_status_before_commit() -> None:
         downloader=_Downloader(result),
     )
 
-    await main._run_download(DownloadTask(7, "token", "t", id=43))
+    await run_download(DownloadTask(7, "token", "t", id=43))
 
     assert row.status == "cancelled"
-    assert 43 not in main._download_cancelled
+    assert not app_state.task_manager.is_cancelled(43)
     assert notifications == []
-    monkeypatch.undo()
 
 
-async def test_success_path_when_no_cancel() -> None:
+@pytest.mark.asyncio
+async def test_success_path_when_no_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without a cancel the success branch still marks success + notifies."""
-    main._download_cancelled = set()
-    monkeypatch = pytest.MonkeyPatch()
-
     row = _Row(44)
 
     def row_provider():
@@ -188,25 +182,22 @@ async def test_success_path_when_no_cancel() -> None:
         downloader=_Downloader(result),
     )
 
-    await main._run_download(DownloadTask(7, "token", "t", id=44))
+    await run_download(DownloadTask(7, "token", "t", id=44))
 
     assert row.status == "success"
     assert row.target_path == "/tmp/dl"
     assert row.retry_count == 0
     assert notifications == [("ok", "t", "5")]
-    monkeypatch.undo()
 
 
-async def test_gallery_gone_error_marks_failed_without_retry() -> None:
+@pytest.mark.asyncio
+async def test_gallery_gone_error_marks_failed_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
     """GalleryGoneError (404) must fail immediately and exhaust the retry budget."""
     from galleryvault.services.eh_client import GalleryGoneError
 
     class _FailingDownloader:
         async def execute(self, task, *, progress=None, **_):
             raise GalleryGoneError("gallery does not exist on ExHentai (404)")
-
-    main._download_cancelled = set()
-    monkeypatch = pytest.MonkeyPatch()
 
     row = _Row(45)
 
@@ -219,7 +210,7 @@ async def test_gallery_gone_error_marks_failed_without_retry() -> None:
         downloader=_FailingDownloader(),
     )
 
-    await main._run_download(DownloadTask(7, "token", "t", id=45))
+    await run_download(DownloadTask(7, "token", "t", id=45))
 
     assert row.status == "failed"
     assert row.retry_at is None
@@ -227,5 +218,3 @@ async def test_gallery_gone_error_marks_failed_without_retry() -> None:
     assert "GalleryGoneError" in (row.error_message or "")
     assert len(notifications) == 1
     assert notifications[0][0] == "fail"
-    monkeypatch.undo()
-

@@ -50,8 +50,11 @@ Key points:
 backend/  (this git repository)
 galleryvault/
   app/
-    main.py            # FastAPI assembly: lifespan, middleware, shared task state,
-                       #   background workers, auth routes
+    main.py            # FastAPI application factory and assembly (<=100 lines)
+    state.py           # AppState runtime container and service factories
+    middleware.py      # Authentication and CSRF protection middleware
+    lifespan.py        # Lifespan startup/shutdown and background workers
+    dependencies.py    # FastAPI dependencies and injection helpers
     routers/           # route handlers split by domain
       core.py tasks.py settings.py downloads.py favorites.py galleries.py tags.py
   api/                 # package note; authoritative reference is docs/API.md
@@ -309,9 +312,9 @@ docker compose -f docker-compose.dev.yml up -d --build
 ## Conventions
 
 - Keep route handlers in `galleryvault/app/routers/` (one module per domain).
-  Handlers reference the shared state / helpers on `galleryvault.app.main`
-  via `main.X` at call time — that keeps `monkeypatch.setattr(main, ...)` in
-  the tests working. Each handler is a plain `async def`.
+  Handlers reference state via `app_state` or FastAPI `Depends` providers.
+  Production code directly imports source modules; tests use dependency overrides or `app_state`.
+  Each handler is a plain `async def`.
 - All errors returned to the client are `HTTPException` (or `_db_error` for
   SQLAlchemy failures). Never leak raw exception text – secrets/cookies are
   already scrubbed in `logging.py`.

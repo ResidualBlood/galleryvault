@@ -110,8 +110,8 @@ async def test_remove_favorites_auth_failure_raises() -> None:
 
 
 def test_record_favorites_remove_log_appends_cloud_failures(monkeypatch) -> None:
-    from galleryvault.app import main
     from galleryvault.app.routers.favorites import _record_favorites_remove_log
+    from galleryvault.app.state import app_state
 
     entries: list[dict[str, object]] = []
 
@@ -120,7 +120,7 @@ def test_record_favorites_remove_log_appends_cloud_failures(monkeypatch) -> None
             {"kind": kind, "status": status, "reason": reason, "done": done, "total": total}
         )
 
-    monkeypatch.setattr(main, "_record_task", record)
+    monkeypatch.setattr(app_state.task_manager, "record_task", record)
 
     _record_favorites_remove_log([1, 2, 3], 2, [], [3])
 
@@ -131,15 +131,15 @@ def test_record_favorites_remove_log_appends_cloud_failures(monkeypatch) -> None
 
 
 def test_record_favorites_remove_log_success_when_cloud_ok(monkeypatch) -> None:
-    from galleryvault.app import main
     from galleryvault.app.routers.favorites import _record_favorites_remove_log
+    from galleryvault.app.state import app_state
 
     entries: list[dict[str, object]] = []
 
     def record(kind, start, end, status, *, reason="", done=0, total=0):
         entries.append({"status": status, "reason": reason})
 
-    monkeypatch.setattr(main, "_record_task", record)
+    monkeypatch.setattr(app_state.task_manager, "record_task", record)
 
     _record_favorites_remove_log([1, 2, 3], 3, [], [])
 
@@ -148,15 +148,15 @@ def test_record_favorites_remove_log_success_when_cloud_ok(monkeypatch) -> None:
 
 
 def test_record_favorites_remove_log_truncates_long_failure_list(monkeypatch) -> None:
-    from galleryvault.app import main
     from galleryvault.app.routers.favorites import _record_favorites_remove_log
+    from galleryvault.app.state import app_state
 
     entries: list[str] = []
 
     def record(kind, start, end, status, *, reason="", done=0, total=0):
         entries.append(reason)
 
-    monkeypatch.setattr(main, "_record_task", record)
+    monkeypatch.setattr(app_state.task_manager, "record_task", record)
 
     _record_favorites_remove_log([], 0, [], list(range(1, 20)))
 

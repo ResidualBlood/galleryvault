@@ -79,9 +79,7 @@ async def gallery_updates_list(
 
 @router.post("/api/updates/scan", status_code=202)
 async def gallery_updates_scan() -> dict[str, Any]:
-    from .. import main
-    spawn_fn = getattr(main, "_spawn", spawn_task)
-    spawn_fn(detect_gallery_updates(), "gallery updates detect")
+    spawn_task(detect_gallery_updates(), "gallery updates detect")
     return {"status": "started"}
 
 

@@ -12,33 +12,39 @@ from types import SimpleNamespace
 
 import pytest
 
-from galleryvault.app import main
+from galleryvault.app.state import app_state
+from galleryvault.services import favorites_worker
+from galleryvault.services.favorites_worker import (
+    FAVORITES_SKIP_LIMIT,
+    favorites_skip_decision,
+    run_favorites_check,
+)
 
 
 def test_skip_decision_skips_until_limit_then_forces_full() -> None:
     """4 consecutive unchanged polls skip; the 5th forces a full pass."""
     counter = 0
-    for _ in range(main.FAVORITES_SKIP_LIMIT - 1):
-        should_skip, counter = main._favorites_skip_decision(
+    for _ in range(FAVORITES_SKIP_LIMIT - 1):
+        should_skip, counter = favorites_skip_decision(
             counter, scheduled=True, category_ready=True, live_count=10, known=10
         )
         assert should_skip is True
     # The poll that would be the 5th consecutive skip runs a full pass instead.
-    should_skip, counter = main._favorites_skip_decision(
+    should_skip, counter = favorites_skip_decision(
         counter, scheduled=True, category_ready=True, live_count=10, known=10
     )
     assert should_skip is False and counter == 0
 
 
 def test_skip_decision_manual_check_never_skips() -> None:
-    should_skip, next_count = main._favorites_skip_decision(
+    should_skip, next_count = favorites_skip_decision(
         3, scheduled=False, category_ready=True, live_count=10, known=10
     )
     assert should_skip is False and next_count == 0
 
 
 def test_skip_decision_not_ready_never_skips() -> None:
-    should_skip, next_count = main._favorites_skip_decision(
+    should_skip, next_count = favorites_skip_decision(
         0, scheduled=True, category_ready=False, live_count=10, known=10
     )
     assert should_skip is False and next_count == 0
@@ -48,14 +54,14 @@ def test_skip_decision_count_mismatch_never_skips() -> None:
     # A different count is the whole reason the skip exists; any mismatch
     # (including the equal-swap case where a previous forced full pass
     # re-listed) must run the full pass.
-    should_skip, next_count = main._favorites_skip_decision(
+    should_skip, next_count = favorites_skip_decision(
         4, scheduled=True, category_ready=True, live_count=11, known=10
     )
     assert should_skip is False and next_count == 0
 
 
 def test_skip_decision_zero_live_count_never_skips() -> None:
-    should_skip, next_count = main._favorites_skip_decision(
+    should_skip, next_count = favorites_skip_decision(
         2, scheduled=True, category_ready=True, live_count=0, known=0
     )
     assert should_skip is False and next_count == 0
@@ -68,8 +74,9 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
     forced full pass on the 5th scheduled poll re-walks favorites.php.
     """
     monkeypatch = pytest.MonkeyPatch()
-    original_state = main.favorites_check_state
-    main.favorites_check_state = {
+    tm = app_state.task_manager
+    original_state = tm.favorites_check_state
+    tm.favorites_check_state = {
         "running": False,
         "categories": {},
         "last_error": None,
@@ -110,20 +117,26 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
         ):
             full_checks.append(favcat)
 
+    async def _fake_counts(*args, **kwargs):
+        return {3: 10}
+
+    orig_factory = app_state.session_factory
     try:
         # Reset per-test state and patch seams.
-        monkeypatch.setattr(main, "_settings_session", lambda: _FakeSession(Repo()))
-        monkeypatch.setattr(main.app.state, "favorites_service", Service())
-        monkeypatch.setattr(main, "_favorite_size_sync", lambda favcat: _noop())
-        monkeypatch.setattr(main, "_favorite_counts_cached", _fake_counts)
-        monkeypatch.setattr(main, "_record_task", lambda *a, **k: None)
+        app_state.session_factory = lambda: _FakeSession(Repo())
+        app_state.favorites_service = Service()
+        monkeypatch.setattr(favorites_worker, "FavoritesRepository", lambda session: session._repo)
+        monkeypatch.setattr(favorites_worker, "favorite_size_sync", lambda favcat: None)
+        monkeypatch.setattr(favorites_worker, "favorite_counts_cached", _fake_counts)
+        monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
 
-        for i in range(5):
-            await main._run_favorites_check(3, Service(), scheduled=True)
+        for _ in range(5):
+            await run_favorites_check(3, Service(), scheduled=True)
         assert full_checks == [3], "the 5th scheduled poll must run a full pass"
-        assert main.favorites_check_state["skip_counts"] == {"3": 0}
+        assert tm.favorites_check_state["skip_counts"] == {"3": 0}
     finally:
-        main.favorites_check_state = original_state
+        tm.favorites_check_state = original_state
+        app_state.session_factory = orig_factory
         monkeypatch.undo()
 
 
@@ -144,27 +157,24 @@ class _FakeSession:
         from sqlalchemy.dialects import postgresql
 
         sql = str(
-            statement.compile(
-                dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-            )
+            statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
         )
-        if "favorites_monitor" in sql:
-            return await self._repo.category(3)
-        return 10
+        if "categories" in sql:
+            return 10
+        return None
 
-    async def scalars(self, statement):
-        return SimpleNamespace(all=list)
+    async def execute(self, statement):
+        class _Result:
+            def scalars(self):
+                return self
 
-    def add(self, value):
-        pass
+            def first(self):
+                return None
+
+            def all(self):
+                return []
+
+        return _Result()
 
     async def flush(self):
         pass
-
-
-async def _noop():
-    return None
-
-
-async def _fake_counts() -> dict[int, int]:
-    return {3: 10}

@@ -10,11 +10,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from galleryvault.app import main
 from galleryvault.app.routers.galleries import (
     DownloadOriginalRequest,
     download_gallery_original,
     gallery_detail,
+)
+from galleryvault.app.state import app_state
+from galleryvault.config import Settings
+from galleryvault.scanners.base import GalleryMeta
+from galleryvault.services import download_worker
+from galleryvault.services.deletion import remove_superseded_copy
+from galleryvault.services.download_worker import (
+    infer_image_quality,
+    ingest_downloaded_gallery,
 )
 
 
@@ -36,26 +44,26 @@ class _Res:
 
 
 def test_infer_image_quality_original_when_close_to_original_size():
-    assert main._infer_image_quality(1000, 1100) == "original"
-    assert main._infer_image_quality(935, 1000) == "original"  # ratio 0.935
+    assert infer_image_quality(1000, 1100) == "original"
+    assert infer_image_quality(935, 1000) == "original"  # ratio 0.935
 
 
 def test_infer_image_quality_resample_when_smaller():
-    assert main._infer_image_quality(500, 1000) == "resample"
-    assert main._infer_image_quality(840, 1000) == "resample"  # ratio 0.84
+    assert infer_image_quality(500, 1000) == "resample"
+    assert infer_image_quality(840, 1000) == "resample"  # ratio 0.84
 
 
 def test_infer_image_quality_cbz_uses_looser_threshold():
-    assert main._infer_image_quality(820, 1000, "cbz") == "original"  # 0.82
-    assert main._infer_image_quality(790, 1000, "cbz") == "resample"
+    assert infer_image_quality(820, 1000, "cbz") == "original"  # 0.82
+    assert infer_image_quality(790, 1000, "cbz") == "resample"
     # A non-cbz copy at the same ratio is still resample.
-    assert main._infer_image_quality(820, 1000, "ehviewer_dir") == "resample"
+    assert infer_image_quality(820, 1000, "ehviewer_dir") == "resample"
 
 
 def test_infer_image_quality_returns_none_without_data():
-    assert main._infer_image_quality(None, 1000) is None
-    assert main._infer_image_quality(1000, None) is None
-    assert main._infer_image_quality(0, 1000) is None
+    assert infer_image_quality(None, 1000) is None
+    assert infer_image_quality(1000, None) is None
+    assert infer_image_quality(0, 1000) is None
 
 
 # --- superseded-copy removal ------------------------------------------------
@@ -63,7 +71,9 @@ def test_infer_image_quality_returns_none_without_data():
 
 @pytest.fixture(autouse=True)
 def _scan_roots_isolated(monkeypatch, tmp_path):
-    monkeypatch.setattr(main, "_scan_roots", lambda: [str(tmp_path)])
+    from galleryvault.app import dependencies
+
+    monkeypatch.setattr(dependencies, "get_scan_roots", lambda: [str(tmp_path)])
 
 
 def _result(path, pages=2, quality="original"):
@@ -76,7 +86,7 @@ async def test_remove_superseded_copy_deletes_matching_old_dir(tmp_path):
     (old / "00000001.jpg").write_bytes(b"x")
     new = tmp_path / "new"
     new.mkdir()
-    await main._remove_superseded_copy(_result(str(new), pages=2), old, 2)
+    await remove_superseded_copy(_result(str(new), pages=2), old, 2)
     assert not old.exists()
 
 
@@ -86,7 +96,7 @@ async def test_remove_superseded_copy_keeps_on_page_mismatch(tmp_path):
     (old / "00000001.jpg").write_bytes(b"x")
     new = tmp_path / "new"
     new.mkdir()
-    await main._remove_superseded_copy(_result(str(new), pages=3), old, 2)
+    await remove_superseded_copy(_result(str(new), pages=3), old, 2)
     assert old.exists()
 
 
@@ -94,7 +104,7 @@ async def test_remove_superseded_copy_keeps_when_same_path(tmp_path):
     new = tmp_path / "new"
     new.mkdir()
     (new / "00000001.jpg").write_bytes(b"x")
-    await main._remove_superseded_copy(_result(str(new), pages=2), new, 2)
+    await remove_superseded_copy(_result(str(new), pages=2), new, 2)
     assert new.exists()
 
 
@@ -103,7 +113,7 @@ async def test_remove_superseded_copy_unlinks_single_file(tmp_path):
     old.write_bytes(b"archive")
     new = tmp_path / "new"
     new.mkdir()
-    await main._remove_superseded_copy(_result(str(new), pages=2), old, 2)
+    await remove_superseded_copy(_result(str(new), pages=2), old, 2)
     assert not old.exists()
 
 
@@ -119,7 +129,7 @@ async def test_remove_superseded_copy_is_best_effort_on_errors(tmp_path, monkeyp
         raise PermissionError("read-only mount")
 
     monkeypatch.setattr(shutil, "rmtree", _boom)
-    await main._remove_superseded_copy(_result(str(new), pages=2), old, 2)
+    await remove_superseded_copy(_result(str(new), pages=2), old, 2)
     assert old.exists()
 
 
@@ -127,7 +137,7 @@ async def test_remove_superseded_copy_is_best_effort_on_errors(tmp_path, monkeyp
 
 
 class _FakeSession:
-    """Minimal settings-session double for _ingest_downloaded_gallery."""
+    """Minimal settings-session double for ingest_downloaded_gallery."""
 
     def __init__(self, prev_row):
         self._prev = prev_row
@@ -168,7 +178,7 @@ async def test_ingest_downloaded_gallery_marks_quality_and_removes_old(
 
     prev = SimpleNamespace(gid=7, storage_path=str(old), page_count=1)
     session = _FakeSession(prev)
-    ingested: list[main.GalleryMeta] = []
+    ingested: list[GalleryMeta] = []
     removed: list[tuple] = []
 
     class _FakeIngest:
@@ -181,17 +191,20 @@ async def test_ingest_downloaded_gallery_marks_quality_and_removes_old(
     async def _fake_remove(result, old_path, old_pages):
         removed.append((result, old_path, old_pages))
 
-    monkeypatch.setattr(main, "_settings_session", lambda: session)
-    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
-    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
-    monkeypatch.setattr(main, "_remove_superseded_copy", _fake_remove)
-    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
+    monkeypatch.setattr(download_worker, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(download_worker, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
+    monkeypatch.setattr(download_worker, "remove_superseded_copy", _fake_remove)
 
     result = SimpleNamespace(
         gid=7, path=str(new), title="T", title_jpn=None, token="tok",
         category="misc", quality="original", pages=1, tags=[],
     )
-    await main._ingest_downloaded_gallery(result)
+    try:
+        await ingest_downloaded_gallery(result)
+    finally:
+        app_state.session_factory = orig_factory
 
     assert ingested and ingested[0].image_quality == "original"
     assert removed and removed[0][0].gid == 7 and removed[0][1] == old
@@ -216,17 +229,21 @@ async def test_ingest_downloaded_gallery_skips_removal_for_resample(
     async def _fake_remove(*_args):
         removed.append(True)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: session)
-    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
-    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
-    monkeypatch.setattr(main, "_remove_superseded_copy", _fake_remove)
-    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
+    monkeypatch.setattr(download_worker, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(download_worker, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
+    monkeypatch.setattr(download_worker, "remove_superseded_copy", _fake_remove)
 
     result = SimpleNamespace(
         gid=7, path=str(new), title="T", title_jpn=None, token="tok",
         category="misc", quality="resample", pages=1, tags=[],
     )
-    await main._ingest_downloaded_gallery(result)
+    try:
+        await ingest_downloaded_gallery(result)
+    finally:
+        app_state.session_factory = orig_factory
+
     assert not removed
 
 
@@ -247,7 +264,7 @@ async def test_ingest_downloaded_gallery_prunes_merged_stale_pages(
     (merged / "00000002.jpg").write_bytes(b"new")
 
     session = _FakeSession(None)
-    ingested: list[main.GalleryMeta] = []
+    ingested: list[GalleryMeta] = []
 
     class _FakeIngest:
         def __init__(self, _session):
@@ -256,17 +273,20 @@ async def test_ingest_downloaded_gallery_prunes_merged_stale_pages(
         async def ingest(self, galleries):
             ingested.extend(galleries)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: session)
-    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
-    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
-    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
+    monkeypatch.setattr(download_worker, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(download_worker, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
 
     result = SimpleNamespace(
         gid=7, path=str(merged), title="T", title_jpn=None, token="tok",
         category="misc", quality="original", pages=2, tags=[],
         new_files=("00000001.jpg", "00000002.jpg"),
     )
-    await main._ingest_downloaded_gallery(result)
+    try:
+        await ingest_downloaded_gallery(result)
+    finally:
+        app_state.session_factory = orig_factory
 
     assert not stale_webp.exists()
     assert new_jpg.exists()
@@ -286,7 +306,7 @@ async def test_ingest_downloaded_gallery_keeps_stale_for_resample(
     b.write_bytes(b"b")
 
     session = _FakeSession(None)
-    ingested: list[main.GalleryMeta] = []
+    ingested: list[GalleryMeta] = []
 
     class _FakeIngest:
         def __init__(self, _session):
@@ -295,17 +315,20 @@ async def test_ingest_downloaded_gallery_keeps_stale_for_resample(
         async def ingest(self, galleries):
             ingested.extend(galleries)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: session)
-    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
-    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
-    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
+    monkeypatch.setattr(download_worker, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(download_worker, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
 
     result = SimpleNamespace(
         gid=7, path=str(merged), title="T", title_jpn=None, token="tok",
         category="misc", quality="resample", pages=2, tags=[],
         new_files=("00000001.jpg",),
     )
-    await main._ingest_downloaded_gallery(result)
+    try:
+        await ingest_downloaded_gallery(result)
+    finally:
+        app_state.session_factory = orig_factory
 
     assert a.exists() and b.exists()
     assert len(ingested) == 1 and len(ingested[0].pages) == 2
@@ -315,6 +338,8 @@ async def test_ingest_downloaded_gallery_keeps_stale_for_resample(
 
 
 async def test_gallery_detail_exposes_image_quality(monkeypatch):
+    from galleryvault.app.routers import galleries as galleries_router
+
     row = SimpleNamespace(
         id=1, gid=7, token="tok", title="T", title_jpn=None,
         storage_type="ehviewer_dir", category="misc", page_count=1,
@@ -328,14 +353,18 @@ async def test_gallery_detail_exposes_image_quality(monkeypatch):
     async def _tags(_gallery_id):
         return []
 
-    monkeypatch.setattr(main, "_gallery", _gallery)
-    monkeypatch.setattr(main, "_gallery_tags", _tags)
-    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    monkeypatch.setattr(galleries_router, "_gallery_tags_lookup", _tags)
+    orig_settings = app_state.settings
+    app_state.settings = Settings(
         exhentai_base_url="https://exhentai.org", title_display="japanese"
-    ))
+    )
 
-    data = await gallery_detail(1)
-    assert data["image_quality"] == "original"
+    try:
+        data = await gallery_detail(1)
+        assert data["image_quality"] == "original"
+    finally:
+        app_state.settings = orig_settings
 
 
 # --- download-original endpoint ---------------------------------------------
@@ -373,6 +402,8 @@ class _FakeSettingsSession:
 
 
 async def test_download_original_page_by_page_enqueues_original(monkeypatch):
+    from galleryvault.app.routers import galleries as galleries_router
+
     row = SimpleNamespace(gid=7, token="tok", title="T")
     repo = _FakeCreateRepo(SimpleNamespace(id=9, gid=7))
 
@@ -384,17 +415,25 @@ async def test_download_original_page_by_page_enqueues_original(monkeypatch):
             assert gid == 7 and max_pages == 1 and resolve_urls is True
             return SimpleNamespace(pages=[SimpleNamespace(origin_url="http://orig")])
 
-    monkeypatch.setattr(main, "_gallery", _gallery)
-    monkeypatch.setattr(main, "app", SimpleNamespace(state=SimpleNamespace(eh_client=_Client())))
-    monkeypatch.setattr(main, "_settings_session", _FakeSettingsSession(repo))
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    app_state.eh_client = _Client()
+    app_state.session_factory = _FakeSettingsSession(repo)
     monkeypatch.setattr("galleryvault.app.routers.galleries.DownloadRepository", repo)
 
-    resp = await download_gallery_original(1, DownloadOriginalRequest(archive=False))
-    assert resp == {"id": 9, "gid": 7, "status": "pending"}
-    assert repo.created[2] == "gallery" and repo.created[4] == "original"
+    try:
+        resp = await download_gallery_original(1, DownloadOriginalRequest(archive=False))
+        assert resp == {"id": 9, "gid": 7, "status": "pending"}
+        assert repo.created[2] == "gallery" and repo.created[4] == "original"
+    finally:
+        app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
 
 
 async def test_download_original_archive_skips_availability_check(monkeypatch):
+    from galleryvault.app.routers import galleries as galleries_router
+
     row = SimpleNamespace(gid=7, token="tok", title="T")
     repo = _FakeCreateRepo(SimpleNamespace(id=9, gid=7))
     fetched = []
@@ -407,18 +446,26 @@ async def test_download_original_archive_skips_availability_check(monkeypatch):
             fetched.append(True)
             return SimpleNamespace(pages=[SimpleNamespace(origin_url=None)])
 
-    monkeypatch.setattr(main, "_gallery", _gallery)
-    monkeypatch.setattr(main, "app", SimpleNamespace(state=SimpleNamespace(eh_client=_Client())))
-    monkeypatch.setattr(main, "_settings_session", _FakeSettingsSession(repo))
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    app_state.eh_client = _Client()
+    app_state.session_factory = _FakeSettingsSession(repo)
     monkeypatch.setattr("galleryvault.app.routers.galleries.DownloadRepository", repo)
 
-    resp = await download_gallery_original(1, DownloadOriginalRequest(archive=True))
-    assert resp == {"id": 9, "gid": 7, "status": "pending"}
-    assert not fetched
-    assert repo.created[2] == "gallery_archive" and repo.created[4] == "original"
+    try:
+        resp = await download_gallery_original(1, DownloadOriginalRequest(archive=True))
+        assert resp == {"id": 9, "gid": 7, "status": "pending"}
+        assert not fetched
+        assert repo.created[2] == "gallery_archive" and repo.created[4] == "original"
+    finally:
+        app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
 
 
 async def test_download_original_rejects_missing_original(monkeypatch):
+    from galleryvault.app.routers import galleries as galleries_router
+
     row = SimpleNamespace(gid=7, token="tok", title="T")
     repo = _FakeCreateRepo(SimpleNamespace(id=9, gid=7))
 
@@ -429,23 +476,31 @@ async def test_download_original_rejects_missing_original(monkeypatch):
         async def fetch_gallery(self, *_args, **_kwargs):
             return SimpleNamespace(pages=[SimpleNamespace(origin_url=None)])
 
-    monkeypatch.setattr(main, "_gallery", _gallery)
-    monkeypatch.setattr(main, "app", SimpleNamespace(state=SimpleNamespace(eh_client=_Client())))
-    monkeypatch.setattr(main, "_settings_session", _FakeSettingsSession(repo))
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    app_state.eh_client = _Client()
+    app_state.session_factory = _FakeSettingsSession(repo)
     monkeypatch.setattr("galleryvault.app.routers.galleries.DownloadRepository", repo)
 
-    with pytest.raises(Exception) as exc_info:
-        await download_gallery_original(1, DownloadOriginalRequest(archive=False))
-    assert "No original images available" in str(exc_info.value)
+    try:
+        with pytest.raises(Exception) as exc_info:
+            await download_gallery_original(1, DownloadOriginalRequest(archive=False))
+        assert "No original images available" in str(exc_info.value)
+    finally:
+        app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
 
 
 async def test_download_original_rejects_local_only_gallery(monkeypatch):
+    from galleryvault.app.routers import galleries as galleries_router
+
     row = SimpleNamespace(gid=None, token=None, title="T")
 
     async def _gallery(_identifier):
         return row, []
 
-    monkeypatch.setattr(main, "_gallery", _gallery)
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
 
     with pytest.raises(Exception) as exc_info:
         await download_gallery_original(1, DownloadOriginalRequest(archive=False))
@@ -453,6 +508,8 @@ async def test_download_original_rejects_local_only_gallery(monkeypatch):
 
 
 async def test_download_original_conflicts_with_active_task(monkeypatch):
+    from galleryvault.app.routers import galleries as galleries_router
+
     row = SimpleNamespace(gid=7, token="tok", title="T")
     repo = _FakeCreateRepo(None)
 
@@ -463,14 +520,20 @@ async def test_download_original_conflicts_with_active_task(monkeypatch):
         async def fetch_gallery(self, *_args, **_kwargs):
             return SimpleNamespace(pages=[SimpleNamespace(origin_url="http://orig")])
 
-    monkeypatch.setattr(main, "_gallery", _gallery)
-    monkeypatch.setattr(main, "app", SimpleNamespace(state=SimpleNamespace(eh_client=_Client())))
-    monkeypatch.setattr(main, "_settings_session", _FakeSettingsSession(repo))
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    app_state.eh_client = _Client()
+    app_state.session_factory = _FakeSettingsSession(repo)
     monkeypatch.setattr("galleryvault.app.routers.galleries.DownloadRepository", repo)
 
-    with pytest.raises(Exception) as exc_info:
-        await download_gallery_original(1, DownloadOriginalRequest(archive=False))
-    assert "already exists" in str(exc_info.value)
+    try:
+        with pytest.raises(Exception) as exc_info:
+            await download_gallery_original(1, DownloadOriginalRequest(archive=False))
+        assert "already exists" in str(exc_info.value)
+    finally:
+        app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
 
 
 async def test_ingest_downloaded_gallery_handles_tuple_tags(tmp_path, monkeypatch):
@@ -483,7 +546,7 @@ async def test_ingest_downloaded_gallery_handles_tuple_tags(tmp_path, monkeypatc
     (new / "00000002.jpg").write_bytes(b"y")
 
     session = _FakeSession(None)
-    ingested: list[main.GalleryMeta] = []
+    ingested: list[GalleryMeta] = []
 
     class _FakeIngest:
         def __init__(self, _session):
@@ -492,10 +555,10 @@ async def test_ingest_downloaded_gallery_handles_tuple_tags(tmp_path, monkeypatc
         async def ingest(self, galleries):
             ingested.extend(galleries)
 
-    monkeypatch.setattr(main, "_settings_session", lambda: session)
-    monkeypatch.setattr(main, "GalleryIngestService", _FakeIngest)
-    monkeypatch.setattr(main, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
-    monkeypatch.setattr(main, "_settings", lambda: SimpleNamespace(generate_thumbnails=False))
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
+    monkeypatch.setattr(download_worker, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(download_worker, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
 
     result = DownloadResult(
         gid=4161431,
@@ -509,7 +572,10 @@ async def test_ingest_downloaded_gallery_handles_tuple_tags(tmp_path, monkeypatc
         quality="resample",
         new_files=(),
     )
-    await main._ingest_downloaded_gallery(result)
+    try:
+        await ingest_downloaded_gallery(result)
+    finally:
+        app_state.session_factory = orig_factory
 
     assert len(ingested) == 1
     assert ingested[0].gid == 4161431
@@ -518,4 +584,3 @@ async def test_ingest_downloaded_gallery_handles_tuple_tags(tmp_path, monkeypatc
         {"namespace": "female", "name": "sole female"},
     ]
     assert ingested[0].file_count == 2
-

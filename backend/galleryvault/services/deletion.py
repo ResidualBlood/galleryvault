@@ -88,20 +88,9 @@ def prune_merged_stale_pages(path: Path, new_files: tuple[str, ...] = ()) -> int
 
 
 def _scan_roots_default() -> list[str]:
-    from ..app import main
-    fn = getattr(main, "_scan_roots", None)
-    if fn is not None:
-        try:
-            return fn()
-        except Exception:  # noqa: S110, BLE001
-            pass
-    from ..app.state import app_state
-    from ..config import get_settings
-    settings = app_state.settings or get_settings()
-    roots = list(settings.library_roots)
-    if settings.download_root and settings.download_root not in roots:
-        roots.append(settings.download_root)
-    return roots
+    from ..app.dependencies import get_scan_roots
+
+    return get_scan_roots()
 
 
 async def delete_galleries_local(
@@ -114,10 +103,9 @@ async def delete_galleries_local(
     delete_fn: Callable[[Path], bool] | None = None,
 ) -> list[dict]:
     """Delete galleries (DB rows + optional on-disk copies) with safety boundary checks."""
-    from ..app import main
     from ..db.repository import GalleryRepository
 
-    deleter_fn = getattr(main, "_delete_local_copy", delete_local_copy)
+    deleter_fn = delete_local_copy
 
     def _deleter(p: Path) -> bool:
         if delete_fn is not None:

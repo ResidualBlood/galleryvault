@@ -390,14 +390,14 @@ def test_search_zh_exact_maps_only_one_to_one_translations() -> None:
 
 
 def test_is_public_site() -> None:
-    from galleryvault.app.main import _is_public_site
+    from galleryvault.services.settings_service import is_public_site
 
-    assert _is_public_site("https://e-hentai.org")
-    assert _is_public_site("https://my.e-hentai.org")
-    assert not _is_public_site("https://exhentai.org")
-    assert not _is_public_site("https://www.exhentai.org")
-    assert not _is_public_site("")
-    assert not _is_public_site("not a url")
+    assert is_public_site("https://e-hentai.org")
+    assert is_public_site("https://my.e-hentai.org")
+    assert not is_public_site("https://exhentai.org")
+    assert not is_public_site("https://www.exhentai.org")
+    assert not is_public_site("")
+    assert not is_public_site("not a url")
 
 
 def test_parse_gallery_titles_reads_gn_and_gj() -> None:

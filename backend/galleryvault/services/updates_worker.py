@@ -114,11 +114,10 @@ def record_gallery_update_log(results: list[dict[str, Any]]) -> None:
 
 
 async def finalize_gallery_update(row: Any) -> None:
-    from ..app import main
-    session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
+    session_cm = app_state.session_factory
     if session_cm is None:
         return
-    repo_cls = getattr(main, "GalleryUpdatesRepository", GalleryUpdatesRepository)
+    repo_cls = GalleryUpdatesRepository
     try:
         results = []
         async with session_cm() as session, session.begin():
@@ -145,13 +144,12 @@ async def finalize_gallery_update(row: Any) -> None:
 
 
 async def detect_gallery_updates() -> None:
-    from ..app import main
-    session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
+    session_cm = app_state.session_factory
     if session_cm is None:
         return
-    repo_cls = getattr(main, "GalleryUpdatesRepository", GalleryUpdatesRepository)
-    tm = getattr(main, "default_task_manager", None) or app_state.task_manager
-    gallery_updates_state = getattr(main, "gallery_updates_state", None) or (tm.gallery_updates_state if tm else {})
+    repo_cls = GalleryUpdatesRepository
+    tm = app_state.task_manager
+    gallery_updates_state = tm.gallery_updates_state if tm else {}
 
     if bool(gallery_updates_state.get("detecting")):
         return
@@ -245,12 +243,11 @@ async def detect_gallery_updates() -> None:
 async def run_gallery_updates(
     ids: list[int], *, archive: bool = False, quality: str | None = None
 ) -> dict[str, int]:
-    from ..app import main
-    session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
+    session_cm = app_state.session_factory
     if session_cm is None:
         return {"started": 0, "skipped": len(ids)}
-    repo_cls = getattr(main, "GalleryUpdatesRepository", GalleryUpdatesRepository)
-    dl_repo_cls = getattr(main, "DownloadRepository", DownloadRepository)
+    repo_cls = GalleryUpdatesRepository
+    dl_repo_cls = DownloadRepository
 
     started = 0
     skipped = 0
@@ -281,14 +278,12 @@ async def run_gallery_updates(
 
 
 async def gallery_updates_finalize_loop() -> None:
-    from ..app import main
     while True:
-        sleep_fn = getattr(getattr(main, "asyncio", None), "sleep", asyncio.sleep)
-        await sleep_fn(30)
-        session_cm = getattr(main, "_settings_session", None) or (app_state.session_factory if app_state else None)
+        await asyncio.sleep(30)
+        session_cm = app_state.session_factory
         if session_cm is None:
             continue
-        repo_cls = getattr(main, "GalleryUpdatesRepository", GalleryUpdatesRepository)
+        repo_cls = GalleryUpdatesRepository
         try:
             async with session_cm() as session:
                 updating = await repo_cls(session).downloading()
@@ -316,4 +311,4 @@ async def gallery_updates_finalize_loop() -> None:
             logger.warning(
                 "gallery update finalize failed", extra=log_extra(error=type(exc).__name__)
             )
-            await sleep_fn(60)
+            await asyncio.sleep(60)

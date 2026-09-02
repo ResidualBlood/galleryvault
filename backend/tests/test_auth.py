@@ -11,52 +11,29 @@ from galleryvault.services.tag_sync import GalleryGidMissing, TagSyncResult
 
 @pytest.fixture
 def client() -> TestClient:
-    original = app.state.settings
-    app.state.settings = original.model_copy(
+    from galleryvault.app.state import app_state
+
+    original = app_state.settings or app.state.settings
+    updated = original.model_copy(
         update={
             "auth_secret": "unit-test-secret",
             "auth_password_hash": hash_password("correct horse"),
             "auth_password": None,
         }
     )
+    app_state.settings = updated
+    app.state.settings = updated
     try:
         with TestClient(app) as test_client:
             yield test_client
     finally:
+        app_state.settings = original
         app.state.settings = original
 
 
 @pytest.fixture(autouse=True)
-def db_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent the app's DB-backed auth bootstrap from clobbering test fixtures.
-
-    The unit tests set app.state.settings directly, but the startup event reads
-    the real DB (which holds the production password hash) and would otherwise
-    override it.  Stub the DB reads so the in-memory settings stay authoritative.
-    """
-    from galleryvault.app import main
-
-    async def _empty_runtime() -> dict:
-        return {}
-
-    async def _noop() -> None:
-        return None
-
-    monkeypatch.setattr(main, "SettingsRepository", lambda: (_ for _ in ()).throw(AssertionError))
-    monkeypatch.setattr(main, "_runtime_row", _empty_runtime)
-    monkeypatch.setattr(main, "_bootstrap_auth", _empty_runtime)
-    # Keep the app's background workers out of the test event loop: they use
-    # global asyncio.Queues/engines that must not leak across TestClient loops.
-    for _name in (
-        "_favorites_poll_loop",
-        "_download_worker_loop",
-        "_download_retry_sweep_loop",
-        "_gallery_updates_finalize_loop",
-        "_tag_sync_worker_loop",
-        "_thumbnail_worker_loop",
-    ):
-        monkeypatch.setattr(main, _name, _noop)
-    monkeypatch.setattr(main, "_ensure_translation_updater", lambda: None)
+def db_isolated() -> None:
+    pass
 
 
 def test_password_hash_and_verify() -> None:
@@ -97,7 +74,8 @@ def test_tag_sync_requires_authentication(client: TestClient) -> None:
 def test_tag_sync_success_and_upstream_failure_are_safe(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from galleryvault.app import main
+    from galleryvault.app.routers import galleries as galleries_router
+    from galleryvault.app.state import app_state
 
     class Session:
         async def __aenter__(self):
@@ -110,6 +88,9 @@ def test_tag_sync_success_and_upstream_failure_are_safe(
             return self
 
     class Service:
+        def __init__(self, client, repository):
+            pass
+
         async def sync(self, identifier: int):
             if identifier == 7:
                 return TagSyncResult(42, "title", 2, datetime.now(UTC))
@@ -117,16 +98,20 @@ def test_tag_sync_success_and_upstream_failure_are_safe(
                 raise GalleryGidMissing("Gallery has no ExHentai gid")
             raise RuntimeError("cookie=secret-token")
 
-    monkeypatch.setattr(main, "_settings_session", lambda: Session())
-    monkeypatch.setattr(main, "TagSyncService", lambda client, repository: Service())
-    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
-    success = client.post("/api/galleries/7/sync-tags")
-    assert success.status_code == 200
-    assert success.json()["gid"] == 42 and success.json()["count"] == 2
-    assert client.post("/api/galleries/8/sync-tags").status_code == 422
-    failure = client.post("/api/galleries/9/sync-tags")
-    assert failure.status_code == 502
-    assert "secret-token" not in failure.text
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Session()
+    monkeypatch.setattr(galleries_router, "TagSyncService", Service)
+    try:
+        client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+        success = client.post("/api/galleries/7/sync-tags")
+        assert success.status_code == 200
+        assert success.json()["gid"] == 42 and success.json()["count"] == 2
+        assert client.post("/api/galleries/8/sync-tags").status_code == 422
+        failure = client.post("/api/galleries/9/sync-tags")
+        assert failure.status_code == 502
+        assert "secret-token" not in failure.text
+    finally:
+        app_state.session_factory = orig_factory
 
 
 def test_pagination_validation_does_not_touch_database(client: TestClient) -> None:
@@ -152,7 +137,8 @@ def test_exhentai_test_endpoint_maps_status_codes(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The login-test endpoint must answer with meaningful HTTP status codes."""
-    from galleryvault.app import main
+    from galleryvault.app.state import app_state
+    from galleryvault.config import get_settings
 
     client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
 
@@ -167,31 +153,26 @@ def test_exhentai_test_endpoint_maps_status_codes(
             pass
 
     fake = FakeLogin()
-    monkeypatch.setattr(main.app.state, "eh_client", fake)
-    real_settings = main._settings()
-    monkeypatch.setattr(
-        main,
-        "_settings",
-        lambda: real_settings.model_copy(
-            update={"exhentai_cookies": {"ipb_member_id": "12345"}}
-        ),
+    app_state.eh_client = fake
+    real_settings = app_state.settings or get_settings()
+    app_state.settings = real_settings.model_copy(
+        update={"exhentai_cookies": {"ipb_member_id": "12345"}}
     )
 
-    assert client.post("/api/settings/exhentai/test").status_code == 200
-    fake.result = ("not_logged_in", "HTTP 200")
-    assert client.post("/api/settings/exhentai/test").status_code == 401
-    fake.result = ("no_exhentai_access", "HTTP 200")
-    assert client.post("/api/settings/exhentai/test").status_code == 403
-    fake.result = ("failed", "ConnectError")
-    assert client.post("/api/settings/exhentai/test").status_code == 502
+    try:
+        assert client.post("/api/settings/exhentai/test").status_code == 200
+        fake.result = ("not_logged_in", "HTTP 200")
+        assert client.post("/api/settings/exhentai/test").status_code == 401
+        fake.result = ("no_exhentai_access", "HTTP 200")
+        assert client.post("/api/settings/exhentai/test").status_code == 403
+        fake.result = ("failed", "ConnectError")
+        assert client.post("/api/settings/exhentai/test").status_code == 502
 
-    # No cookies configured → 400, never reaching the client.
-    monkeypatch.setattr(
-        main,
-        "_settings",
-        lambda: real_settings.model_copy(update={"exhentai_cookies": {}}),
-    )
-    assert client.post("/api/settings/exhentai/test").status_code == 400
+        # No cookies configured → 400, never reaching the client.
+        app_state.settings = real_settings.model_copy(update={"exhentai_cookies": {}})
+        assert client.post("/api/settings/exhentai/test").status_code == 400
+    finally:
+        app_state.settings = real_settings
 
 
 def test_settings_save_persists_auth_required(
@@ -203,8 +184,8 @@ def test_settings_save_persists_auth_required(
     so pydantic silently dropped the submitted value and the toggle could never
     be persisted (dead UI since v1.0.0).
     """
-    from galleryvault.app import main
     from galleryvault.app.routers import settings as settings_router
+    from galleryvault.app.state import app_state
 
     client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
     saved: dict[str, object] = {}
@@ -231,13 +212,17 @@ def test_settings_save_persists_auth_required(
             return self
 
     monkeypatch.setattr(settings_router, "SettingsRepository", FakeRepo)
-    monkeypatch.setattr(main, "_settings_session", lambda: Session())
-    response = client.post("/api/settings", json={"auth_required": False, "page_concurrency": 8})
-    assert response.status_code == 200
-    assert saved["auth_required"] is False
-    assert saved["page_concurrency"] == 8
-    # In-memory runtime settings must reflect the toggle immediately too.
-    assert main._settings().auth_required is False
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Session()
+    try:
+        response = client.post("/api/settings", json={"auth_required": False, "page_concurrency": 8})
+        assert response.status_code == 200
+        assert saved["auth_required"] is False
+        assert saved["page_concurrency"] == 8
+        # In-memory runtime settings must reflect the toggle immediately too.
+        assert (app_state.settings.auth_required if app_state.settings else True) is False
+    finally:
+        app_state.session_factory = orig_factory
 
 
 def test_protected_api_requires_authentication(client: TestClient) -> None:
@@ -252,7 +237,7 @@ async def test_refresh_services_restarts_telegram_bot(monkeypatch: pytest.Monkey
     Otherwise the old bot keeps polling through a closed client and logs
     RuntimeError every loop (regression guard for the shared-client fix).
     """
-    from galleryvault.app import main
+    from galleryvault.services import settings_service
 
     started = []
 
@@ -270,21 +255,14 @@ async def test_refresh_services_restarts_telegram_bot(monkeypatch: pytest.Monkey
         async def aclose(self):
             pass
 
-    monkeypatch.setattr(main, "_start_telegram_bot", fake_start)
-    monkeypatch.setattr(main, "EhClient", lambda settings, **kwargs: FakeClient())
-    monkeypatch.setattr(main, "Downloader", lambda *a, **k: object())
-    monkeypatch.setattr(main, "TelegramNotifier", lambda settings: FakeNotifier())
-    monkeypatch.setattr(main, "FavoritesService", lambda *a, **k: object())
-    monkeypatch.setattr(
-        main, "_FavoritesRepositoryProxy", lambda: object()
-    )
-    monkeypatch.setattr(main, "_FavoriteDownloadQueue", lambda: object())
+    monkeypatch.setattr(settings_service, "start_telegram_bot", fake_start)
+    monkeypatch.setattr(settings_service, "EhClient", lambda settings, **kwargs: FakeClient())
+    monkeypatch.setattr(settings_service, "Downloader", lambda *a, **k: object())
+    monkeypatch.setattr(settings_service, "TelegramNotifier", lambda settings: FakeNotifier())
+    monkeypatch.setattr(settings_service, "FavoritesService", lambda *a, **k: object())
+    monkeypatch.setattr(settings_service, "FavoriteDownloadQueue", lambda: object())
 
-    old_bot = object()
-    monkeypatch.setattr(main.app.state, "telegram_bot_task", old_bot)
-    monkeypatch.setattr(main.app.state, "telegram", FakeNotifier())
-
-    await main._refresh_services()
+    await settings_service.refresh_services()
     assert started == [1]
 
 
@@ -292,8 +270,9 @@ async def test_refresh_services_restarts_telegram_bot(monkeypatch: pytest.Monkey
 async def test_settings_service_refresh_services_syncs_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """settings_service.refresh_services must update both app_state and main.app.state."""
-    from galleryvault.app import dependencies, main
+    """settings_service.refresh_services must update both app_state and app.state."""
+    from galleryvault.app import dependencies
+    from galleryvault.app.main import app
     from galleryvault.app.state import app_state
     from galleryvault.services import settings_service
 
@@ -316,8 +295,8 @@ async def test_settings_service_refresh_services_syncs_state(
     old_notifier = FakeNotifier()
     app_state.eh_client = old_client
     app_state.telegram = old_notifier
-    main.app.state.eh_client = old_client
-    main.app.state.telegram = old_notifier
+    app.state.eh_client = old_client
+    app.state.telegram = old_notifier
 
     new_client = FakeClient()
     new_dl = object()
@@ -329,16 +308,15 @@ async def test_settings_service_refresh_services_syncs_state(
     monkeypatch.setattr(settings_service, "TelegramNotifier", lambda *a, **k: new_tg)
     monkeypatch.setattr(settings_service, "FavoritesService", lambda *a, **k: new_fav)
     monkeypatch.setattr(settings_service, "start_telegram_bot", lambda: None)
-    monkeypatch.delattr(main, "_refresh_services", raising=False)
 
     await settings_service.refresh_services()
 
     assert "eh_client" in closed
     assert "telegram" in closed
     assert app_state.downloader is new_dl
-    assert main.app.state.downloader is new_dl
+    assert app.state.downloader is new_dl
     assert app_state.eh_client is new_client
-    assert main.app.state.eh_client is new_client
+    assert app.state.eh_client is new_client
     assert dependencies.get_downloader() is new_dl
     assert dependencies.get_eh_client() is new_client
 
@@ -355,9 +333,13 @@ def test_gallery_search_and_pagination_api(
         assert (page, page_size, q) == (2, 24, "needle")
         return 25, [gallery]
 
-    from galleryvault.app import main
+    from galleryvault.db.repository import GalleryRepository
 
-    monkeypatch.setattr(main.GalleryRepository, "list_page", list_page)
+    async def fake_tags(self, gids, **kwargs):
+        return {}
+
+    monkeypatch.setattr(GalleryRepository, "list_page", list_page)
+    monkeypatch.setattr(GalleryRepository, "tags_for_galleries", fake_tags)
     client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
     response = client.get("/api/galleries?page=2&q=needle")
     assert response.status_code == 200
@@ -369,7 +351,7 @@ def test_gallery_search_and_pagination_api(
 def test_gallery_list_category_not_fav_forwards_exclude_favorited(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from galleryvault.app import main
+    from galleryvault.db.repository import GalleryRepository
 
     calls = []
 
@@ -379,7 +361,7 @@ def test_gallery_list_category_not_fav_forwards_exclude_favorited(
         calls.append((category, exclude_favorited))
         return 0, []
 
-    monkeypatch.setattr(main.GalleryRepository, "list_page", list_page)
+    monkeypatch.setattr(GalleryRepository, "list_page", list_page)
     client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
     response = client.get("/api/galleries?category=__not_fav__")
     assert response.status_code == 200
@@ -397,7 +379,7 @@ def test_gallery_list_not_fav_with_real_category_still_rejects_unknown(
 def test_gallery_detail_includes_spider_info(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from galleryvault.app import main
+    from galleryvault.app.routers import galleries as galleries_router
 
     gallery = SimpleNamespace(
         id=7,
@@ -417,7 +399,11 @@ def test_gallery_detail_includes_spider_info(
     async def get_gallery(identifier: int):
         return gallery, [page]
 
-    monkeypatch.setattr(main, "_gallery", get_gallery)
+    async def get_tags(gallery_id: int):
+        return []
+
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", get_gallery)
+    monkeypatch.setattr(galleries_router, "_gallery_tags_lookup", get_tags)
     client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
     response = client.get("/api/galleries/7")
     assert response.status_code == 200
@@ -437,7 +423,7 @@ def _fake_request(headers, client_host="127.0.0.1"):
 
 def test_client_ip_prefers_trusted_x_real_ip() -> None:
     """Login rate limiting keys on nginx's X-Real-IP, not the socket peer."""
-    from galleryvault.app.main import _client_ip
+    from galleryvault.auth import client_ip as _client_ip
 
     assert _client_ip(_fake_request({"x-real-ip": "1.2.3.4"})) == "1.2.3.4"
     assert _client_ip(_fake_request({"X-Real-IP": "  1.2.3.4  "})) == "1.2.3.4"
@@ -445,7 +431,7 @@ def test_client_ip_prefers_trusted_x_real_ip() -> None:
 
 def test_client_ip_falls_back_to_socket_peer() -> None:
     """Direct backend access without a proxy header falls back to client.host."""
-    from galleryvault.app.main import _client_ip
+    from galleryvault.auth import client_ip as _client_ip
 
     assert _client_ip(_fake_request({}, client_host="9.9.9.9")) == "9.9.9.9"
     assert _client_ip(_fake_request({"x-real-ip": ""}, client_host="9.9.9.9")) == "9.9.9.9"
@@ -455,29 +441,29 @@ def test_client_ip_falls_back_to_socket_peer() -> None:
 
 
 def test_client_ip_unknown_without_client() -> None:
-    from galleryvault.app.main import _client_ip
+    from galleryvault.auth import client_ip as _client_ip
 
     assert _client_ip(SimpleNamespace(headers={}, client=None)) == "unknown"
 
 
 def test_login_rate_limit_keys_on_x_real_ip(client: TestClient) -> None:
     """A spoofed X-Real-IP must not reset another bucket's counters."""
-    from galleryvault.app import main
+    from galleryvault import auth
 
-    original = main._login_attempts
-    original_lock = main._login_lock
-    main._login_attempts = {}
-    main._login_lock = __import__("asyncio").Lock()
+    original = auth._login_attempts
+    original_lock = auth._login_lock
+    auth._login_attempts = {}
+    auth._login_lock = __import__("asyncio").Lock()
 
     def reset():
-        main._login_attempts = original
-        main._login_lock = original_lock
+        auth._login_attempts = original
+        auth._login_lock = original_lock
 
     try:
         # Pretend every request carries the proxy-set X-Real-IP; the bucket
         # must key on it (here via the TestClient, whose socket peer is
         # 127.0.0.1 — a spoofed header must not mix into that bucket).
-        for _ in range(main.LOGIN_RATE_MAX + 1):
+        for _ in range(auth.LOGIN_RATE_MAX + 1):
             resp = client.post(
                 "/login",
                 data={"password": "wrong"},
@@ -505,7 +491,7 @@ def test_login_rate_limit_keys_on_x_real_ip(client: TestClient) -> None:
 
 
 def test_client_ip_ignores_spoofed_headers_from_untrusted_socket() -> None:
-    from galleryvault.app.main import _client_ip
+    from galleryvault.auth import client_ip as _client_ip
 
     # Untrusted public IP directly connecting with spoofed proxy headers
     fake_req = SimpleNamespace(

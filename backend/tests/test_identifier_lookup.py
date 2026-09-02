@@ -106,8 +106,9 @@ async def test_get_for_tag_sync_prefers_id_when_gid_collides():
 
 
 async def test_main_gallery_uses_id_first():
-    """main._gallery must resolve id==X over a gid==X collision row."""
-    from galleryvault.app import main
+    """_gallery_lookup must resolve id==X over a gid==X collision row."""
+    from galleryvault.app.routers.galleries import _gallery_lookup
+    from galleryvault.app.state import app_state
 
     collision = _gallery(id_=42, gid=999, title="id-42")
     other = _gallery(id_=999, gid=7, title="gid-999")
@@ -148,15 +149,12 @@ async def test_main_gallery_uses_id_first():
 
     session = Session()
 
-    def fake_session():
-        return session
-
-    original = main._settings_session
-    main._settings_session = fake_session
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
     try:
-        row, _pages = await main._gallery(42)
+        row, _pages = await _gallery_lookup(42)
     finally:
-        main._settings_session = original
+        app_state.session_factory = orig_factory
 
     assert row is collision
     assert session.hits == ["id"]
