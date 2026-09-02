@@ -65,6 +65,7 @@ async function renderReader() {
   const page = isDoubleMode && rawPage > 0 && rawPage % 2 === 0 ? rawPage - 1 : rawPage;
   if (page !== rawPage) {
     app.params.page = String(page);
+    syncReaderUrl();
   }
   const isDouble = isDoubleMode && page > 0;
   const isRtl = mode === "rtl" || mode === "double-rtl";
@@ -93,7 +94,7 @@ async function renderReader() {
       imgHtml = `
         <div class="reader-spread${rtlClass}">
           <div class="reader-img-wrap"><img id="reader-img" src="/api/galleries/${id}/pages/${p1}" alt="Page ${p1 + 1}" data-page="${p1}"></div>
-          ${p2 !== null ? `<div class="reader-img-wrap"><img src="/api/galleries/${id}/pages/${p2}" alt="Page ${p2 + 1}" data-page="${p2}"></div>` : ""}
+          <div class="reader-img-wrap"${p2 === null ? ' style="display:none"' : ''}><img src="${p2 !== null ? `/api/galleries/${id}/pages/${p2}` : ''}" alt="${p2 !== null ? `Page ${p2 + 1}` : ''}" data-page="${p2 !== null ? p2 : ''}"></div>
         </div>`;
     } else {
       imgHtml = `
@@ -154,7 +155,6 @@ function bindReaderKeys() {
   const current = () => Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const mode = () => getReaderMode();
   const isRtl = () => mode() === "rtl" || mode() === "double-rtl";
-  const isDouble = () => mode().startsWith("double");
 
   const advance = () => {
     const cur = current();
@@ -233,6 +233,8 @@ function initReaderGestures() {
   if (!container) return;
 
   let lastTap = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
   let initialDist = 0;
   let currentScale = 1;
 
@@ -244,11 +246,20 @@ function initReaderGestures() {
         const imgs = container.querySelectorAll("img");
         if (currentScale > 1.2) {
           currentScale = 1;
-          imgs.forEach(img => { img.style.transform = ""; });
+          imgs.forEach(img => {
+            img.style.transform = "";
+            img.style.transformOrigin = "";
+          });
           container.classList.remove("zoomed");
         } else {
           currentScale = 2.2;
-          imgs.forEach(img => { img.style.transform = `scale(${currentScale})`; });
+          const rect = container.getBoundingClientRect();
+          const originX = rect.width > 0 ? Math.max(0, Math.min(100, Math.round(((lastTapX - rect.left) / rect.width) * 100))) : 50;
+          const originY = rect.height > 0 ? Math.max(0, Math.min(100, Math.round(((lastTapY - rect.top) / rect.height) * 100))) : 50;
+          imgs.forEach(img => {
+            img.style.transformOrigin = `${originX}% ${originY}%`;
+            img.style.transform = `scale(${currentScale})`;
+          });
           container.classList.add("zoomed");
         }
       }
@@ -256,14 +267,20 @@ function initReaderGestures() {
       if (currentScale <= 1.05) {
         currentScale = 1;
         const imgs = container.querySelectorAll("img");
-        imgs.forEach(img => { img.style.transform = ""; });
+        imgs.forEach(img => {
+          img.style.transform = "";
+          img.style.transformOrigin = "";
+        });
         container.classList.remove("zoomed");
       }
     }
   };
 
   const onTouchStart = (e) => {
-    if (e.touches.length === 2) {
+    if (e.touches.length === 1) {
+      lastTapX = e.touches[0].clientX;
+      lastTapY = e.touches[0].clientY;
+    } else if (e.touches.length === 2) {
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       initialDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -358,21 +375,24 @@ function readerSwapPage(id, target) {
     const p1 = target;
     const p2 = target + 1 < total ? target + 1 : null;
     const imgs = spreadEl.querySelectorAll("img");
-    if (imgs.length >= 1) {
+    if (imgs.length >= 2) {
       imgs[0].src = `/api/galleries/${id}/pages/${p1}`;
       imgs[0].dataset.page = String(p1);
       imgs[0].alt = `Page ${p1 + 1}`;
+      if (p2 !== null) {
+        imgs[1].src = `/api/galleries/${id}/pages/${p2}`;
+        imgs[1].dataset.page = String(p2);
+        imgs[1].alt = `Page ${p2 + 1}`;
+        imgs[1].parentElement.style.display = "";
+      } else {
+        imgs[1].parentElement.style.display = "none";
+      }
+      const bar = document.querySelector(".reader-bar span");
+      if (bar) bar.textContent = `${p1 + 1}${p2 !== null ? `-${p2 + 1}` : ""} / ${total} · ${fmtSize((app.readerGallery && app.readerGallery.file_size) || 0)}`;
+    } else {
+      renderReader();
+      return;
     }
-    if (imgs.length >= 2 && p2 !== null) {
-      imgs[1].src = `/api/galleries/${id}/pages/${p2}`;
-      imgs[1].dataset.page = String(p2);
-      imgs[1].alt = `Page ${p2 + 1}`;
-      imgs[1].parentElement.style.display = "";
-    } else if (imgs.length >= 2) {
-      imgs[1].parentElement.style.display = "none";
-    }
-    const bar = document.querySelector(".reader-bar span");
-    if (bar) bar.textContent = `${p1 + 1}${p2 !== null ? `-${p2 + 1}` : ""} / ${total} · ${fmtSize((app.readerGallery && app.readerGallery.file_size) || 0)}`;
   } else if (!isDouble && !spreadEl) {
     const img = document.getElementById("reader-img");
     if (img) {
