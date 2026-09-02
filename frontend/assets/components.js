@@ -181,7 +181,10 @@ function showArchiveDialog(gids, opts) {
     });
     document.body.appendChild(overlay);
     cleanupFocus = trapModalFocus(overlay, close);
-    api("POST", "/api/archives/preview", { gids })
+    const previewBody = (opts.items && opts.items.length)
+      ? { gids, items: opts.items }
+      : { gids };
+    api("POST", "/api/archives/preview", previewBody)
       .then(data => {
         if (settled) return;
         const bodyEl = overlay.querySelector(".gv-modal-body");

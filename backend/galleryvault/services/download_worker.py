@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ..app.state import app_state
 from ..config import get_settings
@@ -30,8 +30,10 @@ from .downloader import (
 from .eh_client import (  # noqa: F401  # kept for backoff classification docs
     EhClientError,
     GalleryGoneError,
+    GalleryReplacedError,
 )
 from .ingest import GalleryIngestService
+from .messages import GONE_DETAIL
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +273,61 @@ async def run_download(task: DownloadTask) -> None:
         await _run_download_inner(task)
 
 
-async def _run_download_inner(task: DownloadTask) -> None:
+async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> DownloadTask | None:
+    session_cm = app_state.session_factory
+    if session_cm is None or task.id is None:
+        return None
+    ok = False
+    try:
+        async with session_cm() as session, session.begin():
+            ok = await DownloadRepository(session).retarget(
+                task.id, exc.new_gid, exc.new_token, exc.title, exc.title_jpn
+            )
+    except IntegrityError:
+        ok = False
+    if not ok:
+        logger.info(
+            "download retarget skipped; newer gid already queued",
+            extra=log_extra(gid=task.gid, new_gid=exc.new_gid),
+        )
+        return None
+    settings = app_state.settings or get_settings()
+    try:
+        temp = Path(settings.download_root) / f".gv-{task.gid}"
+        if temp.exists():
+            import shutil
+
+            shutil.rmtree(temp, ignore_errors=True)
+    except OSError:
+        pass
+    title = exc.title or str(exc.new_gid)
+    await record_download_notification("updated", title, f"{exc.old_gid}:{exc.new_gid}")
+    tm = app_state.task_manager
+    if tm:
+        now = datetime.now(UTC).isoformat()
+        tm.record_task(
+            "download-updated",
+            now,
+            now,
+            "success",
+            reason=f"gid {exc.old_gid} -> {exc.new_gid}",
+            done=1,
+            total=1,
+        )
+    return DownloadTask(
+        exc.new_gid,
+        exc.new_token,
+        title,
+        task.id,
+        task.max_retries,
+        task.mode,
+        task.category,
+        max_pages=task.max_pages,
+        quality=task.quality,
+    )
+
+
+async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> None:
     session_cm = app_state.session_factory
     if session_cm is None:
         return
@@ -327,6 +383,10 @@ async def _run_download_inner(task: DownloadTask) -> None:
             if row is not None:
                 if row.status == "cancelled" or is_download_cancelled(task.id):
                     raise DownloadCancelledError("download was cancelled")
+                if result.title:
+                    row.title = result.title
+                if getattr(result, "title_jpn", None):
+                    row.title_jpn = result.title_jpn
                 row.status, row.target_path, row.category = (
                     "success",
                     str(result.path),
@@ -351,6 +411,27 @@ async def _run_download_inner(task: DownloadTask) -> None:
         if completed:
             await notify_fn("ok", result.title or str(task.gid), str(result.pages))
             maybe_scan_fn(result)
+    except GalleryReplacedError as exc:
+        if follow_hops >= 5:
+            logger.warning(
+                "download replacement hop limit",
+                extra=log_extra(gid=task.gid, new_gid=exc.new_gid),
+            )
+            try:
+                async with session_cm() as session, session.begin():
+                    row = await session.get(DownloadTaskModel, task.id)
+                    if row is not None and row.status != "cancelled":
+                        row.status = "failed"
+                        row.error_message = GONE_DETAIL
+                        row.retry_count = row.max_retries
+                        row.finished_at = datetime.now(UTC)
+            except SQLAlchemyError:
+                pass
+            return
+        rewritten = await _apply_replacement(task, exc)
+        if rewritten is None:
+            return
+        await _run_download_inner(rewritten, follow_hops=follow_hops + 1)
     except DownloadCancelledError:
         settings = app_state.settings or get_settings()
         try:
@@ -368,14 +449,18 @@ async def _run_download_inner(task: DownloadTask) -> None:
             extra=log_extra(gid=task.gid, error=type(exc).__name__, message=str(exc)),
         )
         try:
+            gone = False
             async with session_cm() as session, session.begin():
                 row = await session.get(DownloadTaskModel, task.id)
                 if row and row.status != "cancelled":
                     now = datetime.now(UTC)
                     auth_failure = "authenticat" in str(exc)
+                    gone = isinstance(exc, GalleryGoneError) or "does not exist on ExHentai" in str(
+                        exc
+                    )
                     not_retryable = (
                         isinstance(exc, (ArchiveNotRetryableError, GalleryGoneError))
-                        or "does not exist on ExHentai" in str(exc)
+                        or gone
                     )
                     row.retry_count += 1
                     if auth_failure or not_retryable or row.retry_count >= row.max_retries:
@@ -390,14 +475,16 @@ async def _run_download_inner(task: DownloadTask) -> None:
                         # The old `challenge ? backoff : now` caused non-challenge
                         # EhClientError to be retried in <1s, burning the retry budget.
                         row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count))
-                    row.error_message = f"{type(exc).__name__}: {exc}"
+                    row.error_message = GONE_DETAIL if gone else f"{type(exc).__name__}: {exc}"
                     row.updated_at = now
                     await DownloadRepository(session).record_attempt(
                         task.id or 0, row.retry_count, "failed", type(exc).__name__
                     )
             if row is not None and row.status == "failed":
                 await notify_fn(
-                    "fail", task.title or str(task.gid), type(exc).__name__
+                    "fail",
+                    task.title or str(task.gid),
+                    GONE_DETAIL if gone else type(exc).__name__,
                 )
         except SQLAlchemyError as db_exc:
             logger.error(

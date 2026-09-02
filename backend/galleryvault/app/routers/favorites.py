@@ -22,6 +22,7 @@ from ...db.repository import (
 )
 from ...logging import log_extra
 from ...services.deletion import delete_galleries_local
+from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import EhClient, EhClientError, FavoriteData, GalleryGoneError
 from ...services.favorites_worker import (
     FavoriteDownloadQueue,
@@ -33,6 +34,7 @@ from ...services.favorites_worker import (
     run_duplicates_scan,
     run_favorites_check,
 )
+from ...services.messages import GONE_DETAIL
 from ...services.tag_translation import translated_tag
 from ..dependencies import (
     db_error,
@@ -258,7 +260,8 @@ async def favorite_items(
 @router.post("/api/archives/preview")
 async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
     """Read-only archive info for a set of gids (no GP is charged)."""
-    gids = list(dict.fromkeys(body.gids))
+    item_tokens = {int(it.gid): it for it in (body.items or [])}
+    gids = list(dict.fromkeys([*(body.gids or []), *item_tokens.keys()]))
     if not gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
     client = app_state.eh_client
@@ -292,24 +295,67 @@ async def archives_preview(body: ArchivePreviewRequest) -> dict[str, object]:
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
+    for gid, item in item_tokens.items():
+        entry = detail.get(gid) or {}
+        entry["token"] = item.token or entry.get("token")
+        if item.title:
+            entry["title"] = item.title
+        detail[gid] = entry
+
+    pairs: list[tuple[int, str]] = []
+    for gid in gids:
+        token = (detail.get(gid) or {}).get("token")
+        if token:
+            pairs.append((int(gid), str(token)))
+    prepared_map: dict[int, Any] = {}
+    if pairs:
+        prepared_list = await prepare_galleries(pairs)
+        for (old_gid, _), prepared in zip(pairs, prepared_list, strict=True):
+            prepared_map[old_gid] = prepared
+
     funds = await client.fetch_gp_balance()
     items: list[dict[str, object]] = []
     for gid in gids:
         entry = detail.get(gid)
         token = (entry or {}).get("token")
+        prepared = prepared_map.get(gid)
+        if prepared is not None:
+            if prepared.gone:
+                items.append(
+                    {
+                        "gid": gid,
+                        "title": resolve_display_title(
+                            prepared.title, prepared.title_jpn
+                        )
+                        or (entry or {}).get("title")
+                        or "",
+                        "error": GONE_DETAIL,
+                    }
+                )
+                continue
+            token = prepared.token
+            gid_fetch = prepared.gid
+            title = (
+                resolve_display_title(prepared.title, prepared.title_jpn)
+                or (entry or {}).get("title")
+                or ""
+            )
+        else:
+            gid_fetch = gid
+            title = (entry or {}).get("title") or ""
         if not token:
             continue
         try:
-            info = await client.fetch_archive_info(int(gid), str(token))
+            info = await client.fetch_archive_info(int(gid_fetch), str(token))
         except (EhClientError, GalleryGoneError) as exc:
             items.append(
-                {"gid": gid, "title": (entry or {}).get("title") or "", "error": str(exc)}
+                {"gid": gid_fetch, "title": title, "error": str(exc)}
             )
             continue
         items.append(
             {
-                "gid": gid,
-                "title": (entry or {}).get("title") or "",
+                "gid": gid_fetch,
+                "title": title,
                 "resample_cost": (
                     info.resample_cost if info.resample_url is not None else None
                 ),

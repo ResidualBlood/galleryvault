@@ -32,6 +32,7 @@ async function renderDownloads() {
             <option value="original">${esc(t("qualityOriginal"))}</option>
           </select>
           <button class="btn btn-primary" type="submit" style="padding:6px 14px;">${esc(t("dlAddSubmit"))}</button>
+          <button class="btn btn-secondary" data-action="dl-add-archive" type="button" style="padding:6px 14px;">${esc(t("dlAddArchive"))}</button>
         </div>
       </form>
     </div>
@@ -109,7 +110,51 @@ function dlProgressHtml(x) {
     return `<div class="dl-progress dl-progress-indet"></div>
       <span class="row-meta">${esc(t("downloading"))}…</span>`;
   }
-  return `<span class="row-meta">${esc(x.status)}${total ? ` · ${cur}/${total}` : ""}${x.retry_count ? ` · retry ${x.retry_count}` : ""}${x.error_message ? ` · ${esc(t("error"))}: ${esc(x.error_message)}` : ""}</span>`;
+  const err = dlErrorText(x.error_message);
+  return `<span class="row-meta">${esc(x.status)}${total ? ` · ${cur}/${total}` : ""}${x.retry_count ? ` · retry ${x.retry_count}` : ""}${err ? ` · ${esc(t("error"))}: ${esc(err)}` : ""}</span>`;
+}
+
+function dlErrorText(msg) {
+  if (!msg) return "";
+  const lower = String(msg).toLowerCase();
+  if (lower.includes("gallerygoneerror") || lower.includes("deleted or not found") || lower.includes("does not exist on exhentai")) {
+    return t("dlGone");
+  }
+  return msg;
+}
+
+function parseDlItems(rawText) {
+  const lines = String(rawText || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const items = [];
+  for (const line of lines) {
+    const compact = line.match(/^(\d+)[\s/]+([a-f0-9]+)$/i);
+    if (compact) {
+      items.push({ gid: parseInt(compact[1], 10), token: compact[2] });
+      continue;
+    }
+    const href = line.match(/\/g\/(\d+)\/([A-Za-z0-9]+)/);
+    if (href) {
+      items.push({ gid: parseInt(href[1], 10), token: href[2] });
+      continue;
+    }
+    items.push({ url: line });
+  }
+  return items;
+}
+
+function toastDlBatch(data, extraFailed) {
+  const queued = (data && data.queued) || 0;
+  const skipped = (data && data.skipped) || 0;
+  const gone = (data && data.gone) || 0;
+  const updated = (data && data.updated) || 0;
+  const failed = ((data && data.failed) || 0) + (extraFailed || 0);
+  const msgParts = [];
+  if (queued) msgParts.push(t("dlQueuedCount").replace("{count}", String(queued)));
+  if (updated) msgParts.push(t("dlUpdatedCount").replace("{count}", String(updated)));
+  if (gone) msgParts.push(t("dlGoneCount").replace("{count}", String(gone)));
+  if (skipped) msgParts.push(t("dlSkippedCount").replace("{count}", String(skipped)));
+  if (failed) msgParts.push(t("dlFailedCount").replace("{count}", String(failed)));
+  toast(msgParts.join(" · ") || t("dlAddEmpty"));
 }
 
 async function loadDownloads(filter, page) {
@@ -227,53 +272,50 @@ async function retrySelectedDownloads() {
 }
 
 async function addDownloadsFromInput(form) {
-  const textarea = form.querySelector("#dl-urls-input");
-  const qualitySelect = form.querySelector("#dl-urls-quality");
-  const rawText = (textarea && textarea.value) || "";
-  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (!lines.length) {
+  const textarea = form.querySelector("#dl-urls-input") || document.getElementById("dl-urls-input");
+  const qualitySelect = form.querySelector("#dl-urls-quality") || document.getElementById("dl-urls-quality");
+  const items = parseDlItems((textarea && textarea.value) || "");
+  if (!items.length) {
     toast(t("dlAddEmpty"));
     return;
   }
   const quality = (qualitySelect && qualitySelect.value) || undefined;
   const submitBtn = form.querySelector('button[type="submit"]');
   if (submitBtn) submitBtn.disabled = true;
-
-  let queued = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  for (const line of lines) {
-    let body = {};
-    const match = line.match(/^(\d+)[\s/]+([a-f0-9]+)$/i);
-    if (match) {
-      body = { gid: parseInt(match[1], 10), token: match[2] };
-    } else {
-      body = { url: line };
-    }
-    if (quality) body.quality = quality;
-
-    try {
-      await api("POST", "/api/downloads", body);
-      queued++;
-    } catch (e) {
-      const msg = (e && e.message) || "";
-      if (e && (e.status === 409 || msg.includes("409") || msg.toLowerCase().includes("already exists"))) {
-        skipped++;
-      } else {
-        failed++;
-      }
-    }
+  const body = { items };
+  if (quality) body.quality = quality;
+  try {
+    const data = await api("POST", "/api/downloads/batch", body);
+    if (textarea) textarea.value = "";
+    toastDlBatch(data);
+  } catch (e) {
+    toast(e.message || t("dlFailedCount").replace("{count}", "1"));
   }
-
   if (submitBtn) submitBtn.disabled = false;
-  if (textarea) textarea.value = "";
+  loadDownloads(app.query.filter || "all", app.query.page || "1");
+}
 
-  const msgParts = [];
-  if (queued) msgParts.push(t("dlQueuedCount").replace("{count}", String(queued)));
-  if (skipped) msgParts.push(t("dlSkippedCount").replace("{count}", String(skipped)));
-  if (failed) msgParts.push(t("dlFailedCount").replace("{count}", String(failed)));
-  toast(msgParts.join(" · ") || t("dlAddEmpty"));
-
+async function addArchiveFromInput() {
+  const textarea = document.getElementById("dl-urls-input");
+  const items = parseDlItems((textarea && textarea.value) || "");
+  const resolved = items.filter(it => it.gid && it.token);
+  if (!resolved.length) {
+    toast(t("dlAddEmpty"));
+    return;
+  }
+  const gids = resolved.map(it => it.gid);
+  const tier = await showArchiveDialog(gids, { items: resolved });
+  if (!tier) return;
+  try {
+    const data = await api("POST", "/api/downloads/batch", {
+      items: resolved,
+      mode: "archive",
+      quality: tier,
+    });
+    if (textarea) textarea.value = "";
+    toastDlBatch(data);
+  } catch (e) {
+    toast(e.message || t("archivePreviewFail"));
+  }
   loadDownloads(app.query.filter || "all", app.query.page || "1");
 }

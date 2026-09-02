@@ -18,6 +18,7 @@ class DownloadRepository:
         mode: str | None = None,
         max_pages: int | None = None,
         quality: str | None = None,
+        title_jpn: str | None = None,
     ) -> DownloadTask | None:
         active = await self.session.scalar(
             select(DownloadTask).where(
@@ -30,6 +31,7 @@ class DownloadRepository:
             gid=gid,
             token=token,
             title=title,
+            title_jpn=title_jpn,
             mode=mode,
             status="pending",
             retry_count=0,
@@ -40,6 +42,39 @@ class DownloadRepository:
         self.session.add(task)
         await self.session.flush()
         return task
+
+    async def retarget(
+        self,
+        task_id: int,
+        new_gid: int,
+        new_token: str,
+        title: str | None = None,
+        title_jpn: str | None = None,
+    ) -> bool:
+        """Point an active task at a newer gid/token. False if the new gid is already queued."""
+        row = await self.session.get(DownloadTask, task_id)
+        if row is None:
+            return False
+        active = await self.session.scalar(
+            select(DownloadTask).where(
+                DownloadTask.gid == new_gid,
+                DownloadTask.status.in_(["pending", "downloading"]),
+                DownloadTask.id != task_id,
+            )
+        )
+        if active is not None:
+            row.status = "cancelled"
+            row.error_message = f"newer version {new_gid} already queued"
+            row.updated_at = datetime.now(UTC)
+            return False
+        row.gid = new_gid
+        row.token = new_token
+        if title:
+            row.title = title
+        if title_jpn:
+            row.title_jpn = title_jpn
+        row.updated_at = datetime.now(UTC)
+        return True
 
     async def recover_orphans(self) -> int:
         result = await self.session.execute(

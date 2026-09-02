@@ -114,6 +114,7 @@ class DownloadTask(Base):
     gid: Mapped[int] = mapped_column(BigInteger)
     token: Mapped[str] = mapped_column(String(64))
     title: Mapped[str | None] = mapped_column(Text)
+    title_jpn: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16), default="pending")
     mode: Mapped[str | None] = mapped_column(String(32))
     category: Mapped[str | None] = mapped_column(String(32))

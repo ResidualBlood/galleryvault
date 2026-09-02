@@ -9,6 +9,7 @@ from .messages import (
     download_fail,
     download_ok,
     download_summary,
+    download_updated,
     normalize_lang,
 )
 
@@ -73,6 +74,13 @@ class TelegramNotifier:
         """
         token = self.settings.telegram_bot_token
         if not token or self.settings.telegram_notify_level == "off":
+            return
+        if kind == "updated":
+            if self.settings.telegram_notify_level == "failures_only":
+                return
+            old_gid, new_gid = (detail or ":").split(":", 1) if detail and ":" in detail else ("", "")
+            text = download_updated(old_gid, new_gid, title, self.message_lang)
+            await self.send_message(text)
             return
         if kind == "ok":
             if self.settings.telegram_notify_level == "failures_only":

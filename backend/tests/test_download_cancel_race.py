@@ -215,6 +215,6 @@ async def test_gallery_gone_error_marks_failed_without_retry(monkeypatch: pytest
     assert row.status == "failed"
     assert row.retry_at is None
     assert row.retry_count >= row.max_retries
-    assert "GalleryGoneError" in (row.error_message or "")
+    assert "deleted or not found" in (row.error_message or "")
     assert len(notifications) == 1
     assert notifications[0][0] == "fail"

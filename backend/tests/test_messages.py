@@ -13,15 +13,23 @@ def test_download_ok_en_without_pages() -> None:
 
 def test_download_fail_zh() -> None:
     assert (
-        messages.download_fail("A", "GalleryGoneError", "zh")
-        == "❌ 下载失败 <b>A</b>：GalleryGoneError"
+        messages.download_fail("A", "Timeout", "zh")
+        == "❌ 下载失败 <b>A</b>：Timeout"
     )
 
 
 def test_download_fail_en() -> None:
     assert (
-        messages.download_fail("A", "GalleryGoneError", "en")
-        == "❌ Download failed: <b>A</b>: GalleryGoneError"
+        messages.download_fail("A", "Timeout", "en")
+        == "❌ Download failed: <b>A</b>: Timeout"
+    )
+
+
+def test_download_fail_gone_human() -> None:
+    assert messages.download_fail("A", "GalleryGoneError", "zh") == "❌ <b>A</b>已删除或不存在（404）"
+    assert (
+        messages.download_fail("A", messages.GONE_DETAIL, "en")
+        == "❌ <b>A</b> deleted or not found (404)"
     )
 
 
@@ -118,6 +126,12 @@ def test_bot_replies_zh_and_en() -> None:
     assert messages.bot_status(False, "zh") == "📋 下载状态：运行中"
     assert messages.bot_status(True, "en") == "📋 GalleryVault downloads are paused"
     assert messages.bot_queued(1665763, "en") == "📥 Queued gallery <code>1665763</code>"
+    assert (
+        messages.bot_queued(1665763, "zh", title="Foo")
+        == "📥 已入队 <b>Foo</b>（gid <code>1665763</code>）"
+    )
+    assert "Bar" in messages.bot_queued_updated(1, 2, "Bar", "en")
+    assert "404" in messages.bot_gone("Foo", "zh")
 
 
 def test_test_message_zh_and_en() -> None:

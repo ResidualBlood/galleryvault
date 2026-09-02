@@ -186,7 +186,8 @@ manually to revisit it.
 
 ## Downloads (`#/downloads`)
 
-- **Batch URL & GID/Token Enqueue**: Top panel lets you paste single or multi-line ExHentai gallery URLs or `gid/token` text, select quality override, and batch enqueue them directly (already queued tasks are automatically skipped with notification).
+- **Batch URL & GID/Token Enqueue**: Paste one or more gallery URLs or `gid/token` lines. **Enqueue pages** can override image quality; **Archive download** opens the same GP/tier preview as Favorites. Task titles follow the Title display setting (English/Japanese) instead of `gid xxx`.
+- **Follow newer versions**: if ExHentai marks the listing as replaced, the download switches to the new gid (max 5 hops). 404/deleted galleries fail without retry, with plain-language errors in the list and Telegram. Gallery-detail “download original for this copy” does not follow.
 - Lists download tasks with their status (waiting / downloading / success /
   failed / cancelled), filterable by status.
 - A **channel badge** next to each task title marks how it downloads: archive
@@ -429,5 +430,6 @@ additions again.
   switch** (`GET/POST /api/pause`), and the top yellow pause banner stacks with
   the Cookie red banner. **Pasting a gallery URL** (e.g.
   `https://exhentai.org/g/2325283/d3722b6aa8/`) parses the gid/token and
-  enqueues it for download immediately, replying with a confirmation.
+  enqueues it immediately. The bot reply includes the **gallery title** (and
+  old→new gid if the listing was replaced; 404/deleted is reported and not queued).
 - **Translation auto-update**: interval (minutes, 0 = off) and **Update now**.
