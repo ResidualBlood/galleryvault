@@ -15,6 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Continue reading cover URL and 409 duplicate queue detection** (frontend `views/browse.js`, `views/downloads.js`, `core.js`): Fixed cover image URL path to `/api/galleries/{id}/thumb/0`, attached `res.status` to `api()` thrown errors, and correctly detected duplicate 409 conflict messages on URL queueing.
+- **Reader fullscreen jump prompt and dynamic favorite URL base** (`views/reader.js`, `app/routers/favorites.py`, `app/routers/galleries.py`): Pressing `G` in fullscreen mode or when the jump input is hidden now properly prompts for page number; favorite item URL dynamically formats from configured `exhentai_base_url` instead of hardcoded host.
 - **ExHentai cloud favorite add consistency & error isolation** (`app/routers/galleries.py`, `app/routers/favorites.py`): Replaced legacy non-existent repository calls with cloud-first verification, ensuring local database records are never updated when cloud ExHentai requests fail.
 
 ## [1.5.1] - 2026-09-02

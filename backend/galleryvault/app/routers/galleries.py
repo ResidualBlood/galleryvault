@@ -551,11 +551,15 @@ async def toggle_gallery_favorite(
                 status_code=502, detail="ExHentai cloud favorite sync failed"
             ) from exc
 
+        base_url = str(
+            getattr(settings, "exhentai_base_url", "https://exhentai.org")
+            or "https://exhentai.org"
+        ).rstrip("/")
         fav_item = FavoriteData(
             gid=row.gid,
             token=row.token,
             title=row.title or str(row.gid),
-            url=f"https://exhentai.org/g/{row.gid}/{row.token}/",
+            url=f"{base_url}/g/{row.gid}/{row.token}/",
             thumb=None,
         )
         try:
@@ -678,7 +682,19 @@ async def history(page: int = 1, page_size: int = 24) -> dict[str, object]:
                 "current_page": x.current_page,
                 "total_pages": x.total_pages,
                 "last_read_at": x.last_read_at,
-                "title": galleries[x.gallery_id].title if x.gallery_id in galleries else None,
+                "title": (
+                    display_title(galleries[x.gallery_id])
+                    if x.gallery_id in galleries
+                    else None
+                ),
+                "display_title": (
+                    display_title(galleries[x.gallery_id])
+                    if x.gallery_id in galleries
+                    else None
+                ),
+                "raw_title": (
+                    galleries[x.gallery_id].title if x.gallery_id in galleries else None
+                ),
                 "title_jpn": (
                     galleries[x.gallery_id].title_jpn if x.gallery_id in galleries else None
                 ),

@@ -145,7 +145,7 @@ window.GV_LOCALES.zh = {
   scanDone: "扫描完成", tagSyncDone: "标签同步完成", thumbsDone: "缩略图完成",
   metaDone: "元数据同步完成", completed: "已完成", scanned: "扫描", persisted: "入库",
   favMetaSync: "同步收藏元数据", favMetaApply: "应用收藏元数据", applied: "已应用",
-  deleteGalleryLog: "删除画廊", favoritesRemoveLog: "取消收藏", favoritesMoveLog: "移动收藏",
+  deleteGalleryLog: "删除画廊", favoritesRemoveLog: "取消收藏", favoritesMoveLog: "移动收藏", favoritesAddLog: "加入收藏",
   tagSyncFromCache: "标签已从缓存更新", tagSyncFromNetwork: "标签已从 ExHentai 同步",
   noTasks: "暂无下载任务。", dlTasks: "下载任务",
   logs: "日志", logsSub: "后台任务与最近活动。",

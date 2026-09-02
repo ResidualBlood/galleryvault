@@ -81,6 +81,7 @@ function taskMeta(task, stage) {
     case "gallery-delete": return { label: t("deleteGalleryLog"), desc: t("deleteFiles") };
     case "favorites-remove": return { label: t("favoritesRemoveLog"), desc: t("confirmDupDelete") };
     case "favorites-move": return { label: t("favoritesMoveLog"), desc: t("favMoveTitle") };
+    case "favorites-add": return { label: t("favoritesAddLog"), desc: t("favAddTitle") };
     case "download-clear-success": return { label: t("clearSuccessDlLog"), desc: t("downloadsSub") };
     default: return { label: task, desc: "" };
   }

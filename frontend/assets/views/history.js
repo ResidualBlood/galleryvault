@@ -25,7 +25,7 @@ async function renderHistory() {
       return `
         <div class="row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
           <a href="${galUrl}" style="text-decoration:none;color:inherit;flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">
-            <span class="row-title">${esc(h.title || ("#" + h.gallery_id))}</span>
+            <span class="row-title">${esc(h.display_title || h.title || ("#" + h.gallery_id))}</span>
             <span class="row-meta">${esc(t("progress"))} ${(h.current_page || 0) + 1}/${h.total_pages} · ${h.last_read_at ? esc(String(h.last_read_at).slice(0, 10)) : ""}</span>
           </a>
           <div style="display:flex;gap:8px;align-items:center;">
