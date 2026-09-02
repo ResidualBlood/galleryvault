@@ -299,12 +299,12 @@ For zero-build development with live reloading for both frontend and backend:
 
 ```bash
 cd galleryvault  # meta repository root
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
 - Frontend static assets are mounted live (`../frontend/assets`), browser refresh updates instantly;
-- Backend runs with `uvicorn --reload --reload-dir /app/galleryvault`;
-- Development database runs isolated on `./db-data-dev`.
+- Backend runs with `uvicorn --reload --reload-dir /app/galleryvault --proxy-headers --forwarded-allow-ips="172.16.0.0/12,127.0.0.1"` (proxy flags ensure real client IP is resolved behind nginx for rate limiting and logging);
+- Development database runs isolated on `./db-data-dev`; host data directories `./library`, `./downloads`, and `./cache` are mapped locally.
 
 ## Conventions
 
