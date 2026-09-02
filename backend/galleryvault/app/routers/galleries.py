@@ -701,7 +701,13 @@ async def download_gallery_original(
         async for session in get_session():
             async with session.begin():
                 task = await DownloadRepository(session).create(
-                    row.gid, row.token, row.title, mode, None, "original"
+                    row.gid,
+                    row.token,
+                    row.title,
+                    mode,
+                    None,
+                    "original",
+                        title_jpn=getattr(row, "title_jpn", None),
                 )
                 if task is None:
                     raise HTTPException(
@@ -883,7 +889,9 @@ async def mark_gallery_read(identifier: int) -> dict[str, object]:
     row, pages = await _gallery(identifier)
     async for session in get_session():
         async with session.begin():
-            await GalleryRepository(session).update_progress(row.id, len(pages))
+            await GalleryRepository(session).upsert_progress(
+                row.id, max(len(pages) - 1, 0), len(pages)
+            )
         break
     return {"reading_progress": len(pages)}
 
@@ -978,12 +986,17 @@ async def redownload_gallery(
     row, _ = await _gallery(identifier)
     if not row.gid or not row.token:
         raise HTTPException(status_code=422, detail="Gallery lacks ExHentai gid/token")
-    mode = "archive" if archive else "gallery"
+    mode = "gallery_archive" if archive else "gallery"
     try:
         async for session in get_session():
             async with session.begin():
                 task = await DownloadRepository(session).create(
-                    row.gid, row.token, row.title or str(row.gid), mode, quality=quality
+                    row.gid,
+                    row.token,
+                    row.title or str(row.gid),
+                    mode,
+                    quality=quality,
+                        title_jpn=getattr(row, "title_jpn", None),
                 )
             break
     except SQLAlchemyError as exc:
@@ -1138,7 +1151,7 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
 
 def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: bool) -> None:
     now = datetime.now(UTC).isoformat()
-    deleted = sum(1 for r in results if r.get("db_removed"))
+    deleted = sum(1 for r in results if r.get("db_removed") or r.get("trashed"))
     trashed = sum(1 for r in results if r.get("trashed"))
     failed = [p for r in results for p in r.get("failed_paths", [])]
     status = "failed" if failed else "success"
@@ -1146,8 +1159,6 @@ def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: b
     if trashed:
         mode_text += f", trashed {trashed}"
     reason = f"deleted {deleted}/{len(results)} galleries ({mode_text})"
-    if trashed:
-        reason += f", trashed {trashed}"
     if failed:
         reason += f", file deletion failed: {', '.join(str(p) for p in failed[:3])}"
     tm = get_task_manager()

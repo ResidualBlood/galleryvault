@@ -360,8 +360,8 @@ async def favorite_size_sync(favcat: int) -> None:
         metadata_sync_state["applied"] = 0
         metadata_sync_state["last_error"] = None
         metadata_sync_state["history_recorded"] = False
-    if tm:
-        tm.clear_cancelled("metadata")
+        if tm:
+            tm.clear_cancelled("metadata")
     fetched: dict[int, dict[str, Any]] = {}
     try:
         try:
@@ -374,12 +374,28 @@ async def favorite_size_sync(favcat: int) -> None:
 
         async with app_state.session_factory() as session:
             folder_items = await FavoritesRepository(session).all_gids_for_favcat(favcat)
-            cached_meta = await GalleryRepository(session).metadata_map(
-                [gid for gid, _, _ in folder_items]
-            )
-        missing = [
-            (gid, token) for gid, token, _thumb in folder_items if gid not in cached_meta and token
-        ]
+            folder_gids = [gid for gid, _, _ in folder_items]
+            gal_read = GalleryRepository(session)
+            cached_meta = await gal_read.metadata_map(folder_gids)
+            null_quality = await gal_read.null_image_quality_gids(folder_gids)
+
+        def _positive_eh_size(meta: dict | None) -> bool:
+            size = (meta or {}).get("file_size")
+            try:
+                return int(size) > 0
+            except (TypeError, ValueError):
+                return False
+
+        missing: list[tuple[int, str]] = []
+        seen_need: set[int] = set()
+        for gid, token, _thumb in folder_items:
+            if not token or gid in seen_need:
+                continue
+            seen_need.add(gid)
+            if gid not in cached_meta or (
+                gid in null_quality and not _positive_eh_size(cached_meta.get(gid))
+            ):
+                missing.append((gid, token))
         metadata_sync_state["total"] = len(missing)
         metadata_sync_state["done"] = 0
         metadata_sync_state["stage"] = "fetching"
@@ -397,9 +413,9 @@ async def favorite_size_sync(favcat: int) -> None:
                     extra=log_extra(error=type(exc).__name__, count=len(chunk)),
                 )
             metadata_sync_state["done"] = min(len(missing), start + batch_size)
-        if fetched:
-            async with app_state.session_factory() as session, session.begin():
-                gal = GalleryRepository(session)
+        async with app_state.session_factory() as session, session.begin():
+            gal = GalleryRepository(session)
+            if fetched:
                 await gal.upsert_metadata(
                     [{"gid": gid, **meta} for gid, meta in fetched.items()]
                 )
@@ -408,22 +424,26 @@ async def favorite_size_sync(favcat: int) -> None:
                     size = meta.get("file_size")
                     if size:
                         await repo.set_file_size(favcat, gid, int(size))
-                local = await gal.storage_size_map(list(fetched))
-                inferred = {
-                    gid: quality
-                    for gid, meta in fetched.items()
-                    if gid in local
-                    and (
-                        quality := infer_image_quality(
-                            local[gid][0],
-                            meta.get("file_size"),
-                            local[gid][1],
-                        )
+                cached_meta.update(fetched)
+            combined = dict(cached_meta)
+            meta_map = await gal.metadata_map(folder_gids)
+            for gid, meta in meta_map.items():
+                if gid not in combined:
+                    combined[gid] = meta
+            local = await gal.storage_size_map(folder_gids)
+            inferred = {
+                gid: quality
+                for gid, (storage_size, stype) in local.items()
+                if (
+                    quality := infer_image_quality(
+                        storage_size,
+                        (combined.get(gid) or {}).get("file_size"),
+                        stype,
                     )
-                }
-                if inferred:
-                    await gal.set_image_qualities(inferred)
-            cached_meta.update(fetched)
+                )
+            }
+            if inferred:
+                await gal.set_image_qualities(inferred)
 
         metadata_sync_state["stage"] = "covers"
         cache_dir = _remote_cover_cache_dir()
@@ -537,9 +557,12 @@ async def _run_favorites_check_inner(
         "total": 0,
     }
     categories = favorites_check_state.setdefault("categories", {})
+    already_running = any(
+        isinstance(c, dict) and c.get("running") for c in categories.values()
+    )
     categories[str(favcat)] = entry
     favorites_check_state["running"] = True
-    if favorites_check_state.get("started_at") is None:
+    if not already_running:
         favorites_check_state["started_at"] = datetime.now(UTC).isoformat()
         favorites_check_state["history_recorded"] = False
     try:
@@ -644,14 +667,24 @@ async def _run_favorites_check_inner(
             favorites_check_state["completed_at"] = datetime.now(UTC).isoformat()
             if tm and not favorites_check_state.get("history_recorded"):
                 favorites_check_state["history_recorded"] = True
+                cat_rows = [
+                    c for c in categories.values() if isinstance(c, dict)
+                ]
+                done = sum(int(c.get("done") or 0) for c in cat_rows)
+                total = sum(int(c.get("total") or 0) for c in cat_rows)
+                failed = any(c.get("error") for c in cat_rows)
+                reason = next(
+                    (str(c.get("error")) for c in cat_rows if c.get("error")),
+                    "",
+                )
                 tm.record_task(
                     "favorites-check",
                     favorites_check_state.get("started_at"),
                     favorites_check_state["completed_at"],
-                    "success" if not entry.get("error") else "failed",
-                    reason=entry.get("error") or "",
-                    done=entry.get("done", 0),
-                    total=entry.get("total", 0),
+                    "failed" if failed else "success",
+                    reason=reason,
+                    done=done,
+                    total=total,
                 )
                 from ..app.dependencies import spawn_task
 

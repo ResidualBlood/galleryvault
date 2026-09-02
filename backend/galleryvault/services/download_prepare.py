@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import select
 
@@ -123,42 +123,49 @@ async def _resolve_one(
     cache: dict[int, dict],
     gdata: dict[int, dict],
     hops: int,
+    html_cache: dict[int, PreparedGallery | None] | None = None,
+    html_tokens: dict[int, str] | None = None,
 ) -> PreparedGallery:
-    if hops > MAX_FOLLOW_HOPS:
+    if html_cache is None:
+        html_cache = {}
+    if hops >= MAX_FOLLOW_HOPS:
         title, title_jpn = _titles_of(gdata.get(gid) or cache.get(gid))
         return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
 
-    info = gdata.get(gid) or cache.get(gid)
-    title, title_jpn = _titles_of(info)
-    expunged = bool(info.get("expunged")) if info else False
-    if client is not None and (expunged or info is None):
-        html = await _html_resolve(client, gid, token)
-        if html is None:
-            if expunged:
-                return PreparedGallery(
-                    gid=gid, token=token, title=title, title_jpn=title_jpn, gone=True
-                )
-            return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
-        if html.gone:
-            html.title = html.title or title
-            html.title_jpn = html.title_jpn or title_jpn
-            return html
-        if html.old_gid or html.gid != gid:
-            nested = await _resolve_one(
-                client,
-                html.gid,
-                html.token,
-                cache=cache,
-                gdata=gdata,
-                hops=hops + 1,
-            )
-            nested.old_gid = nested.old_gid or gid
-            if not nested.title and not nested.title_jpn:
-                nested.title = html.title or title
-                nested.title_jpn = html.title_jpn or title_jpn
-            return nested
+    title, title_jpn = _titles_of(gdata.get(gid) or cache.get(gid))
+    if client is None:
+        return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
+    if gid not in html_cache:
+        if html_tokens is not None:
+            html_tokens[gid] = token
+        html_cache[gid] = await _html_resolve(client, gid, token)
+    raw = html_cache[gid]
+    if raw is None:
+        return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
+    html = replace(raw)
+    if html.gone:
+        html.title = html.title or title
+        html.title_jpn = html.title_jpn or title_jpn
         return html
-    return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
+    if html.old_gid or html.gid != gid:
+        nested = await _resolve_one(
+            client,
+            html.gid,
+            html.token,
+            cache=cache,
+            gdata=gdata,
+            hops=hops + 1,
+            html_cache=html_cache,
+            html_tokens=html_tokens,
+        )
+        nested.old_gid = nested.old_gid or gid
+        if not nested.title and not nested.title_jpn:
+            nested.title = html.title or title
+            nested.title_jpn = html.title_jpn or title_jpn
+        return nested
+    html.title = html.title or title
+    html.title_jpn = html.title_jpn or title_jpn
+    return html
 
 
 async def prepare_galleries(pairs: list[tuple[int, str]]) -> list[PreparedGallery]:
@@ -169,18 +176,36 @@ async def prepare_galleries(pairs: list[tuple[int, str]]) -> list[PreparedGaller
     cache = await _cached_map(gids)
     client = app_state.eh_client
     gdata: dict[int, dict] = {}
+    html_cache: dict[int, PreparedGallery | None] = {}
+    html_tokens: dict[int, str] = {}
+
+    async def _resolve_all() -> list[PreparedGallery]:
+        out: list[PreparedGallery] = []
+        for gid, token in pairs:
+            out.append(
+                await _resolve_one(
+                    client,
+                    int(gid),
+                    token,
+                    cache=cache,
+                    gdata=gdata,
+                    hops=0,
+                    html_cache=html_cache,
+                    html_tokens=html_tokens,
+                )
+            )
+        return out
+
+    results = await _resolve_all()
     if client is not None:
         need: list[tuple[int, str]] = []
         seen: set[int] = set()
-        for gid, token in pairs:
-            info = cache.get(gid)
-            title, title_jpn = _titles_of(info)
-            if (
-                gid not in seen
-                and (info is None or bool(info.get("expunged")) or not (title or title_jpn))
-            ):
-                need.append((gid, token))
-                seen.add(gid)
+        for gid, raw in html_cache.items():
+            if raw is None and gid not in seen:
+                tok = html_tokens.get(gid)
+                if tok:
+                    need.append((gid, tok))
+                    seen.add(gid)
         if need:
             try:
                 fetched = await client.fetch_gmetadata(need)
@@ -190,14 +215,8 @@ async def prepare_galleries(pairs: list[tuple[int, str]]) -> list[PreparedGaller
                     extra=log_extra(error=type(exc).__name__),
                 )
                 fetched = {}
-            gdata = fetched or {}
-    results: list[PreparedGallery] = []
-    for gid, token in pairs:
-        results.append(
-            await _resolve_one(
-                client, int(gid), token, cache=cache, gdata=gdata, hops=0
-            )
-        )
+            gdata.update(fetched or {})
+            results = await _resolve_all()
     follow_gids = [p.gid for p in results if p.old_gid and not p.gone]
     local = await _local_gids(follow_gids)
     for prepared in results:

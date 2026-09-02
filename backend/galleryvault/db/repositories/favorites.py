@@ -42,9 +42,14 @@ class FavoritesRepository:
             select(
                 FavoriteItem.favcat,
                 func.count(FavoriteItem.id),
-                func.count(Gallery.id).filter(Gallery.expunged.is_(False)),
+                func.count(Gallery.id).filter(
+                    and_(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
+                ),
                 func.coalesce(
-                    func.sum(Gallery.file_size).filter(Gallery.expunged.is_(False)), 0
+                    func.sum(Gallery.file_size).filter(
+                        and_(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
+                    ),
+                    0,
                 ),
             )
             .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
@@ -72,7 +77,11 @@ class FavoritesRepository:
             .select_from(FavoriteItem)
             .outerjoin(
                 Gallery,
-                and_(Gallery.gid == FavoriteItem.gid, Gallery.expunged.is_(False)),
+                and_(
+                    Gallery.gid == FavoriteItem.gid,
+                    Gallery.expunged.is_(False),
+                    Gallery.trashed.is_(False),
+                ),
             )
             .where(FavoriteItem.favcat == favcat)
         )
@@ -86,7 +95,11 @@ class FavoritesRepository:
             .select_from(FavoriteItem)
             .outerjoin(
                 Gallery,
-                and_(Gallery.gid == FavoriteItem.gid, Gallery.expunged.is_(False)),
+                and_(
+                    Gallery.gid == FavoriteItem.gid,
+                    Gallery.expunged.is_(False),
+                    Gallery.trashed.is_(False),
+                ),
             )
             .where(
                 FavoriteItem.favcat == favcat,
@@ -215,7 +228,10 @@ class FavoritesRepository:
                     "token": statement.excluded.token,
                     "title": statement.excluded.title,
                     "url": statement.excluded.url,
-                    "thumb": statement.excluded.thumb,
+                    "thumb": func.coalesce(
+                        func.nullif(statement.excluded.thumb, ""),
+                        FavoriteItem.thumb,
+                    ),
                     "last_seen_at": statement.excluded.last_seen_at,
                 },
             )
@@ -286,7 +302,14 @@ class FavoritesRepository:
         """
         query = (
             select(FavoriteItem, Gallery)
-            .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+            .outerjoin(
+                Gallery,
+                and_(
+                    Gallery.gid == FavoriteItem.gid,
+                    Gallery.expunged.is_(False),
+                    Gallery.trashed.is_(False),
+                ),
+            )
             .where(FavoriteItem.favcat == favcat)
         )
         if state == "local":
@@ -522,7 +545,14 @@ class FavoritesRepository:
             rows = (
                 await self.session.execute(
                     select(FavoriteItem, Gallery)
-                    .outerjoin(Gallery, Gallery.gid == FavoriteItem.gid)
+                    .outerjoin(
+                        Gallery,
+                        and_(
+                            Gallery.gid == FavoriteItem.gid,
+                            Gallery.expunged.is_(False),
+                            Gallery.trashed.is_(False),
+                        ),
+                    )
                     .where(FavoriteItem.gid.in_(chunk))
                 )
             ).all()

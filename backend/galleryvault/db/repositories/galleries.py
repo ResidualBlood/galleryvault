@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import and_, case, delete, false, func, or_, select, tuple_, update
+from sqlalchemy import and_, case, delete, false, func, null, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -427,12 +427,25 @@ class GalleryRepository:
                     & ~updated_fav_exists.exists()
                 )
             )
+        completed_exists = (
+            select(1)
+            .select_from(ReadingProgress)
+            .where(
+                ReadingProgress.gallery_id == Gallery.id,
+                ReadingProgress.total_pages.is_not(None),
+                ReadingProgress.current_page >= ReadingProgress.total_pages - 1,
+                or_(
+                    ReadingProgress.current_page > 0,
+                    ReadingProgress.total_pages <= 1,
+                ),
+            )
+        )
         if read_status == "unread":
-            prog_exists = select(1).select_from(ReadingProgress).where(
+            started_exists = select(1).select_from(ReadingProgress).where(
                 ReadingProgress.gallery_id == Gallery.id,
                 ReadingProgress.current_page > 0,
             )
-            query = query.where(~prog_exists.exists())
+            query = query.where(~started_exists.exists(), ~completed_exists.exists())
         elif read_status == "reading":
             prog_exists = select(1).select_from(ReadingProgress).where(
                 ReadingProgress.gallery_id == Gallery.id,
@@ -442,14 +455,9 @@ class GalleryRepository:
                     | (ReadingProgress.current_page < ReadingProgress.total_pages - 1)
                 ),
             )
-            query = query.where(prog_exists.exists())
+            query = query.where(prog_exists.exists(), ~completed_exists.exists())
         elif read_status in {"completed", "read"}:
-            prog_exists = select(1).select_from(ReadingProgress).where(
-                ReadingProgress.gallery_id == Gallery.id,
-                ReadingProgress.total_pages.is_not(None),
-                ReadingProgress.current_page >= ReadingProgress.total_pages - 1,
-            )
-            query = query.where(prog_exists.exists())
+            query = query.where(completed_exists.exists())
         if tags:
             tag_conditions = []
             for namespace, name in tags:
@@ -675,19 +683,11 @@ class GalleryRepository:
         return total, list(rows)
 
     async def list_integrity_issues(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
-        # Page count vs actual gallery_pages rows, excluding trashed/expunged and intentional truncations
+        # Page count vs actual gallery_pages rows, excluding trashed/expunged
         page_count_sub = (
             select(GalleryPage.gallery_id, func.count(GalleryPage.id).label("cnt"))
             .group_by(GalleryPage.gallery_id)
             .subquery()
-        )
-        from ..models import DownloadTask
-
-        trunc_exists = (
-            select(1)
-            .select_from(DownloadTask)
-            .where(DownloadTask.gid == Gallery.gid, DownloadTask.max_pages == Gallery.page_count)
-            .exists()
         )
         query = (
             select(Gallery)
@@ -695,7 +695,6 @@ class GalleryRepository:
             .where(Gallery.trashed.is_(False), Gallery.expunged.is_(False))
             .where(Gallery.page_count.is_not(None))
             .where(Gallery.page_count != func.coalesce(page_count_sub.c.cnt, 0))
-            .where(~trunc_exists)
         )
         total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
         rows = (
@@ -710,8 +709,8 @@ class GalleryRepository:
             return 0
         result = await self.session.execute(
             update(Gallery)
-            .where(Gallery.id.in_(ids))
-            .values(trashed=False, trashed_at=None, expunged=False, updated_at=datetime.now(UTC))
+            .where(Gallery.id.in_(ids), Gallery.trashed.is_(True))
+            .values(trashed=False, trashed_at=None, updated_at=datetime.now(UTC))
         )
         await self.session.flush()
         return int(result.rowcount or 0)
@@ -1133,7 +1132,7 @@ class GalleryRepository:
                 Gallery.category,
                 Gallery.uploader,
                 Gallery.file_count,
-                Gallery.file_size,
+                null(),
                 Gallery.rating,
                 Gallery.posted_at,
                 Gallery.expunged,
@@ -1197,6 +1196,20 @@ class GalleryRepository:
                 )
             ).all()
         )
+
+    async def null_image_quality_gids(self, gids: list[int]) -> set[int]:
+        """Local gids whose ``image_quality`` is still NULL."""
+        if not gids:
+            return set()
+        rows = (
+            await self.session.scalars(
+                select(Gallery.gid).where(
+                    Gallery.gid.in_(list(dict.fromkeys(gids))),
+                    Gallery.image_quality.is_(None),
+                )
+            )
+        ).all()
+        return {int(gid) for gid in rows}
 
     async def storage_size_map(
         self, gids: list[int]
@@ -1274,7 +1287,6 @@ class GalleryRepository:
             gallery.title_jpn = meta.title_jpn or gallery.title_jpn
             gallery.uploader = meta.uploader or gallery.uploader
             gallery.file_count = meta.file_count or gallery.file_count
-            gallery.file_size = meta.file_size or gallery.file_size
             gallery.rating = meta.rating or gallery.rating
             gallery.posted_at = meta.posted_at or gallery.posted_at
             gallery.tags_synced_at = now

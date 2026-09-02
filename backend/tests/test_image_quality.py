@@ -379,7 +379,7 @@ class _FakeCreateRepo:
         self._session = session
         return self
 
-    async def create(self, gid, token, title, mode, max_pages, quality):
+    async def create(self, gid, token, title, mode, max_pages, quality, title_jpn=None):
         self.created = (gid, token, mode, max_pages, quality)
         return self._task
 

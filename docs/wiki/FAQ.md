@@ -67,7 +67,7 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ## 点了暂停，扫描和下载还在跑？
 
-当前页会下完，不再派发新页、不再 claim 新任务；扫描返回 `paused`。Web 下载页按钮与 Telegram `/pause` `/resume` 是同一开关，重启后仍保持暂停。详见 [使用指南](Usage)。
+暂停后不再领取新页，已开始的当前页会下完；不再 claim；扫描返回 `paused`。Web 下载页按钮与 Telegram `/pause` `/resume` 是同一开关，网页暂停后 Bot 一致，重启后仍保持暂停。详见 [使用指南](Usage)。
 
 ## 下载页提示「图片配额将达上限」？
 

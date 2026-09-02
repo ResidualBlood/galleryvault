@@ -64,7 +64,16 @@ async def settings_cookie_health() -> dict[str, object]:
     from ...services.eh_client import probe_cookie_health
 
     health = app_state.extra.get("cookie_health")
-    if health is None:
+    stale = True
+    if isinstance(health, dict) and health.get("checked_at"):
+        try:
+            age = (
+                datetime.now(UTC) - datetime.fromisoformat(str(health["checked_at"]))
+            ).total_seconds()
+            stale = age > 600
+        except Exception:  # noqa: BLE001
+            stale = True
+    if health is None or stale:
         health = await probe_cookie_health()
     return health
 

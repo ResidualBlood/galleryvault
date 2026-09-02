@@ -4,7 +4,7 @@
 // 保持原有函数签名
 
 function renderCardCheckboxes() {
-  document.querySelectorAll(".gc-check input").forEach(cb => {
+  document.querySelectorAll(".gc-check input[data-gallery-id]").forEach(cb => {
     if (cb.dataset.bound) return;
     cb.dataset.bound = "1";
     cb.addEventListener("change", () => {

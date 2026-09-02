@@ -11,7 +11,7 @@ window.GV_LOCALES.zh = {
   orderDefault: "入库时间 (默认)", orderPosted: "发布时间", orderTitle: "标题", orderPages: "页数", orderSize: "体积", orderRating: "评分", orderFirstSeen: "初次收藏",
   readStatusAll: "全部阅读状态", readStatusUnread: "未读", readStatusReading: "在读", readStatusCompleted: "已读完",
   favSearchPlaceholder: "在当前收藏夹内搜索标题…", sortBy: "排序",
-  cookieExpiredNotice: "ExHentai Cookie 已失效或无里站权限，自动同步已暂停。", cookieNotConfiguredNotice: "未配置 ExHentai Cookie，无法进行在线同步与下载。", goToSettings: "前往设置",
+  cookieExpiredNotice: "ExHentai Cookie 已失效或无里站权限，自动同步已暂停。", cookieHealthFailed: "ExHentai 探活失败（网络或站点异常），不一定是 Cookie 失效。", cookieNotConfiguredNotice: "未配置 ExHentai Cookie，无法进行在线同步与下载。", goToSettings: "前往设置",
   username: "用户名",
   password: "密码", login: "登录", wrong: "密码错误，请重试。",
   mustChange: "正在使用默认密码，请立即修改。",

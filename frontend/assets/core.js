@@ -28,9 +28,10 @@ function updateBanner() {
     parts.push(`<span style="color:var(--warning, #ff9800);font-weight:600;">⏸ ${esc(t("paused"))} — ${esc(t("pauseHint"))}</span> <button class="btn btn-secondary" data-action="toggle-pause" type="button" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("resume"))}</button>`);
   }
   const ch = app.session && app.session.cookie_health;
-  if (app.authenticated && ch && (ch.state === "not_logged_in" || ch.state === "no_exhentai_access" || ch.state === "failed")) {
-    const msg = ch.state === "failed" ? `${esc(t("cookieExpiredNotice"))} (${esc(ch.detail || "")})` : esc(t("cookieExpiredNotice"));
-    parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${msg}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
+  if (app.authenticated && ch && (ch.state === "not_logged_in" || ch.state === "no_exhentai_access")) {
+    parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${esc(t("cookieExpiredNotice"))}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
+  } else if (app.authenticated && ch && ch.state === "failed") {
+    parts.push(`<span style="color:var(--warning, #ff9800);font-weight:600;">⚠️ ${esc(t("cookieHealthFailed"))}${ch.detail ? ` (${esc(ch.detail)})` : ""}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
   }
   // Also show image limit warning if near limit (>80%)
   const quota = app.session && app.session.quota_warning;

@@ -17,6 +17,7 @@ from .eh_client import (
     ArchiveExpiredError,
     EhImageSlowError,
     GalleryData,
+    GalleryGoneError,
     GalleryPageData,
     GalleryReplacedError,
     ShowkeyState,
@@ -98,13 +99,17 @@ def follow_download_updates(mode: str | None) -> bool:
 
 def raise_if_replaced(task: DownloadTask, gallery: GalleryData) -> None:
     replaced = getattr(gallery, "replaced_by", None)
-    if not replaced or not follow_download_updates(task.mode):
+    if not replaced:
         return
     new_gid, new_token = replaced
     if int(new_gid) == int(task.gid):
         return
-    raise GalleryReplacedError(
-        task.gid, int(new_gid), str(new_token), gallery.title, gallery.title_jpn
+    if follow_download_updates(task.mode):
+        raise GalleryReplacedError(
+            task.gid, int(new_gid), str(new_token), gallery.title, gallery.title_jpn
+        )
+    raise GalleryGoneError(
+        f"gallery {task.gid} was replaced by {new_gid}; this-copy download will not follow"
     )
 
 
@@ -359,20 +364,17 @@ class Downloader:
 
         async def _download_page(index: int, page: GalleryPageData) -> None:
             nonlocal first_error
-            # Global pause: stop dispatching new pages while paused (current pages finish)
-            try:
-                from ..app.state import app_state as _app_state
-                from ..config import get_settings as _get_settings
+            from ..app.state import app_state as _app_state
+            from ..config import get_settings as _get_settings
 
-                while True:
-                    _s = _app_state.settings or _get_settings()
-                    if not getattr(_s, "global_paused", False):
-                        break
-                    await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001, S110
-                pass
+            def _paused() -> bool:
+                _s = _app_state.settings or _get_settings()
+                return bool(getattr(_s, "global_paused", False))
+
+            def _cancelled() -> bool:
+                tm = _app_state.task_manager
+                return bool(task.id is not None and tm and tm.is_cancelled(task.id))
+
             # Resume support (Ehviewer / SXJ style): pages already on disk in the
             # temp dir OR the final target dir are skipped, so a retry only
             # fetches the pages that failed or were never written.
@@ -388,70 +390,90 @@ class Downloader:
                 await self._record_bytes(gallery.gid, 0, 1)
                 await _report_progress()
                 return
-            async with worker_semaphore:
-                last_error: Exception | None = None
-                current: GalleryPageData = page
-                # Lazy URL resolution + self-healing retries (mirrors
-                # Ehviewer_CN_SXJ's 5-round downloadImage loop): every round
-                # resolves a FRESH keystamp URL right before downloading, so a
-                # 403 from an expired keystamp is healed by re-resolving the
-                # page instead of sinking the whole task into exponential
-                # backoff.  A persistent failure still escalates to the
-                # task-level retry so the gallery stays complete.
-                for attempt in range(5):
-                    try:
-                        current = await self.client.resolve_page(
-                            gallery.gid, current, showkey
-                        )
-                        url = self._resolve_image_url(current, quality)
-                        content_type = ""
-                        fetch_with_type = getattr(
-                            self.client, "download_image_with_metadata", None
-                        )
-                        if fetch_with_type is not None:
-                            data, content_type = await fetch_with_type(url)
-                        else:
-                            data = await self.client.download_image(url)
-                        if not data or data[:20].lstrip().lower().startswith(
-                            (b"<html", b"<!doctype")
-                        ):
-                            raise ValueError("image response is invalid")
-                        extension = {
-                            "image/jpeg": ".jpg",
-                            "image/png": ".png",
-                            "image/gif": ".gif",
-                            "image/webp": ".webp",
-                            "image/avif": ".avif",
-                        }.get(
-                            content_type.split(";", 1)[0].lower(),
-                            Path(url).suffix.lower(),
-                        )
-                        if extension not in {
-                            ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif",
-                        }:
-                            extension = ".jpg"
-                        (temp / f"{index + 1:08d}{extension}").write_bytes(data)
-                        downloaded.add(index)
-                        await self._record_bytes(gallery.gid, len(data), 1)
-                        break
-                    except DownloadCancelledError:
-                        raise
-                    except EhImageSlowError:
-                        # A throttled/slow H@H node will not heal in the
-                        # sub-second window of the per-page retry — re-hitting
-                        # it five times only burns slots. Surface it now so the
-                        # persistent DownloadManager applies its 30s backoff and
-                        # retries just the failed page later.
-                        raise
-                    except Exception as exc:  # noqa: BLE001 - per-page retry
-                        # Includes EhClientError from a 403/expired keystamp or
-                        # a failed re-resolution: the next round fetches a fresh
-                        # URL and tries again.
-                        last_error = exc
-                        if attempt < 4:
-                            await asyncio.sleep(0.5 * (attempt + 1))
-                if last_error is not None:
-                    raise last_error
+            while True:
+                if _cancelled():
+                    raise DownloadCancelledError("download was cancelled")
+                if _paused():
+                    await asyncio.sleep(1)
+                    continue
+                acquired = False
+                try:
+                    await asyncio.wait_for(worker_semaphore.acquire(), timeout=1)
+                    acquired = True
+                except TimeoutError:
+                    continue
+                try:
+                    if _cancelled():
+                        raise DownloadCancelledError("download was cancelled")
+                    if _paused():
+                        continue
+                    last_error: Exception | None = None
+                    current: GalleryPageData = page
+                    # Lazy URL resolution + self-healing retries (mirrors
+                    # Ehviewer_CN_SXJ's 5-round downloadImage loop): every round
+                    # resolves a FRESH keystamp URL right before downloading, so a
+                    # 403 from an expired keystamp is healed by re-resolving the
+                    # page instead of sinking the whole task into exponential
+                    # backoff.  A persistent failure still escalates to the
+                    # task-level retry so the gallery stays complete.
+                    for attempt in range(5):
+                        try:
+                            current = await self.client.resolve_page(
+                                gallery.gid, current, showkey
+                            )
+                            url = self._resolve_image_url(current, quality)
+                            content_type = ""
+                            fetch_with_type = getattr(
+                                self.client, "download_image_with_metadata", None
+                            )
+                            if fetch_with_type is not None:
+                                data, content_type = await fetch_with_type(url)
+                            else:
+                                data = await self.client.download_image(url)
+                            if not data or data[:20].lstrip().lower().startswith(
+                                (b"<html", b"<!doctype")
+                            ):
+                                raise ValueError("image response is invalid")
+                            extension = {
+                                "image/jpeg": ".jpg",
+                                "image/png": ".png",
+                                "image/gif": ".gif",
+                                "image/webp": ".webp",
+                                "image/avif": ".avif",
+                            }.get(
+                                content_type.split(";", 1)[0].lower(),
+                                Path(url).suffix.lower(),
+                            )
+                            if extension not in {
+                                ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif",
+                            }:
+                                extension = ".jpg"
+                            (temp / f"{index + 1:08d}{extension}").write_bytes(data)
+                            downloaded.add(index)
+                            await self._record_bytes(gallery.gid, len(data), 1)
+                            break
+                        except DownloadCancelledError:
+                            raise
+                        except EhImageSlowError:
+                            # A throttled/slow H@H node will not heal in the
+                            # sub-second window of the per-page retry — re-hitting
+                            # it five times only burns slots. Surface it now so the
+                            # persistent DownloadManager applies its 30s backoff and
+                            # retries just the failed page later.
+                            raise
+                        except Exception as exc:  # noqa: BLE001 - per-page retry
+                            # Includes EhClientError from a 403/expired keystamp or
+                            # a failed re-resolution: the next round fetches a fresh
+                            # URL and tries again.
+                            last_error = exc
+                            if attempt < 4:
+                                await asyncio.sleep(0.5 * (attempt + 1))
+                    if last_error is not None:
+                        raise last_error
+                    break
+                finally:
+                    if acquired:
+                        worker_semaphore.release()
             await _report_progress()
 
         async def _worker(pair: tuple[int, object]) -> None:

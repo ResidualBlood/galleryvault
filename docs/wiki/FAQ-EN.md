@@ -103,9 +103,10 @@ files** cannot be undone from that page (a later scan will not re-ingest it).
 
 ## I hit Pause — why are downloads / scans still running?
 
-The current page finishes; no new pages are dispatched and no new tasks are
-claimed. Scans return `paused`. The downloads-page toggle and Telegram
-`/pause` `/resume` are the same switch and survive restart. See [Usage](Usage-EN).
+After pause, no new pages are claimed; the current in-flight page finishes.
+No new tasks are claimed. Scans return `paused`. The downloads-page toggle and Telegram
+`/pause` `/resume` are the same switch (web pause matches the Bot) and survive
+restart. See [Usage](Usage-EN).
 
 ## Downloads page warns that image quota is near the limit?
 

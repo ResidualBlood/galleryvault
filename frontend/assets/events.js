@@ -31,7 +31,7 @@ async function onClick(e) {
   if (action === "refresh-system-logs") { fetchSystemLogs(); return; }
   if (action === "clear-system-logs") { clearSystemLogs(); return; }
   if (action === "cancel-task") { cancelTask(el.getAttribute("data-task")); return; }
-  if (action === "clear-tag") { e.preventDefault(); location.hash = navHash("library", {}, { q: app.query.q || "", category: app.query.category || "" }); return; }
+  if (action === "clear-tag") { e.preventDefault(); location.hash = tagFilterHash([]); return; }
   if (action === "remove-tag") { e.preventDefault(); location.hash = removeTagHash(el.getAttribute("data-tag")); return; }
   if (action === "clear-history") { clearHistory(); return; }
   if (action === "clear-progress") { clearProgress(); return; }
@@ -273,12 +273,12 @@ async function loadTagSuggest(q, box, input) {
         if (input) input.value = remaining;
         const curTags = parseTags(app.query.tags);
         if (!curTags.includes(tag)) curTags.push(tag);
-        location.hash = navHash("library", {}, {
-          ...(remaining ? { q: remaining } : {}),
-          ...(app.query.category ? { category: app.query.category } : {}),
-          tags: curTags.join(","),
-          tag_mode: "and",
-        });
+        const savedQ = app.query.q;
+        if (remaining) app.query.q = remaining;
+        else delete app.query.q;
+        location.hash = tagFilterHash(curTags);
+        if (savedQ) app.query.q = savedQ;
+        else delete app.query.q;
       });
     });
   } catch (_) { box.hidden = true; }

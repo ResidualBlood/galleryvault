@@ -20,6 +20,7 @@ import re
 
 LANGS = ("zh", "en")
 GONE_DETAIL = "gallery deleted or not found (404)"
+HOPS_DETAIL = "replacement chain exceeded maximum hops (5)"
 # Single downloads list their title; larger batches only show counts for the
 # success side (failures are always listed, capped to the Telegram 4096 limit).
 LIST_TITLES_LIMIT = 5

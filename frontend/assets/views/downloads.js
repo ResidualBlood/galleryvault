@@ -137,7 +137,6 @@ function parseDlItems(rawText) {
       items.push({ gid: parseInt(href[1], 10), token: href[2] });
       continue;
     }
-    items.push({ url: line });
   }
   return items;
 }

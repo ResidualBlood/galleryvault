@@ -1,9 +1,32 @@
 "use strict";
 
-// views/recycle.js — Recycle bin (trash vs expunged) + integrity placeholder
+function recycleSelectedIds() {
+  const listed = new Set(
+    [...document.querySelectorAll("#recycle-grid input[data-recycle-id]")]
+      .map(cb => parseInt(cb.getAttribute("data-recycle-id"), 10))
+      .filter(Number.isFinite)
+  );
+  return (window.selRecycle ? [...selRecycle] : []).filter(id => listed.has(id));
+}
+
+function updateRecycleButtons() {
+  const n = window.selRecycle ? selRecycle.size : 0;
+  const suffix = n ? ` (${n})` : "";
+  const restoreBtn = document.querySelector('[data-action="recycle-restore"]');
+  const purgeBtn = document.querySelector('[data-action="recycle-purge"]');
+  if (restoreBtn) restoreBtn.textContent = `${t("restore")}${suffix}`;
+  if (purgeBtn) purgeBtn.textContent = `${t("purge")}${suffix}`;
+}
+
 async function renderRecycle() {
-  const tab = app.query.tab || "trash"; // trash | expunged
+  const tab = app.query.tab || "trash";
   const page = app.query.page || "1";
+  if (window._recycleLastTab && window._recycleLastTab !== tab) {
+    if (window.selRecycle) selRecycle.clear();
+  }
+  window._recycleLastTab = tab;
+  const n = window.selRecycle ? selRecycle.size : 0;
+  const suffix = n ? ` (${n})` : "";
   renderView(`
     <header><p class="eyebrow">RECYCLE BIN</p><h1>${esc(t("recycleTitle"))}</h1>
     <p class="sub">${esc(t("recycleSub"))}</p></header>
@@ -11,8 +34,8 @@ async function renderRecycle() {
       <a class="pill${tab === "trash" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "trash" })}">🗑 ${esc(t("trash")) || "Trash"} (${esc(t("userDeleted") || "User")})</a>
       <a class="pill${tab === "expunged" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "expunged" })}">👻 ${esc(t("expunged") || "Missing")} (${esc(t("scanMissing") || "Scan")})</a>
       <a class="pill" href="#/integrity">${esc(t("missingPagesTitle"))}</a>
-      <button class="btn btn-secondary" data-action="recycle-restore" type="button">${esc(t("restore"))}</button>
-      <button class="btn btn-danger" data-action="recycle-purge" type="button">${esc(t("purge"))}</button>
+      <button class="btn btn-secondary" data-action="recycle-restore" type="button"${tab === "expunged" ? " hidden disabled" : ""}>${esc(t("restore"))}${suffix}</button>
+      <button class="btn btn-danger" data-action="recycle-purge" type="button">${esc(t("purge"))}${suffix}</button>
     </div>
     <div id="recycle-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="recycle-pager"></div>`);
@@ -40,6 +63,7 @@ async function renderRecycle() {
           const id = parseInt(cb.getAttribute("data-recycle-id"), 10);
           if (!selRecycle) window.selRecycle = new Set();
           if (cb.checked) selRecycle.add(id); else selRecycle.delete(id);
+          updateRecycleButtons();
         });
       });
     }
@@ -48,7 +72,7 @@ async function renderRecycle() {
 }
 
 async function recycleRestore() {
-  const ids = selRecycle ? [...selRecycle] : [];
+  const ids = recycleSelectedIds();
   if (!ids.length) { toast(t("select")); return; }
   try {
     const r = await api("POST", "/api/galleries/restore", { ids });
@@ -59,7 +83,7 @@ async function recycleRestore() {
 }
 
 async function recyclePurge() {
-  const ids = selRecycle ? [...selRecycle] : [];
+  const ids = recycleSelectedIds();
   if (!ids.length) { toast(t("select")); return; }
   if (!window.confirm(t("confirmDelete") + " (" + ids.length + ")")) return;
   const delFiles = window.confirm(t("deleteFiles"));
