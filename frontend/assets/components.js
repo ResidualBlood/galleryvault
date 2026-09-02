@@ -133,7 +133,9 @@ function showArchiveDialog(gids, opts) {
     document.addEventListener('keydown', onKey);
     api("POST", "/api/archives/preview", { gids })
       .then(data => {
+        if (settled) return;
         const bodyEl = overlay.querySelector(".gv-modal-body");
+        if (!bodyEl) return;
         const items = data && data.items ? data.items : [];
         if (!items.length) {
           bodyEl.innerHTML = `<p>${esc(t("archiveNoItems"))}</p>`;
@@ -152,7 +154,7 @@ function showArchiveDialog(gids, opts) {
           }).join("");
           bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
           const first = items[0];
-          confirm.disabled = !!(first && !first.error && first.original_cost != null && !first.original_available);
+          if (confirm) confirm.disabled = !!(first && !first.error && first.original_cost != null && !first.original_available);
         } else {
           const rows = items.map(it => {
             if (it.error) {
@@ -167,10 +169,11 @@ function showArchiveDialog(gids, opts) {
             return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
           }).join("");
           bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th><th scope="col">${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
-          confirm.disabled = false;
+          if (confirm) confirm.disabled = false;
         }
         if (data && data.funds != null) {
-          overlay.querySelector(".archive-funds").textContent = t("archiveFunds") + ": " + data.funds + " GP";
+          const fundsEl = overlay.querySelector(".archive-funds");
+          if (fundsEl) fundsEl.textContent = t("archiveFunds") + ": " + data.funds + " GP";
         }
         if (!lockTier) {
           const defaultTier = app.settings && app.settings.archive_quality === "original" ? "original" : "resample";
@@ -179,8 +182,9 @@ function showArchiveDialog(gids, opts) {
         }
       })
       .catch(err => {
+        if (settled) return;
         const bodyEl = overlay.querySelector(".gv-modal-body");
-        bodyEl.innerHTML = `<p class="error">${esc(err.message || t("archivePreviewFail"))}</p>`;
+        if (bodyEl) bodyEl.innerHTML = `<p class="error">${esc(err.message || t("archivePreviewFail"))}</p>`;
       });
   });
 }
@@ -249,9 +253,14 @@ async function showMoveFavoritesDialog(gids, currentFavcat) {
     document.body.appendChild(overlay);
 
     const selEl = overlay.querySelector("[data-move-target]");
+    const confirmBtn = overlay.querySelector("[data-move-confirm]");
     if (selEl) {
       const validOpt = Array.from(selEl.options).find(o => !o.disabled);
-      if (validOpt) selEl.value = validOpt.value;
+      if (validOpt) {
+        selEl.value = validOpt.value;
+      } else if (confirmBtn) {
+        confirmBtn.disabled = true;
+      }
       selEl.focus();
     }
 
