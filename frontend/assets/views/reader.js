@@ -256,11 +256,18 @@ function initReaderGestures() {
           container.classList.remove("zoomed");
         } else {
           currentScale = 2.2;
-          const rect = container.getBoundingClientRect();
-          const originX = rect.width > 0 ? Math.max(0, Math.min(100, Math.round(((lastTapX - rect.left) / rect.width) * 100))) : 50;
-          const originY = rect.height > 0 ? Math.max(0, Math.min(100, Math.round(((lastTapY - rect.top) / rect.height) * 100))) : 50;
           imgs.forEach(img => {
-            img.style.transformOrigin = `${originX}% ${originY}%`;
+            const rect = img.getBoundingClientRect();
+            const isTapped = rect.width > 0 && rect.height > 0 &&
+              lastTapX >= rect.left && lastTapX <= rect.right &&
+              lastTapY >= rect.top && lastTapY <= rect.bottom;
+            if (isTapped) {
+              const originX = Math.max(0, Math.min(100, Math.round(((lastTapX - rect.left) / rect.width) * 100)));
+              const originY = Math.max(0, Math.min(100, Math.round(((lastTapY - rect.top) / rect.height) * 100)));
+              img.style.transformOrigin = `${originX}% ${originY}%`;
+            } else {
+              img.style.transformOrigin = "50% 50%";
+            }
             img.style.transform = `scale(${currentScale})`;
           });
           container.classList.add("zoomed");
@@ -356,7 +363,9 @@ function syncReaderUrl() {
   if (app.view !== "reader" || !app.params.id) return;
   const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const target = navHash("reader", { id: app.params.id, page }, libraryContext());
-  if (location.hash !== target) location.hash = target;
+  if (location.hash !== target) {
+    history.replaceState(null, "", target);
+  }
 }
 
 function readerSwapPage(id, target) {
