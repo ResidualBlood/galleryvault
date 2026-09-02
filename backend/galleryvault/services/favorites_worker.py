@@ -16,6 +16,7 @@ from ..db.repository import DownloadRepository, FavoritesRepository, GalleryRepo
 from ..logging import bind_log_context, log_extra
 from ..services.tag_translation import translated_tag
 from .duplicates import find_duplicate_groups
+from .eh_client import EXHENTAI_API_CHUNK_SIZE
 from .favorites import FavoritesService
 
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ def _img_data_uri(raw: bytes) -> str | None:
 
 
 async def favorites_metadata(
-    pairs: list[tuple[int, str]], batch_size: int = 25
+    pairs: list[tuple[int, str]], batch_size: int = EXHENTAI_API_CHUNK_SIZE
 ) -> dict[int, dict[str, Any]]:
     if not pairs or not app_state.session_factory:
         return {}
@@ -284,7 +285,7 @@ async def favorite_size_sync(favcat: int) -> None:
         metadata_sync_state["done"] = 0
         metadata_sync_state["stage"] = "fetching"
 
-        batch_size = 25
+        batch_size = EXHENTAI_API_CHUNK_SIZE
         fetched: dict[int, dict[str, Any]] = {}
         for start in range(0, len(missing), batch_size):
             if tm and tm.is_cancelled("metadata"):

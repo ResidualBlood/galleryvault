@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import hmac
 import logging
 import secrets
@@ -15,7 +14,6 @@ from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import (
@@ -275,6 +273,15 @@ from .dependencies import (
 )
 from .dependencies import (
     spawn_task as _spawn,
+)
+from .lifespan import (
+    cleanup_partial_downloads as _cleanup_partial_downloads,
+)
+from .lifespan import (
+    stop_background_tasks as _stop_background_tasks,
+)
+from .lifespan import (
+    warmup_database_pool as _warmup_database_pool,
 )
 from .routers import (
     auth,
@@ -945,11 +952,7 @@ async def startup() -> None:
     _sync_state()
 
     # Warm up database pool
-    try:
-        async with _settings_session() as session:
-            await session.execute(select(1))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("database pool warmup failed", extra=log_extra(error=type(exc).__name__))
+    await _warmup_database_pool(_settings_session)
 
     try:
         async with _settings_session() as session:
@@ -998,29 +1001,7 @@ async def startup() -> None:
     )
 
     # Clean partial downloads
-    try:
-        import shutil as _shutil
-
-        keep_gids: set[int] = set()
-        try:
-            async with _settings_session() as session:
-                rows = await session.execute(
-                    select(DownloadTaskModel.gid).where(
-                        DownloadTaskModel.status.in_(["pending", "downloading"])
-                    )
-                )
-                keep_gids = {int(row[0]) for row in rows}
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("could not read active downloads for temp sweep", extra=log_extra(error=type(exc).__name__))
-        _root = Path(_settings().download_root)
-        for _child in _root.glob(".gv-*"):
-            gid_text = _child.name[len(".gv-"):] if _child.name.startswith(".gv-") else ""
-            if gid_text.isdigit() and int(gid_text) in keep_gids:
-                continue
-            if _child.is_dir():
-                _shutil.rmtree(_child, ignore_errors=True)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("partial download cleanup failed", extra=log_extra(error=type(exc).__name__))
+    await _cleanup_partial_downloads(_settings().download_root, _settings_session)
 
     download_worker_task = asyncio.create_task(
         globals().get("_download_worker_loop", _download_worker_loop)()
@@ -1083,41 +1064,16 @@ async def shutdown() -> None:
     for src in (getattr(app.state, "spawned_tasks", None), app_state.extra.get("spawned_tasks")):
         if isinstance(src, set):
             all_spawned.update(src)
-    for task in list(all_spawned):
-        task.cancel()
-    for task in list(all_spawned):
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
-    if translation_update_task is not None:
-        translation_update_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await translation_update_task
-    poll_task = getattr(app.state, "favorite_poll_task", None)
-    if poll_task is not None:
-        poll_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await poll_task
-    bot_task = getattr(app.state, "telegram_bot_task", None)
-    if bot_task is not None:
-        bot_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await bot_task
-    if download_worker_task is not None:
-        download_worker_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await download_worker_task
-    if tag_sync_worker_task is not None:
-        tag_sync_worker_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await tag_sync_worker_task
-    if thumb_worker_task is not None:
-        thumb_worker_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await thumb_worker_task
-    if telegram_flush_task is not None:
-        telegram_flush_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await telegram_flush_task
+    specific = [
+        translation_update_task,
+        getattr(app.state, "favorite_poll_task", None),
+        getattr(app.state, "telegram_bot_task", None),
+        download_worker_task,
+        tag_sync_worker_task,
+        thumb_worker_task,
+        telegram_flush_task,
+    ]
+    await _stop_background_tasks(all_spawned, specific)
     if getattr(app.state, "telegram", None) is not None:
         await app.state.telegram.flush_summary()
         await app.state.telegram.aclose()

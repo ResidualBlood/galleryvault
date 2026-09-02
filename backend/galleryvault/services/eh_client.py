@@ -37,6 +37,9 @@ EHVIEWER_ACCEPT = (
 )
 EHVIEWER_ACCEPT_LANGUAGE = "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
 
+# ExHentai API caps batch operations (gdata, favorites modifygids) at 25 items per request.
+EXHENTAI_API_CHUNK_SIZE: int = 25
+
 GALLERY_RE = re.compile(r"/(?:g|gallery)/(?P<gid>\d+)/(?P<token>[A-Za-z0-9]+)/")
 # Legacy 3-segment viewer URL: /s/<gid>/<ptoken>/<page-token>/
 PAGE_RE = re.compile(r"/s/\d+/[A-Za-z0-9]+/(?P<page>[A-Za-z0-9]+)/")
@@ -1214,7 +1217,10 @@ class EhClient:
                 raise EhClientError("ExHentai authentication is required or expired")
             response.raise_for_status()
 
-        for chunk in (gids[i : i + 25] for i in range(0, len(gids), 25)):
+        for chunk in (
+            gids[i : i + EXHENTAI_API_CHUNK_SIZE]
+            for i in range(0, len(gids), EXHENTAI_API_CHUNK_SIZE)
+        ):
             try:
                 await _post(chunk)
             except EhClientError:
@@ -1262,7 +1268,10 @@ class EhClient:
                 raise EhClientError("ExHentai authentication is required or expired")
             response.raise_for_status()
 
-        for chunk in (gids[i : i + 25] for i in range(0, len(gids), 25)):
+        for chunk in (
+            gids[i : i + EXHENTAI_API_CHUNK_SIZE]
+            for i in range(0, len(gids), EXHENTAI_API_CHUNK_SIZE)
+        ):
             try:
                 await _post(chunk)
             except EhClientError:
@@ -1285,8 +1294,8 @@ class EhClient:
         file_size, tags}}`` for every gallery the API answered with.
         """
         result: dict[int, dict[str, Any]] = {}
-        for start in range(0, len(pairs), 25):
-            chunk = pairs[start : start + 25]
+        for start in range(0, len(pairs), EXHENTAI_API_CHUNK_SIZE):
+            chunk = pairs[start : start + EXHENTAI_API_CHUNK_SIZE]
             payload = {
                 "method": "gdata",
                 "gidlist": [[int(gid), token] for gid, token in chunk],
