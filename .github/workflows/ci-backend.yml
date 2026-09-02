@@ -1,0 +1,164 @@
+name: ci-backend
+
+on:
+  push:
+    branches: [main, dev, monorepo]
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-backend.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-backend.yml"
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start Postgres (in-memory background)
+        run: |
+          docker run -d \
+            --name postgres \
+            --tmpfs /var/lib/postgresql/data \
+            -e POSTGRES_USER=galleryvault \
+            -e POSTGRES_PASSWORD=galleryvault \
+            -e POSTGRES_DB=galleryvault \
+            -p 5432:5432 \
+            postgres:16-alpine \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        working-directory: backend
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Migrate database
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec postgres pg_isready -U galleryvault -d galleryvault >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.5
+          done
+          alembic upgrade head
+
+      - name: Lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: Test (with coverage gate)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: pytest -q -n auto -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
+
+  build:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=build-backend-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=build-backend-${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-backend-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    needs: [secrets-scan, test, build]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-backend-*
+          merge-multiple: true
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          TAG_ARGS=""
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:latest"
+          fi
+          if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:dev"
+          fi
+          TAG_ARGS="$TAG_ARGS -t ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend:${{ github.sha }}"
+          
+          docker buildx imagetools create $TAG_ARGS $(printf '${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend@sha256:%s ' *)

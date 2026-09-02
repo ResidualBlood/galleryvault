@@ -22,7 +22,7 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 ## 本地开发环境 (Dev Compose)
 
-如需在本地对前后端源码进行即时调试与热重载，可使用 `docker-compose.dev.yml`（要求三仓库同级克隆）：
+如需在本地对前后端源码进行即时调试与热重载，可使用 `docker-compose.dev.yml`：
 
 ```bash
 # 首次运行或修改 Dockerfile 后构建启动：

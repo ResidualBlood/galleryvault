@@ -1,26 +1,26 @@
 # Development Guide
 
-This document explains how GalleryVault is structured. The project is split
-into **three git repositories**: the meta repository (`galleryvault`), this backend
-(`galleryvault-backend`: JSON API + PostgreSQL), and the [`galleryvault-frontend`](../frontend)
-repo (a static SPA served by nginx). This file covers the backend.
+This document explains how GalleryVault is structured. The project is organized
+as a **monorepo** containing the backend (`backend/`: FastAPI JSON API + PostgreSQL),
+the frontend (`frontend/`: vanilla-JS static SPA served by nginx), and documentation.
+This file covers the backend.
 
 ## Architecture overview
 
 ```
-Browser ── :8000 ──▶ nginx (frontend repo: static SPA, proxies /api,/login,/logout)
+Browser ── :8000 ──▶ nginx (frontend/: static SPA, proxies /api,/login,/logout)
                           │
-Browser ── :8001 ──▶ FastAPI app (galleryvault/app/main.py + app/routers)  ──▶ PostgreSQL
+Browser ── :8001 ──▶ FastAPI app (backend/galleryvault/app/main.py + routers) ──▶ PostgreSQL
                           │
                     /api/* JSON routes (galleryvault.app.routers)
 ```
 
-- **Frontend** (`galleryvault-frontend` repo) is a build-free vanilla-JS SPA
-  served by nginx on port 8000. nginx reverse-proxies `/api`, `/login` and
-  `/logout` to the backend service (`http://backend:8001`).
-- **Backend** (this repo) is a **pure JSON API** on port 8001 (container
+- **Frontend** (`frontend/`) is a build-free vanilla-JS SPA served by nginx on
+  port 8000. nginx reverse-proxies `/api`, `/login` and `/logout` to the backend
+  service (`http://backend:8001`).
+- **Backend** (`backend/`) is a **pure JSON API** on port 8001 (container
   port 8001): no HTML pages, no static files.
-- **Database**: PostgreSQL 16 runs alongside the backend in the same
+- **Database**: PostgreSQL 16 runs alongside the backend in the root
   `docker-compose.yml`; its data persists in `./db-data` (next to the compose
   file).
 
@@ -47,48 +47,62 @@ Key points:
 ## Project layout
 
 ```
-backend/  (this git repository)
-galleryvault/
-  app/
-    main.py            # FastAPI application factory and assembly (<=100 lines)
-    state.py           # AppState runtime container and service factories
-    middleware.py      # Authentication and CSRF protection middleware
-    lifespan.py        # Lifespan startup/shutdown and background workers
-    dependencies.py    # FastAPI dependencies and injection helpers
-    routers/           # route handlers split by domain
-      core.py tasks.py settings.py downloads.py favorites.py galleries.py tags.py
-  auth/                # password hashing + session cookies
-  config.py            # Settings model + DB persistence
-  db/                  # SQLAlchemy models, repositories, session
-  logging.py           # structured log formatter
-  observability.py     # request-id middleware + /metrics counters
-  secrets.py           # at-rest encryption (ENCRYPTION_KEY)
-  scanners/            # ehviewer / zip / rar / folder scanners + registry
-  services/
-    downloader.py      # ExHentai download engine (concurrent pages, resume, max_pages, cancel)
-    eh_client.py       # ExHentai HTML scraper (httpx) + GalleryGoneError + favorites paging/sizes
-    favorites.py       # favorite-folder monitor + download queue (check-only when disabled)
-    ingest.py          # metadata ingestion from scan results
-    library.py         # filesystem scanning / expiry
-    tag_sync.py        # per-gallery tag & category sync, category backfill
-    tag_translation.py # EhTagTranslation database loading + translation lookups
-    telegram.py        # TelegramNotifier (async client)
-    telegram_bot.py    # long-poll bot for incoming commands
-    thumbnails.py      # static JPEG thumbnail generation + on-disk cache
-alembic/               # database migrations (0001..0014)
-tests/                 # pytest suite
-docs/                  # this guide, API.md
-Dockerfile
-docker-compose.yml     # frontend (:8000) + backend (:8001) + db (./db-data)
-pyproject.toml
+galleryvault/          # Monorepo root
+backend/
+  galleryvault/
+    app/
+      main.py          # FastAPI application factory and assembly (<=100 lines)
+      state.py         # AppState runtime container and service factories
+      middleware.py    # Authentication and CSRF protection middleware
+      lifespan.py      # Lifespan startup/shutdown and background workers
+      dependencies.py  # FastAPI dependencies and injection helpers
+      routers/         # route handlers split by domain
+        core.py tasks.py settings.py downloads.py favorites.py galleries.py tags.py
+    auth.py            # password hashing + session cookies
+    config.py          # Settings model + DB persistence
+    db/                # SQLAlchemy models, repositories, session
+    logging.py         # structured log formatter
+    observability.py   # request-id middleware + /metrics counters
+    secrets.py         # at-rest encryption (ENCRYPTION_KEY)
+    scanners/          # ehviewer / zip / rar / folder scanners + registry
+    services/
+      downloader.py    # ExHentai download engine (concurrent pages, resume, max_pages, cancel)
+      eh_client.py     # ExHentai HTML scraper (httpx) + GalleryGoneError + favorites paging/sizes
+      favorites.py     # favorite-folder monitor + download queue (check-only when disabled)
+      ingest.py        # metadata ingestion from scan results
+      library.py       # filesystem scanning / expiry
+      tag_sync.py      # per-gallery tag & category sync, category backfill
+      tag_translation.py # EhTagTranslation database loading + translation lookups
+      telegram.py      # TelegramNotifier (async client)
+      telegram_bot.py  # long-poll bot for incoming commands
+      thumbnails.py    # static JPEG thumbnail generation + on-disk cache
+  alembic/             # database migrations (0001..0025)
+  tests/               # pytest suite
+  docs/                # this guide, API.md, openapi.json
+  Dockerfile
+  pyproject.toml
+  requirements.txt
 
-frontend/  (separate git repository, sibling directory)
-index.html             # SPA shell (hash-routed)
-assets/
-  app.js               # vanilla-JS SPA (no build step, no CDN dependency)
-  styles.css
-nginx.conf             # static serving + /api proxy to backend:8000
-Dockerfile
+frontend/
+  index.html           # SPA shell (hash-routed)
+  assets/
+    app.js             # vanilla-JS SPA bootstrap
+    components.js      # reusable UI components
+    core.js            # router & API client
+    events.js          # global events & shortcuts
+    i18n.js            # localization loader
+    locales/           # translation dictionary files (en.js, zh.js)
+    state.js           # reactive state management
+    styles.css         # CSS tokens & styles
+    utils.js           # helper functions
+    views/             # modular view modules
+  nginx.conf           # static serving + /api proxy to backend:8001
+  Dockerfile
+
+docs/wiki/             # Canonical bilingual wiki docs
+docs-site/             # VitePress documentation site
+docker-compose.yml     # Production compose
+docker-compose.dev.yml # Development hot-reload compose
 ```
 
 The frontend is intentionally **build-free**: `app.js` is plain ES2020 and
@@ -100,6 +114,7 @@ project free of any Node toolchain and works fully offline.
 1. Create a virtualenv with Python 3.12 and install:
 
    ```bash
+   cd backend
    python -m venv .venv && source .venv/bin/activate
    pip install -e ".[dev]"
    ```

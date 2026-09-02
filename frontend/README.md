@@ -5,7 +5,7 @@ dependency) for GalleryVault. Served by nginx on port 8000; nginx reverse-proxie
 `/api`, `/login` and `/logout` to the backend (`http://backend:8001`, host port
 8001).
 
-[![CI](https://github.com/ResidualBlood/galleryvault-frontend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-frontend/actions/workflows/ci.yml)
+[![CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml)
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
 
 - `index.html` — SPA entry shell
@@ -22,7 +22,7 @@ dependency) for GalleryVault. Served by nginx on port 8000; nginx reverse-proxie
 
 ## Run
 
-The `docker-compose.yml` in the **galleryvault** repository builds this image as
+The `docker-compose.yml` in the repository root builds/runs this image as
 the `frontend` service and publishes it on host port 8000. Standalone:
 
 ```bash

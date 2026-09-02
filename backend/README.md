@@ -1,19 +1,15 @@
 # GalleryVault Backend
 
-FastAPI + PostgreSQL JSON API for GalleryVault. The SPA lives in the
-[`galleryvault-frontend`](https://github.com/ResidualBlood/galleryvault-frontend)
-repository.
+FastAPI + PostgreSQL JSON API for GalleryVault.
 
-[![CI](https://github.com/ResidualBlood/galleryvault-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault-backend/actions/workflows/ci.yml)
+[![CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml)
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
 
 - API: `http://<host>:8001/api/*`
 - Health: `http://<host>:8001/healthz`
 - Login/Logout: `POST /login`, `POST /logout` (form/cookie based)
 
-Run the full stack (frontend :8000, backend :8001, PostgreSQL) with the
-`docker-compose.yml` in the **galleryvault** repository; a development
-`docker-compose.yml` is also provided here.
+Run the full stack (frontend :8000, backend :8001, PostgreSQL) with `docker-compose.yml` in the repository root, or run development hot-reload with `docker-compose.dev.yml`.
 
 ## Default password
 

@@ -6,6 +6,7 @@ on:
     paths:
       - "docs/wiki/**"
       - "docs-site/**"
+      - "backend/docs/**"
   workflow_dispatch:
 
 permissions:
@@ -21,14 +22,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout meta repo
+      - name: Checkout repo
         uses: actions/checkout@v7
-
-      - name: Checkout backend (API.md / DEVELOPMENT.md)
-        uses: actions/checkout@v7
-        with:
-          repository: ResidualBlood/galleryvault-backend
-          path: backend
 
       - name: Setup Node
         uses: actions/setup-node@v7
