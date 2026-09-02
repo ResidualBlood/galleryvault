@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependency updates & CI action bumps** (`.github/workflows/`, `backend/pyproject.toml`, `backend/requirements.txt`, `.github/dependabot.yml`): Bumped `actions/download-artifact` from v4 to v8, `actions/upload-artifact` from v4 to v7, and `astral-sh/setup-uv` from v5 to v7 in GitHub Actions workflows. Updated backend dependencies `httpx` (`>=0.28.1,<1`), `rarfile` (`>=4.5,<5`), `cryptography` (`>=50.0.1,<51`), `pytest` (`>=9.1.1,<10`), and `pytest-cov` (`>=7.1.0,<8`). Configured Dependabot target branch to `dev`.
+
 ## [1.5.0] - 2026-09-02
 
 ### Added
