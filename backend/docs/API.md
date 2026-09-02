@@ -219,7 +219,7 @@ tier, the rest download page-by-page.
 | GET | `/api/galleries/{identifier}/thumb/{page_index}` | Serve a cached static JPEG thumbnail for a page (generated on first access into `/gv-cache/thumbs`, `Cache-Control` + `ETag`). |
 | GET | `/api/galleries/{identifier}/progress` | Reading progress (`current_page`, `total_pages`). |
 | PUT | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – records progress and history. |
-| DELETE | `/api/galleries/{identifier}/progress` | Clear / reset reading progress for a single gallery (`204`). |
+| DELETE | `/api/galleries/{identifier}/progress` | Clear reading progress and that gallery's history row (`204`). Removes it from Continue Reading / History. |
 | DELETE | `/api/galleries/progress` | Clear / reset reading progress for all galleries (`204`). |
 | POST | `/api/galleries/{identifier}/sync-tags` | Sync tags from ExHentai. |
 

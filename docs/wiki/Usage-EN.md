@@ -11,7 +11,8 @@ global-pause bar, a red Cookie-expired bar, and an image-quota warning.
   pagination.
 - **Continue Reading Cards**: Top section automatically aggregates recently read
   galleries with cover thumbnails, reading progress bars, one-click resumption,
-  and per-gallery "Mark as unread / ✕" progress reset.
+  and per-gallery "Mark as unread / ✕" (clears progress and removes the
+  card from Continue Reading / History).
 - The **tag namespace strip** on top (Tag / Artist / Character / Parody /
   Group / Female / Male / Language) and a **random gallery** button (🎲, opens
   a random gallery's detail page).
@@ -23,7 +24,8 @@ global-pause bar, a red Cookie-expired bar, and an image-quota warning.
 ## History (`#/history`)
 
 - Lists reading history per gallery (last reading position and time), with direct
-  "Read Now" shortcuts and per-gallery "✕" progress reset buttons.
+  "Read Now" shortcuts and per-gallery "✕" mark-as-unread buttons (clears
+  progress and removes the row from History / Continue Reading).
 - **Clear history**: clears timeline entries (does not affect progress bookmarks on galleries).
 - **Clear reading progress**: resets reading progress for all galleries after confirmation (marks all as unread / progress reset to 0).
 - The reading position is saved automatically by the reader and restored when you reopen a gallery / reader.

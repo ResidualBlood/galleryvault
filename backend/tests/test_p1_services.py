@@ -1625,7 +1625,9 @@ async def test_task_history_persistence_and_restoration() -> None:
 
 async def test_clear_progress_repository_methods() -> None:
     """Test GalleryRepository clear_progress and delete_progress methods."""
-    from galleryvault.db.models import ReadingProgress
+    from sqlalchemy.dialects import postgresql
+
+    from galleryvault.db.models import ReadingHistory, ReadingProgress
     from galleryvault.db.repository import GalleryRepository
 
     class FakeSession:
@@ -1634,11 +1636,27 @@ async def test_clear_progress_repository_methods() -> None:
                 1: ReadingProgress(gallery_id=1, current_page=10, total_pages=20),
                 2: ReadingProgress(gallery_id=2, current_page=5, total_pages=15),
             }
+            self.history_rows = {
+                1: ReadingHistory(gallery_id=1, current_page=10, total_pages=20),
+                2: ReadingHistory(gallery_id=2, current_page=5, total_pages=15),
+                3: ReadingHistory(gallery_id=3, current_page=8, total_pages=12),
+            }
             self.executed_statements = []
 
         async def get(self, model, pk):
             if model is ReadingProgress:
                 return self.progress_rows.get(pk)
+            return None
+
+        async def scalar(self, statement):
+            sql = str(
+                statement.compile(
+                    dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+                )
+            ).lower()
+            for gid, row in self.history_rows.items():
+                if f"gallery_id = {gid}" in sql:
+                    return row
             return None
 
         async def execute(self, statement):
@@ -1648,16 +1666,21 @@ async def test_clear_progress_repository_methods() -> None:
         async def delete(self, model):
             if isinstance(model, ReadingProgress):
                 self.progress_rows.pop(model.gallery_id, None)
+            elif isinstance(model, ReadingHistory):
+                self.history_rows.pop(model.gallery_id, None)
 
     session = FakeSession()
     repo = GalleryRepository(session)
 
-    # test delete_progress for single item
     assert await repo.delete_progress(1) is True
     assert 1 not in session.progress_rows
+    assert 1 not in session.history_rows
+    assert 2 in session.progress_rows
+    assert 2 in session.history_rows
+    assert await repo.delete_progress(3) is True
+    assert 3 not in session.history_rows
     assert await repo.delete_progress(999) is False
 
-    # test clear_progress for all items
     await repo.clear_progress()
     assert len(session.progress_rows) == 0
     assert len(session.executed_statements) == 1

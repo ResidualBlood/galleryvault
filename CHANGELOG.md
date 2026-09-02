@@ -25,6 +25,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Mark as unread left Continue Reading intact** (`db/repositories/galleries.py`): `DELETE /api/galleries/{id}/progress` now also deletes that gallery's `reading_history` row, so Browse Continue Reading and the History list drop the card instead of reloading the old page number after refresh.
 - **Favorite folder page showed only `#N`** (`frontend/assets/views/favorites.js`): folder detail `#/favorites/<favcat>` now uses the ExHentai folder name from `/api/favorites/categories` (same source as the overview table), with `#N` as a badge.
 - **Tag suggest left partial query as title search** (`frontend/assets/events.js`): clicking a suggestion now consumes tokens that are substrings of the selected tag (CJK any length, ASCII length ≥2), so 「和泉」 + 「和泉纱雾」 no longer ANDs a leftover title keyword. Top bar, library, and browse share this path; tags-page suggest unchanged.
 - **Favorites check no longer applied metadata / inferred quality / recorded Tasks history** (`services/favorites_worker.py`): `favorite_size_sync` again runs `apply_metadata_to_galleries`, infers `image_quality` from local size vs gdata, and writes a `metadata` row to task history when the last in-flight folder finishes.
