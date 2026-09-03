@@ -611,6 +611,14 @@ def get_fixed_preview_thumb_url(origin: str) -> str:
     last, second, third = segments[-1], segments[-2], segments[-3]
     if last.startswith(third) and last.startswith(second, len(third)):
         return f"https://ehgt.org/{third}/{second}/{last}"
+    host = parsed.netloc.lower()
+    eh_host = (
+        host == "ehgt.org"
+        or host.endswith(".ehgt.org")
+        or host in {"s.exhentai.org", "exhentai.org", "e-hentai.org"}
+    )
+    if eh_host and segments[0].lower() == "w":
+        return "https://ehgt.org/" + "/".join(segments)
     return src
 
 
@@ -626,6 +634,8 @@ def _usable_thumb_src(url: str | None) -> str | None:
     fixed = get_fixed_preview_thumb_url(src)
     parsed = urlparse(fixed)
     if parsed.netloc.lower() != "ehgt.org":
+        return None
+    if re.fullmatch(r"/g/[a-z0-9]+\.(png|gif|jpg|webp|svg)", parsed.path.lower()):
         return None
     if parsed.scheme.lower() != "https":
         return f"https://ehgt.org{parsed.path}"
@@ -643,16 +653,45 @@ def _thumb_from_img_attrs(attrs: str) -> str | None:
 
 def _search_thumb(snippet: str) -> str | None:
     for match in re.finditer(r"<img([^>]+)>", snippet, re.IGNORECASE):
-        attrs = match.group(1)
-        src = re.search(r"(?<![\w-])src=[\"']([^\"']+)[\"']", attrs, re.IGNORECASE)
-        picked = _usable_thumb_src(src.group(1) if src else None)
-        if picked:
-            return picked
-        data_src = re.search(r"\bdata-src=[\"']([^\"']+)[\"']", attrs, re.IGNORECASE)
-        picked = _usable_thumb_src(data_src.group(1) if data_src else None)
+        picked = _thumb_from_img_attrs(match.group(1))
         if picked:
             return picked
     return None
+
+
+def _thumbs_from_listing_cells(body: str, base_url: str) -> dict[int, str]:
+    thumbs: dict[int, str] = {}
+    for match in re.finditer(
+        r"<(?:div|td)\b([^>]*class=[\"'][^\"']*\b(?:glthumb|gl1e|gl3t)\b[^\"']*[\"'][^>]*)>",
+        body,
+        re.IGNORECASE,
+    ):
+        snippet = body[match.end() : match.end() + 2500]
+        thumb = _search_thumb(snippet)
+        if not thumb:
+            continue
+        gid: int | None = None
+        id_m = re.search(r'\bid=["\']it(\d+)["\']', match.group(1), re.IGNORECASE)
+        if id_m:
+            gid = int(id_m.group(1))
+        else:
+            href_m = re.search(
+                r'href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\']',
+                snippet,
+                re.IGNORECASE,
+            )
+            if href_m:
+                try:
+                    gid, _ = parse_gallery_url(href_m.group(1), base_url)
+                except ValueError:
+                    gid = None
+            if gid is None:
+                nearby = re.search(r"/g/(\d+)/", body[match.start() : match.start() + 4000])
+                if nearby:
+                    gid = int(nearby.group(1))
+        if gid is not None and gid not in thumbs:
+            thumbs[gid] = thumb
+    return thumbs
 
 
 def _search_pages(snippet: str) -> int | None:
@@ -714,7 +753,7 @@ def parse_search_page(
     ``parse_gallery_url`` + ``glink`` + ``var nexturl`` style). Category, page
     count and rating are read from a window around each gallery URL.
     """
-    thumbs: dict[int, str] = {}
+    thumbs = _thumbs_from_listing_cells(body, base_url)
     for tm in re.finditer(
         r'<a[^>]+href=["\']([^"\']*(?:/g/|/gallery/)[^"\']*)["\'][^>]*>'
         r"\s*<img([^>]+)>",
@@ -724,6 +763,8 @@ def parse_search_page(
         try:
             tgid, _ = parse_gallery_url(tm.group(1), base_url)
         except ValueError:
+            continue
+        if tgid in thumbs:
             continue
         thumb = _thumb_from_img_attrs(tm.group(2))
         if thumb:

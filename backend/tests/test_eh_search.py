@@ -166,6 +166,93 @@ def test_parse_search_page_rewrites_preview_thumbs_to_ehgt() -> None:
     assert by_gid[333333] is None
 
 
+SEARCH_EH_COMPACT_W_HTML = """
+<html><body>
+<table class="itg gltc">
+<tr><th></th><th>Published</th><th>Title</th></tr>
+<tr>
+  <td class="gl1c glcat"><div class="cn ct1">Misc</div></td>
+  <td class="gl2c">
+    <div class="glcut" id="ic4166139"></div>
+    <div class="glthumb" id="it4166139" style="top:-22px;height:187px">
+      <div><img style="height:141px;width:250px" alt="Compact Cover"
+        src="https://ehgt.org/w/02/620/92376-8kcfz9rc.webp" /></div>
+      <div><div class="ir" title="Average: 4.00"></div><div>15 pages</div></div>
+    </div>
+    <div class="gldown"><a href="/gallerytorrents.php?gid=4166139&amp;t=9c458b8c1d">
+      <img src="https://ehgt.org/g/t.png" alt="T" title="Show torrents" /></a></div>
+  </td>
+  <td class="gl3c glname">
+    <a href="https://e-hentai.org/g/4166139/9c458b8c1d/"><div class="glink">Compact Cover</div></a>
+  </td>
+</tr>
+</table>
+</body></html>
+"""
+
+SEARCH_EH_EXTENDED_HTML = """
+<html><body>
+<table class="itg glte">
+<tr>
+  <td class="gl1e"><div>
+    <a href="https://e-hentai.org/g/222222/bbbbbb/">
+      <img src="https://ehgt.org/w/01/704/00138-24abcd.webp" alt="">
+    </a>
+  </div></td>
+  <td class="gl2e">
+    <div class="gl3e"><div>12 pages</div><div class="ir" title="Average: 3.00"></div></div>
+    <div class="gl4e glname">
+      <a href="https://e-hentai.org/g/222222/bbbbbb/"><div class="glink">Extended Cover</div></a>
+    </div>
+  </td>
+</tr>
+</table>
+</body></html>
+"""
+
+SEARCH_EH_THUMBNAIL_HTML = """
+<html><body>
+<div class="itg gld">
+  <div class="gl1t">
+    <div class="gl3t">
+      <a href="https://e-hentai.org/g/333333/cccccc/">
+        <img src="blank.gif" data-src="https://ehgt.org/w/02/112/77385-rdf9iok6.webp">
+      </a>
+    </div>
+    <a href="https://e-hentai.org/g/333333/cccccc/"><div class="glink">Thumb Cover</div></a>
+    <div class="gl5t"><div>8 pages</div></div>
+  </div>
+</div>
+</body></html>
+"""
+
+
+def test_parse_search_page_compact_glthumb_w_webp() -> None:
+    items, _ = parse_search_page(SEARCH_EH_COMPACT_W_HTML, "https://e-hentai.org")
+    assert [it.gid for it in items] == [4166139]
+    assert items[0].thumb == "https://ehgt.org/w/02/620/92376-8kcfz9rc.webp"
+    assert items[0].pages == 15
+
+
+def test_parse_search_page_extended_gl1e_and_thumbnail_gl3t() -> None:
+    ext, _ = parse_search_page(SEARCH_EH_EXTENDED_HTML, "https://e-hentai.org")
+    assert ext[0].gid == 222222
+    assert ext[0].thumb == "https://ehgt.org/w/01/704/00138-24abcd.webp"
+    th, _ = parse_search_page(SEARCH_EH_THUMBNAIL_HTML, "https://e-hentai.org")
+    assert th[0].gid == 333333
+    assert th[0].thumb == "https://ehgt.org/w/02/112/77385-rdf9iok6.webp"
+
+
+def test_usable_thumb_src_skips_chrome_and_rewrites_w_path() -> None:
+    w_url = "https://ehgt.org/w/02/620/92376-8kcfz9rc.webp"
+    assert _usable_thumb_src(w_url) == w_url
+    assert _usable_thumb_src("https://ehgt.org/g/t.png") is None
+    assert _usable_thumb_src("https://ehgt.org/g/td.png") is None
+    s_w = "https://s.exhentai.org/w/02/620/92376-8kcfz9rc.webp"
+    assert get_fixed_preview_thumb_url(s_w) == w_url
+    assert _usable_thumb_src(s_w) == w_url
+
+
 def test_classify_search_body_sad_panda_empty_expired() -> None:
     assert classify_search_body("Sad Panda\n") == "no_exhentai_access"
     assert classify_search_body("") == "challenge"
