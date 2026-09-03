@@ -23,6 +23,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Discover compact covers were empty** (`services/eh_client.py`): e-hentai Compact `glthumb` cover is `https://ehgt.org/w/…/….webp` and not inside the title `<a>`; parse listing cells (`glthumb` / `gl1e` / `gl3t`) like Ehviewer_CN_SXJ, rewrite `/w/` thumbs to `ehgt.org`, and skip chrome icons (`/g/t.png`). CSP still ehgt-only.
 - **Discover listing thumbs blocked by CSP** (`services/eh_client.py`, `frontend/nginx.conf`, `views/discover.js`, `frontend/sw.js`): rewrite preview thumbs to `https://ehgt.org/...` like Ehviewer_CN_SXJ `getFixedPreviewThumbUrl`; CSP `img-src` allows `https://ehgt.org` only (not exhentai hosts); in-library cards use `/api/galleries/{id}/thumb/0`, others render ehgt URLs with `referrerpolicy="no-referrer"`. Non-ehgt hosts are dropped when rewrite fails; http ehgt URLs are upgraded to https. Installed PWAs drop the old document CSP via `gv-shell-v3`.
 - **7z scan extracts images only** (`scanners/sevenzip.py`): `scan()` validates every member path then `read(targets=…)` / `extract(targets=…)` image suffixes only; non-images such as `payload.bin` stay packed so junk or path-bomb 7z cannot fill the temp disk. `open_page` still extracts a single file.
 - **PWA js/css no longer cache-first** (`frontend/sw.js`): script/style assets are network-first and refresh the cache on success (offline falls back to cache); cache name `gv-shell-v2` so installed clients drop the old shell. `/api/` and gallery images still bypass the SW.
