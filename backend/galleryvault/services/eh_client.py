@@ -598,6 +598,22 @@ def _search_item_window(body: str, gid: int, token: str) -> str:
     return body[start:end]
 
 
+def get_fixed_preview_thumb_url(origin: str) -> str:
+    src = origin.strip()
+    if src.startswith("//"):
+        src = "https:" + src
+    parsed = urlparse(src)
+    if not parsed.scheme or not parsed.netloc:
+        return src
+    segments = [part for part in parsed.path.split("/") if part]
+    if len(segments) < 3:
+        return src
+    last, second, third = segments[-1], segments[-2], segments[-3]
+    if last.startswith(third) and last.startswith(second, len(third)):
+        return f"https://ehgt.org/{third}/{second}/{last}"
+    return src
+
+
 def _usable_thumb_src(url: str | None) -> str | None:
     if not url:
         return None
@@ -607,7 +623,13 @@ def _usable_thumb_src(url: str | None) -> str | None:
         return None
     if any(skip in low for skip in ("/509.gif", "/509s.gif", "blank.gif")):
         return None
-    return src
+    fixed = get_fixed_preview_thumb_url(src)
+    parsed = urlparse(fixed)
+    if parsed.netloc.lower() != "ehgt.org":
+        return None
+    if parsed.scheme.lower() != "https":
+        return f"https://ehgt.org{parsed.path}"
+    return fixed
 
 
 def _thumb_from_img_attrs(attrs: str) -> str | None:
