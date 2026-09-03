@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Discover Popular / Watched / Toplist** (`GET /api/eh/search?list=`, `#/discover`): same parser, badges, 90s cache, download/favorite buttons; paths `/popular`, `/watched`, `/toplist.php?tl=` (11/12/13/15); cursor still `next=gid-ts`.
+- **Library filters**: size (bytes), posted date, uploader, `image_quality`, language shortcuts via `language:` tags, local star rating, local list; sticky query.
+- **Saved searches** (`user_settings.saved_searches`, get+merge, max 30) and **local lists** (`local_lists` / `local_list_items`, CBZ without gid allowed).
+- **Local rating / note / `local:` tags** and **favorite notes** (`favorite_items.note`; EH HTML parse when present; edit via applyfav `favnote`, cloud-success only).
+- **PWA** (shell-only service worker, no gallery image cache), **light theme** (`gv_theme`), **disk dashboard** (`GET /api/system/storage`), **notification persistence** (`cache/notifications.json`), **7z/PDF scanners** (py7zr / pypdf), **OPDS** (`GET /api/opds`, cookie auth), Bot `/stats`.
 - **Webtoon reader mode** (`frontend/assets/views/reader-webtoon.js`, `reader.js`): vertical continuous scroll with `loading="lazy"` and IntersectionObserver progress (`PUT /api/galleries/{id}/progress`, 0-based). Mode cycles LTR → RTL → Double → Double RTL → Webtoon; click/arrow paging and double-page layout are not applied in webtoon. Toolbar keeps `G` jump and back-to-details.
 - **Single-gallery CBZ export** (`GET /api/galleries/{id}/export.cbz`, `services/export_cbz.py`): existing `.cbz` is streamed as-is; directory galleries are packed in page order with `ZIP_STORED` to a tempfile. Member paths must stay inside the gallery directory (zip-slip → 400); missing files → 404. Detail page has an Export CBZ button; writes an `export-cbz` task log.
 - **In-app notification center** (`services/notifications.py`, `GET/POST /api/notifications`): memory ring (maxlen 100) for download complete/fail, library scan complete/fail, and cookie expiry — recorded even when Telegram is off or unconfigured. Cookie entries are deduped per state. Top-bar bell + unread badge + dropdown; poll ≥15s. Cookie red banner is unchanged.
@@ -18,6 +23,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Quota near-limit copy** now uses `quotaNearLimit` on the yellow banner; `GET /api/quota` OpenAPI documents `gp` + `image_limit`.
 - **Bot `/cancel` only cancels pending/downloading** (`services/telegram_bot.py`): `/cancel <id|gid>` no longer reports success for failed/success/cancelled tasks; gid lookup uses the latest in-progress or queued row.
 - **Discover search covers used `blank.gif`** (`services/eh_client.py`): thumbnail-mode listings with `src="blank.gif"` + `data-src` now skip placeholder gifs (`blank.gif` / `509.gif`) and prefer `data-src`, so discover cards keep the real ehgt cover.
 

@@ -78,6 +78,19 @@ async function renderGallery() {
         <button class="btn btn-secondary" data-action="export-cbz" data-id="${g.id}" type="button">${esc(t("exportCbz"))}</button>
         <button class="btn btn-danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
       </div>
+      <section>
+        <h2>${esc(t("localRating"))}</h2>
+        <div class="toolbar">
+          <select id="local-rating">
+            <option value="">—</option>
+            ${[1,2,3,4,5].map(n => `<option value="${n}"${g.local_rating === n ? " selected" : ""}>${n}★</option>`).join("")}
+          </select>
+          <input id="local-tags" value="${esc((g.tags || []).filter(tg => tg.namespace === "local").map(tg => tg.name).join(", "))}" placeholder="${esc(t("localTags"))}" style="min-width:180px">
+          <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
+        </div>
+        <textarea id="local-note" rows="2" placeholder="${esc(t("localNote"))}" style="width:100%;margin-top:8px">${esc(g.local_note || "")}</textarea>
+        <div class="toolbar" id="gallery-lists"></div>
+      </section>
       <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
       <section><h2>${esc(t("pagesSection"))}</h2>
         <div class="thumbs">${thumbs}</div>
@@ -106,6 +119,12 @@ async function renderGallery() {
               `<a class="badge" href="#/favorites/${n.favcat}?from=${id}" style="color:var(--accent)">${esc(n.name || ("#" + n.favcat))}</a>`
             ).join(" ");
           }
+          const noteWrap = document.createElement("div");
+          noteWrap.className = "toolbar";
+          noteWrap.innerHTML = `<input id="fav-note" value="${esc(fav.note || "")}" placeholder="${esc(t("favNote"))}" style="min-width:220px">
+            <button class="btn btn-secondary" data-action="save-fav-note" data-gid="${fav.gid}" data-token="${esc(fav.token || g.token || "")}" data-favcat="${(fav.favcats && fav.favcats[0] != null) ? fav.favcats[0] : 0}" type="button">${esc(t("saveFavNote"))}</button>`;
+          const header = $view().querySelector("header");
+          if (header) header.insertAdjacentElement("afterend", noteWrap);
         } else {
           if (addBtn) {
             addBtn.hidden = false;
@@ -118,7 +137,79 @@ async function renderGallery() {
         }
       } catch (_) {}
     }
+    fillGalleryLists(id);
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+async function fillGalleryLists(id) {
+  const el = document.getElementById("gallery-lists");
+  if (!el) return;
+  try {
+    const [all, mine] = await Promise.all([
+      api("GET", "/api/lists"),
+      api("GET", `/api/galleries/${id}/lists`),
+    ]);
+    const mineIds = new Set(((mine && mine.items) || []).map(it => it.id));
+    const items = (all && all.items) || [];
+    el.innerHTML = items.map(it => mineIds.has(it.id)
+      ? `<button class="btn btn-secondary" data-action="gallery-list-remove" data-id="${id}" data-list="${it.id}" type="button">${esc(t("listRemove"))}: ${esc(it.name)}</button>`
+      : `<button class="btn btn-secondary" data-action="gallery-list-add" data-id="${id}" data-list="${it.id}" type="button">${esc(t("listAdd"))}: ${esc(it.name)}</button>`
+    ).join("");
+  } catch (_) {}
+}
+
+async function saveGalleryLocal() {
+  const id = app.params.id;
+  const ratingEl = document.getElementById("local-rating");
+  const noteEl = document.getElementById("local-note");
+  const tagsEl = document.getElementById("local-tags");
+  const rating = ratingEl && ratingEl.value ? parseInt(ratingEl.value, 10) : null;
+  const local_tags = tagsEl && tagsEl.value
+    ? tagsEl.value.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+    : [];
+  try {
+    await api("PATCH", `/api/galleries/${id}/local`, {
+      local_rating: rating,
+      local_note: noteEl ? noteEl.value : "",
+      local_tags,
+    });
+    toast(t("saveLocal"));
+    renderGallery();
+  } catch (e) { toast(e.message); }
+}
+
+async function saveGalleryFavNote() {
+  const el = document.querySelector('[data-action="save-fav-note"]');
+  const input = document.getElementById("fav-note");
+  if (!el) return;
+  const gid = parseInt(el.getAttribute("data-gid"), 10);
+  try {
+    const r = await api("POST", "/api/favorites/note", {
+      gid,
+      token: el.getAttribute("data-token") || "",
+      favcat: parseInt(el.getAttribute("data-favcat"), 10) || 0,
+      note: input ? input.value : "",
+    });
+    toast(r.cloud_ok ? t("saveFavNote") : t("favAddFail"));
+  } catch (e) { toast(e.message || t("favAddFail")); }
+}
+
+async function galleryAddToList(el) {
+  try {
+    await api("POST", `/api/lists/${el.getAttribute("data-list")}/items`, {
+      gallery_ids: [parseInt(el.getAttribute("data-id"), 10)],
+    });
+    fillGalleryLists(el.getAttribute("data-id"));
+  } catch (e) { toast(e.message); }
+}
+
+async function galleryRemoveFromList(el) {
+  try {
+    await api("POST", `/api/lists/${el.getAttribute("data-list")}/items/remove`, {
+      gallery_ids: [parseInt(el.getAttribute("data-id"), 10)],
+    });
+    fillGalleryLists(el.getAttribute("data-id"));
+  } catch (e) { toast(e.message); }
 }
 
 function exportGalleryCbz(id) {

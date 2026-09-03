@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
@@ -29,12 +30,13 @@ from ...services.settings_service import (
 )
 from ..dependencies import (
     db_error,
+    display_title,
     get_current_settings,
     get_eh_client,
     get_session,
     spawn_task,
 )
-from ..schemas import LogLevelRequest, SettingsRequest
+from ..schemas import LogLevelRequest, SavedSearchRequest, SettingsRequest
 from ..state import app_state
 
 logger = logging.getLogger(__name__)
@@ -297,4 +299,173 @@ async def system_logs_download() -> Response:
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{download_filename}"'},
     )
+
+
+_SAVED_SEARCH_MAX = 30
+
+
+async def _user_settings() -> dict:
+    async for session in get_session():
+        return await SettingsRepository(session).get()
+    return {}
+
+
+async def _merge_user_settings(updates: dict) -> dict:
+    async for session in get_session():
+        async with session.begin():
+            repo = SettingsRepository(session)
+            existing = await repo.get()
+            merged = {**existing, **updates}
+            await repo.save(merged)
+        return merged
+    return updates
+
+
+def _normalize_saved_searches(raw: object) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        query = item.get("query") if isinstance(item.get("query"), dict) else {}
+        ident = str(item.get("id") or "").strip()
+        if not name:
+            continue
+        out.append({"id": ident, "name": name, "query": query})
+    return out[:_SAVED_SEARCH_MAX]
+
+
+@router.get("/api/saved-searches")
+async def saved_searches_list() -> dict[str, object]:
+    try:
+        stored = await _user_settings()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("saved searches read failed", extra={"error": str(exc)})
+        stored = {}
+    items = _normalize_saved_searches(stored.get("saved_searches"))
+    return {"items": items}
+
+
+@router.post("/api/saved-searches")
+async def saved_searches_add(body: SavedSearchRequest) -> dict[str, object]:
+    import uuid
+
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+    try:
+        stored = await _user_settings()
+        items = _normalize_saved_searches(stored.get("saved_searches"))
+        if len(items) >= _SAVED_SEARCH_MAX:
+            raise HTTPException(status_code=409, detail="saved search limit reached")
+        entry = {"id": uuid.uuid4().hex, "name": name, "query": body.query or {}}
+        items.append(entry)
+        await _merge_user_settings({"saved_searches": items})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise db_error(exc) from exc
+    return entry
+
+
+@router.delete("/api/saved-searches/{search_id}")
+async def saved_searches_delete(search_id: str) -> dict[str, object]:
+    try:
+        stored = await _user_settings()
+        items = _normalize_saved_searches(stored.get("saved_searches"))
+        next_items = [it for it in items if it.get("id") != search_id]
+        if len(next_items) == len(items):
+            raise HTTPException(status_code=404, detail="saved search not found")
+        await _merge_user_settings({"saved_searches": next_items})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise db_error(exc) from exc
+    return {"deleted": True, "id": search_id}
+
+
+def _dir_bytes(path: object) -> int:
+    from pathlib import Path
+
+    root = Path(str(path))
+    if not root.exists():
+        return 0
+    total = 0
+    try:
+        if root.is_file():
+            return int(root.stat().st_size)
+        for dirpath, _dirs, files in os.walk(root, followlinks=False):
+            for name in files:
+                try:
+                    total += (Path(dirpath) / name).stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
+def _path_info(path: object, bytes_value: int | None = None) -> dict[str, object]:
+    import shutil
+    from pathlib import Path
+
+    root = Path(str(path)) if path else Path()
+    exists = bool(path) and root.exists()
+    used = 0 if bytes_value is None else int(bytes_value)
+    if bytes_value is None:
+        used = _dir_bytes(root) if exists else 0
+    info: dict[str, object] = {
+        "path": str(root) if path else "",
+        "bytes": used if exists or bytes_value is not None else 0,
+        "exists": exists,
+    }
+    if exists:
+        try:
+            usage = shutil.disk_usage(root)
+            info["disk_total"] = int(usage.total)
+            info["disk_used"] = int(usage.used)
+            info["disk_free"] = int(usage.free)
+        except OSError:
+            pass
+    return info
+
+
+@router.get("/api/system/storage")
+async def system_storage() -> dict[str, object]:
+    from pathlib import Path
+
+    from starlette.concurrency import run_in_threadpool
+
+    settings = get_current_settings()
+    cache_root = Path(settings.thumbnail_cache_dir).parent
+    library_bytes = 0
+    largest: list[dict[str, object]] = []
+    try:
+        async for session in get_session():
+            repo = GalleryRepository(session)
+            library_bytes = await repo.library_storage_sum()
+            rows = await repo.largest_by_storage(10)
+            largest = [
+                {
+                    "id": row.id,
+                    "title": display_title(row),
+                    "storage_size": row.storage_size or row.file_size or 0,
+                }
+                for row in rows
+            ]
+            break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("storage dashboard db failed", extra={"error": str(exc)})
+    downloads = await run_in_threadpool(_path_info, settings.download_root)
+    cache = await run_in_threadpool(_path_info, str(cache_root))
+    lib_path = (settings.library_roots or [None])[0]
+    library = _path_info(lib_path, bytes_value=library_bytes)
+    return {
+        "library": library,
+        "downloads": downloads,
+        "cache": cache,
+        "largest": largest,
+    }
 

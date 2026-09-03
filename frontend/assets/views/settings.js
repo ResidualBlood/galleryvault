@@ -213,7 +213,11 @@ async function renderSettings() {
         <button class="btn btn-secondary" data-action="test-telegram" type="button">${esc(t("testTelegram"))}</button>
       </fieldset>
       <div class="toolbar"><button class="btn btn-primary" type="submit">${esc(t("save"))}</button></div>
-    </form>`);
+    </form>
+    <section class="panel" style="margin-top:18px;padding:16px">
+      <h2>${esc(t("storageTitle"))}</h2>
+      <div id="storage-dash"><p class="muted">${esc(t("loading"))}</p></div>
+    </section>`);
   api("GET", "/api/tags/search/status").then(status => {
     const el = document.getElementById("trans-status");
     if (el && status) {
@@ -225,6 +229,28 @@ async function renderSettings() {
     }
   }).catch(() => {});
   refreshThumbsStatus();
+  fillStorageDash();
+}
+
+async function fillStorageDash() {
+  const el = document.getElementById("storage-dash");
+  if (!el) return;
+  try {
+    const d = await api("GET", "/api/system/storage");
+    const row = (key, label) => {
+      const info = d[key] || {};
+      const size = info.bytes != null ? fmtSize(info.bytes) : "0";
+      const miss = info.exists ? "" : ` (${esc(t("missing"))})`;
+      return `<p><strong>${esc(label)}</strong> ${esc(info.path || "")} — ${esc(size)}${miss}</p>`;
+    };
+    const largest = (d.largest || []).map(it =>
+      `<li><a href="${navHash("gallery", { id: it.id })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
+    ).join("");
+    el.innerHTML = row("library", t("storageLibrary")) + row("downloads", t("storageDownloads")) + row("cache", t("storageCache")) +
+      `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;
+  } catch (e) {
+    el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
 }
 
 async function testExhentai() {

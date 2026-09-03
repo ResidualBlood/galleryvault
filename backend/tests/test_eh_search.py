@@ -353,3 +353,36 @@ async def test_search_min_rating_sends_srdd_not_page() -> None:
         assert params.get("page") is None
     finally:
         await client.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_search_list_hits_popular_watched_toplist_paths() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text=SEARCH_LIST_HTML)
+
+    client = await _client_for(handler)
+    try:
+        pop = await client.search_galleries(list_type="popular")
+        await client.search_galleries(list_type="watched")
+        await client.search_galleries(list_type="toplist", tl=13)
+        assert "/popular" in seen[0]
+        assert "page=" not in seen[0]
+        assert "/watched" in seen[1]
+        assert "toplist.php" in seen[2]
+        assert "tl=13" in seen[2]
+        assert "page=" not in seen[2]
+        assert [it.gid for it in pop.items] == [111111, 222222]
+    finally:
+        await client.client.aclose()
+
+
+def test_parse_favorite_note_from_html() -> None:
+    from galleryvault.services.eh_client import parse_favorite_note
+
+    html = '<div id="favnote111111">keep this copy</div>'
+    assert parse_favorite_note(html, 111111) == "keep this copy"
+    assert parse_favorite_note("<div class='glnote'>hello</div>", 1) == "hello"
+    assert parse_favorite_note("<html></html>", 1) is None

@@ -59,7 +59,7 @@ async def test_help_lists_commands() -> None:
         text, chat_id, force = notifier.calls[0]
         assert force is True
         assert chat_id == 7
-        for cmd in ("/pause", "/resume", "/status", "/help", "/queue", "/cancel"):
+        for cmd in ("/pause", "/resume", "/status", "/help", "/queue", "/cancel", "/stats"):
             assert cmd in text
         assert "URL" in text
     finally:
@@ -76,6 +76,29 @@ async def test_unknown_text_replies_help() -> None:
         text, _chat, force = notifier.calls[0]
         assert force is True
         assert "/help" in text
+    finally:
+        app_state.settings = orig
+
+
+@pytest.mark.asyncio
+async def test_stats_summarizes_library_and_queue(monkeypatch) -> None:
+    from galleryvault.services import telegram_bot as bot_mod
+
+    async def fake_snapshot():
+        return ([], {"pending": 2, "downloading": 1, "failed": 3})
+
+    async def fake_count():
+        return 42
+
+    monkeypatch.setattr(bot_mod, "list_queue_snapshot", fake_snapshot)
+    monkeypatch.setattr(bot_mod, "library_count", fake_count)
+    bot, notifier, _queue, orig = _bot()
+    try:
+        await _update(bot, "/stats")
+        text, _chat, force = notifier.calls[0]
+        assert force is True
+        assert "42" in text
+        assert "2" in text and "1" in text and "3" in text
     finally:
         app_state.settings = orig
 

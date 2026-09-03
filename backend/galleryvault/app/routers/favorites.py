@@ -51,6 +51,7 @@ from ..schemas import (
     DownloadSelectedRequest,
     DuplicateIgnoreRequest,
     FavoriteCategoryRequest,
+    FavoriteNoteRequest,
     FavoritesAddRequest,
     FavoritesMoveRequest,
     FavoritesRemoveRequest,
@@ -248,6 +249,7 @@ async def favorite_items(
                 "filesize": file_size,
                 "first_seen_at": item.first_seen_at,
                 "is_local": gallery is not None,
+                "note": getattr(item, "note", None),
                 "tags": tags,
             }
         )
@@ -730,13 +732,14 @@ async def favorites_add(body: FavoritesAddRequest) -> dict[str, object]:
             title = it.get("title") or str(gid)
             token = it.get("token") or ""
             favorite_items_to_save.append(
-                FavoriteData(
-                    gid=gid,
-                    token=token,
-                    title=title,
-                    url=f"{base_url}/g/{gid}/{token}/",
-                    thumb=None,
-                )
+                    FavoriteData(
+                        gid=gid,
+                        token=token,
+                        title=title,
+                        url=f"{base_url}/g/{gid}/{token}/",
+                        thumb=None,
+                        note=it.get("note") or body.note or None,
+                    )
             )
         try:
             async for session in get_session():
@@ -767,6 +770,75 @@ async def favorites_add(body: FavoritesAddRequest) -> dict[str, object]:
         "cloud_failed": cloud_failed,
         "successful_gids": successful_gids,
         "local_added": local_added,
+    }
+
+
+@router.post("/api/favorites/note")
+async def favorites_set_note(body: FavoriteNoteRequest) -> dict[str, object]:
+    """Update a favorite note via ExHentai applyfav; write local only on success."""
+    settings = get_current_settings()
+    token = body.token
+    favcat = body.favcat
+    try:
+        async for session in get_session():
+            item = await FavoritesRepository(session).item_for_gid(body.gid)
+            if item is not None:
+                token = token or item.token
+                if favcat is None:
+                    favcat = item.favcat
+            if not token:
+                gallery = await session.scalar(select(Gallery).where(Gallery.gid == body.gid))
+                if gallery is not None:
+                    token = gallery.token
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    if not token:
+        raise HTTPException(status_code=422, detail="token is required")
+    if favcat is None:
+        raise HTTPException(status_code=422, detail="not in favorites")
+    cloud_ok = False
+    try:
+        client = app_state.eh_client
+        if client is not None:
+            await client.add_favorite(body.gid, str(token), int(favcat), note=body.note)
+        else:
+            async with EhClient(
+                settings, max_concurrency=settings.exhentai_max_concurrency
+            ) as tmp:
+                await tmp.add_favorite(body.gid, str(token), int(favcat), note=body.note)
+        cloud_ok = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cloud favorite note failed", extra=log_extra(error=type(exc).__name__))
+        cloud_ok = False
+    local_updated = 0
+    if cloud_ok:
+        try:
+            async for session in get_session():
+                async with session.begin():
+                    local_updated = await FavoritesRepository(session).update_note(
+                        body.gid, body.note, favcat=int(favcat)
+                    )
+                break
+        except SQLAlchemyError as exc:
+            raise db_error(exc) from exc
+    now = datetime.now(UTC).isoformat()
+    tm = get_task_manager()
+    tm.record_task(
+        "favorites-note",
+        now,
+        now,
+        "success" if cloud_ok else "failed",
+        reason=f"gid {body.gid}",
+        done=local_updated,
+        total=1,
+    )
+    spawn_task(tm.persist_history(), "persist task history")
+    return {
+        "gid": body.gid,
+        "cloud_ok": cloud_ok,
+        "local_updated": local_updated,
+        "note": body.note if cloud_ok else None,
     }
 
 

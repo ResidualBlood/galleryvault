@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -56,6 +56,7 @@ from ..schemas import (
     BulkDeleteRequest,
     DownloadOriginalRequest,
     FilteredDeleteRequest,
+    GalleryLocalRequest,
     ProgressRequest,
 )
 from ..state import app_state
@@ -64,6 +65,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _PAGE_STREAM_CHUNK = 256 * 1024
+_IMAGE_QUALITY = frozenset({"original", "resample"})
+
+
+def _parse_posted(value: str | None) -> datetime | None:
+    if not value or not str(value).strip():
+        return None
+    raw = str(value).strip()
+    try:
+        if len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
+            return datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC)
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid posted date") from exc
 
 
 def _page_media_type(ext: str) -> str:
@@ -253,6 +272,14 @@ async def list_galleries(
     min_rating: float | None = None,
     page_min: int | None = None,
     page_max: int | None = None,
+    size_min: int | None = None,
+    size_max: int | None = None,
+    posted_from: str | None = None,
+    posted_to: str | None = None,
+    uploader: str | None = None,
+    image_quality: str | None = None,
+    min_local_rating: int | None = Query(default=None, ge=1, le=5),
+    list_id: int | None = None,
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(
@@ -262,6 +289,14 @@ async def list_galleries(
         raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
     if read_status and read_status not in {"all", "unread", "reading", "completed", "read"}:
         raise HTTPException(status_code=422, detail="invalid read_status")
+    if image_quality:
+        image_quality = image_quality.strip().lower()
+        if image_quality not in _IMAGE_QUALITY:
+            raise HTTPException(status_code=422, detail="invalid image_quality")
+    else:
+        image_quality = None
+    posted_from_dt = _parse_posted(posted_from)
+    posted_to_dt = _parse_posted(posted_to)
     if category == "":
         category = None
     exclude_favorited = False
@@ -307,6 +342,14 @@ async def list_galleries(
                 min_rating=min_rating,
                 page_min=page_min,
                 page_max=page_max,
+                size_min=size_min,
+                size_max=size_max,
+                posted_from=posted_from_dt,
+                posted_to=posted_to_dt,
+                uploader=uploader,
+                image_quality=image_quality,
+                min_local_rating=min_local_rating,
+                list_id=list_id,
             )
             g_ids = [r.id for r in rows if getattr(r, "id", None)]
             tag_map = await repo_cls(session).tags_for_galleries(g_ids)
@@ -381,6 +424,8 @@ async def list_galleries(
                 "reading_progress": progress_map.get(row.id, getattr(row, "reading_progress", None)),
                 "expunged": getattr(row, "expunged", False),
                 "image_quality": getattr(row, "image_quality", None),
+                "local_rating": getattr(row, "local_rating", None),
+                "local_note": getattr(row, "local_note", None),
             }
             for row in rows
         ],
@@ -638,6 +683,8 @@ async def get_gallery(identifier: int) -> dict[str, object]:
         "reading_progress": getattr(row, "reading_progress", None),
         "expunged": getattr(row, "expunged", False),
         "image_quality": getattr(row, "image_quality", None),
+        "local_rating": getattr(row, "local_rating", None),
+        "local_note": getattr(row, "local_note", None),
         "storage_path": getattr(row, "storage_path", ""),
         "eh_url": (
             f"{settings.exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
@@ -677,6 +724,46 @@ async def get_gallery(identifier: int) -> dict[str, object]:
 
 
 gallery_detail = get_gallery
+
+
+@router.patch("/api/galleries/{identifier}/local")
+async def patch_gallery_local(identifier: int, body: GalleryLocalRequest) -> dict[str, object]:
+    row, _ = await _gallery(identifier)
+    if body.local_rating is not None and not (1 <= body.local_rating <= 5):
+        raise HTTPException(status_code=422, detail="local_rating must be 1-5")
+    try:
+        async for session in get_session():
+            async with session.begin():
+                gallery = await session.get(Gallery, row.id)
+                if gallery is None:
+                    raise HTTPException(status_code=404, detail="Gallery not found")
+                if "local_rating" in body.model_fields_set:
+                    gallery.local_rating = body.local_rating
+                if "local_note" in body.model_fields_set:
+                    gallery.local_note = body.local_note
+                if body.local_tags is not None:
+                    await GalleryRepository(session).set_local_tags(gallery.id, body.local_tags)
+                tags = await GalleryRepository(session).tags_for_galleries([gallery.id])
+            break
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    tm = get_task_manager()
+    now = datetime.now(UTC).isoformat()
+    tm.record_task("gallery-local", now, now, "success", reason=f"id {row.id}", done=1, total=1)
+    spawn_task(tm.persist_history(), "persist task history")
+    local_tags = [
+        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+        for ns, name in tags.get(row.id, [])
+        if ns == "local"
+    ]
+    return {
+        "id": row.id,
+        "local_rating": body.local_rating if "local_rating" in body.model_fields_set else row.local_rating,
+        "local_note": body.local_note if "local_note" in body.model_fields_set else row.local_note,
+        "local_tags": local_tags,
+    }
 
 
 @router.post("/api/galleries/{identifier}/download-original", status_code=202)
@@ -735,8 +822,10 @@ async def gallery_favorite_status(identifier: int) -> dict[str, object]:
     try:
         async for session in get_session():
             row, _ = await _gallery(identifier)
-            favcats = await FavoritesRepository(session).favcats_for_gid(row.gid, gallery_id=row.id)
-            names = await FavoritesRepository(session).category_names(favcats)
+            fav_repo = FavoritesRepository(session)
+            favcats = await fav_repo.favcats_for_gid(row.gid, gallery_id=row.id)
+            names = await fav_repo.category_names(favcats)
+            fav_item = await fav_repo.item_for_gid(row.gid) if row.gid else None
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -746,6 +835,7 @@ async def gallery_favorite_status(identifier: int) -> dict[str, object]:
         "favorite": bool(favcats),
         "favcats": favcats,
         "favcat_names": [{"favcat": f, "name": names.get(f, "")} for f in favcats],
+        "note": getattr(fav_item, "note", None) if fav_item else None,
     }
 
 
@@ -1121,10 +1211,22 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                     exclude_favorited=exclude_favorited,
                     order_by=order_by,
                     read_status=read_status,
-                    min_rating=min_rating,
-                    page_min=page_min,
-                    page_max=page_max,
-                )
+                     min_rating=min_rating,
+                     page_min=page_min,
+                     page_max=page_max,
+                     size_min=body.size_min,
+                     size_max=body.size_max,
+                     posted_from=_parse_posted(body.posted_from or body.min_posted_at),
+                     posted_to=_parse_posted(body.posted_to or body.max_posted_at),
+                     uploader=body.uploader,
+                     image_quality=(
+                         body.image_quality
+                         if body.image_quality in _IMAGE_QUALITY
+                         else None
+                     ),
+                     min_local_rating=body.min_local_rating,
+                     list_id=body.list_id,
+                 )
                 if not rows:
                     break
                 matching_ids.extend(r.id for r in rows)

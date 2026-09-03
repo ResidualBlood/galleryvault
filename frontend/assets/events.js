@@ -10,6 +10,7 @@ async function onClick(e) {
   if (!el) return;
   const action = el.getAttribute("data-action");
   if (action === "toggle-lang") { toggleLang(); return; }
+  if (action === "toggle-theme") { toggleTheme(); return; }
   if (action === "logout") { doLogout(); return; }
   if (action === "random") { randomGallery(); return; }
   if (action === "toggle-nav") {
@@ -141,6 +142,25 @@ async function onClick(e) {
     return;
   }
   if (action === "lib-batch-fav") { libraryBatchAddFavorite(); return; }
+  if (action === "discover-list") {
+    e.preventDefault();
+    const list = el.getAttribute("data-list") || "search";
+    const next = { ...app.query, page: undefined };
+    if (list === "search") delete next.list;
+    else next.list = list;
+    if (list !== "toplist") delete next.tl;
+    location.hash = navHash("discover", {}, next);
+    return;
+  }
+  if (action === "save-search") { saveCurrentSearch(); return; }
+  if (action === "apply-search") { applySavedSearch(el); return; }
+  if (action === "delete-search") { deleteSavedSearch(); return; }
+  if (action === "lib-add-list") { libraryAddToList(); return; }
+  if (action === "list-create") { createLocalList(); return; }
+  if (action === "save-local") { saveGalleryLocal(); return; }
+  if (action === "save-fav-note") { saveGalleryFavNote(); return; }
+  if (action === "gallery-list-add") { galleryAddToList(el); return; }
+  if (action === "gallery-list-remove") { galleryRemoveFromList(el); return; }
   if (action === "discover-dl") { discoverDownloadOne(el); return; }
   if (action === "discover-fav") { discoverFavoriteOne(el); return; }
   if (action === "disc-batch-dl") { discoverBatchDownload(); return; }
@@ -174,11 +194,15 @@ function onSubmit(e) {
     const fCats = discoverFCatsFromForm(form);
     const minRating = getVal("min_rating");
     const quality = getVal("quality");
+    const list = getVal("list") || app.query.list || "search";
+    const tl = getVal("tl");
     location.hash = navHash("discover", {}, {
       ...(form.q.value.trim() ? { q: form.q.value.trim() } : {}),
       ...(fCats ? { category: fCats } : {}),
       ...(minRating ? { min_rating: minRating } : {}),
       ...(quality && quality !== "resample" ? { quality } : {}),
+      ...(list && list !== "search" ? { list } : {}),
+      ...(list === "toplist" && tl ? { tl } : {}),
     });
     return;
   }
@@ -191,6 +215,22 @@ function onSubmit(e) {
     const pageMin = getVal("page_min");
     const pageMax = getVal("page_max");
     const minRating = getVal("min_rating");
+    const sizeMin = getVal("size_min");
+    const sizeMax = getVal("size_max");
+    const postedFrom = getVal("posted_from");
+    const postedTo = getVal("posted_to");
+    const uploader = getVal("uploader");
+    const imageQuality = getVal("image_quality");
+    const minLocal = getVal("min_local_rating");
+    const listId = getVal("list_id");
+    const language = getVal("language");
+    let tags = app.query.tags || "";
+    if (language) {
+      const langTag = "language:" + language;
+      const cur = parseTags(tags).filter(x => !x.startsWith("language:") && !x.startsWith("-language:"));
+      cur.push(langTag);
+      tags = cur.join(",");
+    }
     location.hash = navHash("library", {}, {
       ...(form.q.value.trim() ? { q: form.q.value.trim() } : {}),
       ...(form.category.value ? { category: form.category.value } : {}),
@@ -199,7 +239,15 @@ function onSubmit(e) {
       ...(pageMin ? { page_min: pageMin } : {}),
       ...(pageMax ? { page_max: pageMax } : {}),
       ...(minRating ? { min_rating: minRating } : {}),
-      ...(app.query.tags ? { tags: app.query.tags, tag_mode: app.query.tag_mode || "and", ...(app.query.tag_match && app.query.tag_match !== "exact" ? { tag_match: app.query.tag_match } : {}) } : {}),
+      ...(sizeMin ? { size_min: sizeMin } : {}),
+      ...(sizeMax ? { size_max: sizeMax } : {}),
+      ...(postedFrom ? { posted_from: postedFrom } : {}),
+      ...(postedTo ? { posted_to: postedTo } : {}),
+      ...(uploader ? { uploader } : {}),
+      ...(imageQuality ? { image_quality: imageQuality } : {}),
+      ...(minLocal ? { min_local_rating: minLocal } : {}),
+      ...(listId ? { list_id: listId } : {}),
+      ...(tags ? { tags, tag_mode: app.query.tag_mode || "and", ...(app.query.tag_match && app.query.tag_match !== "exact" ? { tag_match: app.query.tag_match } : {}) } : {}),
     });
     return;
   }

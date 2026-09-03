@@ -195,6 +195,13 @@ class FilteredDeleteRequest(BaseModel):
     read_status: str | None = None
     order_by: str | None = None
     exclude_tags: str | None = None
+    size_min: int | None = None
+    size_max: int | None = None
+    posted_from: str | None = None
+    posted_to: str | None = None
+    image_quality: str | None = None
+    min_local_rating: int | None = Field(default=None, ge=1, le=5)
+    list_id: int | None = None
 
     @model_validator(mode="after")
     def sync_tags(self) -> FilteredDeleteRequest:
@@ -281,6 +288,53 @@ class SettingsRequest(BaseModel):
                 f"duplicate_policy must be one of {', '.join(DUPLICATE_POLICIES)}"
             )
         return self
+
+
+class GalleryLocalRequest(BaseModel):
+    local_rating: int | None = None
+    local_note: str | None = None
+    local_tags: list[str] | None = None
+
+    @model_validator(mode="after")
+    def valid_rating(self) -> GalleryLocalRequest:
+        if self.local_rating is not None and not (1 <= self.local_rating <= 5):
+            raise ValueError("local_rating must be 1-5")
+        return self
+
+
+class FavoriteNoteRequest(BaseModel):
+    gid: int = Field(gt=0)
+    note: str = ""
+    token: str | None = None
+    favcat: int | None = Field(default=None, ge=0, le=9)
+
+
+class SavedSearchRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    query: dict[str, Any] = Field(default_factory=dict)
+
+
+class LocalListCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class LocalListItemsRequest(BaseModel):
+    gallery_ids: list[int] = Field(default_factory=list)
+
+
+class ImageLimitModel(BaseModel):
+    current: int
+    limit: int
+
+
+class QuotaResponse(BaseModel):
+    gp: int | None = None
+    image_limit: ImageLimitModel | None = None
+    image_limits: ImageLimitModel | None = None
+    checked_at: str | None = None
+    error: str | None = None
+    cached: bool = False
+    refreshing: bool | None = None
 
 
 class LogLevelRequest(BaseModel):

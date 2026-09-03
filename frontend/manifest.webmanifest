@@ -1,0 +1,16 @@
+{
+  "name": "GalleryVault",
+  "short_name": "GalleryVault",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0e0f",
+  "theme_color": "#0c0e0f",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

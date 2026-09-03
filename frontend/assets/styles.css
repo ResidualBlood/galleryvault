@@ -1,6 +1,8 @@
 :root {
   color-scheme: dark;
   --bg: #0c0e0f;
+  --bg-glow: #29271f;
+  --topbar-bg: #0d0f10ef;
   --panel: #171a1c;
   --panel-2: #202426;
   --ink: #f1eee7;
@@ -9,6 +11,23 @@
   --accent: #d8a55b;
   --danger: #ed8b83;
   --ok: #7fc8a9;
+  --warning: #ff9800;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --bg-glow: #e8dcc8;
+  --topbar-bg: #f4f1eaef;
+  --panel: #fffdf8;
+  --panel-2: #efeae2;
+  --ink: #1c1a17;
+  --muted: #6b6560;
+  --line: #d9d2c8;
+  --accent: #b0792c;
+  --danger: #c4564e;
+  --ok: #3d8f6e;
+  --warning: #c07812;
+}
   /* Phase 2 design tokens (additive, backward compat) */
   --color-bg: var(--bg);
   --color-panel: var(--panel);
@@ -42,7 +61,7 @@
 [hidden] { display: none !important; }
 body {
   margin: 0;
-  background: radial-gradient(circle at 15% 0, #29271f 0, transparent 34%), var(--bg);
+  background: radial-gradient(circle at 15% 0, var(--bg-glow) 0, transparent 34%), var(--bg);
   color: var(--ink);
   font: 15px/1.5 system-ui, -apple-system, sans-serif;
 }
@@ -52,7 +71,7 @@ button { cursor: pointer; font: inherit; }
   height: 58px; display: flex; align-items: center; gap: var(--space-xl);
   padding: 0 max(var(--space-lg), calc((100vw - 1320px) / 2));
   border-bottom: 1px solid var(--line);
-  background: #0d0f10ef; position: sticky; top: 0; z-index: 2; backdrop-filter: blur(12px);
+  background: var(--topbar-bg); position: sticky; top: 0; z-index: 2; backdrop-filter: blur(12px);
 }
 .brand { color: var(--ink); font-weight: 800; letter-spacing: .04em; white-space: nowrap; }
 .top-search { display: flex; flex: 1; max-width: 520px; margin: auto; }

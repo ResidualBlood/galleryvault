@@ -15,6 +15,7 @@ from ..models import (
     GalleryPage,
     GalleryTag,
     GalleryUpdate,
+    LocalListItem,
     ReadingHistory,
     ReadingProgress,
     Tag,
@@ -390,6 +391,14 @@ class GalleryRepository:
         min_rating: float | None = None,
         page_min: int | None = None,
         page_max: int | None = None,
+        size_min: int | None = None,
+        size_max: int | None = None,
+        posted_from: datetime | None = None,
+        posted_to: datetime | None = None,
+        uploader: str | None = None,
+        image_quality: str | None = None,
+        min_local_rating: int | None = None,
+        list_id: int | None = None,
     ) -> tuple[int, list[Gallery]]:
         query = select(Gallery)
         if q and q.strip():
@@ -407,6 +416,32 @@ class GalleryRepository:
             query = query.where(Gallery.page_count >= page_min)
         if page_max is not None:
             query = query.where(Gallery.page_count <= page_max)
+        size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+        if size_min is not None:
+            query = query.where(size_col >= size_min)
+        if size_max is not None:
+            query = query.where(size_col <= size_max)
+        if posted_from is not None:
+            query = query.where(Gallery.posted_at >= posted_from)
+        if posted_to is not None:
+            query = query.where(Gallery.posted_at <= posted_to)
+        if uploader and uploader.strip():
+            pattern = f"%{escape_like_wildcards(uploader.strip())}%"
+            query = query.where(Gallery.uploader.ilike(pattern))
+        if image_quality:
+            query = query.where(Gallery.image_quality == image_quality)
+        if min_local_rating is not None:
+            query = query.where(Gallery.local_rating >= min_local_rating)
+        if list_id is not None:
+            in_list = (
+                select(1)
+                .select_from(LocalListItem)
+                .where(
+                    LocalListItem.list_id == list_id,
+                    LocalListItem.gallery_id == Gallery.id,
+                )
+            )
+            query = query.where(in_list.exists())
         if exclude_favorited:
             # Local galleries whose gid is not in any favorite folder and
             # not superseded by a tracked update whose new_gid is in favorites.
@@ -1366,7 +1401,12 @@ class GalleryRepository:
         NOTHING`` so parallel tag-sync workers can't race on the unique
         ``(namespace, name)`` constraint.
         """
-        await self.session.execute(delete(GalleryTag).where(GalleryTag.gallery_id == gallery.id))
+        await self.session.execute(
+            delete(GalleryTag).where(
+                GalleryTag.gallery_id == gallery.id,
+                ~GalleryTag.tag_id.in_(select(Tag.id).where(Tag.namespace == "local")),
+            )
+        )
         await self.session.flush()
         unique_tags: set[tuple[str, str]] = set()
         for tag_data in tags:
@@ -1411,6 +1451,75 @@ class GalleryRepository:
         gallery.tags_synced_at = synced_at
         await self.session.flush()
         return len(unique_tags)
+
+    async def set_local_tags(self, gallery_id: int, names: Sequence[str]) -> int:
+        """Replace only ``local:`` tags for a gallery; EH tags are untouched."""
+        await self.session.execute(
+            delete(GalleryTag).where(
+                GalleryTag.gallery_id == gallery_id,
+                GalleryTag.tag_id.in_(select(Tag.id).where(Tag.namespace == "local")),
+            )
+        )
+        await self.session.flush()
+        unique: list[str] = []
+        seen: set[str] = set()
+        for raw in names:
+            name = str(raw or "").strip()
+            if ":" in name:
+                name = name.split(":", 1)[-1].strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            unique.append(name)
+        if not unique:
+            return 0
+        await self.session.execute(
+            pg_insert(Tag)
+            .values([{"namespace": "local", "name": name} for name in unique])
+            .on_conflict_do_nothing(index_elements=["namespace", "name"])
+        )
+        await self.session.flush()
+        existing = (
+            await self.session.scalars(
+                select(Tag).where(Tag.namespace == "local", Tag.name.in_(unique))
+            )
+        ).all()
+        if existing:
+            await self.session.execute(
+                pg_insert(GalleryTag)
+                .values(
+                    [{"gallery_id": gallery_id, "tag_id": tag.id} for tag in existing]
+                )
+                .on_conflict_do_nothing(index_elements=["gallery_id", "tag_id"])
+            )
+            await self.session.flush()
+        return len(existing)
+
+    async def largest_by_storage(self, limit: int = 10) -> list[Gallery]:
+        size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+        rows = (
+            await self.session.scalars(
+                select(Gallery)
+                .where(
+                    Gallery.expunged.is_(False),
+                    Gallery.trashed.is_(False),
+                    size_col.is_not(None),
+                    size_col > 0,
+                )
+                .order_by(size_col.desc(), Gallery.id.desc())
+                .limit(limit)
+            )
+        ).all()
+        return list(rows)
+
+    async def library_storage_sum(self) -> int:
+        size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+        value = await self.session.scalar(
+            select(func.coalesce(func.sum(size_col), 0)).where(
+                Gallery.expunged.is_(False), Gallery.trashed.is_(False)
+            )
+        )
+        return int(value or 0)
 
     async def pending_tag_sync_ids(
         self, limit: int = 1000, last_id: int = 0

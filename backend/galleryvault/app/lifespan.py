@@ -216,6 +216,12 @@ def ensure_translation_updater() -> asyncio.Task | None:
 async def startup() -> None:
     sync_state()
     hydrate_startup_logs()
+    try:
+        from ..services.notifications import load_notifications
+
+        load_notifications()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("notification hydration skipped", extra={"error": type(exc).__name__})
 
     enable_workers = app_state.extra.get("enable_workers", True)
 

@@ -119,7 +119,7 @@ function prefPageSize(fallback = 24) {
 
 function libraryContext() {
   const c = {};
-  for (const k of ["q", "tags", "tag_mode", "tag_match", "category", "order_by", "read_status", "min_rating", "page_min", "page_max", "min_pages", "max_pages", "page_size"]) {
+  for (const k of ["q", "tags", "tag_mode", "tag_match", "category", "order_by", "read_status", "min_rating", "page_min", "page_max", "min_pages", "max_pages", "page_size", "size_min", "size_max", "posted_from", "posted_to", "uploader", "image_quality", "min_local_rating", "list_id"]) {
     if (app.query[k]) c[k] = app.query[k];
   }
   return c;
@@ -138,6 +138,14 @@ function tagFilterHash(tagsArr) {
   if (app.query.page_max) query.page_max = app.query.page_max;
   if (app.query.min_pages) query.min_pages = app.query.min_pages;
   if (app.query.max_pages) query.max_pages = app.query.max_pages;
+  if (app.query.size_min) query.size_min = app.query.size_min;
+  if (app.query.size_max) query.size_max = app.query.size_max;
+  if (app.query.posted_from) query.posted_from = app.query.posted_from;
+  if (app.query.posted_to) query.posted_to = app.query.posted_to;
+  if (app.query.uploader) query.uploader = app.query.uploader;
+  if (app.query.image_quality) query.image_quality = app.query.image_quality;
+  if (app.query.min_local_rating) query.min_local_rating = app.query.min_local_rating;
+  if (app.query.list_id) query.list_id = app.query.list_id;
   // preserve hash-level page reset: filter changes always go to page 1 (no page param)
   if (tagsArr && tagsArr.length) query.tags = tagsArr.join(",");
   return navHash("library", {}, query);

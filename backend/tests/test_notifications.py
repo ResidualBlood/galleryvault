@@ -2,8 +2,10 @@ from galleryvault.app.state import app_state
 from galleryvault.config import Settings
 from galleryvault.services.notifications import (
     list_notifications,
+    load_notifications,
     mark_notifications_read,
     notify_cookie_health,
+    persist_notifications,
     push_notification,
     reset_notifications,
 )
@@ -65,3 +67,27 @@ async def test_download_outcome_off_still_rings() -> None:
     assert data["unread_count"] == 1
     assert data["items"][0]["kind"] == "download_fail"
     assert data["items"][0]["title"] == "B"
+
+
+def test_notifications_persist_and_restore(tmp_path, monkeypatch) -> None:
+    from galleryvault.app.state import app_state
+    from galleryvault.config import Settings
+
+    orig = app_state.settings
+    cache = tmp_path / "thumbs"
+    cache.mkdir()
+    app_state.settings = Settings(thumbnail_cache_dir=str(cache))
+    try:
+        reset_notifications()
+        push_notification("scan_ok", "persisted", "x")
+        persist_notifications()
+        path = tmp_path / "notifications.json"
+        assert path.is_file()
+        reset_notifications()
+        assert list_notifications()["items"] == []
+        load_notifications()
+        data = list_notifications()
+        assert data["unread_count"] == 1
+        assert data["items"][0]["title"] == "persisted"
+    finally:
+        app_state.settings = orig

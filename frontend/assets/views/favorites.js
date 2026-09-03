@@ -138,7 +138,7 @@ function favCard(it) {
   return `<div class="gc-wrap">
     <a class="gc" ${link}>
       <div class="gc-cover">${inner}${stateBadge}${cat ? `<span class="gc-cat">${cat}</span>` : ""}${it.page_count ? `<span class="gc-pages">${it.page_count} P</span>` : ""}</div>
-      <div class="gc-title">${esc(it.title || ("gid " + it.gid))}${size}</div>
+      <div class="gc-title">${esc(it.title || ("gid " + it.gid))}${size}${it.note ? `<div class="sub">${esc(it.note)}</div>` : ""}</div>
       <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</div>
     </a>
     <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-fav-gid="${it.gid}"${selFav.has(it.gid) ? " checked" : ""}></label>

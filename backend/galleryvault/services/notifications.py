@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections import deque
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from ..app.state import app_state
 
+logger = logging.getLogger(__name__)
+
 RING_MAX = 100
 _COOKIE_STATES = frozenset({"not_logged_in", "no_exhentai_access"})
+
+
+def notifications_path() -> Path | None:
+    settings = app_state.settings
+    cache_dir = getattr(settings, "thumbnail_cache_dir", None) if settings else None
+    if not cache_dir:
+        return None
+    return Path(cache_dir).parent / "notifications.json"
 
 
 def _ring() -> deque[dict[str, Any]]:
@@ -18,6 +31,51 @@ def _ring() -> deque[dict[str, Any]]:
         extra["notifications"] = ring
         extra["notifications_seq"] = int(extra.get("notifications_seq") or 0)
     return ring
+
+
+def persist_notifications() -> None:
+    path = notifications_path()
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "seq": int(app_state.extra.get("notifications_seq") or 0),
+            "items": list(_ring()),
+        }
+        path.write_text(json.dumps(payload), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("notifications persist failed", extra={"error": str(exc)})
+
+
+def load_notifications() -> None:
+    path = notifications_path()
+    extra = app_state.extra
+    ring = deque(maxlen=RING_MAX)
+    seq = 0
+    if path is not None and path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            items = raw.get("items") if isinstance(raw, dict) else raw
+            if isinstance(items, list):
+                for item in items[-RING_MAX:]:
+                    if isinstance(item, dict):
+                        ring.append(item)
+                        try:
+                            seq = max(seq, int(item.get("id") or 0))
+                        except (TypeError, ValueError):
+                            pass
+            if isinstance(raw, dict):
+                try:
+                    seq = max(seq, int(raw.get("seq") or 0))
+                except (TypeError, ValueError):
+                    pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("notifications load failed", extra={"error": str(exc)})
+            ring = deque(maxlen=RING_MAX)
+            seq = 0
+    extra["notifications"] = ring
+    extra["notifications_seq"] = seq
 
 
 def reset_notifications() -> None:
@@ -42,6 +100,7 @@ def push_notification(
         "read": False,
     }
     _ring().append(item)
+    persist_notifications()
     return item
 
 
@@ -55,6 +114,7 @@ def list_notifications() -> dict[str, Any]:
 def mark_notifications_read() -> dict[str, Any]:
     for item in _ring():
         item["read"] = True
+    persist_notifications()
     return list_notifications()
 
 

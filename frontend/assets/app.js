@@ -28,6 +28,12 @@ async function init() {
   window.addEventListener("hashchange", router);
   await loadLocale(app.lang);
   updateLangButton();
+  try {
+    applyTheme(localStorage.getItem("gv_theme") === "light" ? "light" : "dark");
+  } catch (_) {}
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
   checkAuth();
 }
 

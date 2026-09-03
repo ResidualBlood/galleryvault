@@ -66,6 +66,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "<code>/help</code> 本帮助\n"
             "<code>/queue</code> 下载队列\n"
             "<code>/cancel</code> &lt;id|gid&gt; 取消任务\n"
+            "<code>/stats</code> 库本数与队列摘要\n"
             "直接粘贴画廊 URL 即可入队。"
         ),
         "bot_queue_empty": "📭 队列为空（无等待 / 进行中 / 失败）",
@@ -75,6 +76,10 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_cancel_ok": "✅ 已取消任务 <code>{id}</code>（gid <code>{gid}</code>）",
         "bot_cancel_not_found": "❌ 找不到任务 <code>{ident}</code>",
         "bot_cancel_usage": "用法：<code>/cancel &lt;id|gid&gt;</code>",
+        "bot_stats": (
+            "📊 库 <b>{galleries}</b> 本；队列等待 <b>{pending}</b>，"
+            "下载中 <b>{downloading}</b>，失败 <b>{failed}</b>"
+        ),
         "download_gone": "❌ <b>{title}</b>已删除或不存在（404）",
         "download_updated": (
             "🔄 原 gid <code>{old}</code> → 新版 gid <code>{new}</code>，"
@@ -121,6 +126,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "<code>/help</code> this help\n"
             "<code>/queue</code> download queue\n"
             "<code>/cancel</code> &lt;id|gid&gt; cancel a task\n"
+            "<code>/stats</code> library count and queue summary\n"
             "Paste a gallery URL to enqueue."
         ),
         "bot_queue_empty": "📭 Queue is empty (no pending / running / failed)",
@@ -133,6 +139,10 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_cancel_ok": "✅ Cancelled task <code>{id}</code> (gid <code>{gid}</code>)",
         "bot_cancel_not_found": "❌ Task <code>{ident}</code> not found",
         "bot_cancel_usage": "Usage: <code>/cancel &lt;id|gid&gt;</code>",
+        "bot_stats": (
+            "📊 Library <b>{galleries}</b>; queue pending <b>{pending}</b>, "
+            "downloading <b>{downloading}</b>, failed <b>{failed}</b>"
+        ),
         "download_gone": "❌ <b>{title}</b> deleted or not found (404)",
         "download_updated": (
             "🔄 Original gid <code>{old}</code> → new gid <code>{new}</code>, "
@@ -336,6 +346,21 @@ def bot_already_local(gid: object, title: object, lang: str = "zh") -> str:
 
 def bot_help(lang: str = "zh") -> str:
     return _t(lang, "bot_help")
+
+
+def bot_stats(
+    galleries: int,
+    pending: int,
+    downloading: int,
+    failed: int,
+    lang: str = "zh",
+) -> str:
+    return _t(lang, "bot_stats").format(
+        galleries=int(galleries),
+        pending=int(pending),
+        downloading=int(downloading),
+        failed=int(failed),
+    )
 
 
 def bot_queue(
