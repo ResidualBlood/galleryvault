@@ -30,6 +30,7 @@ from ..services.messages import (
 logger = logging.getLogger(__name__)
 
 _QUEUE_STATUSES = ("pending", "downloading", "failed")
+_CANCELABLE_STATUSES = frozenset({"pending", "downloading"})
 _QUEUE_LIST_CAP = 25
 
 
@@ -85,17 +86,23 @@ async def cancel_download_ident(ident: int) -> tuple[str, int | None, int | None
         return "not_found", None, None
     async with app_state.session_factory() as session, session.begin():
         task = await session.get(DownloadTask, ident)
-        if task is None:
+        if task is not None:
+            if task.status not in _CANCELABLE_STATUSES:
+                return "not_found", None, None
+        else:
             found = (
                 await session.scalars(
                     select(DownloadTask)
-                    .where(DownloadTask.gid == ident)
+                    .where(
+                        DownloadTask.gid == ident,
+                        DownloadTask.status.in_(tuple(_CANCELABLE_STATUSES)),
+                    )
                     .order_by(DownloadTask.id.desc())
                     .limit(1)
                 )
             ).all()
             task = found[0] if found else None
-        if task is None:
+        if task is None or task.status not in _CANCELABLE_STATUSES:
             return "not_found", None, None
         task_id = int(task.id)
         gid = int(task.gid)
