@@ -27,6 +27,7 @@ window.GV_LOCALES.en = {
   browse: "Browse", discover: "Discover", library: "Library", tags: "Tags", downloads: "Downloads",
   downloadsSub: "Download tasks.",
   favorites: "Favorites", history: "History", settings: "Settings", logout: "Logout",
+  navMore: "More", navManage: "Manage",
   scan: "Scan library", random: "Random", readNow: "Read now", syncTags: "Sync tags",
   tagSection: "Tags", pagesSection: "Pages", details: "Details", prev: "Previous",
   next: "Next", allPages: "All pages", clearHistory: "Clear history", clearProgress: "Clear reading progress",

@@ -226,6 +226,7 @@ async function renderDuplicates() {
   $view().innerHTML = `
     <header><p class="eyebrow">DUPLICATE COPIES</p><h1>${esc(t("dupGalTitle"))}</h1>
     <p class="sub">${esc(t("dupGalSub"))}</p></header>
+    ${manageTabsHtml("duplicates")}
     <div class="toolbar">
       <button class="primary" data-action="dupgal-scan" type="button">${esc(t("dupGalScan"))}</button>
       <button class="secondary" data-action="dupgal-refresh" type="button">${esc(t("dupGalRefresh"))}</button>

@@ -27,6 +27,7 @@ window.GV_LOCALES.zh = {
   browse: "浏览", discover: "发现", library: "画廊库", tags: "标签", downloads: "下载",
   downloadsSub: "下载任务。",
   favorites: "收藏夹", history: "历史", settings: "设置", logout: "退出",
+  navMore: "更多", navManage: "管理",
   scan: "扫描库", random: "随机", readNow: "开始阅读", syncTags: "同步标签",
   tagSection: "标签", pagesSection: "页面", details: "详情", prev: "上一页",
   next: "下一页", allPages: "所有页面", clearHistory: "清空历史", clearProgress: "清除阅读进度",

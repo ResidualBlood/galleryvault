@@ -1,7 +1,13 @@
 # Usage Guide
 
 The SPA uses hash routing (`#/library`, `#/gallery/7`, …), so browser refresh
-and back/forward need no server round trip. The top banner can stack a yellow
+and back/forward need no server round trip. Desktop top navigation features
+Browse, Discover, Library, Tags, Downloads, Favorites, and "Management", with
+History, Settings, and Logs organized under the "More" dropdown. Management embeds
+shared tabs for Recycle Bin (`#/recycle`), Duplicate Copies (`#/duplicates`), and
+Missing Pages (`#/integrity`); clicking "Management" opens `#/recycle`, and all
+legacy hash URLs remain backward-compatible (the mobile hamburger menu keeps a
+flat structure). The top banner can stack a yellow
 global-pause bar, a red Cookie-expired / no-access bar, and an image-quota warning. The bell
 next to 🎲 is the **in-app notification center** (download complete/fail, library
 scan complete/fail, cookie expiry / no access — visible even without Telegram; polled about
@@ -120,7 +126,7 @@ manually to revisit it.
 
 ## Duplicate copies (`#/duplicates`)
 
-- When the same gallery (same gid) exists under **more than one scan root**
+- Accessible via the "Management" tab bar in desktop navigation (legacy hash `#/duplicates` remains directly usable). When the same gallery (same gid) exists under **more than one scan root**
   (an EhViewer download directory, a CBZ archive, a manual copy), the scan
   keeps one copy automatically per the **duplicate-copy policy** (`duplicate_policy`
   in Settings) and records every other copy on this page.
@@ -138,7 +144,7 @@ manually to revisit it.
 
 ## Recycle Bin (`#/recycle`)
 
-- Two tabs: **User deleted** (library delete without removing files) and **Scan
+- Default landing view of the "Management" navigation tab (legacy hash `#/recycle` remains directly usable). Two tabs: **User deleted** (library delete without removing files) and **Scan
   missing** (not found on disk during a scan).
 - **Restore** puts galleries back in the library (user-deleted only; scan-missing
   ghosts are not restored into the library); **Purge** asks again whether
@@ -148,7 +154,7 @@ manually to revisit it.
 
 ## Missing pages (`#/integrity`)
 
-- Lists galleries whose recorded `page_count` disagrees with pages on disk
+- Accessible via the "Management" tab bar in desktop navigation (legacy hash `#/integrity` remains directly usable). Lists galleries whose recorded `page_count` disagrees with pages on disk
   (unset page counts are excluded).
 - **Repair / re-download** only fetches the missing pages.
 
