@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-09-03
+
 ### Added
 
 - **Discover Popular / Watched / Toplist** (`GET /api/eh/search?list=`, `#/discover`): same parser, badges, 90s cache, download/favorite buttons; paths `/popular`, `/watched`, `/toplist.php?tl=` (11/12/13/15); cursor still `next=gid-ts`.
@@ -20,6 +22,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **ExHentai discover search page** (`app/routers/eh.py`, `services/eh_client.py`, frontend `views/discover.js`): new `#/discover` browses/searches ExHentai (not Popular/Watched/Toplist). `GET /api/eh/search` (`q`, `category` as site `f_cats` mask, `min_rating`, `next=gid-ts` cursor — never `page=N`) parses listing HTML like favorites, JOINs local library/favorite badges, and caches the EH payload 90s. Cards show cover/title/category/pages/rating with stackable 已入库/已收藏/未下载 badges; one-click download (`POST /api/downloads`, default resample) and favorite (`POST /api/favorites/add`, cloud-success only). Sad Panda / empty-body challenge / 509 / cookie expiry are distinct from “no hits”; `remoteapi.php` 302 is not cookie failure.
 
 ### Changed
+
+- **Usage documentation** (`docs/wiki/Usage.md`, `docs/wiki/Usage-EN.md`): Added dedicated section for Local Lists (`#/library`) and documented the Ignored items page entry (`#/favorites/ignored`).
 
 ### Fixed
 
@@ -1129,8 +1133,9 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.5.1...HEAD
-[1.5.1]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.5.1
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.6.0
 [1.5.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.5.0
 [1.2.15]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.15
 [1.2.14]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.2.14

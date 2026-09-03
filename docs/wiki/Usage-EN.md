@@ -65,7 +65,7 @@ manually to revisit it.
 - **Reading Status Filter**: Quickly filter by **All**, **Unread**, **Reading**, or **Completed**; the three are mutually exclusive. Unread excludes completed. Completed requires actually having read (progress > 0 and at the last page; a 1-page gallery with progress 0 is not completed).
 - **Page count & rating range**: the toolbar has min/max page inputs and a minimum rating (≥2 / ≥3 / ≥4 / ≥4.5). Also: size range (MB → bytes), posted date, uploader substring, image quality (original/resample), language shortcuts (existing `language:` tags), local star rating, and local lists. These stick with sort, read status and tag filters.
 - **Saved searches**: store the current library filter under a name (about 30 max, in `user_settings.saved_searches` with get+merge so `auth_secret` is kept); apply or delete from the toolbar.
-- **Local lists**: independent of ExHentai. Add/remove from the library or detail page; gid-less CBZ archives can join; the library can filter by list.
+- **Local lists**: independent of ExHentai. Add/remove from the library or detail page; gid-less CBZ archives can join; the library can filter by list (see the dedicated section below).
 - **"Not in favorites" filter**: the category dropdown ends with "Not in
   favorites", showing local galleries whose gid is not in any ExHentai favorite
   folder (gid-less local archives count as not favorited; older local copies with
@@ -110,6 +110,13 @@ manually to revisit it.
   appends `N duplicate-copy group(s) found (gid …)` when duplicates were
   detected, pointing to the Duplicate copies page. A **global pause** skips
   the scan (the trigger returns `paused`).
+
+## Local Lists (`#/library`)
+
+- **Independent of ExHentai**: Local lists are completely decoupled from ExHentai cloud favorites; gid-less local archives (CBZ, directory galleries) can be freely added and organized.
+- **Frontend Entry & Filtering**: Accessible from the Library (`#/library`) and Gallery Detail (`#/gallery/<id>`) pages. The list dropdown on the Library toolbar filters galleries by list (URL hash `#/library?list_id=<id>`).
+- **List Lifecycle Management**: Supports creating, renaming, and deleting local lists. You can click "New list" on the Library toolbar to create one instantly; the backend API provides full CRUD capabilities (`POST /api/lists`, `PATCH /api/lists/{id}`, `DELETE /api/lists/{id}`).
+- **Adding & Removing Galleries**: In the Library, tick galleries and click "Add to list" to batch-assign them (prompts to create a new list if none is selected); on the Gallery Detail page, click the toolbar list buttons to add or remove the gallery from a list with one click.
 
 ## Duplicate copies (`#/duplicates`)
 
@@ -326,8 +333,8 @@ The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / U
   roots; if a copy cannot be deleted (e.g. a read-only mount or permission
   problem) the toast and the Logs page report it, and the gallery row is kept
   so the next scan does not re-import it as a fresh gallery; false positives
-  can be hidden with **Ignore selected**, and ignored items can be restored
-  from a separate page.
+  can be hidden with **Ignore selected**, and ignored items can be viewed and restored from
+  the **Ignored items** page (`#/favorites/ignored`).
 - **Gallery updates** (`#/updates`, linked from the top row of the Favorites
   page): when ExHentai **re-uploads** a gallery it moves it to a new gid and the
   favorites entry follows the new version, leaving the old-gid copy on disk.
