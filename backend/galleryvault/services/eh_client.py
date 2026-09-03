@@ -185,8 +185,20 @@ def _is_auth_failure_page(body: str) -> bool:
     )
 
 
+def _is_exhentai_org_host(host: str | None) -> bool:
+    """Check if the given hostname belongs to ExHentai (exhentai.org or *.exhentai.org)."""
+    if not host:
+        return False
+    h = host.strip().lower().rstrip(".")
+    return h == "exhentai.org" or h.endswith(".exhentai.org")
+
+
 def parse_login_state(
-    body: str, member_id: str = "", has_cookies: bool = False
+    body: str,
+    member_id: str = "",
+    has_cookies: bool = False,
+    *,
+    host: str | None = None,
 ) -> str:
     """Classify an ExHentai member-page response into a login state.
 
@@ -195,19 +207,22 @@ def parse_login_state(
     signal (measured against production cookies):
     - a valid session returns the full page (tens of KB)
     - an expired/invalid session returns exactly ``expired login session``
-    - a request without cookies returns an empty body (anti-bot challenge)
     - a Sad-Panda / IP-banned page has no content at all
+    - an empty or blank HTTP 200 on exhentai.org (*.exhentai.org) indicates
+      the account lacks ExHentai access (no igneous / no exhentai permission)
+    - an empty body on other hosts (e.g. e-hentai.org, unknown) is an anti-bot
+      challenge or transient glitch, classified as ``failed``
 
     Returns one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
-    ``failed``.  An empty body is an anti-bot challenge or a transient glitch,
-    not a dead session, so it is classified ``failed`` (a retry, not a cookie
+    ``failed``.  An empty body on exhentai.org is classified ``no_exhentai_access``;
+    on other hosts or host=None it is classified ``failed`` (a retry, not a cookie
     reset).  ``member_id`` / ``has_cookies`` are kept for signature
     compatibility but are no longer part of the classification.
     """
     if _is_auth_failure_page(body):
         return "no_exhentai_access"
-    if not body:
-        return "failed"
+    if not body or not body.strip():
+        return "no_exhentai_access" if _is_exhentai_org_host(host) else "failed"
     if "expired login session" not in body:
         return "ok"
     return "not_logged_in"
@@ -1051,23 +1066,41 @@ class EhClient:
         failure message. Probes ``/uconfig.php`` (a member-only settings page):
         every session state answers HTTP 200, but the body distinguishes them —
         a full page for a valid session, ``expired login session`` for a dead
-        one, and an empty body when no cookies are sent. Retries once because
-        ExHentai's occasional anti-bot challenge (an empty HTTP 200) is a
-        transient glitch, not a login failure.
+        one, and an empty/blank body when no cookies or no access are present.
+        Retries once on transport errors or empty/blank 200 responses.
         """
         last_error: Exception | None = None
+        last_response: httpx.Response | None = None
         for _ in range(2):
             try:
                 response = await self._request("GET", "/uconfig.php")
             except httpx.RequestError as exc:
                 last_error = exc
+                last_response = None
                 continue
+            last_response = response
             if response.status_code in (401, 403) or "login" in str(response.url).lower():
                 return "not_logged_in", f"HTTP {response.status_code}"
+            body = response.text
+            if _is_auth_failure_page(body):
+                return "no_exhentai_access", f"HTTP {response.status_code}"
+            if not body or not body.strip():
+                continue
+            host = (
+                urlparse(str(response.url)).hostname
+                or urlparse(self.settings.exhentai_base_url).hostname
+            )
             return (
-                parse_login_state(response.text),
+                parse_login_state(body, host=host),
                 f"HTTP {response.status_code}",
             )
+        if last_response is not None:
+            host = (
+                urlparse(str(last_response.url)).hostname
+                or urlparse(self.settings.exhentai_base_url).hostname
+            )
+            state = "no_exhentai_access" if _is_exhentai_org_host(host) else "failed"
+            return state, f"HTTP {last_response.status_code}"
         return "failed", type(last_error).__name__
 
     async def fetch_gallery_metadata(self, gid: int, token: str) -> GalleryData:

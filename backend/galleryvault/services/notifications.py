@@ -150,5 +150,10 @@ def notify_cookie_health(state: str | None, detail: str | None = None) -> None:
         return
     extra["notifications_cookie_state"] = state
     zh = _notify_lang() != "en"
-    title = "ExHentai Cookie 已失效" if zh else "ExHentai cookie expired"
-    push_notification("cookie", title, detail or state)
+    if state == "no_exhentai_access":
+        kind = "cookie_no_access"
+        title = "ExHentai 无里站访问权限" if zh else "No ExHentai access"
+    else:
+        kind = "cookie"
+        title = "ExHentai Cookie 已失效" if zh else "ExHentai cookie expired"
+    push_notification(kind, title, detail or state)

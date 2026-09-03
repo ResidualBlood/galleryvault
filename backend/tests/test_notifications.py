@@ -44,12 +44,33 @@ def test_cookie_health_dedupes_same_state() -> None:
         data = list_notifications()
         assert data["unread_count"] == 1
         assert data["items"][0]["kind"] == "cookie"
+        assert data["items"][0]["title"] == "ExHentai cookie expired"
         notify_cookie_health("no_exhentai_access", "y")
-        assert list_notifications()["unread_count"] == 2
+        data = list_notifications()
+        assert data["unread_count"] == 2
+        assert data["items"][0]["kind"] == "cookie_no_access"
+        assert data["items"][0]["title"] == "No ExHentai access"
+        assert "expired" not in data["items"][0]["title"].lower()
         notify_cookie_health("ok", None)
         assert list_notifications()["unread_count"] == 2
         notify_cookie_health("not_logged_in", "again")
-        assert list_notifications()["unread_count"] == 3
+        data = list_notifications()
+        assert data["unread_count"] == 3
+        assert data["items"][0]["kind"] == "cookie"
+    finally:
+        app_state.settings = orig
+
+
+def test_cookie_health_no_access_title_zh() -> None:
+    orig = app_state.settings
+    app_state.settings = Settings(telegram_notify_lang="zh")
+    try:
+        notify_cookie_health("no_exhentai_access", "detail_zh")
+        data = list_notifications()
+        assert data["unread_count"] == 1
+        assert data["items"][0]["kind"] == "cookie_no_access"
+        assert data["items"][0]["title"] == "ExHentai 无里站访问权限"
+        assert "失效" not in data["items"][0]["title"]
     finally:
         app_state.settings = orig
 

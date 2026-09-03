@@ -154,7 +154,7 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
         ):
             raise HTTPException(status_code=422, detail="invalid favorites configuration")
         values["favorites_categories"] = [
-            _favcat(item) for item in favorites if bool(item.get("enabled", True))
+            _favcat(item) for item in favorites if bool(item.get("enabled", False))
         ]
     else:
         favorites = []
@@ -208,7 +208,7 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
                     if row is None:
                         row = FavoritesMonitor(favcat=favcat)
                         session.add(row)
-                    row.enabled = bool(item.get("enabled", True))
+                    row.enabled = bool(item.get("enabled", False))
                     row.mode = str(item["mode"])
                     row.poll_interval_seconds = max(
                         60, int(item.get("poll_interval_minutes", 720)) * 60
