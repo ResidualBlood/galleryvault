@@ -58,6 +58,23 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         ),
         "bot_gone": "❌ <b>{title}</b>已删除或不存在（404），未入队",
         "bot_already_local": "✅ 新版已在库中：<b>{title}</b>（gid <code>{gid}</code>）",
+        "bot_help": (
+            "🤖 命令：\n"
+            "<code>/pause</code> 暂停下载\n"
+            "<code>/resume</code> 恢复下载\n"
+            "<code>/status</code> 查看状态\n"
+            "<code>/help</code> 本帮助\n"
+            "<code>/queue</code> 下载队列\n"
+            "<code>/cancel</code> &lt;id|gid&gt; 取消任务\n"
+            "直接粘贴画廊 URL 即可入队。"
+        ),
+        "bot_queue_empty": "📭 队列为空（无等待 / 进行中 / 失败）",
+        "bot_queue_head": "📋 下载队列：等待 <b>{pending}</b>，进行中 <b>{running}</b>，失败 <b>{failed}</b>",
+        "bot_queue_line": "{status} <code>{id}</code> gid <code>{gid}</code> {title}",
+        "bot_queue_more": "… 还有 {n} 条未列出",
+        "bot_cancel_ok": "✅ 已取消任务 <code>{id}</code>（gid <code>{gid}</code>）",
+        "bot_cancel_not_found": "❌ 找不到任务 <code>{ident}</code>",
+        "bot_cancel_usage": "用法：<code>/cancel &lt;id|gid&gt;</code>",
         "download_gone": "❌ <b>{title}</b>已删除或不存在（404）",
         "download_updated": (
             "🔄 原 gid <code>{old}</code> → 新版 gid <code>{new}</code>，"
@@ -96,6 +113,26 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         ),
         "bot_gone": "❌ <b>{title}</b> deleted or not found (404), not queued",
         "bot_already_local": "✅ Newer version already in library: <b>{title}</b> (gid <code>{gid}</code>)",
+        "bot_help": (
+            "🤖 Commands:\n"
+            "<code>/pause</code> pause downloads\n"
+            "<code>/resume</code> resume downloads\n"
+            "<code>/status</code> show status\n"
+            "<code>/help</code> this help\n"
+            "<code>/queue</code> download queue\n"
+            "<code>/cancel</code> &lt;id|gid&gt; cancel a task\n"
+            "Paste a gallery URL to enqueue."
+        ),
+        "bot_queue_empty": "📭 Queue is empty (no pending / running / failed)",
+        "bot_queue_head": (
+            "📋 Download queue: <b>{pending}</b> pending, "
+            "<b>{running}</b> running, <b>{failed}</b> failed"
+        ),
+        "bot_queue_line": "{status} <code>{id}</code> gid <code>{gid}</code> {title}",
+        "bot_queue_more": "… and {n} more not listed",
+        "bot_cancel_ok": "✅ Cancelled task <code>{id}</code> (gid <code>{gid}</code>)",
+        "bot_cancel_not_found": "❌ Task <code>{ident}</code> not found",
+        "bot_cancel_usage": "Usage: <code>/cancel &lt;id|gid&gt;</code>",
         "download_gone": "❌ <b>{title}</b> deleted or not found (404)",
         "download_updated": (
             "🔄 Original gid <code>{old}</code> → new gid <code>{new}</code>, "
@@ -295,6 +332,48 @@ def bot_gone(title: object, lang: str = "zh") -> str:
 
 def bot_already_local(gid: object, title: object, lang: str = "zh") -> str:
     return _t(lang, "bot_already_local").format(gid=esc(gid), title=esc(title))
+
+
+def bot_help(lang: str = "zh") -> str:
+    return _t(lang, "bot_help")
+
+
+def bot_queue(
+    rows: list[dict[str, object]],
+    counts: dict[str, int],
+    lang: str = "zh",
+) -> str:
+    pending = int(counts.get("pending") or 0)
+    running = int(counts.get("downloading") or 0)
+    failed = int(counts.get("failed") or 0)
+    if pending + running + failed == 0:
+        return _t(lang, "bot_queue_empty")
+    text = _t(lang, "bot_queue_head").format(pending=pending, running=running, failed=failed)
+    for listed, row in enumerate(rows):
+        line = "\n" + _t(lang, "bot_queue_line").format(
+            status=esc(row.get("status") or ""),
+            id=esc(row.get("id") or ""),
+            gid=esc(row.get("gid") or ""),
+            title=esc(row.get("title") or ""),
+        )
+        if _plain_len(text) + _plain_len(line) > MAX_MESSAGE_CHARS - 80:
+            remain = max(0, pending + running + failed - listed)
+            text += "\n" + _t(lang, "bot_queue_more").format(n=remain)
+            break
+        text += line
+    return text
+
+
+def bot_cancel_ok(task_id: object, gid: object, lang: str = "zh") -> str:
+    return _t(lang, "bot_cancel_ok").format(id=esc(task_id), gid=esc(gid))
+
+
+def bot_cancel_not_found(ident: object, lang: str = "zh") -> str:
+    return _t(lang, "bot_cancel_not_found").format(ident=esc(ident))
+
+
+def bot_cancel_usage(lang: str = "zh") -> str:
+    return _t(lang, "bot_cancel_usage")
 
 
 # --- misc -------------------------------------------------------------------

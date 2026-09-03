@@ -1,0 +1,67 @@
+from galleryvault.app.state import app_state
+from galleryvault.config import Settings
+from galleryvault.services.notifications import (
+    list_notifications,
+    mark_notifications_read,
+    notify_cookie_health,
+    push_notification,
+    reset_notifications,
+)
+from galleryvault.services.telegram import TelegramNotifier
+
+
+def setup_function() -> None:
+    reset_notifications()
+
+
+def test_notification_ring_write_read_and_cap() -> None:
+    first = push_notification("download_ok", "A", "1")
+    push_notification("download_fail", "B", "err")
+    data = list_notifications()
+    assert data["unread_count"] == 2
+    assert [item["title"] for item in data["items"]] == ["B", "A"]
+    assert data["items"][1]["id"] == first["id"]
+    marked = mark_notifications_read()
+    assert marked["unread_count"] == 0
+    assert all(item["read"] for item in marked["items"])
+    for i in range(120):
+        push_notification("scan_ok", str(i), "")
+    data = list_notifications()
+    assert len(data["items"]) == 100
+    titles = [item["title"] for item in data["items"]]
+    assert "119" in titles
+    assert "0" not in titles
+
+
+def test_cookie_health_dedupes_same_state() -> None:
+    orig = app_state.settings
+    app_state.settings = Settings(telegram_notify_lang="en")
+    try:
+        notify_cookie_health("not_logged_in", "x")
+        notify_cookie_health("not_logged_in", "x")
+        data = list_notifications()
+        assert data["unread_count"] == 1
+        assert data["items"][0]["kind"] == "cookie"
+        notify_cookie_health("no_exhentai_access", "y")
+        assert list_notifications()["unread_count"] == 2
+        notify_cookie_health("ok", None)
+        assert list_notifications()["unread_count"] == 2
+        notify_cookie_health("not_logged_in", "again")
+        assert list_notifications()["unread_count"] == 3
+    finally:
+        app_state.settings = orig
+
+
+async def test_download_outcome_off_still_rings() -> None:
+    off_settings = Settings(
+        telegram_bot_token="secret",
+        telegram_chat_ids=["7"],
+        telegram_notify_level="off",
+    )
+    notifier = TelegramNotifier(off_settings)
+    await notifier.record_download_outcome("fail", "B", "Timeout")
+    assert not notifier.pending_events
+    data = list_notifications()
+    assert data["unread_count"] == 1
+    assert data["items"][0]["kind"] == "download_fail"
+    assert data["items"][0]["title"] == "B"

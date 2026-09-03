@@ -2217,6 +2217,7 @@ async def probe_cookie_health() -> dict[str, Any]:
 
     from ..app.dependencies import get_current_settings
     from ..app.state import app_state
+    from .notifications import notify_cookie_health
 
     settings = get_current_settings()
     if not settings.exhentai_cookies:
@@ -2226,6 +2227,7 @@ async def probe_cookie_health() -> dict[str, Any]:
             "checked_at": datetime.now(UTC).isoformat(),
         }
         app_state.extra["cookie_health"] = health
+        notify_cookie_health(health.get("state"), health.get("detail"))
         return health
     client = app_state.eh_client
     if client is None:
@@ -2235,6 +2237,7 @@ async def probe_cookie_health() -> dict[str, Any]:
             "checked_at": datetime.now(UTC).isoformat(),
         }
         app_state.extra["cookie_health"] = health
+        notify_cookie_health(health.get("state"), health.get("detail"))
         return health
     try:
         state, detail = await client.check_login()
@@ -2250,6 +2253,7 @@ async def probe_cookie_health() -> dict[str, Any]:
             "checked_at": datetime.now(UTC).isoformat(),
         }
     app_state.extra["cookie_health"] = health
+    notify_cookie_health(health.get("state"), health.get("detail"))
     return health
 
 

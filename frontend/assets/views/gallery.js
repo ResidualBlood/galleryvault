@@ -75,6 +75,7 @@ async function renderGallery() {
         <button class="btn btn-secondary" data-action="unfavorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("unfavorite"))}</button>
         ${showOrigBtns ? `<button class="btn btn-secondary" data-action="download-original" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrig"))}</button>
         <button class="btn btn-secondary" data-action="download-original-archive" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrigArchive"))}</button>` : ""}
+        <button class="btn btn-secondary" data-action="export-cbz" data-id="${g.id}" type="button">${esc(t("exportCbz"))}</button>
         <button class="btn btn-danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
       </div>
       <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
@@ -118,6 +119,15 @@ async function renderGallery() {
       } catch (_) {}
     }
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+function exportGalleryCbz(id) {
+  const a = document.createElement("a");
+  a.href = `/api/galleries/${id}/export.cbz`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 async function deleteGallery(id) {

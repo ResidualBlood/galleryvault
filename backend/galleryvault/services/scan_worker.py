@@ -265,6 +265,17 @@ async def run_scan() -> None:
                     spawn_task(tm.persist_history(), "persist task history")
 
                 try:
+                    if not cancelled:
+                        from .notifications import notify_scan
+
+                        if last.get("error"):
+                            notify_scan(False, error=str(last["error"]))
+                        else:
+                            notify_scan(
+                                True,
+                                new=int(last.get("persisted") or 0),
+                                removed=int(last.get("expunged") or 0),
+                            )
                     if not cancelled and app_state.telegram is not None and settings.telegram_chat_ids:
                         if last.get("error"):
                             await app_state.telegram.send_message(

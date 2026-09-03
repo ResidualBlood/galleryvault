@@ -4,6 +4,8 @@
 // 扩展现有 document 级委托
 
 async function onClick(e) {
+  const notifWrap = document.getElementById("notif-wrap");
+  if (notifWrap && !notifWrap.contains(e.target)) closeNotificationPanel();
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const action = el.getAttribute("data-action");
@@ -91,7 +93,9 @@ async function onClick(e) {
   if (action === "force-update") { forceUpdate(); return; }
   if (action === "gen-thumbs") { generateThumbnails(); return; }
   if (action === "sync-all-tags") { syncAllTags(); return; }
+  if (action === "toggle-notifications") { toggleNotificationPanel(); return; }
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
+  if (action === "export-cbz") { exportGalleryCbz(el.getAttribute("data-id")); return; }
   if (action === "download-original") { downloadOriginalGallery(el.getAttribute("data-id"), el.getAttribute("data-gid"), false); return; }
   if (action === "download-original-archive") { downloadOriginalGallery(el.getAttribute("data-id"), el.getAttribute("data-gid"), true); return; }
   if (action === "favorite-gallery") { favoriteGallery(el); return; }
