@@ -157,7 +157,7 @@ class FavoritesMonitor(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     favcat: Mapped[int] = mapped_column(Integer, unique=True)
     name: Mapped[str | None] = mapped_column(String(128))
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     mode: Mapped[str] = mapped_column(String(16), default="incremental")
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

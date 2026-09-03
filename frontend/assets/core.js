@@ -41,8 +41,10 @@ function updateBanner() {
     parts.push(`<span style="color:var(--warning, #ff9800);font-weight:600;">⏸ ${esc(t("paused"))} — ${esc(t("pauseHint"))}</span> <button class="btn btn-secondary" data-action="toggle-pause" type="button" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("resume"))}</button>`);
   }
   const ch = app.session && app.session.cookie_health;
-  if (app.authenticated && ch && (ch.state === "not_logged_in" || ch.state === "no_exhentai_access")) {
+  if (app.authenticated && ch && ch.state === "not_logged_in") {
     parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${esc(t("cookieExpiredNotice"))}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
+  } else if (app.authenticated && ch && ch.state === "no_exhentai_access") {
+    parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${esc(t("cookieNoAccessNotice"))}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
   } else if (app.authenticated && ch && ch.state === "failed") {
     parts.push(`<span style="color:var(--warning, #ff9800);font-weight:600;">⚠️ ${esc(t("cookieHealthFailed"))}${ch.detail ? ` (${esc(ch.detail)})` : ""}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
   }
@@ -128,6 +130,7 @@ function notifKindLabel(kind) {
   if (kind === "scan_ok") return t("notifScanOk");
   if (kind === "scan_fail") return t("notifScanFail");
   if (kind === "cookie") return t("notifCookie");
+  if (kind === "cookie_no_access") return t("notifCookieNoAccess");
   return kind || "";
 }
 

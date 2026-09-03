@@ -2,9 +2,9 @@
 
 The SPA uses hash routing (`#/library`, `#/gallery/7`, …), so browser refresh
 and back/forward need no server round trip. The top banner can stack a yellow
-global-pause bar, a red Cookie-expired bar, and an image-quota warning. The bell
+global-pause bar, a red Cookie-expired / no-access bar, and an image-quota warning. The bell
 next to 🎲 is the **in-app notification center** (download complete/fail, library
-scan complete/fail, cookie expiry — visible even without Telegram; polled about
+scan complete/fail, cookie expiry / no access — visible even without Telegram; polled about
 every 15s). The Cookie red banner is unchanged.
 
 ## Browse (`#/browse`)
@@ -388,7 +388,7 @@ The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / U
   master switch (checks by polling interval and downloads missing galleries).
 - The **enabled** checkbox per folder on the Favorites page decides whether that
   folder takes part in the scheduled checks and whether it downloads during
-  them (unchecked = record only, never download).
+  them (unchecked = record only, never download). New folders are disabled by default and require checking and saving.
 
 For automatic downloads all three must hold: the master switch is on + the
 folder is checked + the mode is "incremental/force download". A manual **Check
@@ -460,7 +460,7 @@ additions again.
 - **ExHentai**: base URL and `ipb_member_id` / `ipb_pass_hash` / `igneous`
   cookies, with a **Test login** button; cookies are never echoed back. A
   health probe runs at startup and every 30 minutes; expired cookies or no
-  ExHentai access show a red top banner linking to Settings (also refreshed
+  ExHentai access show distinct red top banners linking to Settings (also refreshed
   once right after login).
 - **Proxy**: HTTP or SOCKS5 (choose one).
 - **Tag sync**: automatic sync after scans/startup, interval and concurrency,

@@ -53,7 +53,7 @@ curl -b cookies.txt http://localhost:8001/api/settings
 | ------ | ---- | ----------- |
 | GET | `/api/settings` | Public subset of effective settings (library roots, proxies, quality, favorites, tag-sync, Telegram status, …). |
 | POST | `/api/settings` | Persist settings. See `SettingsRequest` fields below. |
-| GET | `/api/settings/cookie-health` | Probe or return current ExHentai Cookie login status (`{state, detail, checked_at}`). Cached ~10 min then re-probes; `failed` is network/site, not cookie expiry. |
+| GET | `/api/settings/cookie-health` | Probe or return current ExHentai Cookie login status (`{state, detail, checked_at}`). Cached ~10 min then re-probes. States: `ok`, `not_logged_in` (session expired), `no_exhentai_access` (lacks ExHentai access, e.g. empty/blank 200 on exhentai.org or Sad Panda; distinct from expired session), or `failed` (network/site error, or empty 200 on e-hentai.org / unknown hosts). |
 | POST | `/api/settings/exhentai/test` | Validate the configured ExHentai cookies. Returns `{status, message}`. |
 | POST | `/api/telegram/test` | Send a test message to every configured `telegram_chat_ids`. Returns `{ok, results}`. `422` if the bot token or chat IDs are missing. |
 

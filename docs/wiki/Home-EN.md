@@ -141,7 +141,7 @@ Other formats:
 - **Open on ExHentai** — a one-click link to the original gallery from the
   detail page (built from the configured base URL).
 - **Cookie health** — startup and periodic probes; expired cookies or no
-  ExHentai access show a red top banner linking to Settings.
+  ExHentai access show distinct red top banners linking to Settings.
 - **Discover** (`#/discover`) — search/browse ExHentai in the Web UI (including
   Popular / Watched / Toplist); one-click download or add-to-favorites
   (cloud-success only).

@@ -89,11 +89,13 @@ This is CSRF protection checking `Origin` / `Referer` against `Host` / `X-Forwar
 2. **Same-hostname allowance**: the latest release normalizes port mismatches on matching hostnames and automatically sends `X-CSRF-Token`.
 3. **IPv6**: IPv6 literal addresses are fully supported since v1.2.4.
 
-## Red top banner says the ExHentai cookie is invalid?
+## Red top banner says cookie is invalid or no ExHentai access?
 
-A probe runs at startup and every 30 minutes, plus once right after login.
-Follow the banner to Settings, re-enter cookies and use *Test login*. Cloud
-sync pauses while the cookie is invalid.
+A probe runs at startup and every 30 minutes, plus once right after login. The red top banner distinguishes two states:
+- **Cookie expired**: session is expired; follow the banner to Settings, re-enter cookies and use *Test login*.
+- **No ExHentai access**: account lacks ExHentai access (empty/blank 200 response on exhentai.org or Sad Panda); check account permissions, configure `igneous`, or switch base URL to `e-hentai.org`.
+
+Cloud sync pauses while the cookie is invalid or lacks access.
 
 ## Can I get a deleted gallery back?
 
@@ -144,7 +146,7 @@ If the new gid is already in the local library, **Scan now** deletes the old cop
 ## Favorites aren't auto-downloading?
 
 All three must hold: the **download favorites** master switch in Settings is on
-+ the folder is **enabled** on the Favorites page + the mode is "incremental"
++ the folder is **enabled** on the Favorites page (new folders are disabled by default and require checking and saving) + the mode is "incremental"
 or "force download". See [Usage → Favorites](Usage-EN).
 
 ## Favorites check succeeds but no covers / the list is empty?

@@ -215,11 +215,14 @@ async def test_check_login_reports_not_logged_in() -> None:
 
 @pytest.mark.asyncio
 async def test_check_login_empty_body_reports_failed() -> None:
-    """An empty HTTP 200 (anti-bot challenge) is a retryable failure, not a
-    dead session: it must surface as ``failed``, never ``not_logged_in``."""
+    """An empty HTTP 200 on an unknown/test host (exhentai.test) is a retryable failure,
+    retried twice, surfacing as ``failed``."""
+    calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
         assert request.url.path == "/uconfig.php"
+        calls += 1
         return httpx.Response(200, text="")
 
     async with httpx.AsyncClient(
@@ -236,11 +239,80 @@ async def test_check_login_empty_body_reports_failed() -> None:
         )
         state, _ = await client.check_login()
         assert state == "failed"
+        assert calls == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", ["", "   \n\t  "])
+async def test_check_login_exhentai_empty_or_blank_reports_no_access_retried_twice(
+    body: str,
+) -> None:
+    """An empty or blank HTTP 200 on exhentai.org retries twice and surfaces as
+    no_exhentai_access."""
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        assert request.url.path == "/uconfig.php"
+        calls += 1
+        return httpx.Response(200, text=body)
+
+    async with httpx.AsyncClient(
+        base_url="https://exhentai.org", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(
+            client=http_client,
+            settings=Settings(
+                exhentai_base_url="https://exhentai.org",
+                exhentai_cookies={
+                    "ipb_member_id": "12345",
+                    "ipb_pass_hash": "0123456789abcdef",
+                },
+            ),
+        )
+        state, detail = await client.check_login()
+        assert state == "no_exhentai_access"
+        assert detail == "HTTP 200"
+        assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_check_login_ehentai_empty_body_reports_failed_retried_twice() -> None:
+    """An empty HTTP 200 on e-hentai.org retries twice and surfaces as failed."""
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        assert request.url.path == "/uconfig.php"
+        calls += 1
+        return httpx.Response(200, text="")
+
+    async with httpx.AsyncClient(
+        base_url="https://e-hentai.org", transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = EhClient(
+            client=http_client,
+            settings=Settings(
+                exhentai_base_url="https://e-hentai.org",
+                exhentai_cookies={
+                    "ipb_member_id": "12345",
+                    "ipb_pass_hash": "0123456789abcdef",
+                },
+            ),
+        )
+        state, detail = await client.check_login()
+        assert state == "failed"
+        assert detail == "HTTP 200"
+        assert calls == 2
 
 
 @pytest.mark.asyncio
 async def test_check_login_reports_no_exhentai_access() -> None:
+    calls = 0
+
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
         return httpx.Response(200, text="Sad Panda\n")
 
     async with httpx.AsyncClient(
@@ -252,7 +324,10 @@ async def test_check_login_reports_no_exhentai_access() -> None:
                 exhentai_cookies={"ipb_member_id": "12345"},
             ),
         )
-        assert (await client.check_login())[0] == "no_exhentai_access"
+        state, detail = await client.check_login()
+        assert state == "no_exhentai_access"
+        assert detail == "HTTP 200"
+        assert calls == 1
 
 
 @pytest.mark.asyncio
@@ -320,6 +395,41 @@ def test_parse_login_state() -> None:
     assert parse_login_state("", "12345", has_cookies=True) == "failed"
     # Sad-Panda / banned pages carry no content.
     assert parse_login_state("Sad Panda\n", "12345") == "no_exhentai_access"
+
+
+def test_parse_login_state_host_matrix() -> None:
+    from galleryvault.services.eh_client import parse_login_state
+
+    # Valid session always ok regardless of host
+    assert parse_login_state("<html>User Control Panel</html>") == "ok"
+    assert parse_login_state("<html>User Control Panel</html>", host="exhentai.org") == "ok"
+    assert parse_login_state("<html>User Control Panel</html>", host="e-hentai.org") == "ok"
+
+    # Expired session always not_logged_in
+    assert parse_login_state("expired login session") == "not_logged_in"
+    assert parse_login_state("expired login session", host="exhentai.org") == "not_logged_in"
+    assert parse_login_state("expired login session", host="e-hentai.org") == "not_logged_in"
+
+    # Sad-Panda / banned pages always no_exhentai_access
+    assert parse_login_state("Sad Panda\n") == "no_exhentai_access"
+    assert parse_login_state("Sad Panda\n", host="exhentai.org") == "no_exhentai_access"
+    assert parse_login_state("Sad Panda\n", host="e-hentai.org") == "no_exhentai_access"
+
+    # Empty body host matrix
+    assert parse_login_state("", host=None) == "failed"
+    assert parse_login_state("", host="e-hentai.org") == "failed"
+    assert parse_login_state("", host="exhentai.test") == "failed"
+    assert parse_login_state("", host="fakeexhentai.org") == "failed"
+    assert parse_login_state("", host="notexhentai.org") == "failed"
+    assert parse_login_state("", host="exhentai.org") == "no_exhentai_access"
+    assert parse_login_state("", host="forums.exhentai.org") == "no_exhentai_access"
+    assert parse_login_state("", host="EXHENTAI.ORG.") == "no_exhentai_access"
+
+    # Whitespace body host matrix
+    assert parse_login_state("   \n\t  ", host=None) == "failed"
+    assert parse_login_state("   \n\t  ", host="e-hentai.org") == "failed"
+    assert parse_login_state("   \n\t  ", host="exhentai.org") == "no_exhentai_access"
+    assert parse_login_state("   \n\t  ", host="forums.exhentai.org") == "no_exhentai_access"
 
 
 def test_tag_translation_namespace_and_name() -> None:

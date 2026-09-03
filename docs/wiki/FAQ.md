@@ -57,9 +57,13 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 2. **已自动放行同主机**：最新版本已将端口比对放宽至同主机校验并自动兼容 `X-CSRF-Token`；
 3. **IPv6**：从 v1.2.4 起已全面支持 IPv6 字面量地址访问。
 
-## 顶栏出现「Cookie 已失效」红条？
+## 顶栏出现「Cookie 已失效」或「无里站权限」红条？
 
-启动时探活，之后每 30 分钟；登录后也会立刻刷新一次。点横幅进设置，重新填 cookie 并「测试登录」。云端同步在 Cookie 失效期间会暂停。
+启动时探活，之后每 30 分钟；登录后也会立刻刷新一次。顶栏红条分两态：
+- **Cookie 已失效**：会话过期，需点横幅进设置重新填 cookie 并「测试登录」；
+- **无里站权限**：当前账号无 ExHentai 里站访问权限（里站返回空/空白 200 或 Sad Panda），需检查账号权限或配置正确的 `igneous`，也可切到 `e-hentai.org` 表站。
+
+云端同步在 Cookie 失效或无里站权限期间会暂停。
 
 ## 库里删掉的画廊还能找回吗？
 
@@ -99,7 +103,7 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ## 收藏夹不自动下载？
 
-需同时满足：设置里 **download favorites** 总开关开启 + 收藏夹页对应文件夹已**启用** + 模式为「增量下载」或「强制下载」。详见 [使用指南 → 收藏夹](Usage)。
+需同时满足：设置里 **download favorites** 总开关开启 + 收藏夹页对应文件夹已**启用**（新夹默认关，需勾选并保存）+ 模式为「增量下载」或「强制下载」。详见 [使用指南 → 收藏夹](Usage)。
 
 ## 收藏夹检查成功但没有封面 / 列表是空的？
 
