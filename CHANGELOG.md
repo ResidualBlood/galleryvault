@@ -18,6 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Bot `/cancel` only cancels pending/downloading** (`services/telegram_bot.py`): `/cancel <id|gid>` no longer reports success for failed/success/cancelled tasks; gid lookup uses the latest in-progress or queued row.
 - **Discover search covers used `blank.gif`** (`services/eh_client.py`): thumbnail-mode listings with `src="blank.gif"` + `data-src` now skip placeholder gifs (`blank.gif` / `509.gif`) and prefer `data-src`, so discover cards keep the real ehgt cover.
 
 ## [1.6.0] - 2026-09-03

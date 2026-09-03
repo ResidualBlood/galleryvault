@@ -1,9 +1,15 @@
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
-from galleryvault.services.telegram_bot import TelegramBotService, TelegramGalleryItem
+from galleryvault.services.telegram_bot import (
+    TelegramBotService,
+    TelegramGalleryItem,
+    cancel_download_ident,
+)
 
 
 class _Notifier:
@@ -178,3 +184,94 @@ async def test_poll_once_uses_injected_client() -> None:
         assert notifier.calls == []
     finally:
         app_state.settings = orig
+
+
+def _dl_task(task_id: int, gid: int, status: str) -> SimpleNamespace:
+    return SimpleNamespace(id=task_id, gid=gid, status=status)
+
+
+class _CancelSession:
+    def __init__(self, tasks: list[SimpleNamespace]) -> None:
+        self._tasks = list(tasks)
+        self._missed_ident: int | None = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    def begin(self):
+        return self
+
+    async def get(self, _model, pk):
+        for row in self._tasks:
+            if row.id == pk:
+                return row
+        self._missed_ident = pk
+        return None
+
+    async def scalars(self, _stmt):
+        ident = self._missed_ident
+        rows = [
+            row
+            for row in self._tasks
+            if row.gid == ident and row.status in {"pending", "downloading"}
+        ]
+        rows.sort(key=lambda row: row.id, reverse=True)
+        return SimpleNamespace(all=lambda: rows[:1])
+
+
+async def _run_cancel(tasks: list[SimpleNamespace], ident: int, monkeypatch):
+    marked: list[int] = []
+    orig_factory = app_state.session_factory
+    session = _CancelSession(tasks)
+    monkeypatch.setattr(
+        "galleryvault.services.download_worker.mark_download_cancelled",
+        marked.append,
+    )
+    app_state.session_factory = lambda: session
+    try:
+        result = await cancel_download_ident(ident)
+        return result, marked, tasks
+    finally:
+        app_state.session_factory = orig_factory
+
+
+@pytest.mark.asyncio
+async def test_cancel_download_ident_pending_by_id(monkeypatch) -> None:
+    task = _dl_task(5, 111, "pending")
+    result, marked, _tasks = await _run_cancel([task], 5, monkeypatch)
+    assert result == ("cancelled", 5, 111)
+    assert task.status == "cancelled"
+    assert marked == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "success", "cancelled"])
+async def test_cancel_download_ident_terminal_by_id_not_found(status, monkeypatch) -> None:
+    task = _dl_task(5, 111, status)
+    result, marked, _tasks = await _run_cancel([task], 5, monkeypatch)
+    assert result == ("not_found", None, None)
+    assert task.status == status
+    assert marked == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_download_ident_gid_hits_downloading(monkeypatch) -> None:
+    older = _dl_task(1, 999, "success")
+    active = _dl_task(8, 999, "downloading")
+    result, marked, _tasks = await _run_cancel([older, active], 999, monkeypatch)
+    assert result == ("cancelled", 8, 999)
+    assert active.status == "cancelled"
+    assert older.status == "success"
+    assert marked == [8]
+
+
+@pytest.mark.asyncio
+async def test_cancel_download_ident_gid_only_success_not_found(monkeypatch) -> None:
+    task = _dl_task(10, 999, "success")
+    result, marked, _tasks = await _run_cancel([task], 999, monkeypatch)
+    assert result == ("not_found", None, None)
+    assert task.status == "success"
+    assert marked == []
