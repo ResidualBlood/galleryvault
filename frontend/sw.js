@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE = "gv-shell-v1";
+const CACHE = "gv-shell-v2";
 const SHELL = [
   "/",
   "/index.html",
@@ -64,18 +64,26 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/") || isGalleryMedia(url)) return;
   const dest = req.destination;
   if (dest === "image" || dest === "video" || dest === "audio") return;
-  const isShell = dest === "document" || dest === "script" || dest === "style" ||
-    url.pathname.endsWith(".js") || url.pathname.endsWith(".css") ||
+  const isAsset = dest === "script" || dest === "style" ||
+    url.pathname.endsWith(".js") || url.pathname.endsWith(".css");
+  const isShell = dest === "document" ||
     url.pathname.endsWith(".html") || url.pathname === "/" ||
     url.pathname === "/manifest.webmanifest";
-  if (!isShell) return;
+  if (!isAsset && !isShell) return;
+  const put = (res) => {
+    if (res && res.ok && res.type === "basic") {
+      const copy = res.clone();
+      caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
+    }
+    return res;
+  };
+  if (isAsset) {
+    event.respondWith(
+      fetch(req).then(put).catch(() => caches.match(req))
+    );
+    return;
+  }
   event.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      if (res && res.ok && res.type === "basic") {
-        const copy = res.clone();
-        caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
-      }
-      return res;
-    }).catch(() => caches.match("/index.html")))
+    caches.match(req).then((hit) => hit || fetch(req).then(put).catch(() => caches.match("/index.html")))
   );
 });
