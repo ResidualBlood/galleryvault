@@ -23,6 +23,7 @@ from .routers import (
     eh,
     favorites,
     galleries,
+    notifications,
     tags,
     tasks,
     updates,
@@ -74,6 +75,7 @@ def create_app(*, enable_workers: bool | None = None, settings: Settings | None 
         duplicates,
         updates,
         eh,
+        notifications,
     ):
         application.include_router(mod.router)
     sync_state(application)

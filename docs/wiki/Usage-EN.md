@@ -2,7 +2,10 @@
 
 The SPA uses hash routing (`#/library`, `#/gallery/7`, …), so browser refresh
 and back/forward need no server round trip. The top banner can stack a yellow
-global-pause bar, a red Cookie-expired bar, and an image-quota warning.
+global-pause bar, a red Cookie-expired bar, and an image-quota warning. The bell
+next to 🎲 is the **in-app notification center** (download complete/fail, library
+scan complete/fail, cookie expiry — visible even without Telegram; polled about
+every 15s). The Cookie red banner is unchanged.
 
 ## Browse (`#/browse`)
 
@@ -153,6 +156,7 @@ manually to revisit it.
 - **Click a tag** to jump to the library and **append** it to the active tag
   filter (combine several tags to narrow down).
 - **Start reading** opens the reader (positioned at your last reading spot).
+- **Export CBZ**: download this gallery as a CBZ. An on-disk `.cbz` is served as-is; a directory gallery is packed in page order (on-disk format is not rewritten).
 - **Open on ExHentai**: opens the corresponding gallery page on ExHentai in a
   new tab. The link is built from the configured base URL
   (`{base}/g/{gid}/{token}/`); your browser must be logged in to EH. Not shown
@@ -186,7 +190,7 @@ manually to revisit it.
 
 - Streams one page at a time. Page with **←/→ arrows**, **space** or **click**.
 - **Page Jump Input & `G` Shortcut**: Direct page number input in the toolbar jumps immediately on Enter; pressing **`G`** anywhere focuses the page jump input or opens a quick jump prompt in fullscreen.
-- **Multi-mode reading (LTR / RTL Manga / Double-page spread)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, and **Double RTL** modes with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1).
+- **Multi-mode reading (LTR / RTL Manga / Double-page / Webtoon)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, **Double RTL**, and **Webtoon** with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1). Webtoon is a vertical continuous strip (`loading="lazy"`); the visible page is written as reading progress. Click/arrow paging and double-page spreads are not used; the toolbar still supports `G` jump and back-to-details.
 - **Mobile Touch Gestures**: Supports double-tap zoom (2.2x) and two-finger pinch-to-zoom.
 - **Advances to the next gallery after the last page**.
 - Preloads the next three pages (four pages in double-spread mode), so paging is instant.
@@ -467,6 +471,9 @@ additions again.
   (bold titles, mono gids); gallery titles are never translated. A **Send test
   message** button verifies the bot can reach the chat.
 - **Telegram bot control commands** (send from an **allowed user ID**):
+  `/help` lists commands, `/queue` shows a pending/running/failed summary,
+  `/cancel <id|gid>` cancels a task (replies when not found), and unknown
+  non-URL text gets a help reply;
   `/pause` pauses intake (URLs pasted while paused are ignored, not enqueued),
   `/resume` re-enables intake, `/status` shows the pause state; `/pause` is a
   **global pause** (persisted to `app_config.user_settings`, survives

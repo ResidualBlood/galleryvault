@@ -153,6 +153,33 @@ button:disabled { opacity: .5; cursor: default; }
 .reader-img-wrap.zoomed { cursor: zoom-out; overflow: auto; }
 .reader img { max-width: 100%; max-height: 82vh; border: 1px solid var(--line); border-radius: 4px; transition: transform 0.15s ease-out; }
 .reader img.reader-fit { max-height: none; width: 100%; }
+.reader.reader-webtoon { align-items: stretch; }
+.reader.reader-webtoon .webtoon-strip {
+  display: flex; flex-direction: column; align-items: center; width: 100%; gap: 0;
+}
+.reader.reader-webtoon .webtoon-strip img {
+  max-height: none; width: min(900px, 100%); height: auto; border: 0; border-radius: 0; display: block;
+}
+.reader.reader-webtoon:fullscreen { justify-content: flex-start; overflow-y: auto; }
+.reader.reader-webtoon:fullscreen img { max-height: none; max-width: 100%; width: min(900px, 100%); }
+.notif-wrap { position: relative; }
+.notif-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--danger); color: #1a0a08; font-size: 10px; font-weight: 700;
+  line-height: 16px; text-align: center;
+}
+.notif-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; width: min(360px, 90vw);
+  max-height: 70vh; overflow: auto; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 8px 24px #0008; z-index: 20;
+}
+.notif-head { padding: 8px 12px; font-weight: 700; border-bottom: 1px solid var(--line); }
+.notif-list { display: flex; flex-direction: column; }
+.notif-item { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: .82rem; }
+.notif-item:last-child { border-bottom: 0; }
+.notif-item.unread { background: #d8a55b14; }
+.notif-kind { color: var(--accent); font-weight: 700; margin-right: 6px; }
+.notif-time { color: var(--muted); font-size: .72rem; margin-top: 2px; }
 .reader-spread { display: flex; justify-content: center; align-items: center; gap: 6px; max-width: 100%; }
 .reader-spread img { max-width: calc(50vw - 24px); max-height: 82vh; object-fit: contain; }
 .reader-spread.reader-spread-rtl { flex-direction: row-reverse; }

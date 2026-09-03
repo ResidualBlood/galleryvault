@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from ...db.models import Gallery, GalleryPage, GalleryTag, Tag
@@ -26,6 +29,12 @@ from ...scanners import registry
 from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ...services.deletion import delete_galleries_local
 from ...services.eh_client import EhClient, FavoriteData
+from ...services.export_cbz import (
+    UnsafeExportPath,
+    cbz_filename,
+    is_cbz_file,
+    pack_directory_cbz,
+)
 from ...services.tag_sync import (
     GalleryGidMissing,
     GalleryNotFound,
@@ -1198,6 +1207,68 @@ async def sync_gallery_tags(identifier: int, redirect: bool = False) -> dict[str
         "synced_at": getattr(result, "synced_at", None),
         "source": getattr(result, "source", None),
     }
+
+
+def _unlink_export(path: str) -> None:
+    Path(path).unlink(missing_ok=True)
+
+
+@router.get("/api/galleries/{identifier}/export.cbz")
+async def export_gallery_cbz(identifier: int) -> FileResponse:
+    row, pages = await _gallery(identifier)
+    path = Path(row.storage_path or "")
+    now = datetime.now(UTC).isoformat()
+    filename = cbz_filename(getattr(row, "title", None), getattr(row, "gid", None), row.id)
+    total = len(pages)
+
+    def _log(status: str, reason: str, done: int = 0) -> None:
+        tm = get_task_manager()
+        tm.record_task(
+            "export-cbz",
+            now,
+            datetime.now(UTC).isoformat(),
+            status,
+            reason=reason,
+            done=done,
+            total=total,
+        )
+        spawn_task(tm.persist_history(), "persist task history")
+
+    if not path.exists():
+        _log("failed", "missing files")
+        raise HTTPException(status_code=404, detail="Gallery files not found")
+    if is_cbz_file(path):
+        _log("success", path.name, total)
+        return FileResponse(path, filename=filename, media_type="application/zip")
+    if not path.is_dir() or not pages:
+        _log("failed", "not exportable")
+        raise HTTPException(status_code=404, detail="Gallery files not found")
+    fd, tmp_name = tempfile.mkstemp(suffix=".cbz")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        page_pairs = [(p.page_index, p.member_name or "") for p in pages]
+        await run_in_threadpool(pack_directory_cbz, path, page_pairs, tmp_path)
+    except UnsafeExportPath as exc:
+        tmp_path.unlink(missing_ok=True)
+        _log("failed", "path escape")
+        raise HTTPException(
+            status_code=400, detail="Page path escapes gallery directory"
+        ) from exc
+    except FileNotFoundError as exc:
+        tmp_path.unlink(missing_ok=True)
+        _log("failed", "missing page")
+        raise HTTPException(status_code=404, detail="Page file not found") from exc
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    _log("success", filename, total)
+    return FileResponse(
+        tmp_path,
+        filename=filename,
+        media_type="application/zip",
+        background=BackgroundTask(_unlink_export, str(tmp_path)),
+    )
 
 
 @router.get("/api/galleries/{identifier}/pages/{page_index}")

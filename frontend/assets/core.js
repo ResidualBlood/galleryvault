@@ -104,6 +104,88 @@ function stopPausePolling() {
   }
 }
 
+let notifTimer = null;
+let notifInFlight = false;
+let notifPanelOpen = false;
+
+function notifKindLabel(kind) {
+  if (kind === "download_ok") return t("notifDownloadOk");
+  if (kind === "download_fail") return t("notifDownloadFail");
+  if (kind === "download_updated") return t("notifDownloadUpdated");
+  if (kind === "scan_ok") return t("notifScanOk");
+  if (kind === "scan_fail") return t("notifScanFail");
+  if (kind === "cookie") return t("notifCookie");
+  return kind || "";
+}
+
+function renderNotificationList(data) {
+  const list = document.getElementById("notif-list");
+  const badge = document.getElementById("notif-badge");
+  if (!list) return;
+  const items = (data && data.items) || [];
+  const unread = (data && data.unread_count) || 0;
+  if (badge) {
+    badge.hidden = unread <= 0;
+    badge.textContent = unread > 99 ? "99+" : String(unread);
+  }
+  if (!items.length) {
+    list.innerHTML = `<div class="notif-item muted">${esc(t("notifEmpty"))}</div>`;
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const when = item.created_at ? String(item.created_at).replace("T", " ").slice(0, 19) : "";
+    const unreadClass = item.read ? "" : " unread";
+    const detail = item.detail ? ` — ${esc(item.detail)}` : "";
+    return `<div class="notif-item${unreadClass}"><span class="notif-kind">${esc(notifKindLabel(item.kind))}</span>${esc(item.title || "")}${detail}<div class="notif-time">${esc(when)}</div></div>`;
+  }).join("");
+}
+
+async function refreshNotifications() {
+  if (!app.authenticated || notifInFlight) return;
+  notifInFlight = true;
+  try {
+    const data = await api("GET", "/api/notifications");
+    renderNotificationList(data);
+  } catch (_) {}
+  finally { notifInFlight = false; }
+}
+
+function startNotificationPolling() {
+  if (notifTimer) return;
+  setTimeout(refreshNotifications, 1200);
+  notifTimer = setInterval(refreshNotifications, 15000);
+}
+
+function stopNotificationPolling() {
+  if (notifTimer) {
+    clearInterval(notifTimer);
+    notifTimer = null;
+  }
+}
+
+function closeNotificationPanel() {
+  const panel = document.getElementById("notif-panel");
+  if (panel) panel.hidden = true;
+  notifPanelOpen = false;
+}
+
+async function toggleNotificationPanel() {
+  const panel = document.getElementById("notif-panel");
+  if (!panel) return;
+  if (notifPanelOpen) {
+    closeNotificationPanel();
+    return;
+  }
+  notifPanelOpen = true;
+  panel.hidden = false;
+  try {
+    const data = await api("POST", "/api/notifications/read");
+    renderNotificationList(data);
+  } catch (_) {
+    refreshNotifications();
+  }
+}
+
 function esc(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -187,6 +269,10 @@ async function checkAuth() {
       refreshPause();
       startPausePolling();
     }
+    {
+      refreshNotifications();
+      startNotificationPolling();
+    }
     // Normalise the address bar: after logging in the SPA is served at /login
     // (the middleware redirect target) but the app lives at "/"; rewrite the
     // path so the URL reads e.g. /#/browse instead of /login#/browse.
@@ -204,6 +290,8 @@ async function checkAuth() {
     $topbar().hidden = true;
     stopCookieHealthPolling();
     stopPausePolling();
+    stopNotificationPolling();
+    closeNotificationPanel();
     renderLogin();
   }
 }
@@ -228,6 +316,8 @@ async function doLogin(password) {
 async function doLogout() {
   stopCookieHealthPolling();
   stopPausePolling();
+  stopNotificationPolling();
+  closeNotificationPanel();
   await fetch("/logout", { method: "POST", credentials: "include" });
   app.authenticated = false;
   app.paused = false;
@@ -329,6 +419,7 @@ function beforeRender(view) {
   }
   stopInfinite();
   if (view !== "reader") {
+    if (typeof cleanupWebtoon === "function") cleanupWebtoon();
     try { window.scrollTo({ top: 0, left: 0, behavior: "instant" }); }
     catch (_) { window.scrollTo(0, 0); }
   }

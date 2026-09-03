@@ -70,8 +70,11 @@ class TelegramNotifier:
         - ``summary`` (default): buffer into a digest, flushed by the caller
           when the download queue is idle (plus a timer and buffer cap);
         - ``failures_only``: only failures are sent, immediately;
-        - ``off``: nothing is sent.
+        - ``off``: nothing is sent to Telegram (in-app ring still records).
         """
+        from .notifications import notify_download
+
+        notify_download(kind, title, detail)
         token = self.settings.telegram_bot_token
         if not token or self.settings.telegram_notify_level == "off":
             return

@@ -14,8 +14,13 @@ from ..config import Settings
 from ..services.eh_client import parse_gallery_url
 from ..services.messages import (
     bot_already_local,
+    bot_cancel_not_found,
+    bot_cancel_ok,
+    bot_cancel_usage,
     bot_gone,
+    bot_help,
     bot_paused,
+    bot_queue,
     bot_queued,
     bot_queued_updated,
     bot_resumed,
@@ -23,6 +28,83 @@ from ..services.messages import (
 )
 
 logger = logging.getLogger(__name__)
+
+_QUEUE_STATUSES = ("pending", "downloading", "failed")
+_QUEUE_LIST_CAP = 25
+
+
+async def list_queue_snapshot() -> tuple[list[dict[str, object]], dict[str, int]]:
+    from sqlalchemy import func, select
+
+    from ..app.state import app_state
+    from ..db.models import DownloadTask
+
+    counts = {"pending": 0, "downloading": 0, "failed": 0}
+    if not app_state.session_factory:
+        return [], counts
+    async with app_state.session_factory() as session:
+        count_rows = (
+            await session.execute(
+                select(DownloadTask.status, func.count())
+                .where(DownloadTask.status.in_(_QUEUE_STATUSES))
+                .group_by(DownloadTask.status)
+            )
+        ).all()
+        for status, n in count_rows:
+            if status in counts:
+                counts[status] = int(n or 0)
+        rows = (
+            await session.scalars(
+                select(DownloadTask)
+                .where(DownloadTask.status.in_(_QUEUE_STATUSES))
+                .order_by(DownloadTask.id.desc())
+                .limit(_QUEUE_LIST_CAP)
+            )
+        ).all()
+        items = [
+            {
+                "id": row.id,
+                "gid": row.gid,
+                "status": row.status,
+                "title": (row.title or "")[:80],
+            }
+            for row in rows
+        ]
+    return items, counts
+
+
+async def cancel_download_ident(ident: int) -> tuple[str, int | None, int | None]:
+    from sqlalchemy import select
+
+    from ..app.state import app_state
+    from ..db.models import DownloadTask
+    from ..db.repository import DownloadRepository
+    from ..services.download_worker import mark_download_cancelled
+
+    if not app_state.session_factory:
+        return "not_found", None, None
+    async with app_state.session_factory() as session, session.begin():
+        task = await session.get(DownloadTask, ident)
+        if task is None:
+            found = (
+                await session.scalars(
+                    select(DownloadTask)
+                    .where(DownloadTask.gid == ident)
+                    .order_by(DownloadTask.id.desc())
+                    .limit(1)
+                )
+            ).all()
+            task = found[0] if found else None
+        if task is None:
+            return "not_found", None, None
+        task_id = int(task.id)
+        gid = int(task.gid)
+        was_downloading = task.status == "downloading"
+        if not await DownloadRepository(session).cancel(task_id):
+            return "not_found", None, None
+    if was_downloading:
+        mark_download_cancelled(task_id)
+    return "cancelled", task_id, gid
 
 
 @dataclass(frozen=True)
@@ -66,6 +148,8 @@ class TelegramBotService:
         text = str(message.get("text", "")).strip()
         chat_id = message.get("chat", {}).get("id")
         lang = self.settings.telegram_notify_lang
+        if not text:
+            return
         # Global pause is the SSOT (persisted in settings); self.paused mirrors it for compat
         from ..app.state import app_state
         from ..config import get_settings
@@ -103,10 +187,39 @@ class TelegramBotService:
             paused = _is_global_paused()
             self.paused = paused
             await self.notifier.send_message(bot_status(paused, lang), chat_id, force=True)
+        elif text == "/help" or text.startswith("/help "):
+            await self.notifier.send_message(bot_help(lang), chat_id, force=True)
+        elif text == "/queue" or text.startswith("/queue "):
+            items, counts = await list_queue_snapshot()
+            await self.notifier.send_message(bot_queue(items, counts, lang), chat_id, force=True)
+        elif text == "/cancel" or text.startswith("/cancel "):
+            parts = text.split(None, 1)
+            if len(parts) < 2:
+                await self.notifier.send_message(bot_cancel_usage(lang), chat_id, force=True)
+                return
+            try:
+                ident = int(parts[1].strip())
+            except ValueError:
+                await self.notifier.send_message(
+                    bot_cancel_not_found(parts[1].strip(), lang), chat_id, force=True
+                )
+                return
+            status, task_id, gid = await cancel_download_ident(ident)
+            if status != "cancelled" or task_id is None:
+                await self.notifier.send_message(
+                    bot_cancel_not_found(ident, lang), chat_id, force=True
+                )
+            else:
+                await self.notifier.send_message(
+                    bot_cancel_ok(task_id, gid if gid is not None else ident, lang),
+                    chat_id,
+                    force=True,
+                )
         else:
             try:
                 gid, token = parse_gallery_url(text, self.settings.exhentai_base_url)
             except (ValueError, TypeError):
+                await self.notifier.send_message(bot_help(lang), chat_id, force=True)
                 return
             self.paused = _is_global_paused()
             if not self.paused:

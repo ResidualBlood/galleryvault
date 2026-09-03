@@ -18,6 +18,13 @@
         <button type="submit" aria-label="Search">⌕</button>
       </form>
       <button class="btn btn-ghost icon-button" data-action="random" title="Random" aria-label="Random">🎲</button>
+      <div id="notif-wrap" class="notif-wrap">
+        <button class="btn btn-ghost icon-button" data-action="toggle-notifications" title="Notifications" aria-label="Notifications">🔔<span id="notif-badge" class="notif-badge" hidden></span></button>
+        <div id="notif-panel" class="notif-panel" hidden>
+          <div class="notif-head"><span data-i18n="notifications">Notifications</span></div>
+          <div id="notif-list" class="notif-list"></div>
+        </div>
+      </div>
       <button class="btn btn-ghost hamburger" data-action="toggle-nav" aria-label="Toggle menu" aria-expanded="false">☰</button>
       <div class="links">
         <a href="#/browse" data-i18n="browse">Browse</a>
@@ -53,6 +60,7 @@
   <script src="/assets/views/discover.js"></script>
   <script src="/assets/views/gallery.js"></script>
   <script src="/assets/views/reader.js"></script>
+  <script src="/assets/views/reader-webtoon.js"></script>
   <script src="/assets/views/favorites.js"></script>
   <script src="/assets/views/downloads.js"></script>
   <script src="/assets/views/tags.js"></script>

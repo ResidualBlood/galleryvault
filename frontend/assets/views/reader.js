@@ -17,6 +17,7 @@ function readerModeLabel(mode) {
   if (mode === "rtl") return t("readerModeRtl") || "RTL";
   if (mode === "double") return t("readerModeDouble") || "Double";
   if (mode === "double-rtl") return t("readerModeDoubleRtl") || "Double RTL";
+  if (mode === "webtoon") return t("readerModeWebtoon") || "Webtoon";
   return t("readerModeLtr") || "LTR";
 }
 
@@ -53,7 +54,7 @@ function getReaderNav(page, total, mode) {
 }
 
 function cycleReaderMode() {
-  const modes = ["ltr", "rtl", "double", "double-rtl"];
+  const modes = ["ltr", "rtl", "double", "double-rtl", "webtoon"];
   const current = getReaderMode();
   const next = modes[(modes.indexOf(current) + 1) % modes.length];
   setReaderMode(next);
@@ -65,9 +66,13 @@ async function renderReader() {
     readerTouchCleanup();
     readerTouchCleanup = null;
   }
+  if (typeof cleanupWebtoon === "function") cleanupWebtoon();
   const id = app.params.id;
   const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const mode = getReaderMode();
+  if (mode === "webtoon") {
+    return renderWebtoonReader();
+  }
   const isDoubleMode = mode.startsWith("double");
   const page = isDoubleMode && rawPage > 0 && rawPage % 2 === 0 ? rawPage - 1 : rawPage;
   if (page !== rawPage) {
@@ -146,6 +151,7 @@ async function renderReader() {
 
     const existingReader = $view().querySelector(".reader");
     if (existingReader) {
+      existingReader.classList.remove("reader-webtoon");
       existingReader.innerHTML = innerHtml;
     } else {
       $view().innerHTML = `<div class="reader">${innerHtml}</div>`;
@@ -159,6 +165,10 @@ async function renderReader() {
 }
 
 function jumpToReaderPage(targetPage) {
+  if (getReaderMode() === "webtoon") {
+    jumpToWebtoonPage(targetPage);
+    return;
+  }
   const id = app.params.id;
   const total = app.readerTotal || 1;
   const clamped = Math.max(0, Math.min(total - 1, targetPage));
@@ -208,6 +218,7 @@ function bindReaderKeys() {
 
   readerKeyHandler = (e) => {
     if (e.type === "click") {
+      if (mode() === "webtoon") return;
       const isInteractive = e.target.closest && e.target.closest(".reader-bar, .toolbar, .nav, button, a, input, select, textarea");
       if (isInteractive) return;
 
@@ -230,6 +241,27 @@ function bindReaderKeys() {
 
     const tEl = e.target;
     if (tEl && (tEl.tagName === "INPUT" || tEl.tagName === "TEXTAREA" || tEl.tagName === "SELECT")) return;
+
+    if (mode() === "webtoon") {
+      if (e.key === "g" || e.key === "G") {
+        e.preventDefault();
+        const input = document.getElementById("reader-jump-input");
+        if (readerFsActive || !input || input.offsetParent === null) {
+          const val = window.prompt(t("jumpToPage") || `Jump to page (1-${app.readerTotal || 1}):`, String(current() + 1));
+          if (val) {
+            const p = parseInt(val, 10);
+            if (!isNaN(p) && p >= 1) jumpToReaderPage(p - 1);
+          }
+        } else {
+          input.focus();
+          input.select();
+        }
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        toggleReaderFullscreen();
+      }
+      return;
+    }
 
     if (e.key === " " || e.key === "Spacebar") {
       e.preventDefault();
