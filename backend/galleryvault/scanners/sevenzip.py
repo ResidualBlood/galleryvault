@@ -28,15 +28,43 @@ class SevenZipScanner(ArchiveScanner):
             names = list(archive.getnames() or [])
             for name in names:
                 validate_archive_member(name, None)
-            with tempfile.TemporaryDirectory() as tmp:
-                archive.extractall(path=tmp)
-                sizes: dict[str, int] = {}
-                for name in names:
-                    fp = Path(tmp) / name
-                    if fp.is_file() and fp.suffix.casefold() in IMAGE_EXTENSIONS:
-                        sizes[name] = fp.stat().st_size
-                pages = self._pages(list(sizes), sizes)
-                return self._meta(path, pages, {"archive": "7z"})
+            image_names = [
+                name for name in names if Path(name).suffix.casefold() in IMAGE_EXTENSIONS
+            ]
+            sizes: dict[str, int] = {}
+            if image_names:
+                sizes = self._image_sizes(archive, image_names)
+            pages = self._pages(list(sizes), sizes)
+            return self._meta(path, pages, {"archive": "7z"})
+
+    @staticmethod
+    def _member_size(buf: object) -> int:
+        getbuffer = getattr(buf, "getbuffer", None)
+        if callable(getbuffer):
+            return int(getbuffer().nbytes)
+        read = getattr(buf, "read", None)
+        if callable(read):
+            return len(read())
+        return len(buf)  # type: ignore[arg-type]
+
+    def _image_sizes(self, archive: object, image_names: list[str]) -> dict[str, int]:
+        wanted = set(image_names)
+        read = getattr(archive, "read", None)
+        if callable(read):
+            extracted = read(targets=image_names) or {}
+            return {
+                name: self._member_size(buf)
+                for name, buf in extracted.items()
+                if name in wanted and buf is not None
+            }
+        sizes: dict[str, int] = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            archive.extract(targets=image_names, path=tmp)  # type: ignore[union-attr]
+            for name in image_names:
+                fp = Path(tmp) / name
+                if fp.is_file():
+                    sizes[name] = fp.stat().st_size
+        return sizes
 
     def open_page(self, gallery, page) -> BinaryIO:
         validate_archive_member(page.name, None)
