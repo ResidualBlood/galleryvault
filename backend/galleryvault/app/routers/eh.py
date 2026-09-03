@@ -31,6 +31,7 @@ _EH_CAT_BITS: dict[str, int] = {
 }
 _EH_CAT_ALL = 1023
 _NEXT_CURSOR_RE = re.compile(r"^\d+-\d+$")
+_TOPLIST_CURSOR_RE = re.compile(r"^\d+$")
 _SEARCH_TTL_OK = 90.0
 _SEARCH_TTL_ERR = 15.0
 _SEARCH_CACHE_MAX = 64
@@ -198,8 +199,14 @@ async def eh_search(
         tl = None
     if next_cursor:
         next_cursor = str(next_cursor).strip()
-        if not _NEXT_CURSOR_RE.fullmatch(next_cursor):
-            raise HTTPException(status_code=422, detail="invalid next cursor")
+        if kind == "toplist":
+            if not _TOPLIST_CURSOR_RE.fullmatch(next_cursor) or not (
+                0 <= int(next_cursor) < 200
+            ):
+                raise HTTPException(status_code=422, detail="invalid next cursor")
+        else:
+            if not _NEXT_CURSOR_RE.fullmatch(next_cursor):
+                raise HTTPException(status_code=422, detail="invalid next cursor")
     else:
         next_cursor = None
     f_cats = parse_category_param(category)

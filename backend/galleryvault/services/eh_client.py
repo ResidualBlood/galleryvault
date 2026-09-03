@@ -532,6 +532,15 @@ def _favorites_next_url(body: str) -> str:
 
 
 _NEXT_CURSOR_RE = re.compile(r"^\d+-\d+$")
+_TOPLIST_CURSOR_RE = re.compile(r"^\d+$")
+
+
+def _toplist_next_cursor(body: str, cur_p: int) -> str | None:
+    """Detect next page cursor for E-Hentai toplist (uses p=N query parameter)."""
+    next_p = cur_p + 1
+    if next_p < 200 and re.search(rf"(?:[?&]|&amp;)p={next_p}\b", body):
+        return str(next_p)
+    return None
 
 
 def _cursor_from_url(value: str) -> str | None:
@@ -1614,7 +1623,7 @@ class EhClient:
         elif kind == "watched":
             path = "/watched"
         elif kind == "toplist":
-            path = "/toplist.php"
+            path = "https://e-hentai.org/toplist.php"
             tl_value = 15 if tl is None else int(tl)
             if tl_value not in {11, 12, 13, 15}:
                 raise ValueError("invalid toplist tl")
@@ -1623,17 +1632,45 @@ class EhClient:
             params["f_search"] = str(q).strip()
         if kind == "search" and f_cats is not None:
             params["f_cats"] = int(f_cats)
+        cur_p = 0
         if next_cursor:
-            if not _NEXT_CURSOR_RE.fullmatch(str(next_cursor)):
-                raise ValueError("invalid next cursor")
-            params["next"] = str(next_cursor)
+            if kind == "toplist":
+                if not _TOPLIST_CURSOR_RE.fullmatch(str(next_cursor)) or not (
+                    0 <= int(next_cursor) < 200
+                ):
+                    raise ValueError("invalid next cursor")
+                cur_p = int(next_cursor)
+                if cur_p > 0:
+                    params["p"] = cur_p
+            else:
+                if not _NEXT_CURSOR_RE.fullmatch(str(next_cursor)):
+                    raise ValueError("invalid next cursor")
+                params["next"] = str(next_cursor)
         if kind in {"search", "watched"} and min_rating is not None:
             srdd = max(2, min(5, int(min_rating)))
             params["advsearch"] = 1
             params["f_sr"] = "on"
             params["f_srdd"] = srdd
+        req_kwargs: dict[str, Any] = {"params": params}
+        if kind == "toplist":
+            raw_cookies = getattr(self.settings, "exhentai_cookies", None)
+            cookies: dict[str, str] = {}
+            if isinstance(raw_cookies, dict):
+                cookies = {str(k): str(v) for k, v in raw_cookies.items()}
+            elif isinstance(raw_cookies, str) and raw_cookies.strip():
+                try:
+                    import json as _json
+
+                    parsed = _json.loads(raw_cookies)
+                    if isinstance(parsed, dict):
+                        cookies = {str(k): str(v) for k, v in parsed.items()}
+                except Exception:  # noqa: BLE001, S110
+                    pass
+            if cookies:
+                cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+                req_kwargs["headers"] = {"Cookie": cookie_str}
         try:
-            response = await self._request("GET", path, params=params)
+            response = await self._request("GET", path, **req_kwargs)
         except httpx.RequestError as exc:
             logger.warning("ExHentai search failed", extra=log_extra(error=type(exc).__name__))
             raise EhClientError("ExHentai request failed") from exc
@@ -1650,7 +1687,11 @@ class EhClient:
         state = classify_search_body(body)
         if state != "ok":
             return EhSearchResult(items=[], next_cursor=None, state=state)
-        items, nxt = parse_search_page(body, str(self.settings.exhentai_base_url))
+        items, nxt = parse_search_page(
+            body, "https://e-hentai.org" if kind == "toplist" else str(self.settings.exhentai_base_url)
+        )
+        if kind == "toplist":
+            nxt = _toplist_next_cursor(body, cur_p)
         if items:
             return EhSearchResult(items=items, next_cursor=nxt, state="ok")
         if next_cursor:
