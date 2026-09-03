@@ -169,10 +169,11 @@ def test_auth_client_ip_and_proxy_defense(monkeypatch) -> None:
     from galleryvault.config import Settings as _Settings
 
     orig_settings = app_state.settings
+    # 1. Test app_state.settings precedence over get_settings()
     app_state.settings = _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False)
     monkeypatch.setattr(
         "galleryvault.config.get_settings",
-        lambda: _Settings(trusted_proxies=["192.168.1.0/24"], exhentai_base_url="https://exhentai.org", auth_required=False),
+        lambda: _Settings(trusted_proxies=[], exhentai_base_url="https://exhentai.org", auth_required=False),
     )
     try:
         assert is_trusted_proxy("192.168.1.50") is True
@@ -186,6 +187,15 @@ def test_auth_client_ip_and_proxy_defense(monkeypatch) -> None:
         }
         req = Request(scope)
         assert client_ip(req) == "203.0.113.195"
+
+        # 2. Test app_state.settings is None fallback to get_settings()
+        app_state.settings = None
+        monkeypatch.setattr(
+            "galleryvault.config.get_settings",
+            lambda: _Settings(trusted_proxies=["10.0.0.0/8"], exhentai_base_url="https://exhentai.org", auth_required=False),
+        )
+        assert is_trusted_proxy("10.1.2.3") is True
+        assert is_trusted_proxy("192.168.1.50") is False
     finally:
         app_state.settings = orig_settings
 

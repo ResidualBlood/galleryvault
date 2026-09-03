@@ -196,8 +196,10 @@ function bindReaderKeys() {
   const isRtl = () => mode() === "rtl" || mode() === "double-rtl";
 
   const advance = () => {
+    const total = Number(app.readerTotal);
+    if (!Number.isFinite(total) || total <= 0) return;
     const cur = current();
-    const nav = getReaderNav(cur, app.readerTotal || 0, mode());
+    const nav = getReaderNav(cur, total, mode());
     if (nav.nextPage !== null) {
       if (readerFsActive) { readerSwapPage(id, nav.nextPage); return; }
       location.hash = navHash("reader", { id, page: nav.nextPage }, libraryContext());
@@ -208,8 +210,10 @@ function bindReaderKeys() {
   };
 
   const retreat = () => {
+    const total = Number(app.readerTotal);
+    if (!Number.isFinite(total) || total <= 0) return;
     const cur = current();
-    const nav = getReaderNav(cur, app.readerTotal || 0, mode());
+    const nav = getReaderNav(cur, total, mode());
     if (nav.prevPage !== null) {
       if (readerFsActive) { readerSwapPage(id, nav.prevPage); return; }
       location.hash = navHash("reader", { id, page: nav.prevPage }, libraryContext());
@@ -440,7 +444,8 @@ function syncReaderUrl() {
 }
 
 function readerSwapPage(id, target) {
-  const total = app.readerTotal || 0;
+  const total = Number(app.readerTotal);
+  if (!Number.isFinite(total) || total <= 0) { exitReaderFullscreen(); return; }
   if (target >= total) { exitReaderFullscreen(); goReaderNext(id); return; }
   if (target < 0) { exitReaderFullscreen(); return; }
 
