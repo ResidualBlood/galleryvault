@@ -653,7 +653,7 @@ async def _run_favorites_check_inner(
         )
         try:
             async with session_cm() as session, session.begin():
-                await FavoritesRepository(session).checked(favcat, False, str(exc))
+                await FavoritesRepository(session).checked(favcat, False)
         except Exception as exc2:
             logger.debug("ignoring error during favorites check failure record", exc_info=exc2)
     finally:

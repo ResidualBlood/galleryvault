@@ -43,6 +43,51 @@ def test_password_hash_and_verify() -> None:
     assert not verify_password("wrong", encoded)
 
 
+def test_verify_login_password_none_uses_default() -> None:
+    from galleryvault.auth import verify_login_password
+
+    assert verify_login_password("p1a2s3s4", None) is True
+    assert verify_login_password("wrong_password", None) is False
+
+
+def test_default_password_login_flow_and_session(client: TestClient) -> None:
+    from galleryvault.app.main import app
+    from galleryvault.app.state import app_state
+
+    original = app_state.settings or app.state.settings
+    updated = original.model_copy(
+        update={
+            "auth_required": True,
+            "auth_secret": "unit-test-secret",
+            "auth_password": None,
+            "auth_password_hash": None,
+        }
+    )
+    app_state.settings = updated
+    app.state.settings = updated
+    try:
+        failed = client.post("/login", data={"password": "wrong"}, follow_redirects=False)
+        assert failed.status_code == 303 and "error=1" in failed.headers["location"]
+
+        successful = client.post("/login", data={"password": "p1a2s3s4"}, follow_redirects=False)
+        assert successful.status_code == 303
+        assert "error=1" not in successful.headers.get("location", "")
+
+        cookie_header = successful.headers.get("set-cookie", "")
+        assert "galleryvault_session" in cookie_header
+
+        # Verify session endpoint reflects must_change_password is True
+        cookie_val = cookie_header.split(";")[0]
+        session_resp = client.get("/api/auth/session", headers={"cookie": cookie_val})
+        assert session_resp.status_code == 200
+        data = session_resp.json()
+        assert data.get("authenticated") is True
+        assert data.get("must_change_password") is True
+    finally:
+        app_state.settings = original
+        app.state.settings = original
+
+
 def test_session_expiry_and_tampering() -> None:
     expired = create_session("secret", -1)
     valid = create_session("secret", 60)

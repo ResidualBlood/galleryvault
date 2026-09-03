@@ -147,6 +147,36 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
         monkeypatch.undo()
 
 
+@pytest.mark.asyncio
+async def test_favorites_check_failure_checked_signature(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify failure path calls checked(favcat, False) with 2 arguments."""
+    checked_calls = []
+
+    class FailingService:
+        async def check_category(self, *args, **kwargs):
+            raise RuntimeError("upstream network failure")
+
+    class MockRepo:
+        async def checked(self, favcat: int, success: bool) -> None:
+            checked_calls.append((favcat, success))
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: _FakeSession(MockRepo())
+
+    try:
+        monkeypatch.setattr(favorites_worker, "FavoritesRepository", lambda session: session._repo)
+        monkeypatch.setattr(favorites_worker, "favorite_counts_cached", lambda *a, **k: {1: 10})
+        # Execute inner worker directly
+        await favorites_worker._run_favorites_check_inner(
+            favcat=1,
+            service=FailingService(),
+            scheduled=False,
+        )
+        assert checked_calls == [(1, False)]
+    finally:
+        app_state.session_factory = orig_factory
+
+
 class _FakeSession:
     def __init__(self, repo):
         self._repo = repo
