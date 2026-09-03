@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Duplicate copies import & management scan feedback** (`backend/`, `frontend/`):
+  - Fixed duplicate record synchronization failing silently during library scan due to invalid relative import `ResolvedGroup` (`ModuleNotFoundError`), restoring duplicate group persistence to `duplicate_records`.
+  - In Management → Duplicate Copies (`#/duplicates`): scanning now checks global pause state before polling logs, automatically polls until scan completion before reloading the duplicate list, and restores active pill highlight styling when toggling All / Pending / Dismissed filters.
+
 ### Changed
 
 - **Navigation top-bar & management tabs** (`frontend/`): Desktop top navigation condensed to Browse, Discover, Library, Tags, Downloads, Favorites, Management, and "More" dropdown (History, Settings, Logs). Management tab shell (`#/recycle`, `#/integrity`, `#/duplicates`) unifies Recycle Bin, Integrity Check, and Duplicate Finder; mobile hamburger menu keeps a flat structure. Existing routes and hash URLs remain backward-compatible.

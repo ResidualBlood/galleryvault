@@ -258,7 +258,7 @@ class GalleryRepository:
         whose gid is no longer duplicated (copy removed on disk, or resolved
         for real) are deleted.
         """
-        from ..services.duplicate_resolver import ResolvedGroup
+        from galleryvault.services.duplicate_resolver import ResolvedGroup
 
         groups = [group for group in groups if isinstance(group, ResolvedGroup)]
         current = {group.gid for group in groups}

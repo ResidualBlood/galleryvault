@@ -84,9 +84,30 @@ async function onClick(e) {
   if (action === "dup-unignore-selected") { dupUnignoreSelected(); return; }
   if (action === "dup-ignored-clear") { document.querySelectorAll('#ignored-list input[data-ignore-key]').forEach(cb => cb.checked = false); renderFavIgnored(); return; }
   if (action === "dup-page") { e.preventDefault(); dupPage = parseInt(el.getAttribute("data-page"), 10) || 1; renderDupGroupsFromCache(); return; }
-  if (action === "dupgal-scan") { scanLibrary(); return; }
+  if (action === "dupgal-scan") {
+    scanLibrary().then(async (r) => {
+      if (!r || r.status === "paused") return;
+      for (let i = 0; i < 120; i++) {
+        await new Promise(res => setTimeout(res, 1000));
+        try {
+          const st = await api("GET", "/api/scan");
+          if (!st || !st.running) break;
+        } catch (_) { break; }
+      }
+      await loadDuplicates();
+      renderDuplicatesList();
+    });
+    return;
+  }
   if (action === "dupgal-refresh") { loadDuplicates().then(renderDuplicatesList); return; }
-  if (action === "dupgal-filter") { dupGalFilter = el.getAttribute("data-value") || "all"; renderDuplicatesList(); return; }
+  if (action === "dupgal-filter") {
+    dupGalFilter = el.getAttribute("data-value") || "all";
+    document.querySelectorAll('[data-action="dupgal-filter"]').forEach(b => {
+      b.classList.toggle("active-pill", b.getAttribute("data-value") === dupGalFilter);
+    });
+    renderDuplicatesList();
+    return;
+  }
   if (action === "dupgal-keep") { dupGalResolve(el.getAttribute("data-gid"), el.getAttribute("data-path"), false); return; }
   if (action === "dupgal-keep-del") { dupGalResolve(el.getAttribute("data-gid"), el.getAttribute("data-path"), true); return; }
   if (action === "dupgal-dismiss") { dupGalSetStatus(el.getAttribute("data-gid"), "dismiss"); return; }
