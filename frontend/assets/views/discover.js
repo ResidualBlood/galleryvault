@@ -56,9 +56,17 @@ function discoverCard(it) {
   if (it.in_library) badges.push(`<span class="disc-badge in">${esc(t("discoverInLibrary"))}</span>`);
   if (it.favorited) badges.push(`<span class="disc-badge fav">${esc(t("discoverFavorited"))}</span>`);
   if (!it.downloaded) badges.push(`<span class="disc-badge nodl">${esc(t("discoverNotDownloaded"))}</span>`);
-  const cover = it.thumb
-    ? `<img loading="lazy" src="${esc(it.thumb)}" alt="" referrerpolicy="no-referrer">`
-    : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover"))}</div>`;
+  const thumb = String(it.thumb || "");
+  const thumbLow = thumb.toLowerCase();
+  const ehgtThumb = thumbLow.startsWith("https://ehgt.org/");
+  let cover;
+  if (it.gallery_id) {
+    cover = `<img loading="lazy" src="/api/galleries/${it.gallery_id}/thumb/0" alt="">`;
+  } else if (ehgtThumb) {
+    cover = `<img loading="lazy" src="${esc(it.thumb)}" alt="" referrerpolicy="no-referrer">`;
+  } else {
+    cover = `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover"))}</div>`;
+  }
   const href = it.gallery_id ? navHash("gallery", { id: it.gallery_id }) : esc(it.url || "#");
   const extra = it.gallery_id ? "" : ` target="_blank" rel="noopener"`;
   const rating = it.rating != null ? `<span class="gc-size">★ ${esc(it.rating)}</span>` : "";

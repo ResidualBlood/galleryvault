@@ -12,7 +12,9 @@ from galleryvault.services.eh_client import (
     EhClient,
     EhSearchResult,
     SearchGallery,
+    _usable_thumb_src,
     classify_search_body,
+    get_fixed_preview_thumb_url,
     parse_search_page,
 )
 
@@ -69,6 +71,48 @@ SEARCH_THUMBNAIL_LAZY_HTML = """
 </body></html>
 """
 
+_SXJ_THUMB_LAST = (
+    "317a1a254cd9c3269e71b2aa2671fe8d28c91097-260198-640-480-png_250.jpg"
+)
+_SXJ_THUMB_EHGT = f"https://ehgt.org/31/7a/{_SXJ_THUMB_LAST}"
+
+SEARCH_SXJ_THUMB_HTML = f"""
+<html><body>
+<table class="itg gltc">
+<tr>
+  <td class="gl2c"><div class="glthumb"><div>
+    <a href="https://exhentai.org/g/111111/aaaaaa/">
+      <img src="https://s.exhentai.org/t/31/7a/{_SXJ_THUMB_LAST}" alt="">
+    </a>
+  </div></div></td>
+  <td class="gl3c glname">
+    <a href="https://exhentai.org/g/111111/aaaaaa/"><div class="glink">S Host</div></a>
+  </td>
+</tr>
+<tr>
+  <td class="gl2c"><div class="glthumb"><div>
+    <a href="https://exhentai.org/g/222222/bbbbbb/">
+      <img src="https://exhentai.org/t/31/7a/{_SXJ_THUMB_LAST}" alt="">
+    </a>
+  </div></div></td>
+  <td class="gl3c glname">
+    <a href="https://exhentai.org/g/222222/bbbbbb/"><div class="glink">T Path</div></a>
+  </td>
+</tr>
+<tr>
+  <td class="gl2c"><div class="glthumb"><div>
+    <a href="https://exhentai.org/g/333333/cccccc/">
+      <img src="https://s.exhentai.org/t/xx/yy/zzzz.jpg" alt="">
+    </a>
+  </div></div></td>
+  <td class="gl3c glname">
+    <a href="https://exhentai.org/g/333333/cccccc/"><div class="glink">No Match</div></a>
+  </td>
+</tr>
+</table>
+</body></html>
+"""
+
 
 def test_parse_search_page_extracts_rows_and_cursor() -> None:
     items, cursor = parse_search_page(SEARCH_LIST_HTML)
@@ -90,6 +134,36 @@ def test_parse_search_page_prefers_data_src_over_blank_gif() -> None:
     items, _ = parse_search_page(SEARCH_THUMBNAIL_LAZY_HTML)
     assert [it.gid for it in items] == [111111]
     assert items[0].thumb == "https://ehgt.org/real.jpg"
+
+
+def test_get_fixed_preview_thumb_url_sxj() -> None:
+    keep = "https://ehgt.org/aa/bb/thumb-alpha.jpg"
+    assert get_fixed_preview_thumb_url(keep) == keep
+    assert get_fixed_preview_thumb_url(_SXJ_THUMB_EHGT) == _SXJ_THUMB_EHGT
+    s_url = f"https://s.exhentai.org/t/31/7a/{_SXJ_THUMB_LAST}"
+    t_url = f"https://exhentai.org/t/31/7a/{_SXJ_THUMB_LAST}"
+    assert get_fixed_preview_thumb_url(s_url) == _SXJ_THUMB_EHGT
+    assert get_fixed_preview_thumb_url(t_url) == _SXJ_THUMB_EHGT
+    assert get_fixed_preview_thumb_url(f"//{s_url.split('://', 1)[1]}") == _SXJ_THUMB_EHGT
+    short = "https://s.exhentai.org/t/foo.jpg"
+    nomatch = "https://s.exhentai.org/t/xx/yy/zzzz.jpg"
+    assert get_fixed_preview_thumb_url(short) == short
+    assert get_fixed_preview_thumb_url(nomatch) == nomatch
+    assert _usable_thumb_src(keep) == keep
+    assert _usable_thumb_src(s_url) == _SXJ_THUMB_EHGT
+    assert _usable_thumb_src(short) is None
+    assert _usable_thumb_src(nomatch) is None
+    assert _usable_thumb_src("blank.gif") is None
+    assert _usable_thumb_src("https://ehgt.org/real.jpg") == "https://ehgt.org/real.jpg"
+    assert _usable_thumb_src("http://ehgt.org/real.jpg") == "https://ehgt.org/real.jpg"
+
+
+def test_parse_search_page_rewrites_preview_thumbs_to_ehgt() -> None:
+    items, _ = parse_search_page(SEARCH_SXJ_THUMB_HTML)
+    by_gid = {it.gid: it.thumb for it in items}
+    assert by_gid[111111] == _SXJ_THUMB_EHGT
+    assert by_gid[222222] == _SXJ_THUMB_EHGT
+    assert by_gid[333333] is None
 
 
 def test_classify_search_body_sad_panda_empty_expired() -> None:
