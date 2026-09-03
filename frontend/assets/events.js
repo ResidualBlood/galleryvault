@@ -6,6 +6,9 @@
 async function onClick(e) {
   const notifWrap = document.getElementById("notif-wrap");
   if (notifWrap && !notifWrap.contains(e.target)) closeNotificationPanel();
+  const moreWrap = document.getElementById("nav-more");
+  if (moreWrap && !moreWrap.contains(e.target)) closeMorePanel();
+  if (e.target.closest("#more-panel a")) closeMorePanel();
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const action = el.getAttribute("data-action");
@@ -95,6 +98,7 @@ async function onClick(e) {
   if (action === "gen-thumbs") { generateThumbnails(); return; }
   if (action === "sync-all-tags") { syncAllTags(); return; }
   if (action === "toggle-notifications") { toggleNotificationPanel(); return; }
+  if (action === "toggle-more") { toggleMorePanel(); return; }
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
   if (action === "export-cbz") { exportGalleryCbz(el.getAttribute("data-id")); return; }
   if (action === "download-original") { downloadOriginalGallery(el.getAttribute("data-id"), el.getAttribute("data-gid"), false); return; }

@@ -185,6 +185,41 @@ function closeNotificationPanel() {
   notifPanelOpen = false;
 }
 
+let morePanelOpen = false;
+
+function closeMorePanel() {
+  const wrap = document.getElementById("nav-more");
+  const panel = document.getElementById("more-panel");
+  const btn = document.querySelector('[data-action="toggle-more"]');
+  if (wrap) wrap.classList.remove("more-open");
+  const isDesktop = window.matchMedia ? window.matchMedia("(min-width: 641px)").matches : window.innerWidth > 640;
+  if (panel) panel.hidden = isDesktop;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+  morePanelOpen = false;
+}
+
+function toggleMorePanel() {
+  const wrap = document.getElementById("nav-more");
+  const panel = document.getElementById("more-panel");
+  const btn = document.querySelector('[data-action="toggle-more"]');
+  if (!panel) return;
+  if (morePanelOpen) {
+    closeMorePanel();
+    return;
+  }
+  closeNotificationPanel();
+  morePanelOpen = true;
+  if (wrap) wrap.classList.add("more-open");
+  panel.hidden = false;
+  if (btn) btn.setAttribute("aria-expanded", "true");
+}
+
+try {
+  if (window.matchMedia) {
+    window.matchMedia("(min-width: 641px)").addEventListener("change", () => closeMorePanel());
+  }
+} catch (_) {}
+
 async function toggleNotificationPanel() {
   const panel = document.getElementById("notif-panel");
   if (!panel) return;
@@ -192,6 +227,7 @@ async function toggleNotificationPanel() {
     closeNotificationPanel();
     return;
   }
+  closeMorePanel();
   notifPanelOpen = true;
   panel.hidden = false;
   try {
@@ -334,6 +370,7 @@ async function doLogout() {
   stopPausePolling();
   stopNotificationPolling();
   closeNotificationPanel();
+  closeMorePanel();
   await fetch("/logout", { method: "POST", credentials: "include" });
   app.authenticated = false;
   app.paused = false;
@@ -441,8 +478,53 @@ function beforeRender(view) {
   }
 }
 
+function updateNavActive(view) {
+  const links = document.querySelectorAll(".topbar .links a");
+  links.forEach(a => a.classList.remove("active"));
+  const moreBtn = document.querySelector(".nav-more-btn");
+  if (moreBtn) moreBtn.classList.remove("active");
+
+  let targetSelector = null;
+  let isMore = false;
+
+  if (view === "browse") targetSelector = '.topbar .links a[href="#/browse"]';
+  else if (view === "discover") targetSelector = '.topbar .links a[href="#/discover"]';
+  else if (view === "library") targetSelector = '.topbar .links a[href="#/library"]';
+  else if (view === "tags") targetSelector = '.topbar .links a[href="#/tags"]';
+  else if (view === "downloads") targetSelector = '.topbar .links a[href="#/downloads"]';
+  else if (["favorites", "favlist", "favmanage", "favignored", "updates", "updignored"].includes(view)) {
+    targetSelector = '.topbar .links a[href="#/favorites"]';
+  } else if (["recycle", "duplicates", "integrity"].includes(view)) {
+    targetSelector = '.topbar .links a[href="#/recycle"]';
+  } else if (view === "history") {
+    targetSelector = '.topbar .links a[href="#/history"]';
+    isMore = true;
+  } else if (view === "settings") {
+    targetSelector = '.topbar .links a[href="#/settings"]';
+    isMore = true;
+  } else if (view === "logs") {
+    targetSelector = '.topbar .links a[href="#/logs"]';
+    isMore = true;
+  }
+
+  if (targetSelector) {
+    const el = document.querySelector(targetSelector);
+    if (el) el.classList.add("active");
+  }
+  if (isMore && moreBtn) {
+    moreBtn.classList.add("active");
+  }
+}
+
 function afterRender(view) {
-  // placeholder for future: bind common, a11y etc.
+  closeMorePanel();
+  const nav = document.getElementById("topbar");
+  if (nav && nav.classList.contains("nav-open")) {
+    nav.classList.remove("nav-open");
+    const burger = document.querySelector('[data-action="toggle-nav"]');
+    if (burger) burger.setAttribute("aria-expanded", "false");
+  }
+  updateNavActive(view);
 }
 
 function renderView(html) {

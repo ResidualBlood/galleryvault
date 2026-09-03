@@ -30,10 +30,10 @@ async function renderRecycle() {
   renderView(`
     <header><p class="eyebrow">RECYCLE BIN</p><h1>${esc(t("recycleTitle"))}</h1>
     <p class="sub">${esc(t("recycleSub"))}</p></header>
+    ${manageTabsHtml("recycle")}
     <div class="toolbar">
       <a class="pill${tab === "trash" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "trash" })}">🗑 ${esc(t("trash")) || "Trash"} (${esc(t("userDeleted") || "User")})</a>
       <a class="pill${tab === "expunged" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "expunged" })}">👻 ${esc(t("expunged") || "Missing")} (${esc(t("scanMissing") || "Scan")})</a>
-      <a class="pill" href="#/integrity">${esc(t("missingPagesTitle"))}</a>
       <button class="btn btn-secondary" data-action="recycle-restore" type="button"${tab === "expunged" ? " hidden disabled" : ""}>${esc(t("restore"))}${suffix}</button>
       <button class="btn btn-danger" data-action="recycle-purge" type="button">${esc(t("purge"))}${suffix}</button>
     </div>

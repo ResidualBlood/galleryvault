@@ -5,8 +5,8 @@ async function renderIntegrity() {
   renderView(`
     <header><p class="eyebrow">INTEGRITY</p><h1>${esc(t("missingPagesTitle"))}</h1>
     <p class="sub">${esc(t("missingPagesSub"))}</p></header>
+    ${manageTabsHtml("integrity")}
     <div class="toolbar">
-      <a class="pill" href="#/recycle">${esc(t("recycleTitle"))}</a>
       <button class="btn btn-secondary" data-action="integrity-repair" type="button">${esc(t("retry"))} / ${esc(t("repair") || "Repair")}</button>
     </div>
     <div id="integrity-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>

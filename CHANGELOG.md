@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Navigation top-bar & management tabs** (`frontend/`): Desktop top navigation condensed to Browse, Discover, Library, Tags, Downloads, Favorites, Management, and "More" dropdown (History, Settings, Logs). Management tab shell (`#/recycle`, `#/integrity`, `#/duplicates`) unifies Recycle Bin, Integrity Check, and Duplicate Finder; mobile hamburger menu keeps a flat structure. Existing routes and hash URLs remain backward-compatible.
+
+
 ## [1.6.1] - 2026-09-03
 
 ### Added

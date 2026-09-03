@@ -80,6 +80,7 @@ button { cursor: pointer; font: inherit; }
 .links { display: flex; align-items: center; gap: 16px; white-space: nowrap; }
 .links a { color: var(--muted); font-size: .88rem; }
 .links a:hover { color: var(--ink); }
+.links a.active, .nav-more-btn.active { color: var(--accent); font-weight: 600; }
 .link-button { background: none; color: var(--muted); padding: 0; border: 0; }
 .hamburger { font-size: 1.2rem; padding: 4px 8px; min-width: 44px; display: none; }
 main { max-width: 1320px; margin: auto; padding: var(--space-xl) var(--space-lg) 80px; }
@@ -199,6 +200,31 @@ button:disabled { opacity: .5; cursor: default; }
 .notif-item.unread { background: #d8a55b14; }
 .notif-kind { color: var(--accent); font-weight: 700; margin-right: 6px; }
 .notif-time { color: var(--muted); font-size: .72rem; margin-top: 2px; }
+.more-wrap { position: relative; display: inline-flex; align-items: center; }
+.nav-more-btn { font-size: .88rem; cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; gap: 2px; }
+.nav-more-btn:hover { color: var(--ink); }
+.more-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 140px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 8px 24px #0008; z-index: 21; /* higher than .notif-panel (20) */
+  display: flex; flex-direction: column; padding: 4px 0;
+}
+.more-panel a {
+  padding: 8px 16px; color: var(--muted); font-size: .88rem;
+  display: block; white-space: nowrap;
+}
+.more-panel a:hover { color: var(--ink); background: var(--panel-2); }
+.more-panel a.active { color: var(--accent); font-weight: 600; }
+.manage-tabs {
+  display: flex; gap: 6px; margin: 12px 0 16px; border-bottom: 1px solid var(--line);
+}
+.manage-tab {
+  padding: 6px 14px 10px; font-size: .92rem; font-weight: 500;
+  color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  text-decoration: none; transition: color .15s, border-color .15s;
+}
+.manage-tab:hover { color: var(--ink); }
+.manage-tab.active { color: var(--accent); font-weight: 600; border-bottom-color: var(--accent); }
 .reader-spread { display: flex; justify-content: center; align-items: center; gap: 6px; max-width: 100%; }
 .reader-spread img { max-width: calc(50vw - 24px); max-height: 82vh; object-fit: contain; }
 .reader-spread.reader-spread-rtl { flex-direction: row-reverse; }
@@ -597,7 +623,7 @@ a.row:hover { border-color: var(--accent); }
 @media (max-width: 900px) {
   .topbar { gap: 10px; padding: 0 10px; }
   .links { gap: 10px; }
-  .links a { font-size: .8rem; }
+  .links a, .nav-more-btn { font-size: .8rem; }
   main { padding: 20px 14px 60px; }
   h1 { margin-bottom: 8px; }
   .toolbar input, .toolbar select { min-width: 120px; }
@@ -610,6 +636,12 @@ a.row:hover { border-color: var(--accent); }
   .hamburger { display: inline-block; }
   .topbar .links { display: none; }
   .topbar.nav-open .links { display: flex; flex-direction: column; position: absolute; top: 100%; left: 0; right: 0; background: var(--panel); padding: 8px 12px; border-top: 1px solid var(--line); z-index: 10; gap: 6px; white-space: normal; box-shadow: 0 4px 12px #0006; }
+  .nav-more-btn { display: none !important; }
+  .more-wrap { display: contents; }
+  .more-panel {
+    display: contents;
+  }
+  .more-panel a { padding: 0; }
   .topbar { flex-wrap: wrap; height: auto; padding: 8px 10px; gap: var(--space-sm); }
   .top-search { order: 3; flex-basis: 100%; max-width: none; }
   .top-search input { flex: 1; min-width: 0; }
@@ -631,7 +663,7 @@ a.row:hover { border-color: var(--accent); }
   .reader:fullscreen .reader-spread:has(> .reader-img-wrap[style*="display: none"]) img {
     max-height: 100vh;
   }
-  .pills { overflow-x: auto; white-space: nowrap; max-width: 100%; -webkit-overflow-scrolling: touch; }
+  .pills, .manage-tabs { overflow-x: auto; white-space: nowrap; max-width: 100%; -webkit-overflow-scrolling: touch; }
   .tag-groups, .ns-strip { gap: 6px; }
   .table { min-width: 640px; }
   #fav-list { overflow-x: auto; }
