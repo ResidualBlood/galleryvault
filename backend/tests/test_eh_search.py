@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from galleryvault.app.routers.eh import attach_search_badges, eh_search, parse_category_param
 from galleryvault.app.state import app_state
+from galleryvault.config import Settings
 from galleryvault.services.eh_client import (
     EhClient,
     EhSearchResult,
@@ -547,3 +548,134 @@ def test_parse_favorite_note_from_html() -> None:
     assert parse_favorite_note(html, 111111) == "keep this copy"
     assert parse_favorite_note("<div class='glnote'>hello</div>", 1) == "hello"
     assert parse_favorite_note("<html></html>", 1) is None
+
+
+@pytest.mark.asyncio
+async def test_search_toplist_requests_e_hentai_and_passes_cookies() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text=SEARCH_LIST_HTML)
+
+    settings = Settings(
+        exhentai_base_url="https://exhentai.org",
+        exhentai_cookies={"ipb_member_id": "12345", "ipb_pass_hash": "abcdef"},
+    )
+    http_client = httpx.AsyncClient(
+        base_url=settings.exhentai_base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    client = EhClient(settings, client=http_client)
+    try:
+        res = await client.search_galleries(list_type="toplist", tl=15)
+        assert len(seen) == 1
+        req = seen[0]
+        assert str(req.url).startswith("https://e-hentai.org/toplist.php")
+        assert req.url.params.get("tl") == "15"
+        assert req.headers.get("cookie") is not None
+        assert "ipb_member_id=12345" in req.headers.get("cookie", "")
+        assert res.state == "ok"
+    finally:
+        await http_client.aclose()
+
+
+TOPLIST_HTML_WITH_NEXT = """
+<html>
+<body>
+<table class="itg gltc">
+<tr>
+  <td class="gl1c glcat"><div class="cs ct2">Doujinshi</div></td>
+  <td class="gl2c">
+    <div class="glthumb">
+      <div><img src="https://ehgt.org/aa/bb/thumb-top.jpg" alt=""></div>
+      <div>
+        <div>30 pages</div>
+        <div class="ir" style="background-position:0px -1px" title="Average: 4.80"></div>
+      </div>
+    </div>
+  </td>
+  <td class="gl3c glname">
+    <a href="https://e-hentai.org/g/333333/cccccc/">
+      <div class="glink">Toplist Item 1</div>
+    </a>
+  </td>
+</tr>
+</table>
+<table class="ptb">
+  <tr>
+    <td class="ptds"><a href="https://e-hentai.org/toplist.php?tl=15&amp;p=1">2</a></td>
+    <td><a href="https://e-hentai.org/toplist.php?tl=15&amp;p=2">3</a></td>
+  </tr>
+</table>
+</body>
+</html>
+"""
+
+
+@pytest.mark.asyncio
+async def test_search_toplist_pagination_cursor() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text=TOPLIST_HTML_WITH_NEXT)
+
+    client = await _client_for(handler)
+    try:
+        res = await client.search_galleries(list_type="toplist", tl=15, next_cursor="1")
+        assert len(seen) == 1
+        assert seen[0].url.params.get("p") == "1"
+        assert seen[0].url.params.get("tl") == "15"
+        assert res.state == "ok"
+        assert res.next_cursor == "2"
+        assert len(res.items) == 1
+        assert res.items[0].gid == 333333
+        assert res.items[0].url == "https://e-hentai.org/g/333333/cccccc/"
+    finally:
+        await client.client.aclose()
+
+
+def test_eh_search_router_toplist_cursor_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from galleryvault.app.routers.eh import router as eh_router
+
+    app_state.extra.pop("eh_search_cache", None)
+
+    class DummyClient:
+        async def search_galleries(self, **kwargs):
+            return EhSearchResult(
+                items=[],
+                next_cursor="2",
+                state="ok",
+            )
+
+    orig_client = app_state.eh_client
+    app_state.eh_client = DummyClient()
+    app = FastAPI()
+    app.include_router(eh_router)
+    client = TestClient(app)
+    try:
+        # Valid numeric cursor for toplist passes router validation
+        resp = client.get("/api/eh/search?list=toplist&next=1")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["state"] == "ok"
+        assert data["next"] == "2"
+        assert data["list"] == "toplist"
+
+        # Invalid cursor for toplist (gid-ts or alphabetic) returns 422
+        resp_invalid = client.get("/api/eh/search?list=toplist&next=111111-1770000000")
+        assert resp_invalid.status_code == 422
+
+        resp_invalid2 = client.get("/api/eh/search?list=toplist&next=abc")
+        assert resp_invalid2.status_code == 422
+
+        # In standard search, numeric cursor like "1" is invalid (expects gid-ts)
+        resp_invalid3 = client.get("/api/eh/search?list=search&next=1")
+        assert resp_invalid3.status_code == 422
+    finally:
+        app_state.eh_client = orig_client
+        app_state.extra.pop("eh_search_cache", None)
