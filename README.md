@@ -13,11 +13,11 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 
 ## 功能特性
 
-- **本地画廊库**：扫描 Ehviewer 导出目录 / CBZ/CBR / 图片文件夹，建立可搜索的本地索引（PostgreSQL）；多目录同 gid 自动去重。
-- **搜索与标签**：多标签 AND/排除、`标签+文字`混输、中文反向检索、库排序与阅读状态、双语界面。
-- **ExHentai 集成**：自有 cookie 同步元数据与标签（失效顶栏告警）；收藏夹监控自动下载与查重；画廊重传自动更新；一键打开原站。
-- **下载管理**：贴链接/归档、断点续传、失败自愈、全局暂停与 GP/配额；下载完即入库；Telegram 通知与 bot 命令。
-- **阅读器与界面**：流式阅读器（跳页/全屏/自动跳下一本）、继续阅读、回收站与缺页、任务日志、首次运行向导。
+- **本地画廊库**：扫描 Ehviewer / CBZ/CBR/7z/PDF / 图片文件夹；多目录同 gid 去重；本地列表与星级。
+- **搜索与标签**：多标签 AND/排除、库排序与阅读状态、发现页搜 ExHentai、中文反向检索、双语界面。
+- **ExHentai 集成**：cookie 同步（失效顶栏告警）；收藏夹监控与查重；发现页一键下载/加收藏；画廊重传更新。
+- **下载管理**：贴链接/归档、断点续传、失败自愈、全局暂停与 GP/配额；Telegram 与应用内通知。
+- **阅读器与界面**：流式阅读（条漫/跳页/全屏）、继续阅读、回收站、PWA 与浅色主题、OPDS。
 - **安全与运维**：PBKDF2 认证、可选静态加密（AES-256-GCM）、默认 root 亦可 `PUID`/`PGID` 降权；单命令部署与一键备份。
 
 ## 界面截图
@@ -115,7 +115,7 @@ docker compose up -d
 完整文档见 **[📖 Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**：
 
 - [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — compose、数据目录、库挂载、安全加固、TLS、升级
-- [使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — 浏览、阅读器、标签、下载、收藏夹、回收站、日志、设置
+- [使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — 浏览、发现、阅读器、下载、收藏夹、回收站、PWA、设置
 - [备份与恢复](https://github.com/ResidualBlood/galleryvault/wiki/Backup)
 - [静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption) — ENCRYPTION_KEY 与密钥丢失恢复
 - [API 参考](https://github.com/ResidualBlood/galleryvault/wiki/API)

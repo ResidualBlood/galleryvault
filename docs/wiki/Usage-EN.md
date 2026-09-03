@@ -474,7 +474,7 @@ additions again.
   (bold titles, mono gids); gallery titles are never translated. A **Send test
   message** button verifies the bot can reach the chat.
 - **Disk usage**: the Settings page shows library / downloads / cache usage and the 10 largest galleries by DB `storage_size` (no `du` of the whole library). Missing directories report 0.
-- **PWA**: add to home screen. The service worker caches only the html/css/js shell, **not gallery images**.
+- **PWA**: add to home screen. The service worker caches only the html/css/js shell (js/css **network-first**, then update the cache; offline falls back to cache), **not gallery images or `/api/`**.
 - **Light theme**: ◐ in the top bar; `localStorage gv_theme=dark|light`, default dark.
 - **7z / PDF scan**: library scan accepts `.7z` (py7zr, images only) and `.pdf` (embedded images; skip with a warning if none).
 - **OPDS**: after login, `GET /api/opds` (atom+xml) lists recent ingestions with acquisition links to `export.cbz`.

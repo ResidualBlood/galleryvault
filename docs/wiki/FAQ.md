@@ -69,6 +69,22 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 暂停后不再领取新页，已开始的当前页会下完；不再 claim；扫描返回 `paused`。Web 下载页按钮与 Telegram `/pause` `/resume` 是同一开关，网页暂停后 Bot 一致，重启后仍保持暂停。详见 [使用指南](Usage)。
 
+## 发现页和画廊库有什么区别？
+
+发现页（`#/discover`）是逛/搜 **ExHentai**（含 Popular / Watched / Toplist），不是本地库。点下载或加收藏成功后才会进库/收藏夹。详见 [使用指南](Usage)。
+
+## 加到主屏幕会把画廊下到手机吗？
+
+**不会**。PWA 只缓存界面壳；js/css 网络优先（离线才用缓存），不缓存画廊图和 `/api/`。
+
+## 怎么用 OPDS？
+
+登录后访问 `GET /api/opds`（atom+xml），acquisition 链到该本 `export.cbz`。
+
+## 扫描 7z 会把整个压缩包解到磁盘吗？
+
+**不会**。只抽取图片后缀，其它文件留在包内。
+
 ## 下载页提示「图片配额将达上限」？
 
 来自 ExHentai Image Limit（与 GP 一起约 30 分钟缓存）。用量超过约 80% 时顶栏告警，建议暂停，避免 509。
