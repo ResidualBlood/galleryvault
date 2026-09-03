@@ -9,3 +9,5 @@ rarfile>=4.5,<5
 Pillow>=12.3.0,<13
 # At-rest encryption for sensitive settings (ENCRYPTION_KEY)
 cryptography>=50.0.1,<51
+py7zr>=1.0,<2
+pypdf>=5.0,<7

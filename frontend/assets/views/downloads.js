@@ -73,9 +73,12 @@ async function loadQuota() {
         // Near limit warning (>80%) – also push to top banner with dedicated quota copy
         try {
           if (lim.limit > 0 && lim.current / lim.limit > 0.8) {
-            const hint = (t("quotaWarningHint") && t("quotaWarningHint") !== "quotaWarningHint")
-              ? t("quotaWarningHint").replace("{current}", lim.current).replace("{limit}", lim.limit)
-              : `${t("quotaWarning") || t("imageLimitTitle")}: ${lim.current}/${lim.limit}`;
+            const near = t("quotaNearLimit");
+            const hint = (near && near !== "quotaNearLimit")
+              ? near.replace("{current}", lim.current).replace("{limit}", lim.limit)
+              : (t("quotaWarningHint") && t("quotaWarningHint") !== "quotaWarningHint")
+                ? t("quotaWarningHint").replace("{current}", lim.current).replace("{limit}", lim.limit)
+                : `${t("quotaWarning") || t("imageLimitTitle")}: ${lim.current}/${lim.limit}`;
             app.session.quota_warning = hint;
             updateBanner();
           } else if (app.session && app.session.quota_warning) {

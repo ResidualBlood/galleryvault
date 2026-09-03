@@ -13,6 +13,15 @@ async function renderLibrary() {
   const page_min = app.query.page_min || app.query.min_pages || "";
   const page_max = app.query.page_max || app.query.max_pages || "";
   const min_rating = app.query.min_rating || "";
+  const size_min = app.query.size_min || "";
+  const size_max = app.query.size_max || "";
+  const posted_from = app.query.posted_from || "";
+  const posted_to = app.query.posted_to || "";
+  const uploader = app.query.uploader || "";
+  const image_quality = app.query.image_quality || "";
+  const min_local_rating = app.query.min_local_rating || "";
+  const list_id = app.query.list_id || "";
+  const language = (parseTags(tags).find(x => x.startsWith("language:")) || "").split(":")[1] || "";
   const filterPill = tagFilterPills(tags);
   const selCount = selGalleries.size;
   renderView(`
@@ -50,7 +59,34 @@ async function renderLibrary() {
         <option value="4"${min_rating === "4" ? " selected" : ""}>≥4</option>
         <option value="4.5"${min_rating === "4.5" ? " selected" : ""}>≥4.5</option>
       </select>
+      <input name="size_min" type="number" min="0" placeholder="${esc(t("sizeMin"))}" value="${esc(size_min)}" style="width:110px" title="${esc(t("sizeMin"))}">
+      <input name="size_max" type="number" min="0" placeholder="${esc(t("sizeMax"))}" value="${esc(size_max)}" style="width:110px" title="${esc(t("sizeMax"))}">
+      <input name="posted_from" type="date" value="${esc(posted_from)}" title="${esc(t("postedFrom"))}">
+      <input name="posted_to" type="date" value="${esc(posted_to)}" title="${esc(t("postedTo"))}">
+      <input name="uploader" value="${esc(uploader)}" placeholder="${esc(t("uploader"))}" style="width:120px">
+      <select name="image_quality">
+        <option value=""${!image_quality ? " selected" : ""}>${esc(t("qualityAll"))}</option>
+        <option value="original"${image_quality === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
+        <option value="resample"${image_quality === "resample" ? " selected" : ""}>${esc(t("qualityResample"))}</option>
+      </select>
+      <select name="language">
+        <option value=""${!language ? " selected" : ""}>${esc(t("languageAll"))}</option>
+        ${[["chinese", t("langChinese")], ["english", t("langEnglish")], ["japanese", t("langJapanese")], ["korean", t("langKorean")], ["translated", t("langTranslated")]].map(([v, lab]) => `<option value="${v}"${language === v ? " selected" : ""}>${esc(lab)}</option>`).join("")}
+      </select>
+      <select name="min_local_rating">
+        <option value=""${!min_local_rating ? " selected" : ""}>${esc(t("localRatingMin"))}</option>
+        ${[1,2,3,4,5].map(n => `<option value="${n}"${min_local_rating === String(n) ? " selected" : ""}>≥${n}★</option>`).join("")}
+      </select>
+      <select name="list_id" id="lib-list-id">
+        <option value=""${!list_id ? " selected" : ""}>${esc(t("listAll"))}</option>
+      </select>
       <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
+      <button class="btn btn-secondary" data-action="save-search" type="button">${esc(t("saveSearch"))}</button>
+      <select id="saved-search-select" title="${esc(t("savedSearches"))}"></select>
+      <button class="btn btn-secondary" data-action="apply-search" type="button">${esc(t("applySearch"))}</button>
+      <button class="btn btn-secondary" data-action="delete-search" type="button">${esc(t("deleteSearch"))}</button>
+      <button class="btn btn-secondary" data-action="list-create" type="button">${esc(t("listNew"))}</button>
+      <button class="btn btn-secondary" data-action="lib-add-list" type="button">${esc(t("listAdd"))}</button>
       <button class="btn btn-secondary" data-action="scan" type="button">${esc(t("scan"))}</button>
       <button class="btn btn-secondary" data-action="sel-clear" type="button">${esc(t("clearSel"))}</button>
       <button class="btn btn-secondary" data-action="lib-batch-fav" type="button">${esc(selCount ? t("batchFavCount").replace("{count}", selCount) : t("batchFav"))}</button>
@@ -72,6 +108,14 @@ async function renderLibrary() {
     if (min_rating) extra.min_rating = min_rating;
     if (page_min) extra.page_min = page_min;
     if (page_max) extra.page_max = page_max;
+    if (size_min) extra.size_min = String(Math.round(parseFloat(size_min) * 1048576));
+    if (size_max) extra.size_max = String(Math.round(parseFloat(size_max) * 1048576));
+    if (posted_from) extra.posted_from = posted_from;
+    if (posted_to) extra.posted_to = posted_to;
+    if (uploader) extra.uploader = uploader;
+    if (image_quality) extra.image_quality = image_quality;
+    if (min_local_rating) extra.min_local_rating = min_local_rating;
+    if (list_id) extra.list_id = list_id;
     const data = await galleryGrid("lib-grid", page, extra);
     if (data && data.resolved && (data.q !== (app.query.q || "") || data.tags !== (app.query.tags || ""))) {
       location.hash = navHash("library", {}, {
@@ -84,7 +128,15 @@ async function renderLibrary() {
         ...(read_status ? { read_status } : {}),
         ...(min_rating ? { min_rating } : {}),
         ...(page_min ? { page_min } : {}),
-        ...(page_max ? { page_max } : {})
+        ...(page_max ? { page_max } : {}),
+        ...(size_min ? { size_min } : {}),
+        ...(size_max ? { size_max } : {}),
+        ...(posted_from ? { posted_from } : {}),
+        ...(posted_to ? { posted_to } : {}),
+        ...(uploader ? { uploader } : {}),
+        ...(image_quality ? { image_quality } : {}),
+        ...(min_local_rating ? { min_local_rating } : {}),
+        ...(list_id ? { list_id } : {})
       });
       return;
     }
@@ -98,11 +150,21 @@ async function renderLibrary() {
       ...(min_rating ? { min_rating } : {}),
       ...(page_min ? { page_min } : {}),
       ...(page_max ? { page_max } : {}),
+      ...(size_min ? { size_min } : {}),
+      ...(size_max ? { size_max } : {}),
+      ...(posted_from ? { posted_from } : {}),
+      ...(posted_to ? { posted_to } : {}),
+      ...(uploader ? { uploader } : {}),
+      ...(image_quality ? { image_quality } : {}),
+      ...(min_local_rating ? { min_local_rating } : {}),
+      ...(list_id ? { list_id } : {}),
       ...(p > 1 ? { page: p } : {}),
       page_size: prefPageSize()
     }));
     bindTagSuggest();
     startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
+    fillLibraryLists(list_id);
+    fillSavedSearches();
   } catch (e) { $view().innerHTML = renderError(e.message); }
 }
 
@@ -131,6 +193,16 @@ async function deleteFiltered() {
     if (minRating) payload.min_rating = parseFloat(minRating);
     if (pageMin) payload.min_pages = parseInt(pageMin, 10);
     if (pageMax) payload.max_pages = parseInt(pageMax, 10);
+    const sizeMin = urlParams.get("size_min");
+    const sizeMax = urlParams.get("size_max");
+    if (sizeMin) payload.size_min = Math.round(parseFloat(sizeMin) * 1048576);
+    if (sizeMax) payload.size_max = Math.round(parseFloat(sizeMax) * 1048576);
+    if (urlParams.get("posted_from")) payload.posted_from = urlParams.get("posted_from");
+    if (urlParams.get("posted_to")) payload.posted_to = urlParams.get("posted_to");
+    if (urlParams.get("uploader")) payload.uploader = urlParams.get("uploader");
+    if (urlParams.get("image_quality")) payload.image_quality = urlParams.get("image_quality");
+    if (urlParams.get("min_local_rating")) payload.min_local_rating = parseInt(urlParams.get("min_local_rating"), 10);
+    if (urlParams.get("list_id")) payload.list_id = parseInt(urlParams.get("list_id"), 10);
     const r = await api("POST", "/api/galleries/delete-filtered", payload);
     toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : (r.matched || 0))
       + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
@@ -242,5 +314,94 @@ async function deleteSelected() {
     toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : ids.length)
       + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
     router();
+  } catch (e) { toast(e.message); }
+}
+
+function currentLibraryQuery() {
+  const q = {};
+  for (const k of ["q", "tags", "tag_mode", "tag_match", "category", "order_by", "read_status", "min_rating", "page_min", "page_max", "size_min", "size_max", "posted_from", "posted_to", "uploader", "image_quality", "min_local_rating", "list_id"]) {
+    if (app.query[k]) q[k] = app.query[k];
+  }
+  return q;
+}
+
+async function fillLibraryLists(selected) {
+  const sel = document.getElementById("lib-list-id");
+  if (!sel) return;
+  try {
+    const data = await api("GET", "/api/lists");
+    const items = (data && data.items) || [];
+    sel.innerHTML = `<option value="">${esc(t("listAll"))}</option>` +
+      items.map(it => `<option value="${it.id}"${String(it.id) === String(selected) ? " selected" : ""}>${esc(it.name)} (${it.count})</option>`).join("");
+  } catch (_) {}
+}
+
+async function fillSavedSearches() {
+  const sel = document.getElementById("saved-search-select");
+  if (!sel) return;
+  try {
+    const data = await api("GET", "/api/saved-searches");
+    const items = (data && data.items) || [];
+    sel.innerHTML = `<option value="">${esc(t("savedSearches"))}</option>` +
+      items.map(it => `<option value="${esc(it.id)}">${esc(it.name)}</option>`).join("");
+    sel._saved = items;
+  } catch (_) {}
+}
+
+async function saveCurrentSearch() {
+  const name = window.prompt(t("savedSearchName"));
+  if (!name || !name.trim()) return;
+  try {
+    await api("POST", "/api/saved-searches", { name: name.trim(), query: currentLibraryQuery() });
+    toast(t("saveSearch"));
+    fillSavedSearches();
+  } catch (e) {
+    toast(e.message || t("savedSearchLimit"));
+  }
+}
+
+async function applySavedSearch() {
+  const sel = document.getElementById("saved-search-select");
+  if (!sel || !sel.value) return;
+  const items = sel._saved || [];
+  const found = items.find(it => it.id === sel.value);
+  if (!found) return;
+  location.hash = navHash("library", {}, found.query || {});
+}
+
+async function deleteSavedSearch() {
+  const sel = document.getElementById("saved-search-select");
+  if (!sel || !sel.value) return;
+  try {
+    await api("DELETE", "/api/saved-searches/" + encodeURIComponent(sel.value));
+    fillSavedSearches();
+  } catch (e) { toast(e.message); }
+}
+
+async function createLocalList() {
+  const name = window.prompt(t("listName"));
+  if (!name || !name.trim()) return;
+  try {
+    await api("POST", "/api/lists", { name: name.trim() });
+    toast(t("listCreated"));
+    fillLibraryLists(app.query.list_id || "");
+  } catch (e) { toast(e.message); }
+}
+
+async function libraryAddToList() {
+  const ids = [...selGalleries];
+  if (!ids.length) { toast(t("select")); return; }
+  const sel = document.getElementById("lib-list-id");
+  let listId = sel && sel.value ? parseInt(sel.value, 10) : 0;
+  if (!listId) {
+    const name = window.prompt(t("listName"));
+    if (!name || !name.trim()) return;
+    const created = await api("POST", "/api/lists", { name: name.trim() });
+    listId = created.id;
+  }
+  try {
+    await api("POST", `/api/lists/${listId}/items`, { gallery_ids: ids });
+    toast(t("listAdd"));
+    fillLibraryLists(String(listId));
   } catch (e) { toast(e.message); }
 }

@@ -2,6 +2,19 @@
 
 // Phase 3: I18N + t/nsLabel/groupLabel/tagText moved to i18n.js (split for future extraction / i18n tools)
 
+function applyTheme(theme) {
+  const th = theme === "light" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", th);
+  try { localStorage.setItem("gv_theme", th); } catch (_) {}
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", th === "light" ? "#f4f1ea" : "#0c0e0f");
+}
+
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  applyTheme(cur === "light" ? "dark" : "light");
+}
+
 function updateLangButton() {
   const b = document.querySelector('[data-action="toggle-lang"]');
   if (b) b.textContent = t("language");

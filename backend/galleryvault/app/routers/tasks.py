@@ -13,6 +13,7 @@ from ...services.settings_service import update_runtime_settings
 from ...services.tag_sync_worker import category_refresh_once, enqueue_tag_sync, jobs_count
 from ...services.thumbnail_worker import seed_thumbnails
 from ..dependencies import get_session, get_task_manager, spawn_task
+from ..schemas import QuotaResponse
 from ..state import app_state
 
 router = APIRouter()
@@ -83,7 +84,7 @@ def _get_gp_lock():
     return _GP_LOCK
 
 
-@router.get("/api/quota")
+@router.get("/api/quota", response_model=QuotaResponse)
 async def get_quota() -> dict[str, object]:
     """Cached GP balance + Image Limits (low-frequency, 30 min TTL)."""
     from datetime import UTC, datetime

@@ -258,6 +258,7 @@ class FavoriteData:
     title: str
     url: str
     thumb: str | None = None
+    note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -664,6 +665,22 @@ def _search_category(snippet: str) -> str | None:
     from ..scanners.base import normalize_category
 
     return normalize_category(_text(match.group(1)))
+
+
+def parse_favorite_note(snippet: str, gid: int) -> str | None:
+    """Extract a per-gallery favorite note from listing HTML when present."""
+    patterns = (
+        rf'id=["\']favnote{int(gid)}["\'][^>]*>(.*?)</(?:div|p|td)>',
+        r'<div[^>]*class=["\'][^"\']*glnote[^"\']*["\'][^>]*>(.*?)</div>',
+        r'<p[^>]*class=["\'][^"\']*(?:glnote|note)[^"\']*["\'][^>]*>(.*?)</p>',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, snippet, re.IGNORECASE | re.DOTALL)
+        if match:
+            text = _text(match.group(1)).strip()
+            if text:
+                return text
+    return None
 
 
 def parse_search_page(
@@ -1483,6 +1500,7 @@ class EhClient:
                     re.IGNORECASE | re.DOTALL,
                 )
                 title = _text(glink.group(1)) if glink else _text(label)
+                snippet = _search_item_window(response.text, gid, token)
                 items.append(
                     FavoriteData(
                         gid,
@@ -1490,6 +1508,7 @@ class EhClient:
                         title,
                         urljoin(str(response.url), href),
                         thumbs.get(gid),
+                        parse_favorite_note(snippet, gid),
                     )
                 )
             if not items:
@@ -1512,29 +1531,46 @@ class EhClient:
         f_cats: int | None = None,
         min_rating: float | None = None,
         next_cursor: str | None = None,
+        list_type: str = "search",
+        tl: int | None = None,
     ) -> EhSearchResult:
-        """Fetch one ExHentai search / front-page listing (cursor, not ``page=N``).
+        """Fetch one ExHentai listing (cursor, not ``page=N``).
 
-        Always uses ``_semaphore``. Classifies Sad Panda, empty-body challenges,
-        HTTP 509, cookie expiry, and ``remoteapi.php`` 302 separately so callers
-        never treat them as "no hits".
+        ``list_type``: ``search`` (``/``), ``popular`` (``/popular``),
+        ``watched`` (``/watched``), ``toplist`` (``/toplist.php?tl=``).
+        Toplist ``tl`` values match the site: 11 yesterday / 12 month /
+        13 year / 15 all-time.
         """
+        kind = (list_type or "search").strip().lower()
+        if kind not in {"search", "popular", "watched", "toplist"}:
+            raise ValueError("invalid list")
         params: dict[str, object] = {}
-        if q and str(q).strip():
+        path = "/"
+        if kind == "popular":
+            path = "/popular"
+        elif kind == "watched":
+            path = "/watched"
+        elif kind == "toplist":
+            path = "/toplist.php"
+            tl_value = 15 if tl is None else int(tl)
+            if tl_value not in {11, 12, 13, 15}:
+                raise ValueError("invalid toplist tl")
+            params["tl"] = tl_value
+        if kind in {"search", "watched"} and q and str(q).strip():
             params["f_search"] = str(q).strip()
-        if f_cats is not None:
+        if kind == "search" and f_cats is not None:
             params["f_cats"] = int(f_cats)
         if next_cursor:
             if not _NEXT_CURSOR_RE.fullmatch(str(next_cursor)):
                 raise ValueError("invalid next cursor")
             params["next"] = str(next_cursor)
-        if min_rating is not None:
+        if kind in {"search", "watched"} and min_rating is not None:
             srdd = max(2, min(5, int(min_rating)))
             params["advsearch"] = 1
             params["f_sr"] = "on"
             params["f_srdd"] = srdd
         try:
-            response = await self._request("GET", "/", params=params)
+            response = await self._request("GET", path, params=params)
         except httpx.RequestError as exc:
             logger.warning("ExHentai search failed", extra=log_extra(error=type(exc).__name__))
             raise EhClientError("ExHentai request failed") from exc

@@ -23,7 +23,9 @@ from .routers import (
     eh,
     favorites,
     galleries,
+    lists,
     notifications,
+    opds,
     tags,
     tasks,
     updates,
@@ -76,6 +78,8 @@ def create_app(*, enable_workers: bool | None = None, settings: Settings | None 
         updates,
         eh,
         notifications,
+        lists,
+        opds,
     ):
         application.include_router(mod.router)
     sync_state(application)

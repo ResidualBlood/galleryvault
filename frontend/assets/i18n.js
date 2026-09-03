@@ -1,5 +1,10 @@
 "use strict";
 
+try {
+  const th = localStorage.getItem("gv_theme");
+  document.documentElement.setAttribute("data-theme", th === "light" ? "light" : "dark");
+} catch (_) {}
+
 // i18n.js — i18n dynamic loader & translation engine
 // Locales are decoupled into assets/locales/{lang}.js and loaded on-demand.
 

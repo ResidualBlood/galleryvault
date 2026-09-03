@@ -116,6 +116,26 @@ async def test_gallery_sorting_and_filtering_sql() -> None:
     # The Chinese name should appear in the compiled SQL as a literal
     assert "巨乳" in session.sql[-1]
 
+    await repo.list_page(1, 10, size_min=1000, size_max=5000)
+    sql = session.sql[-1].lower()
+    assert "coalesce" in sql and "storage_size" in sql and "file_size" in sql
+
+    await repo.list_page(1, 10, uploader="alice")
+    sql = session.sql[-1].lower()
+    assert "uploader" in sql and "%alice%" in sql
+
+    await repo.list_page(1, 10, image_quality="original")
+    sql = session.sql[-1].lower()
+    assert "image_quality" in sql
+
+    await repo.list_page(1, 10, min_local_rating=3)
+    sql = session.sql[-1].lower()
+    assert "local_rating" in sql
+
+    await repo.list_page(1, 10, list_id=7)
+    sql = session.sql[-1].lower()
+    assert "local_list_items" in sql
+
 
 @pytest.mark.asyncio
 async def test_favorite_repo_search_and_sort_sql() -> None:

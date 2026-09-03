@@ -48,6 +48,8 @@ class Gallery(Base):
     storage_size: Mapped[int | None] = mapped_column(BigInteger)
     storage_signature: Mapped[str] = mapped_column(String(64))
     image_quality: Mapped[str | None] = mapped_column(String(16))
+    local_rating: Mapped[int | None] = mapped_column(Integer)
+    local_note: Mapped[str | None] = mapped_column(Text)
     cover_path: Mapped[str | None] = mapped_column(Text)
     page_count: Mapped[int | None] = mapped_column(Integer)
     source_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
@@ -66,6 +68,10 @@ class Gallery(Base):
         Index("idx_galleries_file_size", "file_size"),
         Index("idx_galleries_trashed", "trashed"),
         Index("idx_galleries_expunged", "expunged"),
+        CheckConstraint(
+            "local_rating IS NULL OR (local_rating >= 1 AND local_rating <= 5)",
+            name="ck_galleries_local_rating",
+        ),
     )
 
 
@@ -204,6 +210,7 @@ class FavoriteItem(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
     file_size: Mapped[int | None] = mapped_column(BigInteger)
     thumb: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -242,6 +249,26 @@ class GalleryMetadata(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class LocalList(Base):
+    __tablename__ = "local_lists"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class LocalListItem(Base):
+    __tablename__ = "local_list_items"
+    list_id: Mapped[int] = mapped_column(
+        ForeignKey("local_lists.id", ondelete="CASCADE"), primary_key=True
+    )
+    gallery_id: Mapped[int] = mapped_column(
+        ForeignKey("galleries.id", ondelete="CASCADE"), primary_key=True
+    )
+    __table_args__ = (Index("idx_local_list_items_gallery_id", "gallery_id"),)
 
 
 class DuplicateIgnore(Base):

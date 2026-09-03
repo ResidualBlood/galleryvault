@@ -26,7 +26,7 @@ every 15s). The Cookie red banner is unchanged.
 
 ## Discover (`#/discover`)
 
-- Browse / search ExHentai in the Web UI (**not** Popular / Watched / Toplist).
+- Browse / search ExHentai; the toolbar also has **Popular / Watched / Toplist** (Toplist: yesterday / month / year / all-time = site `tl=11/12/13/15`). Watched without a login uses the existing Cookie error state.
 - Toolbar: query, category checkboxes (site `f_cats` bitmask), minimum rating, download quality (resample by default, original optional).
 - Cards: cover, title, category, page count, rating; stackable badges **in library / favorited / not downloaded**.
 - **Download** uses existing `POST /api/downloads`; **Add to favorites** picks folder 0–9 via `POST /api/favorites/add` (**local DB is written only after cloud success**).
@@ -63,7 +63,9 @@ manually to revisit it.
 - Search by title, filter by category, sort across multiple fields, filter by reading status, and browse indexed galleries.
 - **Multi-criteria Sorting**: Order by **Ingest date (default)**, **Posted date**, **Title**, **Pages**, **Size**, and **Rating**, backed by dedicated database indexes for sub-second responses on large collections.
 - **Reading Status Filter**: Quickly filter by **All**, **Unread**, **Reading**, or **Completed**; the three are mutually exclusive. Unread excludes completed. Completed requires actually having read (progress > 0 and at the last page; a 1-page gallery with progress 0 is not completed).
-- **Page count & rating range**: the toolbar has min/max page inputs and a minimum rating (≥2 / ≥3 / ≥4 / ≥4.5); these stick with sort, read status and tag filters (tag clicks and returning from detail keep them).
+- **Page count & rating range**: the toolbar has min/max page inputs and a minimum rating (≥2 / ≥3 / ≥4 / ≥4.5). Also: size range (MB → bytes), posted date, uploader substring, image quality (original/resample), language shortcuts (existing `language:` tags), local star rating, and local lists. These stick with sort, read status and tag filters.
+- **Saved searches**: store the current library filter under a name (about 30 max, in `user_settings.saved_searches` with get+merge so `auth_secret` is kept); apply or delete from the toolbar.
+- **Local lists**: independent of ExHentai. Add/remove from the library or detail page; gid-less CBZ archives can join; the library can filter by list.
 - **"Not in favorites" filter**: the category dropdown ends with "Not in
   favorites", showing local galleries whose gid is not in any ExHentai favorite
   folder (gid-less local archives count as not favorited; older local copies with
@@ -167,7 +169,8 @@ manually to revisit it.
   *pause* tag sync instead of being misclassified as deleted (their category is
   untouched) and resume automatically once Settings switch back to
   `exhentai.org`.
-- The favorite folders the gallery belongs to are shown as badges. Galleries support **Add to Favorites** (modal folder selector 0–9; cloud success writes locally and moves the gid out of other folders), **Change Folder** (Move), and **Unfavorite**, with strict cloud-success verification before updating local database records.
+- **Local rating / note / custom tags**: 1–5 stars, a note, and `local:` tags on the detail page (EH tags are not overwritten; tag sync keeps `local:`). The library can filter by local stars.
+- The favorite folders the gallery belongs to are shown as badges. Galleries support **Add to Favorites** (modal folder selector 0–9; cloud success writes locally and moves the gid out of other folders), **Change Folder** (Move), and **Unfavorite**, with strict cloud-success verification before updating local database records. **Favorite notes** can be edited via EH applyfav / `favnote` (local write only after cloud success) and are shown on the favorites list.
 - **Original / resampled**: next to the favorite badges the detail page shows
   whether the local copy is original or resampled (hidden when unknown).
   Quality is recorded when a gallery is downloaded and inferred for existing
@@ -470,8 +473,14 @@ additions again.
   notifications all use the selected language, formatted as Telegram HTML
   (bold titles, mono gids); gallery titles are never translated. A **Send test
   message** button verifies the bot can reach the chat.
+- **Disk usage**: the Settings page shows library / downloads / cache usage and the 10 largest galleries by DB `storage_size` (no `du` of the whole library). Missing directories report 0.
+- **PWA**: add to home screen. The service worker caches only the html/css/js shell, **not gallery images**.
+- **Light theme**: ◐ in the top bar; `localStorage gv_theme=dark|light`, default dark.
+- **7z / PDF scan**: library scan accepts `.7z` (py7zr, images only) and `.pdf` (embedded images; skip with a warning if none).
+- **OPDS**: after login, `GET /api/opds` (atom+xml) lists recent ingestions with acquisition links to `export.cbz`.
 - **Telegram bot control commands** (send from an **allowed user ID**):
   `/help` lists commands, `/queue` shows a pending/running/failed summary,
+  `/stats` library count plus queue pending/downloading/failed,
   `/cancel <id|gid>` cancels a task (replies when not found), and unknown
   non-URL text gets a help reply;
   `/pause` pauses intake (URLs pasted while paused are ignored, not enqueued),

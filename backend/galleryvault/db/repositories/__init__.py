@@ -3,6 +3,7 @@ from .downloads import DownloadRepository
 from .favorites import FavoritesRepository
 from .galleries import GalleryRepository
 from .jobs import BackgroundJobsRepository
+from .lists import LocalListRepository
 from .settings import SettingsRepository
 from .updates import GalleryUpdatesRepository
 
@@ -13,6 +14,7 @@ __all__ = [
     "FavoritesRepository",
     "GalleryRepository",
     "GalleryUpdatesRepository",
+    "LocalListRepository",
     "SettingsRepository",
     "_chunked",
     "escape_like_wildcards",

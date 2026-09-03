@@ -44,6 +44,8 @@ async function fetchDiscover(nextCursor) {
   if (app.query.q) params.set("q", app.query.q);
   if (app.query.category) params.set("category", app.query.category);
   if (app.query.min_rating) params.set("min_rating", app.query.min_rating);
+  if (app.query.list && app.query.list !== "search") params.set("list", app.query.list);
+  if (app.query.list === "toplist") params.set("tl", app.query.tl || "15");
   if (nextCursor) params.set("next", nextCursor);
   return await api("GET", "/api/eh/search?" + params.toString());
 }
@@ -148,11 +150,26 @@ async function renderDiscover() {
   const category = app.query.category || "";
   const min_rating = app.query.min_rating || "";
   const quality = app.query.quality || "resample";
+  const list = app.query.list || "search";
+  const tl = app.query.tl || "15";
   const cats = discoverCatsChecked(category);
   const selCount = selDiscover.size;
+  const listBtn = (id, label) =>
+    `<button class="btn ${list === id ? "btn-primary" : "btn-secondary"}" data-action="discover-list" data-list="${id}" type="button">${esc(label)}</button>`;
   renderView(`
     <header><p class="eyebrow">EXHENTAI</p><h1>${esc(t("discover"))}</h1><p class="sub">${esc(t("discoverSub"))}</p></header>
     <form class="toolbar" data-action="discover-search">
+      <input type="hidden" name="list" value="${esc(list)}">
+      ${listBtn("search", t("discoverSearch"))}
+      ${listBtn("popular", t("discoverPopular"))}
+      ${listBtn("watched", t("discoverWatched"))}
+      ${listBtn("toplist", t("discoverToplist"))}
+      ${list === "toplist" ? `<select name="tl">
+        <option value="11"${tl === "11" ? " selected" : ""}>${esc(t("toplistYesterday"))}</option>
+        <option value="12"${tl === "12" ? " selected" : ""}>${esc(t("toplistMonth"))}</option>
+        <option value="13"${tl === "13" ? " selected" : ""}>${esc(t("toplistYear"))}</option>
+        <option value="15"${tl === "15" || !tl ? " selected" : ""}>${esc(t("toplistAll"))}</option>
+      </select>` : ""}
       <div class="search-box">
         <input name="q" value="${esc(q)}" placeholder="${esc(t("discoverPlaceholder"))}" autocomplete="off">
       </div>

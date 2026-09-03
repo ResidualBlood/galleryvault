@@ -24,6 +24,7 @@ from ..services.messages import (
     bot_queued,
     bot_queued_updated,
     bot_resumed,
+    bot_stats,
     bot_status,
 )
 
@@ -71,7 +72,24 @@ async def list_queue_snapshot() -> tuple[list[dict[str, object]], dict[str, int]
             }
             for row in rows
         ]
-    return items, counts
+        return items, counts
+
+
+async def library_count() -> int:
+    from sqlalchemy import func, select
+
+    from ..app.state import app_state
+    from ..db.models import Gallery
+
+    if not app_state.session_factory:
+        return 0
+    async with app_state.session_factory() as session:
+        value = await session.scalar(
+            select(func.count())
+            .select_from(Gallery)
+            .where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
+        )
+    return int(value or 0)
 
 
 async def cancel_download_ident(ident: int) -> tuple[str, int | None, int | None]:
@@ -199,6 +217,20 @@ class TelegramBotService:
         elif text == "/queue" or text.startswith("/queue "):
             items, counts = await list_queue_snapshot()
             await self.notifier.send_message(bot_queue(items, counts, lang), chat_id, force=True)
+        elif text == "/stats" or text.startswith("/stats "):
+            _items, counts = await list_queue_snapshot()
+            galleries = await library_count()
+            await self.notifier.send_message(
+                bot_stats(
+                    galleries,
+                    counts.get("pending", 0),
+                    counts.get("downloading", 0),
+                    counts.get("failed", 0),
+                    lang,
+                ),
+                chat_id,
+                force=True,
+            )
         elif text == "/cancel" or text.startswith("/cancel "):
             parts = text.split(None, 1)
             if len(parts) < 2:

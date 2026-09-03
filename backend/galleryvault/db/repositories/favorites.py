@@ -185,6 +185,7 @@ class FavoritesRepository:
                     title=item.title,
                     url=item.url,
                     thumb=getattr(item, "thumb", None),
+                    note=getattr(item, "note", None),
                     first_seen_at=now,
                     last_seen_at=now,
                 )
@@ -194,6 +195,9 @@ class FavoritesRepository:
             thumb = getattr(item, "thumb", None)
             if thumb:
                 row.thumb = thumb
+            note = getattr(item, "note", None)
+            if note is not None:
+                row.note = note
         await self.session.flush()
 
     async def remember_many(self, favcat: int, items: list[object]) -> None:
@@ -216,6 +220,7 @@ class FavoritesRepository:
                     "title": item.title,
                     "url": item.url,
                     "thumb": getattr(item, "thumb", None),
+                    "note": getattr(item, "note", None),
                     "first_seen_at": now,
                     "last_seen_at": now,
                 }
@@ -232,6 +237,7 @@ class FavoritesRepository:
                         func.nullif(statement.excluded.thumb, ""),
                         FavoriteItem.thumb,
                     ),
+                    "note": func.coalesce(statement.excluded.note, FavoriteItem.note),
                     "last_seen_at": statement.excluded.last_seen_at,
                 },
             )
@@ -489,6 +495,19 @@ class FavoritesRepository:
             )
         )
         return sorted({int(f) for f in update_favs.all()})
+
+    async def update_note(self, gid: int, note: str, favcat: int | None = None) -> int:
+        query = update(FavoriteItem).where(FavoriteItem.gid == gid)
+        if favcat is not None:
+            query = query.where(FavoriteItem.favcat == favcat)
+        result = await self.session.execute(query.values(note=note))
+        await self.session.flush()
+        return int(result.rowcount or 0)
+
+    async def item_for_gid(self, gid: int) -> FavoriteItem | None:
+        return await self.session.scalar(
+            select(FavoriteItem).where(FavoriteItem.gid == gid).limit(1)
+        )
 
     async def category_names(self, favcats: list[int]) -> dict[int, str]:
         if not favcats:

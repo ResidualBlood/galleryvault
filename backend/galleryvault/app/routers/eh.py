@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
@@ -71,14 +71,20 @@ def parse_category_param(category: str | None) -> int | None:
 
 
 def _search_cache_key(
-    q: str, f_cats: int | None, min_rating: float | None, next_cursor: str | None
-) -> tuple[str, str, str, str]:
+    q: str,
+    f_cats: int | None,
+    min_rating: float | None,
+    next_cursor: str | None,
+    list_type: str = "search",
+    tl: int | None = None,
+) -> tuple[str, str, str, str, str, str]:
     rating = "" if min_rating is None else str(min_rating)
     cats = "" if f_cats is None else str(f_cats)
-    return (q or "", cats, rating, next_cursor or "")
+    tl_key = "" if list_type != "toplist" or tl is None else str(tl)
+    return (q or "", cats, rating, next_cursor or "", list_type or "search", tl_key)
 
 
-def _search_cache_get(key: tuple[str, str, str, str]) -> dict[str, Any] | None:
+def _search_cache_get(key: tuple[str, ...]) -> dict[str, Any] | None:
     cache = app_state.extra.get("eh_search_cache")
     if not isinstance(cache, dict):
         return None
@@ -92,7 +98,7 @@ def _search_cache_get(key: tuple[str, str, str, str]) -> dict[str, Any] | None:
     return payload
 
 
-def _search_cache_set(key: tuple[str, str, str, str], payload: dict[str, Any], ttl: float) -> None:
+def _search_cache_set(key: tuple[str, ...], payload: dict[str, Any], ttl: float) -> None:
     cache = app_state.extra.get("eh_search_cache")
     if not isinstance(cache, dict):
         cache = {}
@@ -168,13 +174,28 @@ def _result_items(result: EhSearchResult) -> list[dict[str, Any]]:
     return [_gallery_payload(item) for item in result.items]
 
 
+_EH_LISTS = frozenset({"search", "popular", "watched", "toplist"})
+_EH_TOPLIST_TL = frozenset({11, 12, 13, 15})
+
+
 @router.get("/api/eh/search")
 async def eh_search(
     q: str = "",
     category: str | None = None,
     min_rating: float | None = Query(default=None, ge=0, le=5),
     next_cursor: str | None = Query(default=None, alias="next"),
+    list_type: Annotated[str, Query(alias="list")] = "search",
+    tl: int | None = None,
 ) -> dict[str, Any]:
+    kind = (list_type or "search").strip().lower()
+    if kind not in _EH_LISTS:
+        raise HTTPException(status_code=422, detail="invalid list")
+    if kind == "toplist":
+        tl = 15 if tl is None else int(tl)
+        if tl not in _EH_TOPLIST_TL:
+            raise HTTPException(status_code=422, detail="invalid toplist tl")
+    else:
+        tl = None
     if next_cursor:
         next_cursor = str(next_cursor).strip()
         if not _NEXT_CURSOR_RE.fullmatch(next_cursor):
@@ -182,7 +203,9 @@ async def eh_search(
     else:
         next_cursor = None
     f_cats = parse_category_param(category)
-    key = _search_cache_key(q.strip() if q else "", f_cats, min_rating, next_cursor)
+    key = _search_cache_key(
+        q.strip() if q else "", f_cats, min_rating, next_cursor, kind, tl
+    )
     payload = _search_cache_get(key)
     if payload is None:
         client = app_state.eh_client
@@ -194,6 +217,8 @@ async def eh_search(
                     f_cats=f_cats,
                     min_rating=min_rating,
                     next_cursor=next_cursor,
+                    list_type=kind,
+                    tl=tl,
                 )
             else:
                 async with EhClient(
@@ -204,6 +229,8 @@ async def eh_search(
                         f_cats=f_cats,
                         min_rating=min_rating,
                         next_cursor=next_cursor,
+                        list_type=kind,
+                        tl=tl,
                     )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -240,4 +267,6 @@ async def eh_search(
         "q": q or "",
         "category": category,
         "min_rating": min_rating,
+        "list": kind,
+        "tl": tl,
     }
