@@ -90,12 +90,15 @@ Other formats:
 
 **Local gallery library**
 
-- **Scan** Ehviewer export directories, CBZ/CBR archives and plain image
-  folders into a persistent, searchable index (PostgreSQL).
+- **Scan** Ehviewer export directories, CBZ/CBR/7z/PDF archives and plain image
+  folders into a persistent, searchable index (PostgreSQL). `.7z` extracts
+  image suffixes only.
 - **Format fidelity** — `<gid>-<title>/` + `.ehviewer` (SpiderInfo V1/V2),
   JHenTai `metadata` JSON and CBZ/CBR (+ ComicInfo.xml) all restore the full
   gallery identity; galleries without a gid can be browsed but take no part in
   downloads or dedupe.
+- **Local lists / stars / notes** — independent of EH; gid-less CBZ can join
+  a list; the library can filter by list and local rating.
 - **Duplicate-copy cleanup** — when the same gid appears under several scan
   roots, a `duplicate_policy` (keep-stored / more pages / newer / larger /
   smaller / manual) keeps one copy automatically and lists every other copy on
@@ -110,8 +113,8 @@ Other formats:
   combos and `ns:name` syntax, tags are opt-in (click a suggestion), and Enter
   runs a plain title search (multi-word = every word must match).
 - **Library filters** — sort by ingest / posted / title / pages / size /
-  rating; filter by read status, page range and minimum rating; Shift-click a
-  card tag to exclude it.
+  rating; filter by read status, page/size/posted/uploader/quality/language,
+  local stars and local lists; saved searches; Shift-click a card tag to exclude.
 - **Tag translations** — pulls the latest EhTagTranslation database; Chinese
   input reverse-matches (typing 巨乳 suggests `big breasts`); the tags-page
   search box uses the same Chinese autocomplete.
@@ -139,6 +142,9 @@ Other formats:
   detail page (built from the configured base URL).
 - **Cookie health** — startup and periodic probes; expired cookies or no
   ExHentai access show a red top banner linking to Settings.
+- **Discover** (`#/discover`) — search/browse ExHentai in the Web UI (including
+  Popular / Watched / Toplist); one-click download or add-to-favorites
+  (cloud-success only).
 
 **Download manager**
 
@@ -159,21 +165,23 @@ Other formats:
   failed tasks that still have retry budget.
 - **Instant ingestion** — a finished download is written into the index (tags
   and cover included), no full scan; existing download folders are reused.
-- **Telegram** — download/scan/favorites notifications (summary / immediate /
-  failures-only / off, 中文/English) plus bot control commands (`/pause`
-  `/resume` `/status`, paste a gallery URL to enqueue a download).
+- **Telegram & in-app notifications** — download/scan/favorites notices
+  (summary / immediate / failures-only / off); bot `/help` `/queue` `/cancel`
+  `/stats` `/pause` `/resume` `/status`, paste a URL to enqueue. The top-bar
+  bell works without Telegram.
 
 **Reader & UI**
 
-- **Reader** — one-page streaming, LTR / RTL manga / double-page spread,
+- **Reader** — one-page streaming, LTR / RTL manga / double-page / **webtoon**,
   keyboard/space/click paging, `G` to jump, three-page preload, auto-advance
-  after the last page, fullscreen and fit modes, 1-hour browser caching, saved
-  reading position, and the search context is kept throughout.
-- **Browse & history** — newest-gallery browse (random gallery, tag namespace
-  strip), **Continue reading** cards, a global top-bar search, a
-  reading-history page, an activity log page, and a first-run wizard.
+  after the last page, fullscreen and fit modes, saved reading position.
+- **Browse & history** — newest-gallery browse, **Continue reading**, top-bar
+  search, reading history, activity log, first-run wizard.
 - **Recycle bin & missing pages** — user-deleted / scan-missing galleries are
   restorable; integrity check re-downloads missing pages.
+- **PWA / light theme / CBZ export / OPDS** — add to home screen caches the UI
+  shell only (not gallery images); detail page can export CBZ; `GET /api/opds`
+  after login.
 
 **Security & operations**
 
@@ -192,7 +200,7 @@ Other formats:
 | Topic | Page |
 |-------|------|
 | Deployment, volumes, scan-only libraries, TLS | [Deployment](Deployment-EN) |
-| Using the UI (browse, reader, tags, downloads, favorites, recycle, settings) | [Usage](Usage-EN) |
+| Using the UI (browse, discover, reader, downloads, favorites, PWA, settings) | [Usage](Usage-EN) |
 | Backup & restore | [Backup](Backup-EN) |
 | At-rest encryption & lost-key recovery | [Encryption](Encryption-EN) |
 | REST API reference | [API](API) · browsable [openapi.json](openapi.json) |

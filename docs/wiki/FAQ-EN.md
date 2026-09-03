@@ -108,6 +108,26 @@ No new tasks are claimed. Scans return `paused`. The downloads-page toggle and T
 `/pause` `/resume` are the same switch (web pause matches the Bot) and survive
 restart. See [Usage](Usage-EN).
 
+## Discover vs the local library?
+
+`#/discover` browses/searches **ExHentai** (including Popular / Watched /
+Toplist), not the local library. Download or favorite first; then it shows up
+in the library / favorites. See [Usage](Usage-EN).
+
+## Does Add to Home Screen download galleries onto the phone?
+
+**No.** The PWA caches the UI shell only; js/css are network-first (cache on
+offline fallback) and never cache gallery images or `/api/`.
+
+## How do I use OPDS?
+
+After login, `GET /api/opds` (atom+xml). Acquisition links point at that
+gallery's `export.cbz`.
+
+## Does scanning a 7z unpack the whole archive?
+
+**No.** Only image suffixes are extracted; everything else stays packed.
+
 ## Downloads page warns that image quota is near the limit?
 
 That is ExHentai Image Limit (cached ~30 min with GP). Above ~80% the top

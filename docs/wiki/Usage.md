@@ -209,7 +209,7 @@ SPA 使用 hash 路由（`#/library`、`#/gallery/7`、…），浏览器刷新�
 - **Thumbnails**：自动生成开关、**立即生成**；下方显示缩略图**实时状态**。
 - **Telegram**：bot token、chat ID、允许的 user ID，**发送测试消息**验证；**通知级别**（汇总 / 即时 / 仅失败 / 关闭）与**通知语言**（中文 / English）——下载、扫库、收藏夹检查与 bot 回复统一用该语言发送，消息采用 Telegram HTML 格式（标题加粗、gid 等宽），画廊标题保持原文不翻译。
 - **磁盘用量**：设置页展示 library / downloads / cache 用量，以及库内体积最大的 10 本（读 DB `storage_size`，不对万本 `du`）。目录不存在该项为 0。
-- **PWA**：可「添加到主屏幕」。Service worker 只缓存 html/css/js 壳，**不缓存画廊图片**。
+- **PWA**：可「添加到主屏幕」。Service worker 只缓存 html/css/js 壳（js/css **network-first**，成功再写入缓存；离线回退缓存），**不缓存画廊图片与 `/api/`**。
 - **浅色主题**：顶栏 ◐ 切换；`localStorage gv_theme=dark|light`，默认 dark。
 - **7z / PDF 扫描**：库扫描识别 `.7z`（py7zr，只收图）与 `.pdf`（抽取内嵌图；抽不到则跳过并 warning）。
 - **OPDS**：登录后 `GET /api/opds`（atom+xml）列出最近入库，acquisition 链到 `export.cbz`。
