@@ -12,11 +12,12 @@ async function scanLibrary() {
   try {
     const r = await api("POST", "/api/scan");
     if (r && r.status === "paused") {
-      toast(t("paused") + " — " + (r.detail || t("pauseHint")));
-    } else {
-      toast(t("scanning"));
+      toast(r.detail || (t("paused") + " — " + t("pauseHint")));
+      return r;
     }
+    toast(t("scanning"));
     if (typeof pollLogs === "function") pollLogs();
+    return r;
   } catch (e) { toast(e.message); }
 }
 

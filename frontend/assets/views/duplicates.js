@@ -168,10 +168,14 @@ async function loadDuplicates(showLoading = true) {
     if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
     return false;
   }
+  renderDuplicatesList();
   return true;
 }
 
 function renderDuplicatesList() {
+  document.querySelectorAll('[data-action="dupgal-filter"]').forEach(b => {
+    b.classList.toggle("active-pill", b.getAttribute("data-value") === dupGalFilter);
+  });
   const el = document.getElementById("dupgal-groups");
   if (!el) return;
   const groups = (dupGalCache || []).filter(g => dupGalFilter === "all" || g.status === dupGalFilter);

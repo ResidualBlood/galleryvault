@@ -139,8 +139,7 @@ manually to revisit it.
 - Actions: **Keep this copy** (re-point the index at it), **Keep & delete
   others** (delete the other copies' files from disk — paths are restricted to
   the scan roots), **Dismiss group** (hide it; restorable).
-- The **Scan library** button re-scans immediately to refresh the list;
-  dismissed groups stay hidden until the on-disk copies actually change.
+- The **Scan library** button triggers an immediate scan and refreshes the list upon completion (shows a paused notice when globally paused instead of starting a scan); pill filters for All / Pending / Dismissed display active highlights; dismissed groups stay hidden until the on-disk copies actually change.
 
 ## Recycle Bin (`#/recycle`)
 

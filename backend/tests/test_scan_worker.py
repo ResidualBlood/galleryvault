@@ -242,3 +242,96 @@ async def test_run_scan_cancellation(monkeypatch):
     finally:
         app_state.task_manager = orig_tm
         app_state.session_factory = orig_session
+
+
+@pytest.mark.asyncio
+async def test_duplicate_resolver_import_and_sync_duplicates_no_module_error():
+    from galleryvault.db.repositories.galleries import GalleryRepository
+    from galleryvault.services.duplicate_resolver import ResolvedGroup
+
+    assert ResolvedGroup is not None
+
+    mock_session = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    mock_session.scalars = AsyncMock(return_value=mock_scalars)
+    mock_session.flush = AsyncMock()
+
+    repo = GalleryRepository(mock_session)
+    changed = await repo.sync_duplicates([])
+    assert changed == 0
+
+
+@pytest.mark.asyncio
+async def test_run_scan_duplicate_sync_not_module_not_found(caplog, monkeypatch):
+    orig_tm = app_state.task_manager
+    orig_session = app_state.session_factory
+    orig_settings = app_state.settings
+    try:
+        tm = TaskManager()
+        app_state.task_manager = tm
+        app_state.settings = Settings(
+            library_roots=["/lib"],
+            download_root="/downloads",
+            scan_batch_size=10,
+            auto_sync_tags=False,
+        )
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            def begin(self):
+                return self
+
+            async def scalars(self, query):
+                mock = MagicMock()
+                mock.all.return_value = []
+                return mock
+
+            async def flush(self):
+                pass
+
+        app_state.session_factory = lambda: FakeSession()
+
+        from galleryvault.db.repositories.galleries import GalleryRepository
+
+        monkeypatch.setattr(GalleryRepository, "existing_rows", AsyncMock(return_value={}))
+        monkeypatch.setattr(GalleryRepository, "expunge_missing", AsyncMock(return_value=0))
+
+        class FakeIngest:
+            def __init__(self, session):
+                pass
+
+            async def ingest(self, batch):
+                pass
+
+        monkeypatch.setattr(scan_worker, "GalleryIngestService", FakeIngest)
+
+        class FakeLibraryService:
+            def __init__(self, roots, batch_size, existing, duplicate_policy):
+                self.seen_path_hashes = set()
+                self.last_duplicates = []
+                self.last_counters = SimpleNamespace(added=0, updated=0, unchanged=0)
+
+            def scan_batches(self, should_stop):
+                return iter([])
+
+        monkeypatch.setattr(scan_worker, "LibraryService", FakeLibraryService)
+        monkeypatch.setattr(scan_worker, "backfill_image_quality", AsyncMock(return_value=0))
+
+        with caplog.at_level("WARNING"):
+            await run_scan()
+
+        for record in caplog.records:
+            if "duplicate sync failed" in record.message:
+                assert "ModuleNotFoundError" not in getattr(record, "error", "")
+                assert "ModuleNotFoundError" not in record.message
+            assert "ModuleNotFoundError" not in record.message
+    finally:
+        app_state.task_manager = orig_tm
+        app_state.session_factory = orig_session
+        app_state.settings = orig_settings
