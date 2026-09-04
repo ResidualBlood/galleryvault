@@ -63,8 +63,8 @@ function updRow(u) {
     : "";
   return `<tr data-upd-id="${u.id}" data-new-gid="${u.new_gid}">
     <td><input type="checkbox" data-upd-id="${u.id}" aria-label="${esc(t("select"))}"></td>
-    <td><a class="upd-cover" href="${navHash("gallery", { id: u.gallery_id })}">${cover}</a></td>
-    <td><a href="${navHash("gallery", { id: u.gallery_id })}">${esc(u.title)}</a></td>
+    <td><a class="upd-cover" href="${navHash("gallery", { id: u.gallery_id }, { from: "updates" })}">${cover}</a></td>
+    <td><a href="${navHash("gallery", { id: u.gallery_id }, { from: "updates" })}">${esc(u.title)}</a></td>
     <td class="muted">${u.old_gid} <span class="muted">${esc(t("updToNewer"))}</span> ${u.new_gid}</td>
     <td><a class="badge" href="#/favorites/${u.favcat}">#${u.favcat}${u.favcat_name ? " " + esc(u.favcat_name) : ""}</a></td>
     <td><span class="badge upd-st-${u.status}">${esc(t(updStatusKey(u.status)))}</span>${retry}${u.error_message ? `<p class="muted">${esc(u.error_message)}</p>` : ""}</td>
@@ -214,7 +214,7 @@ async function renderUpdateIgnored() {
   if (!(data.items || []).length) return;
   el.innerHTML = data.items.map(u => `
     <div class="panel" style="margin-top:10px;padding:10px 14px">
-      <label class="checkbox" style="margin:0"><input type="checkbox" data-upd-id="${u.id}"> <a href="${navHash("gallery", { id: u.gallery_id })}">${esc(u.title)}</a></label>
+      <label class="checkbox" style="margin:0"><input type="checkbox" data-upd-id="${u.id}"> <a href="${navHash("gallery", { id: u.gallery_id }, { from: "updates" })}">${esc(u.title)}</a></label>
       <span class="badge">${u.old_gid} → ${u.new_gid}</span>
       <button class="secondary" data-action="upd-unignore" data-id="${u.id}" type="button">${esc(t("updUnignore"))}</button>
     </div>`).join("");
@@ -249,7 +249,7 @@ async function renderFavIgnored() {
           <span class="dup-body">
             <span class="dup-title"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></span>
             <span class="dup-meta">
-              ${it.gallery_id != null ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id })}">${esc(t("favLocal"))}</a>` : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`}
+              ${it.gallery_id != null ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id }, { from: "updates" })}">${esc(t("favLocal"))}</a>` : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`}
               <span class="badge">#${it.favcat}${favCatNames[it.favcat] ? " " + esc(favCatNames[it.favcat]) : ""}</span>
               ${fmtDate(it.posted_at) ? `<span class="badge">${esc(t("postedDate"))} ${fmtDate(it.posted_at)}</span>` : ""}
               ${it.file_size ? `<span class="badge">${fmtSize(it.file_size)}</span>` : ""}

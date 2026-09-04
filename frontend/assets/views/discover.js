@@ -69,7 +69,7 @@ function discoverCard(it) {
   } else {
     cover = `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover"))}</div>`;
   }
-  const href = it.gallery_id ? navHash("gallery", { id: it.gallery_id }) : esc(it.url || "#");
+  const href = it.gallery_id ? navHash("gallery", { id: it.gallery_id }, { from: "discover" }) : esc(it.url || "#");
   const extra = it.gallery_id ? "" : ` target="_blank" rel="noopener"`;
   const rating = it.rating != null ? `<span class="gc-size">★ ${esc(it.rating)}</span>` : "";
   const gid = it.gid;

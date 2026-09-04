@@ -21,7 +21,7 @@ async function renderHistory() {
     if (!items.length) { el.innerHTML = renderEmpty(t("noHistory")); return; }
     el.innerHTML = `<div class="rows">` + items.map(h => {
       const readUrl = navHash("reader", { id: h.gallery_id, page: h.current_page });
-      const galUrl = navHash("gallery", { id: h.gallery_id });
+      const galUrl = navHash("gallery", { id: h.gallery_id }, { from: "history" });
       return `
         <div class="row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
           <a href="${galUrl}" style="text-decoration:none;color:inherit;flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">
