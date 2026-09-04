@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Clear notifications** (`frontend/assets/views/components/notifications.js`, `backend/routers/notifications.py`): 通知面板支持「清空」（`POST /api/notifications/clear`），可一键清除所有应用内通知。
 - **Favorites folder filters** (`frontend/assets/views/favorites.js`, `frontend/assets/utils.js`, `frontend/assets/events.js`, `backend/`): 收藏夹详情可折叠高级筛选（对齐画廊库），支持本地星级评分、页面范围、文件大小、发布日期、上传者、画质、语言、本地列表筛选与排序。
 
 ### Changed
@@ -17,7 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Notification timestamp timezone** (`backend/services/notifications.py`): 通知 `created_at` 时间戳采用服务器本地时区。
+- **Notification timestamp timezone** (`backend/services/notifications.py`): 通知 `created_at` 采用容器本地时区（`datetime.now().astimezone()`，非 UTC 截断）。
+- **Top bar z-index** (`frontend/assets/styles.css`): 顶栏层级调整为 `z-index: 30`，避免画廊复选框盖住通知面板。
 
 ### Performance
 

@@ -72,7 +72,7 @@ button { cursor: pointer; font: inherit; }
   height: 58px; display: flex; align-items: center; gap: 10px;
   padding: 0 max(var(--space-lg), calc((100vw - 1320px) / 2));
   border-bottom: 1px solid var(--line);
-  background: var(--topbar-bg); position: sticky; top: 0; z-index: 2; backdrop-filter: blur(12px);
+  background: var(--topbar-bg); position: sticky; top: 0; z-index: 30; backdrop-filter: blur(12px);
 }
 .brand { color: var(--ink); font-weight: 800; letter-spacing: .04em; white-space: nowrap; }
 .top-search { display: flex; flex: 1; max-width: 520px; margin: auto; }
