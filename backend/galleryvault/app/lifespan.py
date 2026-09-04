@@ -76,7 +76,12 @@ async def cleanup_partial_downloads(download_root: str | Path, session_factory: 
             if gid_text.isdigit() and int(gid_text) in keep_gids:
                 continue
             if child.is_dir():
+                from ..services.storage_usage import safe_stat_size, storage_tracker
+
+                sz = safe_stat_size(child)
                 shutil.rmtree(child, ignore_errors=True)
+                if sz > 0:
+                    storage_tracker.record_download_delta(-sz)
     except Exception as exc:  # noqa: BLE001
         logger.warning("partial download cleanup failed", extra=log_extra(error=type(exc).__name__))
 
@@ -309,6 +314,23 @@ async def startup() -> None:
     app_state.extra["tag_sync_worker_task"] = asyncio.create_task(tag_sync_worker_loop())
     app_state.extra["thumb_worker_task"] = asyncio.create_task(thumbnail_worker_loop())
 
+    from ..services.storage_usage import storage_tracker
+
+    calib_coro = storage_tracker.calibrate(
+        settings_obj.download_root,
+        Path(settings_obj.thumbnail_cache_dir).parent,
+    )
+    calib_task = spawn_task(calib_coro, "storage calibration startup")
+    if calib_task is None:
+        try:
+            calib_task = asyncio.create_task(calib_coro)
+        except RuntimeError:
+            if hasattr(calib_coro, "close"):
+                calib_coro.close()
+            calib_task = None
+    if calib_task is not None:
+        app_state.extra["storage_calibrate_task"] = calib_task
+
     if not encryption_enabled():
         logger.warning(
             "ENCRYPTION_KEY not set; exhentai_cookies and auth secrets will be stored in plaintext. "
@@ -352,6 +374,7 @@ async def shutdown() -> None:
         app_state.extra.get("telegram_flush_task"),
         app_state.extra.get("tag_sync_worker_task"),
         app_state.extra.get("thumb_worker_task"),
+        app_state.extra.get("storage_calibrate_task"),
     ]
     await stop_background_tasks(all_spawned, specific)
     if app_state.telegram is not None:

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from ..logging import log_extra
 from ..observability import measure_duration
 from ..scanners.ehviewer import IMAGE_EXTENSIONS
+from .storage_usage import safe_stat_size, storage_tracker
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,22 @@ def in_scan_roots(path: Path, roots: list[str]) -> bool:
     return any(resolved.is_relative_to(Path(root).resolve()) for root in roots)
 
 
+def _is_in_download_root(path: Path) -> bool:
+    try:
+        from ..app.state import app_state
+
+        dl_root = None
+        if app_state.downloader is not None and app_state.downloader.root is not None:
+            dl_root = Path(app_state.downloader.root).resolve()
+        elif app_state.settings is not None and app_state.settings.download_root:
+            dl_root = Path(app_state.settings.download_root).resolve()
+        if dl_root is None:
+            return False
+        return path.resolve().is_relative_to(dl_root)
+    except (ValueError, TypeError, OSError):
+        return False
+
+
 def delete_local_copy(path: Path, roots: list[str] | None = None) -> bool:
     """Delete one on-disk copy (directory or single file) with scan root boundary check."""
     scan_roots = roots if roots is not None else _scan_roots_default()
@@ -38,12 +55,16 @@ def delete_local_copy(path: Path, roots: list[str] | None = None) -> bool:
             extra={"path": str(path)},
         )
         return False
+    in_dl = _is_in_download_root(path)
+    size_to_subtract = safe_stat_size(path) if in_dl else 0
     try:
         with measure_duration("gv_disk_io_duration_seconds", {"op": "delete_copy"}):
             if path.is_dir():
                 shutil.rmtree(path)
             else:
                 path.unlink(missing_ok=True)
+        if size_to_subtract > 0:
+            storage_tracker.record_download_delta(-size_to_subtract)
         return True
     except OSError:
         logger.warning("gallery file removal failed", extra={"path": str(path)})
@@ -71,11 +92,15 @@ def prune_merged_stale_pages(path: Path, new_files: tuple[str, ...] = ()) -> int
         for stale in siblings:
             if stale.name in fresh:
                 continue
+            in_dl = _is_in_download_root(stale)
+            stale_sz = safe_stat_size(stale) if in_dl else 0
             try:
                 if stale.is_dir():
                     shutil.rmtree(stale)
                 else:
                     stale.unlink()
+                if stale_sz > 0:
+                    storage_tracker.record_download_delta(-stale_sz)
                 removed += 1
             except OSError:
                 pass
@@ -214,10 +239,14 @@ async def remove_superseded_copy(
                 extra=log_extra(gid=result.gid, old=old_pages, new=result.pages),
             )
             return
+        in_dl = _is_in_download_root(target_path)
+        sz = safe_stat_size(target_path) if in_dl else 0
         if target_path.is_dir():
             await asyncio.to_thread(shutil.rmtree, target_path)
         else:
             target_path.unlink()
+        if sz > 0:
+            storage_tracker.record_download_delta(-sz)
         logger.info(
             "removed superseded copy",
             extra=log_extra(gid=result.gid, path=str(target_path)),

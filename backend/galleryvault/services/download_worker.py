@@ -311,7 +311,12 @@ async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> D
         if temp.exists():
             import shutil
 
+            from .storage_usage import safe_stat_size, storage_tracker
+
+            sz = safe_stat_size(temp)
             shutil.rmtree(temp, ignore_errors=True)
+            if sz > 0:
+                storage_tracker.record_download_delta(-sz)
     except OSError:
         pass
     title = exc.title or str(exc.new_gid)
@@ -454,7 +459,13 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             temp = Path(settings.download_root) / f".gv-{task.gid}"
             if temp.exists():
                 import shutil
+
+                from .storage_usage import safe_stat_size, storage_tracker
+
+                sz = safe_stat_size(temp)
                 shutil.rmtree(temp, ignore_errors=True)
+                if sz > 0:
+                    storage_tracker.record_download_delta(-sz)
         except OSError:
             pass
         clear_download_cancelled(task.id)

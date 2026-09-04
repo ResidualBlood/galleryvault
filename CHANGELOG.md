@@ -13,6 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Disk usage calculation & settings responsiveness** (`backend/`, `frontend/`): `GET /api/system/storage` no longer executes synchronous directory traversals (`os.walk`) on request; library size is queried from DB `storage_size`, volume metrics read from `shutil.disk_usage`, and downloads/cache use in-memory snapshots with live mutation deltas alongside periodic background `du` calibration. Settings UI returns sub-second and displays computing status while actively polling.
 - **Downloads page jump focus polling preservation** (`frontend/assets/views/downloads.js`): Skipped periodic 2s polling re-render when the pagination jump input (`#dl-pages .page-jump`) is actively focused, preventing active input elements from being destroyed and losing focus while typing a page number.
 - **Pagination page jump input** (`frontend/assets/utils.js`, `frontend/assets/events.js`): Changed pager jump input to text (`inputmode="numeric"`) with jump triggered on Enter keypress or blur on value change, preventing premature `change` events on `type="number"` inputs from causing premature full-page re-renders and lost focus while typing.
 - **Discover card badges position** (`frontend/assets/styles.css`): Moved gallery card status badges from top-right to bottom-left to prevent overlap with batch selection checkboxes.

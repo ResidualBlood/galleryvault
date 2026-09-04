@@ -24,6 +24,7 @@ from .download_worker import infer_image_quality
 from .duplicates import find_duplicate_groups
 from .eh_client import EXHENTAI_API_CHUNK_SIZE
 from .favorites import FavoritesService
+from .storage_usage import storage_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,7 @@ def _write_cover_file(path: Path, raw: bytes) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(raw)
     tmp.replace(path)
+    storage_tracker.record_cache_delta(len(raw))
 
 
 def _img_data_uri(raw: bytes) -> str | None:

@@ -15,6 +15,8 @@ from pathlib import Path
 from PIL import Image
 from PIL.Image import DecompressionBombError
 
+from .storage_usage import storage_tracker
+
 logger = logging.getLogger(__name__)
 
 # Display boxes are roughly 240px wide; cap width and let the height follow
@@ -57,6 +59,7 @@ class ThumbnailService:
         data = self._render(page_bytes)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+        storage_tracker.record_cache_delta(len(data))
         return path
 
     def missing_pages(self, gallery_id: int, page_count: int) -> list[int]:
@@ -79,6 +82,7 @@ class ThumbnailService:
         data = self._render(page_bytes)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+        storage_tracker.record_cache_delta(len(data))
         return path
 
     @staticmethod
