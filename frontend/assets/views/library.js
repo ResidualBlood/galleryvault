@@ -22,6 +22,23 @@ async function renderLibrary() {
   const min_local_rating = app.query.min_local_rating || "";
   const list_id = app.query.list_id || "";
   const language = (parseTags(tags).find(x => x.startsWith("language:")) || "").split(":")[1] || "";
+  const activeFilters = [
+    order_by && order_by !== "id_desc",
+    read_status,
+    page_min,
+    page_max,
+    min_rating,
+    size_min,
+    size_max,
+    posted_from,
+    posted_to,
+    uploader,
+    image_quality,
+    language,
+    min_local_rating,
+    list_id,
+  ].filter(Boolean).length;
+  const isAdvancedOpen = activeFilters > 0;
   const filterPill = tagFilterPills(tags);
   const selCount = selGalleries.size;
   renderView(`
@@ -36,50 +53,53 @@ async function renderLibrary() {
         ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
         <option value="__not_fav__" ${"__not_fav__" === category ? "selected" : ""}>${esc(t("notFavorited"))}</option>
       </select>
-      <select name="order_by">
-        <option value="id_desc"${order_by === "id_desc" ? " selected" : ""}>${esc(t("orderDefault"))}</option>
-        <option value="posted_at_desc"${order_by === "posted_at_desc" ? " selected" : ""}>${esc(t("orderPosted"))}</option>
-        <option value="title_asc"${order_by === "title_asc" ? " selected" : ""}>${esc(t("orderTitle"))}</option>
-        <option value="page_count_desc"${order_by === "page_count_desc" ? " selected" : ""}>${esc(t("orderPages"))}</option>
-        <option value="file_size_desc"${order_by === "file_size_desc" ? " selected" : ""}>${esc(t("orderSize"))}</option>
-        <option value="rating_desc"${order_by === "rating_desc" ? " selected" : ""}>${esc(t("orderRating"))}</option>
-      </select>
-      <select name="read_status">
-        <option value=""${!read_status ? " selected" : ""}>${esc(t("readStatusAll"))}</option>
-        <option value="unread"${read_status === "unread" ? " selected" : ""}>${esc(t("readStatusUnread"))}</option>
-        <option value="reading"${read_status === "reading" ? " selected" : ""}>${esc(t("readStatusReading"))}</option>
-        <option value="completed"${read_status === "completed" ? " selected" : ""}>${esc(t("readStatusCompleted"))}</option>
-      </select>
-      <input name="page_min" type="number" min="1" max="9999" placeholder="${esc(t("pageMin"))}" value="${esc(page_min)}" style="width:92px" title="${esc(t("pageMin"))}">
-      <input name="page_max" type="number" min="1" max="9999" placeholder="${esc(t("pageMax"))}" value="${esc(page_max)}" style="width:92px" title="${esc(t("pageMax"))}">
-      <select name="min_rating" title="${esc(t("minRating"))}">
-        <option value=""${!min_rating ? " selected" : ""}>${esc(t("minRating"))}</option>
-        <option value="2"${min_rating === "2" ? " selected" : ""}>≥2</option>
-        <option value="3"${min_rating === "3" ? " selected" : ""}>≥3</option>
-        <option value="4"${min_rating === "4" ? " selected" : ""}>≥4</option>
-        <option value="4.5"${min_rating === "4.5" ? " selected" : ""}>≥4.5</option>
-      </select>
-      <input name="size_min" type="number" min="0" placeholder="${esc(t("sizeMin"))}" value="${esc(size_min)}" style="width:110px" title="${esc(t("sizeMin"))}">
-      <input name="size_max" type="number" min="0" placeholder="${esc(t("sizeMax"))}" value="${esc(size_max)}" style="width:110px" title="${esc(t("sizeMax"))}">
-      <input name="posted_from" type="date" value="${esc(posted_from)}" title="${esc(t("postedFrom"))}">
-      <input name="posted_to" type="date" value="${esc(posted_to)}" title="${esc(t("postedTo"))}">
-      <input name="uploader" value="${esc(uploader)}" placeholder="${esc(t("uploader"))}" style="width:120px">
-      <select name="image_quality">
-        <option value=""${!image_quality ? " selected" : ""}>${esc(t("qualityAll"))}</option>
-        <option value="original"${image_quality === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
-        <option value="resample"${image_quality === "resample" ? " selected" : ""}>${esc(t("qualityResample"))}</option>
-      </select>
-      <select name="language">
-        <option value=""${!language ? " selected" : ""}>${esc(t("languageAll"))}</option>
-        ${[["chinese", t("langChinese")], ["english", t("langEnglish")], ["japanese", t("langJapanese")], ["korean", t("langKorean")], ["translated", t("langTranslated")]].map(([v, lab]) => `<option value="${v}"${language === v ? " selected" : ""}>${esc(lab)}</option>`).join("")}
-      </select>
-      <select name="min_local_rating">
-        <option value=""${!min_local_rating ? " selected" : ""}>${esc(t("localRatingMin"))}</option>
-        ${[1,2,3,4,5].map(n => `<option value="${n}"${min_local_rating === String(n) ? " selected" : ""}>≥${n}★</option>`).join("")}
-      </select>
-      <select name="list_id" id="lib-list-id">
-        <option value=""${!list_id ? " selected" : ""}>${esc(t("listAll"))}</option>
-      </select>
+      <details${isAdvancedOpen ? " open" : ""}>
+        <summary>${esc(t("library.filters.advanced"))}${activeFilters > 0 ? ` (${esc(t("library.filters.activeCount").replace("{n}", String(activeFilters)))})` : ""}</summary>
+        <select name="order_by">
+          <option value="id_desc"${order_by === "id_desc" ? " selected" : ""}>${esc(t("orderDefault"))}</option>
+          <option value="posted_at_desc"${order_by === "posted_at_desc" ? " selected" : ""}>${esc(t("orderPosted"))}</option>
+          <option value="title_asc"${order_by === "title_asc" ? " selected" : ""}>${esc(t("orderTitle"))}</option>
+          <option value="page_count_desc"${order_by === "page_count_desc" ? " selected" : ""}>${esc(t("orderPages"))}</option>
+          <option value="file_size_desc"${order_by === "file_size_desc" ? " selected" : ""}>${esc(t("orderSize"))}</option>
+          <option value="rating_desc"${order_by === "rating_desc" ? " selected" : ""}>${esc(t("orderRating"))}</option>
+        </select>
+        <select name="read_status">
+          <option value=""${!read_status ? " selected" : ""}>${esc(t("readStatusAll"))}</option>
+          <option value="unread"${read_status === "unread" ? " selected" : ""}>${esc(t("readStatusUnread"))}</option>
+          <option value="reading"${read_status === "reading" ? " selected" : ""}>${esc(t("readStatusReading"))}</option>
+          <option value="completed"${read_status === "completed" ? " selected" : ""}>${esc(t("readStatusCompleted"))}</option>
+        </select>
+        <input name="page_min" type="number" min="1" max="9999" placeholder="${esc(t("pageMin"))}" value="${esc(page_min)}" style="width:92px" title="${esc(t("pageMin"))}">
+        <input name="page_max" type="number" min="1" max="9999" placeholder="${esc(t("pageMax"))}" value="${esc(page_max)}" style="width:92px" title="${esc(t("pageMax"))}">
+        <select name="min_rating" title="${esc(t("minRating"))}">
+          <option value=""${!min_rating ? " selected" : ""}>${esc(t("minRating"))}</option>
+          <option value="2"${min_rating === "2" ? " selected" : ""}>≥2</option>
+          <option value="3"${min_rating === "3" ? " selected" : ""}>≥3</option>
+          <option value="4"${min_rating === "4" ? " selected" : ""}>≥4</option>
+          <option value="4.5"${min_rating === "4.5" ? " selected" : ""}>≥4.5</option>
+        </select>
+        <input name="size_min" type="number" min="0" placeholder="${esc(t("sizeMin"))}" value="${esc(size_min)}" style="width:110px" title="${esc(t("sizeMin"))}">
+        <input name="size_max" type="number" min="0" placeholder="${esc(t("sizeMax"))}" value="${esc(size_max)}" style="width:110px" title="${esc(t("sizeMax"))}">
+        <input name="posted_from" type="date" value="${esc(posted_from)}" title="${esc(t("postedFrom"))}">
+        <input name="posted_to" type="date" value="${esc(posted_to)}" title="${esc(t("postedTo"))}">
+        <input name="uploader" value="${esc(uploader)}" placeholder="${esc(t("uploader"))}" style="width:120px">
+        <select name="image_quality">
+          <option value=""${!image_quality ? " selected" : ""}>${esc(t("qualityAll"))}</option>
+          <option value="original"${image_quality === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
+          <option value="resample"${image_quality === "resample" ? " selected" : ""}>${esc(t("qualityResample"))}</option>
+        </select>
+        <select name="language">
+          <option value=""${!language ? " selected" : ""}>${esc(t("languageAll"))}</option>
+          ${[["chinese", t("langChinese")], ["english", t("langEnglish")], ["japanese", t("langJapanese")], ["korean", t("langKorean")], ["translated", t("langTranslated")]].map(([v, lab]) => `<option value="${v}"${language === v ? " selected" : ""}>${esc(lab)}</option>`).join("")}
+        </select>
+        <select name="min_local_rating">
+          <option value=""${!min_local_rating ? " selected" : ""}>${esc(t("localRatingMin"))}</option>
+          ${[1,2,3,4,5].map(n => `<option value="${n}"${min_local_rating === String(n) ? " selected" : ""}>≥${n}★</option>`).join("")}
+        </select>
+        <select name="list_id" id="lib-list-id">
+          <option value=""${!list_id ? " selected" : ""}>${esc(t("listAll"))}</option>
+        </select>
+      </details>
       <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
       <button class="btn btn-secondary" data-action="save-search" type="button">${esc(t("saveSearch"))}</button>
       <select id="saved-search-select" title="${esc(t("savedSearches"))}"></select>
