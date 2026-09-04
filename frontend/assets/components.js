@@ -63,9 +63,19 @@ function renderCardCheckboxes() {
   });
 }
 
+function currentFromPath() {
+  const h = (location.hash || "").replace(/^#\/?/, "");
+  if (h) return h;
+  const p = navHash(app.view || "library", app.params, app.query);
+  return p.replace(/^#\/?/, "");
+}
+
 function galleryCard(it) {
   const cat = esc(catLabel(it.category));
-  const ctx = app.view === "library" ? libraryContext() : (app.view ? { from: app.view } : {});
+  const from = currentFromPath();
+  const ctx = app.view === "library"
+    ? { ...libraryContext(), ...(app.query.page ? { page: app.query.page } : {}), from }
+    : { from };
   return `<div class="gc-wrap" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}">
     <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}" role="link" aria-label="${esc(it.title)} (${cat}, ${it.page_count} pages)">
       <div class="gc-cover">

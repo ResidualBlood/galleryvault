@@ -221,7 +221,7 @@ function favCard(it) {
     ? `<span class="fav-state local">${esc(t("favLocal"))}</span>`
     : `<span class="fav-state cloud">${esc(t("favCloud"))}</span>`;
   const size = it.file_size ? `<span class="gc-size">${fmtSize(it.file_size)}</span>` : "";
-  const link = it.gallery_id != null ? `href="${navHash("gallery", { id: it.gallery_id }, { from: "favorites" })}"` : `href="${esc(it.url || "#")}" target="_blank" rel="noopener"`;
+  const link = it.gallery_id != null ? `href="${navHash("gallery", { id: it.gallery_id }, { from: currentFromPath() })}"` : `href="${esc(it.url || "#")}" target="_blank" rel="noopener"`;
   return `<div class="gc-wrap">
     <a class="gc" ${link}>
       <div class="gc-cover">${inner}${stateBadge}${cat ? `<span class="gc-cat">${cat}</span>` : ""}${it.page_count ? `<span class="gc-pages">${it.page_count} P</span>` : ""}</div>

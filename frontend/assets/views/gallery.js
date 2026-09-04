@@ -53,11 +53,36 @@ async function renderGallery() {
       updates: t("galleryUpdates"),
       duplicates: t("dupGalTitle"),
       integrity: t("missingPagesTitle"),
+      recycle: t("recycleTitle") || t("recycle") || "Recycle",
+      browse: t("browse") || "Browse",
+      settings: t("settings") || "Settings",
+      series: t("seriesTitle") || t("series") || "Series",
+      library: t("library"),
+      downloads: t("downloads") || "Downloads",
+      logs: t("logs") || "Logs",
+      tags: t("tags") || "Tags",
     };
-    const fromView = FROM_LABELS[app.query.from] ? app.query.from : null;
-    const backHref = fromView ? navHash(fromView) : navHash("library", {}, libraryContext());
-    const backLabel = fromView ? FROM_LABELS[fromView] : t("library");
-    const galleryCtx = { ...libraryContext(), ...(fromView ? { from: fromView } : {}) };
+    let rawFrom = (app.query.from ? String(app.query.from) : "").trim();
+    rawFrom = rawFrom.replace(/^#\/?/, "").replace(/^\//, "");
+    const fromPath = rawFrom.split("?")[0];
+    const fromView = fromPath.split("/")[0];
+    const isInvalidFrom = !rawFrom || !FROM_LABELS[fromView] || rawFrom.includes("://") || rawFrom.startsWith("//") || /^javascript:/i.test(rawFrom);
+
+    let backHref;
+    let backLabel;
+    if (isInvalidFrom) {
+      backHref = navHash("library", {}, libraryContext());
+      backLabel = t("library");
+    } else {
+      backLabel = FROM_LABELS[fromView];
+      const isOnlyView = FROM_LABELS[rawFrom] && !rawFrom.includes("?") && !rawFrom.includes("/");
+      if (isOnlyView) {
+        backHref = rawFrom === "library" ? navHash("library", {}, libraryContext()) : navHash(rawFrom);
+      } else {
+        backHref = "#/" + rawFrom;
+      }
+    }
+    const galleryCtx = { ...libraryContext(), ...(!isInvalidFrom ? { from: rawFrom } : {}) };
     const pageStart = (thumbPage - 1) * perPage;
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbs = thumbsVisible.map(p => `
