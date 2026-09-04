@@ -399,6 +399,9 @@ function parseHash() {
   if (app.view === "gallery" || app.view === "reader") {
     app.params.id = /^\d+$/.test(parts[1] || "") ? parts[1] : "";
   }
+  if (app.view === "series") {
+    app.params.id = /^\d+$/.test(parts[1] || "") ? parts[1] : "";
+  }
   if (app.view === "reader") app.params.page = /^\d+$/.test(parts[2] || "") ? parts[2] : "0";
   if (app.view === "favorites") {
     if (parts[1] === "manage") { app.view = "favmanage"; }
@@ -448,6 +451,7 @@ function router() {
     case "browse": renderBrowse(); break;
     case "discover": renderDiscover(); break;
     case "library": renderLibrary(); break;
+    case "series": renderSeries(); break;
     case "gallery": renderGallery(); break;
     case "reader": renderReader(); break;
     case "tags": renderTags(); break;
@@ -500,6 +504,7 @@ function updateNavActive(view) {
   if (view === "browse") targetSelector = '.topbar .links a[href="#/browse"]';
   else if (view === "discover") targetSelector = '.topbar .links a[href="#/discover"]';
   else if (view === "library") targetSelector = '.topbar .links a[href="#/library"]';
+  else if (view === "series") targetSelector = '.topbar .links a[href="#/series"]';
   else if (view === "tags") targetSelector = '.topbar .links a[href="#/tags"]';
   else if (view === "downloads") targetSelector = '.topbar .links a[href="#/downloads"]';
   else if (["favorites", "favlist", "favmanage", "favignored", "updates", "updignored"].includes(view)) {

@@ -238,6 +238,7 @@ async def run_scan() -> None:
                         "expunged": expunged,
                     }
                     logger.info("library scan persisted", extra=log_extra(**scan_state["last"]))
+                    await __import__("galleryvault.services.series", fromlist=["rebuild_series_groups"]).rebuild_series_groups()
             except Exception as exc:
                 scan_state["last"] = {"error": type(exc).__name__, "persisted": persisted}
                 logger.exception(

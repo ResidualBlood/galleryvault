@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Series grouping & management** (`backend/`, `frontend/assets/views/series.js`): 新增系列作品独立页（`#/series`），支持基于标题规范化与作者前缀的自动成组规则、扫库自动重构及手工建组/改名/删组/画廊调配。
+
 ### Changed
 
 - **Gallery card cover presentation** (`frontend/assets/styles.css`, `frontend/assets/views/`): 画廊卡片封面（Browse/Library/Discover/Favorites/Recycle/Integrity 与继续阅读）调整为 contain 前景并叠加高斯模糊同图铺底，横向封面不再裁切（槽位保持 3:4）；画廊详情页缩略图与重复副本小图维持 cover 裁切。

@@ -2,7 +2,7 @@
 
 GalleryVault 是私有、自托管的本地画廊库：文件和收藏留在你的机器上，不把库交给别人。
 
-把 Ehviewer 导出目录、CBZ/CBR 与图片文件夹编成可搜索的 Web 库；可选从 ExHentai 同步标签与元数据、下载画廊并监控收藏。阅读、搜索、标签云与标签翻译同在中英界面，Docker Compose 即可部署。
+把 Ehviewer 导出目录、CBZ/CBR 与图片文件夹编成可搜索的 Web 库；可选从 ExHentai 同步标签与元数据、下载画廊并监控收藏。阅读、搜索、系列作品成组、标签云与标签翻译同在中英界面，Docker Compose 即可部署。
 
 [![Backend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml)
 [![Frontend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml)
