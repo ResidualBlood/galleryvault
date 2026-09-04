@@ -338,12 +338,13 @@ async def test_archive_unavailable_tier_falls_back_to_pages(tmp_path: Path) -> N
 
     client = NoResampleClient()
     downloader = Downloader(client, tmp_path)
-    result = await downloader.execute(
-        DownloadTask(1, "t", "title", mode="archive", quality="resample")
-    )
+    task = DownloadTask(1, "t", "title", mode="archive", quality="resample")
+    assert task.archive_fallback is False
+    result = await downloader.execute(task)
     # No archive was ever requested; the gallery came down page-by-page.
     assert client.requests == []
     assert result.pages == 3
+    assert task.archive_fallback is True
     assert sorted(p.name for p in result.path.glob("*.jpg")) == [
         "00000001.jpg",
         "00000002.jpg",
@@ -422,3 +423,112 @@ async def test_download_archive_416_resets_corrupt_file(tmp_path: Path) -> None:
         assert not dest.exists()
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_archive_fallback_restart_and_marker_retention(tmp_path: Path) -> None:
+    """When marker file exists, task and Downloader maintain archive_fallback=True, mode stays unchanged."""
+    marker_dir = tmp_path / ".gv-201"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    marker_file = marker_dir / ".archive_fallback"
+    marker_file.touch()
+
+    class DummyClient:
+        pass
+
+    # Initial downloader instance detects marker
+    downloader = Downloader(DummyClient(), tmp_path)  # type: ignore[arg-type]
+    assert downloader.is_archive_fallback(201) is True
+    assert Downloader.check_archive_fallback(tmp_path, 201) is True
+
+    # "Restart": new Downloader instance pointing to same root with marker file present
+    restarted_downloader = Downloader(DummyClient(), tmp_path)  # type: ignore[arg-type]
+    assert restarted_downloader.is_archive_fallback(201) is True
+    assert Downloader.check_archive_fallback(tmp_path, 201) is True
+
+    # Task execution under restarted downloader sets task.archive_fallback=True and keeps mode="archive"
+    class FakePagesClient(FakeArchiveClient):
+        pass
+
+    client = FakePagesClient()
+    downloader_with_client = Downloader(client, tmp_path)
+    task = DownloadTask(201, "t", "title", mode="archive", quality="resample")
+    assert task.archive_fallback is False
+    assert task.mode == "archive"
+
+    result = await downloader_with_client.execute(task)
+    assert task.archive_fallback is True
+    assert task.mode == "archive"
+    assert result.pages == 3
+
+
+@pytest.mark.asyncio
+async def test_downloads_api_archive_fallback_serialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/downloads serializes archive_fallback correctly."""
+    from galleryvault.app.routers import downloads as downloads_router
+    from galleryvault.app.state import app_state
+
+    class FakeTaskRow:
+        def __init__(self, id: int, gid: int, mode: str | None, status: str = "downloading") -> None:
+            self.id = id
+            self.gid = gid
+            self.mode = mode
+            self.status = status
+            self.title = f"Task {gid}"
+            self.title_jpn = None
+            self.retry_count = 0
+            self.max_retries = 3
+            self.current_page = 1
+            self.total_pages = 10
+            self.error_message = None
+            self.quality = "resample"
+
+    class FakeRepo:
+        def __init__(self, session) -> None:
+            pass
+
+        async def list_page(self, page: int, page_size: int, status: str | None = None):
+            rows = [
+                FakeTaskRow(1, 101, "archive"),
+                FakeTaskRow(2, 102, "archive", "failed"),
+                FakeTaskRow(3, 103, "archive"),
+                FakeTaskRow(4, 104, "pages"),
+            ]
+            return len(rows), rows
+
+    monkeypatch.setattr(downloads_router, "DownloadRepository", FakeRepo)
+
+    class DummyClient:
+        pass
+
+    downloader = Downloader(DummyClient(), tmp_path)  # type: ignore[arg-type]
+    task101 = DownloadTask(101, "t", "t", mode="archive", archive_fallback=True)
+    await downloader.enqueue(task101)
+
+    marker_dir = tmp_path / ".gv-102"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    (marker_dir / ".archive_fallback").touch()
+
+    monkeypatch.setattr(app_state, "downloader", downloader)
+
+    class DummySession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def _dummy_get_session():
+        yield DummySession()
+
+    monkeypatch.setattr(downloads_router, "get_session", _dummy_get_session)
+
+    res = await downloads_router.list_downloads()
+    items = {item["gid"]: item for item in res["items"]}
+
+    assert items[101]["archive_fallback"] is True
+    assert items[102]["archive_fallback"] is True
+    assert items[103]["archive_fallback"] is False
+    assert items[104]["archive_fallback"] is False

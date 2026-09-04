@@ -14,6 +14,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Archive fallback channel badge** (`backend/`, `frontend/`): `GET /api/downloads` surfaces `archive_fallback`; the Downloads page badge displays "回退逐页" / "Fallback pages" instead of the archive quality tier when an archive download fails and falls back to page-by-page (`mode` unchanged).
 - **Navigation top-bar & management tabs** (`frontend/`): Desktop top navigation condensed to Browse, Discover, Library, Tags, Downloads, Favorites, Management, and "More" dropdown (History, Settings, Logs). Management tab shell (`#/recycle`, `#/integrity`, `#/duplicates`) unifies Recycle Bin, Integrity Check, and Duplicate Finder; mobile hamburger menu keeps a flat structure. Existing routes and hash URLs remain backward-compatible.
 
 

@@ -84,7 +84,7 @@ window.GV_LOCALES.en = {
   archiveMaxPages: "Archive page threshold (0 = all)", archiveMaxPagesHint: "On scheduled favorites checks, galleries with more pages than this are downloaded via the ExHentai archive (zip) instead of page-by-page; the rest download page-by-page as usual. 0 archives everything.",
   archiveFallbackPages: "Fall back to page-by-page if archive is unavailable", archiveFallbackPagesHint: "When the archive channel cannot serve a gallery (that quality tier does not exist, GP too low, archive corrupt), download it page-by-page instead of failing. Page-by-page costs no GP but uses H@H traffic.",
   archiveTitle: "Archive download — cost preview", archiveFunds: "GP available", archiveTierOriginal: "Original", archiveTierResample: "Resample", archiveCost: "cost", archiveSize: "size", archiveUnavailable: "insufficient GP", archiveConfirm: "Start archive download", archiveNoItems: "No archives available for the selection.", archivePreviewFail: "Archive preview failed", archiveQueued: "Archive download queued", archiveUnsupported: "Some selected galleries are already local or lack a token and were skipped.",
-  dlBadgeArchive: "Archive", dlBadgePages: "Page-by-page",
+  dlBadgeArchive: "Archive", dlBadgeArchiveFallback: "Fallback pages", dlBadgePages: "Page-by-page",
   dlAddTitle: "Add to Queue / Paste URLs",
   dlAddHint: "One per line: gallery URL or gid/token (e.g. 123456/abcdef)",
   dlAddPlaceholder: "https://e-hentai.org/g/12345/abcdef\n123456/abcdef1234",
