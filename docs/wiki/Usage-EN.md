@@ -8,7 +8,7 @@ GalleryVault is built as a single-page application (SPA) using hash routing (suc
 
 Desktop top navigation includes Browse, Discover, Library, Tags, Downloads, Favorites, and "Management". History, Settings, and Logs are organized under the "More" dropdown. Clicking "Management" opens the Recycle Bin directly, with embedded tabs for Recycle Bin (`#/recycle`), Duplicate Copies (`#/duplicates`), and Missing Pages (`#/integrity`), while all legacy hash routes remain fully backward-compatible. Mobile layouts provide a clean, flat navigation menu.
 
-The top banner stacks a yellow global-pause bar, a red Cookie-expired / no-access warning, and image quota alerts when necessary. The bell next to 🎲 serves as the **in-app notification center** (download completions/failures, library scan results, and cookie status polled every 15 seconds, visible even without Telegram configured; the Cookie red warning bar remains displayed).
+The top banner stacks a yellow global-pause bar, a red Cookie-expired / no-access warning, and image quota alerts when necessary. The bell next to 🎲 serves as the **in-app notification center** (download completions/failures, library scan results, and cookie status polled every 15 seconds, visible even without Telegram configured; the Cookie red warning bar remains displayed; supports one-click "Clear"; timestamps follow the container local TZ rather than UTC truncation).
 
 ---
 
