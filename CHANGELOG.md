@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-04
+
 ### Added
 
 - **OPDS & CBZ HTTP Basic auth** (`backend/`): Added HTTP Basic authentication support for `GET /api/opds` and `GET /api/galleries/{id}/export.cbz` using fixed username `galleryvault` and the web login password. Session cookie authentication remains supported; failed or missing credentials return `401` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. Other `/api/*` endpoints remain cookie-only.
