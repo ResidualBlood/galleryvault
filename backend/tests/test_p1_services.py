@@ -1699,3 +1699,78 @@ async def test_clear_progress_repository_methods() -> None:
     assert len(session.progress_rows) == 0
     assert len(session.executed_statements) == 1
 
+
+@pytest.mark.asyncio
+async def test_thumbnail_remote_cover_and_router_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from galleryvault.app.routers import galleries as galleries_router
+    from galleryvault.services.thumbnails import ThumbnailService
+
+    thumb_root = tmp_path / "cache" / "thumbs"
+    remote_root = tmp_path / "cache" / "remote-covers"
+    service = ThumbnailService(thumb_root)
+
+    # 1. ThumbnailService remote_cover_dir and cached_remote_cover
+    assert service.remote_cover_dir() == remote_root
+    assert service.cached_remote_cover(12345) is None
+
+    # Write a fake remote cover
+    fake_cover = remote_root / "12345.jpg"
+    fake_cover.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 20)
+    assert service.cached_remote_cover(12345) == fake_cover
+
+    # 2. Router get_thumbnail: page 0 with gid -> returns remote cover
+    monkeypatch.setattr(galleries_router, "_get_thumb_service", lambda: service)
+
+    gallery_with_gid = Gallery(id=1, gid=12345, token="abcde", storage_path=str(tmp_path / "g1"))
+    pages = [GalleryPage(gallery_id=1, page_index=0, member_name="01.jpg", media_type="jpg"),
+             GalleryPage(gallery_id=1, page_index=1, member_name="02.jpg", media_type="jpg")]
+
+    async def fake_lookup_with_gid(identifier: int):
+        return gallery_with_gid, pages
+
+    monkeypatch.setattr(galleries_router, "_gallery", fake_lookup_with_gid)
+
+    resp0 = await galleries_router.get_thumbnail(1, 0)
+    assert Path(resp0.path) == fake_cover
+
+    # 3. Router get_thumbnail: page > 0 -> uses local thumb, not remote cover
+    local_page1_thumb = thumb_root / "1" / "1.jpg"
+    local_page1_thumb.parent.mkdir(parents=True, exist_ok=True)
+    local_page1_thumb.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 10)
+
+    resp1 = await galleries_router.get_thumbnail(1, 1)
+    assert Path(resp1.path) == local_page1_thumb
+
+    # 4. Router get_thumbnail: no gid -> uses local 0.jpg
+    gallery_no_gid = Gallery(id=2, gid=None, token=None, storage_path=str(tmp_path / "g2"))
+    pages2 = [GalleryPage(gallery_id=2, page_index=0, member_name="01.jpg", media_type="jpg")]
+
+    async def fake_lookup_no_gid(identifier: int):
+        return gallery_no_gid, pages2
+
+    local_page0_no_gid = thumb_root / "2" / "0.jpg"
+    local_page0_no_gid.parent.mkdir(parents=True, exist_ok=True)
+    local_page0_no_gid.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 15)
+
+    monkeypatch.setattr(galleries_router, "_gallery", fake_lookup_no_gid)
+    resp_no_gid = await galleries_router.get_thumbnail(2, 0)
+    assert Path(resp_no_gid.path) == local_page0_no_gid
+
+    # 5. Router get_thumbnail: with gid but remote fetch fails -> degrades to local 0.jpg without writing 0.jpg to remote-covers
+    gallery_fail_gid = Gallery(id=3, gid=99999, token="failtok", storage_path=str(tmp_path / "g3"))
+    pages3 = [GalleryPage(gallery_id=3, page_index=0, member_name="01.jpg", media_type="jpg")]
+
+    async def fake_lookup_fail_gid(identifier: int):
+        return gallery_fail_gid, pages3
+
+    local_page0_fail = thumb_root / "3" / "0.jpg"
+    local_page0_fail.parent.mkdir(parents=True, exist_ok=True)
+    local_page0_fail.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 12)
+
+    monkeypatch.setattr(galleries_router, "_gallery", fake_lookup_fail_gid)
+    resp_fail = await galleries_router.get_thumbnail(3, 0)
+    assert Path(resp_fail.path) == local_page0_fail
+    assert not (remote_root / "99999.jpg").exists()
+    assert not (remote_root / "99999.img").exists()
+
+

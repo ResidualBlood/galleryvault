@@ -10,8 +10,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+
 from ..app.state import app_state
 from ..config import get_settings
+from ..db.models import FavoriteItem, Gallery, GalleryMetadata
 from ..db.repository import (
     DownloadRepository,
     FavoritesRepository,
@@ -164,6 +167,97 @@ def _write_cover_file(path: Path, raw: bytes) -> None:
     tmp.write_bytes(raw)
     tmp.replace(path)
     storage_tracker.record_cache_delta(len(raw))
+
+
+async def ensure_remote_cover(
+    gid: int,
+    token: str | None = None,
+    cache_dir: Path | None = None,
+) -> Path | None:
+    cache_dir = cache_dir or _remote_cover_cache_dir()
+    cached = _cover_cache_file(cache_dir, gid)
+    if cached is not None:
+        return cached
+
+    client = app_state.eh_client
+    if client is None:
+        return None
+
+    thumb_url: str | None = None
+    if app_state.session_factory:
+        try:
+            async with app_state.session_factory() as session:
+                thumb_url = await session.scalar(
+                    select(FavoriteItem.thumb).where(
+                        FavoriteItem.gid == int(gid),
+                        FavoriteItem.thumb.is_not(None),
+                    ).limit(1)
+                )
+                if not thumb_url:
+                    source_meta = await session.scalar(
+                        select(Gallery.source_meta).where(
+                            Gallery.gid == int(gid),
+                            Gallery.source_meta.is_not(None),
+                        ).limit(1)
+                    )
+                    if isinstance(source_meta, dict) and source_meta.get("thumb"):
+                        thumb_url = str(source_meta["thumb"])
+        except Exception:  # noqa: BLE001
+            thumb_url = None
+
+    if not token and app_state.session_factory:
+        try:
+            async with app_state.session_factory() as session:
+                token = await session.scalar(
+                    select(Gallery.token).where(
+                        Gallery.gid == int(gid),
+                        Gallery.token.is_not(None),
+                    ).limit(1)
+                )
+                if not token:
+                    token = await session.scalar(
+                        select(FavoriteItem.token).where(
+                            FavoriteItem.gid == int(gid),
+                            FavoriteItem.token.is_not(None),
+                        ).limit(1)
+                    )
+                if not token:
+                    token = await session.scalar(
+                        select(GalleryMetadata.token).where(
+                            GalleryMetadata.gid == int(gid),
+                            GalleryMetadata.token.is_not(None),
+                        ).limit(1)
+                    )
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    if not thumb_url and token:
+        try:
+            chunk_meta = await client.fetch_gmetadata([(int(gid), token)])
+            meta = chunk_meta.get(int(gid)) or {}
+            thumb_url = meta.get("thumb") or None
+        except Exception:  # noqa: BLE001
+            thumb_url = None
+
+    data: bytes | None = None
+    if thumb_url:
+        try:
+            data = await client.download_image(str(thumb_url))
+        except Exception:  # noqa: BLE001
+            data = None
+
+    if data is None and token:
+        try:
+            data, _ = await client.fetch_gallery_cover(int(gid), token)
+        except Exception:  # noqa: BLE001
+            data = None
+
+    if data:
+        write_path = _cover_cache_write_path(cache_dir, gid)
+        _write_cover_file(write_path, data)
+        return write_path
+
+    return None
 
 
 def _img_data_uri(raw: bytes) -> str | None:

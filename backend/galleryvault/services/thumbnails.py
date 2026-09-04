@@ -46,6 +46,27 @@ class ThumbnailService:
         path = self.cache_path(gallery_id, page_index)
         return path if path.is_file() else None
 
+    def remote_cover_dir(self) -> Path:
+        d = self.root.parent / "remote-covers"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def cached_remote_cover(self, gid: int) -> Path | None:
+        cache_dir = self.remote_cover_dir()
+        for suffix in (".img", ".jpg"):
+            path = cache_dir / f"{int(gid)}{suffix}"
+            if path.is_file():
+                return path
+        return None
+
+    async def get_remote_cover(self, gid: int, token: str | None = None) -> Path | None:
+        cached = self.cached_remote_cover(gid)
+        if cached is not None:
+            return cached
+        from .favorites_worker import ensure_remote_cover
+
+        return await ensure_remote_cover(gid, token, cache_dir=self.remote_cover_dir())
+
     def get_or_create(
         self,
         gallery_id: int,
