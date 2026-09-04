@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -568,3 +569,45 @@ def test_cross_origin_api_request_rejected(client: TestClient) -> None:
     )
     assert resp.status_code == 403
     assert resp.json() == {"detail": "Cross-origin request rejected"}
+
+
+def test_basic_auth_ignored_on_other_api_routes(client: TestClient) -> None:
+    auth_header = "Basic " + base64.b64encode(b"galleryvault:correct horse").decode()
+
+    # 其他通用 API 端点（无 cookie，带有效 Basic）
+    resp_settings = client.get("/api/settings", headers={"Authorization": auth_header})
+    assert resp_settings.status_code == 401
+    assert resp_settings.json() == {"detail": "Authentication required"}
+    assert "www-authenticate" not in resp_settings.headers
+
+    # 其它 galleries 端点（精确匹配后缀，不误伤其他 galleries 路由）
+    resp_gallery = client.get("/api/galleries/123", headers={"Authorization": auth_header})
+    assert resp_gallery.status_code == 401
+    assert resp_gallery.json() == {"detail": "Authentication required"}
+    assert "www-authenticate" not in resp_gallery.headers
+
+    resp_thumb = client.get(
+        "/api/galleries/123/thumbnail", headers={"Authorization": auth_header}
+    )
+    assert resp_thumb.status_code == 401
+    assert resp_thumb.json() == {"detail": "Authentication required"}
+    assert "www-authenticate" not in resp_thumb.headers
+
+
+def test_basic_auth_non_get_rejected(client: TestClient) -> None:
+    auth_header = "Basic " + base64.b64encode(b"galleryvault:correct horse").decode()
+
+    # 非 GET 请求即使命中条款 1 路径前缀也不放行 Basic
+    resp_post_opds = client.post("/api/opds", headers={"Authorization": auth_header})
+    assert resp_post_opds.status_code == 401
+    assert resp_post_opds.json() == {"detail": "Authentication required"}
+    assert "www-authenticate" not in resp_post_opds.headers
+
+
+def test_other_api_cookie_only_unchanged(client: TestClient) -> None:
+    # 仅有效 cookie 访问其他 /api/* 端点保持正常
+    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    assert "library_roots" in resp.json()
+

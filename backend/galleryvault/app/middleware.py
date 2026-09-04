@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import logging
 import secrets
@@ -11,13 +13,46 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from ..auth import verify_session
+from ..auth import verify_login_password, verify_session
 from ..logging import log_extra
 from .dependencies import get_current_settings
 
 logger = logging.getLogger(__name__)
 
 CSRF_COOKIE = "galleryvault_csrf"
+BASIC_AUTH_REALM = 'Basic realm="GalleryVault OPDS"'
+
+
+def _is_basic_auth_route(request: Request) -> bool:
+    if request.method != "GET":
+        return False
+    path = request.url.path
+    if path == "/api/opds":
+        return True
+    if path.startswith("/api/galleries/") and path.endswith("/export.cbz"):
+        parts = path.split("/")
+        return len(parts) == 5 and bool(parts[3])
+    return False
+
+
+def _verify_basic_auth(request: Request, settings: Any) -> bool:
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        return False
+    scheme, _, param = auth_header.partition(" ")
+    if scheme.lower() != "basic" or not param.strip():
+        return False
+    try:
+        decoded = base64.b64decode(param.strip()).decode("utf-8")
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return False
+    username, sep, password = decoded.partition(":")
+    if not sep:
+        return False
+    valid_username = hmac.compare_digest(username, "galleryvault")
+    effective = settings.auth_password_hash or settings.auth_password
+    valid_password = verify_login_password(password, effective)
+    return valid_username and valid_password
 
 
 async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
@@ -48,9 +83,29 @@ async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
         return response
     if not settings.auth_required:
         return await call_next(request)
-    if not verify_session(
+
+    authenticated = verify_session(
         request.cookies.get(settings.auth_cookie_name), settings.auth_secret or ""
-    ):
+    )
+
+    if not authenticated and _is_basic_auth_route(request):
+        if _verify_basic_auth(request, settings):
+            authenticated = True
+        else:
+            logger.info(
+                "authentication failed",
+                extra=log_extra(
+                    ip=request.client.host if request.client else "unknown",
+                    reason="invalid_basic_auth",
+                ),
+            )
+            return JSONResponse(
+                {"detail": "Authentication required"},
+                status_code=401,
+                headers={"WWW-Authenticate": BASIC_AUTH_REALM},
+            )
+
+    if not authenticated:
         reason = "missing_or_invalid_session"
         logger.info(
             "authentication failed",

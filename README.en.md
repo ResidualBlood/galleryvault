@@ -23,7 +23,7 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 - **Download manager** — paste URLs or archive zips, resumable retries,
   self-healing failures, global pause and GP/quota; Telegram and in-app notices.
 - **Reader & UI** — streaming reader (webtoon/jump/fullscreen), continue
-  reading, recycle bin, PWA and light theme, OPDS.
+  reading, recycle bin, PWA and light theme, OPDS (supports HTTP Basic auth, see [Wiki Usage](https://github.com/ResidualBlood/galleryvault/wiki/Usage)).
 - **Security & operations** — PBKDF2 auth, optional encryption at rest
   (AES-256-GCM), root by default or drop privileges with `PUID`/`PGID`;
   one-command deploy and one-click backup.

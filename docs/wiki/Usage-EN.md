@@ -491,7 +491,7 @@ additions again.
 - **PWA**: add to home screen. The service worker caches only the html/css/js shell (js/css **network-first**, then update the cache; offline falls back to cache), **not gallery images or `/api/`**.
 - **Light theme**: ◐ in the top bar; `localStorage gv_theme=dark|light`, default dark.
 - **7z / PDF scan**: library scan accepts `.7z` (py7zr, images only) and `.pdf` (embedded images; skip with a warning if none).
-- **OPDS**: after login, `GET /api/opds` (atom+xml) lists recent ingestions with acquisition links to `export.cbz`.
+- **OPDS & CBZ export**: `GET /api/opds` (atom+xml) lists recent ingestions with acquisition links to `GET /api/galleries/{id}/export.cbz`. Both endpoints support HTTP Basic authentication (fixed username `galleryvault`, not an EH account; password is the web login password) for third-party reader clients (Tachiyomi, Panels, Chunky, etc.); session cookie authentication remains fully supported. Missing or invalid credentials return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. All other `/api/*` routes remain cookie-only.
 - **Telegram bot control commands** (send from an **allowed user ID**):
   `/help` lists commands, `/queue` shows a pending/running/failed summary,
   `/stats` library count plus queue pending/downloading/failed,
