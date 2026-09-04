@@ -1048,6 +1048,11 @@ async def favorite_cover(gid: int, token: str) -> Response:
     cache_dir = Path(settings.thumbnail_cache_dir).parent / "remote-covers"
     path = await run_in_threadpool(_cover_cache_file, cache_dir, int(gid))
     if path is None:
+        logger.info(
+            "cover miss: gid=%s source=cover event=miss",
+            gid,
+            extra=log_extra(gid=int(gid), source="cover", event="miss"),
+        )
         client = app_state.eh_client
         if client is None:
             raise HTTPException(status_code=503, detail="ExHentai client is unavailable")

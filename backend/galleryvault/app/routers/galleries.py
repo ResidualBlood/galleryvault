@@ -1440,6 +1440,11 @@ async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
                 media_type=media_type,
                 headers={"Cache-Control": "public, max-age=86400"},
             )
+        logger.info(
+            "cover fallback: gid=%s source=thumb0 event=fallback",
+            row.gid,
+            extra=log_extra(gid=row.gid, source="thumb0", event="fallback"),
+        )
 
     cached = service.cached(row.id, page.page_index)
     if cached is None:

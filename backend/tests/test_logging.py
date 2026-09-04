@@ -400,3 +400,181 @@ def test_system_logs_download_file_scenarios(tmp_path: Path, monkeypatch: pytest
         assert resp_missing.status_code == 404
     finally:
         app_state.settings = orig_settings
+
+
+@pytest.mark.asyncio
+async def test_cover_hit_miss_and_fallback_logging(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from galleryvault.app.routers import galleries as galleries_router
+    from galleryvault.app.routers.favorites import favorite_cover
+    from galleryvault.db.models import Gallery, GalleryPage
+    from galleryvault.services.favorites_worker import ensure_remote_cover
+    from galleryvault.services.thumbnails import ThumbnailService
+
+    cache_dir = tmp_path / "remote-covers"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cover_file = cache_dir / "12345.jpg"
+
+    # 1. Hit on ensure_remote_cover -> no INFO
+    cover_file.write_bytes(b"dummy image")
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        res = await ensure_remote_cover(12345, token="abc", cache_dir=cache_dir, source="thumb0")
+        assert res == cover_file
+        assert not any("cover miss:" in rec.message for rec in caplog.records)
+
+    # 2. Miss on ensure_remote_cover -> 1 INFO log with source=thumb0, event=miss, gid=67890
+    mock_client = AsyncMock()
+    mock_client.fetch_gmetadata = AsyncMock(return_value={67890: {"thumb": "https://ehgt.org/t/dummy.jpg"}})
+    mock_client.download_image = AsyncMock(return_value=b"downloaded image")
+    orig_client = app_state.eh_client
+    app_state.eh_client = mock_client
+    try:
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            res2 = await ensure_remote_cover(67890, token="def", cache_dir=cache_dir, source="thumb0")
+            assert res2 is not None
+            miss_records = [
+                rec for rec in caplog.records
+                if rec.levelno == logging.INFO and "cover miss:" in rec.message
+            ]
+            assert len(miss_records) == 1
+            rec = miss_records[0]
+            assert getattr(rec, "context", {}).get("gid") == 67890
+            assert getattr(rec, "context", {}).get("source") == "thumb0"
+            assert getattr(rec, "context", {}).get("event") == "miss"
+            assert "source=thumb0" in rec.message
+            assert "event=miss" in rec.message
+    finally:
+        app_state.eh_client = orig_client
+
+    # 3. Hit on favorite_cover -> no INFO
+    orig_settings = app_state.settings
+    app_state.settings = Settings(
+        auth_required=False,
+        thumbnail_cache_dir=str(tmp_path / "thumbs" / "cache.db"),
+        exhentai_cookies='{"ipb_member_id": "1", "ipb_pass_hash": "abc"}',
+    )
+    fav_cache_dir = Path(app_state.settings.thumbnail_cache_dir).parent / "remote-covers"
+    fav_cache_dir.mkdir(parents=True, exist_ok=True)
+    # _cover_cache_file scans _COVER_SUFFIXES (.img, .jpg, etc.)
+    fav_cover_file = fav_cache_dir / "11111.jpg"
+    fav_cover_file.write_bytes(b"fav image")
+    mock_eh = AsyncMock()
+    mock_eh.fetch_gallery_cover = AsyncMock(return_value=(b"fav remote image", "image/jpeg"))
+    app_state.eh_client = mock_eh
+
+    async def dummy_get_session():
+        class DummyScalars:
+            def __iter__(self):
+                return iter([])
+
+            def all(self):
+                return []
+
+        class DummySession:
+            async def scalar(self, *args, **kwargs):
+                return None
+
+            async def scalars(self, *args, **kwargs):
+                return DummyScalars()
+
+        yield DummySession()
+
+    monkeypatch.setattr("galleryvault.app.routers.favorites.get_session", dummy_get_session)
+
+    try:
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            resp = await favorite_cover(11111, token="abcdef123456")
+            assert resp.status_code == 200
+            assert not any("cover miss:" in rec.message for rec in caplog.records)
+
+        # 4. Miss on favorite_cover -> 1 INFO log with source=cover, event=miss, gid=22222
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            resp2 = await favorite_cover(22222, token="abcdef123456")
+            assert resp2.status_code == 200
+            miss_fav_records = [
+                rec for rec in caplog.records
+                if rec.levelno == logging.INFO and "cover miss:" in rec.message
+            ]
+            assert len(miss_fav_records) == 1
+            rec_fav = miss_fav_records[0]
+            assert getattr(rec_fav, "context", {}).get("gid") == 22222
+            assert getattr(rec_fav, "context", {}).get("source") == "cover"
+            assert getattr(rec_fav, "context", {}).get("event") == "miss"
+            assert "source=cover" in rec_fav.message
+            assert "event=miss" in rec_fav.message
+    finally:
+        app_state.settings = orig_settings
+        app_state.eh_client = orig_client
+
+    # 5. Fallback on get_thumbnail: page_index=0 with gid, remote fetch fails -> 1 INFO log with source=thumb0, event=fallback
+    thumb_root = tmp_path / "cache" / "thumbs"
+    service = ThumbnailService(thumb_root)
+    monkeypatch.setattr(galleries_router, "_get_thumb_service", lambda: service)
+
+    gallery_fail_gid = Gallery(id=101, gid=99999, token="failtok", storage_path=str(tmp_path / "g101"))
+    pages_fail = [
+        GalleryPage(gallery_id=101, page_index=0, member_name="01.jpg", media_type="jpg"),
+        GalleryPage(gallery_id=101, page_index=1, member_name="02.jpg", media_type="jpg"),
+    ]
+    local_page0 = thumb_root / "101" / "0.jpg"
+    local_page0.parent.mkdir(parents=True, exist_ok=True)
+    local_page0.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 12)
+    local_page1 = thumb_root / "101" / "1.jpg"
+    local_page1.parent.mkdir(parents=True, exist_ok=True)
+    local_page1.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 12)
+
+    async def fake_lookup_fail(identifier: int):
+        return gallery_fail_gid, pages_fail
+
+    monkeypatch.setattr(galleries_router, "_gallery", fake_lookup_fail)
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        resp_fallback = await galleries_router.get_thumbnail(101, 0)
+        assert resp_fallback.status_code == 200
+        fallback_records = [
+            rec for rec in caplog.records
+            if rec.levelno == logging.INFO and "cover fallback:" in rec.message
+        ]
+        assert len(fallback_records) == 1
+        rec_fb = fallback_records[0]
+        assert getattr(rec_fb, "context", {}).get("gid") == 99999
+        assert getattr(rec_fb, "context", {}).get("source") == "thumb0"
+        assert getattr(rec_fb, "context", {}).get("event") == "fallback"
+        assert "source=thumb0" in rec_fb.message
+        assert "event=fallback" in rec_fb.message
+
+    # 6. page > 0 with gid -> no fallback INFO
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        resp_page1 = await galleries_router.get_thumbnail(101, 1)
+        assert resp_page1.status_code == 200
+        assert not any("cover fallback:" in rec.message for rec in caplog.records)
+
+    # 7. page_index=0 without gid -> no fallback INFO
+    gallery_no_gid = Gallery(id=102, gid=None, token=None, storage_path=str(tmp_path / "g102"))
+    pages_no_gid = [GalleryPage(gallery_id=102, page_index=0, member_name="01.jpg", media_type="jpg")]
+    local_page0_no_gid = thumb_root / "102" / "0.jpg"
+    local_page0_no_gid.parent.mkdir(parents=True, exist_ok=True)
+    local_page0_no_gid.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 12)
+
+    async def fake_lookup_no_gid(identifier: int):
+        return gallery_no_gid, pages_no_gid
+
+    monkeypatch.setattr(galleries_router, "_gallery", fake_lookup_no_gid)
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        resp_no_gid = await galleries_router.get_thumbnail(102, 0)
+        assert resp_no_gid.status_code == 200
+        assert not any("cover fallback:" in rec.message for rec in caplog.records)
+
