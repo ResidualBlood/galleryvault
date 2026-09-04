@@ -4,6 +4,10 @@
 
 let readerTouchCleanup = null;
 
+function readerContext() {
+  return { ...libraryContext(), ...(app.query.from ? { from: app.query.from } : {}) };
+}
+
 function getReaderMode() {
   return localStorage.getItem("gv_reader_mode") || "ltr";
 }
@@ -120,19 +124,19 @@ async function renderReader() {
 
     const nav = getReaderNav(page, total, mode);
     const prevBtn = nav.prevPage !== null
-      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.prevPage }, libraryContext())}">${esc(t("prev"))}</a>`
+      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.prevPage }, readerContext())}">${esc(t("prev"))}</a>`
       : `<span>${esc(t("prev"))}</span>`;
     const nextBtn = nav.nextPage !== null
-      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.nextPage }, libraryContext())}">${esc(t("next"))}</a>`
+      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.nextPage }, readerContext())}">${esc(t("next"))}</a>`
       : `<span>${esc(t("next"))}</span>`;
 
     const navHtml = isRtl
-      ? `<div class="nav">${nextBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>${prevBtn}</div>`
-      : `<div class="nav">${prevBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, libraryContext())}">${esc(t("allPages"))}</a>${nextBtn}</div>`;
+      ? `<div class="nav">${nextBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${prevBtn}</div>`
+      : `<div class="nav">${prevBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${nextBtn}</div>`;
 
     const innerHtml = `
       <div class="reader-bar toolbar">
-        <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
+        <a class="link-button" href="${navHash("gallery", { id }, readerContext())}">← ${esc(t("details"))}</a>
         <span class="reader-page-indicator" style="display:inline-flex;align-items:center;gap:4px;">
           <form data-action="reader-jump" style="display:inline-flex;align-items:center;margin:0;padding:0;">
             <input id="reader-jump-input" class="reader-jump-input" type="number" min="1" max="${total}" value="${page + 1}" style="width:4.2em;padding:2px 4px;text-align:center;font-size:13px;border-radius:4px;border:1px solid var(--line);background:var(--panel-2);color:inherit;" title="${esc(t("jumpToPageHint"))}" aria-label="${esc(t("pageNumber"))}">
@@ -178,7 +182,7 @@ function jumpToReaderPage(targetPage) {
   if (readerFsActive) {
     readerSwapPage(id, normalized);
   } else {
-    location.hash = navHash("reader", { id, page: normalized }, libraryContext());
+    location.hash = navHash("reader", { id, page: normalized }, readerContext());
   }
 }
 
@@ -202,7 +206,7 @@ function bindReaderKeys() {
     const nav = getReaderNav(cur, total, mode());
     if (nav.nextPage !== null) {
       if (readerFsActive) { readerSwapPage(id, nav.nextPage); return; }
-      location.hash = navHash("reader", { id, page: nav.nextPage }, libraryContext());
+      location.hash = navHash("reader", { id, page: nav.nextPage }, readerContext());
     } else {
       exitReaderFullscreen();
       goReaderNext(id);
@@ -216,7 +220,7 @@ function bindReaderKeys() {
     const nav = getReaderNav(cur, total, mode());
     if (nav.prevPage !== null) {
       if (readerFsActive) { readerSwapPage(id, nav.prevPage); return; }
-      location.hash = navHash("reader", { id, page: nav.prevPage }, libraryContext());
+      location.hash = navHash("reader", { id, page: nav.prevPage }, readerContext());
     }
   };
 
@@ -437,7 +441,7 @@ function onFullscreenChange() {
 function syncReaderUrl() {
   if (app.view !== "reader" || !app.params.id) return;
   const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
-  const target = navHash("reader", { id: app.params.id, page }, libraryContext());
+  const target = navHash("reader", { id: app.params.id, page }, readerContext());
   if (location.hash !== target) {
     history.replaceState(null, "", target);
   }
@@ -522,6 +526,6 @@ function toggleReaderFit() {
 async function goReaderNext(id) {
   try {
     const r = await api("GET", `/api/galleries/${id}/next`);
-    location.hash = navHash("reader", { id: r.id, page: 0 }, libraryContext());
+    location.hash = navHash("reader", { id: r.id, page: 0 }, readerContext());
   } catch (_) { /* no next gallery */ }
 }

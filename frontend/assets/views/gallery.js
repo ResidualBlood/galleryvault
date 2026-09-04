@@ -46,23 +46,35 @@ async function renderGallery() {
     } else {
       thumbPage = 1;
     }
+    const FROM_LABELS = {
+      favorites: t("favorites"),
+      discover: t("discover"),
+      history: t("history"),
+      updates: t("galleryUpdates"),
+      duplicates: t("dupGalTitle"),
+      integrity: t("missingPagesTitle"),
+    };
+    const fromView = FROM_LABELS[app.query.from] ? app.query.from : null;
+    const backHref = fromView ? navHash(fromView) : navHash("library", {}, libraryContext());
+    const backLabel = fromView ? FROM_LABELS[fromView] : t("library");
+    const galleryCtx = { ...libraryContext(), ...(fromView ? { from: fromView } : {}) };
     const pageStart = (thumbPage - 1) * perPage;
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbs = thumbsVisible.map(p => `
-      <a class="thumb" href="${navHash("reader", { id, page: p.index }, libraryContext())}">
+      <a class="thumb" href="${navHash("reader", { id, page: p.index }, galleryCtx)}">
         <img loading="lazy" src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
       </a>`).join("");
     const thumbPagerParts = [];
     if (thumbPage > 1) {
-      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: thumbPage - 1, page_size: perPage })}">&lt;</a>`);
+      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...galleryCtx, page: thumbPage - 1, page_size: perPage })}">&lt;</a>`);
     }
     for (let p = Math.max(1, thumbPage - 2); p <= Math.min(totalPages, thumbPage + 2); p++) {
       thumbPagerParts.push(p === thumbPage
         ? `<strong class="cur" aria-current="page">${p}</strong>`
-        : `<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: p, page_size: perPage })}">${p}</a>`);
+        : `<a class="page-link" href="${navHash("gallery", { id }, { ...galleryCtx, page: p, page_size: perPage })}">${p}</a>`);
     }
     if (thumbPage < totalPages) {
-      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
+      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...galleryCtx, page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
     }
     const txtMore = app.lang === "zh" ? "更多" : (t("navMore") || "More");
     const txtCollapse = app.lang === "zh" ? "收起" : "Collapse";
@@ -70,11 +82,11 @@ async function renderGallery() {
     preserveMoreExpandedOnce = false;
     $view().innerHTML = `
       <div class="gallery-detail">
-        <a class="link-button" href="${navHash("library", {}, libraryContext())}">← ${esc(t("library"))}</a>
+        <a class="link-button" href="${backHref}">← ${esc(backLabel)}</a>
         <header style="margin-top:16px"><p class="eyebrow">${esc(g.storage_type)} · LOCAL GALLERY</p><h1>${esc(g.title)}</h1>
         <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page + 1}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span> ${qualityBadge}</p></header>
         <div class="toolbar">
-          <a class="btn btn-primary" href="${navHash("reader", { id, page: progress.current_page }, libraryContext())}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
+          <a class="btn btn-primary" href="${navHash("reader", { id, page: progress.current_page }, galleryCtx)}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
           ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
           <button class="btn btn-secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
           <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>

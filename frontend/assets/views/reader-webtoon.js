@@ -93,7 +93,7 @@ async function renderWebtoonReader() {
     }
     const innerHtml = `
       <div class="reader-bar toolbar">
-        <a class="link-button" href="${navHash("gallery", { id }, libraryContext())}">← ${esc(t("details"))}</a>
+        <a class="link-button" href="${navHash("gallery", { id }, { ...libraryContext(), ...(app.query.from ? { from: app.query.from } : {}) })}">← ${esc(t("details"))}</a>
         <span class="reader-page-indicator" style="display:inline-flex;align-items:center;gap:4px;">
           <form data-action="reader-jump" style="display:inline-flex;align-items:center;margin:0;padding:0;">
             <input id="reader-jump-input" class="reader-jump-input" type="number" min="1" max="${total}" value="${page + 1}" style="width:4.2em;padding:2px 4px;text-align:center;font-size:13px;border-radius:4px;border:1px solid var(--line);background:var(--panel-2);color:inherit;" title="${esc(t("jumpToPageHint"))}" aria-label="${esc(t("pageNumber"))}">
