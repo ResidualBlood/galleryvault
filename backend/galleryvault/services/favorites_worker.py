@@ -173,11 +173,19 @@ async def ensure_remote_cover(
     gid: int,
     token: str | None = None,
     cache_dir: Path | None = None,
+    source: str = "thumb0",
 ) -> Path | None:
     cache_dir = cache_dir or _remote_cover_cache_dir()
     cached = _cover_cache_file(cache_dir, gid)
     if cached is not None:
         return cached
+
+    logger.info(
+        "cover miss: gid=%s source=%s event=miss",
+        gid,
+        source,
+        extra=log_extra(gid=int(gid), source=source, event="miss"),
+    )
 
     client = app_state.eh_client
     if client is None:
