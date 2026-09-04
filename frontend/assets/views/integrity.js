@@ -20,7 +20,7 @@ async function renderIntegrity() {
         const title = g.title || ("#" + g.id);
         const mismatch = `${g.page_count} vs ${g.actual_pages} (file:${g.file_count != null ? g.file_count : "—"})`;
         return `<div class="gc-wrap">
-          <a class="gc" href="${navHash("gallery", { id: g.id }, { from: "integrity" })}">
+          <a class="gc" href="${navHash("gallery", { id: g.id }, { from: currentFromPath() })}">
             <div class="gc-cover">${g.cover_url ? `<img class="cover-bg" loading="lazy" src="${g.cover_url}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${g.cover_url}" alt="">` : `<div class="cover-placeholder">${esc(t("noCover"))}</div>`}<span class="gc-pages">${mismatch}</span></div>
             <div class="gc-title">${esc(title)}</div>
             <div class="muted" style="font-size:12px;">${esc(g.storage_path || "")}</div>

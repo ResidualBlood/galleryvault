@@ -79,8 +79,8 @@ function renderContinueReadingHtml(items) {
     const total = h.total_pages || 1;
     const pct = Math.min(100, Math.round(((cur + 1) / total) * 100));
     const title = h.display_title || h.title || ("#" + h.gallery_id);
-    const readUrl = navHash("reader", { id: h.gallery_id, page: cur });
-    const galUrl = navHash("gallery", { id: h.gallery_id });
+    const readUrl = navHash("reader", { id: h.gallery_id, page: cur }, { from: currentFromPath() });
+    const galUrl = navHash("gallery", { id: h.gallery_id }, { from: currentFromPath() });
     return `
       <div class="cr-card">
         <a class="cr-thumb-wrap" href="${readUrl}">
@@ -112,6 +112,6 @@ function renderContinueReadingHtml(items) {
 }
 
 async function randomGallery() {
-  try { const d = await api("GET", "/api/galleries/random"); location.hash = navHash("gallery", { id: d.id }); }
+  try { const d = await api("GET", "/api/galleries/random"); location.hash = navHash("gallery", { id: d.id }, { from: currentFromPath() }); }
   catch (e) { toast(e.message); }
 }

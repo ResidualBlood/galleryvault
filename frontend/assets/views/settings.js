@@ -264,7 +264,7 @@ async function fillStorageDash() {
       return `<p><strong>${esc(label)}</strong> ${esc(info.path || "")}${vol} — ${sizeStr}${miss}</p>`;
     };
     const largest = (d.largest || []).map(it =>
-      `<li><a href="${navHash("gallery", { id: it.id })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
+      `<li><a href="${navHash("gallery", { id: it.id }, { from: currentFromPath() })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
     ).join("");
     el.innerHTML = row("library", t("storageLibrary")) + row("downloads", t("storageDownloads")) + row("cache", t("storageCache")) +
       `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;

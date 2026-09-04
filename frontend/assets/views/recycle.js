@@ -48,7 +48,7 @@ async function renderRecycle() {
       el.innerHTML = `<div class="grid gc-grid">` + data.items.map(g => {
         const title = g.title || ("#" + g.id);
         return `<div class="gc-wrap">
-          <a class="gc" href="${navHash("gallery", { id: g.id })}">
+          <a class="gc" href="${navHash("gallery", { id: g.id }, { from: currentFromPath() })}">
             <div class="gc-cover">${g.cover_url ? `<img class="cover-bg" loading="lazy" src="${g.cover_url}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${g.cover_url}" alt="">` : `<div class="cover-placeholder">${esc(t("noCover"))}</div>`}<span class="gc-pages">${g.page_count} P</span></div>
             <div class="gc-title">${esc(title)}</div>
             <div class="muted" style="font-size:12px;">${esc(g.trashed_at || g.updated_at || "")} · ${esc(g.storage_path || "")}</div>
