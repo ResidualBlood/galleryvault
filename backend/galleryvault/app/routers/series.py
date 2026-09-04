@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -13,7 +14,7 @@ from ...db.repositories.galleries import GalleryRepository
 from ...db.repositories.series import SeriesRepository
 from ...services.series import rebuild_series_groups
 from ...services.tag_translation import translated_tag
-from ..dependencies import db_error, display_title, get_session
+from ..dependencies import db_error, display_title, get_session, get_task_manager, spawn_task
 
 router = APIRouter()
 
@@ -202,5 +203,36 @@ async def remove_series_items(series_id: int, body: SeriesItemsRequest) -> dict[
 
 @router.post("/api/series/rebuild")
 async def rebuild_series() -> dict[str, object]:
-    stats = await rebuild_series_groups()
+    started_at = datetime.now(UTC).isoformat()
+    tm = get_task_manager()
+    try:
+        stats = await rebuild_series_groups()
+    except Exception as exc:
+        completed_at = datetime.now(UTC).isoformat()
+        tm.record_task(
+            "series-rebuild",
+            started_at,
+            completed_at,
+            "failed",
+            reason=str(exc),
+            done=0,
+            total=0,
+        )
+        spawn_task(tm.persist_history(), "persist task history")
+        raise
+
+    completed_at = datetime.now(UTC).isoformat()
+    created = int(stats.get("created", 0) or 0)
+    merged = int(stats.get("merged", 0) or 0)
+    reason = f"created {created} groups, merged {merged} galleries"
+    tm.record_task(
+        "series-rebuild",
+        started_at,
+        completed_at,
+        "success",
+        reason=reason,
+        done=merged,
+        total=merged,
+    )
+    spawn_task(tm.persist_history(), "persist task history")
     return {"rebuilt": True, **stats}

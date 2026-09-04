@@ -9,6 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Series grouping & management** (`backend/`, `frontend/assets/views/series.js`): 新增系列作品独立页（`#/series`），支持基于标题规范化与作者前缀的自动成组规则、扫库自动重构及手工建组/改名/删组/画廊调配。
+- **Series rebuild task log** (`backend/galleryvault/app/routers/series.py`, `frontend/assets/views/logs.js`): 系列重新整理写入日志页。
 
 ### Changed
 
