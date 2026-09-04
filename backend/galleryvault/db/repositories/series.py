@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..models import Gallery, Series, SeriesExclusion, SeriesItem
@@ -159,6 +159,68 @@ class SeriesRepository:
             ).all()
         )
         return {r.match_key: r for r in rows if r.match_key}
+
+    async def get_auto_series(self) -> list[Series]:
+        return list(
+            (
+                await self.session.scalars(
+                    select(Series).where(Series.match_key.is_not(None))
+                )
+            ).all()
+        )
+
+    async def get_auto_series_gids(self, series_ids: list[int]) -> dict[int, set[int]]:
+        if not series_ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(SeriesItem.series_id, SeriesItem.gallery_id).where(
+                    SeriesItem.series_id.in_(series_ids)
+                )
+            )
+        ).all()
+        result: dict[int, set[int]] = {}
+        for sid, gid in rows:
+            result.setdefault(sid, set()).add(gid)
+        return result
+
+    async def get_rebuild_candidate_galleries(self) -> list[Gallery]:
+        """Fetch candidates for series rebuild: unassigned or in auto series,
+
+        excluding manual series members and exclusions.
+        """
+        manual_subq = (
+            select(SeriesItem.gallery_id)
+            .join(Series, Series.id == SeriesItem.series_id)
+            .where(Series.match_key.is_(None))
+        )
+        excl_subq = select(SeriesExclusion.gallery_id)
+
+        stmt = (
+            select(Gallery)
+            .outerjoin(SeriesItem, SeriesItem.gallery_id == Gallery.id)
+            .outerjoin(Series, Series.id == SeriesItem.series_id)
+            .where(
+                Gallery.trashed.is_(False),
+                Gallery.id.not_in(excl_subq),
+                Gallery.id.not_in(manual_subq),
+                or_(
+                    SeriesItem.gallery_id.is_(None),
+                    Series.match_key.is_not(None),
+                ),
+            )
+            .distinct()
+            .order_by(Gallery.id.asc())
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def clear_auto_series_items(self, series_ids: list[int]) -> None:
+        if not series_ids:
+            return
+        await self.session.execute(
+            delete(SeriesItem).where(SeriesItem.series_id.in_(series_ids))
+        )
+        await self.session.flush()
 
     async def get_unassigned_galleries(self) -> list[Gallery]:
         stmt = (

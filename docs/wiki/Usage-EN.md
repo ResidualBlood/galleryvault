@@ -62,7 +62,7 @@ The usage guide is divided into the following dedicated chapters:
 - **[Browsing & Library (Library)](Library-EN)**:
   - [Browse (#/browse)](Library-EN#browse-browse) — Default landing grid, continue reading cards, keyboard navigation, and global instant search; landscape gallery card covers are no longer cropped, using blurred background padding.
   - [Discover (#/discover)](Library-EN#discover-discover) — Browse ExHentai online, Popular / Watched / Toplist feeds, and cursor pagination.
-  - [Series (#/series)](Library-EN#series-series) — Title and artist rule-based auto grouping, scan rebuild, and manual series curation.
+  - [Series (#/series)](Library-EN#series-series) — Artist + core title rule-based auto grouping (stripping Cxx/noise/volume/subtitles), scan rebuild, and manual series curation.
   - [Library (#/library)](Library-EN#library-library) — Multi-index sorting, mutually exclusive reading status filters, AND/OR multi-tag filtering with `-tag` exclusions, batch actions, and deletion safety guards.
   - [Local Lists (#/library)](Library-EN#local-lists-library) — Independent local lists lifecycle, decoupled from ExHentai cloud favorites.
   - [Tags (#/tags)](Library-EN#tags-tags) — Tag namespace strips, frequency analysis, and EhTag Chinese search suggestions.
