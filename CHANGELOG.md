@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Discover card badges position** (`frontend/assets/styles.css`): Moved gallery card status badges from top-right to bottom-left to prevent overlap with batch selection checkboxes.
 - **Duplicate copies import & management scan feedback** (`backend/`, `frontend/`):
   - Fixed duplicate record synchronization failing silently during library scan due to invalid relative import `ResolvedGroup` (`ModuleNotFoundError`), restoring duplicate group persistence to `duplicate_records`.
   - In Management → Duplicate Copies (`#/duplicates`): scanning now checks global pause state before polling logs, automatically polls until scan completion before reloading the duplicate list, and restores active pill highlight styling when toggling All / Pending / Dismissed filters.

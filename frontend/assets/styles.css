@@ -610,7 +610,7 @@ a.row:hover { border-color: var(--accent); }
 .gc-cover { position: relative; }
 .active-pill { border-color: var(--accent); color: var(--accent); background: rgba(88,101,242,.12); }
 .fav-state-filter { display: inline-flex; gap: 6px; margin-left: auto; }
-.disc-badges { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; z-index: 2; }
+.disc-badges { position: absolute; bottom: 6px; left: 6px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; z-index: 2; }
 .disc-badge { padding: 1px 7px; border-radius: 10px; font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
 .disc-badge.in { background: #1c5c2c; color: #c9f5d4; }
 .disc-badge.fav { background: #24456e; color: #cfe3ff; }
