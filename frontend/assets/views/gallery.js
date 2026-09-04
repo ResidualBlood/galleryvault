@@ -3,6 +3,8 @@
 // views/gallery.js — Phase 1
 // renderGallery moved from app.js
 
+let preserveMoreExpandedOnce = false;
+
 async function renderGallery() {
   const id = app.params.id;
   $view().innerHTML = `<p>${esc(t("loading"))}</p>`;
@@ -62,6 +64,10 @@ async function renderGallery() {
     if (thumbPage < totalPages) {
       thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
     }
+    const txtMore = app.lang === "zh" ? "更多" : (t("navMore") || "More");
+    const txtCollapse = app.lang === "zh" ? "收起" : "Collapse";
+    const isMoreExpanded = preserveMoreExpandedOnce;
+    preserveMoreExpandedOnce = false;
     $view().innerHTML = `
       <div class="gallery-detail">
         <a class="link-button" href="${navHash("library", {}, libraryContext())}">← ${esc(t("library"))}</a>
@@ -77,10 +83,11 @@ async function renderGallery() {
           ${showOrigBtns ? `<button class="btn btn-secondary" data-action="download-original" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrig"))}</button>
           <button class="btn btn-secondary" data-action="download-original-archive" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrigArchive"))}</button>` : ""}
           <button class="btn btn-secondary" data-action="export-cbz" data-id="${g.id}" type="button">${esc(t("exportCbz"))}</button>
+          <button class="btn btn-secondary" id="gallery-more-btn" type="button">${isMoreExpanded ? esc(txtCollapse) : esc(txtMore)}</button>
           <button class="btn btn-danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
         </div>
-        <section>
-          <details>
+        <section id="gallery-more-section"${isMoreExpanded ? "" : " hidden"}>
+          <details open>
             <summary>${esc(t("localRating"))}</summary>
             <div class="toolbar">
               <select id="local-rating">
@@ -90,21 +97,21 @@ async function renderGallery() {
               <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
             </div>
           </details>
-          <details>
+          <details open>
             <summary>${esc(t("localTags"))}</summary>
             <div class="toolbar">
               <input id="local-tags" value="${esc((g.tags || []).filter(tg => tg.namespace === "local").map(tg => tg.name).join(", "))}" placeholder="${esc(t("localTags"))}" style="min-width:180px">
               <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
             </div>
           </details>
-          <details>
+          <details open>
             <summary>${esc(t("localNote"))}</summary>
             <div class="toolbar">
               <textarea id="local-note" rows="2" placeholder="${esc(t("localNote"))}" style="width:100%">${esc(g.local_note || "")}</textarea>
               <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
             </div>
           </details>
-          <details>
+          <details open>
             <summary>${esc(t("galleryLists"))}</summary>
             <div class="toolbar" id="gallery-lists"></div>
           </details>
@@ -115,6 +122,16 @@ async function renderGallery() {
           <div class="pages pager">${thumbPagerParts.join(" ")} ${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
         </section>
       </div>`;
+
+    const moreBtn = document.getElementById("gallery-more-btn");
+    const moreSection = document.getElementById("gallery-more-section");
+    if (moreBtn && moreSection) {
+      moreBtn.addEventListener("click", () => {
+        const expanded = !moreSection.hidden;
+        moreSection.hidden = expanded;
+        moreBtn.textContent = expanded ? txtMore : txtCollapse;
+      });
+    }
     if (g.gid) {
       try {
         const fav = await api("GET", `/api/galleries/${id}/favorite`);
@@ -199,6 +216,7 @@ async function saveGalleryLocal() {
       local_tags,
     });
     toast(t("saveLocal"));
+    preserveMoreExpandedOnce = true;
     renderGallery();
   } catch (e) { toast(e.message); }
 }
