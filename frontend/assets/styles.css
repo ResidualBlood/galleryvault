@@ -107,8 +107,7 @@ label.checkbox, label.inline { display: flex; gap: 8px; align-items: center; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 20px; }
 .card { overflow: hidden; border-radius: var(--radius-md); transition: border-color var(--transition-fast), transform var(--transition-fast); }
 .card:hover { border-color: var(--accent); transform: translateY(-2px); }
-.card .cover { aspect-ratio: 3/4; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.card .cover img { width: 100%; height: 100%; object-fit: cover; }
+.card .cover { position: relative; aspect-ratio: 3/4; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .card .copy { padding: var(--space-sm) var(--space-md); }
 .card .copy h3 { font-size: .95rem; margin: 0 0 4px; }
 .card .copy p { margin: 0; font-size: .8rem; }
@@ -360,16 +359,23 @@ button:disabled { opacity: .5; cursor: default; }
   color: inherit; overflow: hidden;
   content-visibility: auto; contain-intrinsic-size: 180px 260px;
 }
+.cover-bg {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  object-fit: cover; filter: blur(14px); transform: scale(1.15); pointer-events: none;
+}
+.cover-fg {
+  position: relative; width: 100%; height: 100%; object-fit: contain;
+  z-index: 1; transition: transform .18s ease;
+}
 .gc-cover {
   position: relative; aspect-ratio: 3/4; background: #000;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
   border-radius: 4px; box-shadow: 0 1px 4px #0009;
 }
 .gc:hover .gc-cover, .gc:focus .gc-cover { outline: 2px solid var(--accent); }
-.gc-cover img { width: 100%; height: 100%; object-fit: cover; transition: transform .18s; }
-.gc:hover .gc-cover img { transform: scale(1.04); }
+.gc:hover .gc-cover .cover-fg { transform: scale(1.04); }
 .gc-cat, .gc-pages {
-  position: absolute; top: 6px; left: 6px;
+  position: absolute; top: 6px; left: 6px; z-index: 2;
   background: #000000c9; color: #fff; border-radius: 3px;
   padding: 1px 7px; font-size: .68rem; letter-spacing: .05em; text-transform: uppercase;
 }
@@ -547,9 +553,8 @@ a.row:hover { border-color: var(--accent); }
 }
 .cr-card:hover { transform: translateY(-2px); border-color: var(--accent); }
 .cr-thumb-wrap { position: relative; width: 100%; aspect-ratio: 3/4; background: var(--panel-2); overflow: hidden; }
-.cr-thumb-wrap img { width: 100%; height: 100%; object-fit: cover; }
 .cr-progress-wrap {
-  position: absolute; bottom: 0; left: 0; right: 0;
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 2;
   background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);
   padding: 14px 8px 6px;
 }
@@ -646,7 +651,7 @@ a.row:hover { border-color: var(--accent); }
 .dup-hidden .dup-group-head { text-decoration: line-through; }
 .dup-ignored-badge { background: #4a4a4a; color: #ddd; }
 .gc-size { display: block; color: var(--muted); font-size: .72rem; margin-top: 2px; }
-.fav-state { position: absolute; bottom: 6px; left: 6px; padding: 1px 7px; border-radius: 10px; font-size: .68rem; font-weight: 700; letter-spacing: .04em; z-index: 1; }
+.fav-state { position: absolute; bottom: 6px; left: 6px; padding: 1px 7px; border-radius: 10px; font-size: .68rem; font-weight: 700; letter-spacing: .04em; z-index: 2; }
 .fav-state.local { background: #1c5c2c; color: #c9f5d4; }
 .fav-state.cloud { background: #24456e; color: #cfe3ff; }
 .gc-cover { position: relative; }

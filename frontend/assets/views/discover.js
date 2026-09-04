@@ -61,9 +61,11 @@ function discoverCard(it) {
   const ehgtThumb = thumbLow.startsWith("https://ehgt.org/");
   let cover;
   if (it.gallery_id) {
-    cover = `<img loading="lazy" src="/api/galleries/${it.gallery_id}/thumb/0" alt="">`;
+    const src = `/api/galleries/${it.gallery_id}/thumb/0`;
+    cover = `<img class="cover-bg" loading="lazy" src="${src}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${src}" alt="">`;
   } else if (ehgtThumb) {
-    cover = `<img loading="lazy" src="${esc(it.thumb)}" alt="" referrerpolicy="no-referrer">`;
+    const src = esc(it.thumb);
+    cover = `<img class="cover-bg" loading="lazy" src="${src}" alt="" referrerpolicy="no-referrer" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${src}" alt="" referrerpolicy="no-referrer">`;
   } else {
     cover = `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover"))}</div>`;
   }

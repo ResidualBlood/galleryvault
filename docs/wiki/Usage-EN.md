@@ -60,7 +60,7 @@ Connecting with ExHentai, synchronizing favorite folders, fetching tags, or down
 The usage guide is divided into the following dedicated chapters:
 
 - **[Browsing & Library (Library)](Library-EN)**:
-  - [Browse (#/browse)](Library-EN#browse-browse) — Default landing grid, continue reading cards, keyboard navigation, and global instant search.
+  - [Browse (#/browse)](Library-EN#browse-browse) — Default landing grid, continue reading cards, keyboard navigation, and global instant search; landscape gallery card covers are no longer cropped, using blurred background padding.
   - [Discover (#/discover)](Library-EN#discover-discover) — Browse ExHentai online, Popular / Watched / Toplist feeds, and cursor pagination.
   - [Library (#/library)](Library-EN#library-library) — Multi-index sorting, mutually exclusive reading status filters, AND/OR multi-tag filtering with `-tag` exclusions, batch actions, and deletion safety guards.
   - [Local Lists (#/library)](Library-EN#local-lists-library) — Independent local lists lifecycle, decoupled from ExHentai cloud favorites.

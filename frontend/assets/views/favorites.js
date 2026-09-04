@@ -215,7 +215,7 @@ function favCard(it) {
   const cat = it.category ? esc(catLabel(it.category)) : "";
   const cover = it.cover_url || it.cover_data || null;
   const inner = cover
-    ? `<img loading="lazy" src="${cover}" alt="">`
+    ? `<img class="cover-bg" loading="lazy" src="${cover}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${cover}" alt="">`
     : `<span class="badge">no cover</span>`;
   const stateBadge = it.gallery_id != null
     ? `<span class="fav-state local">${esc(t("favLocal"))}</span>`
