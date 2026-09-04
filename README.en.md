@@ -7,26 +7,24 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 [![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
 [![Wiki](https://img.shields.io/badge/docs-wiki-9cf?logo=github)](https://github.com/ResidualBlood/galleryvault/wiki)
 
-[中文](README.md) · **English** · [📖 Online docs](https://github.com/ResidualBlood/galleryvault/wiki)
+[中文](README.md) · **English** · [📖 Documentation](https://github.com/ResidualBlood/galleryvault/wiki/Home-EN)
 
 ---
 
-## Features
+## Quick start
 
-- **Local gallery library** — scans Ehviewer / CBZ/CBR/7z/PDF / image folders;
-  auto-dedupes same-gid copies; local lists and star ratings.
-- **Search & tags** — multi-tag AND/exclude, library sort and read-status,
-  Discover search on ExHentai, Chinese reverse lookup, bilingual UI.
-- **ExHentai integration** — cookie sync (expired-cookie banner); favorites
-  monitor and dedupe; Discover one-click download/favorite; auto-update
-  re-uploaded galleries.
-- **Download manager** — paste URLs or archive zips, resumable retries,
-  self-healing failures, global pause and GP/quota; Telegram and in-app notices.
-- **Reader & UI** — streaming reader (webtoon/jump/fullscreen), continue
-  reading, recycle bin, PWA and light theme, OPDS (supports HTTP Basic auth, see [Wiki Usage](https://github.com/ResidualBlood/galleryvault/wiki/Usage)).
-- **Security & operations** — PBKDF2 auth, optional encryption at rest
-  (AES-256-GCM), root by default or drop privileges with `PUID`/`PGID`;
-  one-command deploy and one-click backup.
+```bash
+mkdir galleryvault && cd galleryvault
+curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
+docker compose up -d
+```
+
+1. Run `docker compose up -d` to launch the stack.
+2. Open **http://<host>:8000** for the web UI (JSON API at `:8001`).
+3. Log in with default password **`p1a2s3s4`** and change it in *Settings*.
+4. Put galleries into `./library` (mounted at `/library`) and click *Scan library*.
+
+> To sync metadata or download from ExHentai, configure your account cookies in *Settings → ExHentai*; see the [Wiki Usage Guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN).
 
 ## Screenshots
 
@@ -39,125 +37,20 @@ GalleryVault is a private, self-hosted library manager for local gallery archive
 | **Favorites dedupe** | **收藏夹查重** |
 | <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorites dedupe page" width="420"> | <img src="docs/screenshots/fav_dedupe_zh.png" alt="Chinese favorites dedupe page" width="420"> |
 
-## Quick start
-
-```bash
-mkdir galleryvault && cd galleryvault
-curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
-docker compose up -d
-```
-
-1. Open **http://\<host\>:8000** — the web UI.
-2. Log in with the default password **`p1a2s3s4`** and change it in *Settings*.
-3. (Optional) Configure your ExHentai cookies and run *Favorites → Check all folders* once — the cached metadata makes scanning much faster.
-4. Put your galleries in `./library` (mounted at `/library`), hit *Scan library*, and start reading.
-
-> On first start Docker creates the `./library`, `./downloads`, `./cache` and
-> `./db-data` directories automatically; the downloaded `docker-compose.yml`
-> can be customized (ports, volume mounts, `ENCRYPTION_KEY`, …).
-
-> The JSON API is available at **http://\<host\>:8001**.
-
-### Obtaining the ExHentai cookies (`ipb_member_id` / `ipb_pass_hash` / `igneous`)
-
-1. Log in to **e-hentai.org** in your browser (an e-hentai account is required), press `F12` → **Application → Storage → Cookies**, and copy **`ipb_member_id`** and **`ipb_pass_hash`** from `https://e-hentai.org`.
-2. To also access **exhentai.org** (the "里站"), copy **`igneous`** from the Cookies of `https://exhentai.org` — this cookie only exists for accounts granted exhentai access; skip it if you only use the public mirror.
-3. Enter the three values in *Settings → ExHentai* (or the first-run wizard) and verify with *Test login*; cookies are stored encrypted and never echoed back.
-
-### Recommended workflow
-
-Cache your favorite metadata first (*watch only* + *Check all folders*), scan
-the library, dedupe, download the backlog with *force*, then switch back to
-incremental for automatic follow-ups. Full steps in the
-[Wiki → Usage guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage).
-
-### Scope
-
-- **Natively supported** are download directories from the Ehviewer family
-  (`.ehviewer`, fully compatible across the main forks) and
-  [JHenTai](https://github.com/jiangtian616/JHenTai) (`metadata`); scanning
-  restores the full gallery identity. CBZ/CBR archives and plain image folders
-  without `.ehviewer` are supported with reduced fidelity (galleries without a
-  gid can be browsed but take no part in downloads/dedupe). The full
-  compatibility list lives on the
-  [Wiki → Home](https://github.com/ResidualBlood/galleryvault/wiki/Home).
-- The downloader additionally writes a `.galleryvault.json` sidecar
-  (category/title/tags), readable on scan and rebuild.
-
-## Data and volumes
-
-| Path | Purpose |
-|------|---------|
-| `./db-data` | PostgreSQL data (index, settings, history) — survives container recreation |
-| `./library` | **Library**: your existing archives, mounted at `/library`. New downloads never land here; deleting a gallery removes its files here when the mount is writable |
-| `./downloads` | **Download directory**: galleries downloaded from ExHentai, mounted at `/downloads`, scanned automatically |
-| `./cache` | **Thumbnail cache** (generated), mounted at `/gv-cache` |
-
-Library roots (one path per line) and the download root are configured separately in *Settings*; mounting other Ehviewer download folders as **scan-only libraries** is described in the [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
-
-> **Permissions**: the backend runs as **root (0:0)** by default, or as a custom user via `PUID`/`PGID` (e.g. `1000:1000`). If non-root, make sure mounted host folders are readable (and writable for gallery deletion) by that UID. `./cache` is aligned at startup; **`./db-data` belongs to postgres (uid 999) — never chown it**. See [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment).
-
-## Upgrading
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Database migrations (Alembic) run automatically when the backend starts. Images
-use the `:latest` tag, so `pull` fetches new releases.
-
-> Do **not** overwrite your local `docker-compose.yml` with
-> `curl -o docker-compose.yml` — it likely contains your customizations (ports,
-> volume mounts, `ENCRYPTION_KEY`, …). If you need a newer compose template,
-> back it up first and merge the changes by hand.
-
-## Security
-
-The default password `p1a2s3s4` is for first login only — change it before exposing the instance publicly. The backend API binds `127.0.0.1:8001` by default; optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM) protects cookies / token / password hashes — keep the key separate from the database backup. The public-deployment checklist, TLS and lost-key recovery are in [Wiki → Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) and [Wiki → Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption).
-
-## Architecture
-
-This project is organized as a monorepo containing both frontend and backend source trees, publishing two Docker images:
-
-```
-┌────────────┐   :8000   ┌──────────────────────┐   :8001   ┌────────────────┐
-│  Browser   │ ────────▶ │ nginx SPA (vanilla JS)│ ────────▶ │ FastAPI backend │ ─▶ PostgreSQL
-└────────────┘           │  /api,/login,/logout  │           └────────────────┘
-                         └──────────────────────┘
-```
-
-| Component | Source Path | Docker image | Host port |
-|-----------|-------------|--------------|-----------|
-| Frontend (nginx SPA) | `frontend/` | `residualblood/galleryvault-frontend` | **8000** |
-| Backend (FastAPI + asyncpg) | `backend/` | `residualblood/galleryvault-backend` | **8001** |
-| Database | — | `postgres:16-alpine` | internal |
-
-The frontend is a dependency-free vanilla-JavaScript SPA (no build step, no CDN). The backend runs Alembic migrations automatically on boot, so upgrading is a single `docker compose pull && docker compose up -d`.
-
 ## Documentation
 
-Full docs live on the **[📖 Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**:
+Full documentation is available on the **[GitHub Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**:
 
-- [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — compose, volumes, scan-only libraries, hardening, TLS, upgrades
-- [Usage guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — browse, discover, reader, downloads, favorites, recycle, PWA, settings
-- [Backup & restore](https://github.com/ResidualBlood/galleryvault/wiki/Backup)
-- [Encryption at rest](https://github.com/ResidualBlood/galleryvault/wiki/Encryption) — ENCRYPTION_KEY and lost-key recovery
-- [API reference](https://github.com/ResidualBlood/galleryvault/wiki/API)
-- [Development](https://github.com/ResidualBlood/galleryvault/wiki/Development)
-- [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
-- [Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots) — overview of the main UI pages (EN & 中文)
-
-Product discussions & feedback: [Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
+- **[Usage Guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN)** — Browse, search, reader, downloads, favorites & deduplication, PWA & settings
+- **[Deployment Guide](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN)** — Docker Compose, volume mounts, permissions, encryption at rest, hardening & backups
+- **[API & Development](https://github.com/ResidualBlood/galleryvault/wiki/API)** — REST API specifications and [Development guide](https://github.com/ResidualBlood/galleryvault/wiki/Development)
 
 ## Acknowledgements
 
-- **Ehviewer_CN_SXJ** ([github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)) — reference for the export directory structure and naming conventions, concurrent page download and resume, and Chinese tag-translation reverse lookup.
-- **EhTagTranslation** ([github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)) — tag translation database and update mechanism.
-- **ehsyringe** — curation and export format of the translation data.
-
-Backend built on **FastAPI / Starlette / Uvicorn**, **SQLAlchemy / asyncpg / Alembic**, **httpx**, **Pydantic**; infrastructure is **PostgreSQL, nginx, Docker**.
+- **Ehviewer_CN_SXJ** ([github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)) — Reference for directory structure and download conventions.
+- **EhTagTranslation** ([github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)) — Tag translation database and update mechanism.
+- **ehsyringe** ([github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)) — Curation and export format of translation data.
 
 ## Disclaimer
 
-ExHentai integration requires your own account cookies. Please use it responsibly and respect the site's rules and rate limits.
+ExHentai integration requires your own account cookies. Please use responsibly and respect site rules and rate limits.

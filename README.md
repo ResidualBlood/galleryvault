@@ -11,14 +11,20 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 
 ---
 
-## 功能特性
+## 快速开始
 
-- **本地画廊库**：扫描 Ehviewer / CBZ/CBR/7z/PDF / 图片文件夹；多目录同 gid 去重；本地列表与星级。
-- **搜索与标签**：多标签 AND/排除、库排序与阅读状态、发现页搜 ExHentai、中文反向检索、双语界面。
-- **ExHentai 集成**：cookie 同步（失效顶栏告警）；收藏夹监控与查重；发现页一键下载/加收藏；画廊重传更新。
-- **下载管理**：贴链接/归档、断点续传、失败自愈、全局暂停与 GP/配额；Telegram 与应用内通知。
-- **阅读器与界面**：流式阅读（条漫/跳页/全屏）、继续阅读、回收站、PWA 与浅色主题、OPDS（支持 HTTP Basic 认证，详见 [Wiki 使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)）。
-- **安全与运维**：PBKDF2 认证、可选静态加密（AES-256-GCM）、默认 root 亦可 `PUID`/`PGID` 降权；单命令部署与一键备份。
+```bash
+mkdir galleryvault && cd galleryvault
+curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
+docker compose up -d
+```
+
+1. 执行 `docker compose up -d` 启动服务。
+2. 打开 **http://<主机地址>:8000** 访问 Web 界面（JSON API 位于 `:8001`）。
+3. 使用默认密码 **`p1a2s3s4`** 登录，并在「设置」中修改密码。
+4. 将画廊放入 `./library`（挂载至 `/library`），点击「扫描库」即可开始使用。
+
+> 如需与 ExHentai 同步元数据或下载画廊，请在「设置 → ExHentai」配置账户 Cookie；获取与配置说明见 [Wiki 使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)。
 
 ## 界面截图
 
@@ -31,108 +37,20 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 | **收藏夹查重** | **Favorites dedupe** |
 | <img src="docs/screenshots/fav_dedupe_zh.png" alt="收藏夹查重页面" width="420"> | <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorites dedupe page" width="420"> |
 
-## 快速开始
-
-```bash
-mkdir galleryvault && cd galleryvault
-curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
-docker compose up -d
-```
-
-1. 打开 **http://\<主机地址\>:8000** 访问 Web 界面。
-2. 使用默认密码 **`p1a2s3s4`** 登录，并在「设置」中修改密码。
-3. （可选）先配置 ExHentai cookie 并「收藏夹 → 立即检查所有」，把收藏元数据缓存进库，之后扫描快得多。
-4. 将画廊放入 `./library`（挂载至 `/library`），点击「扫描库」即可开始使用。
-
-> 首次启动时 Docker 会自动创建 `./library`、`./downloads`、`./cache`、`./db-data` 目录；下载的 `docker-compose.yml` 可按需定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。
-
-> JSON API 位于 **http://\<主机地址\>:8001**。
-
-### 获取 ExHentai cookie（ipb_member_id / ipb_pass_hash / igneous）
-
-1. 浏览器登录 **e-hentai.org**（需 e-hentai 账户），按 `F12` → **Application → Storage → Cookies**，从 `https://e-hentai.org` 复制 **`ipb_member_id`** 与 **`ipb_pass_hash`**。
-2. 需要访问 **exhentai.org 里站**（未和谐画廊/部分专区）时，再从 `https://exhentai.org` 的 Cookies 复制 **`igneous`**（仅已获里站权限的账户存在；只用外站可跳过）。
-3. 填入「设置 → ExHentai」（或首次运行向导）并「测试登录」验证；cookie 加密存库、不会回显。
-
-### 推荐使用流程
-
-先缓存收藏元数据（「仅监控」+「立即检查所有」）→ 扫描库 → 收藏夹查重 → 强制下载补齐 → 切回增量自动跟进。完整步骤见 [Wiki → 使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)。
-
-### 适用范围
-
-- **原生支持** Ehviewer 家族客户端（`.ehviewer` 格式，含各主流 Fork，完全兼容）与 [JHenTai](https://github.com/jiangtian616/JHenTai)（`metadata`）的下载目录，扫描即精确还原画廊身份；CBZ/CBR 与无 `.ehviewer` 的图片文件夹降级支持（无 gid 的画廊可浏览，但无法参与下载/查重）。完整兼容列表见 [Wiki → 首页](https://github.com/ResidualBlood/galleryvault/wiki/Home)。
-- 下载器写目录时还会额外生成 `.galleryvault.json`（category/title/tags）sidecar，扫描与重建可读取。
-
-## 数据与目录
-
-| 路径 | 说明 |
-|------|------|
-| `./db-data` | PostgreSQL 数据（索引、设置、历史），容器重建后保留 |
-| `./library` | **库目录**：已有画廊归档，挂载至 `/library`，新下载不会写入；删除画廊时若挂载可写会一并删除这里对应文件 |
-| `./downloads` | **下载目录**：从 ExHentai 下载的画廊，挂载至 `/downloads`，自动纳入扫描 |
-| `./cache` | **缩略图缓存**（自动生成），挂载至 `/gv-cache` |
-
-库目录（每行一个路径）与下载目录在「设置」中分开配置；把其他 Ehviewer 下载目录挂载为**仅扫描不下载**的库，见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
-
-> **权限**：backend **默认以 root (0:0) 运行**，也可用 `PUID`/`PGID`（如 `1000:1000`）降权。非 root 时请确保挂载目录对该 UID 可读写。`./cache` 启动时按运行用户对齐；**`./db-data` 属 postgres（uid 999），切勿 chown**。详见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
-
-## 升级
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-数据库迁移在 backend 启动时自动执行（alembic），无需手动操作；镜像使用 `:latest` 标签，`pull` 即可获得新版本。
-
-> **不要**用 `curl -o docker-compose.yml` 覆盖本地 compose——它可能含有你的定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。如需获取更新的 compose 模板，先备份本地文件，再手动比对合并修改。
-
-## 安全
-
-默认密码 `p1a2s3s4` 仅供内网首次使用，公网部署前请在「设置」修改。后端 API 默认仅绑定 `127.0.0.1:8001`；可选**静态加密**（`ENCRYPTION_KEY`，AES-256-GCM）保护 cookie / token / 密码哈希，密钥请与数据库备份分开保管。公网部署检查清单、TLS 与密钥丢失恢复见 [Wiki → 部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) 与 [Wiki → 静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。
-
-## 架构
-
-本项目采用 Monorepo 统一管理前后端源码，并分别构建发布对应的 Docker 镜像：
-
-```
-┌────────────┐   :8000   ┌──────────────────────┐   :8001   ┌────────────────┐
-│  浏览器     │ ────────▶ │ nginx SPA（原生 JS）  │ ────────▶ │ FastAPI 后端   │ ─▶ PostgreSQL
-└────────────┘           │  /api,/login,/logout │           └────────────────┘
-                         └──────────────────────┘
-```
-
-| 组件 | 源码路径 | Docker 镜像 | 宿主端口 |
-|------|----------|-------------|----------|
-| 前端（nginx SPA） | `frontend/` | `residualblood/galleryvault-frontend` | **8000** |
-| 后端（FastAPI + asyncpg） | `backend/` | `residualblood/galleryvault-backend` | **8001** |
-| 数据库 | — | `postgres:16-alpine` | 内部 |
-
-前端为无第三方依赖的原生 JavaScript SPA（无构建、无 CDN）；后端启动时自动执行 Alembic 迁移，升级仅需 `docker compose pull && docker compose up -d`。
-
 ## 文档
 
-完整文档见 **[📖 Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**：
+完整文档见 **[GitHub Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**：
 
-- [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — compose、数据目录、库挂载、安全加固、TLS、升级
-- [使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — 浏览、发现、阅读器、下载、收藏夹、回收站、PWA、设置
-- [备份与恢复](https://github.com/ResidualBlood/galleryvault/wiki/Backup)
-- [静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption) — ENCRYPTION_KEY 与密钥丢失恢复
-- [API 参考](https://github.com/ResidualBlood/galleryvault/wiki/API)
-- [开发指南](https://github.com/ResidualBlood/galleryvault/wiki/Development)
-- [常见问题](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
-- [界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots) — 各主要页面中英文界面一览
-
-产品讨论与反馈：[Discussions](https://github.com/ResidualBlood/galleryvault/discussions)
+- **[使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)** — 浏览搜索、阅读器、下载管理、收藏夹与查重、PWA 与设置
+- **[部署指南](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)** — Docker Compose 部署、目录挂载、权限配置、静态加密、安全加固与备份
+- **[API 与开发](https://github.com/ResidualBlood/galleryvault/wiki/API)** — REST API 规范参考与 [开发指南](https://github.com/ResidualBlood/galleryvault/wiki/Development)
 
 ## 致谢
 
-- **Ehviewer_CN_SXJ**（[github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)）：画廊导出目录结构与命名约定、并发分页下载与断点续传、中文标签翻译反向检索的实现参考。
+- **Ehviewer_CN_SXJ**（[github.com/xiaojieonly/Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)）：目录结构与下载规范参考。
 - **EhTagTranslation**（[github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)）：标签翻译数据库与更新机制。
-- **ehsyringe**：翻译数据的整理与导出格式。
-
-后端基于 **FastAPI / Starlette / Uvicorn**、**SQLAlchemy / asyncpg / Alembic**、**httpx**、**Pydantic** 构建；基础设施为 **PostgreSQL、nginx、Docker**。
+- **ehsyringe**（[github.com/EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)）：翻译数据整理与格式导出。
 
 ## 免责声明
 
-ExHentai 集成需要您自己的账户 cookie，请合理使用并遵守站点规则与访问频率限制。
+ExHentai 集成需要您自己的账户 Cookie，请合理使用并遵守站点规则与访问频率限制。

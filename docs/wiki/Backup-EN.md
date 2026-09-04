@@ -33,4 +33,5 @@ docker compose exec -T db pg_restore -U galleryvault -d galleryvault -c --if-exi
 
 With [encryption at rest](Encryption-EN) enabled, cookies / tokens in the
 database backup are ciphertext. **The backup does not contain the key** — keep
-`ENCRYPTION_KEY` in a password manager, separate from the backup.
+`ENCRYPTION_KEY` in a password manager, separate from the backup. If the key is
+lost, see [Encryption at Rest → Recovering from a lost key](Encryption-EN#recovering-from-a-lost-key).

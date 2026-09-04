@@ -318,6 +318,7 @@ docker compose up -d backend
 You can confirm loading in the container logs:
 `docker logs galleryvault-backend | grep "tag translations"`.
 
+<a id="dev-compose"></a>
 ## Local Development
 
 For zero-build development with live reloading for both frontend and backend:

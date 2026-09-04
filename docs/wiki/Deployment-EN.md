@@ -27,22 +27,7 @@ Then open `http://<host>:8000` and log in with the default password
 `p1a2s3s4` — **change it in Settings right away** (the default is for first
 login only).
 
-## Local Development (Dev Compose)
-
-To develop with zero-build live reloading for both frontend and backend source code:
-
-```bash
-# First time or after Dockerfile changes:
-docker compose -f docker-compose.dev.yml up -d --build
-
-# Daily hot-reloading:
-docker compose -f docker-compose.dev.yml up -d
-```
-
-- **Frontend live reload**: edit HTML/CSS/JS in `frontend/assets/` and refresh the browser directly (no node/bundler needed);
-- **Backend hot reload**: the backend runs under `uvicorn --reload --proxy-headers --forwarded-allow-ips` to auto-restart upon code changes in `backend/galleryvault/` while properly extracting client IPs behind nginx;
-- **Data isolation**: the development database lives in `./db-data-dev` with local `./library`, `./downloads`, and `./cache` mounts without interfering with production or test data;
-- **Port overrides**: defaults to frontend `:8200` and backend `:8201` (customizable via `DEV_FRONTEND_PORT` and `DEV_BACKEND_PORT` environment variables).
+> For local development and live-reload environment (Dev Compose), see [Development](Development#dev-compose).
 
 ## Data directories
 
@@ -84,8 +69,6 @@ into these folders. Deleting a gallery **removes its files under these roots
 when the mount is writable**; on a read-only mount the deletion fails and is
 reported in the toast and on the Logs page (the DB row is kept so the next scan
 does not re-import it as a fresh gallery).
-
-> **Permissions**: the backend runs as root (0:0) by default, or as a custom user if configured via `PUID` / `PGID` environment variables (e.g. `1000:1000`). If running with a non-root user, ensure mounted host folders are accessible by that UID; `./db-data` belongs to postgres (999) — **do not chown it**.
 
 > **Multiple existing gallery folders**: add one volume per folder (give each a
 > unique in-container path such as `/gallery1`, `/gallery2`), then list each
@@ -135,18 +118,7 @@ Favorites checks, cover fetching and downloads all depend on an ExHentai
 session. Configure the cookies in the **first-run wizard** or **Settings →
 ExHentai** (`ipb_member_id` / `ipb_pass_hash` / `igneous`, verified with "Test
 login"); they are stored **encrypted in the database** (via `ENCRYPTION_KEY`)
-and never echoed back.
-
-**How to obtain these cookies?**
-
-1. Log in to **e-hentai.org** in your browser (an e-hentai account is required),
-   press `F12` → **Application → Storage → Cookies → https://e-hentai.org**, and
-   copy the values of **`ipb_member_id`** and **`ipb_pass_hash`**.
-2. To access **exhentai.org** (the "里站": unhidden galleries / restricted
-   areas), also copy **`igneous`** from the Cookies of `https://exhentai.org` in
-   a session that has exhentai access — this cookie only exists for accounts
-   granted access; skip it if you only use the public mirror.
-3. Enter them in Settings and verify with *Test login*.
+and never echoed back. For instructions on obtaining cookies, see [Usage Guide: Cookie Setup](Usage-EN#configuring-exhentai-cookies).
 
 > Note: **do not** set an `EXHENTAI_COOKIES` environment variable in
 > `docker-compose.yml` — the database is the single source of truth for
@@ -159,6 +131,8 @@ and never echoed back.
 The backend image supports configurable runtime user identity via environment variables:
 - **Default (no `PUID`/`PGID` set)**: Runs directly as `root (0:0)` with zero setup and no manual host permission adjustments required. Note that in root mode, newly downloaded archives and system logs will be owned by `root` on the host.
 - **Custom unprivileged user (NAS / standard Linux host, recommended)**: Set `PUID` and `PGID` in `docker-compose.yml` (e.g. `PUID=1000`, `PGID=1000`). The container validates parameters, drops privileges at startup, and automatically aligns ownership on `/downloads` and `/gv-cache`. To allow gallery deletions under library roots (e.g. `./library`), ensure the host directory is writable by that UID (e.g. `chown -R 1000:1000 <host-folder>`).
+
+> **Note**: `./db-data` belongs to postgres (UID 999) — **do not chown it**, as this will cause the database container to fail on boot.
 
 ### Optional: View container logs in real time with Dozzle
 
@@ -197,27 +171,3 @@ releases.
 > `curl -o docker-compose.yml` — it likely contains your customizations (ports,
 > volume mounts, `ENCRYPTION_KEY`, …). If you need a newer compose template,
 > back it up first and merge the changes by hand.
-
-## Docs site (GitHub Pages) and wiki sync
-
-The documentation is kept in sync by two automated CI pipelines — no manual
-steps:
-
-| Output | Source | Trigger | Freshness |
-|--------|--------|---------|-----------|
-| **GitHub Wiki** (this site) | `docs/wiki/` in the meta repo | push to `main` **or** `dev` touching `docs/wiki/**` → `sync-wiki` workflow mirrors it with rsync | **Always current** — a dev push syncs it immediately |
-| **GitHub Pages docs site** (`docs-site/`, VitePress) | the same `docs/wiki/` + backend `API.md` / `DEVELOPMENT.md` | built by the `pages` workflow; **deployed from `main` only** | **Stable** — updated on `main` merge / release |
-
-Notes:
-
-- **The wiki is branch-agnostic**: whichever branch (`main` or `dev`) last
-  pushed `docs/wiki` wins. Development happens on `dev`, so in practice the
-  wiki is updated the moment a dev push lands.
-- **Pages follows `main` only**: the `deploy` job of `pages` is restricted by
-  the GitHub environment protection rules to the `main` branch; dev pushes only
-  run the build as a preview and never overwrite the live docs site.
-- `API.md` / `Development.md` / `openapi.json` are synced from the backend to
-  the wiki by the `sync-docs` workflow every 6 hours (both rsyncs exclude these
-  three files).
-- **To change the docs, edit `docs/wiki/` in the meta repo** — CI syncs
-  automatically after the commit; do not edit the wiki pages directly.
