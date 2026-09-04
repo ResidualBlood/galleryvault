@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import deque
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -96,7 +96,7 @@ def push_notification(
         "kind": kind,
         "title": title,
         "detail": detail or "",
-        "created_at": datetime.now(UTC).isoformat(),
+        "created_at": datetime.now().astimezone().isoformat(),
         "read": False,
     }
     _ring().append(item)
