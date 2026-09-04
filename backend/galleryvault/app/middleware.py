@@ -198,4 +198,5 @@ async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
             )
         except Exception:  # noqa: BLE001, S110
             pass
+    # End of authentication & security middleware
     return response
