@@ -20,6 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Series cloud cover API routing** (`backend/galleryvault/app/routers/series.py`, `backend/galleryvault/db/repositories/series.py`): 系列云端卡片封面改走 `/api/favorites/cover` 统一缓存与鉴权代理。
 - **Remote cover fallback for gallery card covers** (`backend/galleryvault/app/routers/galleries.py`, `backend/galleryvault/services/favorites_worker.py`, `backend/galleryvault/services/thumbnails.py`): 有 gid 的卡片封面改用 EH 原 thumb 缓存（`remote-covers`），内页 thumb 保持不变。
 - **Gallery detail back navigation** (`frontend/assets/views/`): 详情/阅读器返回完整来路（如 `#/favorites/1` 而非收藏夹根）。
 - **Duplicate thumbnail key path validation** (`backend/galleryvault/app/routers/duplicates.py`): 校验 `GET /api/scan/duplicates/thumb/{key}` 的 key，拒绝空、斜杠与路径穿越，解析路径严格限制在缩略图根目录内。

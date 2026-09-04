@@ -94,7 +94,11 @@ class SeriesRepository:
                 "title": title or f"gid {gid}",
                 "category": category or "other",
                 "page_count": file_count or 0,
-                "cover_url": thumb,
+                "cover_url": (
+                    f"/api/favorites/cover?gid={int(gid)}&token={token}"
+                    if gid and token
+                    else None
+                ),
                 "tags": tags or [],
             }
             members_by_series.setdefault(sid, []).append(c_item)
@@ -214,7 +218,11 @@ class SeriesRepository:
                 "title": title or f"gid {gid}",
                 "category": category or "other",
                 "page_count": file_count or 0,
-                "cover_url": thumb,
+                "cover_url": (
+                    f"/api/favorites/cover?gid={int(gid)}&token={token}"
+                    if gid and token
+                    else None
+                ),
                 "tags": tags or [],
             }
             members_by_series.setdefault(sid, []).append(c_item)
@@ -286,7 +294,11 @@ class SeriesRepository:
                 "title": title or f"gid {gid}",
                 "category": category or "other",
                 "page_count": file_count or 0,
-                "cover_url": thumb,
+                "cover_url": (
+                    f"/api/favorites/cover?gid={int(gid)}&token={token}"
+                    if gid and token
+                    else None
+                ),
                 "tags": tags or [],
             }
             members.append(c_item)
