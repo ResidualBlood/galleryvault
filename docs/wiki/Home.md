@@ -2,7 +2,9 @@
 
 > 中文 · [English](Home-EN)
 
-GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehviewer 导出目录、CBZ/CBR 压缩包与普通图片文件夹索引为可搜索的 Web 画廊库，并可选地从 ExHentai 同步标签与元数据、下载画廊、监控收藏文件夹以及翻译标签。支持 **中文 / English** 双语界面。
+GalleryVault 是私有、自托管的本地画廊库：文件和收藏留在你的机器上，不把库交给别人。
+
+把 Ehviewer 导出目录、CBZ/CBR 与图片文件夹编成可搜索的 Web 库；可选从 ExHentai 同步标签与元数据、下载画廊并监控收藏。阅读、搜索、标签云与标签翻译同在中英界面，Docker Compose 即可部署。
 
 ## 快速开始
 
