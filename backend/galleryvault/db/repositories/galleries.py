@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -384,6 +384,7 @@ class GalleryRepository:
         exclude_tags: Sequence[tuple[str | None, str]] = (),
         tag_mode: str = "or",
         tag_match: str = "exact",
+        tag_id_map: Mapping[tuple[str | None, str], int] | None = None,
         category: str | None = None,
         exclude_favorited: bool = False,
         order_by: str = "id_desc",
@@ -496,32 +497,62 @@ class GalleryRepository:
         if tags:
             tag_conditions = []
             for namespace, name in tags:
-                escaped_name = escape_like_wildcards(name)
-                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
-                condition = [Tag.name.ilike(pattern)]
-                if namespace:
-                    condition.append(Tag.namespace == namespace)
-                tag_conditions.append(
-                    select(GalleryTag.gallery_id)
-                    .join(Tag, Tag.id == GalleryTag.tag_id)
-                    .where(GalleryTag.gallery_id == Gallery.id, *condition)
-                )
+                tag_id = None
+                if tag_match == "exact" and tag_id_map:
+                    tag_id = tag_id_map.get((namespace, name))
+                    if tag_id is None and namespace is not None:
+                        tag_id = tag_id_map.get((namespace.strip(), name.strip()))
+                if tag_id is not None:
+                    tag_conditions.append(
+                        select(1)
+                        .select_from(GalleryTag)
+                        .where(
+                            GalleryTag.gallery_id == Gallery.id,
+                            GalleryTag.tag_id == tag_id,
+                        )
+                    )
+                else:
+                    escaped_name = escape_like_wildcards(name)
+                    pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
+                    condition = [Tag.name.ilike(pattern)]
+                    if namespace:
+                        condition.append(Tag.namespace == namespace)
+                    tag_conditions.append(
+                        select(GalleryTag.gallery_id)
+                        .join(Tag, Tag.id == GalleryTag.tag_id)
+                        .where(GalleryTag.gallery_id == Gallery.id, *condition)
+                    )
             if tag_mode == "and":
                 query = query.where(*[subquery.exists() for subquery in tag_conditions])
             else:
                 query = query.where(or_(*[subquery.exists() for subquery in tag_conditions]))
         if exclude_tags:
             for namespace, name in exclude_tags:
-                escaped_name = escape_like_wildcards(name)
-                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
-                condition = [Tag.name.ilike(pattern)]
-                if namespace:
-                    condition.append(Tag.namespace == namespace)
-                subquery = (
-                    select(GalleryTag.gallery_id)
-                    .join(Tag, Tag.id == GalleryTag.tag_id)
-                    .where(GalleryTag.gallery_id == Gallery.id, *condition)
-                )
+                tag_id = None
+                if tag_match == "exact" and tag_id_map:
+                    tag_id = tag_id_map.get((namespace, name))
+                    if tag_id is None and namespace is not None:
+                        tag_id = tag_id_map.get((namespace.strip(), name.strip()))
+                if tag_id is not None:
+                    subquery = (
+                        select(1)
+                        .select_from(GalleryTag)
+                        .where(
+                            GalleryTag.gallery_id == Gallery.id,
+                            GalleryTag.tag_id == tag_id,
+                        )
+                    )
+                else:
+                    escaped_name = escape_like_wildcards(name)
+                    pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
+                    condition = [Tag.name.ilike(pattern)]
+                    if namespace:
+                        condition.append(Tag.namespace == namespace)
+                    subquery = (
+                        select(GalleryTag.gallery_id)
+                        .join(Tag, Tag.id == GalleryTag.tag_id)
+                        .where(GalleryTag.gallery_id == Gallery.id, *condition)
+                    )
                 query = query.where(~subquery.exists())
         query = query.where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
         total = int(
@@ -568,6 +599,47 @@ class GalleryRepository:
             .order_by(Gallery.id)
             .limit(1)
         )
+
+    async def resolve_exact_tags(
+        self,
+        tags: Sequence[tuple[str | None, str]],
+    ) -> dict[tuple[str | None, str], int]:
+        candidates: list[tuple[str, str]] = []
+        for ns, name in tags:
+            if ns is not None and name and name.strip():
+                candidates.append((ns.strip(), name.strip()))
+        if not candidates:
+            return {}
+
+        unique_candidates: list[tuple[str, str]] = []
+        seen = set()
+        for item in candidates:
+            if item not in seen:
+                seen.add(item)
+                unique_candidates.append(item)
+
+        resolved: dict[tuple[str | None, str], int] = {}
+        # 1. Exact match on (namespace, name) using tags_namespace_name_key
+        stmt = select(Tag.id, Tag.namespace, Tag.name).where(
+            tuple_(Tag.namespace, Tag.name).in_(unique_candidates)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        for tag_id, ns, name in rows:
+            resolved[(ns, name)] = tag_id
+
+        # 2. For unresolved candidates, fallback to case-insensitive match
+        unresolved = [pair for pair in unique_candidates if pair not in resolved]
+        for ns, name in unresolved:
+            stmt_lower = select(Tag.id).where(
+                func.lower(Tag.namespace) == ns.lower(),
+                func.lower(Tag.name) == name.lower(),
+            )
+            matched_ids = (await self.session.scalars(stmt_lower)).all()
+            # Clause 3: 查不到唯一 tag 则回落 ILIKE
+            if len(matched_ids) == 1:
+                resolved[(ns, name)] = matched_ids[0]
+
+        return resolved
 
     async def search_tags(
         self, q: str | None, page: int, page_size: int, namespace: str | None = None

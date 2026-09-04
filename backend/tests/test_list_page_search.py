@@ -113,3 +113,118 @@ async def test_list_page_wildcards_escaped():
     sql = await _list_sql(1, rows, q="100%_match")
     # % and _ in the user token must be escaped so they are not treated as SQL wildcards
     assert "100" in sql and "\\_match" in sql
+
+
+async def test_list_page_exact_tag_uses_tag_id_exists():
+    rows = [_gallery(1, "title")]
+    session = _ListPageSession(1, rows)
+    repo = GalleryRepository(session)
+    await repo.list_page(
+        1,
+        24,
+        tags=[("language", "chinese")],
+        tag_id_map={("language", "chinese"): 42},
+    )
+    sql = session.sql[-1].lower()
+    assert "gallery_tags.tag_id = 42" in sql
+    assert "exists" in sql
+    assert "ilike" not in sql
+
+
+async def test_list_page_multi_exact_tags_and_mode():
+    rows = [_gallery(1, "title")]
+    session = _ListPageSession(1, rows)
+    repo = GalleryRepository(session)
+    await repo.list_page(
+        1,
+        24,
+        tags=[("language", "chinese"), ("female", "maid")],
+        tag_mode="and",
+        tag_id_map={("language", "chinese"): 42, ("female", "maid"): 99},
+    )
+    sql = session.sql[-1].lower()
+    assert "gallery_tags.tag_id = 42" in sql
+    assert "gallery_tags.tag_id = 99" in sql
+    assert "ilike" not in sql
+
+
+async def test_list_page_multi_exact_tags_or_mode():
+    rows = [_gallery(1, "title")]
+    session = _ListPageSession(1, rows)
+    repo = GalleryRepository(session)
+    await repo.list_page(
+        1,
+        24,
+        tags=[("language", "chinese"), ("female", "maid")],
+        tag_mode="or",
+        tag_id_map={("language", "chinese"): 42, ("female", "maid"): 99},
+    )
+    sql = session.sql[-1].lower()
+    assert " or " in sql
+    assert "gallery_tags.tag_id = 42" in sql
+    assert "gallery_tags.tag_id = 99" in sql
+
+
+async def test_list_page_mixed_exact_and_fuzzy_tags():
+    rows = [_gallery(1, "title")]
+    session = _ListPageSession(1, rows)
+    repo = GalleryRepository(session)
+    await repo.list_page(
+        1,
+        24,
+        tags=[("language", "chinese"), (None, "maid")],
+        tag_mode="and",
+        tag_id_map={("language", "chinese"): 42},
+    )
+    sql = session.sql[-1].lower()
+    assert "gallery_tags.tag_id = 42" in sql
+    assert "ilike" in sql
+
+
+async def test_list_page_exclude_exact_tag():
+    rows = [_gallery(1, "title")]
+    session = _ListPageSession(1, rows)
+    repo = GalleryRepository(session)
+    await repo.list_page(
+        1,
+        24,
+        exclude_tags=[("parody", "touhou")],
+        tag_id_map={("parody", "touhou"): 77},
+    )
+    sql = session.sql[-1].lower()
+    assert "gallery_tags.tag_id = 77" in sql
+    assert "not (exists" in sql or "not exists" in sql
+    assert "ilike" not in sql
+
+
+async def test_resolve_exact_tags_with_mock_session():
+    class _MockTagSession:
+        def __init__(self, exact_rows, lower_rows_map):
+            self.exact_rows = exact_rows
+            self.lower_rows_map = lower_rows_map
+
+        async def execute(self, stmt):
+            return _Rows(self.exact_rows)
+
+        async def scalars(self, stmt):
+            # for unresolved lower query, return simulated matches
+            return _Rows(self.lower_rows_map.get("unresolved", []))
+
+    # Case 1: exact match finds (language, chinese) -> 42
+    # Case 2: (female, Maid) is unresolved by exact, lower lookup finds [99] -> 99
+    # Case 3: (female, ambiguous) finds [1, 2] -> not resolved (fallback ILIKE)
+    session = _MockTagSession(
+        exact_rows=[(42, "language", "chinese")],
+        lower_rows_map={"unresolved": [99]},
+    )
+    repo = GalleryRepository(session)
+    resolved = await repo.resolve_exact_tags([
+        ("language", "chinese"),
+        ("female", "Maid"),
+        (None, "no_ns"),
+    ])
+    assert resolved == {
+        ("language", "chinese"): 42,
+        ("female", "Maid"): 99,
+    }
+
