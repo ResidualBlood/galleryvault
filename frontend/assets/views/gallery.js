@@ -63,39 +63,58 @@ async function renderGallery() {
       thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...libraryContext(), page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
     }
     $view().innerHTML = `
-      <a class="link-button" href="${navHash("library", {}, libraryContext())}">← ${esc(t("library"))}</a>
-      <header style="margin-top:16px"><p class="eyebrow">${esc(g.storage_type)} · LOCAL GALLERY</p><h1>${esc(g.title)}</h1>
-      <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page + 1}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span> ${qualityBadge}</p></header>
-      <div class="toolbar">
-        <a class="btn btn-primary" href="${navHash("reader", { id, page: progress.current_page }, libraryContext())}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
-        ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
-        <button class="btn btn-secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
-        <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>
-        <button class="btn btn-secondary" data-action="move-gallery-favorite" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("changeFavCategory"))}</button>
-        <button class="btn btn-secondary" data-action="unfavorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("unfavorite"))}</button>
-        ${showOrigBtns ? `<button class="btn btn-secondary" data-action="download-original" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrig"))}</button>
-        <button class="btn btn-secondary" data-action="download-original-archive" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrigArchive"))}</button>` : ""}
-        <button class="btn btn-secondary" data-action="export-cbz" data-id="${g.id}" type="button">${esc(t("exportCbz"))}</button>
-        <button class="btn btn-danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
-      </div>
-      <section>
-        <h2>${esc(t("localRating"))}</h2>
+      <div class="gallery-detail">
+        <a class="link-button" href="${navHash("library", {}, libraryContext())}">← ${esc(t("library"))}</a>
+        <header style="margin-top:16px"><p class="eyebrow">${esc(g.storage_type)} · LOCAL GALLERY</p><h1>${esc(g.title)}</h1>
+        <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page + 1}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span> ${qualityBadge}</p></header>
         <div class="toolbar">
-          <select id="local-rating">
-            <option value="">—</option>
-            ${[1,2,3,4,5].map(n => `<option value="${n}"${g.local_rating === n ? " selected" : ""}>${n}★</option>`).join("")}
-          </select>
-          <input id="local-tags" value="${esc((g.tags || []).filter(tg => tg.namespace === "local").map(tg => tg.name).join(", "))}" placeholder="${esc(t("localTags"))}" style="min-width:180px">
-          <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
+          <a class="btn btn-primary" href="${navHash("reader", { id, page: progress.current_page }, libraryContext())}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
+          ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
+          <button class="btn btn-secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
+          <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>
+          <button class="btn btn-secondary" data-action="move-gallery-favorite" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("changeFavCategory"))}</button>
+          <button class="btn btn-secondary" data-action="unfavorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("unfavorite"))}</button>
+          ${showOrigBtns ? `<button class="btn btn-secondary" data-action="download-original" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrig"))}</button>
+          <button class="btn btn-secondary" data-action="download-original-archive" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrigArchive"))}</button>` : ""}
+          <button class="btn btn-secondary" data-action="export-cbz" data-id="${g.id}" type="button">${esc(t("exportCbz"))}</button>
+          <button class="btn btn-danger" data-action="delete-gallery" data-id="${g.id}" type="button">${esc(t("deleteGallery"))}</button>
         </div>
-        <textarea id="local-note" rows="2" placeholder="${esc(t("localNote"))}" style="width:100%;margin-top:8px">${esc(g.local_note || "")}</textarea>
-        <div class="toolbar" id="gallery-lists"></div>
-      </section>
-      <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
-      <section><h2>${esc(t("pagesSection"))}</h2>
-        <div class="thumbs">${thumbs}</div>
-        <div class="pages pager">${thumbPagerParts.join(" ")} ${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
-      </section>`;
+        <section>
+          <details>
+            <summary>${esc(t("localRating"))}</summary>
+            <div class="toolbar">
+              <select id="local-rating">
+                <option value="">—</option>
+                ${[1,2,3,4,5].map(n => `<option value="${n}"${g.local_rating === n ? " selected" : ""}>${n}★</option>`).join("")}
+              </select>
+              <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
+            </div>
+          </details>
+          <details>
+            <summary>${esc(t("localTags"))}</summary>
+            <div class="toolbar">
+              <input id="local-tags" value="${esc((g.tags || []).filter(tg => tg.namespace === "local").map(tg => tg.name).join(", "))}" placeholder="${esc(t("localTags"))}" style="min-width:180px">
+              <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
+            </div>
+          </details>
+          <details>
+            <summary>${esc(t("localNote"))}</summary>
+            <div class="toolbar">
+              <textarea id="local-note" rows="2" placeholder="${esc(t("localNote"))}" style="width:100%">${esc(g.local_note || "")}</textarea>
+              <button class="btn btn-secondary" data-action="save-local" data-id="${id}" type="button">${esc(t("saveLocal"))}</button>
+            </div>
+          </details>
+          <details>
+            <summary>${esc(t("galleryLists"))}</summary>
+            <div class="toolbar" id="gallery-lists"></div>
+          </details>
+        </section>
+        <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
+        <section><h2>${esc(t("pagesSection"))}</h2>
+          <div class="thumbs">${thumbs}</div>
+          <div class="pages pager">${thumbPagerParts.join(" ")} ${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
+        </section>
+      </div>`;
     if (g.gid) {
       try {
         const fav = await api("GET", `/api/galleries/${id}/favorite`);
@@ -119,10 +138,14 @@ async function renderGallery() {
               `<a class="badge" href="#/favorites/${n.favcat}?from=${id}" style="color:var(--accent)">${esc(n.name || ("#" + n.favcat))}</a>`
             ).join(" ");
           }
-          const noteWrap = document.createElement("div");
-          noteWrap.className = "toolbar";
-          noteWrap.innerHTML = `<input id="fav-note" value="${esc(fav.note || "")}" placeholder="${esc(t("favNote"))}" style="min-width:220px">
-            <button class="btn btn-secondary" data-action="save-fav-note" data-gid="${fav.gid}" data-token="${esc(fav.token || g.token || "")}" data-favcat="${(fav.favcats && fav.favcats[0] != null) ? fav.favcats[0] : 0}" type="button">${esc(t("saveFavNote"))}</button>`;
+          const oldNote = $view().querySelector("#fav-note");
+          if (oldNote) oldNote.closest("details")?.remove();
+          const noteWrap = document.createElement("details");
+          noteWrap.innerHTML = `<summary>${esc(t("favNote"))}</summary>
+            <div class="toolbar">
+              <input id="fav-note" value="${esc(fav.note || "")}" placeholder="${esc(t("favNote"))}" style="min-width:220px">
+              <button class="btn btn-secondary" data-action="save-fav-note" data-gid="${fav.gid}" data-token="${esc(fav.token || g.token || "")}" data-favcat="${(fav.favcats && fav.favcats[0] != null) ? fav.favcats[0] : 0}" type="button">${esc(t("saveFavNote"))}</button>
+            </div>`;
           const header = $view().querySelector("header");
           if (header) header.insertAdjacentElement("afterend", noteWrap);
         } else {
@@ -134,6 +157,8 @@ async function renderGallery() {
           if (moveBtn) moveBtn.hidden = true;
           if (unfavBtn) unfavBtn.hidden = true;
           if (favcatEl) favcatEl.innerHTML = "";
+          const oldNote = $view().querySelector("#fav-note");
+          if (oldNote) oldNote.closest("details")?.remove();
         }
       } catch (_) {}
     }
