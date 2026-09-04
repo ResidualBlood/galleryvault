@@ -51,8 +51,8 @@ curl -b cookies.txt http://localhost:8001/api/settings
 For OPDS feed and CBZ export, HTTP Basic authentication is also accepted (username `galleryvault`, password is the web login password):
 
 ```bash
-curl -u galleryvault http://localhost:8001/api/opds
-curl -u galleryvault -O -J http://localhost:8001/api/galleries/123/export.cbz
+curl -H "Authorization: Basic <base64(galleryvault:password)>" http://localhost:8001/api/opds
+curl -H "Authorization: Basic <base64(galleryvault:password)>" -O -J http://localhost:8001/api/galleries/123/export.cbz
 ```
 
 ## Settings

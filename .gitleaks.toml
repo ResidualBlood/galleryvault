@@ -1,0 +1,16 @@
+# Gitleaks configuration file
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlists for false positives in documentation examples"
+ids = [
+    "curl-auth-user",
+]
+paths = [
+    '''backend/docs/API\.md''',
+]
+regexes = [
+    '''curl -u <user:pass>''',
+    '''curl -u <user>:<pass>''',
+]
