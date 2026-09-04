@@ -26,6 +26,7 @@ from .routers import (
     lists,
     notifications,
     opds,
+    series,
     tags,
     tasks,
     updates,
@@ -80,6 +81,7 @@ def create_app(*, enable_workers: bool | None = None, settings: Settings | None 
         notifications,
         lists,
         opds,
+        series,
     ):
         application.include_router(mod.router)
     sync_state(application)
