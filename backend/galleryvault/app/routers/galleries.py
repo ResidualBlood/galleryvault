@@ -35,6 +35,7 @@ from ...services.export_cbz import (
     is_cbz_file,
     pack_directory_cbz,
 )
+from ...services.favorites_worker import ensure_remote_cover
 from ...services.tag_sync import (
     GalleryGidMissing,
     GalleryNotFound,
@@ -1429,7 +1430,7 @@ async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
     service = _get_thumb_service()
 
     if page_index == 0 and row.gid:
-        remote_cover = await service.get_remote_cover(row.gid, row.token)
+        remote_cover = service.cached_remote_cover(row.gid)
         if remote_cover is not None:
             head = await run_in_threadpool(lambda: remote_cover.read_bytes()[:16])
             media_type = image_content_type(head)
@@ -1440,6 +1441,10 @@ async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
                 media_type=media_type,
                 headers={"Cache-Control": "public, max-age=86400"},
             )
+        spawn_task(
+            ensure_remote_cover(row.gid, row.token, cache_dir=service.remote_cover_dir()),
+            f"remote cover {row.gid}",
+        )
         logger.info(
             "cover fallback: gid=%s source=thumb0 event=fallback",
             row.gid,
