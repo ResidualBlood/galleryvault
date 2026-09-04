@@ -122,7 +122,7 @@ window.GV_LOCALES.zh = {
   readerFit: "适应", readerFullscreen: "全屏",
   readerMode: "模式", readerModeLtr: "顺序", readerModeRtl: "日漫 (RTL)", readerModeDouble: "双页", readerModeDoubleRtl: "双页 (RTL)", readerModeWebtoon: "条漫",
   exportCbz: "导出 CBZ",
-  notifications: "通知", notifEmpty: "暂无通知",
+  notifications: "通知", notifEmpty: "暂无通知", notif_clear: "清空",
   notifDownloadOk: "下载完成", notifDownloadFail: "下载失败", notifDownloadUpdated: "改下新版",
   notifScanOk: "扫库完成", notifScanFail: "扫库失败", notifCookie: "Cookie 失效", notifCookieNoAccess: "无里站权限",
   jumpToPage: "跳转页码", jumpToPageHint: "跳转到指定页（按 G 或 Enter）", pageNumber: "页码",

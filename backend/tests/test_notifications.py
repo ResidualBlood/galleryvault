@@ -1,6 +1,13 @@
+import json
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from galleryvault.app.routers import notifications as notif_router
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
 from galleryvault.services.notifications import (
+    clear_notifications,
     list_notifications,
     load_notifications,
     mark_notifications_read,
@@ -112,3 +119,46 @@ def test_notifications_persist_and_restore(tmp_path, monkeypatch) -> None:
         assert data["items"][0]["title"] == "persisted"
     finally:
         app_state.settings = orig
+
+
+def test_clear_notifications() -> None:
+    push_notification("scan_ok", "item1", "detail")
+    push_notification("scan_fail", "item2", "detail2")
+    assert list_notifications()["unread_count"] == 2
+    res = clear_notifications()
+    assert res == {"items": [], "unread_count": 0}
+    assert list_notifications() == {"items": [], "unread_count": 0}
+
+
+def test_clear_notifications_persists_empty(tmp_path) -> None:
+    orig = app_state.settings
+    cache = tmp_path / "thumbs"
+    cache.mkdir()
+    app_state.settings = Settings(thumbnail_cache_dir=str(cache))
+    try:
+        reset_notifications()
+        push_notification("scan_ok", "persisted", "x")
+        path = tmp_path / "notifications.json"
+        assert path.is_file()
+        res = clear_notifications()
+        assert res == {"items": [], "unread_count": 0}
+        assert json.loads(path.read_text(encoding="utf-8"))["items"] == []
+        load_notifications()
+        assert list_notifications() == {"items": [], "unread_count": 0}
+    finally:
+        app_state.settings = orig
+
+
+def test_clear_notifications_endpoint() -> None:
+    app = FastAPI()
+    app.include_router(notif_router.router)
+    client = TestClient(app)
+
+    push_notification("scan_ok", "test", "")
+    assert client.get("/api/notifications").json()["unread_count"] == 1
+
+    resp = client.post("/api/notifications/clear")
+    assert resp.status_code == 200
+    assert resp.json() == {"items": [], "unread_count": 0}
+    assert client.get("/api/notifications").json() == {"items": [], "unread_count": 0}
+

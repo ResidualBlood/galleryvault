@@ -238,6 +238,16 @@ async function toggleNotificationPanel() {
   }
 }
 
+async function clearNotifications() {
+  if (!window.confirm(t("notif_clear") + "?")) return;
+  try {
+    const data = await api("POST", "/api/notifications/clear");
+    renderNotificationList(data);
+  } catch (err) {
+    toast(err.message || "Failed to clear notifications");
+  }
+}
+
 function esc(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");

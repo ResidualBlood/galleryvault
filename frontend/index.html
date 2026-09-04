@@ -30,7 +30,10 @@
       <div id="notif-wrap" class="notif-wrap">
         <button class="btn btn-ghost icon-button" data-action="toggle-notifications" title="Notifications" aria-label="Notifications">🔔<span id="notif-badge" class="notif-badge" hidden></span></button>
         <div id="notif-panel" class="notif-panel" hidden>
-          <div class="notif-head"><span data-i18n="notifications">Notifications</span></div>
+          <div class="notif-head" style="display:flex;justify-content:space-between;align-items:center;">
+            <span data-i18n="notifications">Notifications</span>
+            <button type="button" class="btn btn-ghost" data-action="clear-notifications" data-i18n="notif_clear" style="font-size:0.75rem;cursor:pointer;">Clear</button>
+          </div>
           <div id="notif-list" class="notif-list"></div>
         </div>
       </div>
