@@ -18,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Pages CI build & caching** (`.github/workflows/pages.yml`): Shallow checkout (`fetch-depth: 1`), Vite cache restore/save (`docs-site/.vitepress/cache`, `node_modules/.vite`), and restricted `configure-pages` / `upload-pages-artifact` steps to run only on `main` branch (skipping deployment artifact uploads on `dev`).
+- **Pages CI build & caching** (`.github/workflows/pages.yml`): Pages workflow adjusted to hourly schedule + push to `main` only (`dev` push disabled); schedule runs compare git diff against last successful run and skip redundant builds if documentation/site files are unchanged; exact `node_modules` cache restore added to skip `npm ci` entirely on cache hit. Shallow checkout (`fetch-depth: 1`) and Vite cache restore/save (`docs-site/.vitepress/cache`, `node_modules/.vite`).
 - **Archive fallback channel badge** (`backend/`, `frontend/`): `GET /api/downloads` surfaces `archive_fallback`; the Downloads page badge displays "回退逐页" / "Fallback pages" instead of the archive quality tier when an archive download fails and falls back to page-by-page (`mode` unchanged).
 - **Navigation top-bar & management tabs** (`frontend/`): Desktop top navigation condensed to Browse, Discover, Library, Tags, Downloads, Favorites, Management, and "More" dropdown (History, Settings, Logs). Management tab shell (`#/recycle`, `#/integrity`, `#/duplicates`) unifies Recycle Bin, Integrity Check, and Duplicate Finder; mobile hamburger menu keeps a flat structure. Existing routes and hash URLs remain backward-compatible.
 
