@@ -149,8 +149,12 @@ function tagFilterHash(tagsArr) {
   if (app.query.image_quality) query.image_quality = app.query.image_quality;
   if (app.query.min_local_rating) query.min_local_rating = app.query.min_local_rating;
   if (app.query.list_id) query.list_id = app.query.list_id;
+  if (app.view === "favlist" && app.query.state) query.state = app.query.state;
   // preserve hash-level page reset: filter changes always go to page 1 (no page param)
   if (tagsArr && tagsArr.length) query.tags = tagsArr.join(",");
+  if (app.view === "favlist") {
+    return navHash("favlist", { id: app.params.id }, query);
+  }
   return navHash("library", {}, query);
 }
 

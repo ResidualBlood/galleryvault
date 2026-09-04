@@ -34,3 +34,4 @@ docs-site/*.md
 docs-site/.vitepress/dist
 
 PLAN.md
+PLAN*.md

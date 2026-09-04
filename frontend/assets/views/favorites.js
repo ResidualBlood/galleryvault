@@ -46,7 +46,38 @@ async function renderFavList() {
   const page = app.query.page || "1";
   const state = app.query.state || "all";
   const q = app.query.q || "";
+  const category = app.query.category || "";
+  const tags = app.query.tags || "";
   const order_by = app.query.order_by || "last_seen_desc";
+  const read_status = app.query.read_status || "";
+  const page_min = app.query.page_min || app.query.min_pages || "";
+  const page_max = app.query.page_max || app.query.max_pages || "";
+  const min_rating = app.query.min_rating || "";
+  const size_min = app.query.size_min || "";
+  const size_max = app.query.size_max || "";
+  const posted_from = app.query.posted_from || "";
+  const posted_to = app.query.posted_to || "";
+  const uploader = app.query.uploader || "";
+  const image_quality = app.query.image_quality || "";
+  const min_local_rating = app.query.min_local_rating || "";
+  const language = (parseTags(tags).find(x => x.startsWith("language:")) || "").split(":")[1] || "";
+  const activeFilters = [
+    order_by && order_by !== "last_seen_desc",
+    read_status,
+    page_min,
+    page_max,
+    min_rating,
+    size_min,
+    size_max,
+    posted_from,
+    posted_to,
+    uploader,
+    image_quality,
+    language,
+    min_local_rating,
+  ].filter(Boolean).length;
+  const isAdvancedOpen = activeFilters > 0;
+  const filterPill = tagFilterPills(tags);
   const selCount = selFav.size;
   const from = app.query.from;
   const backLinks = `<a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>`
@@ -67,16 +98,60 @@ async function renderFavList() {
     <form class="toolbar" data-action="favlist-search" style="margin-bottom:8px;">
       <div class="search-box">
         <input name="q" value="${esc(q)}" placeholder="${esc(t("favSearchPlaceholder"))}" autocomplete="off">
+        <div id="tag-suggest" class="tag-suggest" hidden></div>
       </div>
-      <select name="order_by">
-        <option value="last_seen_desc"${order_by === "last_seen_desc" ? " selected" : ""}>${esc(t("orderDefault"))}</option>
-        <option value="first_seen_desc"${order_by === "first_seen_desc" ? " selected" : ""}>${esc(t("orderFirstSeen"))}</option>
-        <option value="posted_at_desc"${order_by === "posted_at_desc" ? " selected" : ""}>${esc(t("orderPosted"))}</option>
-        <option value="title_asc"${order_by === "title_asc" ? " selected" : ""}>${esc(t("orderTitle"))}</option>
-        <option value="file_size_desc"${order_by === "file_size_desc" ? " selected" : ""}>${esc(t("orderSize"))}</option>
+      <select name="category">
+        <option value="">${esc(t("allCategories"))}</option>
+        ${["doujinshi","manga","artistcg","gamecg","western","non-h","image_set","cosplay","asianporn","misc","deleted"].map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${esc(catLabel(c))}</option>`).join("")}
       </select>
+      <details${isAdvancedOpen ? " open" : ""}>
+        <summary>${esc(t("library.filters.advanced"))}${activeFilters > 0 ? ` (${esc(t("library.filters.activeCount").replace("{n}", String(activeFilters)))})` : ""}</summary>
+        <select name="order_by">
+          <option value="last_seen_desc"${order_by === "last_seen_desc" ? " selected" : ""}>${esc(t("orderDefault"))}</option>
+          <option value="first_seen_desc"${order_by === "first_seen_desc" ? " selected" : ""}>${esc(t("orderFirstSeen"))}</option>
+          <option value="posted_at_desc"${order_by === "posted_at_desc" ? " selected" : ""}>${esc(t("orderPosted"))}</option>
+          <option value="title_asc"${order_by === "title_asc" ? " selected" : ""}>${esc(t("orderTitle"))}</option>
+          <option value="page_count_desc"${order_by === "page_count_desc" ? " selected" : ""}>${esc(t("orderPages"))}</option>
+          <option value="file_size_desc"${order_by === "file_size_desc" ? " selected" : ""}>${esc(t("orderSize"))}</option>
+          <option value="rating_desc"${order_by === "rating_desc" ? " selected" : ""}>${esc(t("orderRating"))}</option>
+        </select>
+        <select name="read_status">
+          <option value=""${!read_status ? " selected" : ""}>${esc(t("readStatusAll"))}</option>
+          <option value="unread"${read_status === "unread" ? " selected" : ""}>${esc(t("readStatusUnread"))}</option>
+          <option value="reading"${read_status === "reading" ? " selected" : ""}>${esc(t("readStatusReading"))}</option>
+          <option value="completed"${read_status === "completed" ? " selected" : ""}>${esc(t("readStatusCompleted"))}</option>
+        </select>
+        <input name="page_min" type="number" min="1" max="9999" placeholder="${esc(t("pageMin"))}" value="${esc(page_min)}" style="width:92px" title="${esc(t("pageMin"))}">
+        <input name="page_max" type="number" min="1" max="9999" placeholder="${esc(t("pageMax"))}" value="${esc(page_max)}" style="width:92px" title="${esc(t("pageMax"))}">
+        <select name="min_rating" title="${esc(t("minRating"))}">
+          <option value=""${!min_rating ? " selected" : ""}>${esc(t("minRating"))}</option>
+          <option value="2"${min_rating === "2" ? " selected" : ""}>≥2</option>
+          <option value="3"${min_rating === "3" ? " selected" : ""}>≥3</option>
+          <option value="4"${min_rating === "4" ? " selected" : ""}>≥4</option>
+          <option value="4.5"${min_rating === "4.5" ? " selected" : ""}>≥4.5</option>
+        </select>
+        <input name="size_min" type="number" min="0" placeholder="${esc(t("sizeMin"))}" value="${esc(size_min)}" style="width:110px" title="${esc(t("sizeMin"))}">
+        <input name="size_max" type="number" min="0" placeholder="${esc(t("sizeMax"))}" value="${esc(size_max)}" style="width:110px" title="${esc(t("sizeMax"))}">
+        <input name="posted_from" type="date" value="${esc(posted_from)}" title="${esc(t("postedFrom"))}">
+        <input name="posted_to" type="date" value="${esc(posted_to)}" title="${esc(t("postedTo"))}">
+        <input name="uploader" value="${esc(uploader)}" placeholder="${esc(t("uploader"))}" style="width:120px">
+        <select name="image_quality">
+          <option value=""${!image_quality ? " selected" : ""}>${esc(t("qualityAll"))}</option>
+          <option value="original"${image_quality === "original" ? " selected" : ""}>${esc(t("qualityOriginal"))}</option>
+          <option value="resample"${image_quality === "resample" ? " selected" : ""}>${esc(t("qualityResample"))}</option>
+        </select>
+        <select name="language">
+          <option value=""${!language ? " selected" : ""}>${esc(t("languageAll"))}</option>
+          ${[["chinese", t("langChinese")], ["english", t("langEnglish")], ["japanese", t("langJapanese")], ["korean", t("langKorean")], ["translated", t("langTranslated")]].map(([v, lab]) => `<option value="${v}"${language === v ? " selected" : ""}>${esc(lab)}</option>`).join("")}
+        </select>
+        <select name="min_local_rating">
+          <option value=""${!min_local_rating ? " selected" : ""}>${esc(t("localRatingMin"))}</option>
+          ${[1,2,3,4,5].map(n => `<option value="${n}"${min_local_rating === String(n) ? " selected" : ""}>≥${n}★</option>`).join("")}
+        </select>
+      </details>
       <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
     </form>
+    ${filterPill ? `<div class="filters">${filterPill}</div>` : ""}
     <div class="toolbar">
       <button class="secondary" data-action="favlist-select-all" type="button">${esc(t("selectAll"))}</button>
       <button class="secondary" data-action="favlist-clear" type="button">${esc(t("clearSel"))}</button>
@@ -93,14 +168,30 @@ async function renderFavList() {
     </div>
     <div id="fav-items"><p>${esc(t("loading"))}</p></div>
     <div class="pages pager" id="favlist-pager"></div>`;
+  const tag_mode = app.query.tag_mode || "and";
+  const tag_match = app.query.tag_match || "exact";
   try {
-    const params = new URLSearchParams({
+    const extra = {
       page,
       page_size: String(prefPageSize()),
       state,
       ...(q ? { q } : {}),
-      ...(order_by && order_by !== "last_seen_desc" ? { order_by } : {})
-    });
+      ...(category ? { category } : {}),
+      ...(tags ? { tags, tag_mode, ...(tag_match !== "exact" ? { tag_match } : {}) } : {}),
+      ...(order_by && order_by !== "last_seen_desc" ? { order_by } : {}),
+      ...(read_status ? { read_status } : {}),
+      ...(min_rating ? { min_rating } : {}),
+      ...(page_min ? { page_min } : {}),
+      ...(page_max ? { page_max } : {}),
+      ...(size_min ? { size_min: String(Math.round(parseFloat(size_min) * 1048576)) } : {}),
+      ...(size_max ? { size_max: String(Math.round(parseFloat(size_max) * 1048576)) } : {}),
+      ...(posted_from ? { posted_from } : {}),
+      ...(posted_to ? { posted_to } : {}),
+      ...(uploader ? { uploader } : {}),
+      ...(image_quality ? { image_quality } : {}),
+      ...(min_local_rating ? { min_local_rating } : {}),
+    };
+    const params = new URLSearchParams(extra);
     const data = await api("GET", `/api/favorites/${favcat}/items?${params.toString()}`);
     const el = document.getElementById("fav-items");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
@@ -111,16 +202,11 @@ async function renderFavList() {
       });
       renderCardCheckboxes();
       startInfinite("fav-items", async (p) => {
-        const pParams = new URLSearchParams({
-          page: String(p),
-          page_size: String(prefPageSize()),
-          state,
-          ...(q ? { q } : {}),
-          ...(order_by && order_by !== "last_seen_desc" ? { order_by } : {})
-        });
+        const pParams = new URLSearchParams({ ...extra, page: String(p) });
         return await api("GET", `/api/favorites/${favcat}/items?${pParams.toString()}`);
       }, favCard);
     }
+    bindTagSuggest();
     renderFavPager("favlist-pager", data, page);
   } catch (e) { document.getElementById("fav-items").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
@@ -140,7 +226,7 @@ function favCard(it) {
     <a class="gc" ${link}>
       <div class="gc-cover">${inner}${stateBadge}${cat ? `<span class="gc-cat">${cat}</span>` : ""}${it.page_count ? `<span class="gc-pages">${it.page_count} P</span>` : ""}</div>
       <div class="gc-title">${esc(it.title || ("gid " + it.gid))}${size}${it.note ? `<div class="sub">${esc(it.note)}</div>` : ""}</div>
-      <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}">${esc(tagText(tg))}</span>`).join("")}</div>
+      <div class="gc-tags">${(it.tags || []).map(tg => `<span class="nst ${nsClass(tg.namespace)}" data-action="filter-tag" data-ns="${esc(tg.namespace)}" data-name="${esc(tg.name)}" role="button" tabindex="0" title="${esc(tg.namespace ? tg.namespace + ':' + tg.name : tg.name)} — ${esc(t("tagFilterHint"))} / ${esc(t("tagExcludeHint"))}">${esc(tagText(tg))}</span>`).join("")}</div>
     </a>
     <label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-fav-gid="${it.gid}"${selFav.has(it.gid) ? " checked" : ""}></label>
   </div>`;
@@ -152,7 +238,22 @@ function renderFavPager(elId, data, page) {
   const favcat = parseInt(app.params.id, 10);
   const state = app.query.state || "all";
   const q = app.query.q || "";
+  const category = app.query.category || "";
+  const tags = app.query.tags || "";
+  const tag_mode = app.query.tag_mode || "and";
+  const tag_match = app.query.tag_match || "exact";
   const order_by = app.query.order_by || "last_seen_desc";
+  const read_status = app.query.read_status || "";
+  const page_min = app.query.page_min || app.query.min_pages || "";
+  const page_max = app.query.page_max || app.query.max_pages || "";
+  const min_rating = app.query.min_rating || "";
+  const size_min = app.query.size_min || "";
+  const size_max = app.query.size_max || "";
+  const posted_from = app.query.posted_from || "";
+  const posted_to = app.query.posted_to || "";
+  const uploader = app.query.uploader || "";
+  const image_quality = app.query.image_quality || "";
+  const min_local_rating = app.query.min_local_rating || "";
   const total = data.total, pageSize = data.page_size || 24;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const cur = parseInt(page, 10) || 1;
@@ -161,7 +262,20 @@ function renderFavPager(elId, data, page) {
     page_size: pageSize,
     ...(state !== "all" ? { state } : {}),
     ...(q ? { q } : {}),
-    ...(order_by !== "last_seen_desc" ? { order_by } : {})
+    ...(category ? { category } : {}),
+    ...(tags ? { tags, tag_mode, ...(tag_match !== "exact" ? { tag_match } : {}) } : {}),
+    ...(order_by !== "last_seen_desc" ? { order_by } : {}),
+    ...(read_status ? { read_status } : {}),
+    ...(min_rating ? { min_rating } : {}),
+    ...(page_min ? { page_min } : {}),
+    ...(page_max ? { page_max } : {}),
+    ...(size_min ? { size_min } : {}),
+    ...(size_max ? { size_max } : {}),
+    ...(posted_from ? { posted_from } : {}),
+    ...(posted_to ? { posted_to } : {}),
+    ...(uploader ? { uploader } : {}),
+    ...(image_quality ? { image_quality } : {}),
+    ...(min_local_rating ? { min_local_rating } : {}),
   });
   const parts = [];
   if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
