@@ -20,6 +20,7 @@ from ..models import (
     ReadingProgress,
     Tag,
 )
+from ..tag_filters import build_tag_predicates
 from .base import _chunked, escape_like_wildcards, path_hash
 
 # Cache title sort column per display mode (japanese/english/directory).
@@ -494,66 +495,16 @@ class GalleryRepository:
             query = query.where(prog_exists.exists(), ~completed_exists.exists())
         elif read_status in {"completed", "read"}:
             query = query.where(completed_exists.exists())
-        if tags:
-            tag_conditions = []
-            for namespace, name in tags:
-                tag_id = None
-                if tag_match == "exact" and tag_id_map:
-                    tag_id = tag_id_map.get((namespace, name))
-                    if tag_id is None and namespace is not None:
-                        tag_id = tag_id_map.get((namespace.strip(), name.strip()))
-                if tag_id is not None:
-                    tag_conditions.append(
-                        select(1)
-                        .select_from(GalleryTag)
-                        .where(
-                            GalleryTag.gallery_id == Gallery.id,
-                            GalleryTag.tag_id == tag_id,
-                        )
-                    )
-                else:
-                    escaped_name = escape_like_wildcards(name)
-                    pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
-                    condition = [Tag.name.ilike(pattern)]
-                    if namespace:
-                        condition.append(Tag.namespace == namespace)
-                    tag_conditions.append(
-                        select(GalleryTag.gallery_id)
-                        .join(Tag, Tag.id == GalleryTag.tag_id)
-                        .where(GalleryTag.gallery_id == Gallery.id, *condition)
-                    )
-            if tag_mode == "and":
-                query = query.where(*[subquery.exists() for subquery in tag_conditions])
-            else:
-                query = query.where(or_(*[subquery.exists() for subquery in tag_conditions]))
-        if exclude_tags:
-            for namespace, name in exclude_tags:
-                tag_id = None
-                if tag_match == "exact" and tag_id_map:
-                    tag_id = tag_id_map.get((namespace, name))
-                    if tag_id is None and namespace is not None:
-                        tag_id = tag_id_map.get((namespace.strip(), name.strip()))
-                if tag_id is not None:
-                    subquery = (
-                        select(1)
-                        .select_from(GalleryTag)
-                        .where(
-                            GalleryTag.gallery_id == Gallery.id,
-                            GalleryTag.tag_id == tag_id,
-                        )
-                    )
-                else:
-                    escaped_name = escape_like_wildcards(name)
-                    pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
-                    condition = [Tag.name.ilike(pattern)]
-                    if namespace:
-                        condition.append(Tag.namespace == namespace)
-                    subquery = (
-                        select(GalleryTag.gallery_id)
-                        .join(Tag, Tag.id == GalleryTag.tag_id)
-                        .where(GalleryTag.gallery_id == Gallery.id, *condition)
-                    )
-                query = query.where(~subquery.exists())
+        tag_predicates = build_tag_predicates(
+            Gallery.id,
+            tags=tags,
+            exclude_tags=exclude_tags,
+            tag_mode=tag_mode,
+            tag_match=tag_match,
+            tag_id_map=tag_id_map,
+        )
+        if tag_predicates:
+            query = query.where(*tag_predicates)
         query = query.where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
         total = int(
             await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
