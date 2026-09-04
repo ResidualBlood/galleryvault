@@ -46,7 +46,7 @@ This document provides a comprehensive overview of GalleryVault's feature set an
 - **Reader** — One-page streaming, LTR / RTL manga / double-page / **webtoon**, keyboard/space/click paging, `G` to jump, three-page preload, auto-advance after the last page, fullscreen and fit modes, saved reading position.
 - **Browse & history** — Newest-gallery browse, **Continue reading**, top-bar search, reading history, activity log, first-run wizard.
 - **Recycle bin & missing pages** — User-deleted / scan-missing galleries are restorable; integrity check re-downloads missing pages.
-- **PWA / light theme / CBZ export / OPDS** — Add to home screen caches UI shell only; detail page can export CBZ; OPDS (`GET /api/opds`) and CBZ export (`GET /api/galleries/{id}/export.cbz`) support HTTP Basic authentication (username `galleryvault`, password is web login password; failed attempts return 401 with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`; Cookie remains supported). Other `/api/*` routes remain cookie-only.
+- **PWA / light theme / CBZ export / OPDS** — Add to home screen caches UI shell only; detail page can export CBZ (requires session cookie); OPDS (`GET /api/opds`) supports HTTP Basic authentication (username `galleryvault`, password is web login password; failed attempts return 401 with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`; Cookie remains supported). Other `/api/*` routes (including CBZ export) remain cookie-only.
 
 ## Security & operations
 

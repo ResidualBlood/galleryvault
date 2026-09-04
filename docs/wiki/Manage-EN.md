@@ -34,7 +34,7 @@ Split into two tabs:
    - **Dynamic log level**: Change runtime log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`) on the fly without restarting containers;
    - **Real-time filtering & search**: Filter by minimum severity level (`INFO+`, `WARN+`, `ERROR+`) and instant text search;
    - **Exception tracebacks & context**: Expandable exception tracebacks, request IDs, worker correlation context (`gid` / `task_id`), and automated sensitive credential masking (`ipb_*` cookies, Telegram bot token, secrets);
-   - **Export logs**: the **Export Log** button downloads `galleryvault.log` (ring buffer plus on-disk rotation via `GET /api/system/logs/download`) for sharing diagnostics;
+   - **Export logs**: the **Export Log** button downloads `galleryvault.log` (ring buffer plus on-disk rotation via `GET /api/system/logs/download`, only files within the current log root) for sharing diagnostics;
    - **Noise filter**: successful httpx requests (2xx/3xx, including Telegram `getUpdates` 30s long-poll) are omitted; 4xx/5xx and business WARNING/ERROR (bot poll failures, notification send failures) are kept.
 
 The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / Update translations now" buttons in Settings also leave a trace here.
