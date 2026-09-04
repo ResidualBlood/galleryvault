@@ -4,7 +4,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..db.repositories.series import SeriesRepository
 from .duplicates import normalize_title
@@ -137,17 +137,39 @@ def compute_match_key(title: str | None, title_jpn: str | None) -> str | None:
 
 
 class GalleryFeatures:
-    """Features extracted from a gallery and its tags for series scoring."""
+    """Features extracted from a gallery or cloud favorite item for series scoring."""
 
     def __init__(
         self,
-        gallery: Gallery,
+        gallery: Gallery | None = None,
         tags: list[tuple[str, str]] | None = None,
+        *,
+        gid: int | None = None,
+        title: str | None = None,
+        title_jpn: str | None = None,
+        category: str | None = None,
+        is_local: bool = True,
     ) -> None:
         self.gallery = gallery
-        self.id = gallery.id
+        self.is_local = is_local
+        if gallery is not None:
+            self.id = getattr(gallery, "id", None)
+            self.local_id = self.id
+            self.gid = getattr(gallery, "gid", None)
+            self.title = getattr(gallery, "title", None) or ""
+            self.title_jpn = getattr(gallery, "title_jpn", None)
+            self.category = getattr(gallery, "category", None)
+            self.key = f"l_{self.id}"
+        else:
+            self.id = f"c_{gid}"
+            self.local_id = None
+            self.gid = gid
+            self.title = title or ""
+            self.title_jpn = title_jpn
+            self.category = category
+            self.key = f"c_{gid}"
 
-        raw = gallery.title or gallery.title_jpn or ""
+        raw = self.title or self.title_jpn or ""
         parsed_artist, stripped = extract_artist_and_stripped_title(raw)
         self.parsed_artist = parsed_artist
         self.core = normalize_title(stripped)
@@ -162,8 +184,8 @@ class GalleryFeatures:
         self.has_series_tag: bool = False
 
         for ns, name in tags or []:
-            ns_clean = ns.strip().lower()
-            name_clean = name.strip().lower()
+            ns_clean = str(ns).strip().lower()
+            name_clean = str(name).strip().lower()
             if not name_clean:
                 continue
             if ns_clean == "artist":
@@ -304,13 +326,13 @@ class UnionFind:
             self.rank[rx] += 1
 
 
-def determine_group_name(galleries: list[Gallery]) -> str:
+def determine_group_name(galleries: list[Any]) -> str:
     """Determine group name from shortest title/title_jpn with trailing digits removed."""
     candidates: list[str] = []
     for g in galleries:
-        for t in (g.title, g.title_jpn):
-            if t and t.strip():
-                candidates.append(t.strip())
+        for t in (getattr(g, "title", None), getattr(g, "title_jpn", None)):
+            if t and str(t).strip():
+                candidates.append(str(t).strip())
     if not candidates:
         return "Series"
     shortest = min(candidates, key=len)
@@ -346,54 +368,97 @@ async def rebuild_series_groups(
             auto_series = await repo.get_auto_series()
             auto_series_ids = [s.id for s in auto_series]
             old_series_to_gids = await repo.get_auto_series_gids(auto_series_ids)
+            get_cloud_gids = getattr(repo, "get_auto_series_cloud_gids", None)
+            if get_cloud_gids is not None:
+                res_cloud_gids = await get_cloud_gids(auto_series_ids)
+                old_series_to_cloud_gids = (
+                    res_cloud_gids if isinstance(res_cloud_gids, dict) else {}
+                )
+            else:
+                old_series_to_cloud_gids = {}
+
+            get_cloud_excls = getattr(repo, "get_series_cloud_exclusions", None)
+            if get_cloud_excls is not None:
+                res_cloud_excls = await get_cloud_excls()
+                cloud_exclusions = (
+                    res_cloud_excls if isinstance(res_cloud_excls, dict) else {}
+                )
+            else:
+                cloud_exclusions = {}
 
             candidates = await repo.get_rebuild_candidate_galleries()
             candidate_ids = [g.id for g in candidates]
             tag_map = await repo.get_tags_for_galleries(candidate_ids)
 
-            features = {
-                g.id: GalleryFeatures(g, tag_map.get(g.id, []))
-                for g in candidates
-            }
+            features: dict[str, GalleryFeatures] = {}
+            for g in candidates:
+                feat = GalleryFeatures(g, tag_map.get(g.id, []))
+                features[feat.key] = feat
+
+            get_cloud_candidates = getattr(repo, "get_rebuild_candidate_cloud_items", None)
+            if get_cloud_candidates is not None:
+                res_cloud_cand = await get_cloud_candidates()
+                cloud_candidates = (
+                    res_cloud_cand if isinstance(res_cloud_cand, (list, tuple)) else []
+                )
+            else:
+                cloud_candidates = []
+
+            for c in cloud_candidates:
+                meta_tags: list[tuple[str, str]] = []
+                for t in c.get("tags") or []:
+                    if isinstance(t, (list, tuple)) and len(t) == 2:
+                        meta_tags.append((str(t[0]), str(t[1])))
+                    elif isinstance(t, dict) and "namespace" in t and "name" in t:
+                        meta_tags.append((str(t["namespace"]), str(t["name"])))
+                feat = GalleryFeatures(
+                    None,
+                    tags=meta_tags,
+                    gid=c["gid"],
+                    title=c["title"],
+                    category=c["category"],
+                    is_local=False,
+                )
+                features[feat.key] = feat
 
             # 阻塞（Blocking）：非空作者 / 非空 group / 精确 core
-            artist_blocks: dict[str, list[int]] = defaultdict(list)
-            group_blocks: dict[str, list[int]] = defaultdict(list)
-            core_blocks: dict[str, list[int]] = defaultdict(list)
+            artist_blocks: dict[str, list[str]] = defaultdict(list)
+            group_blocks: dict[str, list[str]] = defaultdict(list)
+            core_blocks: dict[str, list[str]] = defaultdict(list)
 
             for feat in features.values():
                 for a in feat.artists:
                     if a:
-                        artist_blocks[a].append(feat.id)
+                        artist_blocks[a].append(feat.key)
                 for grp in feat.groups:
                     if grp:
-                        group_blocks[grp].append(feat.id)
+                        group_blocks[grp].append(feat.key)
                 if feat.core and feat.core_len >= CORE_MIN_EFFECTIVE_LEN:
-                    core_blocks[feat.core].append(feat.id)
+                    core_blocks[feat.core].append(feat.key)
 
-            candidate_pairs: set[tuple[int, int]] = set()
+            candidate_pairs: set[tuple[str, str]] = set()
             for block in (artist_blocks, group_blocks, core_blocks):
-                for gids in block.values():
-                    if len(gids) >= 2:
-                        for i in range(len(gids)):
-                            for j in range(i + 1, len(gids)):
-                                u, v = gids[i], gids[j]
+                for keys in block.values():
+                    if len(keys) >= 2:
+                        for i in range(len(keys)):
+                            for j in range(i + 1, len(keys)):
+                                u, v = keys[i], keys[j]
                                 if u > v:
                                     u, v = v, u
                                 candidate_pairs.add((u, v))
 
             # 打分与并查集连边
-            uf = UnionFind(candidate_ids)
+            uf = UnionFind(list(features.keys()))
             for u, v in candidate_pairs:
                 _, can_edge = calculate_series_score(features[u], features[v])
                 if can_edge:
                     uf.union(u, v)
 
             # 簇提取（size >= 2 成组）
-            clusters_map: dict[int, list[GalleryFeatures]] = defaultdict(list)
-            for gid in candidate_ids:
-                root = uf.find(gid)
-                clusters_map[root].append(features[gid])
+            clusters_map: dict[str, list[GalleryFeatures]] = defaultdict(list)
+            for k, feat in features.items():
+                root = uf.find(k)
+                clusters_map[root].append(feat)
 
             valid_clusters = [
                 feats for feats in clusters_map.values() if len(feats) >= 2
@@ -404,15 +469,15 @@ async def rebuild_series_groups(
 
             cluster_data = []
             for feats in valid_clusters:
-                glist = [f.gallery for f in feats]
-                gids = {f.id for f in feats}
+                local_ids = {f.local_id for f in feats if f.is_local and f.local_id is not None}
+                cloud_gids = {f.gid for f in feats if not f.is_local and f.gid is not None}
                 mk = compute_cluster_match_key(feats)
-                name = determine_group_name(glist)
+                name = determine_group_name(feats)
                 cluster_data.append(
                     {
                         "feats": feats,
-                        "glist": glist,
-                        "gids": gids,
+                        "local_ids": local_ids,
+                        "cloud_gids": cloud_gids,
                         "match_key": mk,
                         "name": name,
                     }
@@ -425,8 +490,9 @@ async def rebuild_series_groups(
             overlap_pairs = []
             for c_idx, c_info in enumerate(cluster_data):
                 for s in auto_series:
-                    old_gids = old_series_to_gids.get(s.id, set())
-                    overlap = len(c_info["gids"] & old_gids)
+                    old_local = old_series_to_gids.get(s.id, set())
+                    old_cloud = old_series_to_cloud_gids.get(s.id, set())
+                    overlap = len(c_info["local_ids"] & old_local) + len(c_info["cloud_gids"] & old_cloud)
                     if overlap > 0:
                         overlap_pairs.append((overlap, c_idx, s))
 
@@ -472,10 +538,25 @@ async def rebuild_series_groups(
                     used_series_ids.add(target_series.id)
                     created_count += 1
 
-                await repo.add_items(
-                    target_series.id, [f.id for f in c_info["feats"]], source="auto"
-                )
-                merged_count += len(c_info["feats"])
+                local_list = [f.local_id for f in c_info["feats"] if f.is_local and f.local_id is not None]
+                if local_list:
+                    await repo.add_items(target_series.id, local_list, source="auto")
+                series_excls = cloud_exclusions.get(target_series.id, set())
+                cloud_list = [
+                    f.gid
+                    for f in c_info["feats"]
+                    if not f.is_local and f.gid is not None and f.gid not in series_excls
+                ]
+                if cloud_list:
+                    add_cloud = getattr(repo, "add_cloud_items", None)
+                    if add_cloud is not None:
+                        await add_cloud(target_series.id, cloud_list)
+                merged_count += len(local_list) + len(cloud_list)
+
+            # 同一 gid 只留本地：有 galleries.gid 只写 series_items，并删对应 series_cloud_items
+            del_cloud = getattr(repo, "delete_cloud_items_for_local_galleries", None)
+            if del_cloud is not None:
+                await del_cloud()
 
             # 清理未使用的已有 auto series
             for s in auto_series:

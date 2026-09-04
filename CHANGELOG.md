@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Series cloud items & manual exclusions** (`backend/alembic/versions/0032_series_cloud_items.py`, `backend/alembic/versions/0033_series_cloud_exclusions.py`, `backend/`, `frontend/assets/views/series.js`): 系列作品支持展示云端未下载收藏，并可通过 GID 或收藏夹快速手工添加；未下载画廊提供云端角标与一键下载，且支持将误匹配项目手工移出云端。
 - **Series grouping & management** (`backend/`, `frontend/assets/views/series.js`): 新增系列作品独立页（`#/series`），支持基于标题规范化与作者前缀的自动成组规则、扫库自动重构及手工建组/改名/删组/画廊调配。
 - **Series rebuild task log** (`backend/galleryvault/app/routers/series.py`, `frontend/assets/views/logs.js`): 系列重新整理写入日志页。
 

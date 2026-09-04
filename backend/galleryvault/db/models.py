@@ -425,3 +425,34 @@ class SeriesExclusion(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+
+class SeriesCloudItem(Base):
+    __tablename__ = "series_cloud_items"
+    series_id: Mapped[int] = mapped_column(
+        ForeignKey("series.id", ondelete="CASCADE"), primary_key=True
+    )
+    gid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    __table_args__ = (
+        UniqueConstraint("series_id", "gid"),
+        Index("idx_series_cloud_items_series_id", "series_id"),
+        Index("idx_series_cloud_items_gid", "gid"),
+    )
+
+
+class SeriesCloudExclusion(Base):
+    __tablename__ = "series_cloud_exclusions"
+    series_id: Mapped[int] = mapped_column(
+        ForeignKey("series.id", ondelete="CASCADE"), primary_key=True
+    )
+    gid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    __table_args__ = (
+        UniqueConstraint("series_id", "gid"),
+        Index("idx_series_cloud_exclusions_series_id", "series_id"),
+        Index("idx_series_cloud_exclusions_gid", "gid"),
+    )
+
+
+

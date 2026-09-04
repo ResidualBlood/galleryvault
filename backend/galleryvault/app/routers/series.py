@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...db.models import Gallery
@@ -25,25 +26,96 @@ class SeriesCreateRequest(BaseModel):
 
 class SeriesItemsRequest(BaseModel):
     gallery_ids: list[int] = Field(default_factory=list)
+    gids: list[int] = Field(default_factory=list)
 
 
-def _serialize_card(g: Gallery, tag_map: dict[int, list[tuple[str, str]]]) -> dict[str, Any]:
-    return {
-        "id": g.id,
-        "gid": g.gid,
-        "token": g.token,
-        "title": display_title(g),
-        "category": g.category or "other",
-        "page_count": g.page_count or 0,
-        "cover_url": f"/api/galleries/{g.id}/thumb/0" if g.page_count else None,
-        "tags": [
+class SeriesCloudItemsRequest(BaseModel):
+    gids: list[int] = Field(default_factory=list)
+
+
+def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[str, Any]:
+    if isinstance(m, dict):
+        raw_tags = m.get("tags") or []
+        tags = []
+        for item in raw_tags:
+            if isinstance(item, dict) and "namespace" in item and "name" in item:
+                ns, name = str(item["namespace"]), str(item["name"])
+                tags.append(
+                    {
+                        "namespace": ns,
+                        "name": name,
+                        "display": item.get("display") or translated_tag(ns, name)[1],
+                    }
+                )
+            elif isinstance(item, (list, tuple)) and len(item) == 2:
+                ns, name = str(item[0]), str(item[1])
+                tags.append(
+                    {
+                        "namespace": ns,
+                        "name": name,
+                        "display": translated_tag(ns, name)[1],
+                    }
+                )
+        return {
+            "id": m.get("id"),
+            "gallery_id": m.get("gallery_id"),
+            "is_local": m.get("is_local", False),
+            "gid": m.get("gid"),
+            "favcat": m.get("favcat"),
+            "token": m.get("token"),
+            "url": m.get("url"),
+            "title": m.get("title", ""),
+            "category": m.get("category") or "other",
+            "page_count": m.get("page_count", 0),
+            "cover_url": m.get("cover_url"),
+            "tags": tags,
+        }
+
+    is_local = getattr(m, "is_local", True)
+    g_id = getattr(m, "id", None)
+    gallery_id = g_id if is_local else None
+    gid = getattr(m, "gid", None)
+    token = getattr(m, "token", None)
+    category = getattr(m, "category", None) or "other"
+    page_count = getattr(m, "page_count", None) or 0
+    url = getattr(m, "url", None) or (
+        f"https://e-hentai.org/g/{gid}/{token}/" if gid and token else None
+    )
+    cover_url = (
+        f"/api/galleries/{g_id}/thumb/0"
+        if (is_local and g_id and page_count)
+        else getattr(m, "cover_url", None)
+    )
+
+    tags = []
+    if g_id is not None and g_id in tag_map:
+        tags = [
             {
                 "namespace": ns,
                 "name": name,
                 "display": translated_tag(ns, name)[1],
             }
-            for ns, name in tag_map.get(g.id, [])
-        ],
+            for ns, name in tag_map.get(g_id, [])
+        ]
+
+    try:
+        title_str = display_title(m) if hasattr(m, "title") else getattr(m, "title", "")
+    except Exception:  # noqa: BLE001
+        title_str = getattr(m, "title", "") or ""
+
+    return {
+        "id": gallery_id,
+        "gallery_id": gallery_id,
+        "is_local": is_local,
+        "gid": gid,
+        "favcat": getattr(m, "favcat", None),
+        "token": token,
+        "url": url,
+        "title": title_str,
+        "category": category,
+        "page_count": page_count,
+        "cover_url": cover_url,
+        "tags": tags,
     }
 
 
@@ -63,10 +135,18 @@ async def list_series(
             rows, total = await repo.list_paged(
                 page=page, page_size=page_size, show_all=is_show_all
             )
-            all_gids = [g.id for _, _, galleries in rows for g in galleries]
+            local_gallery_ids = []
+            for _, _, members in rows:
+                for m in members:
+                    if isinstance(m, Gallery):
+                        local_gallery_ids.append(m.id)
+                    elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
+                        local_gallery_ids.append(m["gallery_id"])
+                    elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
+                        local_gallery_ids.append(m.id)
             tag_map = (
-                await GalleryRepository(session).tags_for_galleries(all_gids)
-                if all_gids
+                await GalleryRepository(session).tags_for_galleries(local_gallery_ids)
+                if local_gallery_ids
                 else {}
             )
             break
@@ -82,9 +162,9 @@ async def list_series(
                 "name_manual": s.name_manual,
                 "count": count,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
-                "galleries": [_serialize_card(g, tag_map) for g in galleries],
+                "galleries": [_serialize_card(m, tag_map) for m in members],
             }
-            for s, count, galleries in rows
+            for s, count, members in rows
         ],
         "total": total,
         "page": page,
@@ -100,11 +180,18 @@ async def get_series(series_id: int) -> dict[str, object]:
             res = await repo.get_with_galleries(series_id)
             if res is None:
                 raise HTTPException(status_code=404, detail="series not found")
-            s, galleries = res
-            gids = [g.id for g in galleries]
+            s, members = res
+            local_ids = []
+            for m in members:
+                if isinstance(m, Gallery):
+                    local_ids.append(m.id)
+                elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
+                    local_ids.append(m["gallery_id"])
+                elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
+                    local_ids.append(m.id)
             tag_map = (
-                await GalleryRepository(session).tags_for_galleries(gids)
-                if gids
+                await GalleryRepository(session).tags_for_galleries(local_ids)
+                if local_ids
                 else {}
             )
             break
@@ -118,9 +205,9 @@ async def get_series(series_id: int) -> dict[str, object]:
         "name": s.name,
         "match_key": s.match_key,
         "name_manual": s.name_manual,
-        "count": len(galleries),
+        "count": len(members),
         "created_at": s.created_at.isoformat() if s.created_at else None,
-        "galleries": [_serialize_card(g, tag_map) for g in galleries],
+        "galleries": [_serialize_card(m, tag_map) for m in members],
     }
 
 
@@ -196,6 +283,65 @@ async def add_series_items(series_id: int, body: SeriesItemsRequest) -> dict[str
     return {"id": series_id, "added": added}
 
 
+@router.get("/api/series/{series_id}/cloud-candidates")
+async def get_series_cloud_candidates(
+    series_id: int, q: str | None = None
+) -> dict[str, object]:
+    try:
+        async for session in get_session():
+            repo = SeriesRepository(session)
+            series = await repo.get(series_id)
+            if series is None:
+                raise HTTPException(status_code=404, detail="series not found")
+            items = await repo.get_cloud_candidates(series_id, q=q)
+            return {"items": items}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {"items": []}
+
+
+@router.post("/api/series/{series_id}/cloud-items")
+async def add_series_cloud_items(
+    series_id: int, body: SeriesCloudItemsRequest
+) -> dict[str, object]:
+    try:
+        async for session in get_session():
+            async with session.begin():
+                repo = SeriesRepository(session)
+                row = await repo.get(series_id)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="series not found")
+                res = await repo.add_cloud_items_flow(series_id, body.gids)
+            break
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {"id": series_id, **res}
+
+
+@router.post("/api/series/{series_id}/cloud-items/remove")
+async def remove_series_cloud_items(
+    series_id: int, body: SeriesCloudItemsRequest
+) -> dict[str, object]:
+    try:
+        async for session in get_session():
+            async with session.begin():
+                repo = SeriesRepository(session)
+                row = await repo.get(series_id)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="series not found")
+                removed = await repo.remove_cloud_items(series_id, body.gids)
+            break
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {"id": series_id, "removed": removed}
+
+
 @router.post("/api/series/{series_id}/items/remove")
 async def remove_series_items(series_id: int, body: SeriesItemsRequest) -> dict[str, object]:
     try:
@@ -205,7 +351,20 @@ async def remove_series_items(series_id: int, body: SeriesItemsRequest) -> dict[
                 row = await repo.get(series_id)
                 if row is None:
                     raise HTTPException(status_code=404, detail="series not found")
-                removed = await repo.remove_items(series_id, body.gallery_ids)
+                gallery_ids = list(body.gallery_ids)
+                if body.gids:
+                    extra_ids = list(
+                        (
+                            await session.scalars(
+                                select(Gallery.id).where(
+                                    Gallery.gid.in_(body.gids),
+                                    Gallery.trashed.is_(False),
+                                )
+                            )
+                        ).all()
+                    )
+                    gallery_ids.extend(extra_ids)
+                removed = await repo.remove_items(series_id, gallery_ids)
             break
     except HTTPException:
         raise
