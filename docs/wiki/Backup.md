@@ -27,4 +27,4 @@ docker compose exec -T db pg_restore -U galleryvault -d galleryvault -c --if-exi
 
 ## 备份中的密钥
 
-启用 [静态加密](Encryption) 后，数据库备份里的 cookie / token 是密文。**备份文件不包含密钥**——请把 `ENCRYPTION_KEY` 单独存放在密码管理器中，与备份分开保管。
+启用 [静态加密](Encryption) 后，数据库备份里的 cookie / token 是密文。**备份文件不包含密钥**——请把 `ENCRYPTION_KEY` 单独存放在密码管理器中，与备份分开保管。若密钥遗失，凭据恢复流程见 [静态加密 → 密钥丢失的恢复](Encryption#密钥丢失的恢复)。

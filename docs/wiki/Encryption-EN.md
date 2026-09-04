@@ -46,5 +46,5 @@ docker start galleryvault-backend
 Log in with the default password `p1a2s3s4`, then change it and re-enter your
 ExHentai cookies / Telegram token in Settings.
 
-> If you still hold a **pre-encryption** database backup, restore it and then
+> If you still hold a **pre-encryption** database backup, restore it (see [Backup & Restore](Backup-EN#restore)) and then
 > follow the steps above to set a fresh key — no clearing needed.

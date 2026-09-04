@@ -1,11 +1,5 @@
 # FAQ
 
-## Settings keeps showing "Generating thumbnails…"?
-
-It now shows the **live status** (generating / finished / hint text), read from
-`/api/thumbs/status`. If thumbnails really are stuck, check the thumbnail task
-on the Logs page (`#/logs`), or trigger it again with *Generate now*.
-
 ## Why aren't some tags translated?
 
 Translations come from
@@ -22,16 +16,6 @@ root but weren't seen this pass. Removing a directory from Settings alone does
 not affect existing galleries; adding the directory back and rescanning
 restores them. To avoid false expunges, remove the path from *Library roots*
 before removing the directory.
-
-## The reader is slow to open large / animated (WebP) pages?
-
-Pages are streamed straight from the backend to the browser. Older versions
-sent them in the file's default 8KB chunks, and every chunk crosses a
-threadpool boundary inside the streaming response — capping large-file
-throughput at ~1MB/s (most noticeable for animated WebP, which can be tens of
-MB per page). This is fixed by reading 256KB chunks instead (measured
-~918KB/s → ~466MB/s on the same file, roughly 500× faster); small images are
-unaffected.
 
 ## A download failed; the logs say `image download request failed`?
 
@@ -74,20 +58,15 @@ each device has to log in again.
 
 ## I lost my key?
 
-See [Encryption → Recovering from a lost key](Encryption-EN).
+See [Encryption at Rest → Recovering from a lost key](Encryption-EN#recovering-from-a-lost-key).
 
 ## How do I change the port / bind a domain?
 
-Edit the `ports` mapping in `docker-compose.yml` (e.g. `8000:80` →
-`8080:80`) and run `docker compose up -d`. Domain binding is handled by nginx /
-a reverse proxy — see [Deployment → Security hardening](Deployment-EN).
+Change port mappings in `docker-compose.yml`; for reverse proxy configuration and domain binding see [Deployment → Security hardening](Deployment-EN#security-hardening).
 
 ## Write operations (delete/submit) fail with "Cross-origin request rejected" behind reverse proxy or across subnets?
 
-This is CSRF protection checking `Origin` / `Referer` against `Host` / `X-Forwarded-Host`.
-1. **Lost port in reverse proxy**: ensure your reverse proxy (Nginx/Caddy) passes the full host, e.g. `proxy_set_header Host $http_host;` (using `$host` drops non-standard ports like `:8000`).
-2. **Same-hostname allowance**: the latest release normalizes port mismatches on matching hostnames and automatically sends `X-CSRF-Token`.
-3. **IPv6**: IPv6 literal addresses are fully supported since v1.2.4.
+This is CSRF protection detecting host mismatch across proxy boundaries; ensure the reverse proxy forwards the `Host` header (e.g. `proxy_set_header Host $http_host;`) or configure `TRUSTED_PROXIES`. See [Deployment → Security hardening](Deployment-EN#security-hardening).
 
 ## Red top banner says cookie is invalid or no ExHentai access?
 
@@ -99,22 +78,18 @@ Cloud sync pauses while the cookie is invalid or lacks access.
 
 ## Can I get a deleted gallery back?
 
-**Without deleting files** → [Usage](Usage-EN) `#/recycle` *User deleted* can
-restore it. Missing on disk after a scan → *Scan missing*. **Purge with delete
-files** cannot be undone from that page (a later scan will not re-ingest it).
+**Without deleting files** → see [Gallery Management → Recycle bin](Manage-EN#recycle-bin-and-restoring-galleries) *User deleted* to restore. Missing on disk after a scan → *Scan missing*. **Purge with delete files** cannot be undone from that page (a later scan will not re-ingest it).
 
 ## I hit Pause — why are downloads / scans still running?
 
 After pause, no new pages are claimed; the current in-flight page finishes.
 No new tasks are claimed. Scans return `paused`. The downloads-page toggle and Telegram
 `/pause` `/resume` are the same switch (web pause matches the Bot) and survive
-restart. See [Usage](Usage-EN).
+restart. See [Downloads → Global pause and resuming tasks](Downloads-EN#global-pause-and-resuming-tasks).
 
 ## Discover vs the local library?
 
-`#/discover` browses/searches **ExHentai** (including Popular / Watched /
-Toplist), not the local library. Download or favorite first; then it shows up
-in the library / favorites. See [Usage](Usage-EN).
+`#/discover` browses and searches live ExHentai listings online; the library (`#/library`) manages galleries stored locally. See [Library & Browsing → Discover](Library-EN#discover-discover).
 
 ## Does Add to Home Screen download galleries onto the phone?
 
@@ -123,13 +98,7 @@ offline fallback) and never cache gallery images or `/api/`.
 
 ## How do I use OPDS?
 
-The OPDS feed is available at `GET /api/opds` (atom+xml), with acquisition links pointing to `GET /api/galleries/{id}/export.cbz`.
-
-Two authentication methods are supported:
-- **HTTP Basic authentication**: Use the fixed username **`galleryvault`** (**not** your ExHentai account) and your GalleryVault web login password. This is intended for third-party reader clients (Tachiyomi, Panels, Chunky, etc.). Missing or invalid credentials return `401 Unauthorized` with the header `WWW-Authenticate: Basic realm="GalleryVault OPDS"`.
-- **Session cookie**: Logging into the web UI allows direct browser access.
-
-**Note**: HTTP Basic authentication is only enabled for `GET /api/opds` and `GET /api/galleries/{id}/export.cbz`. All other `/api/*` endpoints remain cookie-only.
+Third-party reader clients can connect via HTTP Basic authentication for OPDS feeds and CBZ export (username `galleryvault`, password is the web login password). For configuration details, see [Settings → OPDS & CBZ export](Settings-EN#settings-settings).
 
 ## Does scanning a 7z unpack the whole archive?
 
@@ -146,13 +115,13 @@ banner warns you — pause to avoid HTTP 509.
 
 ## Incremental already downloaded the new version, but Gallery updates still lists it?
 
-If the new gid is already in the local library, **Scan now** deletes the old copy and the row disappears — no need to click Update selected. Ignored rows are never auto-deleted. Favorites enqueue / ingest also pin and finalize the update row. See [Usage → Gallery updates](Usage-EN).
+If the new gid is already in the local library, **Scan now** deletes the old copy and the row disappears — no need to click Update selected. Ignored rows are never auto-deleted. Favorites enqueue / ingest also pin and finalize the update row. See [Favorites & Updates → Gallery updates](Favorites-EN#gallery-updates-updates).
 
 ## Favorites aren't auto-downloading?
 
 All three must hold: the **download favorites** master switch in Settings is on
 + the folder is **enabled** on the Favorites page (new folders are disabled by default and require checking and saving) + the mode is "incremental"
-or "force download". See [Usage → Favorites](Usage-EN).
+or "force download". See [Favorites & Updates → Favorites](Favorites-EN#favorites-favorites).
 
 ## Favorites check succeeds but no covers / the list is empty?
 
@@ -167,43 +136,17 @@ or "force download". See [Usage → Favorites](Usage-EN).
   over time. Use **Download missing items** on the overview if some covers are
   still absent.
 
-## The page shows a different number per page?
-
-The gallery library uses **infinite scroll** (24 galleries per page, more as
-you scroll; page size selectable at the bottom). Favorite folders use numbered
-pagination with a 24-per-page default; the tag browse page uses numbered
-pagination fixed at 100 per page (no page-size selector). If you still see an
-old layout, hard-refresh (Ctrl+Shift+R) to load the new frontend assets.
-
 ## How do I search by several tags at once?
 
-Clicking a tag in the suggestions, on the gallery detail page or in the tag
-cloud **appends** it to the active filter (all selected tags must match — AND),
-instead of replacing it. The bar above the grid shows each active tag as a
-removable pill (per-pill ×, an `AND` badge and a clear-all action); resubmitting
-the title search keeps the current tag filter.
-
-While you type, tag suggestions appear — **click a suggestion** to add that
-tag (matching tokens are consumed from the title query, including partial
-input such as 「和泉」 → 「和泉纱雾」). Explicit `ns:name`
-syntax (`parody:touhou`) also becomes a tag filter. Pressing Enter without
-`ns:name` is a **title text search only** and never auto-promotes Chinese or
-English words into tags. Multi-word title search ANDs each word.
+Multiple tags can be combined with AND / OR modes and `-tag` exclusions. For usage details, see [Library & Browsing → Library](Library-EN#library-library).
 
 ## Does my search filter survive reading and coming back?
 
-Yes. When you open a gallery from a **searched library** (including tag
-filters), the search context is kept throughout the **reader** — no matter how
-you page (arrows / space / click / thumbnail links / auto-advance to the next
-gallery) — so the back-to-details and back-to-library links still carry the
-active query and tag filter, and you never land on an unfiltered library.
+Yes. When you open a gallery from a searched library, the search context and tag filters are preserved across reader paging and back navigation. See [Gallery Detail & Reader → Reader](Reading-EN#reader-readeridpage).
 
 ## How do I jump to the original gallery on ExHentai?
 
-The gallery detail page has an **Open on ExHentai** button next to *Start
-reading* that opens `{base_url}/g/{gid}/{token}/` in a new tab (your browser
-must be logged in to EH); it is hidden for local galleries without a token. The
-base URL is chosen in Settings (里站 / 外站 / custom).
+The gallery detail page provides an "Open on ExHentai" button for galleries with a token (requires browser logged in to EH). See [Gallery Detail & Reader → Gallery Detail](Reading-EN#gallery-detail-galleryid).
 
 ## Will ExHentai-only galleries be misdeleted when I use the public mirror?
 
@@ -214,23 +157,8 @@ in Settings **resumes** the sync automatically.
 
 ## How do I set the base URL (里站 / 外站)?
 
-Settings → ExHentai → Base URL is a dropdown: `exhentai.org` (里站, full
-functionality) / `e-hentai.org` (外站, some ExHentai-only galleries are not
-visible) / Custom (proxy subdomain). The change takes effect **immediately**,
-no restart needed.
-
-Choosing **Custom** reveals a URL input (for a proxy subdomain such as
-`https://proxy.exhentai.org`); only `exhentai.org` / `e-hentai.org` and their
-subdomains are accepted — saving any other host fails.
+In Settings → ExHentai → Base URL, choose between `exhentai.org` (里站), `e-hentai.org` (外站), or a custom proxy domain. Changes take effect immediately. See [Settings → Settings](Settings-EN#settings-settings).
 
 ## Which pages honour the title-display setting?
 
-Settings → Downloads → **Title display**: `japanese` (default, Japanese title
-preferred) / `english` / `directory` (folder name). The library, browse,
-gallery detail, favorites (including cloud-only items), favorites-duplicates
-and the duplicate-copies page all show the title according to this setting.
-Downloaded folder names are **not** affected by it — they follow the separate
-**Download title** setting in the same Downloads group: `japanese` (default,
-`gid-<japanese title>`) or `english` (`gid-<english title>`). Existing
-download folders are reused as-is; switching the setting never renames or
-re-downloads them.
+Controls title display (Japanese / English / directory) across library, browse, detail, and favorites views independently from download folder naming. See [Settings → Settings](Settings-EN#settings-settings).

@@ -20,22 +20,7 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 启动后打开 `http://<host>:8000`，用默认密码 `p1a2s3s4` 登录——**登录后请立即在设置中修改密码**（默认密码只供首次使用）。
 
-## 本地开发环境 (Dev Compose)
-
-如需在本地对前后端源码进行即时调试与热重载，可使用 `docker-compose.dev.yml`：
-
-```bash
-# 首次运行或修改 Dockerfile 后构建启动：
-docker compose -f docker-compose.dev.yml up -d --build
-
-# 日常热重载启动：
-docker compose -f docker-compose.dev.yml up -d
-```
-
-- **前端热更**：直接修改 `frontend/assets/` 下的 CSS/JS，刷新浏览器即可生效（无需构建工具）；
-- **后端热更**：后端容器启动覆盖传入 `uvicorn --reload`（带 `--proxy-headers --forwarded-allow-ips` 保证 Nginx 反代下登录限流与日志拿到真实客户端 IP），修改 `backend/galleryvault/` 代码自动重载生效；
-- **环境与数据隔离**：开发数据库独立持久化于 `./db-data-dev`，挂载本地 `./library`、`./downloads` 与 `./cache` 目录（若不存在 Docker 会自动创建，不影响生产/测试库）；
-- **端口配置**：前端映射至 `:8200`，后端映射至 `:8201`（可通过环境变量 `DEV_FRONTEND_PORT` / `DEV_BACKEND_PORT` 自定义）。
+> 本地开发与热重载环境（Dev Compose）请参见 [开发指南](Development#dev-compose)。
 
 ## 数据目录
 
@@ -67,8 +52,6 @@ docker compose -f docker-compose.dev.yml up -d
 
 `library_roots` 是库根：画廊会被索引、标签同步正常，但新下载只会落到 `download_root`，绝不会写入这些目录。删除画廊时**若挂载可写**会一并删除库根下的对应文件；若挂载为只读，删除会失败并在 toast 与日志页提示（DB 行保留，不会被下次扫描当作新画廊重新入库）。
 
-> **权限**：backend 默认以 root (0:0) 运行，也可通过环境变量 `PUID` / `PGID`（如 `1000:1000`）指定非特权用户运行。若指定了非 root 权限，需确保挂载的宿主目录对该 UID 可读写；`./db-data` 属 postgres（999），**切勿 chown**。
-
 > **多个已有画廊目录**：有几个就挂几条 volume（容器内路径各取一个唯一名字，如 `/gallery1`、`/gallery2`），然后在「库根目录」每行填一个容器内路径。`download_root` 会被自动并入库根，无需重复填写。
 
 > **环境变量可省略**：compose 里的 `LIBRARY_ROOTS` / `DOWNLOAD_ROOT` 只是**启动初值**，实际以「设置 → 库根目录 / 下载目录」保存的值为准（存 DB，启动时覆盖环境变量）。backend 默认即 `download_root=/downloads`、`library_roots=["/library","/downloads"]`，所以全新部署可以直接不写这两个变量，去设置页配置即可。
@@ -96,13 +79,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 ### ExHentai cookie（收藏夹/云同步必需）
 
-收藏夹检查、封面抓取、下载都依赖 ExHentai 登录态。cookie 在**首次运行向导**或**设置 → ExHentai** 中配置（`ipb_member_id` / `ipb_pass_hash` / `igneous`，可「测试登录」验证），保存后**加密存库**（依赖上面的 `ENCRYPTION_KEY`），不会回显。
-
-**如何获取这三个 cookie？**
-
-1. 浏览器登录 **e-hentai.org**（需要 e-hentai 账户）→ 按 `F12` → **Application/应用程序 → Storage → Cookies → https://e-hentai.org**，复制 **`ipb_member_id`** 与 **`ipb_pass_hash`** 的值。
-2. 需要访问 **exhentai.org 里站**（未和谐画廊/部分专区）时，再从 `https://exhentai.org` 的 Cookies 复制 **`igneous`**（仅对已获得里站权限的账户存在；只用外站则无需填写）。
-3. 填入设置页并「测试登录」验证。
+收藏夹检查、封面抓取、下载都依赖 ExHentai 登录态。cookie 在**首次运行向导**或**设置 → ExHentai** 中配置（`ipb_member_id` / `ipb_pass_hash` / `igneous`，可「测试登录」验证），保存后**加密存库**（依赖上面的 `ENCRYPTION_KEY`），不会回显。获取方法参见 [入门指南：配置 ExHentai Cookie](Usage#配置-exhentai-cookie)。
 
 > 注意：**不要**在 `docker-compose.yml` 里写 `EXHENTAI_COOKIES` 环境变量——设置的单数据源是数据库；环境变量缺失时收藏夹检查会 302 回首页、静默空跑（收藏夹无封面、列表为空），误以为是网络/风控问题。
 
@@ -111,6 +88,8 @@ docker compose -f docker-compose.dev.yml up -d
 后端镜像支持通过环境变量指定运行身份：
 - **默认（未配置 `PUID`/`PGID`）**：直接以 `root (0:0)` 权限运行，无需手动 `chown` 挂载目录，启动即用。注意：以 root 模式运行时，新下载的画廊文件和系统日志在宿主机上的属主为 `root`。
 - **自定义指定（如 NAS / 非特权 Linux 用户，推荐）**：在 `docker-compose.yml` 中指定 `PUID` 与 `PGID`（如 `PUID=1000` / `PGID=1000`），容器启动时会自动校验参数、动态映射并降权运行，同时在初次启动时自动修复 `/downloads`、`/gv-cache` 等可写目录属主。若想让 `./library` 库根支持删除画廊，请确保宿主目录对该 UID 可写（如 `chown -R 1000:1000 <宿主目录>`）。
+
+> **注意**：`./db-data` 属 postgres（UID 999），**切勿 chown**，否则会导致数据库容器启动失败。
 
 ### 可选：集成 Dozzle 实时查看容器日志
 
@@ -144,19 +123,3 @@ docker compose up -d
 数据库迁移会在 backend 启动时自动执行（alembic），无需手动操作。镜像使用 `:latest` 标签，`pull` 即可获得新版本。
 
 > **不要**用 `curl -o docker-compose.yml` 覆盖本地 compose——它可能含有你的定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。如需获取更新的 compose 模板，先备份本地文件，再手动比对合并修改。
-
-## 文档站（GitHub Pages）与 wiki 的同步机制
-
-GalleryVault 的文档有两条自动同步链路（CI 完成，无需手工）：
-
-| 输出 | 来源 | 触发 | 内容时效 |
-|------|------|------|----------|
-| **GitHub Wiki**（本页所在） | meta 仓库 `docs/wiki/` | push 到 `main` **或** `dev`，且 `docs/wiki/**` 有变化 → `sync-wiki` workflow rsync 镜像 | **始终最新**——开发推 dev 即同步 |
-| **GitHub Pages 文档站**（`docs-site/`，VitePress） | 同一份 `docs/wiki/` + backend 的 `API.md` / `DEVELOPMENT.md` | `pages` workflow 构建；**部署只在 `main`** | **稳定版**——`main` 合并/发布才更新 |
-
-要点：
-
-- **wiki 与分支无关**：`main` / `dev` 谁最后推送 `docs/wiki` 谁生效。开发在 dev 上进行，实际效果就是 dev 一推、wiki 立刻更新。
-- **Pages 只随 main**：`pages` 的 `deploy` job 受 GitHub 环境保护规则限制只能由 `main` 分支部署；dev 推送只做构建预检，不覆盖线上文档站。
-- `API.md` / `Development.md` / `openapi.json` 由 `sync-docs` workflow 每 6 小时从 backend 同步到 wiki（两处 rsync 均排除这三份）。
-- **改文档只需改 meta 仓库 `docs/wiki/`**，提交后 CI 自动同步，不要直接编辑 wiki 页面。

@@ -1,9 +1,5 @@
 # 常见问题
 
-## 设置里一直显示「生成缩略图中」？
-
-已改为显示**实时状态**（生成中 / 已完成 / 提示文案），取自 `/api/thumbs/status`。若缩略图确实卡住，可在日志页（`#/logs`）查看缩略图任务状态，或点击「立即生成」重新触发。
-
 ## 为什么有些标签没有翻译？
 
 翻译来自 [EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)（自动获取最新版）。数据库未收录的标签（多为冷门画师/原作名）会保持原文；多值标签（`A | B`）只显示翻译的部分，未翻译的别名自动隐藏。可在设置页「立即更新翻译」手动刷新。
@@ -11,10 +7,6 @@
 ## 移除某个库目录后，里面的画廊会消失吗？
 
 扫描时只会把「仍在扫描根目录内、但本次扫描没见到」的画廊标记为 `expunged`（软删除）。仅从设置移除目录不影响已有画廊；目录加回后重新扫描会自动恢复显示。建议移除目录前先从「库根目录」中删除该路径，避免误标。
-
-## 阅读器打开大图 / 动图（animated WebP）很慢？
-
-图片由后端直接流式传给浏览器。旧版本按文件默认的 8KB 小块传输，每个小块都要跨线程池往返一次，大文件吞吐被压在 ~1MB/s，动图 WebP（单张动辄十几 MB）体验最明显。已修复为 256KB 分块读取（实测同文件 ~918KB/s → ~466MB/s，提速约 500 倍）；小图输出完全一致，无感知影响。
 
 ## 下载任务失败，日志报 `image download request failed`？
 
@@ -44,18 +36,15 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ## 密钥丢了？
 
-见 [静态加密 → 密钥丢失的恢复](Encryption)。
+见 [静态加密 → 密钥丢失的恢复](Encryption#密钥丢失的恢复)。
 
 ## 如何换端口 / 绑定域名？
 
-修改 `docker-compose.yml` 的 `ports`（如 `8000:80` → `8080:80`）后 `docker compose up -d`。绑定域名由 nginx / 反代处理，参见 [部署 → 安全加固](Deployment)。
+端口映射在 `docker-compose.yml` 中修改；反代配置与域名绑定见 [服务部署 → 安全加固](Deployment#安全加固)。
 
 ## 跨网段或反代访问时，提交操作报「Cross-origin request rejected」？
 
-这是 CSRF 防护校验了客户端的 `Origin` / `Referer` 与服务端的 `Host` / `X-Forwarded-Host`。
-1. **端口丢失**：前置 Nginx 反代请确保配置 `proxy_set_header Host $http_host;` 或 `proxy_set_header Host $host:$server_port;`（如果写成 `$host` 会丢失非 80/443 端口号）。
-2. **已自动放行同主机**：最新版本已将端口比对放宽至同主机校验并自动兼容 `X-CSRF-Token`；
-3. **IPv6**：从 v1.2.4 起已全面支持 IPv6 字面量地址访问。
+这是 CSRF 防护校验了客户端来源与服务端 Host；前置反代需正确透传 Host 头（如 `proxy_set_header Host $http_host;`），或配置 `TRUSTED_PROXIES` 白名单。配置细节见 [服务部署 → 安全加固](Deployment#安全加固)。
 
 ## 顶栏出现「Cookie 已失效」或「无里站权限」红条？
 
@@ -67,15 +56,15 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ## 库里删掉的画廊还能找回吗？
 
-**不删盘** → [使用指南](Usage) `#/recycle`「用户删除」可恢复。扫描时目录里找不到 → 「扫描失踪」。**彻底删除且勾选删盘**后不能从本页找回（扫描也不会重新入库）。
+**不删盘** → 见 [画廊管理 → 回收站与画廊找回](Manage#回收站与画廊找回)「用户删除」可恢复。扫描时目录里找不到 → 「扫描失踪」。**彻底删除且勾选删盘**后不能从本页找回（扫描也不会重新入库）。
 
 ## 点了暂停，扫描和下载还在跑？
 
-暂停后不再领取新页，已开始的当前页会下完；不再 claim；扫描返回 `paused`。Web 下载页按钮与 Telegram `/pause` `/resume` 是同一开关，网页暂停后 Bot 一致，重启后仍保持暂停。详见 [使用指南](Usage)。
+暂停后不再领取新页，已开始的当前页会下完；不再 claim；扫描返回 `paused`。Web 下载页按钮与 Telegram `/pause` `/resume` 是同一开关，网页暂停后 Bot 一致，重启后仍保持暂停。详见 [下载管理 → 全局暂停与任务恢复](Downloads#全局暂停与任务恢复)。
 
 ## 发现页和画廊库有什么区别？
 
-发现页（`#/discover`）是逛/搜 **ExHentai**（含 Popular / Watched / Toplist），不是本地库。点下载或加收藏成功后才会进库/收藏夹。详见 [使用指南](Usage)。
+发现页（`#/discover`）用于在线浏览 / 搜索 ExHentai 资源；画廊库（`#/library`）用于管理本地已入库的画廊。详见 [浏览与画廊库 → 发现](Library#发现discover)。
 
 ## 加到主屏幕会把画廊下到手机吗？
 
@@ -83,13 +72,7 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ## 怎么用 OPDS？
 
-OPDS 目录地址为 `GET /api/opds`（atom+xml），画廊条目的 acquisition 链接指向 `GET /api/galleries/{id}/export.cbz`。
-
-支持两种认证方式：
-- **HTTP Basic 认证**：用户名固定为 **`galleryvault`**（**不是** ExHentai 账号），密码为本站 Web 登录密码。第三方阅读器（Tachiyomi、Panels 等）可直接以此配置。未提供凭据或认证失败时返回 `401 Unauthorized` 并携带响应头 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`。
-- **Cookie 认证**：浏览器已登录本站 Web 即可直接访问。
-
-**注意**：HTTP Basic 认证仅对 `GET /api/opds` 与 `GET /api/galleries/{id}/export.cbz` 开放，其余 `/api/*` 路由仍为仅限 Cookie 认证（cookie-only）。
+第三方阅读器支持通过 HTTP Basic 认证接入 OPDS 目录与 CBZ 导出（用户名 `galleryvault`，密码为 Web 登录密码）。详细配置见 [系统设置 → OPDS 与 CBZ 导出](Settings#设置settings)。
 
 ## 扫描 7z 会把整个压缩包解到磁盘吗？
 
@@ -105,34 +88,28 @@ OPDS 目录地址为 `GET /api/opds`（atom+xml），画廊条目的 acquisition
 
 ## 增量已经下完新版，「更新画廊」里还在？
 
-新 gid 已在本地库时，**立即检测**会直接删除旧版本地副本，条目随之消失，不必再点「更新选中」。若该行曾被**忽略**，不会自动删旧。收藏夹入队/下载入库也会挂上更新行并在成功后收尾。详见 [使用指南 → 更新画廊](Usage)。
+新 gid 已在本地库时，**立即检测**会直接删除旧版本地副本，条目随之消失，不必再点「更新选中」。若该行曾被**忽略**，不会自动删旧。收藏夹入队/下载入库也会挂上更新行并在成功后收尾。详见 [收藏夹与更新 → 更新画廊](Favorites#更新画廊updates)。
 
 ## 收藏夹不自动下载？
 
-需同时满足：设置里 **download favorites** 总开关开启 + 收藏夹页对应文件夹已**启用**（新夹默认关，需勾选并保存）+ 模式为「增量下载」或「强制下载」。详见 [使用指南 → 收藏夹](Usage)。
+需同时满足：设置里 **download favorites** 总开关开启 + 收藏夹页对应文件夹已**启用**（新夹默认关，需勾选并保存）+ 模式为「增量下载」或「强制下载」。详见 [收藏夹与更新 → 收藏夹监控](Favorites#收藏夹favorites)。
 
 ## 收藏夹检查成功但没有封面 / 列表是空的？
 
 - 后端必须配置 **ExHentai cookie**（设置 → ExHentai → 填 `ipb_member_id` / `ipb_pass_hash` / `igneous` 并「测试登录」）。cookie 会**加密存库**（`ENCRYPTION_KEY`），不要在 `docker-compose.yml` 里设 `EXHENTAI_COOKIES`。没有 cookie 时 `favorites.php` 会 302 到首页，检查形同空跑。
 - 封面在**立即检查**时后台预热到磁盘（`/gv-cache/remote-covers/{gid}.img`）；进夹只读缓存（`<img>` 走 `/api/favorites/cover`），不再等外网。大夹封面会陆续出现。若仍缺图，可在总览点**下载缺失项目**补漏。
 
-## 每页显示的数量不是 25？
-
-画廊库为**无限滚动**（默认每页 24，可滚动到底部加载更多，页尾可选页大小）；收藏夹列表为页码分页，默认每页 24；标签浏览为页码分页，固定每页 100（无页大小选择器）。若仍看到旧数量，浏览器请硬刷新（Ctrl+Shift+R）以加载新的前端资源。
-
 ## 如何同时按多个标签搜索？
 
-点击标签提示、画廊详情页或标签云里的标签会**追加**进当前筛选（多个标签需**同时满足**，AND 逻辑），而不是替换已有筛选。库页顶部把每个已选标签显示为可移除的胶囊（× 单独移除，带 `AND` 徽标与「清空标签」入口），重新提交标题搜索时保留当前标签筛选。
-
-搜索框输入时会弹出标签建议，**点击建议**才把该词当标签（用来找该标签的词会从标题关键词里消费掉，含「和泉」这类部分输入）；也可写显式 `ns:name`（如 `parody:touhou`）。直接回车（不含 `ns:name`）**只做标题文字搜索**，不会把中文/英文词自动升成标签。多词标题搜索为逐词 AND。
+支持点击追加多标签（默认 AND 逻辑）、胶囊栏 AND / OR 切换以及 `-tag` 排除语法。详见 [浏览与画廊库 → 搜索与筛选](Library#画廊库library)。
 
 ## 阅读器翻页后返回，搜索标签还在吗？
 
-还在。从画廊库搜索（含标签筛选）点进画廊详情、阅读器后，**阅读器内翻页全程保留搜索上下文**（方向键 / 空格 / 点击图片 / 点缩略图 / 自动跳下一本），左上角返回详情、再返回画廊库，搜索关键词与标签筛选都在，不会回到未筛选的画廊库。
+还在。阅读器内翻页全程保留搜索上下文，返回画廊详情与画廊库时搜索关键词与标签筛选均保持。详见 [画廊详情与阅读 → 阅读器](Reading#阅读器readeridpage)。
 
 ## 怎么跳到 ExHentai 上的原画廊页？
 
-画廊详情页「开始阅读」旁边有**打开原站**按钮，会在新标签页打开 `{base_url}/g/{gid}/{token}/`，需浏览器已登录 EH；本地无 token 的画廊不显示该按钮。Base URL 在设置里选择（里站/外站/自定义）。
+画廊详情页「开始阅读」旁提供「打开原站」按钮（需画廊有 token 且浏览器已登录 EH）。详见 [画廊详情与阅读 → 打开原站](Reading#画廊详情galleryid)。
 
 ## 用外站（e-hentai.org）设置时，里站专属画廊会被误删吗？
 
@@ -140,10 +117,8 @@ OPDS 目录地址为 `GET /api/opds`（atom+xml），画廊条目的 acquisition
 
 ## 里站 / 外站 Base URL 怎么设置？
 
-设置 → ExHentai → Base URL 为下拉选择：`exhentai.org`（里站，功能完整）/ `e-hentai.org`（外站，部分里站专属画廊不可见）/ 自定义（代理子域）。保存**立即生效**，无需重启。
-
-选「自定义」后下方会出现网址输入框（用于代理子域，如 `https://proxy.exhentai.org`）；仅允许 `exhentai.org` / `e-hentai.org` 及其子域，填入其他域名会保存失败。
+设置 → ExHentai → Base URL 可在 `exhentai.org`（里站）、`e-hentai.org`（外站）或自定义代理域之间切换，保存立即生效。详见 [系统设置 → 设置选项](Settings#设置settings)。
 
 ## 标题显示设置对哪些页面生效？
 
-设置 → 下载 → **标题显示**：`japanese`（默认，日文标题优先）/ `english`（英文标题优先）/ `directory`（目录名）。画廊库、浏览、画廊详情、收藏夹（含纯云端项）、收藏夹查重与重复副本去重页都会跟随该设置显示标题；下载目录的文件命名**不随此设置变化**，而是由下载组里的**下载标题**设置控制：`japanese`（默认，`gid-日文标题`）/ `english`（`gid-英文标题`）。已下载的画廊会复用原有目录，切换设置不会改名或重复下载。
+控制画廊库、浏览、画廊详情与收藏夹中显示日文、英文或目录名，与下载目录命名规则相互独立。详见 [系统设置 → 设置选项](Settings#设置settings)。
