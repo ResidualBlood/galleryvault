@@ -30,7 +30,7 @@ CORE_MIN_EFFECTIVE_LEN = 6
 
 PARODY_STOP_WORDS = frozenset({"original", "オリジナル", "western", "misc"})
 
-_LEADING_EVENT_RE = re.compile(r"^(?:\s*\([cC]\d+\))+\s*")
+_LEADING_EVENT_RE = re.compile(r"^\s*[\(（][^\)）]+[\)）]\s*")
 _NOISE_BRACKETS_RE = re.compile(
     r"[\(\[\{（【［][^\)\]\}）】］]*(?:"
     r"动态压缩版|动态版|无修|無修正|AI\s*Generated|DL\s*版"
@@ -57,15 +57,24 @@ def _core_effective_length(core: str) -> int:
 def extract_artist_and_stripped_title(raw: str) -> tuple[str, str]:
     """Parse raw title according to PLAN-系列匹配:
 
-    1. Strip leading (C\\d+) and whitespace.
+    1. Repeatedly strip leading ()/（） event prefixes.
     2. Extract artist: inner of [Circle (Artist)] / [Artist]; else Artist - Title (-/–/—).
        Skip if inner matches C\\d+. artist="" if not found.
     3. Strip noise brackets whole-segment: 动态压缩版/动态版/无修/無修正/AI Generated/DL版.
     4. Strip trailing volume numbers attached to end of title (do not strip internal numbers).
     5. Strip trailing subtitle terms (e.g. 催眠編/前編/後編/中編/完結編/上巻/下巻).
     """
-    # 1. 剥前导 (C\d+)
-    cleaned = _LEADING_EVENT_RE.sub("", raw or "").strip()
+    cleaned = (raw or "").strip()
+
+    # 1. 循环剥前导 ()/（） 活动前缀
+    while True:
+        m = _LEADING_EVENT_RE.match(cleaned)
+        if not m:
+            break
+        rem = cleaned[m.end() :].strip()
+        if not rem:
+            break
+        cleaned = rem
 
     # 2. 作者
     artist = ""

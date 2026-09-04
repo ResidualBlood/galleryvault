@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..models import Gallery, GalleryTag, Series, SeriesExclusion, SeriesItem, Tag
@@ -44,6 +44,68 @@ class SeriesRepository:
             (s, len(galleries_by_series.get(s.id, [])), galleries_by_series.get(s.id, []))
             for s in series_rows
         ]
+
+    async def list_paged(
+        self,
+        page: int = 1,
+        page_size: int = 25,
+        show_all: bool = False,
+    ) -> tuple[list[tuple[Series, int, list[Gallery]]], int]:
+        """List series with backend group filtering and pagination.
+
+        Default (show_all=False):
+        - Only series with at least one gallery of category doujinshi/manga are returned.
+        - Member galleries are filtered to doujinshi/manga only.
+        show_all=True:
+        - All series and all member gallery categories are returned.
+        """
+        series_query = select(Series)
+        if not show_all:
+            valid_sids_subq = (
+                select(SeriesItem.series_id)
+                .join(Gallery, Gallery.id == SeriesItem.gallery_id)
+                .where(func.lower(Gallery.category).in_(["doujinshi", "manga"]))
+                .distinct()
+            )
+            series_query = series_query.where(Series.id.in_(valid_sids_subq))
+
+        count_query = select(func.count()).select_from(series_query.subquery())
+        total = int((await self.session.scalar(count_query)) or 0)
+        if total == 0:
+            return [], 0
+
+        offset = (page - 1) * page_size
+        series_page_query = (
+            series_query.order_by(Series.id.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        paged_series = list((await self.session.scalars(series_page_query)).all())
+        if not paged_series:
+            return [], total
+
+        paged_sids = [s.id for s in paged_series]
+        gallery_stmt = (
+            select(SeriesItem.series_id, Gallery)
+            .join(Gallery, Gallery.id == SeriesItem.gallery_id)
+            .where(SeriesItem.series_id.in_(paged_sids))
+        )
+        if not show_all:
+            gallery_stmt = gallery_stmt.where(
+                func.lower(Gallery.category).in_(["doujinshi", "manga"])
+            )
+        gallery_stmt = gallery_stmt.order_by(SeriesItem.series_id.desc(), Gallery.id.asc())
+        item_rows = (await self.session.execute(gallery_stmt)).all()
+
+        galleries_by_series: dict[int, list[Gallery]] = {}
+        for sid, gallery in item_rows:
+            galleries_by_series.setdefault(sid, []).append(gallery)
+
+        items = [
+            (s, len(galleries_by_series.get(s.id, [])), galleries_by_series.get(s.id, []))
+            for s in paged_series
+        ]
+        return items, total
 
     async def get(self, series_id: int) -> Series | None:
         return await self.session.get(Series, series_id)

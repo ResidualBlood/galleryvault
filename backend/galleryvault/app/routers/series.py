@@ -48,11 +48,21 @@ def _serialize_card(g: Gallery, tag_map: dict[int, list[tuple[str, str]]]) -> di
 
 
 @router.get("/api/series")
-async def list_series() -> dict[str, object]:
+async def list_series(
+    page: int = 1,
+    page_size: int = 25,
+    show_all: int = 0,
+) -> dict[str, object]:
+    page = max(1, page)
+    page_size = max(1, min(100, page_size))
+    is_show_all = bool(show_all)
+
     try:
         async for session in get_session():
             repo = SeriesRepository(session)
-            rows = await repo.list_all()
+            rows, total = await repo.list_paged(
+                page=page, page_size=page_size, show_all=is_show_all
+            )
             all_gids = [g.id for _, _, galleries in rows for g in galleries]
             tag_map = (
                 await GalleryRepository(session).tags_for_galleries(all_gids)
@@ -75,7 +85,10 @@ async def list_series() -> dict[str, object]:
                 "galleries": [_serialize_card(g, tag_map) for g in galleries],
             }
             for s, count, galleries in rows
-        ]
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
     }
 
 

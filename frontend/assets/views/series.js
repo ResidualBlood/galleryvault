@@ -3,6 +3,10 @@
 // views/series.js — 系列作品管理视图 (Series)
 
 async function renderSeries() {
+  const showAll = app.query.show_all === "1";
+  const showAllClass = showAll ? "btn btn-primary" : "btn btn-secondary";
+  const showAllLabel = t("favStateAll") || "Show all";
+
   renderView(`
     <div id="series-view">
       <header>
@@ -13,11 +17,14 @@ async function renderSeries() {
       <div class="toolbar" style="margin-bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
         <button class="btn btn-primary" data-action="series-create" type="button">${esc(t("seriesCreate"))}</button>
         <button class="btn btn-secondary" data-action="series-rebuild" type="button">🔄 ${esc(t("seriesRebuild"))}</button>
+        <button class="${showAllClass}" data-action="series-toggle-all" type="button">${showAll ? "✓ " : ""}${esc(showAllLabel)}</button>
         <span id="series-stats" class="muted" style="margin-left: auto; font-size: 0.9rem;"></span>
       </div>
+      <div class="pages pager" id="series-pager" style="margin-bottom: 12px;"></div>
       <div id="series-list">
         <div class="grid gc-grid">${renderSkeleton(6)}</div>
       </div>
+      <div class="pages pager" id="series-pager-bottom" style="margin-top: 16px;"></div>
     </div>
   `);
 
@@ -28,14 +35,32 @@ async function loadSeriesList() {
   const container = document.getElementById("series-list");
   if (!container) return;
 
+  const showAll = app.query.show_all === "1";
+  const page = Math.max(1, parseInt(app.query.page, 10) || 1);
+  const pageSize = prefPageSize();
+
+  const qs = new URLSearchParams();
+  qs.set("page", String(page));
+  qs.set("page_size", String(pageSize));
+  if (showAll) qs.set("show_all", "1");
+
   try {
-    const data = await api("GET", "/api/series");
+    const data = await api("GET", `/api/series?${qs.toString()}`);
     const items = (data && data.items) || [];
+    const total = (data && typeof data.total === "number") ? data.total : items.length;
     const statsEl = document.getElementById("series-stats");
     if (statsEl) {
       const totalGalleries = items.reduce((acc, it) => acc + (it.count || 0), 0);
-      statsEl.textContent = `${items.length} ${t("groups") || "groups"} · ${totalGalleries} ${t("details") || "items"}`;
+      statsEl.textContent = `${total} ${t("groups") || "groups"} · ${totalGalleries} ${t("details") || "items"}`;
     }
+
+    const buildQuery = p => ({
+      ...(p > 1 ? { page: p } : {}),
+      ...(showAll ? { show_all: "1" } : {}),
+      page_size: prefPageSize(),
+    });
+    gridPager("series-pager", data, buildQuery);
+    gridPager("series-pager-bottom", data, buildQuery);
 
     if (!items.length) {
       container.innerHTML = renderEmpty(t("seriesEmpty"));
@@ -179,6 +204,14 @@ document.addEventListener("click", e => {
   } else if (action === "series-rebuild") {
     e.preventDefault();
     seriesRebuild();
+  } else if (action === "series-toggle-all") {
+    e.preventDefault();
+    const curShowAll = app.query.show_all === "1";
+    const q = { page_size: prefPageSize() };
+    if (!curShowAll) {
+      q.show_all = "1";
+    }
+    location.hash = navHash("series", {}, q);
   } else if (action === "series-rename") {
     e.preventDefault();
     const sid = parseInt(btn.getAttribute("data-series-id"), 10);
