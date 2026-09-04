@@ -9,7 +9,7 @@ occur in a title but are not adjacent returned nothing.
 from sqlalchemy.dialects import postgresql
 
 from galleryvault.db.models import Gallery
-from galleryvault.db.repository import GalleryRepository
+from galleryvault.db.repository import FavoritesRepository, GalleryRepository
 
 
 class _Rows:
@@ -42,6 +42,10 @@ class _ListPageSession:
         return self.total
 
     async def scalars(self, statement):
+        self._compile(statement)
+        return _Rows(self.rows)
+
+    async def execute(self, statement):
         self._compile(statement)
         return _Rows(self.rows)
 
@@ -227,4 +231,142 @@ async def test_resolve_exact_tags_with_mock_session():
         ("language", "chinese"): 42,
         ("female", "Maid"): 99,
     }
+
+
+async def test_favorites_list_items_exact_tag_uses_tag_id_exists():
+    session = _ListPageSession(1, [])
+    repo = FavoritesRepository(session)
+    await repo.list_items(
+        favcat=1,
+        page=1,
+        page_size=24,
+        tags=[("language", "chinese")],
+        tag_id_map={("language", "chinese"): 42},
+    )
+    assert len(session.sql) == 2  # count query and items query
+    for sql in session.sql:
+        lowered = sql.lower()
+        assert "gallery_tags.tag_id = 42" in lowered
+        assert "exists" in lowered
+        assert "ilike" not in lowered
+
+
+async def test_favorites_list_items_multi_exact_tags_and_mode():
+    session = _ListPageSession(1, [])
+    repo = FavoritesRepository(session)
+    await repo.list_items(
+        favcat=1,
+        page=1,
+        page_size=24,
+        tags=[("language", "chinese"), ("female", "maid")],
+        tag_mode="and",
+        tag_id_map={("language", "chinese"): 42, ("female", "maid"): 99},
+    )
+    assert len(session.sql) == 2
+    for sql in session.sql:
+        lowered = sql.lower()
+        assert "gallery_tags.tag_id = 42" in lowered
+        assert "gallery_tags.tag_id = 99" in lowered
+        assert "ilike" not in lowered
+
+
+async def test_favorites_list_items_multi_exact_tags_or_mode():
+    session = _ListPageSession(1, [])
+    repo = FavoritesRepository(session)
+    await repo.list_items(
+        favcat=1,
+        page=1,
+        page_size=24,
+        tags=[("language", "chinese"), ("female", "maid")],
+        tag_mode="or",
+        tag_id_map={("language", "chinese"): 42, ("female", "maid"): 99},
+    )
+    assert len(session.sql) == 2
+    for sql in session.sql:
+        lowered = sql.lower()
+        assert " or " in lowered
+        assert "gallery_tags.tag_id = 42" in lowered
+        assert "gallery_tags.tag_id = 99" in lowered
+
+
+async def test_favorites_list_items_fallback_to_ilike_without_tag_id():
+    session = _ListPageSession(1, [])
+    repo = FavoritesRepository(session)
+    await repo.list_items(
+        favcat=1,
+        page=1,
+        page_size=24,
+        tags=[("language", "chinese")],
+        tag_id_map={},
+    )
+    assert len(session.sql) == 2
+    for sql in session.sql:
+        lowered = sql.lower()
+        assert "gallery_tags.tag_id =" not in lowered
+        assert "ilike" in lowered
+
+
+async def test_favorites_list_items_exclude_exact_tag():
+    session = _ListPageSession(1, [])
+    repo = FavoritesRepository(session)
+    await repo.list_items(
+        favcat=1,
+        page=1,
+        page_size=24,
+        exclude_tags=[("parody", "touhou")],
+        tag_id_map={("parody", "touhou"): 77},
+    )
+    assert len(session.sql) == 2
+    for sql in session.sql:
+        lowered = sql.lower()
+        assert "gallery_tags.tag_id = 77" in lowered
+        assert "not (exists" in lowered or "not exists" in lowered
+        assert "ilike" not in lowered
+
+
+async def test_favorite_items_router_resolves_exact_tags(monkeypatch):
+    from galleryvault.app.routers.favorites import favorite_items
+
+    recorded_calls = {}
+
+    async def fake_get_session():
+        yield "fake_session"
+
+    monkeypatch.setattr("galleryvault.app.routers.favorites.get_session", fake_get_session)
+
+    class FakeGalleryRepo:
+        def __init__(self, session):
+            pass
+
+        async def resolve_exact_tags(self, candidates):
+            recorded_calls["resolved_candidates"] = candidates
+            return {("language", "chinese"): 42}
+
+        async def tags_for_galleries(self, ids):
+            return {}
+
+    class FakeFavRepo:
+        def __init__(self, session):
+            pass
+
+        async def list_items(self, *args, **kwargs):
+            recorded_calls["list_items_kwargs"] = kwargs
+            return (0, [])
+
+    async def fake_favorites_metadata(pairs):
+        return {}
+
+    monkeypatch.setattr("galleryvault.app.routers.favorites.GalleryRepository", FakeGalleryRepo)
+    monkeypatch.setattr("galleryvault.app.routers.favorites.FavoritesRepository", FakeFavRepo)
+    monkeypatch.setattr("galleryvault.app.routers.favorites.favorites_metadata", fake_favorites_metadata)
+
+    await favorite_items(
+        favcat=1,
+        tags="language:chinese",
+        tag_match="exact",
+    )
+    assert recorded_calls["resolved_candidates"] == [("language", "chinese")]
+    assert recorded_calls["list_items_kwargs"]["tag_id_map"] == {("language", "chinese"): 42}
+
+
 

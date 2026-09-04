@@ -331,7 +331,7 @@ async def list_galleries(
             tag_id_map: dict[tuple[str | None, str], int] = {}
             if tag_match == "exact":
                 candidates = parsed_inc_tags + parsed_exc_tags
-                if candidates and hasattr(repo, "resolve_exact_tags"):
+                if candidates:
                     tag_id_map = await repo.resolve_exact_tags(candidates)
             total, rows = await repo.list_page(
                 page,

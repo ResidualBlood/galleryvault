@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -16,6 +16,7 @@ from ..models import (
     ReadingProgress,
     Tag,
 )
+from ..tag_filters import build_tag_predicates
 from .base import _chunked, escape_like_wildcards
 
 
@@ -306,6 +307,7 @@ class FavoritesRepository:
         exclude_tags: Sequence[tuple[str | None, str]] = (),
         tag_mode: str = "and",
         tag_match: str = "exact",
+        tag_id_map: Mapping[tuple[str | None, str], int] | None = None,
         read_status: str | None = None,
         min_rating: float | None = None,
         page_min: int | None = None,
@@ -404,36 +406,16 @@ class FavoritesRepository:
         elif read_status in {"completed", "read"}:
             query = query.where(completed_exists.exists())
 
-        if tags:
-            tag_conditions = []
-            for namespace, name in tags:
-                escaped_name = escape_like_wildcards(name)
-                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
-                condition = [Tag.name.ilike(pattern)]
-                if namespace:
-                    condition.append(Tag.namespace == namespace)
-                tag_conditions.append(
-                    select(GalleryTag.gallery_id)
-                    .join(Tag, Tag.id == GalleryTag.tag_id)
-                    .where(GalleryTag.gallery_id == Gallery.id, *condition)
-                )
-            if tag_mode == "and":
-                query = query.where(*[subquery.exists() for subquery in tag_conditions])
-            else:
-                query = query.where(or_(*[subquery.exists() for subquery in tag_conditions]))
-        if exclude_tags:
-            for namespace, name in exclude_tags:
-                escaped_name = escape_like_wildcards(name)
-                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
-                condition = [Tag.name.ilike(pattern)]
-                if namespace:
-                    condition.append(Tag.namespace == namespace)
-                subquery = (
-                    select(GalleryTag.gallery_id)
-                    .join(Tag, Tag.id == GalleryTag.tag_id)
-                    .where(GalleryTag.gallery_id == Gallery.id, *condition)
-                )
-                query = query.where(~subquery.exists())
+        tag_predicates = build_tag_predicates(
+            Gallery.id,
+            tags=tags,
+            exclude_tags=exclude_tags,
+            tag_mode=tag_mode,
+            tag_match=tag_match,
+            tag_id_map=tag_id_map,
+        )
+        if tag_predicates:
+            query = query.where(*tag_predicates)
 
         total = int(
             await self.session.scalar(

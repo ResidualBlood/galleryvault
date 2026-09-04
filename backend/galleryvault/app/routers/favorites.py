@@ -228,6 +228,11 @@ async def favorite_items(
 
     try:
         async for session in get_session():
+            tag_id_map: dict[tuple[str | None, str], int] = {}
+            if tag_match == "exact":
+                candidates = parsed_inc_tags + parsed_exc_tags
+                if candidates:
+                    tag_id_map = await GalleryRepository(session).resolve_exact_tags(candidates)
             total, rows = await FavoritesRepository(session).list_items(
                 favcat,
                 page,
@@ -240,6 +245,7 @@ async def favorite_items(
                 exclude_tags=parsed_exc_tags if parsed_exc_tags else (),
                 tag_mode=tag_mode,
                 tag_match=tag_match,
+                tag_id_map=tag_id_map,
                 read_status=read_status,
                 min_rating=min_rating,
                 page_min=page_min,
