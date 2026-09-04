@@ -18,6 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Remote cover fallback for gallery card covers** (`backend/galleryvault/app/routers/galleries.py`, `backend/galleryvault/services/favorites_worker.py`, `backend/galleryvault/services/thumbnails.py`): 有 gid 的卡片封面改用 EH 原 thumb 缓存（`remote-covers`），内页 thumb 保持不变。
 - **Gallery detail back navigation** (`frontend/assets/views/`): 详情/阅读器返回完整来路（如 `#/favorites/1` 而非收藏夹根）。
 - **Duplicate thumbnail key path validation** (`backend/galleryvault/app/routers/duplicates.py`): 校验 `GET /api/scan/duplicates/thumb/{key}` 的 key，拒绝空、斜杠与路径穿越，解析路径严格限制在缩略图根目录内。
 - **CBZ export authentication & temp path confinement** (`backend/galleryvault/app/middleware.py`, `backend/galleryvault/app/routers/galleries.py`): CBZ 导出不再放行 Basic Auth，对齐常规会话鉴权；临时导出文件锚定在 `download_root/.exports` 受控目录且响应后自动清理。

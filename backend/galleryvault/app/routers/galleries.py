@@ -50,6 +50,7 @@ from ..dependencies import (
     get_eh_client,
     get_session,
     get_task_manager,
+    image_content_type,
     spawn_task,
 )
 from ..schemas import (
@@ -1426,6 +1427,20 @@ async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
         raise HTTPException(status_code=404, detail="Page not found")
     page = pages[page_index]
     service = _get_thumb_service()
+
+    if page_index == 0 and row.gid:
+        remote_cover = await service.get_remote_cover(row.gid, row.token)
+        if remote_cover is not None:
+            head = await run_in_threadpool(lambda: remote_cover.read_bytes()[:16])
+            media_type = image_content_type(head)
+            if media_type == "application/octet-stream":
+                media_type = JPEG_MIME
+            return FileResponse(
+                remote_cover,
+                media_type=media_type,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+
     cached = service.cached(row.id, page.page_index)
     if cached is None:
         scanner = registry.for_path(Path(row.storage_path or ""))
