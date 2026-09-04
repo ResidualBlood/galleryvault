@@ -25,6 +25,7 @@ This document provides a comprehensive overview of GalleryVault's feature set an
 - **Metadata sync** — Fetches metadata / categories / tags with your own cookies; a gdata batch cache is reused by scans and favorites.
 - **Public-mirror safe** — With `e-hentai.org` configured, ExHentai-only galleries *pause* tag sync (never misclassified as deleted) and resume when the base URL switches back.
 - **Favorites monitor & management** — Watches the ten folders (incremental / watch-only / force modes), auto-downloads missing galleries, per-folder lists, skip heuristic to save bandwidth, and duplicate scan with ignore/restore; detail and library pages can add/move favorites (cloud-first).
+- **Favorites advanced filters** — Favorite folder views support collapsible advanced filters (local rating, pages, size, date, uploader, quality, language, local lists).
 - **Gallery updates** (`#/updates`) — Detects local copies of galleries that ExHentai has re-uploaded (a new gid); one click downloads the new version and deletes the old local copy. If the new gid is already in the library, detection finalizes automatically.
 - **Open on ExHentai** — A one-click link to the original gallery from the detail page (built from configured base URL).
 - **Cookie health** — Startup and periodic probes; expired cookies or no ExHentai access show distinct red top banners linking to Settings.

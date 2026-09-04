@@ -10,6 +10,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Favorites folder filters** (`frontend/assets/views/favorites.js`, `frontend/assets/utils.js`, `frontend/assets/events.js`, `backend/`): 收藏夹详情可折叠高级筛选（对齐画廊库），支持本地星级评分、页面范围、文件大小、发布日期、上传者、画质、语言、本地列表筛选与排序。
 
+### Changed
+
+- **Settings sections reorganized** (`frontend/assets/views/settings.js`, `frontend/assets/styles.css`): 设置页划分为账户、界面（含 `title_display`）、站点与代理、资料库、下载常用设置、下载高级选项（折叠）、标签、缩略图与 Telegram 设置（折叠）等独立分区。
+- **Gallery detail local fields collapsed under More** (`frontend/assets/views/gallery.js`): 画廊详情本地字段（本地星级、笔记、自定义标签等）收纳到「更多」操作菜单/折叠面板后。
+
+### Fixed
+
+- **Notification timestamp timezone** (`backend/services/notifications.py`): 通知 `created_at` 时间戳采用服务器本地时区。
+
+### Performance
+
+- **Library exact tag filtering by tag_id** (`backend/`): 书库精确标签筛选改走内部 `tag_id` 查询，提升大库标签检索效率。
+
 
 ## [1.7.0] - 2026-09-04
 
