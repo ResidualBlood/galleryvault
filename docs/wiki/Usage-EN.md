@@ -512,43 +512,43 @@ additions again.
   old→new gid if the listing was replaced; 404/deleted is reported and not queued).
 - **Translation auto-update**: interval (minutes, 0 = off) and **Update now**.
 
-## Network vs local operations
+## What needs the network
 
 | Class | Operation | Note |
 | --- | --- | --- |
-| Remote | 发现页搜索 | 仍打远端 |
-| Remote | Popular | 仍打远端 |
-| Remote | Watched | 仍打远端 |
-| Remote | Toplist | 仍打远端 |
-| Remote | 下载执行（gdata / 画廊页 / showpage / H@H） | 仍打远端 |
-| Remote | 原图 fullimg.php | 仍打远端 |
-| Remote | Archive archiver.php | 仍打远端 |
-| Remote | Archive 预览+GP | 仍打远端 |
-| Remote | 配额 home.php / exchange.php | 仍打远端 |
-| Remote | Cookie 测试 | 仍打远端 |
-| Remote | 收藏全量同步 favorites.php+gdata | 仍打远端 |
-| Remote | 同步分类名 | 仍打远端 |
-| Remote | 加入/移出/移动收藏与 Note（云端成功后写 DB） | 云端成功后写 DB，仍打远端 |
-| Remote | 未下载封面 | 仍打远端 |
-| Remote | 标签同步按钮/worker | 仍打远端 |
-| Remote | 分类 other 回填 | 仍打远端 |
-| Remote | 画质回填 | 仍打远端 |
-| Remote | EhTag 词库走 GitHub 非 EH | 走 GitHub，非 EH，仍打远端 |
-| Local | 图库列表搜索 | 不打 EH |
-| Local | 阅读器 | 不打 EH |
-| Local | 缩略图 | 不打 EH |
-| Local | 进度/历史 | 不打 EH |
-| Local | 本地评分私有标签 | 不打 EH |
-| Local | 导出 CBZ | 不打 EH |
-| Local | 删除回收站 | 不打 EH |
-| Local | 扫盘 | 不打 EH |
-| Local | 版本更新页（本地对比） | 本地对比，不打 EH |
-| Local | 查重 | 不打 EH |
-| Local | 书单 | 不打 EH |
-| Local | 中文标签联想 | 不打 EH |
-| Local | 日志 | 不打 EH |
-| Local | 磁盘 | 不打 EH |
-| Local | OPDS | 不打 EH |
-| Semi-local | 下载入队缺元数据才 gdata | 缺元数据才打远端 gdata |
-| Semi-local | 详情页打开只读 DB | 只读本地 DB |
-| Semi-local | 封面/分类计数/配额先缓存 | 优先读本地缓存 |
+| Needs the site | 发现页搜索 | Fetches from ExHentai |
+| Needs the site | Popular | Fetches from ExHentai |
+| Needs the site | Watched | Fetches from ExHentai |
+| Needs the site | Toplist | Fetches from ExHentai |
+| Needs the site | 下载执行（gdata / 画廊页 / showpage / H@H） | Fetches from ExHentai |
+| Needs the site | 原图 fullimg.php | Fetches from ExHentai |
+| Needs the site | Archive archiver.php | Fetches from ExHentai |
+| Needs the site | Archive 预览+GP | Fetches from ExHentai |
+| Needs the site | 配额 home.php / exchange.php | Fetches from ExHentai |
+| Needs the site | Cookie 测试 | Fetches from ExHentai |
+| Needs the site | 收藏全量同步 favorites.php+gdata | Fetches from ExHentai |
+| Needs the site | 同步分类名 | Fetches from ExHentai |
+| Needs the site | 加入/移出/移动收藏与 Note（云端成功后写 DB） | 云端成功后写 DB，Fetches from ExHentai |
+| Needs the site | 未下载封面 | Fetches from ExHentai |
+| Needs the site | 标签同步按钮/worker | Fetches from ExHentai |
+| Needs the site | 分类 other 回填 | Fetches from ExHentai |
+| Needs the site | 画质回填 | Fetches from ExHentai |
+| Needs the site | EhTag 词库走 GitHub 非 EH | GitHub, not EH |
+| Local only | 图库列表搜索 | Does not contact EH |
+| Local only | 阅读器 | Does not contact EH |
+| Local only | 缩略图 | Does not contact EH |
+| Local only | 进度/历史 | Does not contact EH |
+| Local only | 本地评分私有标签 | Does not contact EH |
+| Local only | 导出 CBZ | Does not contact EH |
+| Local only | 删除回收站 | Does not contact EH |
+| Local only | 扫盘 | Does not contact EH |
+| Local only | 版本更新页（本地对比） | 本地对比，Does not contact EH |
+| Local only | 查重 | Does not contact EH |
+| Local only | 书单 | Does not contact EH |
+| Local only | 中文标签联想 | Does not contact EH |
+| Local only | 日志 | Does not contact EH |
+| Local only | 磁盘 | Does not contact EH |
+| Local only | OPDS | Does not contact EH |
+| Local first | 下载入队缺元数据才 gdata | 缺元数据才打远端 gdata |
+| Local first | 详情页打开只读 DB | 只读本地 DB |
+| Local first | 封面/分类计数/配额先缓存 | 优先读本地缓存 |
