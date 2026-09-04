@@ -180,8 +180,11 @@ Other formats:
 - **Recycle bin & missing pages** — user-deleted / scan-missing galleries are
   restorable; integrity check re-downloads missing pages.
 - **PWA / light theme / CBZ export / OPDS** — add to home screen caches the UI
-  shell only (not gallery images); detail page can export CBZ; `GET /api/opds`
-  after login.
+  shell only (not gallery images); detail page can export CBZ; OPDS (`GET /api/opds`)
+  and CBZ export (`GET /api/galleries/{id}/export.cbz`) support HTTP Basic authentication
+  (fixed username `galleryvault`, not EH account; password is web login password;
+  failed attempts return 401 with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`;
+  Cookie remains supported). Other `/api/*` routes remain cookie-only.
 
 **Security & operations**
 

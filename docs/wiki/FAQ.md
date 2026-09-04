@@ -83,7 +83,13 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ## 怎么用 OPDS？
 
-登录后访问 `GET /api/opds`（atom+xml），acquisition 链到该本 `export.cbz`。
+OPDS 目录地址为 `GET /api/opds`（atom+xml），画廊条目的 acquisition 链接指向 `GET /api/galleries/{id}/export.cbz`。
+
+支持两种认证方式：
+- **HTTP Basic 认证**：用户名固定为 **`galleryvault`**（**不是** ExHentai 账号），密码为本站 Web 登录密码。第三方阅读器（Tachiyomi、Panels 等）可直接以此配置。未提供凭据或认证失败时返回 `401 Unauthorized` 并携带响应头 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`。
+- **Cookie 认证**：浏览器已登录本站 Web 即可直接访问。
+
+**注意**：HTTP Basic 认证仅对 `GET /api/opds` 与 `GET /api/galleries/{id}/export.cbz` 开放，其余 `/api/*` 路由仍为仅限 Cookie 认证（cookie-only）。
 
 ## 扫描 7z 会把整个压缩包解到磁盘吗？
 

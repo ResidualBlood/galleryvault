@@ -123,8 +123,13 @@ offline fallback) and never cache gallery images or `/api/`.
 
 ## How do I use OPDS?
 
-After login, `GET /api/opds` (atom+xml). Acquisition links point at that
-gallery's `export.cbz`.
+The OPDS feed is available at `GET /api/opds` (atom+xml), with acquisition links pointing to `GET /api/galleries/{id}/export.cbz`.
+
+Two authentication methods are supported:
+- **HTTP Basic authentication**: Use the fixed username **`galleryvault`** (**not** your ExHentai account) and your GalleryVault web login password. This is intended for third-party reader clients (Tachiyomi, Panels, Chunky, etc.). Missing or invalid credentials return `401 Unauthorized` with the header `WWW-Authenticate: Basic realm="GalleryVault OPDS"`.
+- **Session cookie**: Logging into the web UI allows direct browser access.
+
+**Note**: HTTP Basic authentication is only enabled for `GET /api/opds` and `GET /api/galleries/{id}/export.cbz`. All other `/api/*` endpoints remain cookie-only.
 
 ## Does scanning a 7z unpack the whole archive?
 

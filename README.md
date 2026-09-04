@@ -17,7 +17,7 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 - **搜索与标签**：多标签 AND/排除、库排序与阅读状态、发现页搜 ExHentai、中文反向检索、双语界面。
 - **ExHentai 集成**：cookie 同步（失效顶栏告警）；收藏夹监控与查重；发现页一键下载/加收藏；画廊重传更新。
 - **下载管理**：贴链接/归档、断点续传、失败自愈、全局暂停与 GP/配额；Telegram 与应用内通知。
-- **阅读器与界面**：流式阅读（条漫/跳页/全屏）、继续阅读、回收站、PWA 与浅色主题、OPDS。
+- **阅读器与界面**：流式阅读（条漫/跳页/全屏）、继续阅读、回收站、PWA 与浅色主题、OPDS（支持 HTTP Basic 认证，详见 [Wiki 使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)）。
 - **安全与运维**：PBKDF2 认证、可选静态加密（AES-256-GCM）、默认 root 亦可 `PUID`/`PGID` 降权；单命令部署与一键备份。
 
 ## 界面截图

@@ -47,7 +47,7 @@ GalleryVault 是一个私有、自托管的本地画廊库管理器。它将 Ehv
 - **阅读器**：逐页流式、LTR / RTL 日漫 / 双页并排 / **条漫**、键盘/空格/点击翻页、`G` 跳页、预加载后三页、最后一页自动跳转下一画廊、全屏与适应模式、阅读位置自动保存。
 - **浏览与历史**：最新画廊浏览、**继续阅读**、顶栏搜索、阅读历史、任务日志、首次运行向导。
 - **回收站与缺页**：用户删除/扫描失踪可恢复；缺页体检一键补下缺失页。
-- **PWA / 浅色主题 / 导出 CBZ / OPDS**：加到主屏幕只缓存界面壳（不缓存画廊图）；详情可导出 CBZ；登录后 `GET /api/opds`。
+- **PWA / 浅色主题 / 导出 CBZ / OPDS**：加到主屏幕只缓存界面壳（不缓存画廊图）；详情可导出 CBZ；OPDS（`GET /api/opds`）与 CBZ 导出（`GET /api/galleries/{id}/export.cbz`）支持 HTTP Basic 认证（用户名固定 `galleryvault`，非 EH 账号；密码为 Web 登录密码；认证失败返回 401 并带 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`；Cookie 仍可用），其余 `/api/*` 仅限 Cookie。
 
 **安全与运维**
 

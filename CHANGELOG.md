@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **OPDS & CBZ HTTP Basic auth** (`backend/`): Added HTTP Basic authentication support for `GET /api/opds` and `GET /api/galleries/{id}/export.cbz` using fixed username `galleryvault` and the web login password. Session cookie authentication remains supported; failed or missing credentials return `401` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. Other `/api/*` endpoints remain cookie-only.
 - **Favorites select-all** (`frontend/assets/views/favorites.js`, `frontend/assets/events.js`): Added "Select All" button to the `/favorites/:id` toolbar (left of Clear Selection) to select currently rendered gallery cards; scrolling to load more cards allows clicking again to append newly rendered cards.
 
 ### Fixed

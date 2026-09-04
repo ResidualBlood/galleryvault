@@ -12,6 +12,7 @@ authenticated session cookie. Unauthenticated `/api/*` requests receive
 - **Content-Type**: `application/json` (except `POST /login`, which is
   `application/x-www-form-urlencoded`).
 - **Auth**: session cookie `galleryvault_session` (HttpOnly, SameSite=lax).
+- **HTTP Basic Auth**: Supported *only* on `GET /api/opds` and `GET /api/galleries/{identifier}/export.cbz`. Fixed username `galleryvault` (not an ExHentai account); password is the web login password. Missing or invalid credentials on these two endpoints return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. Session cookies remain valid on both endpoints. All other `/api/*` routes are cookie-only.
 
 ## Authentication
 
@@ -45,6 +46,13 @@ Subsequent calls pass the cookie:
 
 ```bash
 curl -b cookies.txt http://localhost:8001/api/settings
+```
+
+For OPDS feed and CBZ export, HTTP Basic authentication is also accepted:
+
+```bash
+curl -u galleryvault:YOUR_PASSWORD http://localhost:8001/api/opds
+curl -u galleryvault:YOUR_PASSWORD -O -J http://localhost:8001/api/galleries/123/export.cbz
 ```
 
 ## Settings
@@ -224,7 +232,7 @@ tier, the rest download page-by-page.
 | DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes the on-disk files (directory or single archive); the row is kept when deletion fails. |
 | POST | `/api/galleries/delete-bulk` | Body `{ids: [...], delete_files?: bool}`. Bulk remove galleries by id; `delete_files` also deletes on-disk files, keeping each row whose files failed to delete. Returns `{deleted, failed_deletions}`. Ids are processed in 500-row batches to stay under asyncpg's parameter limit. |
 | POST | `/api/galleries/delete-filtered` | Body `{q?, category?, tags?, tag_mode?, tag_match?, delete_files?}`. Remove every gallery matching the current library filter (same semantics as `GET /api/galleries`). The backend pages the filter and deletes in 500-row batches, so the client never sends a huge id list. Returns `{deleted, matched, failed_deletions}`. When `matched` exceeds 5000 the request is rejected with `409` (refine the filter or delete in batches). |
-| GET | `/api/galleries/{identifier}/export.cbz` | Download the gallery as a CBZ. An on-disk `.cbz` is streamed with `FileResponse`; a directory gallery is packed in page order (`ZIP_STORED`) to a tempfile. Member paths must resolve inside the gallery directory (zip-slip → `400`); missing files → `404`. Records an `export-cbz` task log. |
+| GET | `/api/galleries/{identifier}/export.cbz` | Download the gallery as a CBZ (supports session cookie or HTTP Basic auth). An on-disk `.cbz` is streamed with `FileResponse`; a directory gallery is packed in page order (`ZIP_STORED`) to a tempfile. Member paths must resolve inside the gallery directory (zip-slip → `400`); missing files → `404`. Records an `export-cbz` task log. |
 | GET | `/api/galleries/{identifier}/pages/{page_index}` | Stream one page image (`image/jpeg`/`image/png`/…). |
 | GET | `/api/galleries/{identifier}/thumb/{page_index}` | Serve a cached static JPEG thumbnail for a page (generated on first access into `/gv-cache/thumbs`, `Cache-Control` + `ETag`). |
 | GET | `/api/galleries/{identifier}/progress` | Reading progress (`current_page`, `total_pages`). |
@@ -273,7 +281,7 @@ refresh is available via the button in Settings. Markdown icon syntax
 | GET | `/api/thumbs/status` | Thumbnail generation worker status (`running`, `queued`, `processed`, `succeeded`, `failed`, `total`, `last_error`). |
 | POST | `/api/thumbs/generate` | `202` – queue every gallery missing a cover thumbnail for background generation. |
 | GET | `/api/notifications` | In-app notification ring (maxlen 100): `{items, unread_count}`. Loaded from `cache/notifications.json` on startup and rewritten on change; write failures are logged only. |
-| GET | `/api/opds` | OPDS Atom catalog of recently ingested galleries (cookie auth). Acquisition links `GET /api/galleries/{id}/export.cbz`. |
+| GET | `/api/opds` | OPDS Atom catalog of recently ingested galleries (supports session cookie or HTTP Basic auth). Acquisition links `GET /api/galleries/{id}/export.cbz`. |
 | GET | `/api/system/storage` | Library / downloads / cache usage. Missing roots report `bytes: 0` (not 500). `largest` is the top 10 by DB `storage_size`. |
 | GET | `/api/saved-searches` | Named library filters stored in `user_settings.saved_searches` (get+merge, max 30). |
 | POST | `/api/saved-searches` | Body `{name, query}`. |
