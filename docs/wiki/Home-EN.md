@@ -2,7 +2,9 @@
 
 > [中文](Home) · English
 
-GalleryVault is a private, self-hosted library manager for local gallery archives. It indexes Ehviewer exports, CBZ/CBR archives and plain image folders into a searchable web library, and can optionally sync tags and metadata from ExHentai, download galleries, monitor favorite folders, and translate every tag. The interface is available in English and Chinese (中文).
+GalleryVault is a private, self-hosted local gallery library. Your files and collection stay on your machine; you don't hand the library to someone else.
+
+It indexes Ehviewer export folders, CBZ/CBR archives, and image directories into a searchable web library. Optionally sync tags and metadata from ExHentai, download galleries, and watch favorites. Reader, search, tag cloud, and tag translation share a Chinese/English UI; deploy with Docker Compose.
 
 ## Quick start
 
