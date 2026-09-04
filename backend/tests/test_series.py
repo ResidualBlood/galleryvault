@@ -437,6 +437,9 @@ async def test_series_router_endpoints(monkeypatch) -> None:
         async def list_all(self):
             return [(s, 1, [g])]
 
+        async def list_paged(self, page=1, page_size=25, show_all=False):
+            return [(s, 1, [g])], 1
+
         async def get(self, sid):
             return s if sid == 5 else None
 
@@ -491,6 +494,15 @@ async def test_series_router_endpoints(monkeypatch) -> None:
     assert len(res["items"]) == 1
     assert res["items"][0]["name"] == "My Series"
     assert len(res["items"][0]["galleries"]) == 1
+    assert res["total"] == 1
+    assert res["page"] == 1
+    assert res["page_size"] == 25
+
+    # 1b. GET /api/series with query params
+    res_paged = await list_series(page=2, page_size=10, show_all=1)
+    assert res_paged["total"] == 1
+    assert res_paged["page"] == 2
+    assert res_paged["page_size"] == 10
 
     # 2. GET /api/series/5
     detail = await get_series(5)
@@ -561,4 +573,55 @@ def test_series_acceptance_constraints() -> None:
         assert 'series: "Series"' in en_js
         assert 'seriesTitle:' in zh_js
         assert 'seriesTitle:' in en_js
+
+
+def test_strip_leading_events_and_ts_akira_grouping() -> None:
+    # 生产 TSあきら君の性生活 7 本：含展会前缀 (C97)/(C99)/(秋葉原超同人祭)/(AC2)/(GW超同人祭)
+    titles = [
+        "(C97) [きのこのみ (konomi)] TSあきら君の性生活",
+        "(C99) [きのこのみ (konomi)] TSあきら君の性生活2",
+        "(秋葉原超同人祭) [きのこのみ (konomi)] TSあきら君の性生活3",
+        "(AC2) [きのこのみ (konomi)] TSあきら君の性生活4",
+        "(GW超同人祭) [きのこのみ (konomi)] TSあきら君の性生活5",
+        "[きのこのみ (konomi)] TSあきら君の性生活6",
+        "[きのこのみ (konomi)] TSあきら君の性生活7",
+    ]
+    feats = []
+    for i, t in enumerate(titles, start=1):
+        g = MagicMock(spec=Gallery, id=i, title=t, title_jpn=None)
+        f = GalleryFeatures(g)
+        feats.append(f)
+        # 验证作者抽取与 core：活动名不能是 core，作者仍从 [社团(作者)] 提取
+        assert f.parsed_artist == "konomi"
+        assert f.core == "tsあきら君の性生活"
+
+    # 验证两两打分连边
+    for i in range(len(feats)):
+        for j in range(i + 1, len(feats)):
+            score, can_edge = calculate_series_score(feats[i], feats[j])
+            assert score >= 50
+            assert can_edge is True
+
+    # 验证 cluster match_key
+    mk = compute_cluster_match_key(feats)
+    assert mk == "s::konomi::tsあきら君の性生活"
+    assert "秋葉原" not in mk and "超同人祭" not in mk and "ac2" not in mk
+
+
+@pytest.mark.asyncio
+async def test_series_repository_list_paged_filtering() -> None:
+    session = _FakeSession()
+    repo = SeriesRepository(session)
+
+    # list_paged show_all=False
+    session.sql.clear()
+    await repo.list_paged(page=1, page_size=25, show_all=False)
+    # verify doujinshi/manga filtering query executed
+    assert any("doujinshi" in s.lower() and "manga" in s.lower() for s in session.sql)
+
+    # list_paged show_all=True
+    session.sql.clear()
+    await repo.list_paged(page=1, page_size=25, show_all=True)
+    # verify doujinshi/manga filtering is NOT applied
+    assert not any("doujinshi" in s.lower() and "manga" in s.lower() for s in session.sql)
 
