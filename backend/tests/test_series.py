@@ -716,8 +716,13 @@ async def test_series_cloud_items_api_serialization(monkeypatch: pytest.MonkeyPa
     assert card["gallery_id"] is None
     assert card["gid"] == 777
     assert card["favcat"] == 2
-    assert card["cover_url"] == "https://ehgt.org/t/777.jpg"
+    assert card["cover_url"] == "/api/favorites/cover?gid=777&token=tok777"
     assert card["page_count"] == 30
+
+    # Cloud member without token/gid does not leak thumb and returns None
+    cloud_item_no_token = dict(cloud_item, token=None)
+    card_no_token = _serialize_card(cloud_item_no_token, {})
+    assert card_no_token["cover_url"] is None
 
     # Local member mock
     g = MagicMock(spec=Gallery, id=55, gid=888, token="tok888", title="Local Title", title_jpn=None, category="manga", page_count=15, favcat=1)

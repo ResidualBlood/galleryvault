@@ -56,18 +56,26 @@ def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[s
                         "display": translated_tag(ns, name)[1],
                     }
                 )
+        is_local = m.get("is_local", False)
+        gid = m.get("gid")
+        token = m.get("token")
+        cover_url = (
+            f"/api/favorites/cover?gid={int(gid)}&token={token}"
+            if (not is_local and gid and token)
+            else (m.get("cover_url") if is_local else None)
+        )
         return {
             "id": m.get("id"),
             "gallery_id": m.get("gallery_id"),
-            "is_local": m.get("is_local", False),
-            "gid": m.get("gid"),
+            "is_local": is_local,
+            "gid": gid,
             "favcat": m.get("favcat"),
-            "token": m.get("token"),
+            "token": token,
             "url": m.get("url"),
             "title": m.get("title", ""),
             "category": m.get("category") or "other",
             "page_count": m.get("page_count", 0),
-            "cover_url": m.get("cover_url"),
+            "cover_url": cover_url,
             "tags": tags,
         }
 
@@ -81,11 +89,18 @@ def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[s
     url = getattr(m, "url", None) or (
         f"https://e-hentai.org/g/{gid}/{token}/" if gid and token else None
     )
-    cover_url = (
-        f"/api/galleries/{g_id}/thumb/0"
-        if (is_local and g_id and page_count)
-        else getattr(m, "cover_url", None)
-    )
+    if is_local:
+        cover_url = (
+            f"/api/galleries/{g_id}/thumb/0"
+            if (g_id and page_count)
+            else getattr(m, "cover_url", None)
+        )
+    else:
+        cover_url = (
+            f"/api/favorites/cover?gid={int(gid)}&token={token}"
+            if gid and token
+            else None
+        )
 
     tags = []
     if g_id is not None and g_id in tag_map:
