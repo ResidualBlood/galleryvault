@@ -26,13 +26,7 @@ BASIC_AUTH_REALM = 'Basic realm="GalleryVault OPDS"'
 def _is_basic_auth_route(request: Request) -> bool:
     if request.method != "GET":
         return False
-    path = request.url.path
-    if path == "/api/opds":
-        return True
-    if path.startswith("/api/galleries/") and path.endswith("/export.cbz"):
-        parts = path.split("/")
-        return len(parts) == 5 and bool(parts[3])
-    return False
+    return request.url.path == "/api/opds"
 
 
 def _verify_basic_auth(request: Request, settings: Any) -> bool:

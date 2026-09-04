@@ -311,14 +311,14 @@ async def retry_download(task_id: int) -> dict[str, object]:
 
 @router.post("/api/downloads/{task_id}/cancel")
 async def cancel_download(task_id: int) -> dict[str, object]:
-    was_downloading = False
+    was_active = False
     try:
         async for session in get_session():
             async with session.begin():
                 row = await session.get(DownloadTaskModel, task_id)
                 if row is None:
                     raise HTTPException(status_code=404, detail="Download task not found")
-                was_downloading = row.status == "downloading"
+                was_active = row.status in {"pending", "downloading"}
                 if not await DownloadRepository(session).cancel(task_id):
                     raise HTTPException(status_code=404, detail="Download task not found")
             break
@@ -327,7 +327,7 @@ async def cancel_download(task_id: int) -> dict[str, object]:
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
-    if was_downloading:
+    if was_active:
         mark_download_cancelled(task_id)
     return {"id": task_id, "status": "cancelled"}
 

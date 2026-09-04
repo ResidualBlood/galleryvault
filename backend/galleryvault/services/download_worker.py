@@ -358,9 +358,16 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
 
     row = None
     try:
+        if is_download_cancelled(task.id):
+            raise DownloadCancelledError("download was cancelled")
+
         async with session_cm() as session, session.begin():
             row = await session.get(DownloadTaskModel, task.id)
-            if row is None or row.status == "cancelled":
+            if row is None or row.status == "cancelled" or is_download_cancelled(task.id):
+                if row is not None and row.status != "cancelled":
+                    row.status = "cancelled"
+                    row.finished_at = datetime.now(UTC)
+                clear_download_cancelled(task.id)
                 return
             row.status = "downloading"
             row.started_at = datetime.now(UTC)
@@ -382,6 +389,9 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
                 progress_state["last_persisted"] = current
                 progress_state["last_flush"] = now
 
+        if is_download_cancelled(task.id):
+            raise DownloadCancelledError("download was cancelled")
+
         result = await downloader.execute(
             DownloadTask(
                 task.gid,
@@ -396,6 +406,16 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             ),
             progress=_on_progress,
         )
+        if is_download_cancelled(task.id):
+            if result and hasattr(result, "path") and Path(result.path).exists():
+                import shutil
+
+                p = Path(result.path)
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    p.unlink(missing_ok=True)
+            raise DownloadCancelledError("download was cancelled")
         completed = False
         async with session_cm() as session, session.begin():
             row = await session.get(DownloadTaskModel, task.id)
@@ -454,6 +474,14 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             return
         await _run_download_inner(rewritten, follow_hops=follow_hops + 1)
     except DownloadCancelledError:
+        try:
+            async with session_cm() as session, session.begin():
+                row = await session.get(DownloadTaskModel, task.id)
+                if row is not None and row.status != "cancelled":
+                    row.status = "cancelled"
+                    row.finished_at = datetime.now(UTC)
+        except SQLAlchemyError:
+            pass
         settings = app_state.settings or get_settings()
         try:
             temp = Path(settings.download_root) / f".gv-{task.gid}"

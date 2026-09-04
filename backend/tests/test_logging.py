@@ -362,3 +362,41 @@ def test_ring_buffer_drops_httpx_2xx_including_telegram_poll() -> None:
 
 def test_runtime_ring_buffer_has_http_access_filter() -> None:
     assert any(isinstance(f, _HttpAccessFilter) for f in _ring_buffer_handler.filters)
+
+
+def test_system_logs_download_file_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from galleryvault import logging as gv_logging
+
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    valid_file = log_dir / "app.log"
+    valid_file.write_text("2026-09-04 INFO test: valid log line\n")
+
+    orig_settings = app_state.settings
+    app_state.settings = Settings(auth_required=False, exhentai_base_url="https://exhentai.org")
+    client = TestClient(app)
+
+    try:
+        # Case 1: valid log file within log root -> 200
+        monkeypatch.setattr(gv_logging, "_current_log_file", valid_file)
+        monkeypatch.setattr(gv_logging, "_current_log_root", log_dir)
+        resp = client.get("/api/system/logs/download")
+        assert resp.status_code == 200
+        assert "valid log line" in resp.text
+
+        # Case 2: outside log root -> 403
+        outside_file = tmp_path / "outside.log"
+        outside_file.write_text("secret\n")
+        monkeypatch.setattr(gv_logging, "_current_log_file", outside_file)
+        monkeypatch.setattr(gv_logging, "_current_log_root", log_dir)
+        resp_outside = client.get("/api/system/logs/download")
+        assert resp_outside.status_code == 403
+
+        # Case 3: configured file under root but missing on disk -> 404
+        missing_file = log_dir / "nonexistent.log"
+        monkeypatch.setattr(gv_logging, "_current_log_file", missing_file)
+        monkeypatch.setattr(gv_logging, "_current_log_root", log_dir)
+        resp_missing = client.get("/api/system/logs/download")
+        assert resp_missing.status_code == 404
+    finally:
+        app_state.settings = orig_settings

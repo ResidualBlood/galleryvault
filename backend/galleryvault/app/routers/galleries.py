@@ -1134,6 +1134,16 @@ async def delete_gallery(
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
+    if results and results[0].get("failed_paths"):
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to delete some gallery files",
+                "failed_paths": results[0]["failed_paths"],
+                "deleted_paths": results[0].get("deleted_paths", []),
+            },
+        )
+
 
 @router.post("/api/galleries/delete-bulk", status_code=200)
 async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
@@ -1358,7 +1368,10 @@ async def export_gallery_cbz(identifier: int) -> FileResponse:
     if not path.is_dir() or not pages:
         _log("failed", "not exportable")
         raise HTTPException(status_code=404, detail="Gallery files not found")
-    fd, tmp_name = tempfile.mkstemp(suffix=".cbz")
+    settings = get_current_settings()
+    export_dir = Path(settings.download_root) / ".exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=".cbz", dir=export_dir)
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:

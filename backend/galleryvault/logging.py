@@ -454,10 +454,15 @@ class RingBufferHandler(logging.Handler):
 
 _ring_buffer_handler = RingBufferHandler(capacity=2000)
 _current_log_file: Path | None = None
+_current_log_root: Path | None = None
 
 
 def get_log_file_path() -> Path | None:
     return _current_log_file
+
+
+def get_log_root() -> Path | None:
+    return _current_log_root
 
 
 def get_recent_logs(
@@ -504,7 +509,7 @@ def configure_logging(
     log_max_bytes: int = 10 * 1024 * 1024,
     log_backup_count: int = 3,
 ) -> None:
-    global _current_log_file
+    global _current_log_file, _current_log_root
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(_Formatter(as_json, use_colors=use_colors))
     access_filter = _HttpAccessFilter()
@@ -519,6 +524,7 @@ def configure_logging(
     if log_file:
         try:
             log_path = Path(log_file)
+            log_root = log_path.parent.resolve()
             log_path.parent.mkdir(parents=True, exist_ok=True)
             file_handler = RotatingFileHandler(
                 log_path,
@@ -530,12 +536,16 @@ def configure_logging(
             file_handler.addFilter(access_filter)
             handlers.append(file_handler)
             _current_log_file = log_path
+            _current_log_root = log_root
         except (PermissionError, OSError) as exc:
             sys.stderr.write(
                 f"Warning: could not initialize file logger at {log_file} ({exc}); falling back to in-memory logs.\n"
             )
         except Exception as exc:  # noqa: BLE001
             sys.stderr.write(f"Warning: unexpected error initializing file logger ({exc})\n")
+    else:
+        _current_log_file = None
+        _current_log_root = None
 
     root = logging.getLogger()
     root.handlers[:] = handlers

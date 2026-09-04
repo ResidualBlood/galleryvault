@@ -164,20 +164,31 @@ async def restore_duplicate(gid: int) -> dict[str, str]:
 
 @router.get("/api/scan/duplicates/thumb/{key}")
 async def duplicate_thumb(key: str) -> FileResponse:
-    async for session in get_session():
-        groups = await GalleryRepository(session).list_duplicates()
-        break
-    target: Path | None = None
-    for group in groups:
-        for copy in group["copies"]:
-            if copy.get("key") == key:
-                target = Path(str(copy.get("path")))
-                break
-    if target is None or not target.exists():
+    if not key or ".." in key or "/" in key or "\\" in key or Path(key).is_absolute():
         raise HTTPException(status_code=404, detail="copy not found")
+
     service = _get_thumb_service()
-    cached = service.root / "dup" / key / "0.jpg"
+    dup_root = (service.root / "dup").resolve()
+    try:
+        candidate = (service.root / "dup" / key / "0.jpg").resolve()
+        if not candidate.is_relative_to(dup_root):
+            raise HTTPException(status_code=404, detail="copy not found")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="copy not found")
+
+    cached = candidate
     if not cached.is_file():
+        async for session in get_session():
+            groups = await GalleryRepository(session).list_duplicates()
+            break
+        target: Path | None = None
+        for group in groups:
+            for copy in group.get("copies") or []:
+                if copy.get("key") == key:
+                    target = Path(str(copy.get("path") or ""))
+                    break
+        if target is None or not target.exists():
+            raise HTTPException(status_code=404, detail="copy not found")
         meta = await _scan_copy(target)
         if not meta.pages:
             raise HTTPException(status_code=422, detail="copy has no pages")
@@ -196,8 +207,16 @@ async def duplicate_thumb(key: str) -> FileResponse:
             cached = await run_in_threadpool(service.get_or_create_dup, key, data)
         except ThumbnailError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        resolved_cached = cached.resolve()
+        if not resolved_cached.is_relative_to(dup_root) or not resolved_cached.is_file():
+            raise HTTPException(status_code=404, detail="copy not found")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="copy not found")
+
     return FileResponse(
-        cached,
+        resolved_cached,
         media_type=DUP_JPEG,
         headers={"Cache-Control": "public, max-age=86400"},
     )
