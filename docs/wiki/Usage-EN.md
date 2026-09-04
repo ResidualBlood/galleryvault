@@ -253,8 +253,9 @@ manually to revisit it.
 - Lists download tasks with their status (waiting / downloading / success /
   failed / cancelled), filterable by status.
 - A **channel badge** next to each task title marks how it downloads: archive
-  tasks show "Archive · Original/Resample", plain H@H page-by-page downloads
-  show "Page-by-page", so the two channels are easy to tell apart.
+  tasks show "Archive · Original/Resample" (or "Fallback pages" if an archive
+  failure falls back to page-by-page), plain H@H page-by-page downloads show
+  "Page-by-page", so the two channels are easy to tell apart.
 - Active tasks show a **live progress bar** (`current/total` + percentage); the
   list auto-refreshes every 2 seconds.
 - **Retries are resumable**: only the missing/failed pages are fetched; pages

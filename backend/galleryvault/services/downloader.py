@@ -53,6 +53,7 @@ class DownloadTask:
     category: str = "other"
     max_pages: int | None = None
     quality: str | None = None
+    archive_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -199,6 +200,7 @@ class Downloader:
         self.semaphore = asyncio.Semaphore(max(1, concurrency))
         self.page_concurrency = max(1, min(page_concurrency, 16))
         self._gids: set[int] = set()
+        self._tasks: dict[int, DownloadTask] = {}
         self._lock = asyncio.Lock()
         # Live speed/ETA stats per gallery, keyed by gid, fed by every page
         # write and consumed by the downloads API (Downloader.speed_stats).
@@ -234,11 +236,26 @@ class Downloader:
     def _clear_stats(self, gid: int) -> None:
         self._stats.pop(int(gid), None)
 
+    @classmethod
+    def check_archive_fallback(cls, root: Path, gid: int) -> bool:
+        marker = root / f".gv-{gid}" / ".archive_fallback"
+        if marker.exists():
+            return True
+        existing = _find_existing_dirname(root, gid)
+        return bool(existing and (root / existing / ".archive_fallback").exists())
+
+    def is_archive_fallback(self, gid: int) -> bool:
+        task = self._tasks.get(int(gid))
+        if task is not None and getattr(task, "archive_fallback", False):
+            return True
+        return self.check_archive_fallback(self.root, gid)
+
     async def enqueue(self, task: DownloadTask) -> bool:
         async with self._lock:
             if task.gid in self._gids:
                 return False
             self._gids.add(task.gid)
+            self._tasks[task.gid] = task
         return True
 
     async def execute(
@@ -252,6 +269,7 @@ class Downloader:
         finally:
             async with self._lock:
                 self._gids.discard(task.gid)
+                self._tasks.pop(task.gid, None)
             self._clear_stats(task.gid)
 
     async def _execute_with_retries(
@@ -277,6 +295,7 @@ class Downloader:
         if task.mode and "archive" in task.mode:
             temp = self.root / f".gv-{task.gid}"
             if (temp / ".archive_fallback").exists():
+                object.__setattr__(task, "archive_fallback", True)
                 logger.info(
                     "archive fallback marker found; continuing page-by-page",
                     extra=log_extra(gid=task.gid),
@@ -299,6 +318,7 @@ class Downloader:
                 temp = self.root / f".gv-{task.gid}"
                 temp.mkdir(parents=True, exist_ok=True)
                 (temp / ".archive_fallback").touch()
+                object.__setattr__(task, "archive_fallback", True)
                 return await self._download_pages(task, progress)
         return await self._download_pages(task, progress)
 

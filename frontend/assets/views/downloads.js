@@ -176,8 +176,10 @@ async function loadDownloads(filter, page) {
       el.innerHTML = `<div class="rows">` + items.map(x => {
         const title = x.title || ("gid " + (x.gid != null ? x.gid : x.id));
         const isArchive = !!(x.mode && String(x.mode).includes("archive"));
-        const badge = isArchive
+        const badge = (isArchive && !x.archive_fallback)
           ? `<span class="badge dl-badge">${esc(t("dlBadgeArchive"))} · ${esc(x.quality === "original" ? t("archiveTierOriginal") : t("archiveTierResample"))}</span>`
+          : (isArchive && x.archive_fallback)
+          ? `<span class="badge dl-badge">${esc(t("dlBadgeArchiveFallback"))}</span>`
           : `<span class="badge dl-badge">${esc(t("dlBadgePages"))}</span>`;
         const actions = [];
         if (x.status === "pending" || x.status === "downloading") {

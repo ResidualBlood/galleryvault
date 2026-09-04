@@ -57,7 +57,7 @@ window.GV_LOCALES.zh = {
   archiveMaxPages: "归档页数阈值（0=全部归档）", archiveMaxPagesHint: "定时扫描收藏夹时，页数超过该阈值的画廊用 ExHentai 官方归档（zip）下载，其余仍逐页下载。0 表示全部走归档。",
   archiveFallbackPages: "归档不可用时降级为逐页下载", archiveFallbackPagesHint: "当归档通道无法下载该画廊（所选画质不存在、GP 不足、归档损坏）时，改为逐页下载而不是失败。逐页不消耗 GP，但会占用 H@H 流量。",
   archiveTitle: "归档下载 — 费用预览", archiveFunds: "可用 GP", archiveTierOriginal: "原图", archiveTierResample: "重采样", archiveCost: "费用", archiveSize: "大小", archiveUnavailable: "GP 不足", archiveConfirm: "开始归档下载", archiveNoItems: "所选画廊没有可用的归档。", archivePreviewFail: "归档预览失败", archiveQueued: "已加入归档下载", archiveUnsupported: "部分所选画廊已本地或缺少 token，已跳过。",
-  dlBadgeArchive: "归档", dlBadgePages: "逐页",
+  dlBadgeArchive: "归档", dlBadgeArchiveFallback: "回退逐页", dlBadgePages: "逐页",
   dlAddTitle: "添加下载 / 粘贴链接",
   dlAddHint: "每行一条：画廊 URL 或 gid/token（如 123456/abcdef）",
   dlAddPlaceholder: "https://e-hentai.org/g/12345/abcdef\n123456/abcdef1234",
