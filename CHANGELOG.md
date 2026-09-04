@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Series auto matching rule** (`backend/galleryvault/services/series.py`, `backend/galleryvault/db/repositories/series.py`): 系列自动匹配算法改为基于作者前缀与核心书名聚类，自动剥离 Cxx/同人展会/噪声标签/卷号/少量副标题等修饰，提升系列归类准确率。
 - **Gallery card cover presentation** (`frontend/assets/styles.css`, `frontend/assets/views/`): 画廊卡片封面（Browse/Library/Discover/Favorites/Recycle/Integrity 与继续阅读）调整为 contain 前景并叠加高斯模糊同图铺底，横向封面不再裁切（槽位保持 3:4）；画廊详情页缩略图与重复副本小图维持 cover 裁切。
 
 ### Fixed

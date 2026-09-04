@@ -26,20 +26,66 @@ from galleryvault.services.series import (
 
 
 def test_compute_series_key_and_match_key() -> None:
-    # Trailing numbers stripped
+    # 1. Trailing numbers stripped; core and artist extraction
     assert compute_series_key("[Artist] Long Series Title 01", None) == "longseriestitle"
     assert compute_series_key("[Artist] Long Series Title 2", None) == "longseriestitle"
     assert compute_series_key(None, "[Artist] Long Series Title 123") == "longseriestitle"
 
-    # Match key formatting: (series_key, artist_from_title)
+    # Match key formatting: {artist}::{core}
     key1 = compute_match_key("[Artist] Long Series Title 01", None)
     key2 = compute_match_key("[Artist] Long Series Title 02", None)
     assert key1 == key2
     assert key1 == "artist::longseriestitle"
 
-    # len(series_key) < 6 should not form a match key
+    # len(core) < 6 should not form a match key
     assert compute_match_key("[Artist] Abc 1", None) is None
     assert compute_match_key("Short 1", None) is None
+
+    # 反例 1: 理想の妹6 与 理想の妹催眠編 → 天凪青磁::理想の妹，成组
+    # 前导 (C93) 不是作者；[INS-mode(天凪青磁)] 作者为天凪青磁
+    k_imouto1 = compute_match_key("(C93) [INS-mode(天凪青磁)] 理想の妹6", None)
+    k_imouto2 = compute_match_key("(C93) [INS-mode(天凪青磁)] 理想の妹催眠編", None)
+    assert k_imouto1 == "天凪青磁::理想の妹"
+    assert k_imouto2 == "天凪青磁::理想の妹"
+    assert k_imouto1 == k_imouto2
+
+    # 反例 2: 落难少女4/5 → ::落难少女，成组 (找不到作者 artist="")
+    k_girl4 = compute_match_key("落难少女4", None)
+    k_girl5 = compute_match_key("落难少女5", None)
+    assert k_girl4 == "::落难少女"
+    assert k_girl5 == "::落难少女"
+    assert k_girl4 == k_girl5
+
+    # 反例 3: exodus626 那本 → exodus626::落难山村的少女，与落难少女不成组
+    k_exodus = compute_match_key("exodus626 - 落难山村的少女", None)
+    assert k_exodus == "exodus626::落难山村的少女"
+    assert k_exodus != k_girl4
+
+    # 噪声括号整段删：动态压缩版/动态版/无修/無修正/AI Generated/DL版
+    k_noise1 = compute_match_key("[Artist] Long Series Title 01 [DL版]", None)
+    k_noise2 = compute_match_key("[Artist] Long Series Title 01 (無修正)", None)
+    k_noise3 = compute_match_key("[Artist] Long Series Title 01 【无修】", None)
+    k_noise4 = compute_match_key("[Artist] Long Series Title 01 [AI Generated]", None)
+    k_noise5 = compute_match_key("[Artist] Long Series Title 01 [动态版]", None)
+    k_noise6 = compute_match_key("[Artist] Long Series Title 01 [动态压缩版]", None)
+    for kn in (k_noise1, k_noise2, k_noise3, k_noise4, k_noise5, k_noise6):
+        assert kn == "artist::longseriestitle"
+
+    # 末尾副标题词：前編/後編/中編/完結編/上巻/下巻
+    assert compute_match_key("[Circle (Artist)] Epic Story 前編", None) == "artist::epicstory"
+    assert compute_match_key("[Circle (Artist)] Epic Story 後編", None) == "artist::epicstory"
+    assert compute_match_key("[Circle (Artist)] Epic Story 中編", None) == "artist::epicstory"
+    assert compute_match_key("[Circle (Artist)] Epic Story 完結編", None) == "artist::epicstory"
+    assert compute_match_key("[Circle (Artist)] Epic Story 上巻", None) == "artist::epicstory"
+    assert compute_match_key("[Circle (Artist)] Epic Story 下巻", None) == "artist::epicstory"
+
+    # 不删书名内部其它数字
+    assert compute_match_key("落难山村的少女", None) == "::落难山村的少女"
+    assert compute_match_key("[Artist] Title 3 with internal 4 number 01", None) == "artist::title3withinternal4number"
+
+    # 内层若是 C\d+ 则跳过再找
+    k_c_skip = compute_match_key("[C93] [Circle (Artist)] Long Series Title 01", None)
+    assert k_c_skip == "artist::longseriestitle"
 
 
 def test_determine_group_name() -> None:
@@ -140,18 +186,39 @@ async def test_series_repository_sql_statements() -> None:
     ok = await repo.delete_series(1)
     assert ok is True
 
+    # get_auto_series
+    session.sql.clear()
+    await repo.get_auto_series()
+    assert any("match_key is not null" in s.lower() for s in session.sql)
+
+    # get_auto_series_gids
+    session.sql.clear()
+    await repo.get_auto_series_gids([1, 2])
+    assert any("series_items" in s.lower() for s in session.sql)
+
+    # get_rebuild_candidate_galleries
+    session.sql.clear()
+    await repo.get_rebuild_candidate_galleries()
+    assert any("series_exclusions" in s.lower() for s in session.sql)
+
+    # clear_auto_series_items
+    session.sql.clear()
+    await repo.clear_auto_series_items([1, 2])
+    assert any("delete from series_items" in s.lower() for s in session.sql)
+
 
 @pytest.mark.asyncio
 async def test_rebuild_series_groups_logic() -> None:
-    # Setup mock unassigned galleries
+    # Setup candidate galleries (unassigned or auto group members)
     g1 = MagicMock(spec=Gallery, id=1, title="[Artist] Amazing Adventure 1", title_jpn=None, trashed=False)
     g2 = MagicMock(spec=Gallery, id=2, title="[Artist] Amazing Adventure 2", title_jpn=None, trashed=False)
     # g3 alone: len < 2, should not form group
     g3 = MagicMock(spec=Gallery, id=3, title="[SoloArtist] Solitary Work 1", title_jpn=None, trashed=False)
 
     fake_repo = AsyncMock()
-    fake_repo.get_existing_auto_groups.return_value = {}
-    fake_repo.get_unassigned_galleries.return_value = [g1, g2, g3]
+    fake_repo.get_auto_series.return_value = []
+    fake_repo.get_auto_series_gids.return_value = {}
+    fake_repo.get_rebuild_candidate_galleries.return_value = [g1, g2, g3]
 
     created_series = Series(id=10, name="[Artist] Amazing Adventure", match_key="artist::amazingadventure", name_manual=False)
     fake_repo.create.return_value = created_series
@@ -176,9 +243,54 @@ async def test_rebuild_series_groups_logic() -> None:
     with patch("galleryvault.services.series.SeriesRepository", return_value=fake_repo):
         res = await rebuild_series_groups(session_factory=fake_session_factory)
         assert res["created"] == 1
-        assert res["merged"] == 0
+        assert res["merged"] == 2
         fake_repo.create.assert_called_once()
         fake_repo.add_items.assert_called_once_with(10, [1, 2], source="auto")
+
+
+@pytest.mark.asyncio
+async def test_rebuild_series_groups_name_manual_and_empty_cleanup() -> None:
+    # Existing auto series:
+    # s1: name_manual=True, member g1 & g2, old key was "artist::oldkey"
+    # s2: name_manual=False, will become empty and should be deleted
+    s1 = Series(id=1, name="My Custom Renamed Series", match_key="artist::oldkey", name_manual=True)
+    s2 = Series(id=2, name="Old Empty Series", match_key="artist::obsoletekey", name_manual=False)
+
+    # Candidates: g1 and g2 will form "artist::newadventure"
+    g1 = MagicMock(spec=Gallery, id=10, title="[Artist] New Adventure 1", title_jpn=None, trashed=False)
+    g2 = MagicMock(spec=Gallery, id=11, title="[Artist] New Adventure 2", title_jpn=None, trashed=False)
+
+    fake_repo = AsyncMock()
+    fake_repo.get_auto_series.return_value = [s1, s2]
+    fake_repo.get_auto_series_gids.return_value = {1: {10, 11}, 2: set()}
+    fake_repo.get_rebuild_candidate_galleries.return_value = [g1, g2]
+
+    class DummyCtx:
+        async def __aenter__(self):
+            return MagicMock()
+        async def __aexit__(self, *args):
+            pass
+
+    class DummySession:
+        def begin(self):
+            return DummyCtx()
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+
+    fake_session_factory = MagicMock(return_value=DummySession())
+
+    with patch("galleryvault.services.series.SeriesRepository", return_value=fake_repo):
+        res = await rebuild_series_groups(session_factory=fake_session_factory)
+        # s1 is reused for the group because of membership overlap; its custom name is NOT changed
+        assert s1.name == "My Custom Renamed Series"
+        assert s1.match_key == "artist::newadventure"
+        # s2 is deleted because it became empty and name_manual=False
+        fake_repo.delete_series.assert_called_once_with(2)
+        # s1 is NOT deleted because name_manual=True
+        assert res["created"] == 0
+        assert res["merged"] == 2
 
 
 @pytest.mark.asyncio
