@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Duplicate thumbnail key path validation** (`backend/galleryvault/app/routers/duplicates.py`): 校验 `GET /api/scan/duplicates/thumb/{key}` 的 key，拒绝空、斜杠与路径穿越，解析路径严格限制在缩略图根目录内。
+- **CBZ export authentication & temp path confinement** (`backend/galleryvault/app/middleware.py`, `backend/galleryvault/app/routers/galleries.py`): CBZ 导出不再放行 Basic Auth，对齐常规会话鉴权；临时导出文件锚定在 `download_root/.exports` 受控目录且响应后自动清理。
+- **Pending download cancellation & abort before write** (`backend/galleryvault/app/routers/downloads.py`, `backend/galleryvault/services/download_worker.py`): `pending` 状态下载任务支持取消标记；下载 worker 在任务执行前后及写入前校验取消状态，确保取消后立即中断且不落盘。
+- **Multi-copy partial deletion DB-disk consistency** (`backend/galleryvault/services/deletion.py`): 多副本画廊本地删除出现部分失败时，同步更新 DB 仅移除已成功删除的副本路径，避免 DB 记录指向已删磁盘路径。
+- **System log download path confinement** (`backend/galleryvault/app/routers/settings.py`, `backend/galleryvault/logging.py`): 日志下载与文件路径解析严格限制在配置的系统日志根目录下，防止越界读取。
+
 ## [1.7.1] - 2026-09-04
 
 ### Added

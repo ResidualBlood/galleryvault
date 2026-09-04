@@ -35,14 +35,15 @@ def _is_in_download_root(path: Path) -> bool:
         from ..app.state import app_state
 
         dl_root = None
-        if app_state.downloader is not None and app_state.downloader.root is not None:
-            dl_root = Path(app_state.downloader.root).resolve()
-        elif app_state.settings is not None and app_state.settings.download_root:
+        downloader_root = getattr(app_state.downloader, "root", None)
+        if downloader_root is not None:
+            dl_root = Path(downloader_root).resolve()
+        elif app_state.settings is not None and getattr(app_state.settings, "download_root", None):
             dl_root = Path(app_state.settings.download_root).resolve()
         if dl_root is None:
             return False
         return path.resolve().is_relative_to(dl_root)
-    except (ValueError, TypeError, OSError):
+    except (AttributeError, ValueError, TypeError, OSError):
         return False
 
 
@@ -192,6 +193,44 @@ async def delete_galleries_local(
             else:
                 db_removed = False
                 trashed = False
+                if delete_all_copies and deleted_paths:
+                    from ..db.models import DuplicateRecord
+                    from ..db.repositories.base import path_hash
+
+                    # Update DuplicateRecord to remove successfully deleted copies
+                    if gid is not None:
+                        dup_row = await session.get(DuplicateRecord, gid)
+                        if dup_row is not None:
+                            deleted_resolved = {Path(p).resolve() for p in deleted_paths}
+                            remaining_copies = [
+                                c for c in (dup_row.copies or [])
+                                if Path(str(c.get("path") or "")).resolve() not in deleted_resolved
+                            ]
+                            if not remaining_copies:
+                                await session.delete(dup_row)
+                            else:
+                                dup_row.copies = remaining_copies
+                                if (
+                                    dup_row.winner_path
+                                    and Path(dup_row.winner_path).resolve() in deleted_resolved
+                                ):
+                                    dup_row.winner_path = str(remaining_copies[0].get("path") or "")
+                                dup_row.updated_at = datetime.now(UTC)
+
+                    # If gallery.storage_path was deleted, point it to a surviving copy
+                    if gallery.storage_path:
+                        gallery_resolved = Path(gallery.storage_path).resolve()
+                        deleted_resolved = {Path(p).resolve() for p in deleted_paths}
+                        if gallery_resolved in deleted_resolved:
+                            failed_resolved = [Path(p).resolve() for p in failed_paths]
+                            surviving = [p for p in targets if p.resolve() in failed_resolved]
+                            if not surviving and failed_paths:
+                                surviving = [Path(failed_paths[0])]
+                            if surviving:
+                                new_path = surviving[0]
+                                gallery.storage_path = str(new_path)
+                                gallery.path_hash = path_hash(new_path)
+                                gallery.updated_at = datetime.now(UTC)
         results.append(
             {
                 "gallery_id": gallery.id,

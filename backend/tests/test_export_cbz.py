@@ -101,33 +101,26 @@ def _make_basic_auth(username: str, password: str) -> str:
     return f"Basic {token}"
 
 
-def test_export_cbz_unauthenticated_returns_401_with_realm(
+def test_export_cbz_unauthenticated_returns_401(
     export_test_client: TestClient,
 ) -> None:
     resp = export_test_client.get("/api/galleries/123/export.cbz")
     assert resp.status_code == 401
-    assert resp.headers.get("www-authenticate") == 'Basic realm="GalleryVault OPDS"'
+    # CBZ is no longer a basic auth route, so no WWW-Authenticate realm header
+    assert resp.headers.get("www-authenticate") is None
     assert resp.json() == {"detail": "Authentication required"}
 
 
-def test_export_cbz_invalid_credentials_returns_401_with_realm(
+def test_export_cbz_basic_auth_alone_rejected(
     export_test_client: TestClient,
 ) -> None:
-    # 错误用户名
-    resp_bad_user = export_test_client.get(
+    # Basic Auth alone (without valid session cookie) is rejected with 401
+    resp = export_test_client.get(
         "/api/galleries/123/export.cbz",
-        headers={"authorization": _make_basic_auth("wrong", "export-pass")},
+        headers={"authorization": _make_basic_auth("galleryvault", "export-pass")},
     )
-    assert resp_bad_user.status_code == 401
-    assert resp_bad_user.headers.get("www-authenticate") == 'Basic realm="GalleryVault OPDS"'
-
-    # 错误密码
-    resp_bad_pwd = export_test_client.get(
-        "/api/galleries/123/export.cbz",
-        headers={"authorization": _make_basic_auth("galleryvault", "wrong")},
-    )
-    assert resp_bad_pwd.status_code == 401
-    assert resp_bad_pwd.headers.get("www-authenticate") == 'Basic realm="GalleryVault OPDS"'
+    assert resp.status_code == 401
+    assert resp.headers.get("www-authenticate") is None
 
 
 def test_export_cbz_valid_auth_success(
@@ -152,18 +145,55 @@ def test_export_cbz_valid_auth_success(
 
     monkeypatch.setattr(galleries_router, "_gallery", fake_gallery)
 
-    # 1. 有效 Basic 认证
-    resp_basic = export_test_client.get(
-        "/api/galleries/123/export.cbz",
-        headers={"authorization": _make_basic_auth("galleryvault", "export-pass")},
-    )
-    assert resp_basic.status_code == 200
-    assert resp_basic.headers.get("content-type") == "application/zip"
-
-    # 2. 仅有效 cookie（无 Basic）
+    # Valid session cookie allows export
     export_test_client.cookies.set(
         "galleryvault_session", create_session("unit-test-secret", 60)
     )
     resp_cookie = export_test_client.get("/api/galleries/123/export.cbz")
     assert resp_cookie.status_code == 200
     assert resp_cookie.headers.get("content-type") == "application/zip"
+
+
+def test_export_cbz_directory_anchors_to_download_root(
+    export_test_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import galleries as galleries_router
+
+    dl_root = tmp_path / "downloads"
+    dl_root.mkdir()
+    export_test_client.app.state.settings.download_root = str(dl_root)
+    app_state.settings.download_root = str(dl_root)
+
+    gallery_dir = tmp_path / "gdir"
+    gallery_dir.mkdir()
+    page1 = gallery_dir / "0001.jpg"
+    page1.write_bytes(b"imgdata")
+
+    page_row = SimpleNamespace(page_index=0, member_name="0001.jpg")
+    row = SimpleNamespace(
+        id=789,
+        gid=101,
+        title="Dir Gallery",
+        storage_path=str(gallery_dir),
+    )
+
+    async def fake_gallery(identifier: int):
+        return row, [page_row]
+
+    monkeypatch.setattr(galleries_router, "_gallery", fake_gallery)
+
+    export_test_client.cookies.set(
+        "galleryvault_session", create_session("unit-test-secret", 60)
+    )
+    resp = export_test_client.get("/api/galleries/789/export.cbz")
+    assert resp.status_code == 200
+    assert resp.headers.get("content-type") == "application/zip"
+
+    # Verify .exports directory was created under download_root
+    exports_dir = dl_root / ".exports"
+    assert exports_dir.is_dir()
+    # Temporary files should have been cleaned up after response
+    remaining = list(exports_dir.glob("*.cbz"))
+    assert remaining == []

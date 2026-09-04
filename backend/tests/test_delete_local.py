@@ -188,6 +188,8 @@ async def test_delete_partial_failure_keeps_db_row(tmp_path, monkeypatch):
     assert results[0]["db_removed"] is False  # row kept: not everything was deleted
     assert bad in [Path(p) for p in results[0]["failed_paths"]]
     assert session.deleted_galleries == []
+    assert gallery.storage_path == str(bad)
+    assert dup.copies == [{"path": str(bad)}]
 
 
 @pytest.mark.asyncio
@@ -572,3 +574,64 @@ async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monke
         assert calls and calls[0] == (None, True)
     finally:
         app_state.session_factory = orig_factory
+
+
+@pytest.mark.asyncio
+async def test_delete_gallery_endpoint_fails_on_partial_file_deletion(monkeypatch):
+    from fastapi import HTTPException
+
+    from galleryvault.app.routers import galleries as galleries_module
+    from galleryvault.app.routers.galleries import delete_gallery
+
+    gal = Gallery(id=1, gid=100, title="test", storage_path="/path")
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+        async def get(self, model, pk):
+            return gal
+
+        async def scalar(self, stmt):
+            return gal
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(galleries_module, "get_session", fake_get_session)
+    monkeypatch.setattr(galleries_module, "_record_gallery_delete_log", lambda *a: None)
+
+    async def fake_delete_local(*args, **kwargs):
+        return [{"gallery_id": 1, "gid": 100, "db_removed": False, "deleted_paths": [], "failed_paths": ["/path"]}]
+
+    monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete_local)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await delete_gallery(1, delete_files=True)
+    assert exc_info.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_delete_with_downloader_stub_missing_root(tmp_path, monkeypatch):
+    """If app_state.downloader is a mock/stub without 'root', deletion still succeeds."""
+    class _NoRootDownloader:
+        pass
+
+    monkeypatch.setattr(app_state, "downloader", _NoRootDownloader())
+    copy = tmp_path / "g-stub"
+    copy.mkdir()
+    (copy / "p.jpg").write_bytes(b"data")
+    gallery = _gallery(99, 999, copy)
+
+    session = _session_factory([gallery], {})
+    results = await delete_galleries_local(
+        session, [gallery], delete_files=True, delete_all_copies=False
+    )
+    assert not copy.exists()
+    assert results[0]["db_removed"] is True

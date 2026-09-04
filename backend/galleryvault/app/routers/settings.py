@@ -16,6 +16,7 @@ from ...logging import (
     clear_recent_logs,
     get_log_file_path,
     get_log_level,
+    get_log_root,
     get_recent_logs,
     set_log_level,
 )
@@ -272,12 +273,31 @@ async def system_logs_download() -> Response:
     timestamp_str = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     download_filename = f"galleryvault-{timestamp_str}.log"
 
-    if log_path and log_path.exists() and log_path.is_file():
+    if log_path is not None:
+        try:
+            resolved = log_path.resolve()
+        except (ValueError, OSError):
+            raise HTTPException(status_code=404, detail="Log file not found")
+
+        log_root = get_log_root()
+        if log_root is None:
+            log_root = log_path.parent.resolve()
+
+        try:
+            if not resolved.is_relative_to(log_root):
+                raise HTTPException(status_code=403, detail="Log file path outside log directory")
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=403, detail="Log file path outside log directory")
+
+        if not resolved.exists() or not resolved.is_file():
+            raise HTTPException(status_code=404, detail="Log file not found")
+
         return FileResponse(
-            str(log_path),
+            str(resolved),
             media_type="text/plain; charset=utf-8",
             filename=download_filename,
         )
+
     recent = get_recent_logs(min_level="DEBUG", limit=2000)
     lines: list[str] = [
         f"# [GalleryVault Runtime Logs - In-Memory Fallback - {datetime.now(UTC).isoformat()}]",

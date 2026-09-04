@@ -71,6 +71,8 @@ class _Session:
 
 
 class _Downloader:
+    root = None
+
     def __init__(self, result, cancel_between=False):
         self.result = result
         self.cancel_between = cancel_between
@@ -91,9 +93,9 @@ class _Settings:
 
 def _patched(monkeypatch, *, row_provider, downloader):
     """Stub the DB + downloader + notification seams run_download touches."""
-    app_state.session_factory = lambda: _Session(row_provider)
-    app_state.downloader = downloader
-    app_state.settings = _Settings(Path("/tmp"))
+    monkeypatch.setattr(app_state, "session_factory", lambda: _Session(row_provider))
+    monkeypatch.setattr(app_state, "downloader", downloader)
+    monkeypatch.setattr(app_state, "settings", _Settings(Path("/tmp")))
     monkeypatch.setattr(download_worker, "maybe_scan_after_download", lambda result: None)
     notifications: list[tuple[str, object, object]] = []
 
@@ -196,6 +198,8 @@ async def test_gallery_gone_error_marks_failed_without_retry(monkeypatch: pytest
     from galleryvault.services.eh_client import GalleryGoneError
 
     class _FailingDownloader:
+        root = None
+
         async def execute(self, task, *, progress=None, **_):
             raise GalleryGoneError("gallery does not exist on ExHentai (404)")
 
@@ -218,3 +222,73 @@ async def test_gallery_gone_error_marks_failed_without_retry(monkeypatch: pytest
     assert "deleted or not found" in (row.error_message or "")
     assert len(notifications) == 1
     assert notifications[0][0] == "fail"
+
+
+@pytest.mark.asyncio
+async def test_cancel_pending_task_arms_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    from galleryvault.app.routers import downloads as dl_router
+    from galleryvault.app.routers.downloads import cancel_download
+
+    row = _Row(99)
+    row.status = "pending"
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+        async def get(self, model, pk):
+            return row
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def cancel(self, task_id):
+            row.status = "cancelled"
+            return True
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(dl_router, "get_session", fake_get_session)
+    monkeypatch.setattr(dl_router, "DownloadRepository", FakeRepo)
+
+    res = await cancel_download(99)
+    assert res == {"id": 99, "status": "cancelled"}
+    assert app_state.task_manager.is_cancelled(99)
+    app_state.task_manager.clear_cancelled(99)
+
+
+@pytest.mark.asyncio
+async def test_worker_pending_cancelled_task_skips_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = _Row(101)
+    row.status = "pending"
+    app_state.task_manager.request_cancel(101)
+
+    executed = []
+
+    class _TrackingDownloader:
+        root = None
+
+        async def execute(self, *args, **kwargs):
+            executed.append(True)
+            raise AssertionError("execute should not be called")
+
+    notifications = _patched(
+        monkeypatch,
+        row_provider=lambda: row,
+        downloader=_TrackingDownloader(),
+    )
+
+    await run_download(DownloadTask(7, "token", "t", id=101))
+
+    assert executed == []
+    assert row.status == "cancelled"
+    assert not app_state.task_manager.is_cancelled(101)
+    assert notifications == []

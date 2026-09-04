@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -7,6 +8,7 @@ from galleryvault.app.routers import duplicates
 from galleryvault.app.routers.duplicates import (
     DuplicateResolveRequest,
     dismiss_duplicate,
+    duplicate_thumb,
     list_duplicates,
     resolve_duplicate,
     restore_duplicate,
@@ -118,3 +120,29 @@ async def test_dismiss_and_restore_duplicate(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         await dismiss_duplicate(99999)
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_duplicate_thumb_invalid_keys():
+    for bad_key in ["", "../secret", "sub/dir", r"win\path", "/absolute", ".."]:
+        with pytest.raises(HTTPException) as exc_info:
+            await duplicate_thumb(bad_key)
+        assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_duplicate_thumb_valid_cached(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    thumb_root = tmp_path / "thumbs"
+    dup_dir = thumb_root / "dup" / "validkey123"
+    dup_dir.mkdir(parents=True)
+    img_file = dup_dir / "0.jpg"
+    img_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 10)
+
+    fake_service = SimpleNamespace(root=thumb_root)
+    monkeypatch.setattr(duplicates, "_get_thumb_service", lambda: fake_service)
+
+    resp = await duplicate_thumb("validkey123")
+    assert resp.status_code == 200
+    assert Path(resp.path) == img_file
