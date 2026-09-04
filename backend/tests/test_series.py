@@ -525,6 +525,10 @@ async def test_series_router_endpoints(monkeypatch) -> None:
         reb_res = await rebuild_series()
         assert reb_res["rebuilt"] is True
         assert reb_res["created"] == 1
+        # verify task was recorded in task manager history
+        from galleryvault.app.dependencies import get_task_manager
+        tm = get_task_manager()
+        assert any(item.get("task") == "series-rebuild" for item in tm.task_history)
 
 
 def test_series_acceptance_constraints() -> None:
