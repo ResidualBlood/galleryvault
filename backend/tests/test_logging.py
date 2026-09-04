@@ -491,14 +491,14 @@ async def test_cover_hit_miss_and_fallback_logging(
     try:
         caplog.clear()
         with caplog.at_level(logging.INFO):
-            resp = await favorite_cover(11111, token="abcdef123456")
+            resp = await favorite_cover(11111, token="dummy_token")
             assert resp.status_code == 200
             assert not any("cover miss:" in rec.message for rec in caplog.records)
 
         # 4. Miss on favorite_cover -> 1 INFO log with source=cover, event=miss, gid=22222
         caplog.clear()
         with caplog.at_level(logging.INFO):
-            resp2 = await favorite_cover(22222, token="abcdef123456")
+            resp2 = await favorite_cover(22222, token="dummy_token")
             assert resp2.status_code == 200
             miss_fav_records = [
                 rec for rec in caplog.records
