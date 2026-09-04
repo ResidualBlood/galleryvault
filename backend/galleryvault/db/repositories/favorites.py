@@ -1,6 +1,7 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from ..models import (
     Gallery,
     GalleryTag,
     GalleryUpdate,
+    ReadingProgress,
     Tag,
 )
 from .base import _chunked, escape_like_wildcards
@@ -299,6 +301,22 @@ class FavoritesRepository:
         state: str = "all",
         q: str | None = None,
         order_by: str = "last_seen_desc",
+        category: str | None = None,
+        tags: Sequence[tuple[str | None, str]] = (),
+        exclude_tags: Sequence[tuple[str | None, str]] = (),
+        tag_mode: str = "and",
+        tag_match: str = "exact",
+        read_status: str | None = None,
+        min_rating: float | None = None,
+        page_min: int | None = None,
+        page_max: int | None = None,
+        size_min: int | None = None,
+        size_max: int | None = None,
+        posted_from: datetime | None = None,
+        posted_to: datetime | None = None,
+        uploader: str | None = None,
+        image_quality: str | None = None,
+        min_local_rating: int | None = None,
     ) -> tuple[int, list[tuple[object, object | None]]]:
         """Paginated favorite items for a folder, joined with the local gallery.
 
@@ -330,6 +348,93 @@ class FavoritesRepository:
                     | Gallery.title.ilike(pattern)
                     | Gallery.title_jpn.ilike(pattern)
                 )
+        if category:
+            query = query.where(Gallery.category == category)
+        if min_rating is not None:
+            query = query.where(Gallery.rating >= min_rating)
+        if page_min is not None:
+            query = query.where(Gallery.page_count >= page_min)
+        if page_max is not None:
+            query = query.where(Gallery.page_count <= page_max)
+        size_col = func.coalesce(Gallery.file_size, FavoriteItem.file_size)
+        if size_min is not None:
+            query = query.where(size_col >= size_min)
+        if size_max is not None:
+            query = query.where(size_col <= size_max)
+        if posted_from is not None:
+            query = query.where(Gallery.posted_at >= posted_from)
+        if posted_to is not None:
+            query = query.where(Gallery.posted_at <= posted_to)
+        if uploader and uploader.strip():
+            pattern = f"%{escape_like_wildcards(uploader.strip())}%"
+            query = query.where(Gallery.uploader.ilike(pattern))
+        if image_quality:
+            query = query.where(Gallery.image_quality == image_quality)
+        if min_local_rating is not None:
+            query = query.where(Gallery.local_rating >= min_local_rating)
+        completed_exists = (
+            select(1)
+            .select_from(ReadingProgress)
+            .where(
+                ReadingProgress.gallery_id == Gallery.id,
+                ReadingProgress.total_pages.is_not(None),
+                ReadingProgress.current_page >= ReadingProgress.total_pages - 1,
+                or_(
+                    ReadingProgress.current_page > 0,
+                    ReadingProgress.total_pages <= 1,
+                ),
+            )
+        )
+        if read_status == "unread":
+            started_exists = select(1).select_from(ReadingProgress).where(
+                ReadingProgress.gallery_id == Gallery.id,
+                ReadingProgress.current_page > 0,
+            )
+            query = query.where(Gallery.id.is_not(None), ~started_exists.exists(), ~completed_exists.exists())
+        elif read_status == "reading":
+            prog_exists = select(1).select_from(ReadingProgress).where(
+                ReadingProgress.gallery_id == Gallery.id,
+                ReadingProgress.current_page > 0,
+                (
+                    ReadingProgress.total_pages.is_(None)
+                    | (ReadingProgress.current_page < ReadingProgress.total_pages - 1)
+                ),
+            )
+            query = query.where(Gallery.id.is_not(None), prog_exists.exists(), ~completed_exists.exists())
+        elif read_status in {"completed", "read"}:
+            query = query.where(completed_exists.exists())
+
+        if tags:
+            tag_conditions = []
+            for namespace, name in tags:
+                escaped_name = escape_like_wildcards(name)
+                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
+                condition = [Tag.name.ilike(pattern)]
+                if namespace:
+                    condition.append(Tag.namespace == namespace)
+                tag_conditions.append(
+                    select(GalleryTag.gallery_id)
+                    .join(Tag, Tag.id == GalleryTag.tag_id)
+                    .where(GalleryTag.gallery_id == Gallery.id, *condition)
+                )
+            if tag_mode == "and":
+                query = query.where(*[subquery.exists() for subquery in tag_conditions])
+            else:
+                query = query.where(or_(*[subquery.exists() for subquery in tag_conditions]))
+        if exclude_tags:
+            for namespace, name in exclude_tags:
+                escaped_name = escape_like_wildcards(name)
+                pattern = escaped_name if tag_match == "exact" else f"%{escaped_name}%"
+                condition = [Tag.name.ilike(pattern)]
+                if namespace:
+                    condition.append(Tag.namespace == namespace)
+                subquery = (
+                    select(GalleryTag.gallery_id)
+                    .join(Tag, Tag.id == GalleryTag.tag_id)
+                    .where(GalleryTag.gallery_id == Gallery.id, *condition)
+                )
+                query = query.where(~subquery.exists())
+
         total = int(
             await self.session.scalar(
                 select(func.count()).select_from(query.subquery())
@@ -348,6 +453,14 @@ class FavoritesRepository:
             ],
             "file_size_desc": [
                 func.coalesce(Gallery.file_size, FavoriteItem.file_size).desc().nullslast(),
+                FavoriteItem.last_seen_at.desc(),
+            ],
+            "rating_desc": [
+                Gallery.rating.desc().nullslast(),
+                FavoriteItem.last_seen_at.desc(),
+            ],
+            "page_count_desc": [
+                Gallery.page_count.desc().nullslast(),
                 FavoriteItem.last_seen_at.desc(),
             ],
         }

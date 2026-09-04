@@ -136,6 +136,15 @@ async def test_gallery_sorting_and_filtering_sql() -> None:
     sql = session.sql[-1].lower()
     assert "local_list_items" in sql
 
+    # 9. Exact tag filtering via resolved tag_id
+    await repo.list_page(
+        1, 10, tags=[("language", "chinese")], tag_id_map={("language", "chinese"): 42}
+    )
+    sql = session.sql[-1].lower()
+    assert "gallery_tags.tag_id = 42" in sql
+    assert "exists" in sql
+    assert "ilike" not in sql
+
 
 @pytest.mark.asyncio
 async def test_favorite_repo_search_and_sort_sql() -> None:
@@ -157,6 +166,38 @@ async def test_favorite_repo_search_and_sort_sql() -> None:
     await fav_repo.list_items(favcat=2, page=1, page_size=10, order_by="file_size_desc")
     sql = session.sql[-1].lower()
     assert "order by coalesce(galleries.file_size, favorite_items.file_size) desc" in sql
+
+    # In-folder category and advanced filters
+    await fav_repo.list_items(
+        favcat=2,
+        page=1,
+        page_size=10,
+        category="manga",
+        min_rating=4.0,
+        page_min=20,
+        page_max=100,
+        size_min=1048576,
+        size_max=20971520,
+        uploader="alice",
+        image_quality="original",
+        min_local_rating=4,
+        read_status="completed",
+        tags=[("female", "big breasts")],
+        exclude_tags=[(None, "guro")],
+    )
+    sql = session.sql[-1].lower()
+    assert "galleries.category = 'manga'" in sql or "galleries.category =" in sql
+    assert "galleries.rating >=" in sql
+    assert "galleries.page_count >=" in sql
+    assert "galleries.page_count <=" in sql
+    assert "coalesce(galleries.file_size, favorite_items.file_size) >=" in sql
+    assert "coalesce(galleries.file_size, favorite_items.file_size) <=" in sql
+    assert "galleries.uploader ilike" in sql
+    assert "galleries.image_quality =" in sql
+    assert "galleries.local_rating >=" in sql
+    assert "reading_progress" in sql
+    assert "gallery_tags" in sql
+
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -21,6 +21,7 @@ from ...db.repository import (
     GalleryUpdatesRepository,
 )
 from ...logging import log_extra
+from ...scanners.base import CATEGORIES
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import EhClient, EhClientError, FavoriteData, GalleryGoneError
@@ -57,6 +58,13 @@ from ..schemas import (
     FavoritesRemoveRequest,
 )
 from ..state import app_state
+from .galleries import (
+    _IMAGE_QUALITY,
+    _dedupe_tags,
+    _parse_posted,
+    _parse_tag_filter,
+    _resolve_search_tokens,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -163,15 +171,86 @@ async def favorite_items(
     state: str = "all",
     q: str | None = None,
     order_by: str = "last_seen_desc",
+    category: str | None = None,
+    tags: str | None = None,
+    exclude_tags: str | None = None,
+    tag_mode: str = "and",
+    tag_match: str = "exact",
+    read_status: str | None = None,
+    min_rating: float | None = None,
+    page_min: int | None = None,
+    page_max: int | None = None,
+    size_min: int | None = None,
+    size_max: int | None = None,
+    posted_from: str | None = None,
+    posted_to: str | None = None,
+    uploader: str | None = None,
+    image_quality: str | None = None,
+    min_local_rating: int | None = Query(default=None, ge=1, le=5),
 ) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     if state not in {"all", "local", "cloud"}:
         raise HTTPException(status_code=422, detail="invalid state")
+    if tag_mode not in {"and", "or"} or tag_match not in {"exact", "fuzzy"}:
+        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
+    if read_status and read_status not in {"all", "unread", "reading", "completed", "read"}:
+        raise HTTPException(status_code=422, detail="invalid read_status")
+    if image_quality:
+        image_quality = image_quality.strip().lower()
+        if image_quality not in _IMAGE_QUALITY:
+            raise HTTPException(status_code=422, detail="invalid image_quality")
+    else:
+        image_quality = None
+    posted_from_dt = _parse_posted(posted_from)
+    posted_to_dt = _parse_posted(posted_to)
+    if category == "":
+        category = None
+    if category and category not in CATEGORIES:
+        raise HTTPException(status_code=422, detail=f"category must be one of {', '.join(CATEGORIES)}")
+
+    parsed_inc_tags, parsed_exc_tags = _parse_tag_filter(tags)
+    if exclude_tags:
+        extra_inc, extra_exc = _parse_tag_filter(exclude_tags)
+        parsed_exc_tags.extend(extra_inc)
+        parsed_exc_tags.extend(extra_exc)
+
+    resolved_q = q or ""
+    if q and q.strip():
+        auto_inc, auto_exc, keywords, changed = await _resolve_search_tokens(q)
+        if changed:
+            parsed_inc_tags.extend(auto_inc)
+            parsed_exc_tags.extend(auto_exc)
+            resolved_q = keywords
+
+    parsed_inc_tags = _dedupe_tags(parsed_inc_tags)
+    parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
+
     try:
         async for session in get_session():
             total, rows = await FavoritesRepository(session).list_items(
-                favcat, page, page_size, state, q=q, order_by=order_by
+                favcat,
+                page,
+                page_size,
+                state,
+                q=resolved_q,
+                order_by=order_by,
+                category=category,
+                tags=parsed_inc_tags if parsed_inc_tags else (),
+                exclude_tags=parsed_exc_tags if parsed_exc_tags else (),
+                tag_mode=tag_mode,
+                tag_match=tag_match,
+                read_status=read_status,
+                min_rating=min_rating,
+                page_min=page_min,
+                page_max=page_max,
+                size_min=size_min,
+                size_max=size_max,
+                posted_from=posted_from_dt,
+                posted_to=posted_to_dt,
+                uploader=uploader,
+                image_quality=image_quality,
+                min_local_rating=min_local_rating,
             )
             tag_map = await GalleryRepository(session).tags_for_galleries(
                 [g.id for _, g in rows if (g is not None) and g.id is not None]

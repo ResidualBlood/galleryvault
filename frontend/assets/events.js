@@ -137,7 +137,11 @@ async function onClick(e) {
   if (action === "toggle-tag-mode") {
     e.preventDefault();
     const curMode = (app.query.tag_mode === "or") ? "and" : "or";
-    location.hash = navHash("library", {}, { ...app.query, tag_mode: curMode, page: undefined });
+    if (app.view === "favlist") {
+      location.hash = navHash("favlist", { id: app.params.id }, { ...app.query, tag_mode: curMode, page: undefined });
+    } else {
+      location.hash = navHash("library", {}, { ...app.query, tag_mode: curMode, page: undefined });
+    }
     return;
   }
   if (action === "filter-tag") {
@@ -280,9 +284,44 @@ function onSubmit(e) {
   if (action === "favlist-search") {
     e.preventDefault();
     const favcat = app.params.id;
+    const getVal = (name) => {
+      const el = form.elements[name];
+      return el && el.value ? String(el.value).trim() : "";
+    };
+    const pageMin = getVal("page_min");
+    const pageMax = getVal("page_max");
+    const minRating = getVal("min_rating");
+    const sizeMin = getVal("size_min");
+    const sizeMax = getVal("size_max");
+    const postedFrom = getVal("posted_from");
+    const postedTo = getVal("posted_to");
+    const uploader = getVal("uploader");
+    const imageQuality = getVal("image_quality");
+    const minLocal = getVal("min_local_rating");
+    const language = getVal("language");
+    let tags = app.query.tags || "";
+    if (language) {
+      const langTag = "language:" + language;
+      const cur = parseTags(tags).filter(x => !x.startsWith("language:") && !x.startsWith("-language:"));
+      cur.push(langTag);
+      tags = cur.join(",");
+    }
     location.hash = navHash("favlist", { id: favcat }, {
       ...(form.q.value.trim() ? { q: form.q.value.trim() } : {}),
+      ...(form.category && form.category.value ? { category: form.category.value } : {}),
       ...(form.order_by && form.order_by.value !== "last_seen_desc" ? { order_by: form.order_by.value } : {}),
+      ...(form.read_status && form.read_status.value ? { read_status: form.read_status.value } : {}),
+      ...(pageMin ? { page_min: pageMin } : {}),
+      ...(pageMax ? { page_max: pageMax } : {}),
+      ...(minRating ? { min_rating: minRating } : {}),
+      ...(sizeMin ? { size_min: sizeMin } : {}),
+      ...(sizeMax ? { size_max: sizeMax } : {}),
+      ...(postedFrom ? { posted_from: postedFrom } : {}),
+      ...(postedTo ? { posted_to: postedTo } : {}),
+      ...(uploader ? { uploader } : {}),
+      ...(imageQuality ? { image_quality: imageQuality } : {}),
+      ...(minLocal ? { min_local_rating: minLocal } : {}),
+      ...(tags ? { tags, tag_mode: app.query.tag_mode || "and", ...(app.query.tag_match && app.query.tag_match !== "exact" ? { tag_match: app.query.tag_match } : {}) } : {}),
       ...(app.query.state && app.query.state !== "all" ? { state: app.query.state } : {})
     });
     return;

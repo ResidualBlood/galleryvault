@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Favorites folder filters** (`frontend/assets/views/favorites.js`, `frontend/assets/utils.js`, `frontend/assets/events.js`, `backend/`): 收藏夹详情可折叠高级筛选（对齐画廊库），支持本地星级评分、页面范围、文件大小、发布日期、上传者、画质、语言、本地列表筛选与排序。
+
+
 ## [1.7.0] - 2026-09-04
 
 ### Added
