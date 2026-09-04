@@ -5,8 +5,7 @@ history; thumbnails and the gallery files themselves are rebuildable).
 
 ## Backup
 
-The repository provides `scripts/backup.sh` — run it from the directory
-containing `docker-compose.yml`:
+`scripts/backup.sh` runs `pg_dump` online; do not stop services. Run it from the directory containing `docker-compose.yml`:
 
 ```bash
 ./scripts/backup.sh        # writes backups/galleryvault_<timestamp>.dump, keeps the 14 most recent
@@ -19,6 +18,8 @@ Recommended via cron, for example:
 ```
 
 ## Restore
+
+There is no `restore.sh`; restore with the commands on this page. Stop backend before restore, then `pg_restore -c --if-exists`:
 
 ```bash
 docker compose exec -T db pg_restore -U galleryvault -d galleryvault -c --if-exists \

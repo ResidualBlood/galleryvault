@@ -4,7 +4,7 @@
 
 ## 备份
 
-仓库提供 `scripts/backup.sh`，在 `docker-compose.yml` 所在目录运行：
+`scripts/backup.sh` 在线 `pg_dump`，不停服务。在 `docker-compose.yml` 所在目录运行：
 
 ```bash
 ./scripts/backup.sh        # 生成 backups/galleryvault_<时间戳>.dump，保留最近 14 份
@@ -17,6 +17,8 @@
 ```
 
 ## 恢复
+
+仓库无 `restore.sh`，恢复用页面上的命令。恢复前建议先停 backend，再 `pg_restore -c --if-exists`：
 
 ```bash
 docker compose exec -T db pg_restore -U galleryvault -d galleryvault -c --if-exists \

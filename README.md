@@ -24,7 +24,12 @@ docker compose up -d
 1. 执行 `docker compose up -d` 启动服务。
 2. 打开 **http://<主机地址>:8000** 访问 Web 界面（JSON API 位于 `:8001`）。
 3. 使用默认密码 **`p1a2s3s4`** 登录，并在「设置」中修改密码。
-4. 将画廊放入 `./library`（挂载至 `/library`），点击「扫描库」即可开始使用。
+4. 数据目录（首次启动会在当前目录创建空目录）：
+   - `./library` → `/library`：画廊库。下载**不会**写这里。把已有画廊放进 `./library`（或改 compose 挂自己的库路径），再在应用内扫描。
+   - `./downloads` → `/downloads`：ExHentai 下载落盘，自动扫描。
+   - `./cache` → `/gv-cache`：缩略图缓存。
+   - `./db-data`：PostgreSQL 数据。
+5. 加密默认关闭。未设置 `ENCRYPTION_KEY` 时，cookie / token / 密码哈希明文入库。需要加密时在 compose 里取消注释该变量并填入密钥；**钥匙丢失不可恢复**。详见 [静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。数据库备份见 [备份与恢复](https://github.com/ResidualBlood/galleryvault/wiki/Backup)。
 
 > 如需与 ExHentai 同步元数据或下载画廊，请在「设置 → ExHentai」配置账户 Cookie；获取与配置说明见 [Wiki 使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)。
 
