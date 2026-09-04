@@ -22,6 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Performance
 
 - **Library exact tag filtering by tag_id** (`backend/`): 书库精确标签筛选改走内部 `tag_id` 查询，提升大库标签检索效率。
+- **Favorites exact tag filtering by tag_id** (`backend/`): 收藏夹列表与书库共用 tag 谓词，精确点选走 `tag_id`。
 
 
 ## [1.7.0] - 2026-09-04
