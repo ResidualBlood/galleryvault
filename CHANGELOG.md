@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-04
+
 ### Added
 
 - **Clear notifications** (`frontend/assets/views/components/notifications.js`, `backend/routers/notifications.py`): 通知面板支持「清空」（`POST /api/notifications/clear`），可一键清除所有应用内通知。
@@ -1182,7 +1184,9 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.6.0
 [1.5.0]: https://github.com/ResidualBlood/galleryvault/releases/tag/v1.5.0
