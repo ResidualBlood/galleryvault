@@ -61,6 +61,7 @@ async function onClick(e) {
   if (action === "favlist-archive") { favListArchive(el.getAttribute("data-favcat")); return; }
   if (action === "favlist-move") { favListMove(parseInt(el.getAttribute("data-favcat"), 10)); return; }
   if (action === "favlist-unfav") { favListUnfavorite(el.getAttribute("data-favcat")); return; }
+  if (action === "favlist-select-all") { favListSelectAll(); return; }
   if (action === "favlist-clear") { selFav.clear(); router(); return; }
   if (action === "upd-scan") { updScan(); return; }
   if (action === "upd-state") { e.preventDefault(); location.hash = navHash("updates", {}, { state: el.getAttribute("data-state") || "active", page: undefined }); return; }

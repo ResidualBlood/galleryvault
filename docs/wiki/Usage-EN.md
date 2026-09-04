@@ -317,13 +317,14 @@ The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / U
   avoid needless network traffic and missed-detection risk; the moment the
   count changes, full checks resume automatically.
 - Click a folder name to open `#/favorites/<favcat>`: that folder's gallery
-  grid (with **title search**, **multi-criteria sorting**, checkboxes, **download selected**, **download selected original**,
+  grid (with **title search**, **multi-criteria sorting**, checkboxes, **select all**, **download selected**, **download selected original**,
   **archive download selected**, **move selected**, **remove from favorites**, and an
   **All / local only / cloud only** state filter). **Check now** warms cloud
   covers onto disk; opening a folder only reads that cache (`<img>` via
   `/api/favorites/cover`) and does not wait on ExHentai. The list uses numbered pagination with
   24 galleries per page by default.
   - **In-folder Search & Sorting**: Top toolbar provides instant title filtering and sorting by last seen, first seen, posted date, title, and size.
+  - **Select all**: Inside a favorite folder (`#/favorites/:id`), the toolbar provides "Select All" to the left of "Clear Selection"; selection applies to currently rendered cards only (cards not yet loaded into DOM via infinite scroll are not selected), and clicking again after scrolling merges newly rendered cards into the selection.
   - **Move selected**: Move selected galleries to another favorite folder (0–9),
     syncing both ExHentai cloud favorites and local records.
 - The **Download missing items** button on the Favorites overview spawns a

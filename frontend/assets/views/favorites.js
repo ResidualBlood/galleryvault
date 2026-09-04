@@ -78,12 +78,13 @@ async function renderFavList() {
       <button class="btn btn-primary" type="submit">${esc(t("search"))}</button>
     </form>
     <div class="toolbar">
+      <button class="secondary" data-action="favlist-select-all" type="button">${esc(t("selectAll"))}</button>
+      <button class="secondary" data-action="favlist-clear" type="button">${esc(t("clearSel"))}</button>
       <button class="primary" data-action="favlist-download" data-favcat="${favcat}" type="button">${esc(t("favDl"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-download-orig" data-favcat="${favcat}" type="button">${esc(t("favDlOrig"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-archive" data-favcat="${favcat}" type="button">${esc(t("favDlArchive"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary" data-action="favlist-move" data-favcat="${favcat}" type="button">${esc(t("favMove"))}${selCount ? ` (${selCount})` : ""}</button>
       <button class="secondary danger" data-action="favlist-unfav" data-favcat="${favcat}" type="button">${esc(t("favRemove"))}${selCount ? ` (${selCount})` : ""}</button>
-      <button class="secondary" data-action="favlist-clear" type="button">${esc(t("clearSel"))}</button>
       <span class="fav-state-filter">
         ${stateBtn("all", t("favStateAll"))}
         ${stateBtn("local", t("favStateLocal"))}
@@ -325,4 +326,24 @@ async function favListMove(favcat) {
     selFav.clear();
     router();
   } catch (e) { toast(e.message); }
+}
+
+function favListSelectAll() {
+  document.querySelectorAll(".gc-check input[data-fav-gid]").forEach(cb => {
+    const gid = parseInt(cb.getAttribute("data-fav-gid"), 10);
+    if (!isNaN(gid)) {
+      selFav.add(gid);
+      cb.checked = true;
+    }
+  });
+  renderCardCheckboxes();
+  document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-download-orig"], [data-action="favlist-archive"], [data-action="favlist-move"], [data-action="favlist-unfav"]').forEach(b => {
+    const act = b.getAttribute("data-action");
+    const base = act === "favlist-download" ? t("favDl")
+      : act === "favlist-download-orig" ? t("favDlOrig")
+      : act === "favlist-archive" ? t("favDlArchive")
+      : act === "favlist-move" ? t("favMove")
+      : t("favRemove");
+    b.textContent = base + (selFav.size ? ` (${selFav.size})` : "");
+  });
 }

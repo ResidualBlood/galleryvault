@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Favorites select-all** (`frontend/assets/views/favorites.js`, `frontend/assets/events.js`): Added "Select All" button to the `/favorites/:id` toolbar (left of Clear Selection) to select currently rendered gallery cards; scrolling to load more cards allows clicking again to append newly rendered cards.
+
 ### Fixed
 
 - **Duplicate copies import & management scan feedback** (`backend/`, `frontend/`):
