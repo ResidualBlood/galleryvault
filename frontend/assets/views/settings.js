@@ -239,15 +239,31 @@ async function fillStorageDash() {
     const d = await api("GET", "/api/system/storage");
     const row = (key, label) => {
       const info = d[key] || {};
-      const size = info.bytes != null ? fmtSize(info.bytes) : "0";
+      let sizeStr = "";
+      if (info.computing) {
+        sizeStr = info.bytes != null
+          ? `${fmtSize(info.bytes)} (${esc(t("storageComputing"))})`
+          : esc(t("storageComputing"));
+      } else {
+        sizeStr = info.bytes != null ? fmtSize(info.bytes) : "0";
+      }
       const miss = info.exists ? "" : ` (${esc(t("missing"))})`;
-      return `<p><strong>${esc(label)}</strong> ${esc(info.path || "")} — ${esc(size)}${miss}</p>`;
+      const vol = (info.disk_total != null && info.disk_free != null)
+        ? ` <span class="muted">[${fmtSize(info.disk_free)} ${esc(t("storageFree"))} / ${fmtSize(info.disk_total)}]</span>`
+        : "";
+      return `<p><strong>${esc(label)}</strong> ${esc(info.path || "")}${vol} — ${sizeStr}${miss}</p>`;
     };
     const largest = (d.largest || []).map(it =>
       `<li><a href="${navHash("gallery", { id: it.id })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
     ).join("");
     el.innerHTML = row("library", t("storageLibrary")) + row("downloads", t("storageDownloads")) + row("cache", t("storageCache")) +
       `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;
+
+    if (d.downloads?.computing || d.cache?.computing) {
+      setTimeout(() => {
+        if (document.getElementById("storage-dash")) fillStorageDash();
+      }, 3000);
+    }
   } catch (e) {
     el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }

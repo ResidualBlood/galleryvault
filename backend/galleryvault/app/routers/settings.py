@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
@@ -386,40 +385,25 @@ async def saved_searches_delete(search_id: str) -> dict[str, object]:
     return {"deleted": True, "id": search_id}
 
 
-def _dir_bytes(path: object) -> int:
-    from pathlib import Path
-
-    root = Path(str(path))
-    if not root.exists():
-        return 0
-    total = 0
-    try:
-        if root.is_file():
-            return int(root.stat().st_size)
-        for dirpath, _dirs, files in os.walk(root, followlinks=False):
-            for name in files:
-                try:
-                    total += (Path(dirpath) / name).stat().st_size
-                except OSError:
-                    continue
-    except OSError:
-        return 0
-    return total
-
-
-def _path_info(path: object, bytes_value: int | None = None) -> dict[str, object]:
+def _path_info(
+    path: object,
+    bytes_value: int | None = None,
+    computed_at: float | None = None,
+    stale: bool = False,
+    computing: bool = False,
+) -> dict[str, object]:
     import shutil
     from pathlib import Path
 
     root = Path(str(path)) if path else Path()
     exists = bool(path) and root.exists()
-    used = 0 if bytes_value is None else int(bytes_value)
-    if bytes_value is None:
-        used = _dir_bytes(root) if exists else 0
     info: dict[str, object] = {
         "path": str(root) if path else "",
-        "bytes": used if exists or bytes_value is not None else 0,
+        "bytes": bytes_value,
         "exists": exists,
+        "computed_at": computed_at,
+        "stale": stale,
+        "computing": computing,
     }
     if exists:
         try:
@@ -436,7 +420,7 @@ def _path_info(path: object, bytes_value: int | None = None) -> dict[str, object
 async def system_storage() -> dict[str, object]:
     from pathlib import Path
 
-    from starlette.concurrency import run_in_threadpool
+    from ...services.storage_usage import storage_tracker
 
     settings = get_current_settings()
     cache_root = Path(settings.thumbnail_cache_dir).parent
@@ -458,8 +442,27 @@ async def system_storage() -> dict[str, object]:
             break
     except Exception as exc:  # noqa: BLE001
         logger.warning("storage dashboard db failed", extra={"error": str(exc)})
-    downloads = await run_in_threadpool(_path_info, settings.download_root)
-    cache = await run_in_threadpool(_path_info, str(cache_root))
+
+    # Ensure background calibration is initiated if not already running and no snapshot exists
+    dl_snap = storage_tracker.get_downloads_snapshot()
+    c_snap = storage_tracker.get_cache_snapshot()
+    if dl_snap.bytes is None or c_snap.bytes is None:
+        storage_tracker.trigger_calibration(settings.download_root, cache_root)
+
+    downloads = _path_info(
+        settings.download_root,
+        bytes_value=dl_snap.bytes,
+        computed_at=dl_snap.computed_at,
+        stale=dl_snap.stale,
+        computing=dl_snap.computing,
+    )
+    cache = _path_info(
+        str(cache_root),
+        bytes_value=c_snap.bytes,
+        computed_at=c_snap.computed_at,
+        stale=c_snap.stale,
+        computing=c_snap.computing,
+    )
     lib_path = (settings.library_roots or [None])[0]
     library = _path_info(lib_path, bytes_value=library_bytes)
     return {

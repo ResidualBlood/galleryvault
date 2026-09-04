@@ -32,3 +32,5 @@ build/
 docs-site/node_modules
 docs-site/*.md
 docs-site/.vitepress/dist
+
+PLAN.md
