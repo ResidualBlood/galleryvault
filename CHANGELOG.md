@@ -22,6 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Top-bar layout spacing** (`frontend/assets/styles.css`): Adjusted desktop topbar spacing (`gap: 10px`), prevented random browse icon button and notification bell wrapper from shrinking, and refined search bar flex layout.
 - **Gallery details collapsible metadata panels** (`frontend/assets/views/gallery.js`, `frontend/assets/styles.css`): Reorganized local rating, custom tags, local note, favorite note, and related lists into 5 independent `<details>` collapsible panels on the gallery detail page (`#/gallery/:id`). Panels remain closed by default without auto-expanding, keeping controls always in the DOM and matching library details/summary styling.
 - **Library advanced filters collapsible toolbar** (`frontend/`): Collapsed secondary library filter controls (sort order, read status, page/size/date ranges, uploader, quality, language, rating, list) into a native `<details>` toolbar menu displaying active filter count and expanding automatically when query parameters are active.
 - **Documentation information architecture refactoring** (`README.md`, `README.en.md`, `docs/wiki/`, `docs-site/`): Refactored project documentation into a single-screen README, modular wiki handbook (Features, Compatibility, Library, Reading, Downloads, Favorites, Manage, Settings), pure-operations Deployment guide, FAQ stripped of how-to guides, and aligned Pages / VitePress navigation.

@@ -28,6 +28,7 @@
   --ok: #3d8f6e;
   --warning: #c07812;
 }
+:root {
   /* Phase 2 design tokens (additive, backward compat) */
   --color-bg: var(--bg);
   --color-panel: var(--panel);
@@ -68,7 +69,7 @@ body {
 a { color: var(--accent); text-decoration: none; }
 button { cursor: pointer; font: inherit; }
 .topbar {
-  height: 58px; display: flex; align-items: center; gap: var(--space-xl);
+  height: 58px; display: flex; align-items: center; gap: 10px;
   padding: 0 max(var(--space-lg), calc((100vw - 1320px) / 2));
   border-bottom: 1px solid var(--line);
   background: var(--topbar-bg); position: sticky; top: 0; z-index: 2; backdrop-filter: blur(12px);
@@ -77,6 +78,7 @@ button { cursor: pointer; font: inherit; }
 .top-search { display: flex; flex: 1; max-width: 520px; margin: auto; }
 .top-search input { margin: 0; border-radius: 4px 0 0 4px; }
 .top-search button { border-radius: 0 4px 4px 0; padding-inline: 17px; }
+.topbar [data-action="random"], .topbar .notif-wrap { flex-shrink: 0; }
 .links { display: flex; align-items: center; gap: 16px; white-space: nowrap; }
 .links a { color: var(--muted); font-size: .88rem; }
 .links a:hover { color: var(--ink); }
