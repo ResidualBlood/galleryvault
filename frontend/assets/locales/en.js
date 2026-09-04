@@ -251,6 +251,7 @@ window.GV_LOCALES.en = {
   saveLocal: "Save local marks",
   favNote: "Favorite note",
   saveFavNote: "Save note",
+  galleryLists: "Related",
   themeToggle: "Theme",
   storageTitle: "Disk usage",
   storageLibrary: "Library",

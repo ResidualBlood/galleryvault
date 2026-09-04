@@ -125,7 +125,8 @@ label.checkbox, label.inline { display: flex; gap: 8px; align-items: center; }
 .toolbar details[open] {
   width: 100%;
 }
-.toolbar details summary {
+.toolbar details summary,
+.gallery-detail details summary {
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -141,8 +142,18 @@ label.checkbox, label.inline { display: flex; gap: 8px; align-items: center; }
   gap: 6px;
   min-width: 0;
 }
-.toolbar details summary:hover {
+.toolbar details summary:hover,
+.gallery-detail details summary:hover {
   border-color: var(--accent);
+}
+.gallery-detail details {
+  margin: 8px 0;
+}
+.gallery-detail details[open] > summary {
+  margin-bottom: 8px;
+}
+.gallery-detail details > .toolbar {
+  margin: 8px 0;
 }
 button.primary, button.secondary {
   background: var(--accent); color: #1a1206; border: 0; border-radius: 4px; padding: 8px 14px; font-weight: 600;

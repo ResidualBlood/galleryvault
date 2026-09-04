@@ -251,6 +251,7 @@ window.GV_LOCALES.zh = {
   saveLocal: "保存本地标记",
   favNote: "收藏备注",
   saveFavNote: "保存备注",
+  galleryLists: "相关内容",
   themeToggle: "主题",
   storageTitle: "磁盘用量",
   storageLibrary: "画廊库",
