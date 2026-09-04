@@ -70,8 +70,11 @@ function pageSizeSelect(current, view) {
 }
 
 function jumpPage(input, last) {
+  const cur = parseInt(input.getAttribute("data-current") || input.defaultValue, 10) || 1;
   const p = Math.max(1, Math.min(parseInt(input.value, 10) || 1, last));
   input.value = p;
+  if (p === cur) return;
+  input.setAttribute("data-current", String(p));
   if (app.view === "favmanage" || app.view === "favignored") {
     dupPage = p;
     renderDupGroupsFromCache();
@@ -82,7 +85,7 @@ function jumpPage(input, last) {
 
 function pagerJump(page, last) {
   return `<span class="page-jump-wrap">
-    <input class="page-jump" type="number" min="1" max="${last}" value="${page}" aria-label="page">
+    <input class="page-jump" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" min="1" max="${last}" value="${page}" data-current="${page}" aria-label="page">
     <span class="muted">/ ${last}</span></span>`;
 }
 

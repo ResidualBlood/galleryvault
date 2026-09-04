@@ -416,11 +416,6 @@ function onChange(e) {
   if (el.matches("#syslog-filter-level")) { systemLogMinLevel = el.value; fetchSystemLogs(); return; }
   if (el.matches("#syslog-search-input")) { systemLogSearch = el.value; fetchSystemLogs(); return; }
   if (el.matches("select[data-eh-select]")) { toggleEhCustom(el); return; }
-  if (el.matches(".page-jump")) {
-    const last = parseInt(el.max, 10) || 1;
-    jumpPage(el, last);
-    return;
-  }
   if (!el.matches(".page-size")) return;
   localStorage.setItem("gv_page_size", el.value);
   const view = el.getAttribute("data-view") || app.view;
@@ -529,4 +524,34 @@ document.addEventListener("keydown", e => {
     location.hash = addTagHash(ns || null, name);
   }
 });
+
+// .page-jump keyboard: Enter to jump; blur: jump only when value changed
+document.addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  const el = e.target;
+  if (!el || !el.matches || !el.matches(".page-jump")) return;
+  e.preventDefault();
+  const cur = parseInt(el.getAttribute("data-current") || el.defaultValue, 10) || 1;
+  const val = el.value.trim();
+  if (!val || !/^\d+$/.test(val)) {
+    el.value = cur;
+    return;
+  }
+  const last = parseInt(el.max, 10) || 1;
+  jumpPage(el, last);
+});
+
+document.addEventListener("blur", e => {
+  const el = e.target;
+  if (!el || !el.matches || !el.matches(".page-jump")) return;
+  const cur = parseInt(el.getAttribute("data-current") || el.defaultValue, 10) || 1;
+  const val = el.value.trim();
+  if (!val || !/^\d+$/.test(val)) {
+    el.value = cur;
+    return;
+  }
+  const last = parseInt(el.max, 10) || 1;
+  jumpPage(el, last);
+}, true);
+
 
