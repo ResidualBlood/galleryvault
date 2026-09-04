@@ -52,7 +52,11 @@ async function renderDownloads() {
   loadQuota();
   if (dlTimer) clearInterval(dlTimer);
   dlTimer = setInterval(() => {
-    if (location.hash.startsWith("#/downloads")) loadDownloads(filter, app.query.page || "1");
+    if (location.hash.startsWith("#/downloads")) {
+      const active = document.activeElement;
+      if (active && active.matches && active.matches("#dl-pages .page-jump")) return;
+      loadDownloads(filter, app.query.page || "1");
+    }
   }, 2000);
 }
 
