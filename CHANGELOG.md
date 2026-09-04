@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Pagination page jump input** (`frontend/assets/utils.js`, `frontend/assets/events.js`): Changed pager jump input to text (`inputmode="numeric"`) with jump triggered on Enter keypress or blur on value change, preventing premature `change` events on `type="number"` inputs from causing premature full-page re-renders and lost focus while typing.
 - **Discover card badges position** (`frontend/assets/styles.css`): Moved gallery card status badges from top-right to bottom-left to prevent overlap with batch selection checkboxes.
 - **Duplicate copies import & management scan feedback** (`backend/`, `frontend/`):
   - Fixed duplicate record synchronization failing silently during library scan due to invalid relative import `ResolvedGroup` (`ModuleNotFoundError`), restoring duplicate group persistence to `duplicate_records`.
