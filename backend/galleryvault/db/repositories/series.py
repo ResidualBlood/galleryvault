@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from ..models import Gallery, Series, SeriesExclusion, SeriesItem
+from ..models import Gallery, GalleryTag, Series, SeriesExclusion, SeriesItem, Tag
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -244,3 +244,24 @@ class SeriesRepository:
                 .where(SeriesItem.gallery_id == gallery_id)
             )
         ).first()
+
+    async def get_tags_for_galleries(
+        self, gallery_ids: list[int]
+    ) -> dict[int, list[tuple[str, str]]]:
+        """Fetch tags for candidate galleries, filtered to artist/group/parody/other."""
+        if not gallery_ids:
+            return {}
+        stmt = (
+            select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
+            .join(Tag, Tag.id == GalleryTag.tag_id)
+            .where(
+                GalleryTag.gallery_id.in_(list(gallery_ids)),
+                Tag.namespace.in_(["artist", "group", "parody", "other"]),
+            )
+            .order_by(GalleryTag.gallery_id.asc(), Tag.namespace.asc(), Tag.name.asc())
+        )
+        rows = (await self.session.execute(stmt)).all()
+        result: dict[int, list[tuple[str, str]]] = {}
+        for gid, ns, name in rows:
+            result.setdefault(gid, []).append((ns, name))
+        return result

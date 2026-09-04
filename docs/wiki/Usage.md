@@ -62,7 +62,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 - **[浏览与库 (Library)](Library)**：
   - [浏览（#/browse）](Library#浏览browse) — 落地网格、继续阅读卡片区、键盘导航与全局快捷搜索；画廊卡片横向封面不再裁切，采用同图模糊铺底
   - [发现（#/discover）](Library#发现discover) — 在线浏览 ExHentai、Popular / Watched / Toplist 热门与游标翻页
-  - [系列作品（#/series）](Library#系列作品series) — 基于作者+核心书名（剥离 Cxx/噪声/卷号/副标题）自动成组、扫库收尾 rebuild 与手工建组/调配画廊
+  - [系列作品（#/series）](Library#系列作品series) — 基于标签/作者/社团/原作/标题打分聚类成组、扫库收尾 rebuild 与手工建组/调配画廊
   - [画廊库（#/library）](Library#画廊库library) — 多维索引排序、阅读状态互斥过滤、AND/OR 多标签与 `-tag` 排除筛选、批量加收藏与批量删除熔断
   - [本地列表（#/library）](Library#本地列表library) — 完全解耦于 EH 的本地独立列表生命周期与归类
   - [标签（#/tags）](Library#标签tags) — 标签命名空间分组、词频检索与 EhTag 中文联想补全
