@@ -85,6 +85,12 @@ def reset_notifications() -> None:
     extra.pop("notifications_cookie_state", None)
 
 
+def clear_notifications() -> dict[str, Any]:
+    reset_notifications()
+    persist_notifications()
+    return list_notifications()
+
+
 def push_notification(
     kind: str, title: str, detail: str | None = None
 ) -> dict[str, Any]:

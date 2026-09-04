@@ -149,7 +149,7 @@ window.GV_LOCALES.en = {
   readerFit: "Fit", readerFullscreen: "Fullscreen",
   readerMode: "Mode", readerModeLtr: "LTR", readerModeRtl: "Manga (RTL)", readerModeDouble: "Double", readerModeDoubleRtl: "Double (RTL)", readerModeWebtoon: "Webtoon",
   exportCbz: "Export CBZ",
-  notifications: "Notifications", notifEmpty: "No notifications",
+  notifications: "Notifications", notifEmpty: "No notifications", notif_clear: "Clear",
   notifDownloadOk: "Download complete", notifDownloadFail: "Download failed", notifDownloadUpdated: "Switched to newer version",
   notifScanOk: "Library scan complete", notifScanFail: "Library scan failed", notifCookie: "Cookie expired", notifCookieNoAccess: "No ExHentai access",
   jumpToPage: "Jump to Page", jumpToPageHint: "Jump to page (Press G or Enter)", pageNumber: "Page number",

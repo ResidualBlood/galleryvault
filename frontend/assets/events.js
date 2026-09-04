@@ -120,6 +120,7 @@ async function onClick(e) {
   if (action === "gen-thumbs") { generateThumbnails(); return; }
   if (action === "sync-all-tags") { syncAllTags(); return; }
   if (action === "toggle-notifications") { toggleNotificationPanel(); return; }
+  if (action === "clear-notifications") { e.preventDefault(); clearNotifications(); return; }
   if (action === "toggle-more") { toggleMorePanel(); return; }
   if (action === "delete-gallery") { deleteGallery(el.getAttribute("data-id")); return; }
   if (action === "export-cbz") { exportGalleryCbz(el.getAttribute("data-id")); return; }
