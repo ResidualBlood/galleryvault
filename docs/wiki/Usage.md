@@ -228,24 +228,24 @@ SPA 使用 hash 路由（`#/library`、`#/gallery/7`、…），浏览器刷新�
 
 | 分级 | 操作 | 说明 |
 | --- | --- | --- |
-| 需要访问网站 | 发现页搜索 | 会向 ExHentai 要数据 |
-| 需要访问网站 | Popular | 会向 ExHentai 要数据 |
-| 需要访问网站 | Watched | 会向 ExHentai 要数据 |
-| 需要访问网站 | Toplist | 会向 ExHentai 要数据 |
-| 需要访问网站 | 下载执行（gdata / 画廊页 / showpage / H@H） | 会向 ExHentai 要数据 |
-| 需要访问网站 | 原图 fullimg.php | 会向 ExHentai 要数据 |
-| 需要访问网站 | Archive archiver.php | 会向 ExHentai 要数据 |
-| 需要访问网站 | Archive 预览+GP | 会向 ExHentai 要数据 |
-| 需要访问网站 | 配额 home.php / exchange.php | 会向 ExHentai 要数据 |
-| 需要访问网站 | Cookie 测试 | 会向 ExHentai 要数据 |
-| 需要访问网站 | 收藏全量同步 favorites.php+gdata | 会向 ExHentai 要数据 |
-| 需要访问网站 | 同步分类名 | 会向 ExHentai 要数据 |
-| 需要访问网站 | 加入/移出/移动收藏与 Note（云端成功后写 DB） | 云端成功后写 DB，会向 ExHentai 要数据 |
-| 需要访问网站 | 未下载封面 | 会向 ExHentai 要数据 |
-| 需要访问网站 | 标签同步按钮/worker | 会向 ExHentai 要数据 |
-| 需要访问网站 | 分类 other 回填 | 会向 ExHentai 要数据 |
-| 需要访问网站 | 画质回填 | 会向 ExHentai 要数据 |
-| 需要访问网站 | EhTag 词库走 GitHub 非 EH | 走 GitHub，非 EH |
+| 会向 ExHentai 拉取数据 | 发现页搜索 | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | Popular | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | Watched | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | Toplist | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 下载执行（gdata / 画廊页 / showpage / H@H） | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 原图 fullimg.php | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | Archive archiver.php | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | Archive 预览+GP | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 配额 home.php / exchange.php | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | Cookie 测试 | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 收藏全量同步 favorites.php+gdata | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 同步分类名 | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 加入/移出/移动收藏与 Note（云端成功后写 DB） | 云端成功后写 DB，会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 未下载封面 | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 标签同步按钮/worker | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 分类 other 回填 | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | 画质回填 | 会向 ExHentai 拉取数据 |
+| 会向 ExHentai 拉取数据 | EhTag 词库走 GitHub 非 EH | 走 GitHub，非 EH |
 | 只在本地 | 图库列表搜索 | 不访问网站 |
 | 只在本地 | 阅读器 | 不访问网站 |
 | 只在本地 | 缩略图 | 不访问网站 |
