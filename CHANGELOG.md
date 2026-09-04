@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Gallery card cover presentation** (`frontend/assets/styles.css`, `frontend/assets/views/`): 画廊卡片封面（Browse/Library/Discover/Favorites/Recycle/Integrity 与继续阅读）调整为 contain 前景并叠加高斯模糊同图铺底，横向封面不再裁切（槽位保持 3:4）；画廊详情页缩略图与重复副本小图维持 cover 裁切。
+
 ### Fixed
 
 - **Duplicate thumbnail key path validation** (`backend/galleryvault/app/routers/duplicates.py`): 校验 `GET /api/scan/duplicates/thumb/{key}` 的 key，拒绝空、斜杠与路径穿越，解析路径严格限制在缩略图根目录内。

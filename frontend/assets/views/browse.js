@@ -84,7 +84,8 @@ function renderContinueReadingHtml(items) {
     return `
       <div class="cr-card">
         <a class="cr-thumb-wrap" href="${readUrl}">
-          <img loading="lazy" src="/api/galleries/${h.gallery_id}/thumb/0" alt="${esc(title)}">
+          <img class="cover-bg" loading="lazy" src="/api/galleries/${h.gallery_id}/thumb/0" alt="" aria-hidden="true">
+          <img class="cover-fg" loading="lazy" src="/api/galleries/${h.gallery_id}/thumb/0" alt="${esc(title)}">
           <div class="cr-progress-wrap">
             <div class="cr-progress-bar"><div class="cr-progress-fill" style="width:${pct}%"></div></div>
             <div class="cr-progress-text"><span>${esc(t("progress"))} ${cur + 1}/${total}</span><span>${pct}%</span></div>
