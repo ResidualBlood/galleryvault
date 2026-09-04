@@ -516,24 +516,24 @@ additions again.
 
 | Class | Operation | Note |
 | --- | --- | --- |
-| Needs the site | 发现页搜索 | Fetches from ExHentai |
-| Needs the site | Popular | Fetches from ExHentai |
-| Needs the site | Watched | Fetches from ExHentai |
-| Needs the site | Toplist | Fetches from ExHentai |
-| Needs the site | 下载执行（gdata / 画廊页 / showpage / H@H） | Fetches from ExHentai |
-| Needs the site | 原图 fullimg.php | Fetches from ExHentai |
-| Needs the site | Archive archiver.php | Fetches from ExHentai |
-| Needs the site | Archive 预览+GP | Fetches from ExHentai |
-| Needs the site | 配额 home.php / exchange.php | Fetches from ExHentai |
-| Needs the site | Cookie 测试 | Fetches from ExHentai |
-| Needs the site | 收藏全量同步 favorites.php+gdata | Fetches from ExHentai |
-| Needs the site | 同步分类名 | Fetches from ExHentai |
-| Needs the site | 加入/移出/移动收藏与 Note（云端成功后写 DB） | 云端成功后写 DB，Fetches from ExHentai |
-| Needs the site | 未下载封面 | Fetches from ExHentai |
-| Needs the site | 标签同步按钮/worker | Fetches from ExHentai |
-| Needs the site | 分类 other 回填 | Fetches from ExHentai |
-| Needs the site | 画质回填 | Fetches from ExHentai |
-| Needs the site | EhTag 词库走 GitHub 非 EH | GitHub, not EH |
+| Fetches from ExHentai | 发现页搜索 | Fetches from ExHentai |
+| Fetches from ExHentai | Popular | Fetches from ExHentai |
+| Fetches from ExHentai | Watched | Fetches from ExHentai |
+| Fetches from ExHentai | Toplist | Fetches from ExHentai |
+| Fetches from ExHentai | 下载执行（gdata / 画廊页 / showpage / H@H） | Fetches from ExHentai |
+| Fetches from ExHentai | 原图 fullimg.php | Fetches from ExHentai |
+| Fetches from ExHentai | Archive archiver.php | Fetches from ExHentai |
+| Fetches from ExHentai | Archive 预览+GP | Fetches from ExHentai |
+| Fetches from ExHentai | 配额 home.php / exchange.php | Fetches from ExHentai |
+| Fetches from ExHentai | Cookie 测试 | Fetches from ExHentai |
+| Fetches from ExHentai | 收藏全量同步 favorites.php+gdata | Fetches from ExHentai |
+| Fetches from ExHentai | 同步分类名 | Fetches from ExHentai |
+| Fetches from ExHentai | 加入/移出/移动收藏与 Note（云端成功后写 DB） | 云端成功后写 DB，Fetches from ExHentai |
+| Fetches from ExHentai | 未下载封面 | Fetches from ExHentai |
+| Fetches from ExHentai | 标签同步按钮/worker | Fetches from ExHentai |
+| Fetches from ExHentai | 分类 other 回填 | Fetches from ExHentai |
+| Fetches from ExHentai | 画质回填 | Fetches from ExHentai |
+| Fetches from ExHentai | EhTag 词库走 GitHub 非 EH | GitHub, not EH |
 | Local only | 图库列表搜索 | Does not contact EH |
 | Local only | 阅读器 | Does not contact EH |
 | Local only | 缩略图 | Does not contact EH |
