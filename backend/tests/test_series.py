@@ -7,15 +7,21 @@ from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 from galleryvault.app.routers.series import (
+    SeriesCloudItemsRequest,
     SeriesCreateRequest,
+    SeriesItemsRequest,
+    add_series_cloud_items,
     create_series,
     delete_series,
     get_series,
+    get_series_cloud_candidates,
     list_series,
     rebuild_series,
+    remove_series_cloud_items,
+    remove_series_items,
     rename_series,
 )
-from galleryvault.db.models import Gallery, Series
+from galleryvault.db.models import Gallery, Series, SeriesCloudExclusion, SeriesCloudItem
 from galleryvault.db.repositories.series import SeriesRepository
 from galleryvault.services.series import (
     GalleryFeatures,
@@ -624,4 +630,458 @@ async def test_series_repository_list_paged_filtering() -> None:
     await repo.list_paged(page=1, page_size=25, show_all=True)
     # verify doujinshi/manga filtering is NOT applied
     assert not any("doujinshi" in s.lower() and "manga" in s.lower() for s in session.sql)
+
+
+def test_series_cloud_item_model_and_scoring() -> None:
+    assert SeriesCloudItem.__tablename__ == "series_cloud_items"
+
+    # Cloud item with title and tags
+    f_cloud = GalleryFeatures(
+        None,
+        tags=[("artist", "konata"), ("parody", "lucky star")],
+        gid=12345,
+        title="[Konata] Lucky Adventure 1",
+        category="doujinshi",
+        is_local=False,
+    )
+    assert f_cloud.is_local is False
+    assert f_cloud.parsed_artist == "konata"
+    assert f_cloud.gid == 12345
+    assert f_cloud.core == "luckyadventure"
+
+    # Local gallery with same artist and core
+    g_local = MagicMock(spec=Gallery, id=99, gid=67890, title="[Konata] Lucky Adventure 2", title_jpn=None)
+    f_local = GalleryFeatures(g_local, [("artist", "konata"), ("parody", "lucky star")])
+    assert f_local.is_local is True
+    assert f_local.core == "luckyadventure"
+
+    # Scores together
+    score, can_edge = calculate_series_score(f_cloud, f_local)
+    assert score >= 50
+    assert can_edge is True
+
+    # determine_group_name handles features
+    assert determine_group_name([f_cloud, f_local]) == "[Konata] Lucky Adventure"
+
+
+@pytest.mark.asyncio
+async def test_series_repository_cloud_methods_sql() -> None:
+    session = _FakeSession()
+    repo = SeriesRepository(session)
+
+    # add_cloud_items
+    session.sql.clear()
+    count = await repo.add_cloud_items(10, [1001, 1002])
+    assert count == 2
+    assert any("series_cloud_items" in s.lower() for s in session.sql)
+
+    # get_auto_series_cloud_gids
+    session.sql.clear()
+    await repo.get_auto_series_cloud_gids([10])
+    assert any("series_cloud_items" in s.lower() for s in session.sql)
+
+    # delete_cloud_items_for_local_galleries
+    session.sql.clear()
+    await repo.delete_cloud_items_for_local_galleries()
+    assert any("delete from series_cloud_items" in s.lower() for s in session.sql)
+
+    # get_rebuild_candidate_cloud_items
+    session.sql.clear()
+    await repo.get_rebuild_candidate_cloud_items()
+    assert any("gallery_metadata" in s.lower() and "favorite_items" in s.lower() for s in session.sql)
+
+
+@pytest.mark.asyncio
+async def test_series_cloud_items_api_serialization(monkeypatch: pytest.MonkeyPatch) -> None:
+    from galleryvault.app.routers import series as series_mod
+    from galleryvault.app.routers.series import _serialize_card
+
+    # Cloud member dictionary
+    cloud_item = {
+        "is_local": False,
+        "gallery_id": None,
+        "id": None,
+        "gid": 777,
+        "favcat": 2,
+        "token": "tok777",
+        "url": "https://e-hentai.org/g/777/tok777/",
+        "title": "Cloud Gallery Title",
+        "category": "doujinshi",
+        "page_count": 30,
+        "cover_url": "https://ehgt.org/t/777.jpg",
+        "tags": [{"namespace": "artist", "name": "konata", "display": "此方"}],
+    }
+    card = _serialize_card(cloud_item, {})
+    assert card["is_local"] is False
+    assert card["gallery_id"] is None
+    assert card["gid"] == 777
+    assert card["favcat"] == 2
+    assert card["cover_url"] == "https://ehgt.org/t/777.jpg"
+    assert card["page_count"] == 30
+
+    # Local member mock
+    g = MagicMock(spec=Gallery, id=55, gid=888, token="tok888", title="Local Title", title_jpn=None, category="manga", page_count=15, favcat=1)
+    card_local = _serialize_card(g, {55: [("artist", "konata")]})
+    assert card_local["is_local"] is True
+    assert card_local["gallery_id"] == 55
+    assert card_local["gid"] == 888
+    assert card_local["favcat"] == 1
+    assert card_local["cover_url"] == "/api/galleries/55/thumb/0"
+
+    # Test list_series returns both
+    s = Series(id=7, name="Mixed Series", match_key="s::konata::mixed", name_manual=False, created_at=None)
+
+    class FakeRepoMixed:
+        def __init__(self, session):
+            pass
+
+        async def list_paged(self, page=1, page_size=25, show_all=False):
+            return [(s, 2, [g, cloud_item])], 1
+
+        async def get_with_galleries(self, sid):
+            return (s, [g, cloud_item]) if sid == 7 else None
+
+    class FakeSession:
+        def begin(self):
+            class Ctx:
+                async def __aenter__(self):
+                    return self
+                async def __aexit__(self, *args):
+                    pass
+            return Ctx()
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(series_mod, "get_session", fake_get_session)
+    monkeypatch.setattr(series_mod, "SeriesRepository", FakeRepoMixed)
+    monkeypatch.setattr(series_mod, "GalleryRepository", MagicMock(return_value=AsyncMock(tags_for_galleries=AsyncMock(return_value={55: [("artist", "konata")]}))))
+    monkeypatch.setattr(series_mod, "display_title", lambda x: getattr(x, "title", ""))
+
+    res = await list_series()
+    assert res["total"] == 1
+    item = res["items"][0]
+    assert item["count"] == 2
+    assert len(item["galleries"]) == 2
+    assert item["galleries"][0]["is_local"] is True
+    assert item["galleries"][0]["gallery_id"] == 55
+    assert item["galleries"][1]["is_local"] is False
+    assert item["galleries"][1]["gallery_id"] is None
+    assert item["galleries"][1]["favcat"] == 2
+
+    # GET /api/series/7
+    detail = await get_series(7)
+    assert detail["count"] == 2
+    assert len(detail["galleries"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_series_cloud_candidates_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    import galleryvault.app.routers.series as series_mod
+
+    s = Series(id=1, name="Test Series", match_key=None, name_manual=True, created_at=None)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, sid):
+            return s if sid == 1 else None
+
+        async def get_cloud_candidates(self, sid, q=None, limit=50):
+            return [
+                {
+                    "gid": 100,
+                    "title": "Test Cloud 1",
+                    "favcat": 0,
+                    "thumb": "http://img/100.jpg",
+                    "token": "t1",
+                    "url": "http://g/100/t1/",
+                }
+            ]
+
+    class FakeSession:
+        pass
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(series_mod, "get_session", fake_get_session)
+    monkeypatch.setattr(series_mod, "SeriesRepository", FakeRepo)
+
+    # 404
+    with pytest.raises(HTTPException) as exc_info:
+        await get_series_cloud_candidates(999, q="abc")
+    assert exc_info.value.status_code == 404
+
+    # 200
+    res = await get_series_cloud_candidates(1, q="abc")
+    assert "items" in res
+    assert len(res["items"]) == 1
+    assert res["items"][0]["gid"] == 100
+
+
+@pytest.mark.asyncio
+async def test_series_cloud_items_flow_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    import galleryvault.app.routers.series as series_mod
+
+    s = Series(id=1, name="Test Series", match_key=None, name_manual=True, created_at=None)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, sid):
+            return s if sid == 1 else None
+
+        async def add_cloud_items_flow(self, sid, gids):
+            return {"added_local": 1, "added_cloud": 1, "skipped": 1}
+
+    class FakeSession:
+        def begin(self):
+            class Ctx:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return Ctx()
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(series_mod, "get_session", fake_get_session)
+    monkeypatch.setattr(series_mod, "SeriesRepository", FakeRepo)
+
+    # 404
+    with pytest.raises(HTTPException) as exc_info:
+        await add_series_cloud_items(999, SeriesCloudItemsRequest(gids=[100, 200]))
+    assert exc_info.value.status_code == 404
+
+    # Success
+    res = await add_series_cloud_items(1, SeriesCloudItemsRequest(gids=[100, 200, 300]))
+    assert res["id"] == 1
+    assert res["added_local"] == 1
+    assert res["added_cloud"] == 1
+    assert res["skipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_series_cloud_items_remove_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    import galleryvault.app.routers.series as series_mod
+
+    s = Series(id=1, name="Test Series", match_key=None, name_manual=True, created_at=None)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, sid):
+            return s if sid == 1 else None
+
+        async def remove_cloud_items(self, sid, gids):
+            return len(gids)
+
+    class FakeSession:
+        def begin(self):
+            class Ctx:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return Ctx()
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(series_mod, "get_session", fake_get_session)
+    monkeypatch.setattr(series_mod, "SeriesRepository", FakeRepo)
+
+    # 404
+    with pytest.raises(HTTPException) as exc_info:
+        await remove_series_cloud_items(999, SeriesCloudItemsRequest(gids=[100, 200]))
+    assert exc_info.value.status_code == 404
+
+    # Success
+    res = await remove_series_cloud_items(1, SeriesCloudItemsRequest(gids=[100, 200]))
+    assert res["id"] == 1
+    assert res["removed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_series_items_remove_with_gids(monkeypatch: pytest.MonkeyPatch) -> None:
+    import galleryvault.app.routers.series as series_mod
+
+    s = Series(id=1, name="Test Series", match_key=None, name_manual=True, created_at=None)
+    removed_ids: list[int] = []
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, sid):
+            return s if sid == 1 else None
+
+        async def remove_items(self, sid, gallery_ids):
+            removed_ids.extend(gallery_ids)
+            return len(gallery_ids)
+
+    class FakeScalars:
+        def all(self):
+            return [555]
+
+    class FakeSession:
+        def begin(self):
+            class Ctx:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return Ctx()
+
+        async def scalars(self, stmt):
+            return FakeScalars()
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(series_mod, "get_session", fake_get_session)
+    monkeypatch.setattr(series_mod, "SeriesRepository", FakeRepo)
+
+    res = await remove_series_items(1, SeriesItemsRequest(gallery_ids=[10], gids=[999]))
+    assert res["id"] == 1
+    assert res["removed"] == 2
+    assert 10 in removed_ids
+    assert 555 in removed_ids
+
+
+@pytest.mark.asyncio
+async def test_series_repository_cloud_flow() -> None:
+    session = AsyncMock()
+    repo = SeriesRepository(session)
+
+    # 1. clean_gids is empty
+    r0 = await repo.add_cloud_items_flow(1, [])
+    assert r0 == {"added_local": 0, "added_cloud": 0, "skipped": 0}
+
+    # 2. Local has gid=100 (gallery.id=10), favorites has gid=200, neither has gid=300
+    class LocalRow:
+        id = 10
+        gid = 100
+
+    local_exec_result = MagicMock()
+    local_exec_result.all.return_value = [LocalRow()]
+
+    fav_scalars_result = MagicMock()
+    fav_scalars_result.all.return_value = [200]
+
+    async def fake_execute(stmt):
+        return local_exec_result
+
+    async def fake_scalars(stmt):
+        return fav_scalars_result
+
+    session.execute = AsyncMock(side_effect=fake_execute)
+    session.scalars = AsyncMock(side_effect=fake_scalars)
+
+    r = await repo.add_cloud_items_flow(1, [100, 200, 300])
+    assert r["added_local"] == 1
+    assert r["added_cloud"] == 1
+    assert r["skipped"] == 1
+
+    # 3. remove_cloud_items
+    del_result = MagicMock(rowcount=1)
+    session.execute = AsyncMock(return_value=del_result)
+    rem_cnt = await repo.remove_cloud_items(1, [200])
+    assert rem_cnt == 1
+
+
+@pytest.mark.asyncio
+async def test_rebuild_series_respects_cloud_exclusions(monkeypatch: pytest.MonkeyPatch) -> None:
+    import galleryvault.services.series as svc_series
+
+    s10 = Series(id=10, name="Test Series", match_key="s::test::series", name_manual=False)
+    added_cloud_calls: list[tuple[int, list[int]]] = []
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get_auto_series(self):
+            return [s10]
+
+        async def get_auto_series_gids(self, ids):
+            return {10: {1}}
+
+        async def get_auto_series_cloud_gids(self, ids):
+            return {}
+
+        async def get_series_cloud_exclusions(self):
+            # Series 10 excludes gid 777!
+            return {10: {777}}
+
+        async def get_rebuild_candidate_galleries(self):
+            g = MagicMock(spec=Gallery, id=1, gid=111, title="[Test] Series 01", title_jpn=None, category="manga")
+            return [g]
+
+        async def get_tags_for_galleries(self, ids):
+            return {1: [("artist", "test")]}
+
+        async def get_rebuild_candidate_cloud_items(self):
+            return [
+                {
+                    "gid": 777,
+                    "title": "[Test] Series 02",
+                    "category": "manga",
+                    "tags": [("artist", "test")],
+                }
+            ]
+
+        async def clear_auto_series_items(self, ids):
+            pass
+
+        async def add_items(self, sid, ids, source="auto"):
+            pass
+
+        async def add_cloud_items(self, sid, gids):
+            added_cloud_calls.append((sid, gids))
+
+        async def delete_cloud_items_for_local_galleries(self):
+            pass
+
+        async def delete_series(self, sid):
+            pass
+
+    class FakeSession:
+        def begin(self):
+            class Ctx:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return Ctx()
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return FakeSession()
+
+    monkeypatch.setattr(svc_series, "SeriesRepository", FakeRepo)
+
+    assert SeriesCloudExclusion.__tablename__ == "series_cloud_exclusions"
+
+    res = await rebuild_series_groups(session_factory=FakeSessionFactory())
+    assert isinstance(res, dict)
+    # Cloud item 777 was excluded by series 10, so add_cloud_items should NOT receive 777!
+    for sid, gids in added_cloud_calls:
+        if sid == 10:
+            assert 777 not in gids
+
+
 
