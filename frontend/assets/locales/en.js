@@ -8,6 +8,8 @@ window.GV_LOCALES.en = {
   searchTagsPlaceholder: "Search tags...",
   searchTags: "Search tags",
   allCategories: "All categories",
+  "library.filters.advanced": "More filters",
+  "library.filters.activeCount": "{n} active",
   orderDefault: "Ingest date (default)", orderPosted: "Posted date", orderTitle: "Title", orderPages: "Pages", orderSize: "Size", orderRating: "Rating", orderFirstSeen: "First favorited",
   readStatusAll: "All reading status", readStatusUnread: "Unread", readStatusReading: "Reading", readStatusCompleted: "Completed",
   favSearchPlaceholder: "Search titles in folder...", sortBy: "Sort",
