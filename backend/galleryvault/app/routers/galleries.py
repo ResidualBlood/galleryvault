@@ -327,7 +327,13 @@ async def list_galleries(
     try:
         async for session in get_session():
             repo_cls = GalleryRepository
-            total, rows = await repo_cls(session).list_page(
+            repo = repo_cls(session)
+            tag_id_map: dict[tuple[str | None, str], int] = {}
+            if tag_match == "exact":
+                candidates = parsed_inc_tags + parsed_exc_tags
+                if candidates and hasattr(repo, "resolve_exact_tags"):
+                    tag_id_map = await repo.resolve_exact_tags(candidates)
+            total, rows = await repo.list_page(
                 page,
                 page_size,
                 q=resolved_q,
@@ -335,6 +341,7 @@ async def list_galleries(
                 exclude_tags=parsed_exc_tags if parsed_exc_tags else (),
                 tag_mode=tag_mode,
                 tag_match=tag_match,
+                tag_id_map=tag_id_map,
                 category=category,
                 exclude_favorited=exclude_favorited,
                 order_by=order_by,
@@ -1197,6 +1204,11 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
         matching_ids: list[int] = []
         async for session in get_session():
             repo = GalleryRepository(session)
+            tag_id_map: dict[tuple[str | None, str], int] = {}
+            if body.tag_match == "exact":
+                candidates = parsed_tags + parsed_exc_tags
+                if candidates and hasattr(repo, "resolve_exact_tags"):
+                    tag_id_map = await repo.resolve_exact_tags(candidates)
             page = 1
             while True:
                 _, rows = await repo.list_page(
@@ -1207,6 +1219,7 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                     exclude_tags=parsed_exc_tags,
                     tag_mode=body.tag_mode,
                     tag_match=body.tag_match,
+                    tag_id_map=tag_id_map,
                     category=category,
                     exclude_favorited=exclude_favorited,
                     order_by=order_by,
