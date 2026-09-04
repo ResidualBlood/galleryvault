@@ -12,7 +12,7 @@ authenticated session cookie. Unauthenticated `/api/*` requests receive
 - **Content-Type**: `application/json` (except `POST /login`, which is
   `application/x-www-form-urlencoded`).
 - **Auth**: session cookie `galleryvault_session` (HttpOnly, SameSite=lax).
-- **HTTP Basic Auth**: Supported *only* on `GET /api/opds` and `GET /api/galleries/{identifier}/export.cbz`. Fixed username `galleryvault` (not an ExHentai account); password is the web login password. Missing or invalid credentials on these two endpoints return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. Session cookies remain valid on both endpoints. All other `/api/*` routes are cookie-only.
+- **HTTP Basic Auth**: Supported *only* on `GET /api/opds`. Fixed username `galleryvault` (not an ExHentai account); password is the web login password. Missing or invalid credentials on this endpoint return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. Session cookies remain valid. All other `/api/*` routes (including CBZ export) are cookie-only.
 
 ## Authentication
 
@@ -48,11 +48,10 @@ Subsequent calls pass the cookie:
 curl -b cookies.txt http://localhost:8001/api/settings
 ```
 
-For OPDS feed and CBZ export, HTTP Basic authentication is also accepted (username `galleryvault`, password is the web login password):
+For the OPDS feed, HTTP Basic authentication is also accepted (username `galleryvault`, password is the web login password):
 
 ```bash
 curl -H "Authorization: Basic <base64(galleryvault:password)>" http://localhost:8001/api/opds
-curl -H "Authorization: Basic <base64(galleryvault:password)>" -O -J http://localhost:8001/api/galleries/123/export.cbz
 ```
 
 ## Settings
@@ -140,7 +139,7 @@ manual cleanup on the *Duplicate copies* page). All duplicates are recorded in
 | ------ | ---- | ----------- |
 | POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?, quality?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. `quality` (`resample`/`original`) overrides the global `download_quality` for this task (page-by-page original downloads ignore H@H and fetch full-size images). Returns `202 {id, gid, status}`. |
 | GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤500), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress and `retry_count`/`max_retries`. |
-| POST | `/api/downloads/{task_id}/cancel` | Cancel a pending/active task. An in-flight download is interrupted (page writes stop, the partial temp dir is removed). Cancel latency is bounded by the page-progress ticks (at most one in-flight page finishes first). |
+| POST | `/api/downloads/{task_id}/cancel` | Cancel a pending or downloading task. An in-flight download is interrupted (page writes stop, partial files are removed; the worker does not write to disk upon cancellation). Cancel latency is bounded by the page-progress ticks (at most one in-flight page finishes first). |
 | POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`). Retries are otherwise automatic: transient failures re-queue with an exponential backoff up to `max_retries` (default 10), and a periodic sweep re-activates `failed` tasks that still have budget left. |
 | DELETE | `/api/downloads/{task_id}` | `204` – permanently remove a download task and its attempt log. |
 | POST | `/api/downloads/clear-success` | Remove every task with `status=success`. Returns `{deleted}`. Does not delete ingested gallery files. |
@@ -229,10 +228,10 @@ tier, the rest download page-by-page.
 | POST | `/api/galleries/{identifier}/redownload` | `202` – enqueue redownloading this gallery (`mode=gallery` or `gallery_archive`; does not follow replacement chains). |
 | POST | `/api/galleries/{identifier}/favorite` | Body `{favcat: int}` (0-9). Modify the ExHentai favorite category folder for this gallery. |
 | POST | `/api/galleries/{identifier}/read` | Mark gallery as read (`upsert_progress` to last page). |
-| DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes the on-disk files (directory or single archive); the row is kept when deletion fails. |
+| DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes on-disk files; partial disk deletion failure returns `500` with `failed_paths` and `deleted_paths` in the body, removing deleted copy paths from DB and keeping the row if residual copies remain. |
 | POST | `/api/galleries/delete-bulk` | Body `{ids: [...], delete_files?: bool}`. Bulk remove galleries by id; `delete_files` also deletes on-disk files, keeping each row whose files failed to delete. Returns `{deleted, failed_deletions}`. Ids are processed in 500-row batches to stay under asyncpg's parameter limit. |
 | POST | `/api/galleries/delete-filtered` | Body `{q?, category?, tags?, tag_mode?, tag_match?, delete_files?}`. Remove every gallery matching the current library filter (same semantics as `GET /api/galleries`). The backend pages the filter and deletes in 500-row batches, so the client never sends a huge id list. Returns `{deleted, matched, failed_deletions}`. When `matched` exceeds 5000 the request is rejected with `409` (refine the filter or delete in batches). |
-| GET | `/api/galleries/{identifier}/export.cbz` | Download the gallery as a CBZ (supports session cookie or HTTP Basic auth). An on-disk `.cbz` is streamed with `FileResponse`; a directory gallery is packed in page order (`ZIP_STORED`) to a tempfile. Member paths must resolve inside the gallery directory (zip-slip → `400`); missing files → `404`. Records an `export-cbz` task log. |
+| GET | `/api/galleries/{identifier}/export.cbz` | Download the gallery as a CBZ (requires session cookie authentication). An on-disk `.cbz` is streamed with `FileResponse`; a directory gallery is packed in page order (`ZIP_STORED`) to a tempfile. Member paths must resolve inside the gallery directory (zip-slip → `400`); missing files → `404`. Records an `export-cbz` task log. |
 | GET | `/api/galleries/{identifier}/pages/{page_index}` | Stream one page image (`image/jpeg`/`image/png`/…). |
 | GET | `/api/galleries/{identifier}/thumb/{page_index}` | Serve a cached static JPEG thumbnail for a page (generated on first access into `/gv-cache/thumbs`, `Cache-Control` + `ETag`). |
 | GET | `/api/galleries/{identifier}/progress` | Reading progress (`current_page`, `total_pages`). |
@@ -274,7 +273,7 @@ refresh is available via the button in Settings. Markdown icon syntax
 | POST | `/api/scan/duplicates/{gid}/resolve` | Body `{path, delete_others?}` – make `path` the stored copy (the gallery row is re-pointed at it). With `delete_others=true` the other copies are deleted from disk (paths must be inside the scan roots and listed in the group) and the group is dropped. |
 | POST | `/api/scan/duplicates/{gid}/dismiss` | Hide a duplicate group (survives rescans until the copies actually change). |
 | POST | `/api/scan/duplicates/{gid}/restore` | Bring a dismissed group back. |
-| GET | `/api/scan/duplicates/thumb/{key}` | Lazily-generated JPEG cover thumbnail for one copy (cached under `/gv-cache/thumbs/dup/{key}/0.jpg`). |
+| GET | `/api/scan/duplicates/thumb/{key}` | Lazily-generated JPEG cover thumbnail for one copy (cached under `/gv-cache/thumbs/dup/{key}/0.jpg`). Invalid keys (`..`, slashes, or absolute paths) return `404`. |
 | GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
 | POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. |
 | POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |
@@ -299,7 +298,7 @@ refresh is available via the button in Settings. Markdown icon syntax
 | GET | `/api/system/logs` | In-memory diagnostic ring buffer (`level` filter, optional `q` text search). Items include timestamp, level, logger, message, and extras (request id, worker context); secrets are masked. httpx 2xx/3xx access lines (including Telegram `getUpdates` long-poll) are omitted; 4xx/5xx and business logs are kept. |
 | POST | `/api/system/logs/level` | Body `{level}` (`DEBUG`/`INFO`/`WARNING`/`ERROR`) — change the process log level without restart. |
 | DELETE | `/api/system/logs` | Clear the in-memory ring buffer (`204`). |
-| GET | `/api/system/logs/download` | Download `galleryvault.log` (rotated file under `/gv-cache/logs` plus recent memory lines) as an attachment. |
+| GET | `/api/system/logs/download` | Download `galleryvault.log` (rotated file under configured log root plus recent memory lines) as an attachment. The file path must resolve within the log root (`403` if out-of-bounds, `404` if missing). |
 
 ## Errors
 

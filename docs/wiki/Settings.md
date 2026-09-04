@@ -25,7 +25,7 @@
 - **PWA**：可「添加到主屏幕」。Service worker 只缓存 html/css/js 壳（js/css **network-first**，成功再写入缓存；离线回退缓存），**不缓存画廊图片与 `/api/`**。
 - **浅色主题**：顶栏 ◐ 切换；`localStorage gv_theme=dark|light`，默认 dark。
 - **7z / PDF 扫描**：库扫描识别 `.7z`（py7zr，只收图）与 `.pdf`（抽取内嵌图；抽不到则跳过并 warning）。
-- **OPDS 与 CBZ 导出**：`GET /api/opds`（atom+xml）列出最近入库，acquisition 链到 `GET /api/galleries/{id}/export.cbz`。这两个端点支持 HTTP Basic 认证（用户名固定为 `galleryvault`，不是 EH 账号；密码为本站 Web 登录密码），便于第三方阅读器（Tachiyomi / Panels / Chunky 等）接入；Cookie 鉴权仍完全可用。未提供凭据或认证失败时返回 `401 Unauthorized` 并携带响应头 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`。除这两个端点外，其余 `/api/*` 均为 Cookie-only。
+- **OPDS 与 CBZ 导出**：`GET /api/opds`（atom+xml）列出最近入库，acquisition 链到 `GET /api/galleries/{id}/export.cbz`。OPDS 端点支持 HTTP Basic 认证（用户名固定为 `galleryvault`，不是 EH 账号；密码为本站 Web 登录密码），便于第三方阅读器接入；Cookie 鉴权仍完全可用。未提供凭据或认证失败时返回 `401 Unauthorized` 并携带响应头 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`。CBZ 导出及其实际 API 路由需常规登录会话，其余 `/api/*` 均为 Cookie-only。
 - **Telegram bot 控制命令**（在「允许的 user ID」账号发给 bot）：`/help` 列出命令，`/queue` 查看等待/进行中/失败摘要，`/stats` 库本数 + 队列 pending/downloading/failed，`/cancel <id|gid>` 取消任务（找不到会回复，不静默），未知非 URL 文本会回帮助；`/pause` 暂停接收新 URL（暂停期间粘贴的画廊 URL 会被忽略、不入队）、`/resume` 恢复接收、`/status` 查看暂停状态；`/pause` 为**全局暂停**（持久化到 `app_config.user_settings`，重启后仍生效）：**停止 claim 新画廊 + 暂停后不再领取新页，已开始的当前页会下完（已入队的画廊不丢，恢复后继续）**，同时暂停**自动扫描**与 **Web 端新扫描**（扫描触发返回 `paused`），Web 下载页的暂停按钮与 Bot 的 `/pause` / `/resume` 操作**同一开关**（`GET/POST /api/pause`），网页暂停后 Bot 一致，顶栏黄条与 Cookie 红条可叠加显示。**直接粘贴画廊 URL**（如 `https://exhentai.org/g/2325283/d3722b6aa8/`）会解析 gid/token 并立即入队下载，bot 回复带**标题**（有新版会说明旧→新 gid；404/删除则提示未入队）。
 
 ## 哪些操作要上网

@@ -34,7 +34,7 @@
    - **动态调级**：可在线切换全局日志级别（`DEBUG` / `INFO` / `WARNING` / `ERROR`），无需重启容器；
    - **实时筛选与搜索**：支持按最低日志级别（`INFO+` / `WARN+` / `ERROR+`）筛选与文本关键字快速检索；
    - **异常堆栈与上下文**：错误自动展示可展开的 Traceback 堆栈，并带请求 ID、Worker 协程上下文（`gid` / `task_id`）与敏感凭据自动脱敏（`ipb_*` Cookie、Telegram Token、密钥等安全遮蔽）；
-   - **导出日志**：工具栏「导出日志」下载 `galleryvault.log`（环形缓冲 + 落盘轮转文件，`GET /api/system/logs/download`），便于把诊断归档发出；
+   - **导出日志**：工具栏「导出日志」下载 `galleryvault.log`（环形缓冲 + 落盘轮转文件，`GET /api/system/logs/download`，仅当前日志根内文件），便于把诊断归档发出；
    - **噪音过滤**：httpx 成功请求（2xx/3xx，含 Telegram `getUpdates` 30s 长轮询）不进入本页；4xx/5xx 与业务 WARNING/ERROR（如 bot 轮询失败、通知发送失败）仍保留。
 
 页面每 2~3 秒自动轮询刷新。设置里的「立即同步标签 / 立即生成 / 立即更新翻译」触发后也会在此留痕。
