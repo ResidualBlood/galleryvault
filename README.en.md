@@ -24,7 +24,12 @@ docker compose up -d
 1. Run `docker compose up -d` to launch the stack.
 2. Open **http://<host>:8000** for the web UI (JSON API at `:8001`).
 3. Log in with default password **`p1a2s3s4`** and change it in *Settings*.
-4. Put galleries into `./library` (mounted at `/library`) and click *Scan library*.
+4. Data directories (created empty on first start):
+   - `./library` → `/library`: gallery library. Downloads **do not** write here. Put existing galleries into `./library` (or point the compose mount at your own library), then scan in the app.
+   - `./downloads` → `/downloads`: ExHentai download destination; auto-scanned.
+   - `./cache` → `/gv-cache`: thumbnail cache.
+   - `./db-data`: PostgreSQL data.
+5. Encryption is off by default. Without `ENCRYPTION_KEY`, cookies, tokens, and password hashes are stored in plaintext. To enable, uncomment that variable in compose and set a key; **a lost key cannot be recovered**. See [Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption). Database backups: [Backup](https://github.com/ResidualBlood/galleryvault/wiki/Backup-EN).
 
 > To sync metadata or download from ExHentai, configure your account cookies in *Settings → ExHentai*; see the [Wiki Usage Guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN).
 
