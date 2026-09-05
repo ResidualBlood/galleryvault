@@ -2,7 +2,9 @@ import hashlib
 import io
 import json
 import re
+import threading
 import zipfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import BinaryIO
 from xml.etree import ElementTree
@@ -141,6 +143,46 @@ class ArchiveScanner(GalleryScanner):
         return {"comic_info": values}, metadata
 
 
+_ZIP_CACHE_MAX = 32
+_zip_cache: OrderedDict[str, tuple[zipfile.ZipFile, float, threading.RLock]] = OrderedDict()
+_zip_cache_lock = threading.RLock()
+
+
+def _get_cached_zip(path: Path | str) -> tuple[zipfile.ZipFile, threading.RLock]:
+    resolved = Path(path).resolve()
+    key = str(resolved)
+    current_mtime = resolved.stat().st_mtime
+
+    to_close: list[tuple[zipfile.ZipFile, threading.RLock]] = []
+    with _zip_cache_lock:
+        entry = _zip_cache.get(key)
+        if entry is not None:
+            zf, cached_mtime, file_lock = entry
+            if cached_mtime == current_mtime:
+                _zip_cache.move_to_end(key)
+                return zf, file_lock
+            del _zip_cache[key]
+            to_close.append((zf, file_lock))
+
+        new_zf = zipfile.ZipFile(resolved)
+        new_lock = threading.RLock()
+        _zip_cache[key] = (new_zf, current_mtime, new_lock)
+        _zip_cache.move_to_end(key)
+
+        while len(_zip_cache) > _ZIP_CACHE_MAX:
+            _, item = _zip_cache.popitem(last=False)
+            to_close.append((item[0], item[2]))
+
+    for old_zf, old_lock in to_close:
+        try:
+            with old_lock:
+                old_zf.close()
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    return new_zf, new_lock
+
+
 class CbzZipScanner(ArchiveScanner):
     storage_type = "cbz"
 
@@ -189,11 +231,13 @@ class CbzZipScanner(ArchiveScanner):
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
         if _is_unsafe_path(page.name):
             raise ValueError(f"unsafe page path: {page.name}")
-        with zipfile.ZipFile(gallery.path) as archive:
-            info = archive.getinfo(page.name)
+        zf, file_lock = _get_cached_zip(gallery.path)
+        with file_lock:
+            info = zf.getinfo(page.name)
             if _is_symlink(info):
                 raise ValueError(f"unsafe symlink in archive: {page.name}")
-            return io.BytesIO(archive.read(page.name))
+            data = zf.read(page.name)
+        return io.BytesIO(data)
 
 
 class CbrRarScanner(ArchiveScanner):

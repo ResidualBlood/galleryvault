@@ -26,6 +26,7 @@ from .export_cbz import ZIP_STORED, page_archive_name
 logger = logging.getLogger(__name__)
 
 COLD_ARCHIVE_MAX_CBZ_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
+COLD_ARCHIVE_MAX_CBZ_PAGES = 500
 
 _UNSAFE_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 _GID_STEM = re.compile(r"^(\d+)(?:-(.*))?$")
@@ -453,12 +454,14 @@ def cold_pack_gallery(
     writer: str | None = None,
     site: str | None = None,
     max_cbz_bytes: int = COLD_ARCHIVE_MAX_CBZ_BYTES,
+    max_cbz_pages: int = COLD_ARCHIVE_MAX_CBZ_PAGES,
     delete_source: bool = False,
 ) -> Path:
     """Pack a gallery to cold storage.
 
     Rules:
-    - If total page bytes <= max_cbz_bytes (2GiB) -> ZIP_STORED single CBZ.
+    - If total page bytes <= max_cbz_bytes (2GiB) and page_count <= max_cbz_pages (500)
+      -> ZIP_STORED single CBZ.
     - Otherwise -> directory structure, big zip forbidden.
     - Destination paths follow compute_cold_path.
     - Contents only: 0001.ext... + ComicInfo.xml + .galleryvault.json.
@@ -520,7 +523,7 @@ def cold_pack_gallery(
         total_page_bytes = sum(p.stat().st_size for p in page_files)
         page_count = len(page_files)
 
-    is_cbz = total_page_bytes <= max_cbz_bytes
+    is_cbz = total_page_bytes <= max_cbz_bytes and page_count <= max_cbz_pages
 
     dest = compute_cold_path(
         c_root,

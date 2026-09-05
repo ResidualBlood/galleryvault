@@ -10,6 +10,7 @@ import pytest
 
 from galleryvault.services.cold_archive import (
     COLD_ARCHIVE_MAX_CBZ_BYTES,
+    COLD_ARCHIVE_MAX_CBZ_PAGES,
     ColdAlreadyArchivedError,
     ColdDestinationExistsError,
     cold_pack_gallery,
@@ -23,6 +24,7 @@ from galleryvault.services.export_cbz import ZIP_STORED, page_archive_name
 
 def test_constants_and_safe_title() -> None:
     assert COLD_ARCHIVE_MAX_CBZ_BYTES == 2 * 1024 * 1024 * 1024
+    assert COLD_ARCHIVE_MAX_CBZ_PAGES == 500
     assert safe_title('a/b:c*d?e"f<g>h|i') == "a_b_c_d_e_f_g_h_i"
     assert safe_title("   ") == "gallery"
     assert safe_title(None) == "gallery"
@@ -158,6 +160,56 @@ def test_large_dir_packs_to_directory_forbidding_zip(tmp_path: Path) -> None:
     assert (dest / "0002.jpg").read_bytes() == b"y" * 60
     assert (dest / "ComicInfo.xml").is_file()
     assert (dest / ".galleryvault.json").is_file()
+
+
+def test_cold_pack_gallery_page_count_boundary(tmp_path: Path) -> None:
+    cold_root = tmp_path / "cold"
+
+    # 1. max_cbz_pages=3 + 4 小图 -> 目录
+    source1 = tmp_path / "src1"
+    source1.mkdir()
+    for i in range(1, 5):
+        (source1 / f"0{i}.jpg").write_bytes(b"a")
+    dest1 = cold_pack_gallery(
+        source=source1,
+        cold_root=cold_root,
+        gid=1001,
+        title="Page Limit Exceeded",
+        max_cbz_pages=3,
+    )
+    assert dest1.is_dir()
+    assert dest1 == compute_cold_path(cold_root, is_cbz=False, gid=1001, title="Page Limit Exceeded")
+
+    # 2. 页数=上限且字节达标 -> .cbz
+    source2 = tmp_path / "src2"
+    source2.mkdir()
+    for i in range(1, 4):
+        (source2 / f"0{i}.jpg").write_bytes(b"b")
+    dest2 = cold_pack_gallery(
+        source=source2,
+        cold_root=cold_root,
+        gid=1002,
+        title="Page Limit Exactly Met",
+        max_cbz_pages=3,
+    )
+    assert dest2.is_file()
+    assert dest2.suffix == ".cbz"
+    assert dest2 == compute_cold_path(cold_root, is_cbz=True, gid=1002, title="Page Limit Exactly Met")
+
+    # 3. 字节超限仍目录（即使页数未超上限）
+    source3 = tmp_path / "src3"
+    source3.mkdir()
+    (source3 / "01.jpg").write_bytes(b"c" * 50)
+    dest3 = cold_pack_gallery(
+        source=source3,
+        cold_root=cold_root,
+        gid=1003,
+        title="Byte Limit Exceeded Page OK",
+        max_cbz_bytes=20,
+        max_cbz_pages=3,
+    )
+    assert dest3.is_dir()
+    assert dest3 == compute_cold_path(cold_root, is_cbz=False, gid=1003, title="Byte Limit Exceeded Page OK")
 
 
 def test_failure_cleans_partial_and_does_not_delete_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

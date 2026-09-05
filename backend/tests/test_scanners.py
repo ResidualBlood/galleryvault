@@ -330,3 +330,25 @@ def test_library_scan_batches_preserves_cold_gallery_metadata_and_pages(tmp_path
     assert scanner_cbz is not None
     with scanner_cbz.open_page(cbz_g, cbz_g.pages[0]) as stream:
         assert stream.read() == b"cold cbz page 1"
+
+
+def test_cbz_scanner_open_page_consecutive_reads(tmp_path: Path) -> None:
+    cbz_file = tmp_path / "consecutive.cbz"
+    with zipfile.ZipFile(cbz_file, "w") as z:
+        z.writestr("0001.jpg", b"page-1-bytes")
+        z.writestr("0002.jpg", b"page-2-bytes")
+
+    scanner = CbzZipScanner()
+    meta = scanner.scan(cbz_file)
+
+    # First open_page call
+    with scanner.open_page(meta, meta.pages[0]) as s1:
+        assert s1.read() == b"page-1-bytes"
+
+    # Second open_page call on same CBZ
+    with scanner.open_page(meta, meta.pages[1]) as s2:
+        assert s2.read() == b"page-2-bytes"
+
+    # Third open_page call on first page again (reusing cached ZipFile)
+    with scanner.open_page(meta, meta.pages[0]) as s3:
+        assert s3.read() == b"page-1-bytes"
