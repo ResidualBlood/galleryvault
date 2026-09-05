@@ -1,6 +1,8 @@
 import hashlib
 import json
+import shutil
 import zipfile
+from collections import namedtuple
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -14,6 +16,7 @@ from galleryvault.services.cold_archive import (
     cold_partition,
     compute_cold_path,
     safe_title,
+    select_archive_root,
 )
 from galleryvault.services.export_cbz import ZIP_STORED, page_archive_name
 
@@ -1556,10 +1559,6 @@ def test_is_under_cold_multiple_roots(tmp_path: Path) -> None:
 
 
 def test_select_archive_root_strategy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import shutil
-    from collections import namedtuple
-    from galleryvault.services.cold_archive import select_archive_root
-
     Usage = namedtuple("Usage", ["total", "used", "free"])
 
     disk1 = tmp_path / "disk1"
