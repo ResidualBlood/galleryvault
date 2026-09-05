@@ -60,7 +60,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 使用指南已拆分为以下各功能分册，点击即可深入查阅对应特性说明：
 
 - **[浏览与库 (Library)](Library)**：
-  - [浏览（#/browse）](Library#浏览browse) — 落地网格、继续阅读卡片区、键盘导航与全局快捷搜索；画廊卡片横向封面不再裁切，采用同图模糊铺底
+  - [浏览（#/browse）](Library#浏览browse) — 落地网格、继续阅读卡片区、键盘导航与全局快捷搜索；画廊卡片横向封面不再裁切，采用同图模糊铺底。卡片封面优先读取 EH 原图缓存（remote-covers），miss 时立即回退本地 0.jpg 并在后台拉取；收藏立即检查自动识别并跳过已有封面。
   - [发现（#/discover）](Library#发现discover) — 在线浏览 ExHentai、Popular / Watched / Toplist 热门与游标翻页
   - [系列作品（#/series）](Library#系列作品series) — 默认同人/漫画过滤与分页浏览、活动前缀剥离与多维打分聚类；支持聚合云端未下载收藏成员并展示云端角标与一键下载，支持手工添加 GID/收藏画廊及移出云端，扫库收尾自动 rebuild。
   - [画廊库（#/library）](Library#画廊库library) — 多维索引排序、阅读状态互斥过滤、AND/OR 多标签与 `-tag` 排除筛选、批量加收藏与批量删除熔断
