@@ -632,18 +632,6 @@ async def list_integrity(page: int = 1, page_size: int = 24) -> dict[str, object
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
-    settings = get_current_settings()
-    if (
-        not getattr(settings, "global_paused", False)
-        and not integrity_state.get("running")
-        and integrity_state.get("started_at") is None
-    ):
-        from ...services.integrity_worker import run_integrity_magic_scan
-
-        integrity_state["running"] = True
-        integrity_state["started_at"] = datetime.now(UTC).isoformat()
-        spawn_task(run_integrity_magic_scan(), "integrity magic scan")
-
     magic_scan_summary = {
         "running": bool(integrity_state.get("running")),
         "started_at": integrity_state.get("started_at"),
@@ -676,6 +664,32 @@ async def list_integrity(page: int = 1, page_size: int = 24) -> dict[str, object
             for row in rows
         ],
     }
+
+
+@router.post("/api/galleries/integrity/scan", status_code=202)
+async def trigger_integrity_scan() -> dict[str, object]:
+    settings = get_current_settings()
+    if getattr(settings, "global_paused", False):
+        return {"status": "paused", "detail": "Global paused: integrity scan is disabled"}
+    tm = get_task_manager()
+    integrity_state = tm.integrity_state
+    if not integrity_state.get("running"):
+        from ...services.integrity_worker import run_integrity_magic_scan
+
+        integrity_state["running"] = True
+        integrity_state["started_at"] = datetime.now(UTC).isoformat()
+        spawn_task(run_integrity_magic_scan(), "integrity magic scan")
+
+    corrupt_ids = list(integrity_state.get("corrupt_ids") or [])
+    magic_scan_summary = {
+        "running": bool(integrity_state.get("running")),
+        "started_at": integrity_state.get("started_at"),
+        "completed_at": integrity_state.get("completed_at"),
+        "scanned": int(integrity_state.get("scanned", 0) or 0),
+        "total": int(integrity_state.get("total", 0) or 0),
+        "corrupt": len(corrupt_ids),
+    }
+    return magic_scan_summary
 
 
 @router.post("/api/galleries/restore", status_code=200)

@@ -311,6 +311,15 @@ class TaskManager:
                 "stage": None,
                 "cancellable": True,
             })
+        if self.integrity_state.get("running"):
+            running_tasks.append({
+                "task": "integrity",
+                "started_at": self.integrity_state.get("started_at"),
+                "done": int(self.integrity_state.get("scanned") or 0),
+                "total": int(self.integrity_state.get("total") or 0),
+                "stage": None,
+                "cancellable": False,
+            })
 
         return running_tasks
 

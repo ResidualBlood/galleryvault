@@ -423,7 +423,9 @@ async def test_integrity_detects_corrupt_magic_and_count_mismatch(tmp_path, monk
     assert 2 in row_ids
     assert 3 not in row_ids
 
-    # ④ & ⑤ list_integrity: monkeypatch spawn_task，检验 magic_scan 与 spawn 行为
+    # ④ & ⑤ list_integrity & trigger_integrity_scan: monkeypatch spawn_task，检验 magic_scan 与 spawn 行为
+    from galleryvault.app.routers.galleries import trigger_integrity_scan
+
     tm = TaskManager()
     monkeypatch.setattr("galleryvault.app.routers.galleries.get_task_manager", lambda: tm)
 
@@ -438,20 +440,52 @@ async def test_integrity_detects_corrupt_magic_and_count_mismatch(tmp_path, monk
 
     monkeypatch.setattr("galleryvault.app.routers.galleries.spawn_task", fake_spawn)
 
-    # 首次调用：started_at is None，应当触发 spawn_task
+    # list_integrity: 无论 started_at 是否为空，均不应 spawn_task（spawned 恒为 0）
     result1 = await list_integrity(1, 10)
     assert "magic_scan" in result1
-    assert result1["magic_scan"]["running"] is True
+    assert result1["magic_scan"]["running"] is False
     assert result1["magic_scan"]["corrupt"] == 0
-    assert len(spawned) == 1
-    assert spawned[0] == "integrity magic scan"
+    assert len(spawned) == 0
     assert result1["total"] == 1
     assert [item["id"] for item in result1["items"]] == [2]
 
-    # 二次调用：started_at 已存在，不再触发 spawn
+    # POST trigger_integrity_scan: 在 not running 且非 paused 时 spawn 1 次且不 await worker
+    scan_res1 = await trigger_integrity_scan()
+    assert scan_res1["running"] is True
+    assert len(spawned) == 1
+    assert spawned[0] == "integrity magic scan"
+
+    # POST trigger_integrity_scan: 已 running 时不再重复 spawn
+    scan_res2 = await trigger_integrity_scan()
+    assert scan_res2["running"] is True
+    assert len(spawned) == 1
+
+    # POST trigger_integrity_scan: global_paused 时不 spawn
+    tm.integrity_state["running"] = False
+    monkeypatch.setattr(
+        "galleryvault.app.routers.galleries.get_current_settings",
+        lambda: type("Settings", (), {"global_paused": True})(),
+    )
+    paused_res = await trigger_integrity_scan()
+    assert paused_res.get("status") == "paused"
+    assert len(spawned) == 1
+
+    # get_running_summary: integrity running 时包含 done=scanned, total=total
+    tm.integrity_state["running"] = True
+    tm.integrity_state["scanned"] = 42
+    tm.integrity_state["total"] = 100
+    tm.integrity_state["started_at"] = "2026-09-05T00:00:00Z"
+    summary = tm.get_running_summary()
+    integrity_tasks = [t for t in summary if t.get("task") == "integrity"]
+    assert len(integrity_tasks) == 1
+    assert integrity_tasks[0]["done"] == 42
+    assert integrity_tasks[0]["total"] == 100
+    assert integrity_tasks[0]["started_at"] == "2026-09-05T00:00:00Z"
+
+    # extra_ids 在 list_integrity 中正确合并
     tm.integrity_state["corrupt_ids"] = [1]
     result2 = await list_integrity(1, 10)
-    assert len(spawned) == 1  # 没有二次 spawn
+    assert len(spawned) == 1  # GET 仍不 spawn
     assert result2["magic_scan"]["corrupt"] == 1
     assert result2["total"] == 2
     item_ids = [item["id"] for item in result2["items"]]

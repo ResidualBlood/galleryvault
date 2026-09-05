@@ -85,6 +85,7 @@ function taskMeta(task, stage) {
     case "series-rebuild": return { label: t("seriesRebuild"), desc: t("seriesSub") };
     case "download-clear-success": return { label: t("clearSuccessDlLog"), desc: t("downloadsSub") };
     case "archive": return { label: t("archiveLogLabel"), desc: t("archiveLogDesc") };
+    case "integrity": return { label: t("missingPagesTitle") || "缺页体检", desc: t("missingPagesSub") || "正在校验文件完整性" };
     default: return { label: task, desc: "" };
   }
 }

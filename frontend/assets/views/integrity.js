@@ -7,6 +7,7 @@ async function renderIntegrity() {
     <p class="sub">${esc(t("missingPagesSub"))}</p></header>
     ${manageTabsHtml("integrity")}
     <div class="toolbar">
+      <button class="btn btn-secondary" data-action="integrity-scan" onclick="integrityScan()" type="button">${esc(t("scan") || "Scan")}</button>
       <button class="btn btn-secondary" data-action="integrity-repair" type="button">${esc(t("retry"))} / ${esc(t("repair") || "Repair")}</button>
     </div>
     <div id="integrity-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
@@ -40,6 +41,19 @@ async function renderIntegrity() {
     }
     gridPager("integrity-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
   } catch (e) { document.getElementById("integrity-grid").innerHTML = renderError(e.message); }
+}
+
+async function integrityScan() {
+  try {
+    const r = await api("POST", "/api/galleries/integrity/scan");
+    if (r && r.status === "paused") {
+      toast(r.detail || (t("paused") + " — " + t("pauseHint")));
+      return r;
+    }
+    toast(t("scanning"));
+    if (typeof pollLogs === "function") pollLogs();
+    return r;
+  } catch (e) { toast(e.message); }
 }
 
 async function integrityRepair() {
