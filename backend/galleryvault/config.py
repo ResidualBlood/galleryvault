@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     library_roots: list[str] = Field(default_factory=lambda: ["/library", "/downloads"])
     download_root: str = "/downloads"
     cold_storage_root: str = ""
+    archive_roots: list[str] = Field(default_factory=list)
     auto_archive_downloads: bool = False
     archive_delete_source: bool = False
     thumbnail_cache_dir: str = "/gv-cache/thumbs"
@@ -96,6 +97,11 @@ class Settings(BaseSettings):
     @classmethod
     def validate_library_roots(cls, value: object) -> list[str]:
         return cls.parse_library_roots(value)
+
+    @field_validator("archive_roots", mode="before")
+    @classmethod
+    def validate_archive_roots(cls, value: object) -> list[str]:
+        return cls.parse_archive_roots(value)
 
     @field_validator("exhentai_cookies", mode="before")
     @classmethod
@@ -185,8 +191,37 @@ class Settings(BaseSettings):
             if part.strip()
         ]
 
+    @classmethod
+    def parse_archive_roots(cls, value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if value is None:
+            return []
+        text = str(value).strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except json.JSONDecodeError:
+            pass
+        return [
+            part.strip()
+            for line in text.splitlines()
+            for part in line.split(",")
+            if part.strip()
+        ]
+
     def model_post_init(self, __context: object, /) -> None:
         self.library_roots = self.parse_library_roots(self.library_roots)
+        self.archive_roots = self.parse_archive_roots(self.archive_roots)
+        if not self.archive_roots and (self.cold_storage_root or "").strip():
+            self.archive_roots = [(self.cold_storage_root or "").strip()]
+        if self.archive_roots:
+            self.cold_storage_root = self.archive_roots[0]
+        else:
+            self.cold_storage_root = ""
         if not self.auth_secret:
             self.auth_secret = secrets.token_urlsafe(32)
             logger.warning("AUTH_SECRET is missing; using a temporary process secret")
@@ -194,6 +229,19 @@ class Settings(BaseSettings):
 
 def normalize_library_roots(value: object) -> list[str]:
     roots = Settings.parse_library_roots(value)
+    result: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        normalized = str(Path(root).expanduser())
+        key = str(Path(normalized).resolve(strict=False))
+        if key not in seen:
+            seen.add(key)
+            result.append(normalized)
+    return result
+
+
+def normalize_archive_roots(value: object) -> list[str]:
+    roots = Settings.parse_archive_roots(value)
     result: list[str] = []
     seen: set[str] = set()
     for root in roots:
@@ -219,6 +267,7 @@ COLD_ARCHIVE_MAX_CBZ_BYTES: int = 2 * 1024 * 1024 * 1024  # 2GiB
 EDITABLE_SETTINGS = {
     "library_roots",
     "cold_storage_root",
+    "archive_roots",
     "auto_archive_downloads",
     "archive_delete_source",
     "exhentai_base_url",

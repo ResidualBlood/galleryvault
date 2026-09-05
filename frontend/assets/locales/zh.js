@@ -52,7 +52,7 @@ window.GV_LOCALES.zh = {
   libraryRootsHint: "存放已有画廊归档（Ehviewer 导出、CBZ 等）。新下载的画廊不会放到这里；删除画廊时若挂载可写会一并删除这里的文件。",
   downloadRootHint: "下载目录：新从 ExHentai 下载的画廊存放于此，并自动纳入扫描。",
   coldRoot: "归档 / Archive",
-  coldRootHint: "归档根路径（留空则不开启冷存储归档，Docker 推荐 /archive）。",
+  coldRootHint: "归档根路径，每行一个（留空则不开启冷存储归档，Docker 推荐 /archive、/archive2）。",
   autoArchiveDownloads: "下载完成后自动归档至冷库",
   archiveDeleteSource: "归档成功后删除源文件",
   cookiesNote: "Cookie 保存后不会回显。",

@@ -179,8 +179,10 @@ async def ingest_downloaded_gallery(result: Any) -> None:
         try:
             settings = app_state.settings or get_settings()
             auto_archive = bool(getattr(settings, "auto_archive_downloads", True))
-            cold_root = (getattr(settings, "cold_storage_root", "") or "").strip()
-            if auto_archive and cold_root and getattr(result, "gid", None) is not None:
+            from .cold_archive import resolve_archive_roots
+
+            has_archive = bool(resolve_archive_roots())
+            if auto_archive and has_archive and getattr(result, "gid", None) is not None:
                 gid_int = int(result.gid)
                 if session_cm is not None:
                     try:

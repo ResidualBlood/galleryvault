@@ -18,9 +18,6 @@ services:
     restart: always
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:${POSTGRES_PASSWORD:-galleryvault}@db:5432/galleryvault
-      DOWNLOAD_ROOT: /downloads
-      # Optional Archive volume. Uncomment and set cold_storage_root to /archive in Settings.
-      # COLD_STORAGE_ROOT: /archive
       TZ: Asia/Shanghai
       # Optional: User/Group ID for backend process execution (e.g. NAS/Linux user).
       # Defaults to root (0:0) if unset. On NAS / shared storage, setting PUID/PGID
@@ -46,8 +43,10 @@ services:
       # Download directory: galleries downloaded from ExHentai are stored here
       # and scanned automatically.
       - ./downloads:/downloads
-      # Optional Archive volume. Uncomment and set cold_storage_root to /archive in Settings.
+      # Optional Archive volumes for cold storage. You can mount multiple disks/volumes
+      # and configure them in Settings (e.g. /archive, /archive2).
       # - ./Archive:/archive
+      # - ./Archive2:/archive2
       # Thumbnail cache (generated, never written into the galleries above).
       - ./cache:/gv-cache
     depends_on:

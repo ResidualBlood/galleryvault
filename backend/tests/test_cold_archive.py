@@ -1510,5 +1510,135 @@ async def test_archive_one_preserves_thumbs_when_pages_identical(tmp_path: Path)
     assert thumb_file.read_bytes() == b"thumb0"
 
 
+def test_archive_roots_config_defaults_and_compatibility(monkeypatch: pytest.MonkeyPatch) -> None:
+    from galleryvault.config import Settings
+
+    monkeypatch.delenv("COLD_STORAGE_ROOT", raising=False)
+    monkeypatch.delenv("ARCHIVE_ROOTS", raising=False)
+
+    # 条款 4: config 首次未保存默认：download_root=/downloads，library_roots 含 /library，archive_roots=[]。
+    s = Settings()
+    assert s.download_root == "/downloads"
+    assert "/library" in s.library_roots
+    assert s.archive_roots == []
+    assert s.cold_storage_root == ""
+
+    # 条款 6: 读兼容：archive_roots 空则 cold_storage_root 升单元素列表。
+    s_legacy = Settings(cold_storage_root="/archive")
+    assert s_legacy.archive_roots == ["/archive"]
+    assert s_legacy.cold_storage_root == "/archive"
+
+    # 写 archive_roots 时同步 cold_storage_root 为首项或 ""。
+    s_multi = Settings(archive_roots=["/archive1", "/archive2"])
+    assert s_multi.archive_roots == ["/archive1", "/archive2"]
+    assert s_multi.cold_storage_root == "/archive1"
+
+    s_empty = Settings(archive_roots=[])
+    assert s_empty.archive_roots == []
+    assert s_empty.cold_storage_root == ""
+
+
+def test_is_under_cold_multiple_roots(tmp_path: Path) -> None:
+    from galleryvault.services.cold_archive import is_under_cold
+
+    root1 = tmp_path / "archive1"
+    root2 = tmp_path / "archive2"
+    root1.mkdir()
+    root2.mkdir()
+
+    f1 = root1 / "cbz" / "01" / "02" / "test.cbz"
+    f2 = root2 / "dir" / "03" / "04" / "12345"
+    f_other = tmp_path / "downloads" / "12345"
+
+    assert is_under_cold(f1, [root1, root2]) is True
+    assert is_under_cold(f2, [root1, root2]) is True
+    assert is_under_cold(f_other, [root1, root2]) is False
+
+
+def test_select_archive_root_strategy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+    from collections import namedtuple
+    from galleryvault.services.cold_archive import select_archive_root
+
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+
+    disk1 = tmp_path / "disk1"
+    disk2 = tmp_path / "disk2"
+    disk3 = tmp_path / "disk3"
+    disk1.mkdir()
+    disk2.mkdir()
+    disk3.mkdir()
+
+    free_map = {
+        str(disk1.resolve()): 100 * 1024 * 1024,  # 100MB
+        str(disk2.resolve()): 300 * 1024 * 1024,  # 300MB
+        str(disk3.resolve()): 50 * 1024 * 1024,   # 50MB
+    }
+
+    def fake_disk_usage(path):
+        key = str(Path(path).resolve())
+        free = free_map.get(key, 0)
+        return Usage(1000 * 1024 * 1024, 1000 * 1024 * 1024 - free, free)
+
+    monkeypatch.setattr(shutil, "disk_usage", fake_disk_usage)
+
+    roots = [disk1, disk2, disk3]
+
+    # 画廊体积 60MB -> 需求 60 * 1.2 = 72MB。disk1(100MB) 和 disk2(300MB) 都满足，取剩余最大 disk2
+    required = int(60 * 1024 * 1024 * 1.2)
+    best_root, free = select_archive_root(required, archive_roots=roots)
+    assert best_root == disk2.resolve()
+    assert free == 300 * 1024 * 1024
+
+    # 画廊体积 100MB -> 需求 120MB。只有 disk2 满足
+    best_root, free = select_archive_root(int(100 * 1024 * 1024 * 1.2), archive_roots=roots)
+    assert best_root == disk2.resolve()
+
+    # 画廊体积 300MB -> 需求 360MB。无满足
+    best_root, free = select_archive_root(int(300 * 1024 * 1024 * 1.2), archive_roots=roots)
+    assert best_root is None
+    assert free == 0
+
+
+def test_settings_request_archive_roots_sync() -> None:
+    from galleryvault.app.schemas import SettingsRequest
+
+    # 传多行字符串
+    req = SettingsRequest(archive_roots="/archive1\n/archive2")
+    assert req.archive_roots == ["/archive1", "/archive2"]
+    assert req.cold_storage_root == "/archive1"
+
+    # 只传 cold_storage_root
+    req_legacy = SettingsRequest(cold_storage_root="/archive_legacy")
+    assert req_legacy.cold_storage_root == "/archive_legacy"
+    assert req_legacy.archive_roots == ["/archive_legacy"]
+
+    # 传空
+    req_empty = SettingsRequest(archive_roots="")
+    assert req_empty.archive_roots == []
+    assert req_empty.cold_storage_root == ""
+
+
+def test_scan_worker_multiple_archive_roots() -> None:
+    from galleryvault.app.state import app_state
+    from galleryvault.config import Settings
+    from galleryvault.services.scan_worker import _scan_roots
+
+    orig = app_state.settings
+    try:
+        app_state.settings = Settings(
+            library_roots=["/library"],
+            download_root="/downloads",
+            archive_roots=["/archive1", "/archive2"],
+        )
+        roots = _scan_roots()
+        assert "/library" in roots
+        assert "/downloads" in roots
+        assert "/archive1" in roots
+        assert "/archive2" in roots
+    finally:
+        app_state.settings = orig
+
+
 
 

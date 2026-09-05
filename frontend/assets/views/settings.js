@@ -41,7 +41,7 @@ function collectSettings(form) {
   const lines = a => a.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
   const body = {
     library_roots: val("library_roots"),
-    cold_storage_root: val("cold_storage_root"),
+    archive_roots: val("archive_roots"),
     auto_archive_downloads: form.auto_archive_downloads ? form.auto_archive_downloads.checked : false,
     archive_delete_source: form.archive_delete_source ? form.archive_delete_source.checked : false,
     exhentai_base_url: val("exhentai_base_url") === EH_CUSTOM
@@ -133,10 +133,8 @@ async function renderSettings() {
         <p class="notice">${esc(t("libraryRootsHint"))}</p>
         <textarea name="library_roots" rows="4">${esc((s.library_roots || []).join("\n"))}</textarea>
         ${warnings}
-        <div class="form-grid" style="margin-top:12px">
-          ${field(t("coldRoot"), `<input name="cold_storage_root" value="${esc(s.cold_storage_root || "")}">`)}
-        </div>
-        <p class="notice">${esc(t("coldRootHint"))}</p>
+        <p class="notice" style="margin-top:12px">${esc(t("coldRootHint"))}</p>
+        <textarea name="archive_roots" rows="3">${esc((s.archive_roots && s.archive_roots.length ? s.archive_roots : (s.cold_storage_root ? [s.cold_storage_root] : [])).join("\n"))}</textarea>
         <label class="checkbox"><input type="checkbox" name="auto_archive_downloads"${s.auto_archive_downloads === true ? " checked" : ""}> ${esc(t("autoArchiveDownloads"))}</label>
         <label class="checkbox"><input type="checkbox" name="archive_delete_source"${s.archive_delete_source === true ? " checked" : ""}> ${esc(t("archiveDeleteSource"))}</label>
         <p class="notice" style="margin-top:10px">${esc(t("dupPolicyHint"))}</p>

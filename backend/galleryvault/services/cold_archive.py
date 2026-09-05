@@ -234,14 +234,94 @@ def build_comic_info_xml(
     return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def is_under_cold(path: Path, cold_root: Path) -> bool:
-    """Check whether a path is already located under the cold storage root."""
+def resolve_archive_roots(
+    archive_roots: Sequence[Path | str] | None = None,
+    cold_root: Path | str | None = None,
+) -> list[Path]:
+    """Resolve archive roots from parameters or settings with backwards compatibility.
+
+    - If explicit archive_roots are provided, use them.
+    - Else if explicit cold_root is provided, wrap in a single-item list.
+    - Otherwise, read settings.archive_roots; if empty, read settings.cold_storage_root.
+    - Returns resolved, non-empty, deduplicated Path objects.
+    """
+    candidates: list[str | Path] = []
+    if archive_roots is not None:
+        candidates = list(archive_roots)
+    elif cold_root is not None:
+        cr_str = str(cold_root).strip()
+        if cr_str:
+            candidates = [cr_str]
+    else:
+        settings = app_state.settings or get_settings()
+        roots = getattr(settings, "archive_roots", []) or []
+        if not roots:
+            cr = (getattr(settings, "cold_storage_root", None) or "").strip()
+            if cr:
+                roots = [cr]
+        candidates = list(roots)
+
+    result: list[Path] = []
+    seen: set[str] = set()
+    for item in candidates:
+        s = str(item).strip()
+        if not s:
+            continue
+        p = Path(s).resolve()
+        key = str(p)
+        if key not in seen:
+            seen.add(key)
+            result.append(p)
+    return result
+
+
+def is_under_cold(
+    path: Path | str,
+    cold_roots: Path | str | Sequence[Path | str] | None = None,
+) -> bool:
+    """Check whether a path is already located under any cold storage root."""
     try:
-        resolved = path.resolve()
-        cold_resolved = cold_root.resolve()
-        return resolved == cold_resolved or resolved.is_relative_to(cold_resolved)
+        resolved = Path(path).resolve()
+        if cold_roots is None:
+            roots = resolve_archive_roots()
+        elif isinstance(cold_roots, (Path, str)):
+            roots = [Path(cold_roots).resolve()]
+        else:
+            roots = [Path(r).resolve() for r in cold_roots]
+        for c in roots:
+            if resolved == c or resolved.is_relative_to(c):
+                return True
+        return False
     except (ValueError, OSError):
         return False
+
+
+def select_archive_root(
+    required_bytes: int,
+    archive_roots: Sequence[Path | str] | None = None,
+    cold_root: Path | str | None = None,
+) -> tuple[Path | None, int]:
+    """Select the archive root with the largest free disk space satisfying free >= required_bytes.
+
+    Returns (selected_root, max_free_space). If no root qualifies, returns (None, 0).
+    """
+    roots = resolve_archive_roots(archive_roots=archive_roots, cold_root=cold_root)
+    best_root: Path | None = None
+    best_free = -1
+
+    for root in roots:
+        try:
+            probe_dir = root
+            while not probe_dir.exists() and probe_dir.parent != probe_dir:
+                probe_dir = probe_dir.parent
+            free_space = shutil.disk_usage(probe_dir).free
+            if free_space >= required_bytes and free_space > best_free:
+                best_free = free_space
+                best_root = root
+        except OSError as exc:
+            logger.warning("Failed to check disk usage on %s: %s", root, exc)
+
+    return best_root, max(0, best_free)
 
 
 def _collect_pages_from_dir(source_dir: Path) -> list[Path]:
@@ -544,10 +624,18 @@ _active_gids: set[int] = set()
 
 async def _do_archive_locked(
     gallery_id: int,
-    cold_root: Path,
-    delete_source: bool,
-    session_factory: Callable[[], AsyncSession],
+    archive_roots: Sequence[Path | str] | None = None,
+    cold_root: Path | str | None = None,
+    delete_source: bool = False,
+    session_factory: Callable[[], AsyncSession] | None = None,
 ) -> Path | None:
+    if session_factory is None:
+        return None
+    roots = resolve_archive_roots(archive_roots=archive_roots, cold_root=cold_root)
+    if not roots:
+        logger.warning("No archive roots configured, cannot archive gallery %s", gallery_id)
+        return None
+
     async with session_factory() as session:
         gallery = await session.get(Gallery, gallery_id)
         if not gallery or gallery.trashed:
@@ -558,12 +646,12 @@ async def _do_archive_locked(
             logger.warning("Source path does not exist for gallery %s: %s", gallery_id, source_path)
             return None
 
-        # 已在 cold：skip
-        if is_under_cold(source_path, cold_root):
-            logger.info("Source %s is already under cold storage root %s, skipping", source_path, cold_root)
+        # 已在任一 cold：skip
+        if is_under_cold(source_path, roots):
+            logger.info("Source %s is already under cold storage root, skipping", source_path)
             return None
 
-        # 空间不足 skip（≥ 体积×1.2）
+        # 选盘：剩余≥体积×1.2 中取剩余最大
         stat_size = gallery.storage_size or gallery.file_size or 0
         if stat_size <= 0:
             if source_path.is_file():
@@ -572,21 +660,13 @@ async def _do_archive_locked(
                 stat_size = sum(f.stat().st_size for f in source_path.rglob("*") if f.is_file())
 
         required_free = int(stat_size * 1.2)
-        try:
-            probe_dir = cold_root
-            while not probe_dir.exists() and probe_dir.parent != probe_dir:
-                probe_dir = probe_dir.parent
-            free_space = shutil.disk_usage(probe_dir).free
-            if free_space < required_free:
-                logger.warning(
-                    "Cold storage free space (%s) < required (%s) for gallery %s, skipping",
-                    free_space,
-                    required_free,
-                    gallery_id,
-                )
-                return None
-        except OSError as exc:
-            logger.warning("Failed to check disk usage on %s: %s", cold_root, exc)
+        selected_root, _ = select_archive_root(required_free, archive_roots=roots)
+        if selected_root is None:
+            logger.warning(
+                "No cold storage root has free space >= required (%s) for gallery %s, skipping",
+                required_free,
+                gallery_id,
+            )
             return None
 
         # 获取 tags
@@ -617,7 +697,7 @@ async def _do_archive_locked(
             dest_path = await asyncio.to_thread(
                 cold_pack_gallery,
                 source=source_path,
-                cold_root=cold_root,
+                cold_root=selected_root,
                 gid=gallery.gid,
                 token=gallery.token,
                 title=gallery.title,
@@ -714,6 +794,7 @@ async def _do_archive_locked(
 async def archive_one(
     gallery_id: int,
     *,
+    archive_roots: Sequence[Path | str] | None = None,
     cold_root: Path | str | None = None,
     delete_source: bool | None = None,
     session_factory: Callable[[], AsyncSession] | None = None,
@@ -723,13 +804,10 @@ async def archive_one(
     Returns destination path on success, or None if skipped/unavailable.
     """
     settings = app_state.settings or get_settings()
-    if cold_root is None:
-        cold_root_str = (getattr(settings, "cold_storage_root", None) or "").strip()
-        if not cold_root_str:
-            logger.warning("Cold storage root not configured, cannot archive gallery %s", gallery_id)
-            return None
-        cold_root = Path(cold_root_str)
-    cold_root = Path(cold_root).resolve()
+    roots = resolve_archive_roots(archive_roots=archive_roots, cold_root=cold_root)
+    if not roots:
+        logger.warning("Cold storage root not configured, cannot archive gallery %s", gallery_id)
+        return None
 
     if delete_source is None:
         delete_source = bool(getattr(settings, "archive_delete_source", True))
@@ -779,7 +857,7 @@ async def archive_one(
         async with _archive_writer_lock:
             return await _do_archive_locked(
                 target_id,
-                cold_root=cold_root,
+                archive_roots=roots,
                 delete_source=delete_source,
                 session_factory=sf,
             )
@@ -790,16 +868,17 @@ async def archive_one(
 
 async def run_cold_archive(
     *,
+    archive_roots: Sequence[Path | str] | None = None,
+    cold_root: Path | str | None = None,
     session_factory: Callable[[], AsyncSession] | None = None,
     task_manager: Any = None,
 ) -> None:
     """Batch cold archive background task for all unarchived SSD galleries."""
     settings = app_state.settings or get_settings()
-    cold_root_str = (getattr(settings, "cold_storage_root", None) or "").strip()
-    if not cold_root_str:
+    roots = resolve_archive_roots(archive_roots=archive_roots, cold_root=cold_root)
+    if not roots:
         logger.warning("Cold storage root not configured; aborting run_cold_archive")
         return
-    cold_root = Path(cold_root_str).resolve()
 
     if getattr(settings, "global_paused", False):
         logger.info("Global paused is active; aborting run_cold_archive")
@@ -843,7 +922,7 @@ async def run_cold_archive(
         if not row_path:
             continue
         p = Path(row_path).resolve()
-        if is_under_cold(p, cold_root):
+        if is_under_cold(p, roots):
             continue
         if not any(p == r or p.is_relative_to(r) for r in ssd_roots):
             continue
@@ -891,7 +970,7 @@ async def run_cold_archive(
         try:
             res = await archive_one(
                 gid_or_id,
-                cold_root=cold_root,
+                archive_roots=roots,
                 session_factory=sf,
             )
             if res is not None:

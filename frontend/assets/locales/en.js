@@ -79,7 +79,7 @@ window.GV_LOCALES.en = {
   libraryRootsHint: "Roots holding your existing gallery archives (Ehviewer exports, CBZ…). New downloads never land here; deleting a gallery removes its files here when the mount is writable.",
   downloadRootHint: "Download directory: newly downloaded ExHentai galleries are stored here and scanned automatically.",
   coldRoot: "Archive",
-  coldRootHint: "Archive root directory (leave empty to disable cold archiving; /archive in Docker).",
+  coldRootHint: "Archive root directories, one per line (leave empty to disable cold archiving; e.g. /archive, /archive2 in Docker).",
   autoArchiveDownloads: "Auto archive downloads to cold storage",
   archiveDeleteSource: "Delete source files after archiving",
   cookiesNote: "Cookies are never displayed after saving.",
