@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-05
+
 ### Added
 
 - **Series cloud items & manual exclusions** (`backend/alembic/versions/0032_series_cloud_items.py`, `backend/alembic/versions/0033_series_cloud_exclusions.py`, `backend/`, `frontend/assets/views/series.js`): 系列作品支持展示云端未下载收藏，并可通过 GID 或收藏夹快速手工添加；未下载画廊提供云端角标与一键下载，且支持将误匹配项目手工移出云端。

@@ -60,7 +60,7 @@ Connecting with ExHentai, synchronizing favorite folders, fetching tags, or down
 The usage guide is divided into the following dedicated chapters:
 
 - **[Browsing & Library (Library)](Library-EN)**:
-  - [Browse (#/browse)](Library-EN#browse-browse) — Default landing grid, continue reading cards, keyboard navigation, and global instant search; landscape gallery card covers are no longer cropped, using blurred background padding.
+  - [Browse (#/browse)](Library-EN#browse-browse) — Default landing grid, continue reading cards, keyboard navigation, and global instant search; landscape gallery card covers are no longer cropped, using blurred background padding. Card covers prioritize EH remote-covers cache with immediate 0.jpg fallback and background fetching on cache miss; favorites checks immediately skip existing covers.
   - [Discover (#/discover)](Library-EN#discover-discover) — Browse ExHentai online, Popular / Watched / Toplist feeds, and cursor pagination.
   - [Series (#/series)](Library-EN#series-series) — Doujinshi/Manga default filtering with pagination, event prefix stripping, score-based auto grouping; includes undownloaded cloud favorites with badges and one-click downloads, manual GID/favorite additions, cloud exclusions, and scan auto-rebuild.
   - [Library (#/library)](Library-EN#library-library) — Multi-index sorting, mutually exclusive reading status filters, AND/OR multi-tag filtering with `-tag` exclusions, batch actions, and deletion safety guards.
