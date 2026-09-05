@@ -93,6 +93,7 @@ class LibraryService:
                     # Check if current directory is an Ehviewer gallery directory
                     if current_path != root and (
                         (current_path / ".ehviewer").is_file()
+                        or (current_path / ".galleryvault.json").is_file()
                         or _BARE_DIR_NAME.match(current_path.name)
                     ):
                         yield current_path, priority

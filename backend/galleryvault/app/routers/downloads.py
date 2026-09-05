@@ -238,6 +238,8 @@ async def list_downloads(
             "mode": x.mode,
             "quality": x.quality,
             "archive_fallback": is_fallback,
+            "archive_status": getattr(x, "archive_status", None),
+            "archive_error": getattr(x, "archive_error", None),
         }
         if x.status == "downloading" and downloader is not None:
             try:

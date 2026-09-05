@@ -217,4 +217,31 @@ class DownloadRepository:
         )
         return int(result.rowcount or 0)
 
+    async def update_archive_status(
+        self,
+        gid_or_id: int,
+        status: str,
+        error: str | None = None,
+        *,
+        by_task_id: bool = False,
+    ) -> bool:
+        """Update archive_status and archive_error for a download task."""
+        if by_task_id:
+            row = await self.session.get(DownloadTask, gid_or_id)
+        else:
+            row = await self.session.scalar(
+                select(DownloadTask)
+                .where(DownloadTask.gid == gid_or_id)
+                .order_by(DownloadTask.id.desc())
+                .limit(1)
+            )
+        if row is None:
+            return False
+        row.archive_status = status
+        row.archive_error = error
+        row.updated_at = datetime.now(UTC)
+        await self.session.flush()
+        return True
+
+
 

@@ -176,11 +176,105 @@ async def ingest_downloaded_gallery(result: Any) -> None:
                 "gallery update finalize after ingest failed",
                 extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__),
             )
+        try:
+            settings = app_state.settings or get_settings()
+            auto_archive = bool(getattr(settings, "auto_archive_downloads", True))
+            cold_root = (getattr(settings, "cold_storage_root", "") or "").strip()
+            if auto_archive and cold_root and getattr(result, "gid", None) is not None:
+                gid_int = int(result.gid)
+                if session_cm is not None:
+                    try:
+                        async with session_cm() as session, session.begin():
+                            await DownloadRepository(session).update_archive_status(
+                                gid_int, "pending", None
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "Failed to pre-mark download task archive_status=pending",
+                            extra=log_extra(gid=gid_int, error=type(exc).__name__),
+                        )
+                from ..app.dependencies import spawn_task
+
+                spawn_task(
+                    _archive_downloaded_gallery(gid_int),
+                    f"download auto archive {gid_int}",
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "download auto archive hook failed",
+                extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__),
+            )
     except Exception as exc:
         logger.exception(
             "download ingest failed",
             extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__, message=str(exc)),
         )
+
+
+async def _archive_downloaded_gallery(gid: int) -> None:
+    """Background task to archive a freshly ingested gallery into cold storage."""
+    session_cm = app_state.session_factory
+    if session_cm is None:
+        return
+
+    try:
+        async with session_cm() as session, session.begin():
+            await DownloadRepository(session).update_archive_status(gid, "pending", None)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to mark download task archive pending",
+            extra=log_extra(gid=gid, error=type(exc).__name__),
+        )
+
+    archive_err: str | None = None
+    dest = None
+    try:
+        from . import cold_archive
+
+        dest = await cold_archive.archive_one(gid, session_factory=session_cm)
+        if dest is None:
+            archive_err = "archive destination not created or skipped"
+    except Exception as exc:  # noqa: BLE001
+        archive_err = str(exc)
+        logger.warning(
+            "Auto archive execution failed",
+            extra=log_extra(gid=gid, error=type(exc).__name__),
+        )
+
+    try:
+        async with session_cm() as session, session.begin():
+            if dest is not None:
+                await DownloadRepository(session).update_archive_status(gid, "ok", None)
+            else:
+                await DownloadRepository(session).update_archive_status(gid, "fail", archive_err)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to persist download task archive outcome",
+            extra=log_extra(gid=gid, error=type(exc).__name__),
+        )
+
+    title = str(gid)
+    try:
+        async with session_cm() as session:
+            g_row = await session.execute(
+                select(Gallery.title).where(Gallery.gid == gid)
+            )
+            g_title = g_row.scalar_one_or_none()
+            if g_title:
+                title = g_title
+            else:
+                d_row = await session.execute(
+                    select(DownloadTaskModel.title).where(DownloadTaskModel.gid == gid)
+                )
+                d_title = d_row.scalar_one_or_none()
+                if d_title:
+                    title = d_title
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to resolve gallery title for archive notification: %s", exc)
+
+    kind = "archive_ok" if dest is not None else "archive_fail"
+    detail = None if dest is not None else archive_err
+    await record_archive_notification(kind, title, detail)
 
 
 def maybe_scan_after_download(result: Any) -> None:
@@ -227,6 +321,38 @@ async def record_download_notification(
         )
 
 
+async def record_archive_notification(
+    kind: str, title: str, detail: str | None = None
+) -> None:
+    from .notifications import notify_archive
+
+    notify_archive(kind, title, detail)
+    notifier = app_state.telegram
+    if notifier is None:
+        return
+    await notifier.record_archive_outcome(kind, title, detail, ring=False)
+    settings = app_state.settings or get_settings()
+    if (
+        getattr(settings, "telegram_notify_level", "summary") != "summary"
+        or not notifier.pending_archive_events
+    ):
+        return
+    if not app_state.session_factory:
+        return
+    try:
+        async with app_state.session_factory() as session:
+            active = await DownloadRepository(session).count_active()
+        tm = app_state.task_manager
+        archive_running = bool(tm.archive_state.get("running")) if tm else False
+        if active == 0 and not archive_running:
+            await notifier.flush_archive_summary()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "telegram archive summary flush check failed",
+            extra=log_extra(error=type(exc).__name__),
+        )
+
+
 async def telegram_flush_loop() -> None:
     while True:
         await asyncio.sleep(_TELEGRAM_FLUSH_INTERVAL)
@@ -235,6 +361,10 @@ async def telegram_flush_loop() -> None:
             try:
                 if notifier.events_stale(_TELEGRAM_FLUSH_INTERVAL):
                     await notifier.flush_summary()
+                if hasattr(notifier, "archive_events_stale") and notifier.archive_events_stale(
+                    _TELEGRAM_FLUSH_INTERVAL
+                ):
+                    await notifier.flush_archive_summary()
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "telegram summary flush failed",

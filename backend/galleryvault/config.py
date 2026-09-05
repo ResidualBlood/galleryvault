@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     )
     library_roots: list[str] = Field(default_factory=lambda: ["/library", "/downloads"])
     download_root: str = "/downloads"
+    cold_storage_root: str = ""
+    auto_archive_downloads: bool = False
+    archive_delete_source: bool = False
     thumbnail_cache_dir: str = "/gv-cache/thumbs"
     generate_thumbnails: bool = True
     log_level: str = "INFO"
@@ -210,8 +213,14 @@ def library_root_warnings(roots: list[str]) -> list[str]:
     ]
 
 
+COLD_ARCHIVE_MAX_CBZ_BYTES: int = 2 * 1024 * 1024 * 1024  # 2GiB
+
+
 EDITABLE_SETTINGS = {
     "library_roots",
+    "cold_storage_root",
+    "auto_archive_downloads",
+    "archive_delete_source",
     "exhentai_base_url",
     "exhentai_cookies",
     "http_proxy",

@@ -12,6 +12,7 @@ from typing import BinaryIO
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.background import BackgroundTask
@@ -28,6 +29,7 @@ from ...logging import log_extra
 from ...scanners import registry
 from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ...services.deletion import delete_galleries_local
+from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import EhClient, FavoriteData
 from ...services.export_cbz import (
     UnsafeExportPath,
@@ -62,6 +64,7 @@ from ..schemas import (
     ProgressRequest,
 )
 from ..state import app_state
+from .downloads import _create_from_prepared
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -504,6 +507,7 @@ async def list_expunged(page: int = 1, page_size: int = 24) -> dict[str, object]
             {
                 "id": row.id,
                 "gid": getattr(row, "gid", None),
+                "token": getattr(row, "token", None),
                 "title": display_title(row),
                 "page_count": getattr(row, "page_count", 0) or 0,
                 "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
@@ -516,6 +520,82 @@ async def list_expunged(page: int = 1, page_size: int = 24) -> dict[str, object]
             }
             for row in rows
         ],
+    }
+
+
+class ExpungedRedownloadRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+
+
+@router.post("/api/galleries/expunged/redownload", status_code=200)
+async def redownload_expunged(body: ExpungedRedownloadRequest) -> dict[str, object]:
+    ids = body.ids or []
+    if not ids:
+        raise HTTPException(status_code=422, detail="No gallery ids provided")
+    unique_ids = list(dict.fromkeys(ids))
+    galleries: list[Gallery] = []
+    try:
+        async for session in get_session():
+            for chunk in _chunked(unique_ids):
+                rows = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
+                galleries.extend(rows.all())
+            break
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+
+    gallery_map = {row.id: row for row in galleries}
+    queued = 0
+    skipped_no_gid = 0
+    skipped_no_token = 0
+    valid_targets: list[tuple[Gallery, int, str]] = []
+
+    for gid_id in unique_ids:
+        row = gallery_map.get(gid_id)
+        if row is None or not row.gid:
+            skipped_no_gid += 1
+            continue
+        token = getattr(row, "token", None)
+        if not token:
+            skipped_no_token += 1
+            continue
+        valid_targets.append((row, int(row.gid), str(token)))
+
+    if valid_targets:
+        pairs = [(gid, token) for _, gid, token in valid_targets]
+        prepared_list = await prepare_galleries(pairs)
+        for (row, _, _), prepared in zip(valid_targets, prepared_list, strict=True):
+            if row.title and not prepared.title:
+                prepared.title = row.title
+            try:
+                status, _ = await _create_from_prepared(
+                    prepared,
+                    mode="gallery",
+                    max_pages=None,
+                    quality=None,
+                    fallback_title=row.title,
+                )
+            except Exception:  # noqa: BLE001, S112
+                continue
+            if status in ("queued", "updated"):
+                queued += 1
+
+        now = datetime.now(UTC).isoformat()
+        tm = get_task_manager()
+        tm.record_task(
+            "download-enqueue",
+            now,
+            now,
+            "success",
+            reason=f"expunged redownload queued {queued}",
+            done=queued,
+            total=len(valid_targets),
+        )
+        spawn_task(tm.persist_history(), "persist task history")
+
+    return {
+        "queued": queued,
+        "skipped_no_gid": skipped_no_gid,
+        "skipped_no_token": skipped_no_token,
     }
 
 

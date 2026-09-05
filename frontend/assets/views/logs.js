@@ -84,6 +84,7 @@ function taskMeta(task, stage) {
     case "favorites-add": return { label: t("favoritesAddLog"), desc: t("favAddTitle") };
     case "series-rebuild": return { label: t("seriesRebuild"), desc: t("seriesSub") };
     case "download-clear-success": return { label: t("clearSuccessDlLog"), desc: t("downloadsSub") };
+    case "archive": return { label: t("archiveLogLabel"), desc: t("archiveLogDesc") };
     default: return { label: task, desc: "" };
   }
 }

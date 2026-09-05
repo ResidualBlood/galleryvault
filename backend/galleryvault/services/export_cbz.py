@@ -5,12 +5,22 @@ import zipfile
 from collections.abc import Sequence
 from pathlib import Path
 
+ZIP_STORED = zipfile.ZIP_STORED
+
 
 class UnsafeExportPath(ValueError):
     pass
 
 
 _UNSAFE_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+
+
+def page_archive_name(index: int, suffix: str | None = None) -> str:
+    """Format index to a 4-digit zero-padded filename (e.g., 0001.jpg)."""
+    ext = (suffix or ".jpg").lower()
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    return f"{int(index):04d}{ext}"
 
 
 def is_cbz_file(path: Path) -> bool:
@@ -44,10 +54,10 @@ def pack_directory_cbz(
     if not root.is_dir():
         raise FileNotFoundError(str(root))
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_STORED) as zf:
+    with zipfile.ZipFile(dest, "w", compression=ZIP_STORED) as zf:
         for index, member_name in pages:
             src = resolve_page_file(root, member_name)
             if not src.is_file():
                 raise FileNotFoundError(str(src))
             ext = src.suffix.lower() or ".jpg"
-            zf.write(src, f"{int(index):04d}{ext}")
+            zf.write(src, page_archive_name(index, ext))

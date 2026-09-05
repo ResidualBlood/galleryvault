@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from ...config import get_settings
 from ...db.repository import BackgroundJobsRepository, GalleryRepository, SettingsRepository
+from ...services.cold_archive import run_cold_archive
 from ...services.scan_worker import run_scan
 from ...services.settings_service import update_runtime_settings
 from ...services.tag_sync_worker import category_refresh_once, enqueue_tag_sync, jobs_count
@@ -245,7 +246,7 @@ async def background_task_logs() -> dict[str, object]:
 @router.post("/api/logs/{task}/cancel", status_code=202)
 async def cancel_background_task(task: str) -> dict[str, object]:
     task_key = "metadata" if task in {"metadata", "metadata-sync"} else task
-    if task_key not in {"scan", "tag-sync", "thumbs", "metadata"}:
+    if task_key not in {"scan", "tag-sync", "thumbs", "metadata", "archive"}:
         raise HTTPException(status_code=404, detail="Unknown task")
     tm = get_task_manager()
     tm.request_cancel(task_key)
@@ -254,6 +255,29 @@ async def cancel_background_task(task: str) -> dict[str, object]:
     elif task_key == "thumbs":
         await _clear_jobs("thumbs")
     return {"task": task_key, "status": "cancelling"}
+
+
+@router.get("/api/archive")
+async def archive_status() -> dict[str, object]:
+    tm = get_task_manager()
+    return dict(tm.archive_state)
+
+
+@router.post("/api/archive", status_code=202)
+async def trigger_archive() -> dict[str, object]:
+    settings = app_state.settings or get_settings()
+    cold_root = (getattr(settings, "cold_storage_root", None) or "").strip()
+    if not cold_root:
+        raise HTTPException(status_code=422, detail="Cold storage root is not configured")
+    if getattr(settings, "global_paused", False):
+        return {"status": "paused", "detail": "Global paused: archive is disabled"}
+    tm = get_task_manager()
+    if tm.archive_state.get("running"):
+        return {"status": "running"}
+    tm.clear_cancelled("archive")
+    tm.archive_state["running"] = True
+    spawn_task(run_cold_archive(), "cold archive")
+    return {"status": "started"}
 
 
 @router.get("/api/tag-sync/status")

@@ -356,6 +356,7 @@ function manageTabsHtml(active) {
     { key: "recycle", href: recycleHref, label: t("recycleTitle") },
     { key: "duplicates", href: "#/duplicates", label: t("dupGalTitle") },
     { key: "integrity", href: "#/integrity", label: t("missingPagesTitle") },
+    { key: "archive", href: "#/archive", label: t("archiveTitle") },
   ];
   return `<nav class="manage-tabs" role="tablist" aria-label="${esc(t("navManage"))}">
     ${tabs.map(tb => `<a class="manage-tab${active === tb.key ? " active" : ""}" href="${tb.href}" role="tab" aria-selected="${active === tb.key ? "true" : "false"}">${esc(tb.label)}</a>`).join("")}

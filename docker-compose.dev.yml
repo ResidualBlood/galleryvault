@@ -24,6 +24,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       DOWNLOAD_ROOT: /downloads
+      # Optional Archive volume. Uncomment and set cold_storage_root to /archive in Settings.
+      # COLD_STORAGE_ROOT: /archive
       TZ: Asia/Shanghai
     ports: ["${DEV_BACKEND_PORT:-8201}:8001"]
     volumes:
@@ -31,6 +33,8 @@ services:
       - ./backend/tests:/app/tests
       - ./library:/library
       - ./downloads:/downloads
+      # Optional Archive volume. Uncomment and set cold_storage_root to /archive in Settings.
+      # - ./Archive:/archive
       - ./cache:/gv-cache
     depends_on:
       db:

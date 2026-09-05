@@ -224,6 +224,9 @@ class DownloadOriginalRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     library_roots: list[str] | str | None = None
+    cold_storage_root: str | None = None
+    auto_archive_downloads: bool | None = None
+    archive_delete_source: bool | None = None
     exhentai_base_url: str | None = None
     exhentai_cookies: dict[str, str] | None = None
     http_proxy: str | None = None

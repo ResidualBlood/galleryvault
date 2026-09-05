@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 import re
 import zipfile
 from pathlib import Path
@@ -8,6 +9,28 @@ from xml.etree import ElementTree
 
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 from .ehviewer import IMAGE_EXTENSIONS, natural_key
+
+
+def _normalize_tags(raw: object) -> list[dict[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    tags: list[dict[str, str]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+            if name:
+                ns = str(item.get("namespace") or "misc").strip()
+                tags.append({"namespace": ns, "name": name})
+        elif isinstance(item, str):
+            val = item.strip()
+            if not val:
+                continue
+            if ":" in val:
+                ns, n = val.split(":", 1)
+                tags.append({"namespace": ns.strip(), "name": n.strip()})
+            else:
+                tags.append({"namespace": "misc", "name": val})
+    return tags
 
 
 def _is_symlink(info: object) -> bool:
@@ -64,19 +87,30 @@ class ArchiveScanner(GalleryScanner):
         stat = path.stat()
         digest = self.storage_signature(path)
         gid_match = re.match(r"^(\d+)-", path.stem)
+        gid = int(gid_match.group(1)) if gid_match else None
+        if gid is None and metadata.get("gid") is not None:
+            try:
+                gid = int(metadata["gid"])  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                pass
+        token = str(metadata["token"]) if metadata.get("token") else None
+        tags = metadata.get("tags") or []
+        image_quality = str(metadata["image_quality"]) if metadata.get("image_quality") else None
         return GalleryMeta(
             title=str(metadata.get("title") or path.stem),
             path=path,
             storage_type=self.storage_type,
             pages=pages,
-            gid=int(gid_match.group(1)) if gid_match else None,
+            gid=gid,
+            token=token,
             file_count=len(pages),
             file_size=stat.st_size,
-            title_jpn=metadata.get("title_jpn"),
+            title_jpn=metadata.get("title_jpn"),  # type: ignore[arg-type]
             category=infer_category(path, metadata),
-            uploader=metadata.get("uploader"),
-            tags=metadata.get("tags", []),
-            warnings=metadata.get("warnings", []),
+            uploader=metadata.get("uploader"),  # type: ignore[arg-type]
+            tags=tags,  # type: ignore[arg-type]
+            warnings=metadata.get("warnings", []),  # type: ignore[arg-type]
+            image_quality=image_quality,
             source_meta=raw,
             storage_signature=digest,
             storage_mtime_ns=stat.st_mtime_ns,
@@ -123,6 +157,33 @@ class CbzZipScanner(ArchiveScanner):
             sizes = {info.filename: info.file_size for info in archive.infolist()}
             pages = self._pages(list(sizes), sizes)
             raw, metadata = self._comic_info(archive, list(sizes))
+            gv_name = next(
+                (name for name in sizes if Path(name).name.casefold() == ".galleryvault.json"),
+                None,
+            )
+            if gv_name:
+                try:
+                    gv_data = json.loads(archive.read(gv_name).decode("utf-8"))
+                    if isinstance(gv_data, dict):
+                        raw[".galleryvault.json"] = gv_data
+                        if gv_data.get("gid") is not None:
+                            try:
+                                metadata["gid"] = int(gv_data["gid"])
+                            except (TypeError, ValueError):
+                                pass
+                        if gv_data.get("token"):
+                            metadata["token"] = str(gv_data["token"])
+                        gv_tags = _normalize_tags(gv_data.get("tags"))
+                        if gv_tags:
+                            metadata["tags"] = gv_tags
+                        if gv_data.get("title") and not metadata.get("title"):
+                            metadata["title"] = str(gv_data["title"])
+                        if gv_data.get("title_jpn"):
+                            metadata["title_jpn"] = str(gv_data["title_jpn"])
+                        if gv_data.get("quality"):
+                            metadata["image_quality"] = str(gv_data["quality"])
+                except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                    pass
             return self._meta(path, pages, raw, **metadata)
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:

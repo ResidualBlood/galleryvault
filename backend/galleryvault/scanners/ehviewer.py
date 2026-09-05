@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
+from xml.etree import ElementTree
 
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 
@@ -140,6 +141,28 @@ def natural_key(name: str) -> list[object]:
 
 
 _JHENTAI_TAG = re.compile(r"^([^:]*):(.*)$")
+
+
+def _normalize_tags(raw: object) -> list[dict[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    tags: list[dict[str, str]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+            if name:
+                ns = str(item.get("namespace") or "misc").strip()
+                tags.append({"namespace": ns, "name": name})
+        elif isinstance(item, str):
+            val = item.strip()
+            if not val:
+                continue
+            if ":" in val:
+                ns, n = val.split(":", 1)
+                tags.append({"namespace": ns.strip(), "name": n.strip()})
+            else:
+                tags.append({"namespace": "misc", "name": val})
+    return tags
 
 
 def parse_jhentai_tags(raw: object) -> list[dict[str, str]]:
@@ -422,7 +445,8 @@ class BareImageDirScanner(GalleryScanner):
     def matches(self, path: Path) -> bool:
         if not path.is_dir() or (path / ".ehviewer").is_file():
             return False
-        if not _DIR_NAME.match(path.name):
+        has_gv_json = (path / ".galleryvault.json").is_file()
+        if not has_gv_json and not _DIR_NAME.match(path.name):
             return False
         return any(
             item.is_file()
@@ -435,6 +459,8 @@ class BareImageDirScanner(GalleryScanner):
         match = _DIR_NAME.match(path.name)
         gid = int(match.group(1)) if match else None
         rest = match.group(2) if match else path.name
+        if gid is None and path.name.isdigit():
+            gid = int(path.name)
         files = sorted(
             (
                 item
@@ -452,17 +478,49 @@ class BareImageDirScanner(GalleryScanner):
         title = rest
         title_jpn = None
         tags: list[dict[str, str]] = []
+        token: str | None = None
+        uploader: str | None = None
+
         metadata_path = path / ".galleryvault.json"
         if metadata_path.is_file():
             try:
                 extra = json.loads(metadata_path.read_text(encoding="utf-8"))
                 if isinstance(extra, dict):
                     source_meta.update(extra)
+                    if gid is None and extra.get("gid") is not None:
+                        try:
+                            gid = int(extra["gid"])
+                        except (TypeError, ValueError):
+                            pass
+                    if extra.get("token"):
+                        token = str(extra["token"])
                     title = extra.get("title") or rest
                     title_jpn = extra.get("title_jpn")
-                    tags = extra.get("tags") or []
+                    gv_tags = _normalize_tags(extra.get("tags"))
+                    if gv_tags:
+                        tags = gv_tags
             except (OSError, json.JSONDecodeError):
                 warnings.append("invalid .galleryvault.json")
+
+        comic_path = path / "ComicInfo.xml"
+        if comic_path.is_file():
+            try:
+                root = ElementTree.fromstring(comic_path.read_bytes())
+                values = {child.tag.split("}")[-1]: (child.text or "").strip() for child in root}
+                source_meta["comic_info"] = values
+                if values.get("Title") and (not title or title == path.name):
+                    title = values["Title"]
+                if not tags and values.get("Genre"):
+                    tags = [
+                        {"namespace": "misc", "name": t.strip()}
+                        for t in values["Genre"].split(",")
+                        if t.strip()
+                    ]
+                if values.get("Writer"):
+                    uploader = values["Writer"]
+            except (ElementTree.ParseError, OSError):
+                warnings.append("invalid ComicInfo.xml")
+
         if title_jpn is None:
             title_jpn = rest
         pages = [
@@ -482,7 +540,8 @@ class BareImageDirScanner(GalleryScanner):
             storage_type=self.storage_type,
             pages=pages,
             gid=gid,
-            token=None,
+            token=token,
+            uploader=uploader,
             file_count=len(pages),
             file_size=sum(p.size or 0 for p in pages),
             warnings=warnings,
