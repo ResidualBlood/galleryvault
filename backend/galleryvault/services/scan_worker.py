@@ -244,6 +244,13 @@ async def run_scan() -> None:
                     }
                     logger.info("library scan persisted", extra=log_extra(**scan_state["last"]))
                     await __import__("galleryvault.services.series", fromlist=["rebuild_series_groups"]).rebuild_series_groups()
+                    try:
+                        await __import__("galleryvault.services.duplicates", fromlist=["scan_library_cross_gid_duplicates"]).scan_library_cross_gid_duplicates()
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "cross-gid duplicates scan failed",
+                            extra=log_extra(error=type(exc).__name__),
+                        )
             except Exception as exc:
                 scan_state["last"] = {"error": type(exc).__name__, "persisted": persisted}
                 logger.exception(

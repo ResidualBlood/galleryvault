@@ -39,6 +39,7 @@ class AppState:
     tag_service: TagSyncService | None = None
     thumbnail_service: ThumbnailService | None = None
     task_manager: TaskManager = default_task_manager
+    cross_gid_duplicates: list[dict[str, Any]] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

@@ -24,7 +24,7 @@ from ..db.repository import (
 from ..logging import bind_log_context, log_extra
 from ..services.tag_translation import translated_tag
 from .download_worker import infer_image_quality
-from .duplicates import find_duplicate_groups
+from .duplicates import duplicate_group_is_ignored, find_duplicate_groups
 from .eh_client import EXHENTAI_API_CHUNK_SIZE
 from .favorites import FavoritesService
 from .storage_usage import storage_tracker
@@ -837,12 +837,12 @@ async def run_duplicates_scan() -> None:
             duplicates_state["total"] = len(items)
             duplicates_state["stage"] = "analyzing"
             gallery_titles = await FavoritesRepository(session).gallery_titles_by_gid(gids)
+            local_ids_all = [item[5] for item in items if item[5] is not None]
+            tag_map = await FavoritesRepository(session).tags_for_gallery_ids(local_ids_all)
             duplicates_state["done"] = len(items)
             duplicates_state["stage"] = "grouping"
-            groups = find_duplicate_groups(items, gallery_titles=gallery_titles)
+            groups = find_duplicate_groups(items, gallery_titles=gallery_titles, tag_map=tag_map)
             group_items = [it for g in groups for it in g["items"]]
-            local_ids = [it["gallery_id"] for it in group_items if it["gallery_id"] is not None]
-            tag_map = await FavoritesRepository(session).tags_for_gallery_ids(local_ids)
             cloud_pairs = [
                 (it["gid"], it["token"]) for it in group_items if it["gallery_id"] is None
             ]
@@ -907,10 +907,18 @@ async def run_duplicates_scan() -> None:
                     async with app_state.session_factory() as session, session.begin():
                         await FavoritesRepository(session).update_posted_at(local_write)
             ignored_keys = await FavoritesRepository(session).ignored_duplicate_keys()
-            groups = [g for g in groups if g["key"] not in ignored_keys]
+            ignored = await FavoritesRepository(session).ignored_duplicates()
+            ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
+            groups = [
+                g
+                for g in groups
+                if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
+            ]
+            for g in groups:
+                g.pop("legacy_keys", None)
             groups.sort(key=lambda g: -len(g["items"]))
             duplicates_state["groups"] = groups
-            duplicates_state["ignored"] = await FavoritesRepository(session).ignored_duplicates()
+            duplicates_state["ignored"] = ignored
             duplicates_state["done"] = len(items)
             duplicates_state["stage"] = "done"
     except Exception as exc:  # noqa: BLE001
