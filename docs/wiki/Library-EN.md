@@ -21,6 +21,15 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 - Infinite scroll uses the site `next=gid-ts` cursor, **not** `page=N`; a short TTL cache avoids re-hitting the first page while scrolling.
 - No hits, Sad Panda, empty-body anti-bot, 509, and cookie expiry are **shown separately** and never treated as “no results” (which would keep paging). Cookie expiry still uses the top red banner.
 
+## Series (#/series)
+
+- **Automatic Clustering & Event Prefix Stripping**: Automatically clusters doujinshi and manga series while stripping convention and event prefixes (such as C100, COMIC1, Reitaisai) to group related works together.
+- **Default Filtering & Pagination**: Filters to Doujinshi and Manga categories by default with pagination; toggle "Show All" to view complete series across all categories.
+- **Cloud Un-downloaded Members & One-click Download**: Shows favorited cloud members not yet downloaded locally with distinct badges, supporting one-click batch downloading to complete the collection.
+- **Manual Management & Allocation**: Add works via gallery GID or favorites, remove mismatched cloud items from groups, create custom series groups, rename or delete groups, and reassign member galleries between groups.
+- **Library Scan Rebuild & Manual Re-clustering**: A filesystem library scan automatically triggers a series rebuild upon completion; you can also manually trigger "Re-cluster" from the series page, with background progress and results logged in the Logs page (`#/logs`).
+- **Series Covers**: Series cards reuse the existing `GET /api/favorites/cover` thumbnail endpoint for rendering.
+
 ## Library (`#/library`)
 
 - Search by title, filter by category, sort across multiple fields, filter by reading status, and browse indexed galleries.

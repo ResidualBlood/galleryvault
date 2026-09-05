@@ -72,7 +72,7 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ## 怎么用 OPDS？
 
-第三方阅读器支持通过 HTTP Basic 认证接入 OPDS 目录与 CBZ 导出（用户名 `galleryvault`，密码为 Web 登录密码）。详细配置见 [系统设置 → OPDS 与 CBZ 导出](Settings#设置settings)。
+第三方阅读器支持通过 HTTP Basic 认证接入 OPDS 目录（用户名固定为 `galleryvault`，密码为 Web 登录密码）。注意 Basic 认证仅适用于 `GET /api/opds` 目录接口；画廊 CBZ 导出与其余 `/api/*` 接口需常规会话 Cookie、不再免密且不接受 Basic 凭据。详细说明见 [系统设置 → OPDS 与 CBZ 导出](Settings#设置settings)。
 
 ## 扫描 7z 会把整个压缩包解到磁盘吗？
 

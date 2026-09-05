@@ -263,6 +263,22 @@ release (the same source ehsyringe uses). A background task runs every
 refresh is available via the button in Settings. Markdown icon syntax
 (`![alt](url)`) embedded in translations is stripped for display.
 
+## Series
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/series` | Paged list of series groups: `{items, total, page, page_size}`. Query: `page` (default 1), `page_size` (default 25), `show_all` (0 = doujinshi/manga only, 1 = all categories). Members include local galleries and cloud-only favorites with `cover_url` (`/api/favorites/cover`). |
+| POST | `/api/series` | Body `{name}` — create a manual series group (`201`). |
+| GET | `/api/series/{series_id}` | Series group details and member list (`404` if missing). |
+| PATCH | `/api/series/{series_id}` | Body `{name}` — rename a series group. |
+| DELETE | `/api/series/{series_id}` | Delete a series group and its memberships. |
+| POST | `/api/series/{series_id}/items` | Body `{gallery_ids: [...], gids: [...]}` — add local galleries or gids to the series. |
+| POST | `/api/series/{series_id}/items/remove` | Body `{gallery_ids: [...], gids: [...]}` — remove local galleries or gids from the series. |
+| GET | `/api/series/{series_id}/cloud-candidates` | Query `q` (optional) — search cloud favorites candidates eligible to add to this series. |
+| POST | `/api/series/{series_id}/cloud-items` | Body `{gids: [...]}` — add cloud-only favorite members to the series. |
+| POST | `/api/series/{series_id}/cloud-items/remove` | Body `{gids: [...]}` — remove cloud members from the series. |
+| POST | `/api/series/rebuild` | Trigger full series re-clustering and rebuild; logs progress to task history as `series-rebuild`. |
+
 ## Library scan, tag-sync & thumbnails
 
 | Method | Path | Description |
@@ -280,6 +296,8 @@ refresh is available via the button in Settings. Markdown icon syntax
 | GET | `/api/thumbs/status` | Thumbnail generation worker status (`running`, `queued`, `processed`, `succeeded`, `failed`, `total`, `last_error`). |
 | POST | `/api/thumbs/generate` | `202` – queue every gallery missing a cover thumbnail for background generation. |
 | GET | `/api/notifications` | In-app notification ring (maxlen 100): `{items, unread_count}`. Loaded from `cache/notifications.json` on startup and rewritten on change; write failures are logged only. |
+| POST | `/api/notifications/read` | Mark every item read; returns the same shape as GET with `unread_count: 0`. |
+| POST | `/api/notifications/clear` | Clear every notification; returns `{items: [], unread_count: 0}`. |
 | GET | `/api/opds` | OPDS Atom catalog of recently ingested galleries (supports session cookie or HTTP Basic auth). Acquisition links `GET /api/galleries/{id}/export.cbz`. |
 | GET | `/api/system/storage` | Library / downloads / cache usage. Missing roots report `bytes: 0` (not 500). `largest` is the top 10 by DB `storage_size`. |
 | GET | `/api/saved-searches` | Named library filters stored in `user_settings.saved_searches` (get+merge, max 30). |
@@ -292,7 +310,6 @@ refresh is available via the button in Settings. Markdown icon syntax
 | POST | `/api/lists/{id}/items` | Body `{gallery_ids}` — add (CBZ without gid allowed). |
 | POST | `/api/lists/{id}/items/remove` | Body `{gallery_ids}`. |
 | GET | `/api/quota` | Cached GP + Image Limit. JSON `{gp, image_limit: {current, limit}, image_limits, checked_at, error, cached}`. |
-| POST | `/api/notifications/read` | Mark every item read; returns the same shape as GET with `unread_count: 0`. |
 | GET | `/api/logs` | Aggregated activity log: `{running: [...], finished: [...]}`. `running` lists the live background tasks (each with `task` (scan/tag-sync/thumbs/metadata), `started_at`, `done`, `total`, `stage`, `cancellable`); `finished` is the latest-first history of completed tasks with `task`, `started_at`, `completed_at`, `status` (success/failed/cancelled), `reason`, `done`, `total`. |
 | POST | `/api/logs/{task}/cancel` | `202` – request cancellation of a running background task (`scan`, `tag-sync`, `thumbs`, `metadata`). The worker stops at the next safe point; the queue is drained for queue-based tasks. |
 | GET | `/api/system/logs` | In-memory diagnostic ring buffer (`level` filter, optional `q` text search). Items include timestamp, level, logger, message, and extras (request id, worker context); secrets are masked. httpx 2xx/3xx access lines (including Telegram `getUpdates` long-poll) are omitted; 4xx/5xx and business logs are kept. |

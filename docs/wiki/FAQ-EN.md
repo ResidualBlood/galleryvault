@@ -98,7 +98,7 @@ offline fallback) and never cache gallery images or `/api/`.
 
 ## How do I use OPDS?
 
-Third-party reader clients can connect via HTTP Basic authentication for OPDS feeds and CBZ export (username `galleryvault`, password is the web login password). For configuration details, see [Settings → OPDS & CBZ export](Settings-EN#settings-settings).
+Third-party reader clients can connect to the OPDS catalog via HTTP Basic authentication (fixed username `galleryvault`, password is the web login password). Note that Basic auth is strictly limited to `GET /api/opds`; CBZ archive exports and all other `/api/*` endpoints require standard session cookies, are no longer unauthenticated, and do not accept Basic credentials. For details, see [Settings → OPDS & CBZ export](Settings-EN#settings-settings).
 
 ## Does scanning a 7z unpack the whole archive?
 
