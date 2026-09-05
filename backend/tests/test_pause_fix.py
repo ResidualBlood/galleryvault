@@ -342,6 +342,72 @@ async def test_integrity_excludes_none_and_max_pages(monkeypatch):
     assert "trashed.is_(False)" in src
 
 
+@pytest.mark.asyncio
+async def test_integrity_detects_corrupt_magic_and_count_mismatch(tmp_path, monkeypatch):
+    """Galleries with complete page count but corrupt image magic must be included in integrity results."""
+    from galleryvault.app.routers.galleries import list_integrity
+    from galleryvault.db.models import Gallery
+    from galleryvault.db.repositories.galleries import GalleryRepository
+
+    # 1. Complete count but page 1 corrupt (all zero prefix)
+    dir_corrupt = tmp_path / "corrupt_gallery"
+    dir_corrupt.mkdir()
+    (dir_corrupt / "00000001.webp").write_bytes(b"\x00" * 32)
+    (dir_corrupt / "00000002.webp").write_bytes(b"\xff\xd8\xff" + b"\x00" * 20)
+    g1 = Gallery(id=1, gid=1001, title="corrupt_magic", page_count=2, storage_path=str(dir_corrupt), trashed=False, expunged=False)
+
+    # 2. Page count mismatch
+    dir_mismatch = tmp_path / "mismatch_gallery"
+    dir_mismatch.mkdir()
+    g2 = Gallery(id=2, gid=1002, title="count_mismatch", page_count=5, storage_path=str(dir_mismatch), trashed=False, expunged=False)
+
+    # 3. Complete count and valid image magics
+    dir_valid = tmp_path / "valid_gallery"
+    dir_valid.mkdir()
+    (dir_valid / "00000001.webp").write_bytes(b"RIFF" + b"\x00" * 20)
+    (dir_valid / "00000002.webp").write_bytes(b"\x89PNG" + b"\x00" * 20)
+    g3 = Gallery(id=3, gid=1003, title="valid_complete", page_count=2, storage_path=str(dir_valid), trashed=False, expunged=False)
+
+    class _ScalarResult:
+        def __init__(self, rows):
+            self._rows = list(rows)
+
+        def all(self):
+            return self._rows
+
+    class FakeSession:
+        async def scalars(self, stmt):
+            s = str(stmt).lower()
+            if "!=" in s:
+                return _ScalarResult([g2])
+            return _ScalarResult([g1, g3])
+
+        async def execute(self, stmt):
+            return []
+
+    fake_session = FakeSession()
+
+    async def fake_get_session():
+        yield fake_session
+
+    monkeypatch.setattr("galleryvault.app.routers.galleries.get_session", fake_get_session)
+
+    repo = GalleryRepository(fake_session)
+    total, rows = await repo.list_integrity_issues(1, 10)
+    row_ids = [r.id for r in rows]
+    assert total == 2
+    assert 1 in row_ids
+    assert 2 in row_ids
+    assert 3 not in row_ids
+
+    result = await list_integrity(1, 10)
+    assert result["total"] == 2
+    item_ids = [item["id"] for item in result["items"]]
+    assert 1 in item_ids
+    assert 2 in item_ids
+    assert 3 not in item_ids
+
+
 def test_parse_image_limits_html_fixtures():
     """_parse_image_limits must handle real ExHentai homepage variants (old/new, with/without tags, commas)."""
     from galleryvault.services.eh_client import EhClient

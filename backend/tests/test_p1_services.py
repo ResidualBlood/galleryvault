@@ -99,7 +99,7 @@ class FakeDownloadClient:
         )
 
     async def download_image(self, url: str) -> bytes:
-        return b"image"
+        return b"\xff\xd8\xff" + b"\x00" * 64
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ class CountingDownloadClient(FakeDownloadClient):
 
     async def download_image(self, url: str) -> bytes:
         self.image_calls += 1
-        return b"image"
+        return await super().download_image(url)
 
 
 @pytest.mark.asyncio
@@ -179,6 +179,84 @@ async def test_downloader_resumes_without_refetching_existing_pages(tmp_path: Pa
     assert client.image_calls == 2  # no new image requests
     assert (result2.path / "00000001.jpg").exists()
     assert (result2.path / "00000002.jpg").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad_payload",
+    [
+        b"<html>error page</html>",
+        b"<!DOCTYPE html><html><body>Error</body></html>",
+        b"\x00" * 32,
+        b"random junk data without image magic header",
+    ],
+)
+async def test_downloader_rejects_invalid_magic_and_html(
+    tmp_path: Path, bad_payload: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _fast_sleep(_):
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", _fast_sleep)
+
+    class BadImageClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+
+        async def download_image(self, url: str) -> bytes:
+            return bad_payload
+
+    client = BadImageClient()
+    downloader = Downloader(client, tmp_path)
+    with pytest.raises(ValueError, match="image response is invalid"):
+        await downloader.execute(DownloadTask(1, "tok", "title", id=9))
+    target_dir = tmp_path / "1-title"
+    if target_dir.exists():
+        assert list(target_dir.glob("*.jpg")) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "valid_header",
+    [
+        b"RIFF" + b"\x00" * 20,
+        b"\xff\xd8\xff" + b"\x00" * 20,
+        b"\x89PNG" + b"\x00" * 20,
+    ],
+)
+async def test_downloader_accepts_three_magics(tmp_path: Path, valid_header: bytes) -> None:
+    class ValidMagicClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+
+        async def download_image(self, url: str) -> bytes:
+            return valid_header
+
+    client = ValidMagicClient()
+    downloader = Downloader(client, tmp_path)
+    result = await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert (result.path / "00000001.jpg").exists()
+    assert (result.path / "00000002.jpg").exists()
+    assert (result.path / "00000001.jpg").read_bytes().startswith(valid_header[:4])
+
+
+@pytest.mark.asyncio
+async def test_downloader_does_not_skip_corrupt_existing_page(tmp_path: Path) -> None:
+    target_dir = tmp_path / "1-title"
+    target_dir.mkdir(parents=True)
+    corrupt_page = target_dir / "00000001.jpg"
+    corrupt_page.write_bytes(b"\x00" * 1024)
+
+    client = CountingDownloadClient()
+    downloader = Downloader(client, tmp_path)
+    result = await downloader.execute(DownloadTask(1, "tok", "title"))
+
+    assert client.image_calls == 2
+    written = (result.path / "00000001.jpg").read_bytes()
+    assert written.startswith(b"\xff\xd8\xff")
+    assert written != b"\x00" * 1024
 
 
 @pytest.mark.asyncio
@@ -550,7 +628,7 @@ class FlakyDownloadClient(FakeDownloadClient):
         self.image_attempts += 1
         if self.image_attempts == 1:
             raise EhClientError("ExHentai authentication is required or expired")
-        return b"image"
+        return await super().download_image(url)
 
 
 @pytest.mark.asyncio
