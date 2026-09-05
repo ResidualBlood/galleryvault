@@ -35,9 +35,9 @@ login only).
 |------|---------|
 | `./db-data` | PostgreSQL data (index, settings, history) — survives container recreation |
 | `./library` | **Library**: your existing archives (Ehviewer exports, CBZ/CBR). New downloads never land here; deleting a gallery removes its files here when the mount is writable |
-| `./downloads` | **Download directory**: galleries downloaded from ExHentai, scanned automatically |
+| `./downloads` | **Download directory**: galleries downloaded from ExHentai, scanned automatically (hot folder names follow `download_title`, falling back to English if no Japanese title) |
 | `./cache` | **Thumbnail cache** (generated), never written into the galleries |
-| `./Archive` | **Archive** (optional, commented in compose by default): tiered archive destination; uncomment and set `/archive` in Settings to enable |
+| `./Archive` | **Archive** (optional, commented in compose by default): tiered archive destination (cold storage CBZ files are consistently named `gid-<English title>.cbz`, not following `download_title`); uncomment and set `/archive` in Settings to enable |
 
 > To mount several host directories and use other Ehviewer download folders as
 > **scan-only** libraries, see below.
