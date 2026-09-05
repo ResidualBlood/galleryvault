@@ -490,6 +490,7 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
                             "token": row.new_token,
                             "title": row.title or "",
                             "gallery_id": None,
+                            "image_quality": None,
                         }
                 still_missing = [g for g in missing if g not in detail]
                 if still_missing:
@@ -501,7 +502,8 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
                         detail[int(row.gid)] = {
                             "token": row.token,
                             "title": row.title,
-                            "gallery_id": row.id,
+                            "gallery_id": None if (row.expunged or row.trashed) else row.id,
+                            "image_quality": row.image_quality,
                         }
             break
     except SQLAlchemyError as exc:
@@ -510,11 +512,24 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
     queue = FavoriteDownloadQueue()
     queued = 0
     skipped = 0
+    upgrade_original = quality == "original"
     for gid in gids:
         entry = detail.get(gid)
-        if not entry or not entry.get("token") or entry.get("gallery_id") is not None:
+        if not entry or not entry.get("token"):
             skipped += 1
             continue
+
+        is_local = entry.get("gallery_id") is not None
+        if is_local:
+            if not upgrade_original or entry.get("image_quality") == "original":
+                skipped += 1
+                continue
+            item_mode = "gallery_archive" if body.archive else "gallery"
+            item_quality = "original"
+        else:
+            item_mode = mode
+            item_quality = quality
+
         try:
             ok = await queue.enqueue(
                 FavoriteData(
@@ -523,8 +538,8 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
                     title=entry.get("title") or str(gid),
                     url=entry.get("url") or "",
                 ),
-                mode=mode,
-                quality=quality,
+                mode=item_mode,
+                quality=item_quality,
             )
         except Exception:  # noqa: BLE001
             ok = False

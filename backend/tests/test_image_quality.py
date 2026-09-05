@@ -584,3 +584,311 @@ async def test_ingest_downloaded_gallery_handles_tuple_tags(tmp_path, monkeypatc
         {"namespace": "female", "name": "sole female"},
     ]
     assert ingested[0].file_count == 2
+
+
+# --- favorites download-selected endpoint ----------------------------------
+
+
+async def test_favorites_download_selected_original_upgrades_resample(monkeypatch):
+    from galleryvault.app.routers import favorites as favorites_router
+    from galleryvault.app.schemas import DownloadSelectedRequest
+
+    detail = {
+        101: {
+            "gid": 101,
+            "token": "tok101",
+            "title": "cloud_only",
+            "gallery_id": None,
+            "image_quality": None,
+        },
+        102: {
+            "gid": 102,
+            "token": "tok102",
+            "title": "local_orig",
+            "gallery_id": 12,
+            "image_quality": "original",
+        },
+        103: {
+            "gid": 103,
+            "token": "tok103",
+            "title": "local_resample",
+            "gallery_id": 13,
+            "image_quality": "resample",
+        },
+        104: {
+            "gid": 104,
+            "token": "tok104",
+            "title": "local_unknown",
+            "gallery_id": 14,
+            "image_quality": None,
+        },
+        105: {
+            "gid": 105,
+            "token": "tok105",
+            "title": "local_empty",
+            "gallery_id": 15,
+            "image_quality": "",
+        },
+        106: {
+            "gid": 106,
+            "token": "",
+            "title": "no_token",
+            "gallery_id": None,
+            "image_quality": None,
+        },
+    }
+
+    class _FakeFavRepo:
+        def __init__(self, _session):
+            pass
+
+        async def favorite_items_detail_by_gids(self, gids):
+            return {g: detail[g] for g in gids if g in detail}
+
+    async def _fake_session():
+        yield object()
+
+    enqueued = []
+
+    class _FakeQueue:
+        async def enqueue(self, item, mode="favorite", quality=None):
+            enqueued.append((item.gid, item.token, item.title, mode, quality))
+            return True
+
+    monkeypatch.setattr(favorites_router, "FavoritesRepository", _FakeFavRepo)
+    monkeypatch.setattr(favorites_router, "get_session", _fake_session)
+    monkeypatch.setattr(favorites_router, "FavoriteDownloadQueue", _FakeQueue)
+
+    # 1. quality="original", archive=False
+    req = DownloadSelectedRequest(gids=[101, 102, 103, 104, 105, 106], quality="original")
+    resp = await favorites_router.favorites_download_selected(req)
+    assert resp == {"queued": 4, "skipped": 2}
+
+    # Verify enqueued modes and qualities
+    assert enqueued == [
+        (101, "tok101", "cloud_only", "favorite", "original"),
+        (103, "tok103", "local_resample", "gallery", "original"),
+        (104, "tok104", "local_unknown", "gallery", "original"),
+        (105, "tok105", "local_empty", "gallery", "original"),
+    ]
+
+
+async def test_favorites_download_selected_archive_original_upgrades_resample(monkeypatch):
+    from galleryvault.app.routers import favorites as favorites_router
+    from galleryvault.app.schemas import DownloadSelectedRequest
+
+    detail = {
+        101: {
+            "gid": 101,
+            "token": "tok101",
+            "title": "cloud_only",
+            "gallery_id": None,
+            "image_quality": None,
+        },
+        102: {
+            "gid": 102,
+            "token": "tok102",
+            "title": "local_orig",
+            "gallery_id": 12,
+            "image_quality": "original",
+        },
+        103: {
+            "gid": 103,
+            "token": "tok103",
+            "title": "local_resample",
+            "gallery_id": 13,
+            "image_quality": "resample",
+        },
+        104: {
+            "gid": 104,
+            "token": "tok104",
+            "title": "local_unknown",
+            "gallery_id": 14,
+            "image_quality": None,
+        },
+        105: {
+            "gid": 105,
+            "token": "tok105",
+            "title": "local_empty",
+            "gallery_id": 15,
+            "image_quality": "",
+        },
+        106: {
+            "gid": 106,
+            "token": "",
+            "title": "no_token",
+            "gallery_id": None,
+            "image_quality": None,
+        },
+    }
+
+    class _FakeFavRepo:
+        def __init__(self, _session):
+            pass
+
+        async def favorite_items_detail_by_gids(self, gids):
+            return {g: detail[g] for g in gids if g in detail}
+
+    async def _fake_session():
+        yield object()
+
+    enqueued = []
+
+    class _FakeQueue:
+        async def enqueue(self, item, mode="favorite", quality=None):
+            enqueued.append((item.gid, item.token, item.title, mode, quality))
+            return True
+
+    monkeypatch.setattr(favorites_router, "FavoritesRepository", _FakeFavRepo)
+    monkeypatch.setattr(favorites_router, "get_session", _fake_session)
+    monkeypatch.setattr(favorites_router, "FavoriteDownloadQueue", _FakeQueue)
+
+    req = DownloadSelectedRequest(
+        gids=[101, 102, 103, 104, 105, 106],
+        archive=True,
+        quality="original",
+    )
+    resp = await favorites_router.favorites_download_selected(req)
+    assert resp == {"queued": 4, "skipped": 2}
+
+    # 101: cloud-only -> favorite_archive, original
+    # 102: local original -> skipped
+    # 103, 104, 105: local non-original -> gallery_archive, original
+    # 106: missing token -> skipped
+    assert enqueued == [
+        (101, "tok101", "cloud_only", "favorite_archive", "original"),
+        (103, "tok103", "local_resample", "gallery_archive", "original"),
+        (104, "tok104", "local_unknown", "gallery_archive", "original"),
+        (105, "tok105", "local_empty", "gallery_archive", "original"),
+    ]
+
+
+async def test_favorites_download_selected_non_original_skips_all_local(monkeypatch):
+    from galleryvault.app.routers import favorites as favorites_router
+    from galleryvault.app.schemas import DownloadSelectedRequest
+
+    detail = {
+        101: {
+            "gid": 101,
+            "token": "tok101",
+            "title": "cloud_only",
+            "gallery_id": None,
+            "image_quality": None,
+        },
+        102: {
+            "gid": 102,
+            "token": "tok102",
+            "title": "local_resample",
+            "gallery_id": 13,
+            "image_quality": "resample",
+        },
+        103: {
+            "gid": 103,
+            "token": "tok103",
+            "title": "local_orig",
+            "gallery_id": 12,
+            "image_quality": "original",
+        },
+    }
+
+    class _FakeFavRepo:
+        def __init__(self, _session):
+            pass
+
+        async def favorite_items_detail_by_gids(self, gids):
+            return {g: detail[g] for g in gids if g in detail}
+
+    async def _fake_session():
+        yield object()
+
+    enqueued = []
+
+    class _FakeQueue:
+        async def enqueue(self, item, mode="favorite", quality=None):
+            enqueued.append((item.gid, item.token, item.title, mode, quality))
+            return True
+
+    monkeypatch.setattr(favorites_router, "FavoritesRepository", _FakeFavRepo)
+    monkeypatch.setattr(favorites_router, "get_session", _fake_session)
+    monkeypatch.setattr(favorites_router, "FavoriteDownloadQueue", _FakeQueue)
+
+    # 1. regular download (quality=None, archive=False): local skipped
+    enqueued.clear()
+    resp_regular = await favorites_router.favorites_download_selected(
+        DownloadSelectedRequest(gids=[101, 102, 103])
+    )
+    assert resp_regular == {"queued": 1, "skipped": 2}
+    assert enqueued == [(101, "tok101", "cloud_only", "favorite", None)]
+
+    # 2. regular download with resample: local skipped
+    enqueued.clear()
+    resp_resample = await favorites_router.favorites_download_selected(
+        DownloadSelectedRequest(gids=[101, 102, 103], quality="resample")
+    )
+    assert resp_resample == {"queued": 1, "skipped": 2}
+    assert enqueued == [(101, "tok101", "cloud_only", "favorite", "resample")]
+
+    # 3. archive download with resample: local skipped (clause 4)
+    enqueued.clear()
+    resp_archive_resample = await favorites_router.favorites_download_selected(
+        DownloadSelectedRequest(gids=[101, 102, 103], archive=True, quality="resample")
+    )
+    assert resp_archive_resample == {"queued": 1, "skipped": 2}
+    assert enqueued == [(101, "tok101", "cloud_only", "favorite_archive", "resample")]
+
+    # 4. archive download with default/None quality: local skipped
+    enqueued.clear()
+    resp_archive_default = await favorites_router.favorites_download_selected(
+        DownloadSelectedRequest(gids=[101, 102, 103], archive=True)
+    )
+    assert resp_archive_default == {"queued": 1, "skipped": 2}
+    assert enqueued == [(101, "tok101", "cloud_only", "favorite_archive", None)]
+
+
+async def test_favorite_items_detail_by_gids_includes_image_quality():
+    from galleryvault.db.repositories.favorites import FavoritesRepository
+
+    item1 = SimpleNamespace(
+        gid=1, favcat=0, token="t1", title="T1", url="u1", file_size=100, first_seen_at=None
+    )
+    gal1 = SimpleNamespace(
+        id=10,
+        gid=1,
+        token="t1",
+        title="G1",
+        category="misc",
+        page_count=5,
+        file_size=200,
+        posted_at=None,
+        image_quality="resample",
+    )
+    item2 = SimpleNamespace(
+        gid=2, favcat=1, token="t2", title="T2", url="u2", file_size=150, first_seen_at=None
+    )
+
+    class _FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+        def __iter__(self):
+            return iter(self._rows)
+
+    calls = 0
+
+    class _FakeSession:
+        async def execute(self, _statement):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return _FakeResult([(item1, gal1), (item2, None)])
+            return _FakeResult([])
+
+    repo = FavoritesRepository(_FakeSession())
+    res = await repo.favorite_items_detail_by_gids([1, 2])
+    assert res[1]["image_quality"] == "resample"
+    assert res[1]["gallery_id"] == 10
+    assert res[2]["image_quality"] is None
+    assert res[2]["gallery_id"] is None

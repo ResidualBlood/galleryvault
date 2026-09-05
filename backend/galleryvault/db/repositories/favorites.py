@@ -692,7 +692,7 @@ class FavoritesRepository:
                 result[int(item.gid)] = {
                     "gid": item.gid,
                     "favcat": item.favcat,
-                    "token": item.token,
+                    "token": item.token or gallery.token,
                     "title": item.title or gallery.title or "",
                     "url": item.url,
                     "gallery_id": gallery.id,
@@ -702,6 +702,7 @@ class FavoritesRepository:
                     "file_size": gallery.file_size,
                     "first_seen_at": item.first_seen_at,
                     "posted_at": gallery.posted_at,
+                    "image_quality": gallery.image_quality,
                     "tags": [
                         {"namespace": ns, "name": name}
                         for ns, name in tag_map.get(gallery.id, [])
@@ -721,6 +722,7 @@ class FavoritesRepository:
                     "file_size": item.file_size,
                     "first_seen_at": item.first_seen_at,
                     "posted_at": None,
+                    "image_quality": None,
                     "tags": [],
                 }
         return result
