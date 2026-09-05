@@ -37,7 +37,7 @@ login only).
 | `./library` | **Library**: your existing archives (Ehviewer exports, CBZ/CBR). New downloads never land here; deleting a gallery removes its files here when the mount is writable |
 | `./downloads` | **Download directory**: galleries downloaded from ExHentai, scanned automatically (hot folder names follow `download_title`, falling back to English if no Japanese title) |
 | `./cache` | **Thumbnail cache** (generated), never written into the galleries |
-| `./Archive` | **Archive** (optional, commented in compose by default): tiered archive destination (cold storage CBZ files are consistently named `gid-<English title>.cbz`, not following `download_title`); uncomment and set `/archive` in Settings to enable |
+| `./Archive` | **Archive** (optional, commented in compose by default): tiered archive destination (cold storage CBZ files are consistently named `gid-<English title>.cbz`, not following `download_title`); multiple volumes can be mounted (e.g. `./Archive:/archive`, `./Archive2:/archive2`); uncomment and configure in Settings to enable |
 
 > To mount several host directories and use other Ehviewer download folders as
 > **scan-only** libraries, see below.
@@ -77,13 +77,10 @@ does not re-import it as a fresh gallery).
 > `download_root` is always included in the library roots automatically, so you
 > don't need to repeat it.
 
-> **Environment variables are optional**: the `LIBRARY_ROOTS` / `DOWNLOAD_ROOT`
-> env vars in the compose file are only **startup defaults**; the values saved
-> in *Settings → Library roots / Download directory* (stored in the DB and
-> applied on startup, overriding the env vars) win. The backend defaults are
-> `download_root=/downloads` and `library_roots=["/library","/downloads"]`, so a
-> fresh install can skip both variables entirely and just configure them in
-> Settings.
+> **Path configuration is in Settings**: compose no longer sets path env vars
+> (such as `DOWNLOAD_ROOT` or `COLD_STORAGE_ROOT`); configure paths in Settings
+> (persisted to the DB). Fresh installs default to `download_root=/downloads`
+> and `library_roots` containing `/library` before settings are first saved.
 
 ## Security hardening
 

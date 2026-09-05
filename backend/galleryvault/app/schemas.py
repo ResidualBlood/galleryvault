@@ -225,6 +225,7 @@ class DownloadOriginalRequest(BaseModel):
 class SettingsRequest(BaseModel):
     library_roots: list[str] | str | None = None
     cold_storage_root: str | None = None
+    archive_roots: list[str] | str | None = None
     auto_archive_downloads: bool | None = None
     archive_delete_source: bool | None = None
     exhentai_base_url: str | None = None
@@ -269,6 +270,18 @@ class SettingsRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_values(self) -> SettingsRequest:
+        if self.archive_roots is not None:
+            from ..config import normalize_archive_roots
+
+            normalized = normalize_archive_roots(self.archive_roots)
+            object.__setattr__(self, "archive_roots", normalized)
+            object.__setattr__(
+                self, "cold_storage_root", normalized[0] if normalized else ""
+            )
+        elif self.cold_storage_root is not None:
+            cr = str(self.cold_storage_root).strip()
+            object.__setattr__(self, "cold_storage_root", cr)
+            object.__setattr__(self, "archive_roots", [cr] if cr else [])
         if self.http_proxy and self.socks5_proxy:
             raise ValueError("configure only one proxy")
         if self.favorites_categories is not None and any(

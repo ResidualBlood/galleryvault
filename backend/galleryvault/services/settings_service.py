@@ -63,6 +63,7 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
     allowed = {
         "library_roots",
         "cold_storage_root",
+        "archive_roots",
         "auto_archive_downloads",
         "archive_delete_source",
         "exhentai_base_url",
@@ -113,6 +114,17 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         if not isinstance(c, dict):
             c = {}
         filtered["exhentai_cookies"] = {str(k): str(v) for k, v in c.items()}
+    if "archive_roots" in filtered:
+        from ..config import normalize_archive_roots
+
+        filtered["archive_roots"] = normalize_archive_roots(filtered["archive_roots"])
+        filtered["cold_storage_root"] = (
+            filtered["archive_roots"][0] if filtered["archive_roots"] else ""
+        )
+    elif "cold_storage_root" in filtered:
+        cr = str(filtered["cold_storage_root"]).strip()
+        filtered["cold_storage_root"] = cr
+        filtered["archive_roots"] = [cr] if cr else []
     current = app_state.settings or get_settings()
     updated = current.model_copy(update=filtered)
     app_state.settings = updated
@@ -203,6 +215,7 @@ def settings_public() -> dict[str, Any]:
         "library_roots": current.library_roots,
         "library_root_warnings": library_root_warnings(current.library_roots),
         "cold_storage_root": current.cold_storage_root,
+        "archive_roots": current.archive_roots,
         "auto_archive_downloads": current.auto_archive_downloads,
         "archive_delete_source": current.archive_delete_source,
         "exhentai_base_url": current.exhentai_base_url,

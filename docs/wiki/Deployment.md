@@ -30,7 +30,7 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 | `./library` | **库目录**：已有画廊归档（Ehviewer 导出、CBZ/CBR），新下载不会写入；删除画廊时若挂载可写会一并删除这里对应文件 |
 | `./downloads` | **下载目录**：新下载的画廊存放于此，自动扫描（热目录新建文件夹名遵循 `download_title`，无日文时回退英文） |
 | `./cache` | **缩略图缓存**（自动生成），不会写入画廊目录 |
-| `./Archive` | **归档目录**（可选，compose 默认注释）：分层归档目标（冷库 CBZ 统一以 `gid-英文标题.cbz` 命名，不跟随 `download_title`），启用时取消注释并在设置填 `/archive` |
+| `./Archive` | **归档目录**（可选，compose 默认注释）：分层归档目标（冷库 CBZ 统一以 `gid-英文标题.cbz` 命名，不跟随 `download_title`），可叠加多卷挂载（如 `./Archive:/archive`、`./Archive2:/archive2`），启用时取消注释并在设置页配置容器内路径 |
 
 > 挂载多个宿主目录、将其他 Ehviewer 下载目录作为**仅扫描不下载**的库，见下文。
 
@@ -55,7 +55,7 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 
 > **多个已有画廊目录**：有几个就挂几条 volume（容器内路径各取一个唯一名字，如 `/gallery1`、`/gallery2`），然后在「库根目录」每行填一个容器内路径。`download_root` 会被自动并入库根，无需重复填写。
 
-> **环境变量可省略**：compose 里的 `LIBRARY_ROOTS` / `DOWNLOAD_ROOT` 只是**启动初值**，实际以「设置 → 库根目录 / 下载目录」保存的值为准（存 DB，启动时覆盖环境变量）。backend 默认即 `download_root=/downloads`、`library_roots=["/library","/downloads"]`，所以全新部署可以直接不写这两个变量，去设置页配置即可。
+> **路径配置在设置页**：compose 已不设路径 env（不再通过环境变量配置 `DOWNLOAD_ROOT` 或 `COLD_STORAGE_ROOT`），路径统一去设置页填写（存入数据库）。首次启动未保存设置前默认 `download_root=/downloads`、`library_roots` 包含 `/library`，后续以设置页保存的值为准。
 
 ## 安全加固
 
