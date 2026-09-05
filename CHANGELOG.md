@@ -15,6 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Persist download task quality on enqueue** (`backend/galleryvault/app/routers/downloads.py`, `backend/galleryvault/app/routers/galleries.py`, `backend/galleryvault/app/routers/favorites.py`, `backend/galleryvault/app/routers/updates.py`, `backend/galleryvault/services/favorites.py`, `backend/galleryvault/services/telegram_bot.py`): 新建下载任务（常规入队、收藏自动同步、TG Bot、重新下载、更新检查）入库时写入 `DownloadTask.quality` 字段（缺省跟随全局设置 `download_quality` 或显式请求选择），确保下载队列与历史准确展示画质角标。
+- **Favorites download selected skip behavior and updates quality persistence** (`backend/galleryvault/app/routers/favorites.py`, `backend/galleryvault/app/routers/updates.py`): 收藏「下载所选」判断升级仅依据用户是否显式选择原图，避免全局设置原图时误将已入库画廊重复入队升级；更新选中画廊原图入队时正确保留画质参数，不再被后端丢弃。
 - **Downloads page-by-page task quality badge** (`frontend/assets/views/downloads.js`): 下载页逐页下载任务（非归档通道）支持根据 `quality` 字段显示原图 / 重采样（`original` / `resample`）画质 Badge。
 - **Gitleaks false positive allowlist** (`.gitleaks.toml`, `.gitleaksignore`): gitleaks 忽略 test_logging 历史假阳性。
 

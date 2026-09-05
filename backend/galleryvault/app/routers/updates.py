@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ...db.repository import FavoritesRepository, GalleryUpdatesRepository
 from ...services.updates_worker import detect_gallery_updates, run_gallery_updates
-from ..dependencies import db_error, get_session, get_task_manager, spawn_task
+from ..dependencies import db_error, get_current_settings, get_session, get_task_manager, spawn_task
 
 router = APIRouter()
 
@@ -109,7 +109,8 @@ async def gallery_updates_status() -> dict[str, Any]:
 async def gallery_updates_run(body: UpdateIdsRequest) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
-    quality = (body.quality or None) if body.archive else None
+    default_quality = get_current_settings().download_quality or "resample"
+    quality = body.quality or default_quality
     result = await run_gallery_updates(body.ids, archive=body.archive, quality=quality)
     return {"status": "started", **result}
 

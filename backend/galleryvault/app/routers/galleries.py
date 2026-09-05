@@ -563,6 +563,7 @@ async def redownload_expunged(body: ExpungedRedownloadRequest) -> dict[str, obje
     if valid_targets:
         pairs = [(gid, token) for _, gid, token in valid_targets]
         prepared_list = await prepare_galleries(pairs)
+        default_quality = get_current_settings().download_quality or "resample"
         for (row, _, _), prepared in zip(valid_targets, prepared_list, strict=True):
             if row.title and not prepared.title:
                 prepared.title = row.title
@@ -571,7 +572,7 @@ async def redownload_expunged(body: ExpungedRedownloadRequest) -> dict[str, obje
                     prepared,
                     mode="gallery",
                     max_pages=None,
-                    quality=None,
+                    quality=default_quality,
                     fallback_title=row.title,
                 )
             except Exception:  # noqa: BLE001, S112
@@ -1174,6 +1175,8 @@ async def redownload_gallery(
     row, _ = await _gallery(identifier)
     if not row.gid or not row.token:
         raise HTTPException(status_code=422, detail="Gallery lacks ExHentai gid/token")
+    if not quality:
+        quality = get_current_settings().download_quality or "resample"
     mode = "gallery_archive" if archive else "gallery"
     try:
         async for session in get_session():
