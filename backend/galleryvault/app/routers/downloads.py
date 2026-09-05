@@ -57,6 +57,8 @@ async def _create_from_prepared(
             "detail": "newer version already in library",
         }
     title = prepared.title or fallback_title
+    if not quality:
+        quality = get_current_settings().download_quality or "resample"
     try:
         async for session in get_session():
             async with session.begin():

@@ -478,7 +478,8 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
     if not gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
     mode = "favorite_archive" if body.archive else "favorite"
-    quality = body.quality or None
+    default_quality = get_current_settings().download_quality or "resample"
+    target_quality = body.quality or default_quality
     try:
         async for session in get_session():
             detail = await FavoritesRepository(session).favorite_items_detail_by_gids(gids)
@@ -512,7 +513,7 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
     queue = FavoriteDownloadQueue()
     queued = 0
     skipped = 0
-    upgrade_original = quality == "original"
+    upgrade_original = body.quality == "original"
     for gid in gids:
         entry = detail.get(gid)
         if not entry or not entry.get("token"):
@@ -528,7 +529,7 @@ async def favorites_download_selected(body: DownloadSelectedRequest) -> dict[str
             item_quality = "original"
         else:
             item_mode = mode
-            item_quality = quality
+            item_quality = target_quality
 
         try:
             ok = await queue.enqueue(

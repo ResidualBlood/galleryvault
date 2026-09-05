@@ -298,11 +298,20 @@ class TelegramBotService:
                         or prepared.title
                         or str(prepared.gid)
                     )
-                await self.queue.enqueue(
-                    TelegramGalleryItem(
-                        gid=item_gid, token=item_token, title=item_title, title_jpn=item_jpn
+                default_quality = getattr(self.settings, "download_quality", None) or "resample"
+                try:
+                    await self.queue.enqueue(
+                        TelegramGalleryItem(
+                            gid=item_gid, token=item_token, title=item_title, title_jpn=item_jpn
+                        ),
+                        quality=default_quality,
                     )
-                )
+                except TypeError:
+                    await self.queue.enqueue(
+                        TelegramGalleryItem(
+                            gid=item_gid, token=item_token, title=item_title, title_jpn=item_jpn
+                        )
+                    )
                 if old_gid:
                     await self.notifier.send_message(
                         bot_queued_updated(old_gid, item_gid, item_title, lang),

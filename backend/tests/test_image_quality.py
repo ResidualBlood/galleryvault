@@ -812,13 +812,13 @@ async def test_favorites_download_selected_non_original_skips_all_local(monkeypa
     monkeypatch.setattr(favorites_router, "get_session", _fake_session)
     monkeypatch.setattr(favorites_router, "FavoriteDownloadQueue", _FakeQueue)
 
-    # 1. regular download (quality=None, archive=False): local skipped
+    # 1. regular download (quality=None, archive=False): local skipped, quality defaults to settings
     enqueued.clear()
     resp_regular = await favorites_router.favorites_download_selected(
         DownloadSelectedRequest(gids=[101, 102, 103])
     )
     assert resp_regular == {"queued": 1, "skipped": 2}
-    assert enqueued == [(101, "tok101", "cloud_only", "favorite", None)]
+    assert enqueued == [(101, "tok101", "cloud_only", "favorite", "resample")]
 
     # 2. regular download with resample: local skipped
     enqueued.clear()
@@ -842,7 +842,20 @@ async def test_favorites_download_selected_non_original_skips_all_local(monkeypa
         DownloadSelectedRequest(gids=[101, 102, 103], archive=True)
     )
     assert resp_archive_default == {"queued": 1, "skipped": 2}
-    assert enqueued == [(101, "tok101", "cloud_only", "favorite_archive", None)]
+    assert enqueued == [(101, "tok101", "cloud_only", "favorite_archive", "resample")]
+
+    # 5. regular download when settings.download_quality="original": local still skipped, unarchived enqueued as "original"
+    orig_settings = app_state.settings
+    try:
+        app_state.settings = Settings(download_quality="original")
+        enqueued.clear()
+        resp_setting_original = await favorites_router.favorites_download_selected(
+            DownloadSelectedRequest(gids=[101, 102, 103])
+        )
+        assert resp_setting_original == {"queued": 1, "skipped": 2}
+        assert enqueued == [(101, "tok101", "cloud_only", "favorite", "original")]
+    finally:
+        app_state.settings = orig_settings
 
 
 async def test_favorite_items_detail_by_gids_includes_image_quality():

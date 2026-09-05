@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ..app.dependencies import get_current_settings
 from .eh_client import FavoriteData
 from .messages import (
     favorites_check_failed,
@@ -148,7 +149,13 @@ class FavoritesService:
                             item, mode="favorite_archive", quality=archive_quality
                         )
                     else:
-                        accepted = await self.queue.enqueue(item)
+                        default_quality = (
+                            getattr(get_current_settings(), "download_quality", None) or "resample"
+                        )
+                        try:
+                            accepted = await self.queue.enqueue(item, quality=default_quality)
+                        except TypeError:
+                            accepted = await self.queue.enqueue(item)
                     if accepted is False:
                         raise RuntimeError("download task was not created")
                 downloaded += 1
