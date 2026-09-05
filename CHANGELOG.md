@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Gitleaks false positive allowlist** (`.gitleaks.toml`, `.gitleaksignore`): gitleaks 忽略 test_logging 历史假阳性。
+
+
 ## [1.8.0] - 2026-09-05
 
 ### Added

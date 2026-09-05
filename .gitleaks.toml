@@ -9,6 +9,7 @@ ids = [
 ]
 paths = [
     '''backend/docs/API\.md''',
+    '''backend/tests/test_logging\.py''',
 ]
 regexes = [
     '''curl -u <user:pass>''',
