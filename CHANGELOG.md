@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Download quality badges and enqueue policy documentation** (`docs/wiki/Downloads.md`, `docs/wiki/Downloads-EN.md`, `docs/wiki/Favorites.md`, `docs/wiki/Favorites-EN.md`): 更新文档说明任务入队画质规则（全局设置/强制原图/弹窗档位）、下载列表逐页与归档画质 Badge 呈现、历史无 quality 记录兼容显示及重试继承行为。
 - **Cold storage CBZ & hot download directory naming convention** (`docs/wiki/Settings.md`, `docs/wiki/Settings-EN.md`, `docs/wiki/Deployment.md`, `docs/wiki/Deployment-EN.md`): 明确落盘命名规则约定：设置 `download_title` 仅控制下载热目录 `download_root` 新建文件夹命名（无日文标题时自动 fallback 英文），Archive 冷库归档 CBZ 文件名固定采用英文 `gallery.title`（带 gid 前缀，如 `gid-title.cbz`）且不跟随 `download_title` 设置，以保证跨系统兼容性与备份稳定性。
 - **Favorites batch download & original upgrade behavior documentation** (`docs/wiki/Favorites.md`, `docs/wiki/Favorites-EN.md`): 完善收藏夹批量下载对已入库画廊的升级与跳过规则说明：普通「下载所选」已入库仍跳过（skip）；「下载所选原图」已是 original 跳过，本地 resample/unknown 则逐页 original 升级入库并在 ingest 后删除旧副本（含 CBZ）；「归档下载所选」已是 original 跳过，本地非 original 且用户选 original 档则触发 `gallery_archive` original 升级，选 resample 档仍跳过；未入库画廊照旧正常下载。
 - **Cold storage volume and directory renamed to Archive** (`docker-compose.yml`, `docker-compose.dev.yml`, `frontend/assets/locales/`, `docs/wiki/`): 将冷库卷挂载与目录命名规范为 `./Archive:/archive`，前端设置提示路径示例更新为 `/archive`，设置项展示对齐为「归档 / Archive」，保持可选与默认关闭（不自动归档、不删源）。
