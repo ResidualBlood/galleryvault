@@ -12,6 +12,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+
+## [1.8.2] - 2026-09-05
+
+### Added
+
+### Changed
+
+### Fixed
+
 - **Reader fullscreen fit viewport** (`frontend/assets/styles.css`): 全屏模式下强制单页/双页/Webtoon 图片宽度与高度撑满视口（100vw / 100vh），修复部分浏览器全屏下图片仍被 82vh 限制或双页单侧空置的问题。
 
 
