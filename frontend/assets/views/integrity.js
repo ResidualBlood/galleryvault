@@ -7,7 +7,7 @@ async function renderIntegrity() {
     <p class="sub">${esc(t("missingPagesSub"))}</p></header>
     ${manageTabsHtml("integrity")}
     <div class="toolbar">
-      <button class="btn btn-secondary" data-action="integrity-scan" onclick="integrityScan()" type="button">${esc(t("scan") || "Scan")}</button>
+      <button class="btn btn-secondary" data-action="integrity-scan" type="button">${esc(t("scan") || "Scan")}</button>
       <button class="btn btn-secondary" data-action="integrity-repair" type="button">${esc(t("retry"))} / ${esc(t("repair") || "Repair")}</button>
     </div>
     <div id="integrity-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>

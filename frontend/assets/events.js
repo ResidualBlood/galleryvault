@@ -200,6 +200,7 @@ async function onClick(e) {
   if (action === "recycle-restore") { recycleRestore(); return; }
   if (action === "recycle-redownload") { recycleRedownload(); return; }
   if (action === "recycle-purge") { recyclePurge(); return; }
+  if (action === "integrity-scan") { integrityScan(); return; }
   if (action === "integrity-repair") { integrityRepair(); return; }
   if (action === "archive-start") { archiveStart(); return; }
   if (action === "archive-cancel") { archiveCancel(); return; }
