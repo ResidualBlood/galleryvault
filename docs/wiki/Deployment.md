@@ -28,9 +28,9 @@ Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，
 |------|------|
 | `./db-data` | PostgreSQL 数据（索引、设置、历史），容器重建后保留 |
 | `./library` | **库目录**：已有画廊归档（Ehviewer 导出、CBZ/CBR），新下载不会写入；删除画廊时若挂载可写会一并删除这里对应文件 |
-| `./downloads` | **下载目录**：新下载的画廊存放于此，自动扫描 |
+| `./downloads` | **下载目录**：新下载的画廊存放于此，自动扫描（热目录新建文件夹名遵循 `download_title`，无日文时回退英文） |
 | `./cache` | **缩略图缓存**（自动生成），不会写入画廊目录 |
-| `./Archive` | **归档目录**（可选，compose 默认注释）：分层归档目标，启用时取消注释并在设置填 `/archive` |
+| `./Archive` | **归档目录**（可选，compose 默认注释）：分层归档目标（冷库 CBZ 统一以 `gid-英文标题.cbz` 命名，不跟随 `download_title`），启用时取消注释并在设置填 `/archive` |
 
 > 挂载多个宿主目录、将其他 Ehviewer 下载目录作为**仅扫描不下载**的库，见下文。
 
