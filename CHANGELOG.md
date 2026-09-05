@@ -8,12 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Cold storage CBZ & hot download directory naming convention** (`docs/wiki/Settings.md`, `docs/wiki/Settings-EN.md`, `docs/wiki/Deployment.md`, `docs/wiki/Deployment-EN.md`): 明确落盘命名规则约定：设置 `download_title` 仅控制下载热目录 `download_root` 新建文件夹命名（无日文标题时自动 fallback 英文），Archive 冷库归档 CBZ 文件名固定采用英文 `gallery.title`（带 gid 前缀，如 `gid-title.cbz`）且不跟随 `download_title` 设置，以保证跨系统兼容性与备份稳定性。
 - **Favorites batch download & original upgrade behavior documentation** (`docs/wiki/Favorites.md`, `docs/wiki/Favorites-EN.md`): 完善收藏夹批量下载对已入库画廊的升级与跳过规则说明：普通「下载所选」已入库仍跳过（skip）；「下载所选原图」已是 original 跳过，本地 resample/unknown 则逐页 original 升级入库并在 ingest 后删除旧副本（含 CBZ）；「归档下载所选」已是 original 跳过，本地非 original 且用户选 original 档则触发 `gallery_archive` original 升级，选 resample 档仍跳过；未入库画廊照旧正常下载。
 - **Cold storage volume and directory renamed to Archive** (`docker-compose.yml`, `docker-compose.dev.yml`, `frontend/assets/locales/`, `docs/wiki/`): 将冷库卷挂载与目录命名规范为 `./Archive:/archive`，前端设置提示路径示例更新为 `/archive`，设置项展示对齐为「归档 / Archive」，保持可选与默认关闭（不自动归档、不删源）。
 - **Cold storage settings default-off & compose volume commented** (`backend/galleryvault/config.py`, `frontend/assets/views/settings.js`, `docker-compose.yml`, `docker-compose.dev.yml`): 冷存储归档相关配置（`cold_storage_root`、`auto_archive_downloads`、`archive_delete_source`）默认全关闭，前端设置控件并入资料库分区且仅显式勾选生效；docker-compose 中冷库卷挂载与环境变量改为可选注释。
 
 ### Fixed
 
+- **Downloads page-by-page task quality badge** (`frontend/assets/views/downloads.js`): 下载页逐页下载任务（非归档通道）支持根据 `quality` 字段显示原图 / 重采样（`original` / `resample`）画质 Badge。
 - **Gitleaks false positive allowlist** (`.gitleaks.toml`, `.gitleaksignore`): gitleaks 忽略 test_logging 历史假阳性。
 
 

@@ -194,6 +194,8 @@ async function loadDownloads(filter, page) {
           ? `<span class="badge dl-badge">${esc(t("dlBadgeArchive"))} · ${esc(x.quality === "original" ? t("archiveTierOriginal") : t("archiveTierResample"))}</span>`
           : (isArchive && x.archive_fallback)
           ? `<span class="badge dl-badge">${esc(t("dlBadgeArchiveFallback"))}</span>`
+          : (x.quality === "original" || x.quality === "resample")
+          ? `<span class="badge dl-badge">${esc(t("dlBadgePages"))} · ${esc(x.quality === "original" ? t("archiveTierOriginal") : t("archiveTierResample"))}</span>`
           : `<span class="badge dl-badge">${esc(t("dlBadgePages"))}</span>`;
         const actions = [];
         if (x.status === "pending" || x.status === "downloading") {
