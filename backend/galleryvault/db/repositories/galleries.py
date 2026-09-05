@@ -752,7 +752,9 @@ class GalleryRepository:
         ).all()
         return total, list(rows)
 
-    async def list_integrity_issues(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
+    async def list_integrity_issues(
+        self, page: int, page_size: int, extra_ids: Sequence[int] | None = None
+    ) -> tuple[int, list[Gallery]]:
         # Page count vs actual gallery_pages rows, excluding trashed/expunged
         page_count_sub = (
             select(GalleryPage.gallery_id, func.count(GalleryPage.id).label("cnt"))
@@ -766,55 +768,42 @@ class GalleryRepository:
             .where(Gallery.page_count.is_not(None))
             .where(Gallery.page_count != func.coalesce(page_count_sub.c.cnt, 0))
         )
+        mismatched_rows = list((await self.session.scalars(count_mismatch_query)).all())
+
+        combined: dict[int, Gallery] = {g.id: g for g in mismatched_rows}
+        if extra_ids:
+            extra_query = select(Gallery).where(
+                Gallery.id.in_(list(extra_ids)),
+                Gallery.trashed.is_(False),
+                Gallery.expunged.is_(False),
+            )
+            for g in (await self.session.scalars(extra_query)).all():
+                combined[g.id] = g
+
+        all_issues = sorted(combined.values(), key=lambda x: x.id, reverse=True)
+        total = len(all_issues)
+        start = (page - 1) * page_size
+        return total, all_issues[start : start + page_size]
+
+    async def list_magic_scan_targets(
+        self, after_id: int = 0, limit: int = 200
+    ) -> list[Gallery]:
+        page_count_sub = (
+            select(GalleryPage.gallery_id, func.count(GalleryPage.id).label("cnt"))
+            .group_by(GalleryPage.gallery_id)
+            .subquery()
+        )
         complete_query = (
             select(Gallery)
             .outerjoin(page_count_sub, page_count_sub.c.gallery_id == Gallery.id)
             .where(Gallery.trashed.is_(False), Gallery.expunged.is_(False))
             .where(Gallery.page_count.is_not(None))
             .where(Gallery.page_count == func.coalesce(page_count_sub.c.cnt, 0))
+            .where(Gallery.id > after_id)
+            .order_by(Gallery.id)
+            .limit(limit)
         )
-        mismatched_rows = list((await self.session.scalars(count_mismatch_query)).all())
-        complete_rows = list((await self.session.scalars(complete_query)).all())
-
-        corrupt_rows: list[Gallery] = []
-        for g in complete_rows:
-            if not g.storage_path:
-                continue
-            storage_dir = Path(g.storage_path)
-            if not storage_dir.is_dir():
-                continue
-            has_issue = False
-            total_pages = int(g.page_count or 0)
-            for idx in range(total_pages):
-                try:
-                    matches = list(storage_dir.glob(f"{idx + 1:08d}.*"))
-                except OSError:
-                    has_issue = True
-                    break
-                page_found = False
-                for candidate in matches:
-                    try:
-                        if candidate.is_file() and candidate.stat().st_size > 0:
-                            with candidate.open("rb") as f:
-                                head = f.read(20)
-                            if _is_valid_page_header(head):
-                                page_found = True
-                                break
-                    except OSError:
-                        continue
-                if not page_found:
-                    has_issue = True
-                    break
-            if has_issue:
-                corrupt_rows.append(g)
-
-        combined: dict[int, Gallery] = {g.id: g for g in mismatched_rows}
-        for g in corrupt_rows:
-            combined[g.id] = g
-        all_issues = sorted(combined.values(), key=lambda x: x.id, reverse=True)
-        total = len(all_issues)
-        start = (page - 1) * page_size
-        return total, all_issues[start : start + page_size]
+        return list((await self.session.scalars(complete_query)).all())
 
     async def restore_galleries(self, ids: list[int]) -> int:
         if not ids:

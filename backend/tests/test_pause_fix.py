@@ -344,10 +344,14 @@ async def test_integrity_excludes_none_and_max_pages(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_integrity_detects_corrupt_magic_and_count_mismatch(tmp_path, monkeypatch):
-    """Galleries with complete page count but corrupt image magic must be included in integrity results."""
+    """Integrity GET restores fast DB count checks and merges corrupt IDs from magic scan."""
+    import inspect
+
     from galleryvault.app.routers.galleries import list_integrity
     from galleryvault.db.models import Gallery
     from galleryvault.db.repositories.galleries import GalleryRepository
+    from galleryvault.services.integrity_worker import gallery_has_bad_page_magic
+    from galleryvault.services.tasks import TaskManager
 
     # 1. Complete count but page 1 corrupt (all zero prefix)
     dir_corrupt = tmp_path / "corrupt_gallery"
@@ -368,6 +372,15 @@ async def test_integrity_detects_corrupt_magic_and_count_mismatch(tmp_path, monk
     (dir_valid / "00000002.webp").write_bytes(b"\x89PNG" + b"\x00" * 20)
     g3 = Gallery(id=3, gid=1003, title="valid_complete", page_count=2, storage_path=str(dir_valid), trashed=False, expunged=False)
 
+    # Verify list_integrity_issues no longer has synchronous disk scans
+    repo_src = inspect.getsource(GalleryRepository.list_integrity_issues)
+    assert "glob" not in repo_src
+    assert "open(" not in repo_src
+
+    # Test gallery_has_bad_page_magic directly
+    assert gallery_has_bad_page_magic(str(dir_corrupt), 2) is True
+    assert gallery_has_bad_page_magic(str(dir_valid), 2) is False
+
     class _ScalarResult:
         def __init__(self, rows):
             self._rows = list(rows)
@@ -378,8 +391,11 @@ async def test_integrity_detects_corrupt_magic_and_count_mismatch(tmp_path, monk
     class FakeSession:
         async def scalars(self, stmt):
             s = str(stmt).lower()
-            if "!=" in s:
+            if "!=" in s or "<>" in s:
                 return _ScalarResult([g2])
+            if ".id in" in s or " id in" in s:
+                # extra_ids query
+                return _ScalarResult([g1])
             return _ScalarResult([g1, g3])
 
         async def execute(self, stmt):
@@ -393,19 +409,54 @@ async def test_integrity_detects_corrupt_magic_and_count_mismatch(tmp_path, monk
     monkeypatch.setattr("galleryvault.app.routers.galleries.get_session", fake_get_session)
 
     repo = GalleryRepository(fake_session)
-    total, rows = await repo.list_integrity_issues(1, 10)
-    row_ids = [r.id for r in rows]
-    assert total == 2
+
+    # ① 无 extra_ids: 仅 g2（计数问题），g1/g3 不入
+    total_no_extra, rows_no_extra = await repo.list_integrity_issues(1, 10)
+    assert total_no_extra == 1
+    assert [r.id for r in rows_no_extra] == [2]
+
+    # ③ extra_ids=[g1.id]: 列表含 g1 + g2，不含 g3
+    total_with_extra, rows_with_extra = await repo.list_integrity_issues(1, 10, extra_ids=[1])
+    assert total_with_extra == 2
+    row_ids = [r.id for r in rows_with_extra]
     assert 1 in row_ids
     assert 2 in row_ids
     assert 3 not in row_ids
 
-    result = await list_integrity(1, 10)
-    assert result["total"] == 2
-    item_ids = [item["id"] for item in result["items"]]
+    # ④ & ⑤ list_integrity: monkeypatch spawn_task，检验 magic_scan 与 spawn 行为
+    tm = TaskManager()
+    monkeypatch.setattr("galleryvault.app.routers.galleries.get_task_manager", lambda: tm)
+
+    spawned = []
+
+    def fake_spawn(coro, name):
+        import contextlib
+
+        spawned.append(name)
+        with contextlib.suppress(Exception):
+            coro.close()
+
+    monkeypatch.setattr("galleryvault.app.routers.galleries.spawn_task", fake_spawn)
+
+    # 首次调用：started_at is None，应当触发 spawn_task
+    result1 = await list_integrity(1, 10)
+    assert "magic_scan" in result1
+    assert result1["magic_scan"]["running"] is True
+    assert result1["magic_scan"]["corrupt"] == 0
+    assert len(spawned) == 1
+    assert spawned[0] == "integrity magic scan"
+    assert result1["total"] == 1
+    assert [item["id"] for item in result1["items"]] == [2]
+
+    # 二次调用：started_at 已存在，不再触发 spawn
+    tm.integrity_state["corrupt_ids"] = [1]
+    result2 = await list_integrity(1, 10)
+    assert len(spawned) == 1  # 没有二次 spawn
+    assert result2["magic_scan"]["corrupt"] == 1
+    assert result2["total"] == 2
+    item_ids = [item["id"] for item in result2["items"]]
     assert 1 in item_ids
     assert 2 in item_ids
-    assert 3 not in item_ids
 
 
 def test_parse_image_limits_html_fixtures():

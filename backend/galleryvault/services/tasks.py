@@ -134,6 +134,15 @@ class TaskManager:
             "started_at": None,
             "completed_at": None,
         }
+        self.integrity_state: dict[str, Any] = {
+            "running": False,
+            "started_at": None,
+            "completed_at": None,
+            "scanned": 0,
+            "total": 0,
+            "corrupt_ids": [],
+            "last_error": None,
+        }
 
     # Cancellation flags
     def request_cancel(self, task_key: str | int) -> None:

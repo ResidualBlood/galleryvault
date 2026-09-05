@@ -604,9 +604,16 @@ async def redownload_expunged(body: ExpungedRedownloadRequest) -> dict[str, obje
 async def list_integrity(page: int = 1, page_size: int = 24) -> dict[str, object]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
+
+    tm = get_task_manager()
+    integrity_state = tm.integrity_state
+    extra_ids = list(integrity_state.get("corrupt_ids") or [])
+
     try:
         async for session in get_session():
-            total, rows = await GalleryRepository(session).list_integrity_issues(page, page_size)
+            total, rows = await GalleryRepository(session).list_integrity_issues(
+                page, page_size, extra_ids=extra_ids
+            )
             g_ids = [r.id for r in rows]
             tag_map = await GalleryRepository(session).tags_for_galleries(g_ids)
             from sqlalchemy import func, select
@@ -616,16 +623,41 @@ async def list_integrity(page: int = 1, page_size: int = 24) -> dict[str, object
             counts = {}
             if g_ids:
                 res = await session.execute(
-                    select(GalleryPage.gallery_id, func.count(GalleryPage.id)).where(GalleryPage.gallery_id.in_(g_ids)).group_by(GalleryPage.gallery_id)
+                    select(GalleryPage.gallery_id, func.count(GalleryPage.id))
+                    .where(GalleryPage.gallery_id.in_(g_ids))
+                    .group_by(GalleryPage.gallery_id)
                 )
                 counts = {gid: cnt for gid, cnt in res}
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
+
+    settings = get_current_settings()
+    if (
+        not getattr(settings, "global_paused", False)
+        and not integrity_state.get("running")
+        and integrity_state.get("started_at") is None
+    ):
+        from ...services.integrity_worker import run_integrity_magic_scan
+
+        integrity_state["running"] = True
+        integrity_state["started_at"] = datetime.now(UTC).isoformat()
+        spawn_task(run_integrity_magic_scan(), "integrity magic scan")
+
+    magic_scan_summary = {
+        "running": bool(integrity_state.get("running")),
+        "started_at": integrity_state.get("started_at"),
+        "completed_at": integrity_state.get("completed_at"),
+        "scanned": int(integrity_state.get("scanned", 0) or 0),
+        "total": int(integrity_state.get("total", 0) or 0),
+        "corrupt": len(extra_ids),
+    }
+
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
+        "magic_scan": magic_scan_summary,
         "items": [
             {
                 "id": row.id,
