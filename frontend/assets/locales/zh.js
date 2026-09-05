@@ -110,7 +110,7 @@ window.GV_LOCALES.zh = {
   dupPolicyManual: "手动（不自动处理）",
   dupGalTitle: "重复副本", dupGalSub: "同一画廊（gid）出现在多个扫描目录中。选择要保留的副本，或在设置中更改自动策略。",
   dupGalScan: "扫描库", dupGalRefresh: "刷新",
-  dupGalNone: "未发现重复副本。", dupGalFound: "发现", dupGalGroups: "组重复",
+  dupGalNone: "未发现重复副本。", dupGalNoneOpen: "没有待处理的重复副本。", dupGalNoneDismissed: "没有已忽略的重复副本。", dupGalFound: "发现", dupGalGroups: "组重复",
   dupGalAll: "全部", dupGalOpen: "待处理", dupGalDismissed: "已忽略",
   dupGalCurrent: "当前保留", dupGalKeep: "保留此副本", dupGalKeepDel: "保留并删除其他副本",
   dupGalDismiss: "忽略该组", dupGalRestore: "恢复该组",

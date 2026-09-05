@@ -180,7 +180,8 @@ function renderDuplicatesList() {
   if (!el) return;
   const groups = (dupGalCache || []).filter(g => dupGalFilter === "all" || g.status === dupGalFilter);
   if (!groups.length) {
-    el.innerHTML = `<p class="muted">${esc(t("dupGalNone"))}</p>`;
+    const noneKey = dupGalFilter === "open" ? "dupGalNoneOpen" : dupGalFilter === "dismissed" ? "dupGalNoneDismissed" : "dupGalNone";
+    el.innerHTML = `<p class="muted">${esc(t(noneKey))}</p>`;
     return;
   }
   const open = dupGalCache.filter(g => g.status === "open").length;

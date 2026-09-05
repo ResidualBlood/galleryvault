@@ -137,7 +137,7 @@ window.GV_LOCALES.en = {
   dupPolicyManual: "Manual (never auto-resolve)",
   dupGalTitle: "Duplicate copies", dupGalSub: "The same gallery (gid) found under more than one scan root. Pick which copy to keep, or change the auto policy in Settings.",
   dupGalScan: "Scan library", dupGalRefresh: "Refresh",
-  dupGalNone: "No duplicate copies found.", dupGalFound: "Found", dupGalGroups: "groups",
+  dupGalNone: "No duplicate copies found.", dupGalNoneOpen: "No pending duplicate copies.", dupGalNoneDismissed: "No dismissed duplicate copies.", dupGalFound: "Found", dupGalGroups: "groups",
   dupGalAll: "All", dupGalOpen: "Pending", dupGalDismissed: "Dismissed",
   dupGalCurrent: "current", dupGalKeep: "Keep this copy", dupGalKeepDel: "Keep & delete others",
   dupGalDismiss: "Dismiss group", dupGalRestore: "Restore group",
