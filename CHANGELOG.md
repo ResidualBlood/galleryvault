@@ -12,6 +12,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- 缺页体检扫描结束后写入任务历史，日志页「已完成」能看到
+- 缺页体检识别 GIF 魔数，避免整本 GIF/尾页 GIF 误报
+- 缺页体检 8 位文件名找不到时回退 4 位，避免归档命名误报
+
 
 ## [1.8.2] - 2026-09-05
 

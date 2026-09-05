@@ -31,6 +31,8 @@ def gallery_has_bad_page_magic(storage_path: str, page_count: int) -> bool:
     for idx in range(page_count):
         try:
             matches = list(storage_dir.glob(f"{idx + 1:08d}.*"))
+            if not matches:
+                matches = list(storage_dir.glob(f"{idx + 1:04d}.*"))
         except OSError:
             return True
 
@@ -126,3 +128,20 @@ async def run_integrity_magic_scan() -> None:
             finally:
                 state["running"] = False
                 state["completed_at"] = datetime.now(UTC).isoformat()
+                last_error = state.get("last_error")
+                if last_error == "cancelled":
+                    status = "cancelled"
+                elif last_error:
+                    status = "failed"
+                else:
+                    status = "success"
+                tm.record_task(
+                    "integrity",
+                    state.get("started_at"),
+                    state.get("completed_at"),
+                    status,
+                    reason=str(last_error or ""),
+                    done=int(state.get("scanned", 0) or 0),
+                    total=int(state.get("total", 0) or 0),
+                )
+                await tm.persist_history()

@@ -47,7 +47,7 @@ def _title_sort_column() -> object:
         return Gallery.title
 
 
-_IMAGE_MAGIC_PREFIXES = (b"RIFF", b"\xff\xd8\xff", b"\x89PNG")
+_IMAGE_MAGIC_PREFIXES = (b"RIFF", b"\xff\xd8\xff", b"\x89PNG", b"GIF8")
 
 
 def _is_valid_page_header(header: bytes) -> bool:
