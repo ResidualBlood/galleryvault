@@ -8,10 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [1.8.1] - 2026-09-05
+
+### Added
+
 - **Multi-root archive configuration & space-based target selection** (`backend/galleryvault/config.py`, `backend/galleryvault/services/settings_service.py`, `backend/galleryvault/services/cold_archive.py`, `backend/galleryvault/services/scan_worker.py`, `backend/galleryvault/services/download_worker.py`, `frontend/assets/views/settings.js`, `docs/wiki/Settings.md`, `docs/wiki/Settings-EN.md`): 系统设置支持配置多个归档根目录（`archive_roots` 多行文本），归档写入时自动从可用根中挑选剩余空间 ≥ 预估体积 × 1.2 且剩余空间最大的根落盘；库扫描合并所有归档根；旧单路径配置 `cold_storage_root` 在读取时自动升级为单元素列表并保持同步兼容。
 
 ### Changed
 
+- **Documentation and API sync** (`docs/wiki/`, `backend/docs/`): wiki/API 补系列与 notifications/clear、FAQ 对齐 OPDS/CBZ。
 - **Path environment variables removed from docker-compose** (`docker-compose.yml`, `docker-compose.dev.yml`, `docs/wiki/Deployment.md`, `docs/wiki/Deployment-EN.md`): docker-compose 不再设置 `DOWNLOAD_ROOT`、`COLD_STORAGE_ROOT` 环境变量，路径配置统一移至系统设置页；保留卷挂载 `/library`、`/downloads`、`/gv-cache`，Archive 归档卷注释示例支持叠加多卷挂载（如 `./Archive:/archive`、`./Archive2:/archive2`），未保存设置前缺省回落 `/downloads` 与 `/library`。
 - **Download quality badges and enqueue policy documentation** (`docs/wiki/Downloads.md`, `docs/wiki/Downloads-EN.md`, `docs/wiki/Favorites.md`, `docs/wiki/Favorites-EN.md`): 更新文档说明任务入队画质规则（全局设置/强制原图/弹窗档位）、下载列表逐页与归档画质 Badge 呈现、历史无 quality 记录兼容显示及重试继承行为。
 - **Cold storage CBZ & hot download directory naming convention** (`docs/wiki/Settings.md`, `docs/wiki/Settings-EN.md`, `docs/wiki/Deployment.md`, `docs/wiki/Deployment-EN.md`): 明确落盘命名规则约定：设置 `download_title` 仅控制下载热目录 `download_root` 新建文件夹命名（无日文标题时自动 fallback 英文），Archive 冷库归档 CBZ 文件名固定采用英文 `gallery.title`（带 gid 前缀，如 `gid-title.cbz`）且不跟随 `download_title` 设置，以保证跨系统兼容性与备份稳定性。

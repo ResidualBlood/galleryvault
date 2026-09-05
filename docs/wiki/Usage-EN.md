@@ -90,7 +90,7 @@ The usage guide is divided into the following dedicated chapters:
   - [Logs (#/logs)](Manage-EN#logs-logs) — Live background task progress, runtime ring buffer logs, dynamic level adjustments, masking, and log export.
 
 - **[Settings (Settings)](Settings-EN)**:
-  - [Settings (#/settings)](Settings-EN#settings-settings) — Storage directory paths, download watchdog thresholds, title preferences, Telegram bot controls, PWA, themes, and OPDS / third-party reader configuration.
+  - [Settings (#/settings)](Settings-EN#settings-settings) — Storage directory paths, download watchdog thresholds, collapsible sections and disk usage snapshot, title preferences, Telegram bot controls, PWA, themes, and OPDS / third-party reader configuration.
   - [What Needs the Network](Settings-EN#what-needs-the-network) — Detailed network access classification matrix (ExHentai, GitHub, local-only, and local-first operations).
 
 ---
@@ -103,6 +103,7 @@ If you have bookmarked specific section anchors from earlier versions of `Usage-
 | :--- | :--- | :--- |
 | `#browse-browse` | [Browsing & Library (Library)](Library-EN) | [Browse (#/browse)](Library-EN#browse-browse) |
 | `#discover-discover` | [Browsing & Library (Library)](Library-EN) | [Discover (#/discover)](Library-EN#discover-discover) |
+| `#系列作品series` | [Browsing & Library (Library)](Library-EN) | [Series (#/series)](Library-EN#series-series) |
 | `#history-history` | [Browsing & Library (Library)](Library-EN) | [History (#/history)](Library-EN#history-history) |
 | `#first-run-wizard-welcome` | [Usage Guide (Usage)](Usage-EN) | [First-Run Wizard (#/welcome)](Usage-EN#first-run-wizard-welcome) |
 | `#library-library` | [Browsing & Library (Library)](Library-EN) | [Library (#/library)](Library-EN#library-library) |

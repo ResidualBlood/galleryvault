@@ -90,7 +90,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
   - [日志页（#/logs）](Manage#日志页logs) — 后台任务实时进度与取消、系统运行时内存环形日志、动态调级、脱敏与导出
 
 - **[系统设置 (Settings)](Settings)**：
-  - [设置（#/settings）](Settings#设置settings) — 库根目录、下载看门狗与并发调优、标题显示（日文/英文/目录名）、账户安全、Telegram Bot 控制命令、PWA、主题、OPDS 与第三方客户端接入（Basic 鉴权）
+  - [设置（#/settings）](Settings#设置settings) — 库根目录、下载看门狗与并发调优、分区折叠与磁盘用量快照、标题显示（日文/英文/目录名）、账户安全、Telegram Bot 控制命令、PWA、主题、OPDS 与第三方客户端接入（Basic 鉴权）
   - [哪些操作要上网](Settings#哪些操作要上网) — 全功能网络访问分级清单（向 ExHentai 拉取、访问 GitHub、纯本地运行、本地优先）
 
 ---
@@ -103,6 +103,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 | :--- | :--- | :--- |
 | `#浏览browse` | [浏览与库 (Library)](Library) | [浏览（#/browse）](Library#浏览browse) |
 | `#发现discover` | [浏览与库 (Library)](Library) | [发现（#/discover）](Library#发现discover) |
+| `#系列作品series` | [浏览与库 (Library)](Library) | [系列作品（#/series）](Library#系列作品series) |
 | `#历史history` | [浏览与库 (Library)](Library) | [历史（#/history）](Library#历史history) |
 | `#首次运行向导welcome` | [使用指南 (Usage)](Usage) | [首次运行向导（#/welcome）](Usage#首次运行向导welcome) |
 | `#画廊库library` | [浏览与库 (Library)](Library) | [画廊库（#/library）](Library#画廊库library) |
