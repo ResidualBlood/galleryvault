@@ -14,6 +14,7 @@ from galleryvault.app.routers.galleries import (
     DownloadOriginalRequest,
     download_gallery_original,
     gallery_detail,
+    redownload_gallery,
 )
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
@@ -533,6 +534,124 @@ async def test_download_original_conflicts_with_active_task(monkeypatch):
         assert "already exists" in str(exc_info.value)
     finally:
         app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
+
+
+class _FakeRedownloadRepo:
+    def __init__(self, task):
+        self._task = task
+        self.created = None
+
+    def __call__(self, session):
+        self._session = session
+        return self
+
+    async def create(
+        self,
+        gid,
+        token,
+        title=None,
+        mode=None,
+        max_pages=None,
+        quality=None,
+        title_jpn=None,
+    ):
+        self.created = {
+            "gid": gid,
+            "token": token,
+            "title": title,
+            "mode": mode,
+            "max_pages": max_pages,
+            "quality": quality,
+            "title_jpn": title_jpn,
+        }
+        return self._task
+
+
+async def test_redownload_gallery_defaults_to_gallery_image_quality_when_original(
+    monkeypatch,
+):
+    from galleryvault.app.routers import galleries as galleries_router
+
+    row = SimpleNamespace(
+        gid=7, token="tok", title="T", image_quality="original", title_jpn=None
+    )
+    repo = _FakeRedownloadRepo(SimpleNamespace(id=9, gid=7))
+
+    async def _gallery(_identifier):
+        return row, []
+
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    orig_settings = app_state.settings
+    orig_factory = app_state.session_factory
+    app_state.settings = Settings(download_quality="resample")
+    app_state.session_factory = _FakeSettingsSession(repo)
+    monkeypatch.setattr("galleryvault.app.routers.galleries.DownloadRepository", repo)
+
+    try:
+        resp = await redownload_gallery(1, quality=None)
+        assert resp == {"status": "pending", "task_id": 9, "gid": 7}
+        assert repo.created["quality"] == "original"
+    finally:
+        app_state.settings = orig_settings
+        app_state.session_factory = orig_factory
+
+
+async def test_redownload_gallery_defaults_to_settings_when_gallery_image_quality_none(
+    monkeypatch,
+):
+    from galleryvault.app.routers import galleries as galleries_router
+
+    row = SimpleNamespace(
+        gid=7, token="tok", title="T", image_quality=None, title_jpn=None
+    )
+    repo = _FakeRedownloadRepo(SimpleNamespace(id=9, gid=7))
+
+    async def _gallery(_identifier):
+        return row, []
+
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    orig_settings = app_state.settings
+    orig_factory = app_state.session_factory
+    app_state.settings = Settings(download_quality="resample")
+    app_state.session_factory = _FakeSettingsSession(repo)
+    monkeypatch.setattr("galleryvault.app.routers.galleries.DownloadRepository", repo)
+
+    try:
+        resp = await redownload_gallery(1, quality=None)
+        assert resp == {"status": "pending", "task_id": 9, "gid": 7}
+        assert repo.created["quality"] == "resample"
+    finally:
+        app_state.settings = orig_settings
+        app_state.session_factory = orig_factory
+
+
+async def test_redownload_gallery_explicit_quality_overrides_gallery_image_quality(
+    monkeypatch,
+):
+    from galleryvault.app.routers import galleries as galleries_router
+
+    row = SimpleNamespace(
+        gid=7, token="tok", title="T", image_quality="original", title_jpn=None
+    )
+    repo = _FakeRedownloadRepo(SimpleNamespace(id=9, gid=7))
+
+    async def _gallery(_identifier):
+        return row, []
+
+    monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
+    orig_settings = app_state.settings
+    orig_factory = app_state.session_factory
+    app_state.settings = Settings(download_quality="original")
+    app_state.session_factory = _FakeSettingsSession(repo)
+    monkeypatch.setattr("galleryvault.app.routers.galleries.DownloadRepository", repo)
+
+    try:
+        resp = await redownload_gallery(1, quality="resample")
+        assert resp == {"status": "pending", "task_id": 9, "gid": 7}
+        assert repo.created["quality"] == "resample"
+    finally:
+        app_state.settings = orig_settings
         app_state.session_factory = orig_factory
 
 

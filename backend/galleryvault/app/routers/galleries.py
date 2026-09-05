@@ -1176,7 +1176,11 @@ async def redownload_gallery(
     if not row.gid or not row.token:
         raise HTTPException(status_code=422, detail="Gallery lacks ExHentai gid/token")
     if not quality:
-        quality = get_current_settings().download_quality or "resample"
+        quality = (
+            row.image_quality
+            if getattr(row, "image_quality", None) in _IMAGE_QUALITY
+            else (get_current_settings().download_quality or "resample")
+        )
     mode = "gallery_archive" if archive else "gallery"
     try:
         async for session in get_session():
