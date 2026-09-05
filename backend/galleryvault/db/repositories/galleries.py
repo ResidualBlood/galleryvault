@@ -47,6 +47,18 @@ def _title_sort_column() -> object:
         return Gallery.title
 
 
+_IMAGE_MAGIC_PREFIXES = (b"RIFF", b"\xff\xd8\xff", b"\x89PNG")
+
+
+def _is_valid_page_header(header: bytes) -> bool:
+    if not header or len(header) < 20:
+        return False
+    window = header[:20]
+    if window == b"\x00" * 20:
+        return False
+    return window.startswith(_IMAGE_MAGIC_PREFIXES)
+
+
 class GalleryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -747,20 +759,62 @@ class GalleryRepository:
             .group_by(GalleryPage.gallery_id)
             .subquery()
         )
-        query = (
+        count_mismatch_query = (
             select(Gallery)
             .outerjoin(page_count_sub, page_count_sub.c.gallery_id == Gallery.id)
             .where(Gallery.trashed.is_(False), Gallery.expunged.is_(False))
             .where(Gallery.page_count.is_not(None))
             .where(Gallery.page_count != func.coalesce(page_count_sub.c.cnt, 0))
         )
-        total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
-        rows = (
-            await self.session.scalars(
-                query.order_by(Gallery.id.desc()).offset((page - 1) * page_size).limit(page_size)
-            )
-        ).all()
-        return total, list(rows)
+        complete_query = (
+            select(Gallery)
+            .outerjoin(page_count_sub, page_count_sub.c.gallery_id == Gallery.id)
+            .where(Gallery.trashed.is_(False), Gallery.expunged.is_(False))
+            .where(Gallery.page_count.is_not(None))
+            .where(Gallery.page_count == func.coalesce(page_count_sub.c.cnt, 0))
+        )
+        mismatched_rows = list((await self.session.scalars(count_mismatch_query)).all())
+        complete_rows = list((await self.session.scalars(complete_query)).all())
+
+        corrupt_rows: list[Gallery] = []
+        for g in complete_rows:
+            if not g.storage_path:
+                continue
+            storage_dir = Path(g.storage_path)
+            if not storage_dir.is_dir():
+                continue
+            has_issue = False
+            total_pages = int(g.page_count or 0)
+            for idx in range(total_pages):
+                try:
+                    matches = list(storage_dir.glob(f"{idx + 1:08d}.*"))
+                except OSError:
+                    has_issue = True
+                    break
+                page_found = False
+                for candidate in matches:
+                    try:
+                        if candidate.is_file() and candidate.stat().st_size > 0:
+                            with candidate.open("rb") as f:
+                                head = f.read(20)
+                            if _is_valid_page_header(head):
+                                page_found = True
+                                break
+                    except OSError:
+                        continue
+                if not page_found:
+                    has_issue = True
+                    break
+            if has_issue:
+                corrupt_rows.append(g)
+
+        combined: dict[int, Gallery] = {g.id: g for g in mismatched_rows}
+        for g in corrupt_rows:
+            combined[g.id] = g
+        all_issues = sorted(combined.values(), key=lambda x: x.id, reverse=True)
+        total = len(all_issues)
+        start = (page - 1) * page_size
+        return total, all_issues[start : start + page_size]
 
     async def restore_galleries(self, ids: list[int]) -> int:
         if not ids:

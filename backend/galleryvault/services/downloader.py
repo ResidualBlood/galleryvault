@@ -176,6 +176,19 @@ def _find_existing_dirname(root: Path, gid: int) -> str | None:
     return best
 
 
+IMAGE_MAGIC_PREFIXES = (b"RIFF", b"\xff\xd8\xff", b"\x89PNG")
+
+
+def _is_valid_image_magic(data: bytes) -> bool:
+    """Validate 20-byte window for image magic (RIFF / JPEG / PNG) without zero padding."""
+    if not data or len(data) < 20:
+        return False
+    window = data[:20]
+    if window == b"\x00" * 20:
+        return False
+    return window.startswith(IMAGE_MAGIC_PREFIXES)
+
+
 def _existing_page_file(directory: Path, index: int) -> Path | None:
     """Return the already-downloaded page file for ``index`` (0-based) if present."""
     try:
@@ -183,8 +196,14 @@ def _existing_page_file(directory: Path, index: int) -> Path | None:
     except OSError:
         return None
     for candidate in matches:
-        if candidate.is_file() and candidate.stat().st_size:
-            return candidate
+        try:
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                with candidate.open("rb") as f:
+                    head = f.read(20)
+                if _is_valid_image_magic(head):
+                    return candidate
+        except OSError:
+            continue
     return None
 
 
@@ -411,6 +430,11 @@ class Downloader:
                 await self._record_bytes(gallery.gid, 0, 1)
                 await _report_progress()
                 return
+            for bad in temp.glob(f"{index + 1:08d}.*"):
+                try:
+                    bad.unlink(missing_ok=True)
+                except OSError:
+                    pass
             while True:
                 if _cancelled():
                     raise DownloadCancelledError("download was cancelled")
@@ -454,6 +478,8 @@ class Downloader:
                             if not data or data[:20].lstrip().lower().startswith(
                                 (b"<html", b"<!doctype")
                             ):
+                                raise ValueError("image response is invalid")
+                            if not _is_valid_image_magic(data):
                                 raise ValueError("image response is invalid")
                             extension = {
                                 "image/jpeg": ".jpg",
