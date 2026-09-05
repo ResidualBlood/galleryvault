@@ -1,0 +1,4 @@
+# Gitleaks ignore false positive test tokens in git history
+3443dcf7984c6595cc77bf653550aed04fa1132b:backend/tests/test_logging.py:generic-api-key:494
+8866c6a4281983d4da19008779d3ffcd0e09db42:backend/tests/test_logging.py:generic-api-key:494
+8866c6a4281983d4da19008779d3ffcd0e09db42:backend/tests/test_logging.py:generic-api-key:501
