@@ -41,6 +41,9 @@ function collectSettings(form) {
   const lines = a => a.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
   const body = {
     library_roots: val("library_roots"),
+    cold_storage_root: val("cold_storage_root"),
+    auto_archive_downloads: form.auto_archive_downloads ? form.auto_archive_downloads.checked : false,
+    archive_delete_source: form.archive_delete_source ? form.archive_delete_source.checked : false,
     exhentai_base_url: val("exhentai_base_url") === EH_CUSTOM
       ? (val("exhentai_base_url_custom") || "https://exhentai.org")
       : val("exhentai_base_url"),
@@ -130,6 +133,12 @@ async function renderSettings() {
         <p class="notice">${esc(t("libraryRootsHint"))}</p>
         <textarea name="library_roots" rows="4">${esc((s.library_roots || []).join("\n"))}</textarea>
         ${warnings}
+        <div class="form-grid" style="margin-top:12px">
+          ${field(t("coldRoot"), `<input name="cold_storage_root" value="${esc(s.cold_storage_root || "")}">`)}
+        </div>
+        <p class="notice">${esc(t("coldRootHint"))}</p>
+        <label class="checkbox"><input type="checkbox" name="auto_archive_downloads"${s.auto_archive_downloads === true ? " checked" : ""}> ${esc(t("autoArchiveDownloads"))}</label>
+        <label class="checkbox"><input type="checkbox" name="archive_delete_source"${s.archive_delete_source === true ? " checked" : ""}> ${esc(t("archiveDeleteSource"))}</label>
         <p class="notice" style="margin-top:10px">${esc(t("dupPolicyHint"))}</p>
         ${field(t("dupPolicy"), `<select name="duplicate_policy">
           ${[["keep_first", t("dupPolicyKeepFirst")], ["prefer_more_pages", t("dupPolicyMorePages")], ["prefer_newer", t("dupPolicyNewer")], ["prefer_larger", t("dupPolicyLarger")], ["prefer_smaller", t("dupPolicySmaller")], ["manual", t("dupPolicyManual")]].map(([o, label]) => `<option value="${o}"${o === (s.duplicate_policy || "keep_first") ? " selected" : ""}>${esc(label)}</option>`).join("")}
@@ -266,7 +275,7 @@ async function fillStorageDash() {
     const largest = (d.largest || []).map(it =>
       `<li><a href="${navHash("gallery", { id: it.id }, { from: currentFromPath() })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
     ).join("");
-    el.innerHTML = row("library", t("storageLibrary")) + row("downloads", t("storageDownloads")) + row("cache", t("storageCache")) +
+    el.innerHTML = row("library", t("storageLibrary")) + row("cold", t("storageCold")) + row("downloads", t("storageDownloads")) + row("cache", t("storageCache")) +
       `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;
 
     if (d.downloads?.computing || d.cache?.computing) {

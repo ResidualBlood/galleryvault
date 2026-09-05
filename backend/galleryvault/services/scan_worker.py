@@ -31,6 +31,9 @@ def _scan_roots() -> list[str]:
     roots = list(settings.library_roots)
     if settings.download_root and settings.download_root not in roots:
         roots.append(settings.download_root)
+    cold_root = (getattr(settings, "cold_storage_root", None) or "").strip()
+    if cold_root and cold_root not in roots:
+        roots.append(cold_root)
     return roots
 
 

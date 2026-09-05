@@ -1,10 +1,16 @@
+import json
 import zipfile
 from pathlib import Path
 
 import pytest
 
+from galleryvault.scanners import registry
 from galleryvault.scanners.archive import CbrRarScanner, CbzZipScanner
-from galleryvault.scanners.ehviewer import EhviewerDirScanner, parse_spider_info
+from galleryvault.scanners.ehviewer import (
+    BareImageDirScanner,
+    EhviewerDirScanner,
+    parse_spider_info,
+)
 from galleryvault.services.library import LibraryService
 
 TEMP = (
@@ -136,3 +142,191 @@ def test_candidates_pruning_does_not_descend_into_gallery_subdirs(tmp_path: Path
     assert archive_file in candidate_paths
     # Images inside galleries must NOT be returned as candidates
     assert not any(p.suffix == ".jpg" for p in candidate_paths)
+
+
+def test_cold_directory_without_ehviewer_is_scanned_and_readable(tmp_path: Path) -> None:
+    """Cold storage directory without .ehviewer: scanned via .galleryvault.json + 0001.ext."""
+    cold_dir = tmp_path / "12345"
+    cold_dir.mkdir()
+    (cold_dir / "0001.jpg").write_bytes(b"page 1 bytes")
+    (cold_dir / "0002.png").write_bytes(b"page 2 bytes")
+    (cold_dir / "ComicInfo.xml").write_text(
+        "<ComicInfo><Title>Cold Title</Title><Writer>Cold Artist</Writer></ComicInfo>",
+        encoding="utf-8",
+    )
+    gv_data = {
+        "gid": 12345,
+        "token": "a1b2c3d4",
+        "tags": [
+            {"namespace": "artist", "name": "Cold Artist"},
+            {"namespace": "female", "name": "big breasts"},
+        ],
+        "p_tokens": ["ptok1", "ptok2"],
+    }
+    (cold_dir / ".galleryvault.json").write_text(json.dumps(gv_data), encoding="utf-8")
+
+    scanner = registry.for_path(cold_dir)
+    assert isinstance(scanner, BareImageDirScanner)
+    meta = scanner.scan(cold_dir)
+
+    assert meta.gid == 12345
+    assert meta.token == "a1b2c3d4"
+    assert meta.title == "Cold Title"
+    assert meta.uploader == "Cold Artist"
+    assert meta.storage_type == "folder"
+    assert len(meta.pages) == 2
+    assert [p.name for p in meta.pages] == ["0001.jpg", "0002.png"]
+    assert meta.tags == [
+        {"namespace": "artist", "name": "Cold Artist"},
+        {"namespace": "female", "name": "big breasts"},
+    ]
+
+    # Verify flip-page / open_page works
+    stream = scanner.open_page(meta, meta.pages[0])
+    try:
+        content = stream.read()
+        assert content == b"page 1 bytes"
+    finally:
+        stream.close()
+
+
+def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path: Path) -> None:
+    """CbzZipScanner reads .galleryvault.json to supplement gid/token/tags; filename gid has priority."""
+    # Case 1: Filename has gid=999, but .galleryvault.json has gid=888 -> filename gid (999) wins
+    cbz_with_gid = tmp_path / "999-my_safe_title.cbz"
+    gv_payload = {
+        "gid": 888,
+        "token": "tok999",
+        "tags": [{"namespace": "artist", "name": "ArtistA"}],
+    }
+    with zipfile.ZipFile(cbz_with_gid, "w") as z:
+        z.writestr("0001.jpg", b"first page")
+        z.writestr(".galleryvault.json", json.dumps(gv_payload))
+        z.writestr("ComicInfo.xml", "<ComicInfo><Title>Zip Title</Title></ComicInfo>")
+
+    scanner = registry.for_path(cbz_with_gid)
+    assert isinstance(scanner, CbzZipScanner)
+    meta = scanner.scan(cbz_with_gid)
+    assert meta.gid == 999  # Filename gid has priority
+    assert meta.token == "tok999"
+    assert meta.tags == [{"namespace": "artist", "name": "ArtistA"}]
+    assert meta.title == "Zip Title"
+
+    # Case 2: Filename has NO gid (e.g. hash-title for ungid archive) -> gid supplemented from json
+    cbz_ungid = tmp_path / "abcdef0123456789-ungid_title.cbz"
+    gv_payload_2 = {
+        "gid": 77777,
+        "token": "tok777",
+        "tags": [{"namespace": "misc", "name": "tag1"}],
+    }
+    with zipfile.ZipFile(cbz_ungid, "w") as z:
+        z.writestr("0001.jpg", b"ungid first page")
+        z.writestr(".galleryvault.json", json.dumps(gv_payload_2))
+
+    meta2 = scanner.scan(cbz_ungid)
+    assert meta2.gid == 77777  # Supplemented from .galleryvault.json
+    assert meta2.token == "tok777"
+    assert meta2.tags == [{"namespace": "misc", "name": "tag1"}]
+
+    # Test open_page on CBZ
+    stream = scanner.open_page(meta2, meta2.pages[0])
+    try:
+        assert stream.read() == b"ungid first page"
+    finally:
+        stream.close()
+
+
+def test_library_candidates_includes_cold_directory_and_cbz(tmp_path: Path) -> None:
+    """Library candidates traversal picks up both cold directory without .ehviewer and cold cbz."""
+    cold_root = tmp_path / "cold"
+    cold_root.mkdir()
+
+    # Partitioned cold dir: {cold}/dir/ab/cd/12345/
+    cold_dir = cold_root / "dir" / "ab" / "cd" / "12345"
+    cold_dir.mkdir(parents=True)
+    (cold_dir / "0001.jpg").write_bytes(b"p1")
+    (cold_dir / ".galleryvault.json").write_text(json.dumps({"gid": 12345, "token": "t1"}))
+
+    # Partitioned cold cbz: {cold}/cbz/ef/01/67890-title.cbz
+    cold_cbz_parent = cold_root / "cbz" / "ef" / "01"
+    cold_cbz_parent.mkdir(parents=True)
+    cold_cbz = cold_cbz_parent / "67890-title.cbz"
+    with zipfile.ZipFile(cold_cbz, "w") as z:
+        z.writestr("0001.jpg", b"p1")
+        z.writestr(".galleryvault.json", json.dumps({"gid": 67890, "token": "t2"}))
+
+    service = LibraryService([cold_root])
+    candidates = [c[0] for c in service.candidates()]
+
+    assert cold_dir in candidates
+    assert cold_cbz in candidates
+    # Internal page images must not be yielded as separate candidates
+    assert not any(p.suffix == ".jpg" for p in candidates)
+
+
+def test_library_scan_batches_preserves_cold_gallery_metadata_and_pages(tmp_path: Path) -> None:
+    """End-to-end: scan_batches picks up cold dir and cbz, preserving gid/token/tags and flippable pages."""
+    cold_root = tmp_path / "cold"
+
+    # Cold dir gallery
+    cold_dir = cold_root / "dir" / "ab" / "cd" / "55555"
+    cold_dir.mkdir(parents=True)
+    (cold_dir / "0001.jpg").write_bytes(b"cold dir page 1")
+    (cold_dir / "0002.jpg").write_bytes(b"cold dir page 2")
+    (cold_dir / "ComicInfo.xml").write_text("<ComicInfo><Title>Dir Title</Title></ComicInfo>", encoding="utf-8")
+    (cold_dir / ".galleryvault.json").write_text(
+        json.dumps({
+            "gid": 55555,
+            "token": "dir_token",
+            "tags": [{"namespace": "artist", "name": "DirArtist"}],
+        }),
+        encoding="utf-8",
+    )
+
+    # Cold cbz gallery
+    cold_cbz_parent = cold_root / "cbz" / "12" / "34"
+    cold_cbz_parent.mkdir(parents=True)
+    cold_cbz = cold_cbz_parent / "66666-CbzTitle.cbz"
+    with zipfile.ZipFile(cold_cbz, "w") as z:
+        z.writestr("0001.png", b"cold cbz page 1")
+        z.writestr("ComicInfo.xml", "<ComicInfo><Title>Cbz Title</Title></ComicInfo>")
+        z.writestr(
+            ".galleryvault.json",
+            json.dumps({
+                "gid": 66666,
+                "token": "cbz_token",
+                "tags": [{"namespace": "character", "name": "CbzHero"}],
+            }),
+        )
+
+    service = LibraryService([cold_root])
+    batches = list(service.scan_batches())
+    all_galleries = [g for b in batches for g in b]
+
+    by_gid = {g.gid: g for g in all_galleries}
+    assert 55555 in by_gid
+    assert 66666 in by_gid
+
+    dir_g = by_gid[55555]
+    assert dir_g.token == "dir_token"
+    assert dir_g.tags == [{"namespace": "artist", "name": "DirArtist"}]
+    assert dir_g.title == "Dir Title"
+    assert len(dir_g.pages) == 2
+
+    # Verify flip-page for dir gallery
+    scanner_dir = registry.for_path(dir_g.path)
+    assert scanner_dir is not None
+    with scanner_dir.open_page(dir_g, dir_g.pages[0]) as stream:
+        assert stream.read() == b"cold dir page 1"
+
+    cbz_g = by_gid[66666]
+    assert cbz_g.token == "cbz_token"
+    assert cbz_g.tags == [{"namespace": "character", "name": "CbzHero"}]
+    assert cbz_g.title == "Cbz Title"
+    assert len(cbz_g.pages) == 1
+
+    # Verify flip-page for cbz gallery
+    scanner_cbz = registry.for_path(cbz_g.path)
+    assert scanner_cbz is not None
+    with scanner_cbz.open_page(cbz_g, cbz_g.pages[0]) as stream:
+        assert stream.read() == b"cold cbz page 1"

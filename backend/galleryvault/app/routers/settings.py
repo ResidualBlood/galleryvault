@@ -122,6 +122,8 @@ async def settings_test_exhentai() -> JSONResponse:
 
 async def _save_settings(body: SettingsRequest) -> dict[str, object]:
     values = body.model_dump(exclude_none=True)
+    if "cold_storage_root" in values and isinstance(values["cold_storage_root"], str):
+        values["cold_storage_root"] = values["cold_storage_root"].strip()
     if "telegram_bot_token" in values and not str(values["telegram_bot_token"]).strip():
         values.pop("telegram_bot_token", None)
     if values.get("exhentai_base_url"):
@@ -444,12 +446,28 @@ async def system_storage() -> dict[str, object]:
 
     settings = get_current_settings()
     cache_root = Path(settings.thumbnail_cache_dir).parent
+    cold_root = (getattr(settings, "cold_storage_root", None) or "").strip()
     library_bytes = 0
+    cold_bytes = 0
     largest: list[dict[str, object]] = []
     try:
         async for session in get_session():
             repo = GalleryRepository(session)
             library_bytes = await repo.library_storage_sum()
+            if cold_root:
+                from sqlalchemy import func, select
+
+                from ...db.models import Gallery
+
+                size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+                cold_val = await session.scalar(
+                    select(func.coalesce(func.sum(size_col), 0)).where(
+                        Gallery.expunged.is_(False),
+                        Gallery.trashed.is_(False),
+                        Gallery.storage_path.startswith(cold_root),
+                    )
+                )
+                cold_bytes = int(cold_val or 0)
             rows = await repo.largest_by_storage(10)
             largest = [
                 {
@@ -485,8 +503,10 @@ async def system_storage() -> dict[str, object]:
     )
     lib_path = (settings.library_roots or [None])[0]
     library = _path_info(lib_path, bytes_value=library_bytes)
+    cold = _path_info(cold_root, bytes_value=cold_bytes)
     return {
         "library": library,
+        "cold": cold,
         "downloads": downloads,
         "cache": cache,
         "largest": largest,

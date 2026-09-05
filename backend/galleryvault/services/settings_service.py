@@ -62,6 +62,9 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         )
     allowed = {
         "library_roots",
+        "cold_storage_root",
+        "auto_archive_downloads",
+        "archive_delete_source",
         "exhentai_base_url",
         "exhentai_cookies",
         "http_proxy",
@@ -199,6 +202,9 @@ def settings_public() -> dict[str, Any]:
     return {
         "library_roots": current.library_roots,
         "library_root_warnings": library_root_warnings(current.library_roots),
+        "cold_storage_root": current.cold_storage_root,
+        "auto_archive_downloads": current.auto_archive_downloads,
+        "archive_delete_source": current.archive_delete_source,
         "exhentai_base_url": current.exhentai_base_url,
         "exhentai_cookie_names": sorted(current.exhentai_cookies),
         "exhentai_cookie_configured": bool(current.exhentai_cookies),

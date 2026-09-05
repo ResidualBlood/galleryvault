@@ -124,6 +124,16 @@ class TaskManager:
             "completed_at": None,
             "history_recorded": False,
         }
+        self.archive_state: dict[str, Any] = {
+            "running": False,
+            "done": 0,
+            "total": 0,
+            "skipped": 0,
+            "failed": 0,
+            "last_error": None,
+            "started_at": None,
+            "completed_at": None,
+        }
 
     # Cancellation flags
     def request_cancel(self, task_key: str | int) -> None:
@@ -282,6 +292,15 @@ class TaskManager:
                 "total": None,
                 "stage": "detecting",
                 "cancellable": False,
+            })
+        if self.archive_state.get("running"):
+            running_tasks.append({
+                "task": "archive",
+                "started_at": self.archive_state.get("started_at"),
+                "done": int(self.archive_state.get("done") or 0),
+                "total": int(self.archive_state.get("total") or 0),
+                "stage": None,
+                "cancellable": True,
             })
 
         return running_tasks

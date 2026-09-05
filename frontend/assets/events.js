@@ -198,8 +198,11 @@ async function onClick(e) {
   if (action === "disc-batch-fav") { discoverBatchFavorite(); return; }
   if (action === "disc-clear") { selDiscover.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "recycle-restore") { recycleRestore(); return; }
+  if (action === "recycle-redownload") { recycleRedownload(); return; }
   if (action === "recycle-purge") { recyclePurge(); return; }
   if (action === "integrity-repair") { integrityRepair(); return; }
+  if (action === "archive-start") { archiveStart(); return; }
+  if (action === "archive-cancel") { archiveCancel(); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }

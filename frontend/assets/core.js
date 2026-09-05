@@ -131,6 +131,9 @@ function notifKindLabel(kind) {
   if (kind === "scan_fail") return t("notifScanFail");
   if (kind === "cookie") return t("notifCookie");
   if (kind === "cookie_no_access") return t("notifCookieNoAccess");
+  if (kind === "archive_start") return t("notifArchiveStart");
+  if (kind === "archive_ok") return t("notifArchiveOk");
+  if (kind === "archive_fail") return t("notifArchiveFail");
   return kind || "";
 }
 
@@ -462,6 +465,7 @@ function router() {
     case "duplicates": renderDuplicates(); break;
     case "recycle": renderRecycle(); break;
     case "integrity": renderIntegrity(); break;
+    case "archive": renderArchive(); break;
     case "welcome": renderWelcome(); break;
     case "favorites": renderFavorites(); break;
     case "favmanage": renderFavManage(); break;
@@ -509,7 +513,7 @@ function updateNavActive(view) {
   else if (view === "downloads") targetSelector = '.topbar .links a[href="#/downloads"]';
   else if (["favorites", "favlist", "favmanage", "favignored", "updates", "updignored"].includes(view)) {
     targetSelector = '.topbar .links a[href="#/favorites"]';
-  } else if (["recycle", "duplicates", "integrity"].includes(view)) {
+  } else if (["recycle", "duplicates", "integrity", "archive"].includes(view)) {
     targetSelector = '.topbar .links a[href="#/recycle"]';
   } else if (view === "history") {
     targetSelector = '.topbar .links a[href="#/history"]';

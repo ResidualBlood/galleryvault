@@ -85,6 +85,13 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "🔄 原 gid <code>{old}</code> → 新版 gid <code>{new}</code>，"
             "改为下载 <b>{title}</b>"
         ),
+        "archive_start": "📦 批量归档开始：共 <b>{total}</b> 本",
+        "archive_ok": "📦 归档完成 <b>{title}</b>",
+        "archive_fail": "❌ 归档失败 <b>{title}</b>：{detail}",
+        "archive_fail_nodetail": "❌ 归档失败 <b>{title}</b>",
+        "archive_batch_ok": "📦 批量归档完成：完成 <b>{done}</b>，跳过 <b>{skipped}</b>",
+        "archive_batch_fail": "❌ 批量归档结束：完成 <b>{done}</b>，跳过 <b>{skipped}</b>，失败 <b>{failed}</b>",
+        "archive_summary_head": "📦 归档汇总：完成 <b>{ok}</b>，失败 <b>{fail}</b>",
         "test": "📡 Telegram 连接测试 OK",
     },
     "en": {
@@ -148,6 +155,13 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "🔄 Original gid <code>{old}</code> → new gid <code>{new}</code>, "
             "downloading <b>{title}</b>"
         ),
+        "archive_start": "📦 Batch archive started: <b>{total}</b> galleries",
+        "archive_ok": "📦 Archive complete: <b>{title}</b>",
+        "archive_fail": "❌ Archive failed: <b>{title}</b>: {detail}",
+        "archive_fail_nodetail": "❌ Archive failed: <b>{title}</b>",
+        "archive_batch_ok": "📦 Batch archive complete: <b>{done}</b> completed, <b>{skipped}</b> skipped",
+        "archive_batch_fail": "❌ Batch archive finished: <b>{done}</b> completed, <b>{skipped}</b> skipped, <b>{failed}</b> failed",
+        "archive_summary_head": "📦 Archive summary: <b>{ok}</b> completed, <b>{fail}</b> failed",
         "test": "📡 Telegram connection test OK",
     },
 }
@@ -405,3 +419,63 @@ def bot_cancel_usage(lang: str = "zh") -> str:
 
 def test_message(lang: str = "zh") -> str:
     return _t(lang, "test")
+
+
+# --- cold archive -----------------------------------------------------------
+
+def archive_start(total: int, lang: str = "zh") -> str:
+    return _t(lang, "archive_start").format(total=int(total))
+
+
+def archive_ok(title: str, lang: str = "zh") -> str:
+    return _t(lang, "archive_ok").format(title=esc(title))
+
+
+def archive_fail(title: str, detail: str | None = None, lang: str = "zh") -> str:
+    if detail:
+        return _t(lang, "archive_fail").format(title=esc(title), detail=esc(detail))
+    return _t(lang, "archive_fail_nodetail").format(title=esc(title))
+
+
+def archive_batch_result(
+    done: int, skipped: int, failed: int, lang: str = "zh"
+) -> str:
+    if failed > 0:
+        return _t(lang, "archive_batch_fail").format(
+            done=int(done), skipped=int(skipped), failed=int(failed)
+        )
+    return _t(lang, "archive_batch_ok").format(
+        done=int(done), skipped=int(skipped)
+    )
+
+
+def archive_summary(
+    ok_entries: list[tuple[str, str | None]],
+    fail_entries: list[tuple[str, str | None]],
+    lang: str = "zh",
+) -> str:
+    ok, fail = len(ok_entries), len(fail_entries)
+    if ok == 1 and fail == 0:
+        return archive_ok(ok_entries[0][0], lang=lang)
+    if ok == 0 and fail == 1:
+        return archive_fail(fail_entries[0][0], fail_entries[0][1], lang=lang)
+    text = _t(lang, "archive_summary_head").format(ok=ok, fail=fail)
+    if ok and ok <= LIST_TITLES_LIMIT:
+        text += "\n📦 " + _t(lang, "list_sep").join(
+            _t(lang, "download_ok_title").format(title=esc(title)) for title, _ in ok_entries
+        )
+    if fail:
+        lines: list[str] = []
+        for title, detail in fail_entries:
+            entry = _entry_fail(title, detail, lang)
+            candidate = "\n❌ " + "\n".join(lines + [entry])
+            if _plain_len(text) + _plain_len(candidate) > MAX_MESSAGE_CHARS - 100:
+                lines.append(
+                    _t(lang, "download_more_failures").format(
+                        n=len(fail_entries) - len(lines)
+                    )
+                )
+                break
+            lines.append(entry)
+        text += "\n❌ " + "\n".join(lines)
+    return text

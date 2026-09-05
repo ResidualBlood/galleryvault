@@ -25,7 +25,7 @@ docker compose up -d
 2. Open **http://<host>:8000** for the web UI (JSON API at `:8001`).
 3. Log in with default password **`p1a2s3s4`** and change it in *Settings*.
 4. Data directories (created empty on first start):
-   - `./library` → `/library`: gallery library. Downloads **do not** write here. Put existing galleries into `./library` (or point the compose mount at your own library), then scan in the app.
+    - `./library` → `/library`: gallery library (optional tiered cold storage `./Archive` commented in compose). Downloads **do not** write here. Put existing galleries into `./library` (or point the compose mount at your own library), then scan in the app.
    - `./downloads` → `/downloads`: ExHentai download destination; auto-scanned.
    - `./cache` → `/gv-cache`: thumbnail cache.
    - `./db-data`: PostgreSQL data.

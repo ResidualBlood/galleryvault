@@ -130,6 +130,18 @@ def _notify_lang() -> str:
     return lang if lang == "en" else "zh"
 
 
+def notify_archive(kind: str, title: str, detail: str | None = None) -> None:
+    mapping = {
+        "start": "archive_start",
+        "ok": "archive_ok",
+        "fail": "archive_fail",
+        "archive_start": "archive_start",
+        "archive_ok": "archive_ok",
+        "archive_fail": "archive_fail",
+    }
+    push_notification(mapping.get(kind, f"archive_{kind}"), title, detail)
+
+
 def notify_download(kind: str, title: str, detail: str | None = None) -> None:
     mapping = {"ok": "download_ok", "fail": "download_fail", "updated": "download_updated"}
     push_notification(mapping.get(kind, f"download_{kind}"), title, detail)

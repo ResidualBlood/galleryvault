@@ -125,6 +125,8 @@ class DownloadTask(Base):
     mode: Mapped[str | None] = mapped_column(String(32))
     category: Mapped[str | None] = mapped_column(String(32))
     quality: Mapped[str | None] = mapped_column(String(16))
+    archive_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    archive_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, default=10)
     retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

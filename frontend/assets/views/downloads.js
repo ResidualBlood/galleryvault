@@ -117,8 +117,18 @@ function dlProgressHtml(x) {
     return `<div class="dl-progress dl-progress-indet"></div>
       <span class="row-meta">${esc(t("downloading"))}…</span>`;
   }
+  let statusText = x.status;
+  if (x.status === "success" && x.archive_status) {
+    if (x.archive_status === "ok") {
+      statusText = t("dlArchivedCold");
+    } else if (x.archive_status === "pending") {
+      statusText = t("dlArchivePending");
+    } else if (x.archive_status === "fail") {
+      statusText = x.archive_error ? `${t("dlArchiveFail")}: ${x.archive_error}` : t("dlArchiveFail");
+    }
+  }
   const err = dlErrorText(x.error_message);
-  return `<span class="row-meta">${esc(x.status)}${total ? ` · ${cur}/${total}` : ""}${x.retry_count ? ` · retry ${x.retry_count}` : ""}${err ? ` · ${esc(t("error"))}: ${esc(err)}` : ""}</span>`;
+  return `<span class="row-meta">${esc(statusText)}${total ? ` · ${cur}/${total}` : ""}${x.retry_count ? ` · retry ${x.retry_count}` : ""}${err ? ` · ${esc(t("error"))}: ${esc(err)}` : ""}</span>`;
 }
 
 function dlErrorText(msg) {

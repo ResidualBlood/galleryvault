@@ -25,7 +25,7 @@ docker compose up -d
 2. 打开 **http://<主机地址>:8000** 访问 Web 界面（JSON API 位于 `:8001`）。
 3. 使用默认密码 **`p1a2s3s4`** 登录，并在「设置」中修改密码。
 4. 数据目录（首次启动会在当前目录创建空目录）：
-   - `./library` → `/library`：画廊库。下载**不会**写这里。把已有画廊放进 `./library`（或改 compose 挂自己的库路径），再在应用内扫描。
+    - `./library` → `/library`：画廊库（分层归档 `./Archive` 见 compose 注释）。下载**不会**写这里。把已有画廊放进 `./library`（或改 compose 挂自己的库路径），再在应用内扫描。
    - `./downloads` → `/downloads`：ExHentai 下载落盘，自动扫描。
    - `./cache` → `/gv-cache`：缩略图缓存。
    - `./db-data`：PostgreSQL 数据。

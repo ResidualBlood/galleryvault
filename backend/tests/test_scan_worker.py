@@ -21,16 +21,27 @@ def test_scan_roots_returns_library_and_download_roots():
         app_state.settings = Settings(
             library_roots=["/lib1", "/lib2"],
             download_root="/downloads",
+            cold_storage_root="/cold",
         )
         roots = _scan_roots()
         assert "/lib1" in roots
         assert "/lib2" in roots
         assert "/downloads" in roots
+        assert "/cold" in roots
 
-        # Duplicate download root is not added twice
+        # Duplicate download root and cold root are not added twice
         app_state.settings = Settings(
-            library_roots=["/lib1", "/downloads"],
+            library_roots=["/lib1", "/downloads", "/cold"],
             download_root="/downloads",
+            cold_storage_root="/cold",
+        )
+        assert _scan_roots() == ["/lib1", "/downloads", "/cold"]
+
+        # Empty cold root is ignored
+        app_state.settings = Settings(
+            library_roots=["/lib1"],
+            download_root="/downloads",
+            cold_storage_root="",
         )
         assert _scan_roots() == ["/lib1", "/downloads"]
     finally:
