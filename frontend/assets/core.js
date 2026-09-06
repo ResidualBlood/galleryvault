@@ -268,20 +268,22 @@ function getCsrfToken() {
   const m = document.cookie.match(/(?:^|;\s*)galleryvault_csrf=([^;]*)/);
   return m ? decodeURIComponent(m[1]) : "";
 }
-async function api(method, path, body) {
-  const opts = { method, credentials: "include", headers: {} };
+async function api(method, path, body, opts = {}) {
+  const fetchOpts = { method, credentials: "include", headers: {} };
+  if (opts && opts.signal) fetchOpts.signal = opts.signal;
   if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
     const csrf = getCsrfToken();
-    if (csrf) opts.headers["X-CSRF-Token"] = csrf;
+    if (csrf) fetchOpts.headers["X-CSRF-Token"] = csrf;
   }
   if (body !== undefined) {
-    opts.headers["Content-Type"] = "application/json";
-    opts.body = JSON.stringify(body);
+    fetchOpts.headers["Content-Type"] = "application/json";
+    fetchOpts.body = JSON.stringify(body);
   }
   let res;
   try {
-    res = await fetch(path, opts);
+    res = await fetch(path, fetchOpts);
   } catch (err) {
+    if (err && err.name === "AbortError") throw err;
     if (!navigator.onLine || err.name === "TypeError") {
       const netMsg = t("networkError");
       toast(netMsg);
@@ -447,6 +449,7 @@ function router() {
   if (app.view !== "updates" && app.view !== "updignored" && updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; }
   if (app.view !== "downloads" && dlTimer) { clearInterval(dlTimer); dlTimer = null; }
   if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
+  if (app.view !== "archive" && archiveTimer) { clearInterval(archiveTimer); archiveTimer = null; }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
   if (app.view !== "dupxgid") { selXgid.clear(); }
@@ -553,7 +556,5 @@ function afterRender(view) {
 }
 
 function renderView(html) {
-  beforeRender(app.view);
   $view().innerHTML = html || "";
-  afterRender(app.view);
 }

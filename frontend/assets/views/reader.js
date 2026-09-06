@@ -65,6 +65,71 @@ function cycleReaderMode() {
   renderReader();
 }
 
+function buildReaderInnerHtml(id, page, total, mode, gallery) {
+  const g = gallery || app.readerGallery || {};
+  const isDoubleMode = mode.startsWith("double");
+  const isDouble = isDoubleMode && page > 0;
+  const isRtl = mode === "rtl" || mode === "double-rtl";
+
+  // Directional Preloading
+  let preload = "";
+  const preloadStep = isDouble ? 4 : 3;
+  for (let i = 1; i <= preloadStep && page + i < total; i++) {
+    preload += `<link rel="preload" as="image" href="/api/galleries/${id}/pages/${page + i}">`;
+  }
+
+  let imgHtml = "";
+  if (isDouble) {
+    const p1 = page;
+    const p2 = page + 1 < total ? page + 1 : null;
+    const rtlClass = mode === "double-rtl" ? " reader-spread-rtl" : "";
+    const p2Img = p2 !== null
+      ? `<img src="/api/galleries/${id}/pages/${p2}" alt="Page ${p2 + 1}" data-page="${p2}">`
+      : `<img alt="" data-page="">`;
+    imgHtml = `
+      <div class="reader-spread${rtlClass}">
+        <div class="reader-img-wrap"><img id="reader-img" src="/api/galleries/${id}/pages/${p1}" alt="Page ${p1 + 1}" data-page="${p1}"></div>
+        <div class="reader-img-wrap"${p2 === null ? ' style="display:none"' : ''}>${p2Img}</div>
+      </div>`;
+  } else {
+    imgHtml = `
+      <div class="reader-img-wrap">
+        <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-page="${page}" data-next="${page + 1 < total ? page + 1 : ""}">
+      </div>`;
+  }
+
+  const nav = getReaderNav(page, total, mode);
+  const prevBtn = nav.prevPage !== null
+    ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.prevPage }, readerContext())}">${esc(t("prev"))}</a>`
+    : `<span>${esc(t("prev"))}</span>`;
+  const nextBtn = nav.nextPage !== null
+    ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.nextPage }, readerContext())}">${esc(t("next"))}</a>`
+    : `<span>${esc(t("next"))}</span>`;
+
+  const navHtml = isRtl
+    ? `<div class="nav">${nextBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${prevBtn}</div>`
+    : `<div class="nav">${prevBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${nextBtn}</div>`;
+
+  return `
+    <div class="reader-bar toolbar">
+      <a class="link-button" href="${navHash("gallery", { id }, readerContext())}">← ${esc(t("details"))}</a>
+      <span class="reader-page-indicator" style="display:inline-flex;align-items:center;gap:4px;">
+        <form data-action="reader-jump" style="display:inline-flex;align-items:center;margin:0;padding:0;">
+          <input id="reader-jump-input" class="reader-jump-input" type="number" min="1" max="${total}" value="${page + 1}" style="width:4.2em;padding:2px 4px;text-align:center;font-size:13px;border-radius:4px;border:1px solid var(--line);background:var(--panel-2);color:inherit;" title="${esc(t("jumpToPageHint"))}" aria-label="${esc(t("pageNumber"))}">
+        </form>
+        <span>${readerJumpSuffix(page, isDouble && page + 1 < total ? page + 1 : null, total, g.file_size || 0, isDouble)}</span>
+      </span>
+      <span class="reader-actions">
+        <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
+        <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
+        <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
+      </span>
+    </div>
+    ${preload}
+    ${imgHtml}
+    ${navHtml}`;
+}
+
 async function renderReader() {
   if (readerTouchCleanup) {
     readerTouchCleanup();
@@ -95,63 +160,7 @@ async function renderReader() {
     const total = g.page_count;
     app.readerTotal = total;
 
-    // Directional Preloading
-    let preload = "";
-    const preloadStep = isDouble ? 4 : 3;
-    for (let i = 1; i <= preloadStep && page + i < total; i++) {
-      preload += `<link rel="preload" as="image" href="/api/galleries/${id}/pages/${page + i}">`;
-    }
-
-    let imgHtml = "";
-    if (isDouble) {
-      const p1 = page;
-      const p2 = page + 1 < total ? page + 1 : null;
-      const rtlClass = mode === "double-rtl" ? " reader-spread-rtl" : "";
-      const p2Img = p2 !== null
-        ? `<img src="/api/galleries/${id}/pages/${p2}" alt="Page ${p2 + 1}" data-page="${p2}">`
-        : `<img alt="" data-page="">`;
-      imgHtml = `
-        <div class="reader-spread${rtlClass}">
-          <div class="reader-img-wrap"><img id="reader-img" src="/api/galleries/${id}/pages/${p1}" alt="Page ${p1 + 1}" data-page="${p1}"></div>
-          <div class="reader-img-wrap"${p2 === null ? ' style="display:none"' : ''}>${p2Img}</div>
-        </div>`;
-    } else {
-      imgHtml = `
-        <div class="reader-img-wrap">
-          <img id="reader-img" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-page="${page}" data-next="${page + 1 < total ? page + 1 : ""}">
-        </div>`;
-    }
-
-    const nav = getReaderNav(page, total, mode);
-    const prevBtn = nav.prevPage !== null
-      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.prevPage }, readerContext())}">${esc(t("prev"))}</a>`
-      : `<span>${esc(t("prev"))}</span>`;
-    const nextBtn = nav.nextPage !== null
-      ? `<a class="btn btn-secondary" href="${navHash("reader", { id, page: nav.nextPage }, readerContext())}">${esc(t("next"))}</a>`
-      : `<span>${esc(t("next"))}</span>`;
-
-    const navHtml = isRtl
-      ? `<div class="nav">${nextBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${prevBtn}</div>`
-      : `<div class="nav">${prevBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${nextBtn}</div>`;
-
-    const innerHtml = `
-      <div class="reader-bar toolbar">
-        <a class="link-button" href="${navHash("gallery", { id }, readerContext())}">← ${esc(t("details"))}</a>
-        <span class="reader-page-indicator" style="display:inline-flex;align-items:center;gap:4px;">
-          <form data-action="reader-jump" style="display:inline-flex;align-items:center;margin:0;padding:0;">
-            <input id="reader-jump-input" class="reader-jump-input" type="number" min="1" max="${total}" value="${page + 1}" style="width:4.2em;padding:2px 4px;text-align:center;font-size:13px;border-radius:4px;border:1px solid var(--line);background:var(--panel-2);color:inherit;" title="${esc(t("jumpToPageHint"))}" aria-label="${esc(t("pageNumber"))}">
-          </form>
-          <span>${readerJumpSuffix(page, isDouble && page + 1 < total ? page + 1 : null, total, g.file_size || 0, isDouble)}</span>
-        </span>
-        <span class="reader-actions">
-          <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
-          <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
-          <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
-        </span>
-      </div>
-      ${preload}
-      ${imgHtml}
-      ${navHtml}`;
+    const innerHtml = buildReaderInnerHtml(id, page, total, mode, g);
 
     const existingReader = $view().querySelector(".reader");
     if (existingReader) {
@@ -504,8 +513,14 @@ function readerSwapPage(id, target) {
     if (suffix) suffix.textContent = readerJumpSuffix(target, null, total, (app.readerGallery && app.readerGallery.file_size) || 0, false);
   } else {
     // Structural transition between single cover and double spread: in-place re-render (preserves .reader fullscreen)
-    renderReader();
-    return;
+    const readerEl = document.querySelector(".reader");
+    if (readerEl) {
+      readerEl.innerHTML = buildReaderInnerHtml(id, target, total, mode, app.readerGallery);
+      initReaderGestures();
+    } else {
+      renderReader();
+      return;
+    }
   }
 
   api("PUT", `/api/galleries/${id}/progress`, { current_page: target, total_pages: total }).catch(() => {});

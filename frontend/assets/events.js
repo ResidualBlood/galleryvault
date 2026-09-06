@@ -3,6 +3,9 @@
 // events.js — 事件委托 (onClick/onSubmit/onChange + bind*)
 // 扩展现有 document 级委托
 
+let suggestController = null;
+let discoverBatchInFlight = false;
+
 async function onClick(e) {
   const notifWrap = document.getElementById("notif-wrap");
   if (notifWrap && !notifWrap.contains(e.target)) closeNotificationPanel();
@@ -203,8 +206,34 @@ async function onClick(e) {
   if (action === "gallery-list-remove") { galleryRemoveFromList(el); return; }
   if (action === "discover-dl") { discoverDownloadOne(el); return; }
   if (action === "discover-fav") { discoverFavoriteOne(el); return; }
-  if (action === "disc-batch-dl") { discoverBatchDownload(); return; }
-  if (action === "disc-batch-fav") { discoverBatchFavorite(); return; }
+  if (action === "disc-batch-dl") {
+    if (discoverBatchInFlight) return;
+    discoverBatchInFlight = true;
+    el.disabled = true;
+    (async () => {
+      try {
+        await discoverBatchDownload();
+      } finally {
+        discoverBatchInFlight = false;
+        el.disabled = false;
+      }
+    })();
+    return;
+  }
+  if (action === "disc-batch-fav") {
+    if (discoverBatchInFlight) return;
+    discoverBatchInFlight = true;
+    el.disabled = true;
+    (async () => {
+      try {
+        await discoverBatchFavorite();
+      } finally {
+        discoverBatchInFlight = false;
+        el.disabled = false;
+      }
+    })();
+    return;
+  }
   if (action === "disc-clear") { selDiscover.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "recycle-restore") { recycleRestore(); return; }
   if (action === "recycle-redownload") { recycleRedownload(); return; }
@@ -392,10 +421,14 @@ function tokenCoveredByTag(token, name, display, tag) {
 
 async function loadTagSuggest(q, box, input) {
   if (!box) return;
+  if (suggestController) {
+    try { suggestController.abort(); } catch (_) {}
+  }
+  suggestController = new AbortController();
   try {
     const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/u.test(q);
     const url = `/api/tags/search?q=${encodeURIComponent(q)}&page_size=8${isCjk ? "&zh=1" : ""}`;
-    const data = await api("GET", url);
+    const data = await api("GET", url, undefined, { signal: suggestController.signal });
     const items = (data && data.items) || [];
     if (!items.length) { box.hidden = true; return; }
     box.innerHTML = items.map(it => {
@@ -436,7 +469,10 @@ async function loadTagSuggest(q, box, input) {
         else delete app.query.q;
       });
     });
-  } catch (_) { box.hidden = true; }
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+    box.hidden = true;
+  }
 }
 
 function bindTagSuggest() {

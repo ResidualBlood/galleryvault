@@ -20,7 +20,7 @@ function seriesMemberCard(it) {
   const cat = it.category ? esc(catLabel(it.category)) : "";
   const cover = it.cover_url || null;
   const inner = cover
-    ? `<img class="cover-bg" loading="lazy" src="${cover}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${cover}" alt="">`
+    ? `<img class="cover-fg" loading="lazy" src="${cover}" alt="">`
     : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover") || "no cover")}</div>`;
   const stateBadge = isLocal
     ? `<span class="fav-state local">${esc(t("favLocal") || "Local")}</span>`
@@ -34,7 +34,7 @@ function seriesMemberCard(it) {
 
   return `<div class="gc-wrap" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}">
     <a class="gc" ${link}>
-      <div class="gc-cover">
+      <div class="gc-cover"${cover ? ` style="--cover-url:url('${esc(cover)}')"` : ""}>
         ${inner}
         ${stateBadge}
         ${cat ? `<span class="gc-cat">${cat}</span>` : ""}
@@ -157,10 +157,88 @@ async function seriesArchive() {
   clearSeriesSelection();
 }
 
+let seriesListenersBound = false;
+
+function onSeriesChange(e) {
+  if (app.view !== "series") return;
+  const cb = e.target;
+  if (!cb || cb.type !== "checkbox") return;
+  if (cb.hasAttribute("data-series-gid")) {
+    const gid = parseInt(cb.getAttribute("data-series-gid"), 10);
+    if (!isNaN(gid)) {
+      if (cb.checked) selSeriesCloud.add(gid); else selSeriesCloud.delete(gid);
+    }
+  }
+  updateSeriesToolbarButtons();
+}
+
+function onSeriesClick(e) {
+  if (app.view !== "series") return;
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const action = btn.getAttribute("data-action");
+  if (action === "series-create") {
+    e.preventDefault();
+    seriesCreate();
+  } else if (action === "series-rebuild") {
+    e.preventDefault();
+    seriesRebuild();
+  } else if (action === "series-toggle-all") {
+    e.preventDefault();
+    const curShowAll = app.query.show_all === "1";
+    const q = { page_size: prefPageSize() };
+    if (!curShowAll) {
+      q.show_all = "1";
+    }
+    location.hash = navHash("series", {}, q);
+  } else if (action === "series-download") {
+    e.preventDefault();
+    seriesDownload();
+  } else if (action === "series-download-orig") {
+    e.preventDefault();
+    seriesDownloadOrig();
+  } else if (action === "series-archive") {
+    e.preventDefault();
+    seriesArchive();
+  } else if (action === "series-rename") {
+    e.preventDefault();
+    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
+    if (sid) seriesRename(sid);
+  } else if (action === "series-delete") {
+    e.preventDefault();
+    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
+    if (sid) seriesDelete(sid);
+  } else if (action === "series-add-item") {
+    e.preventDefault();
+    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
+    if (sid) seriesAddItem(sid);
+  } else if (action === "series-remove-item") {
+    e.preventDefault();
+    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
+    const gidAttr = btn.getAttribute("data-gallery-id");
+    const gid = gidAttr ? parseInt(gidAttr, 10) : null;
+    if (sid) seriesRemoveItem(sid, gid);
+  }
+}
+
 async function renderSeries() {
   const showAll = app.query.show_all === "1";
   const showAllClass = showAll ? "btn btn-primary" : "btn btn-secondary";
   const showAllLabel = t("favStateAll") || "Show all";
+
+  if (!seriesListenersBound) {
+    document.addEventListener("change", onSeriesChange);
+    document.addEventListener("click", onSeriesClick);
+    seriesListenersBound = true;
+  }
+  currentViewCleanup = () => {
+    if (seriesListenersBound) {
+      document.removeEventListener("change", onSeriesChange);
+      document.removeEventListener("click", onSeriesClick);
+      seriesListenersBound = false;
+    }
+    selSeriesCloud.clear();
+  };
 
   selSeriesCloud.clear();
   selGalleries.clear();
@@ -574,66 +652,3 @@ async function seriesRemoveItem(seriesId, galleryId) {
     await loadSeriesList();
   }
 }
-
-document.addEventListener("change", e => {
-  if (app.view !== "series") return;
-  const cb = e.target;
-  if (!cb || cb.type !== "checkbox") return;
-  if (cb.hasAttribute("data-series-gid")) {
-    const gid = parseInt(cb.getAttribute("data-series-gid"), 10);
-    if (!isNaN(gid)) {
-      if (cb.checked) selSeriesCloud.add(gid); else selSeriesCloud.delete(gid);
-    }
-  }
-  updateSeriesToolbarButtons();
-});
-
-// 监听 series 页面操作
-document.addEventListener("click", e => {
-  if (app.view !== "series") return;
-  const btn = e.target.closest("[data-action]");
-  if (!btn) return;
-  const action = btn.getAttribute("data-action");
-  if (action === "series-create") {
-    e.preventDefault();
-    seriesCreate();
-  } else if (action === "series-rebuild") {
-    e.preventDefault();
-    seriesRebuild();
-  } else if (action === "series-toggle-all") {
-    e.preventDefault();
-    const curShowAll = app.query.show_all === "1";
-    const q = { page_size: prefPageSize() };
-    if (!curShowAll) {
-      q.show_all = "1";
-    }
-    location.hash = navHash("series", {}, q);
-  } else if (action === "series-download") {
-    e.preventDefault();
-    seriesDownload();
-  } else if (action === "series-download-orig") {
-    e.preventDefault();
-    seriesDownloadOrig();
-  } else if (action === "series-archive") {
-    e.preventDefault();
-    seriesArchive();
-  } else if (action === "series-rename") {
-    e.preventDefault();
-    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
-    if (sid) seriesRename(sid);
-  } else if (action === "series-delete") {
-    e.preventDefault();
-    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
-    if (sid) seriesDelete(sid);
-  } else if (action === "series-add-item") {
-    e.preventDefault();
-    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
-    if (sid) seriesAddItem(sid);
-  } else if (action === "series-remove-item") {
-    e.preventDefault();
-    const sid = parseInt(btn.getAttribute("data-series-id"), 10);
-    const gidAttr = btn.getAttribute("data-gallery-id");
-    const gid = gidAttr ? parseInt(gidAttr, 10) : null;
-    if (sid) seriesRemoveItem(sid, gid);
-  }
-});

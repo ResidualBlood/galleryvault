@@ -70,6 +70,43 @@ function renderCardCheckboxes() {
       if (typeof updateXgidButtons === "function") updateXgidButtons();
     });
   });
+
+  if (!document.querySelector(".inf-page")) {
+    const visibleGalleryIds = new Set(
+      [...document.querySelectorAll(".gc-check input[data-gallery-id]")]
+        .map(cb => parseInt(cb.getAttribute("data-gallery-id"), 10))
+        .filter(n => !isNaN(n))
+    );
+    for (const id of selGalleries) {
+      if (!visibleGalleryIds.has(id)) selGalleries.delete(id);
+    }
+
+    const visibleFavGids = new Set(
+      [...document.querySelectorAll(".gc-check input[data-fav-gid]")]
+        .map(cb => parseInt(cb.getAttribute("data-fav-gid"), 10))
+        .filter(n => !isNaN(n))
+    );
+    for (const gid of selFav) {
+      if (!visibleFavGids.has(gid)) selFav.delete(gid);
+    }
+
+    const visibleDiscoverGids = new Set(
+      [...document.querySelectorAll(".gc-check input[data-discover-gid]")]
+        .map(cb => parseInt(cb.getAttribute("data-discover-gid"), 10))
+        .filter(n => !isNaN(n))
+    );
+    for (const gid of selDiscover) {
+      if (!visibleDiscoverGids.has(gid)) selDiscover.delete(gid);
+    }
+  }
+
+  const delBtn = document.querySelector('[data-action="sel-delete"]');
+  if (delBtn) delBtn.textContent = `${t("deleteSel")}${selGalleries.size ? ` (${selGalleries.size})` : ""}`;
+  const favBtn = document.querySelector('[data-action="lib-batch-fav"]');
+  if (favBtn) {
+    const count = selGalleries.size;
+    favBtn.textContent = count ? t("batchFavCount").replace("{count}", count) : t("batchFav");
+  }
 }
 
 function currentFromPath() {
@@ -87,8 +124,8 @@ function galleryCard(it) {
     : { from };
   return `<div class="gc-wrap" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}">
     <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}" role="link" aria-label="${esc(it.title)} (${cat}, ${it.page_count} pages)">
-      <div class="gc-cover">
-        ${it.cover_url ? `<img class="cover-bg" loading="lazy" src="${it.cover_url}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${it.cover_url}" alt="">` : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover") || "no cover")}</div>`}
+      <div class="gc-cover"${it.cover_url ? ` style="--cover-url:url('${esc(it.cover_url)}')"` : ""}>
+        ${it.cover_url ? `<img class="cover-fg" loading="lazy" src="${it.cover_url}" alt="">` : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover") || "no cover")}</div>`}
         <span class="gc-cat">${cat}</span>
         <span class="gc-pages">${it.page_count} P</span>
       </div>

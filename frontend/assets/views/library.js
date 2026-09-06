@@ -3,6 +3,8 @@
 // views/library.js — Phase 1
 // renderLibrary moved from app.js
 
+let batchInFlight = false;
+
 async function renderLibrary() {
   const page = app.query.page || "1";
   const q = app.query.q || "";
@@ -231,61 +233,65 @@ async function deleteFiltered() {
 }
 
 async function libraryBatchAddFavorite() {
-  const ids = [...selGalleries];
-  if (!ids.length) { toast(t("select")); return; }
-  // Resolve gid/token for selected ids via cache/DOM, skip those without gid
-  const items = [];
-  const noGidIds = [];
-  const cache = (app._libCache && typeof app._libCache.get === "function") ? app._libCache : null;
-  for (const id of ids) {
-    let gid = null, token = null, title = null;
-    if (cache && cache.has(Number(id))) {
-      const entry = cache.get(Number(id));
-      gid = entry.gid; token = entry.token; title = entry.title;
-    }
-    if (!gid) {
-      const el = document.querySelector(`.gc-check input[data-gallery-id="${id}"]`);
-      if (el) {
-        gid = el.getAttribute("data-gid") || el.dataset.gid;
-        token = el.getAttribute("data-token") || el.dataset.token;
-        // title from sibling gc-title
-        const wrap = el.closest && el.closest(".gc-wrap");
-        if (wrap) {
-          const tEl = wrap.querySelector(".gc-title");
-          if (tEl) title = tEl.textContent.trim();
+  if (batchInFlight) return;
+  batchInFlight = true;
+  const btn = document.querySelector('[data-action="lib-batch-fav"]');
+  if (btn) btn.disabled = true;
+  try {
+    const ids = [...selGalleries];
+    if (!ids.length) { toast(t("select")); return; }
+    // Resolve gid/token for selected ids via cache/DOM, skip those without gid
+    const items = [];
+    const noGidIds = [];
+    const cache = (app._libCache && typeof app._libCache.get === "function") ? app._libCache : null;
+    for (const id of ids) {
+      let gid = null, token = null, title = null;
+      if (cache && cache.has(Number(id))) {
+        const entry = cache.get(Number(id));
+        gid = entry.gid; token = entry.token; title = entry.title;
+      }
+      if (!gid) {
+        const el = document.querySelector(`.gc-check input[data-gallery-id="${id}"]`);
+        if (el) {
+          gid = el.getAttribute("data-gid") || el.dataset.gid;
+          token = el.getAttribute("data-token") || el.dataset.token;
+          // title from sibling gc-title
+          const wrap = el.closest && el.closest(".gc-wrap");
+          if (wrap) {
+            const tEl = wrap.querySelector(".gc-title");
+            if (tEl) title = tEl.textContent.trim();
+          }
         }
       }
-    }
-    if (gid) {
-      gid = parseInt(String(gid), 10);
-      if (!isNaN(gid) && gid > 0) {
-        items.push({ gid, token: token || "", title: title || "" });
+      if (gid) {
+        gid = parseInt(String(gid), 10);
+        if (!isNaN(gid) && gid > 0) {
+          items.push({ gid, token: token || "", title: title || "" });
+        } else {
+          noGidIds.push(id);
+        }
       } else {
         noGidIds.push(id);
       }
-    } else {
-      noGidIds.push(id);
     }
-  }
-  if (noGidIds.length) {
-    toast(t("favAddNoGid").replace("{count}", noGidIds.length));
-    // if all missing, stop
-    if (!items.length) return;
-  }
-  // Fallback: for ids still unresolved, try single fetch (rare, e.g. pagination)
-  const unresolved = ids.filter(id => !items.some(it => {
-    const cached = cache && cache.get(Number(id));
-    return cached && cached.gid === it.gid;
-  }) && !noGidIds.includes(id));
-  // Actually previous loop already handled, so no extra fetch needed for now; keep hook for future
-  if (!items.length) { toast(t("favAddFail")); return; }
-  const targetFavcat = await showMoveFavoritesDialog(items.map(it => it.gid), null, {
-    title: t("favAddTitle"),
-    confirmText: t("favAddConfirm"),
-    targetLabel: t("favMoveTarget"),
-  });
-  if (targetFavcat == null) return;
-  try {
+    if (noGidIds.length) {
+      toast(t("favAddNoGid").replace("{count}", noGidIds.length));
+      // if all missing, stop
+      if (!items.length) return;
+    }
+    // Fallback: for ids still unresolved, try single fetch (rare, e.g. pagination)
+    const unresolved = ids.filter(id => !items.some(it => {
+      const cached = cache && cache.get(Number(id));
+      return cached && cached.gid === it.gid;
+    }) && !noGidIds.includes(id));
+    // Actually previous loop already handled, so no extra fetch needed for now; keep hook for future
+    if (!items.length) { toast(t("favAddFail")); return; }
+    const targetFavcat = await showMoveFavoritesDialog(items.map(it => it.gid), null, {
+      title: t("favAddTitle"),
+      confirmText: t("favAddConfirm"),
+      targetLabel: t("favMoveTarget"),
+    });
+    if (targetFavcat == null) return;
     // Batch in 25 as per EhClient convention (old API chunk size)
     const CHUNK = 25;
     let totalAdded = 0, totalFailed = 0, totalSkippedGid = noGidIds.length;
@@ -320,6 +326,9 @@ async function libraryBatchAddFavorite() {
     }
   } catch (e) {
     toast(e.message || t("favAddFail"));
+  } finally {
+    batchInFlight = false;
+    if (btn) btn.disabled = false;
   }
 }
 

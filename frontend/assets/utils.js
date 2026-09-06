@@ -7,7 +7,48 @@ function nsClass(ns) {
   return "nst-" + (ns && ["artist","character","parody","group","language","category","female","male","mixed","other","misc"].includes(ns) ? ns : "misc");
 }
 
+let pageRecycleObserver = null;
+
+function recycleOffscreenPages(grid) {
+  if (!pageRecycleObserver) {
+    pageRecycleObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        const pageEl = entry.target;
+        if (!pageEl.classList.contains("inf-page")) return;
+        if (!entry.isIntersecting) {
+          if (!pageEl._isRecycled && pageEl.innerHTML) {
+            const h = pageEl.offsetHeight;
+            if (h > 0) {
+              pageEl._savedHtml = pageEl.innerHTML;
+              pageEl._isRecycled = true;
+              pageEl.style.minHeight = `${h}px`;
+              pageEl.innerHTML = `<div class="inf-page-placeholder" style="height:${h}px;grid-column:1/-1;"></div>`;
+            }
+          }
+        } else {
+          if (pageEl._isRecycled && pageEl._savedHtml) {
+            pageEl.innerHTML = pageEl._savedHtml;
+            pageEl._savedHtml = null;
+            pageEl._isRecycled = false;
+            pageEl.style.minHeight = "";
+            if (typeof renderCardCheckboxes === "function") {
+              renderCardCheckboxes();
+            }
+          }
+        }
+      });
+    }, { rootMargin: "3000px" });
+  }
+  if (grid) {
+    grid.querySelectorAll(".inf-page").forEach(el => pageRecycleObserver.observe(el));
+  }
+}
+
 function stopInfinite() {
+  if (pageRecycleObserver) {
+    try { pageRecycleObserver.disconnect(); } catch (_) {}
+    pageRecycleObserver = null;
+  }
   if (infiniteState) {
     try { infiniteState.observer && infiniteState.observer.disconnect(); } catch (_) {}
     try { infiniteState.controller && infiniteState.controller.abort(); } catch (_) {}
@@ -25,9 +66,24 @@ function startInfinite(containerId, fetchPage, buildItem) {
   let page = parseInt((app.query.page || "1"), 10) || 1;
   let loading = false;
   let finished = false;
+
+  // Wrap any initial items into an inf-page if not already wrapped
+  const existingCards = Array.from(grid.children).filter(el => !el.classList.contains("inf-page") && !el.classList.contains("inf-scroll-sentinel"));
+  if (existingCards.length > 0) {
+    const page1 = document.createElement("div");
+    page1.className = "inf-page";
+    page1.dataset.infPage = String(page);
+    page1.dataset.page = String(page);
+    grid.insertBefore(page1, existingCards[0]);
+    existingCards.forEach(card => page1.appendChild(card));
+  }
+
   const sentinel = document.createElement("div");
   sentinel.className = "inf-scroll-sentinel";
   grid.appendChild(sentinel);
+
+  recycleOffscreenPages(grid);
+
   const controller = new AbortController();
   const observer = new IntersectionObserver(async (entries) => {
     if (finished || loading) return;
@@ -42,7 +98,17 @@ function startInfinite(containerId, fetchPage, buildItem) {
       const items = (data && data.items) || [];
       if (!items.length) { finished = true; try{observer.disconnect();}catch(_){} sentinel.remove(); return; }
       page = data.page || (page + 1);
-      sentinel.insertAdjacentHTML("beforebegin", items.map(buildItem).join(""));
+
+      const pageDiv = document.createElement("div");
+      pageDiv.className = "inf-page";
+      pageDiv.dataset.infPage = String(page);
+      pageDiv.dataset.page = String(page);
+      pageDiv.innerHTML = items.map(buildItem).join("");
+      sentinel.parentNode.insertBefore(pageDiv, sentinel);
+      if (pageRecycleObserver) {
+        pageRecycleObserver.observe(pageDiv);
+      }
+
       if ((data.page * (data.page_size || 24)) >= (data.total || 0)) {
         finished = true;
         try{observer.disconnect();}catch(_){}
