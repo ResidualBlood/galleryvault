@@ -61,6 +61,15 @@ function renderCardCheckboxes() {
       updateDupButtons();
     });
   });
+  document.querySelectorAll('#dupxgid-groups input[data-dup-gid]').forEach(cb => {
+    if (cb.dataset.bound) return;
+    cb.dataset.bound = "1";
+    cb.addEventListener("change", () => {
+      const gid = parseInt(cb.getAttribute("data-dup-gid"), 10);
+      if (cb.checked) selXgid.add(gid); else selXgid.delete(gid);
+      if (typeof updateXgidButtons === "function") updateXgidButtons();
+    });
+  });
 }
 
 function currentFromPath() {
@@ -355,6 +364,8 @@ function manageTabsHtml(active) {
   const tabs = [
     { key: "recycle", href: recycleHref, label: t("recycleTitle") },
     { key: "duplicates", href: "#/duplicates", label: t("dupGalTitle") },
+    { key: "dupfav", href: "#/duplicates/favorites", label: t("dupFavTitle") },
+    { key: "dupxgid", href: "#/duplicates/cross-gid", label: t("dupXgidTitle") },
     { key: "integrity", href: "#/integrity", label: t("missingPagesTitle") },
     { key: "archive", href: "#/archive", label: t("archiveTitle") },
   ];

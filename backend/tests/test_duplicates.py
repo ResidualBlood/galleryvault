@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from galleryvault.services.duplicates import (
     _core_effective_length,
     artist_from_title,
@@ -363,3 +365,252 @@ def test_opt_lib_xgid_library_galleries_scan():
     group_gids = [{it["gid"] for it in g["items"]} for g in groups]
     assert {3162165, 3169181} in group_gids
     assert {3057579, 2785434} in group_gids
+
+
+@pytest.mark.asyncio
+async def test_cross_gid_same_gid_local_fav_single_item(monkeypatch):
+    """同 gid：一条 Gallery + 一条 FavoriteItem 经 scan_library_cross_gid_duplicates，
+    同 gid 在分组 item 中只有一条且优先本地（gallery_id 非空且 != FavoriteItem.id 且 favorited is True），
+    不得用两个异 gid 本地行冒充。
+    """
+    from unittest.mock import MagicMock
+
+    from galleryvault.services.duplicates import scan_library_cross_gid_duplicates
+
+    # 1 条本地 Gallery (gid=1001, id=10)
+    g1 = MagicMock()
+    g1.id = 10
+    g1.gid = 1001
+    g1.title = "[Alice] My Book"
+    g1.title_jpn = None
+    g1.file_size = 1000
+    g1.pages = 20
+    g1.storage_path = "/lib/1001"
+    g1.storage_type = "folder"
+    g1.url = None
+    g1.token = None
+    g1.thumb = None
+
+    # 1 条同 gid 的 FavoriteItem (gid=1001, id=999)
+    fav1 = MagicMock()
+    fav1.id = 999
+    fav1.gid = 1001
+    fav1.title = "[Alice] My Book (Cloud Edition)"
+    fav1.url = "https://exhentai.org/g/1001/tok1"
+    fav1.token = "tok1"
+    fav1.file_size = 1000
+    fav1.thumb = "https://exhentai.org/t/1001.jpg"
+
+    # 1 条异 gid 纯云端 FavoriteItem (gid=1002, id=888)，用于成组，避免用两个异 gid 本地行冒充
+    fav2 = MagicMock()
+    fav2.id = 888
+    fav2.gid = 1002
+    fav2.title = "[Alice] My Book [DL版]"
+    fav2.url = "https://exhentai.org/g/1002/tok2"
+    fav2.token = "tok2"
+    fav2.file_size = 2000
+    fav2.thumb = "https://exhentai.org/t/1002.jpg"
+
+    class MockSession:
+        async def scalars(self, stmt):
+            class _Result:
+                def all(self):
+                    stmt_str = str(stmt)
+                    if "favorite_items" in stmt_str:
+                        return [fav1, fav2]
+                    return [g1]
+
+            return _Result()
+
+    class MockRepo:
+        def __init__(self, session):
+            pass
+
+        async def tags_for_gallery_ids(self, ids):
+            return {}
+
+        async def ignored_duplicate_keys(self):
+            return set()
+
+        async def ignored_duplicates(self):
+            return []
+
+    class MockSessionFactory:
+        def __call__(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    return MockSession()
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return _Ctx()
+
+    monkeypatch.setattr("galleryvault.db.repository.FavoritesRepository", MockRepo)
+
+    groups = await scan_library_cross_gid_duplicates(MockSessionFactory())
+    assert len(groups) == 1
+    items = groups[0]["items"]
+
+    # 分组中同 gid (1001) 的条目只有一条（FavoriteItem 被 local_gids 去重，优先保留本地行）
+    items_1001 = [it for it in items if it["gid"] == 1001]
+    assert len(items_1001) == 1
+    item_1001 = items_1001[0]
+    # gallery_id 非空且为本地 Gallery.id，不得把 FavoriteItem.id (999) 当 gallery_id
+    assert item_1001["gallery_id"] == 10
+    assert item_1001["gallery_id"] != 999
+    # favorited 为 True（来自 FavoriteItem）
+    assert item_1001["favorited"] is True
+    assert item_1001["storage_path"] == "/lib/1001"
+
+    # 异 gid 云端项正常保留
+    items_1002 = [it for it in items if it["gid"] == 1002]
+    assert len(items_1002) == 1
+    assert items_1002[0]["gallery_id"] is None
+    assert items_1002[0]["favorited"] is True
+    assert len(items) == 2
+
+    # 若仅有同一 gid 的 g1 与 fav1（无其它异 gid 重复），去重后仅剩 1 个候选，不会误成组
+    class MockSingleSession:
+        async def scalars(self, stmt):
+            class _Result:
+                def all(self):
+                    stmt_str = str(stmt)
+                    if "favorite_items" in stmt_str:
+                        return [fav1]
+                    return [g1]
+
+            return _Result()
+
+    class MockSingleSessionFactory:
+        def __call__(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    return MockSingleSession()
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return _Ctx()
+
+    single_groups = await scan_library_cross_gid_duplicates(MockSingleSessionFactory())
+    assert len(single_groups) == 0
+
+
+def test_cross_gid_diff_gid_local_and_pure_cloud_and_no_fav_item_id_leak():
+    """异 gid：本地 Gallery 与无本地对应的 FavoriteItem 标题可成组；云端那条 gallery_id is None 且有 url 且 favorited is True；禁止用 FavoriteItem.id 当 gallery_id."""
+    candidates = [
+        {"id": 20, "gid": 2001, "title": "[Bob] Bob Work", "title_jpn": None},
+        {
+            "gallery_id": None,
+            "gid": 2002,
+            "title": "[Bob] Bob Work [無修正]",
+            "title_jpn": None,
+            "url": "https://exhentai.org/g/2002/token123",
+            "token": "token123",
+            "file_size": 123456,
+            "thumb": "https://exhentai.org/t/thumb.jpg",
+            "favorited": True,
+        },
+    ]
+    groups = find_gallery_duplicate_groups(candidates, fav_gids={2002})
+    assert len(groups) == 1
+    items = groups[0]["items"]
+    assert len(items) == 2
+    local_it = next(it for it in items if it["gid"] == 2001)
+    assert local_it["gallery_id"] == 20
+    assert local_it["favorited"] is False
+
+    cloud_it = next(it for it in items if it["gid"] == 2002)
+    assert cloud_it["gallery_id"] is None
+    assert cloud_it["url"] == "https://exhentai.org/g/2002/token123"
+    assert cloud_it["favorited"] is True
+    assert cloud_it.get("gallery_id") is None
+
+
+def test_cross_gid_local_only_not_favorited():
+    """仅本地、无 FavoriteItem：favorited is False."""
+    galleries = [
+        {"id": 30, "gid": 3001, "title": "[Charlie] Adventure", "title_jpn": None},
+        {"id": 31, "gid": 3002, "title": "[Charlie] Adventure [DL版]", "title_jpn": None},
+    ]
+    groups = find_gallery_duplicate_groups(galleries, fav_gids=set())
+    assert len(groups) == 1
+    for it in groups[0]["items"]:
+        assert it["favorited"] is False
+
+
+@pytest.mark.asyncio
+async def test_scan_library_cross_gid_duplicates_filter_ignored(monkeypatch):
+    """写入 ignore 后扫描结果不含该 key."""
+    from unittest.mock import MagicMock
+
+    from galleryvault.services.duplicates import scan_library_cross_gid_duplicates
+
+    g1 = MagicMock()
+    g1.id = 1
+    g1.gid = 4001
+    g1.title = "[David] Magic Quest"
+    g1.title_jpn = None
+    g1.file_size = 1000
+    g1.pages = 20
+    g1.storage_path = "/lib/4001"
+    g1.storage_type = "folder"
+    g1.url = None
+    g1.token = None
+    g1.thumb = None
+
+    g2 = MagicMock()
+    g2.id = 2
+    g2.gid = 4002
+    g2.title = "[David] Magic Quest [DL版]"
+    g2.title_jpn = None
+    g2.file_size = 1000
+    g2.pages = 20
+    g2.storage_path = "/lib/4002"
+    g2.storage_type = "folder"
+    g2.url = None
+    g2.token = None
+    g2.thumb = None
+
+    class MockSession:
+        async def scalars(self, stmt):
+            class _Result:
+                def all(self):
+                    stmt_str = str(stmt)
+                    if "favorite_items" in stmt_str:
+                        return []
+                    return [g1, g2]
+
+            return _Result()
+
+    class MockRepo:
+        def __init__(self, session):
+            pass
+
+        async def tags_for_gallery_ids(self, ids):
+            return {}
+
+        async def ignored_duplicate_keys(self):
+            return {"david|magicquest"}
+
+        async def ignored_duplicates(self):
+            return [{"key": "david|magicquest", "title": "Magic Quest", "gids": [4001, 4002]}]
+
+    class MockSessionFactory:
+        def __call__(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    return MockSession()
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return _Ctx()
+
+    monkeypatch.setattr("galleryvault.db.repository.FavoritesRepository", MockRepo)
+
+    groups = await scan_library_cross_gid_duplicates(MockSessionFactory())
+    assert all(g["key"] != "david|magicquest" for g in groups)
+    assert len(groups) == 0
+

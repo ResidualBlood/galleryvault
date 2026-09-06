@@ -13,7 +13,6 @@ async function renderFavorites() {
       <button class="secondary" data-action="favcats-check-all" type="button">${esc(t("checkAll"))}</button>
       <button class="secondary" data-action="favcats-download-missing" type="button">${esc(t("downloadMissing"))}</button>
       <a class="secondary" href="#/updates" style="padding:8px 14px;border-radius:4px">${esc(t("galleryUpdates"))}</a>
-      <a class="secondary" href="#/favorites/manage" style="padding:8px 14px;border-radius:4px;margin-left:auto">${esc(t("favManage"))}</a>
     </div>
     <div id="fav-list"><p>${esc(t("loading"))}</p></div>`;
   try {

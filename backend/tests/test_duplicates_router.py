@@ -48,6 +48,7 @@ async def test_list_duplicates(monkeypatch):
     monkeypatch.setattr(duplicates, "GalleryRepository", FakeRepo)
 
     res = await list_duplicates()
+    assert set(res.keys()) == {"groups", "count"}
     assert res["count"] == 1
     assert len(res["groups"]) == 1
     assert "display_title" in res["groups"][0]["copies"][0]
@@ -146,3 +147,169 @@ async def test_duplicate_thumb_valid_cached(tmp_path, monkeypatch):
     resp = await duplicate_thumb("validkey123")
     assert resp.status_code == 200
     assert Path(resp.path) == img_file
+
+
+@pytest.mark.asyncio
+async def test_cross_gid_get_none_cache(monkeypatch):
+    from galleryvault.app.routers.duplicates import get_cross_gid_duplicates
+    from galleryvault.app.state import app_state
+
+    monkeypatch.setattr(app_state, "cross_gid_duplicates", None)
+    monkeypatch.setattr(app_state, "session_factory", None)
+
+    res = await get_cross_gid_duplicates()
+    assert res == {"ready": False, "count": 0, "groups": []}
+
+
+@pytest.mark.asyncio
+async def test_cross_gid_get_with_cache_and_cloud_item(monkeypatch):
+    from galleryvault.app.routers.duplicates import get_cross_gid_duplicates
+    from galleryvault.app.state import app_state
+
+    fake_cache = [
+        {
+            "key": "alice|work",
+            "artist": "alice",
+            "legacy_keys": ["alice|work_old"],
+            "items": [
+                {
+                    "gallery_id": 101,
+                    "gid": 111,
+                    "title": "Work Title",
+                    "title_jpn": "作品タイトル",
+                    "storage_path": "/path/to/111-Work",
+                    "storage_type": "folder",
+                    "url": None,
+                    "favorited": False,
+                    "legacy_keys": ["alice|work_old"],
+                },
+                {
+                    "gallery_id": None,
+                    "gid": 222,
+                    "title": "Work Title [DL版]",
+                    "title_jpn": None,
+                    "storage_path": None,
+                    "storage_type": None,
+                    "url": "https://exhentai.org/g/222/token",
+                    "favorited": True,
+                    "legacy_keys": ["alice|work_old"],
+                },
+            ],
+        }
+    ]
+
+    monkeypatch.setattr(app_state, "cross_gid_duplicates", fake_cache)
+    monkeypatch.setattr(app_state, "session_factory", None)
+
+    res = await get_cross_gid_duplicates()
+    assert res["ready"] is True
+    assert res["count"] == 1
+    group = res["groups"][0]
+    assert group["key"] == "alice|work"
+    assert "legacy_keys" not in group
+    assert len(group["items"]) == 2
+
+    # Local item
+    local_it = group["items"][0]
+    assert local_it["gallery_id"] == 101
+    assert "display_title" in local_it
+    assert local_it["favorited"] is False
+    assert "legacy_keys" not in local_it
+
+    # Cloud item
+    cloud_it = group["items"][1]
+    assert cloud_it["gallery_id"] is None
+    assert cloud_it["url"] == "https://exhentai.org/g/222/token"
+    assert cloud_it["favorited"] is True
+    assert "display_title" in cloud_it
+    assert "legacy_keys" not in cloud_it
+
+    # Verify original cache was not mutated
+    assert "legacy_keys" in fake_cache[0]
+    assert "legacy_keys" in fake_cache[0]["items"][0]
+
+
+@pytest.mark.asyncio
+async def test_cross_gid_post_refresh(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from galleryvault.app.routers.duplicates import refresh_cross_gid_duplicates
+    from galleryvault.app.state import app_state
+
+    scanned_groups = [
+        {
+            "key": "bob|title",
+            "artist": "bob",
+            "items": [
+                {
+                    "gallery_id": 201,
+                    "gid": 333,
+                    "title": "Bob Title",
+                    "title_jpn": None,
+                    "storage_path": "/data/333",
+                    "storage_type": "cbz",
+                    "url": None,
+                    "favorited": True,
+                }
+            ],
+        }
+    ]
+
+    async def fake_scan(session_factory):
+        app_state.cross_gid_duplicates = scanned_groups
+        return scanned_groups
+
+    scan_mock = AsyncMock(side_effect=fake_scan)
+    monkeypatch.setattr(
+        "galleryvault.services.duplicates.scan_library_cross_gid_duplicates",
+        scan_mock,
+    )
+
+    class MockRepo:
+        def __init__(self, session):
+            pass
+
+        async def ignored_duplicate_keys(self):
+            return set()
+
+        async def ignored_duplicates(self):
+            return []
+
+    class MockSessionFactory:
+        def __call__(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    return object()
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return _Ctx()
+
+    monkeypatch.setattr("galleryvault.app.routers.duplicates.FavoritesRepository", MockRepo)
+    monkeypatch.setattr(app_state, "session_factory", MockSessionFactory())
+
+    # Ensure duplicate_records is not touched
+    with patch("galleryvault.db.repository.GalleryRepository.sync_duplicates") as sync_mock:
+        res = await refresh_cross_gid_duplicates()
+        assert sync_mock.call_count == 0
+
+    assert scan_mock.await_count == 1
+    assert res["ready"] is True
+    assert res["count"] == 1
+    assert res["groups"][0]["key"] == "bob|title"
+
+
+def test_cross_gid_no_library_delete_or_ignore_routes():
+    from galleryvault.app.routers.duplicates import router
+
+    paths = [r.path for r in router.routes]
+    # No delete/ignore/remove routes under /api/library/duplicates/cross-gid
+    for p in paths:
+        if p.startswith("/api/library/duplicates/cross-gid"):
+            assert "delete" not in p.lower()
+            assert "ignore" not in p.lower()
+            assert "remove" not in p.lower()
+            assert "resolve" not in p.lower()
+            assert "dismiss" not in p.lower()
+

@@ -80,6 +80,11 @@ function jumpPage(input, last) {
     renderDupGroupsFromCache();
     return;
   }
+  if (app.view === "dupxgid") {
+    dupXgidPage = p;
+    renderCrossGidList();
+    return;
+  }
   location.hash = navHash(app.view, app.params, { ...app.query, page: String(p) });
 }
 

@@ -410,6 +410,7 @@ def find_gallery_duplicate_groups(
     galleries: list[Any],
     *,
     tag_map: dict[int, list[tuple[str, str]]] | None = None,
+    fav_gids: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Group library galleries across gids that are likely the same work in different versions.
 
@@ -422,11 +423,10 @@ def find_gallery_duplicate_groups(
         gid = getattr(g, "gid", None) if not isinstance(g, dict) else g.get("gid")
         if gid is None:
             continue
-        gallery_id = (
-            getattr(g, "id", None)
-            if not isinstance(g, dict)
-            else g.get("id", g.get("gallery_id"))
-        )
+        if isinstance(g, dict):
+            gallery_id = g.get("gallery_id") if "gallery_id" in g else g.get("id")
+        else:
+            gallery_id = getattr(g, "id", None)
         title = getattr(g, "title", None) if not isinstance(g, dict) else g.get("title")
         title_jpn = (
             getattr(g, "title_jpn", None) if not isinstance(g, dict) else g.get("title_jpn")
@@ -445,6 +445,16 @@ def find_gallery_duplicate_groups(
             if not isinstance(g, dict)
             else g.get("storage_type")
         )
+        url = getattr(g, "url", None) if not isinstance(g, dict) else g.get("url")
+        token = getattr(g, "token", None) if not isinstance(g, dict) else g.get("token")
+        thumb = getattr(g, "thumb", None) if not isinstance(g, dict) else g.get("thumb")
+
+        if isinstance(g, dict) and "favorited" in g:
+            favorited = bool(g["favorited"])
+        elif fav_gids is not None:
+            favorited = int(gid) in fav_gids
+        else:
+            favorited = False
 
         raws: list[str] = []
         if title and str(title).strip():
@@ -492,6 +502,10 @@ def find_gallery_duplicate_groups(
             "pages": pages,
             "storage_path": storage_path,
             "storage_type": storage_type,
+            "url": url,
+            "token": token,
+            "thumb": thumb,
+            "favorited": favorited,
         }
 
         candidates.append(
@@ -512,7 +526,7 @@ def find_gallery_duplicate_groups(
 async def scan_library_cross_gid_duplicates(
     session_factory: Any = None,
 ) -> list[dict[str, Any]]:
-    """Scan library galleries across gids and cache result in app_state."""
+    """Scan library galleries and uningested favorites across gids and cache result in app_state."""
     if session_factory is None:
         from ..app.state import app_state
 
@@ -522,7 +536,7 @@ async def scan_library_cross_gid_duplicates(
 
     from sqlalchemy import select
 
-    from ..db.models import Gallery
+    from ..db.models import FavoriteItem, Gallery
     from ..db.repository import FavoritesRepository
 
     async with session_factory() as session:
@@ -537,14 +551,63 @@ async def scan_library_cross_gid_duplicates(
         )
         galleries = list((await session.scalars(stmt)).all())
         ids = [g.id for g in galleries]
-        tag_map = await FavoritesRepository(session).tags_for_gallery_ids(ids)
-        groups = find_gallery_duplicate_groups(galleries, tag_map=tag_map)
+        fav_repo = FavoritesRepository(session)
+        tag_map = await fav_repo.tags_for_gallery_ids(ids)
+
+        fav_stmt = select(FavoriteItem).order_by(FavoriteItem.gid.asc())
+        fav_items = list((await session.scalars(fav_stmt)).all())
+        fav_gids = {int(f.gid) for f in fav_items if f.gid is not None}
+
+        local_gids = {int(g.gid) for g in galleries if g.gid is not None}
+        seen_fav_gids: set[int] = set()
+        cloud_candidates: list[dict[str, Any]] = []
+        for f in fav_items:
+            if f.gid is None:
+                continue
+            gid = int(f.gid)
+            if gid in local_gids:
+                continue
+            if gid in seen_fav_gids:
+                continue
+            seen_fav_gids.add(gid)
+            title = f.title.strip() if f.title else ""
+            if not title:
+                continue
+            cloud_candidates.append(
+                {
+                    "gallery_id": None,
+                    "gid": gid,
+                    "title": title,
+                    "title_jpn": None,
+                    "url": f.url,
+                    "token": f.token,
+                    "file_size": f.file_size,
+                    "thumb": f.thumb,
+                    "favorited": True,
+                }
+            )
+
+        all_candidates: list[Any] = list(galleries) + cloud_candidates
+        groups = find_gallery_duplicate_groups(
+            all_candidates,
+            tag_map=tag_map,
+            fav_gids=fav_gids,
+        )
+
+        ignored_keys = await fav_repo.ignored_duplicate_keys()
+        ignored = await fav_repo.ignored_duplicates()
+        ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
+        filtered_groups = [
+            g
+            for g in groups
+            if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
+        ]
 
     try:
         from ..app.state import app_state
 
-        app_state.cross_gid_duplicates = groups
+        app_state.cross_gid_duplicates = filtered_groups
     except Exception:  # noqa: BLE001, S110
         pass
 
-    return groups
+    return filtered_groups

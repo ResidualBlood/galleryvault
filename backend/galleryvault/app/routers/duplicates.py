@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from ...db.repository import GalleryRepository
+from ...db.repository import FavoritesRepository, GalleryRepository
 from ...scanners import registry
 from ...services.deletion import in_scan_roots
 from ...services.ingest import GalleryIngestService
@@ -220,3 +220,69 @@ async def duplicate_thumb(key: str) -> FileResponse:
         media_type=DUP_JPEG,
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+def _serialize_cross_gid_group(
+    group: dict[str, Any],
+) -> dict[str, Any]:
+    items = []
+    for it in group.get("items") or []:
+        it_copy = dict(it)
+        it_copy.pop("legacy_keys", None)
+        storage_path = it_copy.get("storage_path")
+        fallback = str(Path(storage_path).name) if storage_path else ""
+        it_copy["display_title"] = (
+            resolve_display_title(
+                it_copy.get("title"), it_copy.get("title_jpn"), fallback
+            )
+            or it_copy.get("title")
+            or (f"gid {it_copy.get('gid')}" if it_copy.get("gid") is not None else "")
+        )
+        items.append(it_copy)
+    return {
+        "key": group.get("key"),
+        "artist": group.get("artist"),
+        "items": items,
+    }
+
+
+@router.get("/api/library/duplicates/cross-gid")
+async def get_cross_gid_duplicates() -> dict[str, object]:
+    from ...services.duplicates import duplicate_group_is_ignored
+
+    raw_groups = app_state.cross_gid_duplicates
+    if raw_groups is None:
+        return {"ready": False, "count": 0, "groups": []}
+
+    session_factory = app_state.session_factory
+    if session_factory:
+        async with session_factory() as session:
+            fav_repo = FavoritesRepository(session)
+            ignored_keys = await fav_repo.ignored_duplicate_keys()
+            ignored = await fav_repo.ignored_duplicates()
+            ignored_gid_sets = [
+                set(r.get("gids") or []) for r in ignored if r.get("gids")
+            ]
+    else:
+        ignored_keys, ignored_gid_sets = set(), []
+
+    filtered: list[dict[str, Any]] = []
+    for g in raw_groups:
+        if duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets):
+            continue
+        filtered.append(_serialize_cross_gid_group(g))
+
+    return {"ready": True, "count": len(filtered), "groups": filtered}
+
+
+@router.post("/api/library/duplicates/cross-gid/refresh")
+async def refresh_cross_gid_duplicates() -> dict[str, object]:
+    from ...services.duplicates import scan_library_cross_gid_duplicates
+
+    session_factory = app_state.session_factory
+    if not session_factory:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    await scan_library_cross_gid_duplicates(session_factory)
+    return await get_cross_gid_duplicates()
+

@@ -85,6 +85,15 @@ async function onClick(e) {
   if (action === "dup-unignore-selected") { dupUnignoreSelected(); return; }
   if (action === "dup-ignored-clear") { document.querySelectorAll('#ignored-list input[data-ignore-key]').forEach(cb => cb.checked = false); renderFavIgnored(); return; }
   if (action === "dup-page") { e.preventDefault(); dupPage = parseInt(el.getAttribute("data-page"), 10) || 1; renderDupGroupsFromCache(); return; }
+  if (action === "dupxgid-refresh") { loadCrossGidDuplicates(); return; }
+  if (action === "dupxgid-recompute") { recomputeCrossGidDuplicates(); return; }
+  if (action === "dupxgid-page") { e.preventDefault(); dupXgidPage = parseInt(el.getAttribute("data-page"), 10) || 1; renderCrossGidList(); return; }
+  if (action === "dupxgid-filter") { dupXgidFilter = el.getAttribute("data-value") || "all"; dupXgidPage = 1; renderCrossGidDuplicates().then(() => renderCrossGidList()); return; }
+  if (action === "dupxgid-unfav") { xgidDupAction(false); return; }
+  if (action === "dupxgid-unfav-delete") { xgidDupAction(true); return; }
+  if (action === "dupxgid-ignore-selected") { xgidIgnoreSelected(); return; }
+  if (action === "dupxgid-clear") { selXgid.clear(); renderCrossGidList(); return; }
+  if (action === "dupxgid-group-sel") { xgidSelectGroup(el.getAttribute("data-gi")); return; }
   if (action === "dupgal-scan") {
     scanLibrary().then(async (r) => {
       if (!r || r.status === "paused") return;

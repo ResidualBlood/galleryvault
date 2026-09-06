@@ -226,7 +226,7 @@ async function renderFavIgnored() {
   catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
   await loadFavNames();
   $view().innerHTML = `
-    <a class="link-button" href="#/favorites/manage">← ${esc(t("favManage"))}</a>
+    <a class="link-button" href="#/duplicates/favorites">← ${esc(t("dupFavTitle"))}</a>
     <header style="margin-top:16px"><p class="eyebrow">FAVORITES</p><h1>${esc(t("dupIgnoredPage"))}</h1>
     <p class="sub">${esc(t("dupIgnoredSub"))}</p></header>
     <div class="toolbar">

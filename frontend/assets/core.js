@@ -406,6 +406,10 @@ function parseHash() {
     app.params.id = /^\d+$/.test(parts[1] || "") ? parts[1] : "";
   }
   if (app.view === "reader") app.params.page = /^\d+$/.test(parts[2] || "") ? parts[2] : "0";
+  if (app.view === "duplicates") {
+    if (parts[1] === "favorites") { app.view = "favmanage"; }
+    else if (parts[1] === "cross-gid") { app.view = "dupxgid"; }
+  }
   if (app.view === "favorites") {
     if (parts[1] === "manage") { app.view = "favmanage"; }
     else if (parts[1] === "ignored") { app.view = "favignored"; }
@@ -445,6 +449,7 @@ function router() {
   if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
+  if (app.view !== "dupxgid") { selXgid.clear(); }
   if (app.view !== "recycle") selRecycle.clear();
   if (app.view !== "integrity") selIntegrity.clear();
   if (app.view !== "reader" && readerFsActive) exitReaderFullscreen();
@@ -469,6 +474,7 @@ function router() {
     case "welcome": renderWelcome(); break;
     case "favorites": renderFavorites(); break;
     case "favmanage": renderFavManage(); break;
+    case "dupxgid": renderCrossGidDuplicates(); break;
     case "favignored": renderFavIgnored(); break;
     case "favlist": renderFavList(); break;
     case "updates": renderUpdates(); break;
@@ -511,9 +517,9 @@ function updateNavActive(view) {
   else if (view === "series") targetSelector = '.topbar .links a[href="#/series"]';
   else if (view === "tags") targetSelector = '.topbar .links a[href="#/tags"]';
   else if (view === "downloads") targetSelector = '.topbar .links a[href="#/downloads"]';
-  else if (["favorites", "favlist", "favmanage", "favignored", "updates", "updignored"].includes(view)) {
+  else if (["favorites", "favlist", "favignored", "updates", "updignored"].includes(view)) {
     targetSelector = '.topbar .links a[href="#/favorites"]';
-  } else if (["recycle", "duplicates", "integrity", "archive"].includes(view)) {
+  } else if (["recycle", "duplicates", "favmanage", "dupxgid", "integrity", "archive"].includes(view)) {
     targetSelector = '.topbar .links a[href="#/recycle"]';
   } else if (view === "history") {
     targetSelector = '.topbar .links a[href="#/history"]';

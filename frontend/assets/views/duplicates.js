@@ -27,9 +27,9 @@ async function renderFavManage() {
   const filterBtn = (val, label) =>
     `<button class="secondary${dupFilter === val ? " active-pill" : ""}" data-action="dup-filter" data-value="${val}" type="button">${esc(label)}</button>`;
   $view().innerHTML = `
-    <a class="link-button" href="#/favorites">← ${esc(t("favorites"))}</a>
-    <header style="margin-top:16px"><p class="eyebrow">FAVORITES</p><h1>${esc(t("favManageTitle"))}</h1>
-    <p class="sub">${esc(t("favManageSub"))}</p></header>
+    <header><p class="eyebrow">DUPLICATES</p><h1>${esc(t("dupFavTitle"))}</h1>
+    <p class="sub">${esc(t("dupFavSub"))}</p></header>
+    ${manageTabsHtml("dupfav")}
     <div class="toolbar">
       <button class="primary" data-action="dup-scan" type="button">${esc(t("dupScan"))}</button>
       ${filterBtn("all", t("dupFilterAll"))}
@@ -341,4 +341,273 @@ async function dupUnignore(key) {
     if (app.view === "favignored") { renderFavIgnored(); }
     else { dupLocallyIgnored.delete(key); renderDupGroupsFromCache(); }
   } catch (e) { toast(e.message); }
+}
+
+// --- Cross-GID duplicates (library + cloud favorites) ---------------------
+
+function updateXgidButtons() {
+  document.querySelectorAll('[data-action="dupxgid-unfav"], [data-action="dupxgid-unfav-delete"]').forEach(b => {
+    const act = b.getAttribute("data-action");
+    const base = act === "dupxgid-unfav" ? t("dupUnfav") : t("dupUnfavDelete");
+    b.textContent = base + (selXgid.size ? ` (${selXgid.size})` : "");
+  });
+  document.querySelectorAll('[data-action="dupxgid-ignore-selected"]').forEach(b => {
+    b.textContent = t("dupIgnoreSel") + (selXgid.size ? ` (${selXgid.size})` : "");
+  });
+}
+
+function applyCrossGidFilter(groups) {
+  if (dupXgidFilter === "all") return groups;
+  return groups
+    .map(g => ({
+      ...g,
+      items: (g.items || []).filter(it => {
+        const isLocal = it.gallery_id != null;
+        return dupXgidFilter === "local" ? isLocal : !isLocal;
+      }),
+    }))
+    .filter(g => g.items.length >= 1);
+}
+
+async function renderCrossGidDuplicates() {
+  const filterBtn = (val, label) =>
+    `<button class="secondary${dupXgidFilter === val ? " active-pill" : ""}" data-action="dupxgid-filter" data-value="${val}" type="button">${esc(label)}</button>`;
+  $view().innerHTML = `
+    <header><p class="eyebrow">DUPLICATES</p><h1>${esc(t("dupXgidTitle"))}</h1>
+    <p class="sub">${esc(t("dupXgidSub"))}</p></header>
+    ${manageTabsHtml("dupxgid")}
+    <div class="toolbar">
+      <button class="primary" data-action="dupxgid-recompute" type="button">${esc(t("dupXgidRecompute"))}</button>
+      <button class="secondary" data-action="dupxgid-refresh" type="button">${esc(t("dupXgidRefresh"))}</button>
+      ${filterBtn("all", t("dupFilterAll"))}
+      ${filterBtn("local", t("dupFilterLocal"))}
+      ${filterBtn("cloud", t("dupFilterCloud"))}
+      <button class="secondary danger" data-action="dupxgid-unfav" type="button">${esc(t("dupUnfav"))}${selXgid.size ? ` (${selXgid.size})` : ""}</button>
+      <button class="secondary danger" data-action="dupxgid-unfav-delete" type="button">${esc(t("dupUnfavDelete"))}${selXgid.size ? ` (${selXgid.size})` : ""}</button>
+      <button class="secondary" data-action="dupxgid-ignore-selected" type="button">${esc(t("dupIgnoreSel"))}${selXgid.size ? ` (${selXgid.size})` : ""}</button>
+      <button class="secondary" data-action="dupxgid-clear" type="button">${esc(t("clearSel"))}</button>
+      <a class="secondary" href="#/favorites/ignored" style="padding:8px 14px;border-radius:4px;margin-left:auto">${esc(t("dupIgnoredPage"))}</a>
+    </div>
+    <div id="dupxgid-groups"><p class="muted">${esc(t("loading"))}</p></div>`;
+  if (dupXgidCache === null && !dupXgidReady) {
+    await loadCrossGidDuplicates();
+  } else {
+    renderCrossGidList();
+  }
+}
+
+async function loadCrossGidDuplicates(showLoading = true) {
+  const el = document.getElementById("dupxgid-groups");
+  if (showLoading && el) el.innerHTML = `<p>${esc(t("loading"))}</p>`;
+  try {
+    const data = await api("GET", "/api/library/duplicates/cross-gid");
+    dupXgidReady = !!(data && data.ready);
+    dupXgidCache = (data && data.groups) || [];
+  } catch (e) {
+    if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    return;
+  }
+  renderCrossGidList();
+}
+
+async function recomputeCrossGidDuplicates() {
+  const btn = document.querySelector('[data-action="dupxgid-recompute"]');
+  if (btn) {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = `${t("dupXgidRecompute")}…`;
+  }
+  const el = document.getElementById("dupxgid-groups");
+  if (el) el.innerHTML = `<p>${esc(t("loading"))}</p>`;
+  try {
+    const data = await api("POST", "/api/library/duplicates/cross-gid/refresh");
+    dupXgidReady = !!(data && data.ready);
+    dupXgidCache = (data && data.groups) || [];
+    dupXgidPage = 1;
+    selXgid.clear();
+  } catch (e) {
+    if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    return;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = t("dupXgidRecompute");
+    }
+  }
+  renderCrossGidList();
+}
+
+function renderCrossGidList() {
+  const el = document.getElementById("dupxgid-groups");
+  if (!el) return;
+
+  document.querySelectorAll('[data-action="dupxgid-filter"]').forEach(b => {
+    b.classList.toggle("active-pill", b.getAttribute("data-value") === dupXgidFilter);
+  });
+
+  if (!dupXgidReady) {
+    el.innerHTML = `<p class="muted">${esc(t("dupXgidHint"))}</p>`;
+    return;
+  }
+
+  const rawGroups = dupXgidCache || [];
+  const groups = applyCrossGidFilter(rawGroups);
+  if (!groups.length) {
+    el.innerHTML = `<p class="muted">${esc(t("dupXgidNone"))}</p>`;
+    return;
+  }
+
+  const perPage = 24;
+  const totalPages = Math.max(1, Math.ceil(groups.length / perPage));
+  const page = Math.max(1, Math.min(dupXgidPage, totalPages));
+  const slice = groups.slice((page - 1) * perPage, page * perPage);
+
+  const renderGroup = (g, gi) => {
+    const hidden = dupXgidLocallyIgnored.has(g.key);
+    const firstItem = (g.items && g.items[0]) || {};
+    const mainTitle = firstItem.display_title || firstItem.title || g.key;
+    const mainTitleHtml = firstItem.gallery_id != null
+      ? `<a class="dup-main-title" href="${navHash("gallery", { id: firstItem.gallery_id }, { from: currentFromPath() })}">${esc(mainTitle)}</a>`
+      : (firstItem.url
+        ? `<a class="dup-main-title" href="${esc(firstItem.url)}" target="_blank" rel="noopener">${esc(mainTitle)}</a>`
+        : `<span class="dup-main-title">${esc(mainTitle)}</span>`);
+
+    return `
+      <div class="panel dup-group ${hidden ? "dup-hidden" : ""}" style="margin-top:14px">
+        <div class="dup-group-head">
+          <span class="dup-count">${esc(g.items.length)} ×</span>
+          ${mainTitleHtml}
+          ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
+          ${hidden ? `<span class="badge dup-ignored-badge">${esc(t("dupIgnored"))}</span>` : ""}
+          <span class="dup-head-actions"><button class="secondary" data-action="dupxgid-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
+        </div>
+        ${g.items.map((it, ii) => {
+          const isLocal = it.gallery_id != null;
+          const titleText = it.display_title || it.title || (it.gid ? `gid ${it.gid}` : "");
+          const titleHtml = isLocal
+            ? `<a href="${navHash("gallery", { id: it.gallery_id }, { from: currentFromPath() })}">${esc(titleText)}</a>`
+            : (it.url
+              ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(titleText)}</a>`
+              : `<span>${esc(titleText)}</span>`);
+          const badgeHtml = isLocal
+            ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id }, { from: currentFromPath() })}">${esc(t("favLocal"))}</a>`
+            : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`;
+          const thumbSrc = isLocal
+            ? `/api/galleries/${it.gallery_id}/thumb/0`
+            : (it.thumb || it.cover_data || null);
+          const thumbHtml = thumbSrc
+            ? `<img class="dup-thumb" loading="lazy" src="${thumbSrc}" alt="">`
+            : `<span class="dup-thumb dup-thumb-empty"></span>`;
+          return `
+            <div class="dup-row">
+              <label class="checkbox"><input type="checkbox" data-dup-gid="${it.gid}" data-key="${esc(g.key)}" data-favorited="${it.favorited ? "1" : "0"}" data-gi="${gi}" data-ii="${ii}"${selXgid.has(it.gid) ? " checked" : ""}>
+                <span class="dup-thumb-wrap">${thumbHtml}</span>
+                <span class="dup-body">
+                  <span class="dup-title">${titleHtml}</span>
+                  <span class="dup-meta">
+                    ${badgeHtml}
+                    <span class="badge">#${it.gid}</span>
+                    ${it.pages ? `<span class="badge">${it.pages} P</span>` : ""}
+                    ${it.file_size ? `<span class="badge">${fmtSize(it.file_size)}</span>` : ""}
+                    ${it.storage_type ? `<span class="badge">${esc(storageLabel(it.storage_type))}</span>` : ""}
+                  </span>
+                </span>
+              </label>
+            </div>`;
+        }).join("")}
+      </div>`;
+  };
+
+  const pageLinks = [];
+  for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) {
+    pageLinks.push(p === page
+      ? `<strong class="cur" aria-current="page">${p}</strong>`
+      : `<a class="page-link" href="#" data-action="dupxgid-page" data-page="${p}">${p}</a>`);
+  }
+  const pagerHtml = groups.length > perPage
+    ? `<div class="pages pager" style="margin-top:16px">${pageLinks.join(" ")} ${pagerJump(page, totalPages)}</div>`
+    : "";
+
+  el.innerHTML = `
+    <p class="sub">${esc(t("dupFound"))}: ${groups.length} ${esc(t("dupGroups"))} · ${groups.reduce((n, g) => n + g.items.length, 0)} ${esc(t("dupItems"))}</p>
+    ${slice.map((g, i) => renderGroup(g, (page - 1) * perPage + i)).join("")}
+    ${pagerHtml}`;
+
+  renderCardCheckboxes();
+  updateXgidButtons();
+}
+
+function xgidSelectGroup(gi) {
+  const filtered = dupXgidCache ? applyCrossGidFilter(dupXgidCache) : [];
+  const group = filtered[gi];
+  if (!group) return;
+  const gids = group.items.map(it => it.gid);
+  const allSel = gids.every(gid => selXgid.has(gid));
+  const cbs = [...document.querySelectorAll(`#dupxgid-groups input[data-gi="${gi}"]`)];
+  cbs.forEach(cb => {
+    const gid = parseInt(cb.dataset.dupGid, 10);
+    if (allSel) selXgid.delete(gid); else selXgid.add(gid);
+    cb.checked = !allSel;
+  });
+  updateXgidButtons();
+}
+
+async function xgidDupAction(deleteLocal) {
+  const checkedCbs = [...document.querySelectorAll('#dupxgid-groups input[data-dup-gid]:checked')];
+  if (!checkedCbs.length) {
+    toast(t("select"));
+    return;
+  }
+  const favItems = checkedCbs
+    .filter(cb => cb.getAttribute("data-favorited") === "1")
+    .map(cb => parseInt(cb.dataset.dupGid, 10));
+
+  if (!favItems.length) {
+    toast(t("dupXgidNoFav"));
+    return;
+  }
+
+  const msg = deleteLocal ? t("confirmDupDelete") : t("confirmDupUnfav");
+  if (!window.confirm(msg + " " + favItems.length)) return;
+
+  try {
+    const r = await api("POST", "/api/favorites/remove", { gids: favItems, delete_local: deleteLocal });
+    let toastMsg = t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal"))
+      + (r.deleted_local_galleries ? " · " + t("deleted") + " " + r.deleted_local_galleries : "");
+    if (r.failed_deletions && r.failed_deletions.length) {
+      toastMsg += " · " + t("dupDeleteFail") + r.failed_deletions.length;
+      console.warn("local delete failed:", r.failed_deletions);
+    }
+    toast(toastMsg);
+    selXgid.clear();
+    await recomputeCrossGidDuplicates();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function xgidIgnoreSelected() {
+  const keys = new Set();
+  document.querySelectorAll('#dupxgid-groups input[data-dup-gid]:checked').forEach(cb => {
+    const k = cb.getAttribute("data-key");
+    if (k) keys.add(k);
+  });
+  if (!keys.size) { toast(t("select")); return; }
+  const groupsByKey = new Map((dupXgidCache || []).map(g => [g.key, g]));
+  let ok = 0;
+  for (const key of keys) {
+    const group = groupsByKey.get(key);
+    try {
+      await api("POST", "/api/favorites/duplicates/ignore", {
+        key,
+        title: group && group.items && group.items[0] ? group.items[0].title : "",
+        gids: group && group.items ? group.items.map(it => it.gid) : [],
+      });
+      ok++;
+    } catch (_) { /* keep going */ }
+  }
+  keys.forEach(k => dupXgidLocallyIgnored.add(k));
+  selXgid.clear();
+  toast(t("dupIgnoredOk") + ": " + ok);
+  renderCrossGidList();
 }

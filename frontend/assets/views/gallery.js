@@ -74,7 +74,13 @@ async function renderGallery() {
       backHref = navHash("library", {}, libraryContext());
       backLabel = t("library");
     } else {
-      backLabel = FROM_LABELS[fromView];
+      if (fromPath.startsWith("duplicates/favorites")) {
+        backLabel = t("dupFavTitle");
+      } else if (fromPath.startsWith("duplicates/cross-gid")) {
+        backLabel = t("dupXgidTitle");
+      } else {
+        backLabel = FROM_LABELS[fromView];
+      }
       const isOnlyView = FROM_LABELS[rawFrom] && !rawFrom.includes("?") && !rawFrom.includes("/");
       if (isOnlyView) {
         backHref = rawFrom === "library" ? navHash("library", {}, libraryContext()) : navHash(rawFrom);
