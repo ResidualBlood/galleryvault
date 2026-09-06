@@ -172,6 +172,7 @@ def test_cold_directory_without_ehviewer_is_scanned_and_readable(tmp_path: Path)
     assert meta.gid == 12345
     assert meta.token == "a1b2c3d4"
     assert meta.title == "Cold Title"
+    assert meta.title_jpn is None
     assert meta.uploader == "Cold Artist"
     assert meta.storage_type == "folder"
     assert len(meta.pages) == 2
@@ -188,6 +189,31 @@ def test_cold_directory_without_ehviewer_is_scanned_and_readable(tmp_path: Path)
         assert content == b"page 1 bytes"
     finally:
         stream.close()
+
+
+def test_bare_image_dir_scanner_title_jpn_handling(tmp_path: Path) -> None:
+    # 1. gid-日文 directory retains japanese title
+    jpn_dir = tmp_path / "12345-日本語タイトル"
+    jpn_dir.mkdir()
+    (jpn_dir / "0001.jpg").write_bytes(b"p1")
+    scanner = registry.for_path(jpn_dir)
+    assert isinstance(scanner, BareImageDirScanner)
+    meta = scanner.scan(jpn_dir)
+    assert meta.gid == 12345
+    assert meta.title_jpn == "日本語タイトル"
+
+    # 2. Pure digit rest or pure digit title_jpn in json is dropped
+    digit_dir = tmp_path / "67890"
+    digit_dir.mkdir()
+    (digit_dir / "0001.jpg").write_bytes(b"p1")
+    (digit_dir / ".galleryvault.json").write_text(
+        json.dumps({"gid": 67890, "title": "Real Title", "title_jpn": "67890"}),
+        encoding="utf-8",
+    )
+    meta2 = scanner.scan(digit_dir)
+    assert meta2.gid == 67890
+    assert meta2.title == "Real Title"
+    assert meta2.title_jpn is None
 
 
 def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path: Path) -> None:

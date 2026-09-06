@@ -1652,6 +1652,11 @@ def test_resolve_display_title_modes() -> None:
         assert resolve_display_title(None, None, "") == ""
         assert resolve_display_title("en", None) == "en"
         assert resolve_display_title("", "jp") == "jp"
+        assert resolve_display_title("En Title", "") == "En Title"
+        assert resolve_display_title("En Title", "4169368") == "En Title"
+        assert resolve_display_title("En Title", "123-日本語") == "日本語"
+        assert resolve_display_title("", "4169368", "123-dir") == "dir"
+        assert resolve_display_title("", "4169368", "4169368") == ""
     finally:
         app_state.settings = orig
 

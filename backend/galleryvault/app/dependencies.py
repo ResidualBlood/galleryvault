@@ -126,18 +126,24 @@ def resolve_display_title(
     """Resolve a display title according to title_display setting preference."""
     settings = get_current_settings()
     mode = (getattr(settings, "title_display", "japanese") or "japanese").lower()
-    title = title or ""
-    title_jpn = title_jpn or ""
+    t = title or ""
+    tj = title_jpn or ""
+    d = directory or ""
     if mode == "english":
-        source = title or title_jpn or directory
+        candidates = [t, tj, d]
     elif mode == "directory":
-        source = directory or title_jpn or title
+        candidates = [d, tj, t]
     else:
-        source = title_jpn or title or directory
-    if not source:
-        source = title or title_jpn or directory
-    stripped = _LEADING_NUMBER.sub("", source).lstrip("-").strip()
-    return stripped or source
+        candidates = [tj, t, d]
+
+    for cand in candidates:
+        raw = cand.strip()
+        if not raw or raw.isdigit():
+            continue
+        stripped = _LEADING_NUMBER.sub("", raw).lstrip("-").strip()
+        if stripped and not stripped.isdigit():
+            return stripped
+    return ""
 
 
 def display_title(gallery: Any) -> str:

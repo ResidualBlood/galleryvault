@@ -184,11 +184,19 @@ def build_galleryvault_json(
     token: str | None,
     tags: Sequence[dict[str, Any] | str] | None,
     p_tokens: Sequence[str] | None,
+    title: str | None = None,
+    title_jpn: str | None = None,
 ) -> bytes:
     """Generate .galleryvault.json content."""
+    clean_title = title or ""
+    clean_title_jpn = title_jpn or ""
+    if clean_title_jpn.strip().isdigit():
+        clean_title_jpn = ""
     data = {
         "gid": gid,
         "token": token or None,
+        "title": clean_title,
+        "title_jpn": clean_title_jpn,
         "tags": normalize_tags(tags),
         "p_tokens": list(p_tokens or []),
     }
@@ -356,15 +364,19 @@ def _extract_source_meta(
     gid: int | None = None,
     token: str | None = None,
     title: str | None = None,
+    title_jpn: str | None = None,
     tags: Sequence[dict[str, Any] | str] | None = None,
     p_tokens: Sequence[str] | None = None,
     stable: str | None = None,
     site: str | None = None,
-) -> tuple[int | None, str | None, str, list[dict[str, str]], list[str], str, str | None]:
+) -> tuple[int | None, str | None, str, str, list[dict[str, str]], list[str], str, str | None]:
     """Fill missing metadata from source filesystem artifacts if available."""
     current_gid = gid
     current_token = token
     current_title = title
+    current_title_jpn = title_jpn
+    if current_title_jpn and str(current_title_jpn).strip().isdigit():
+        current_title_jpn = ""
     current_tags = list(normalize_tags(tags))
     current_p_tokens = list(p_tokens or [])
     current_stable = stable
@@ -381,6 +393,12 @@ def _extract_source_meta(
                         current_gid = int(data["gid"])
                     if not current_token and data.get("token"):
                         current_token = str(data["token"])
+                    if not current_title and data.get("title"):
+                        current_title = str(data["title"])
+                    if not current_title_jpn and data.get("title_jpn"):
+                        tj = str(data["title_jpn"]).strip()
+                        if not tj.isdigit():
+                            current_title_jpn = str(data["title_jpn"])
                     if not current_tags and data.get("tags"):
                         current_tags = normalize_tags(data["tags"])
                     if not current_p_tokens and data.get("p_tokens"):
@@ -414,6 +432,12 @@ def _extract_source_meta(
                             current_gid = int(data["gid"])
                         if not current_token and data.get("token"):
                             current_token = str(data["token"])
+                        if not current_title and data.get("title"):
+                            current_title = str(data["title"])
+                        if not current_title_jpn and data.get("title_jpn"):
+                            tj = str(data["title_jpn"]).strip()
+                            if not tj.isdigit():
+                                current_title_jpn = str(data["title_jpn"])
                         if not current_tags and data.get("tags"):
                             current_tags = normalize_tags(data["tags"])
                         if not current_p_tokens and data.get("p_tokens"):
@@ -438,7 +462,19 @@ def _extract_source_meta(
     if current_gid is None and not current_stable:
         current_stable = path_hash(source)
 
-    return current_gid, current_token, current_title, current_tags, current_p_tokens, current_stable or "", current_site
+    if current_title_jpn and str(current_title_jpn).strip().isdigit():
+        current_title_jpn = ""
+
+    return (
+        current_gid,
+        current_token,
+        current_title,
+        current_title_jpn or "",
+        current_tags,
+        current_p_tokens,
+        current_stable or "",
+        current_site,
+    )
 
 
 def cold_pack_gallery(
@@ -448,6 +484,7 @@ def cold_pack_gallery(
     gid: int | None = None,
     token: str | None = None,
     title: str | None = None,
+    title_jpn: str | None = None,
     tags: Sequence[dict[str, Any] | str] | None = None,
     p_tokens: Sequence[str] | None = None,
     stable: str | None = None,
@@ -481,6 +518,7 @@ def cold_pack_gallery(
         res_gid,
         res_token,
         res_title,
+        res_title_jpn,
         res_tags,
         res_p_tokens,
         res_stable,
@@ -490,6 +528,7 @@ def cold_pack_gallery(
         gid=gid,
         token=token,
         title=title,
+        title_jpn=title_jpn,
         tags=tags,
         p_tokens=p_tokens,
         stable=stable,
@@ -561,6 +600,8 @@ def cold_pack_gallery(
         token=res_token,
         tags=res_tags,
         p_tokens=res_p_tokens,
+        title=res_title,
+        title_jpn=res_title_jpn,
     )
 
     try:
@@ -704,6 +745,7 @@ async def _do_archive_locked(
                 gid=gallery.gid,
                 token=gallery.token,
                 title=gallery.title,
+                title_jpn=getattr(gallery, "title_jpn", None),
                 tags=tags,
                 stable=gallery.path_hash,
                 site=gallery_site,

@@ -495,7 +495,11 @@ class BareImageDirScanner(GalleryScanner):
                     if extra.get("token"):
                         token = str(extra["token"])
                     title = extra.get("title") or rest
-                    title_jpn = extra.get("title_jpn")
+                    tj = extra.get("title_jpn")
+                    if tj and not str(tj).strip().isdigit():
+                        title_jpn = str(tj)
+                    else:
+                        title_jpn = None
                     gv_tags = _normalize_tags(extra.get("tags"))
                     if gv_tags:
                         tags = gv_tags
@@ -521,8 +525,11 @@ class BareImageDirScanner(GalleryScanner):
             except (ElementTree.ParseError, OSError):
                 warnings.append("invalid ComicInfo.xml")
 
-        if title_jpn is None:
-            title_jpn = rest
+        if not title_jpn:
+            if rest and not rest.strip().isdigit():
+                title_jpn = rest
+            else:
+                title_jpn = None
         pages = [
             PageInfo(
                 i,

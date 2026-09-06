@@ -114,6 +114,8 @@ def test_small_dir_packs_to_cbz_triplet_and_filters_forbidden(tmp_path: Path) ->
         gv_data = json.loads(zf.read(".galleryvault.json").decode("utf-8"))
         assert gv_data["gid"] == 12345
         assert gv_data["token"] == "tok123"
+        assert gv_data["title"] == "Test Gallery"
+        assert gv_data["title_jpn"] == ""
         assert gv_data["p_tokens"] == ["ptok1", "ptok2"]
         assert gv_data["tags"] == [
             {"namespace": "artist", "name": "alice"},
@@ -160,6 +162,45 @@ def test_large_dir_packs_to_directory_forbidding_zip(tmp_path: Path) -> None:
     assert (dest / "0002.jpg").read_bytes() == b"y" * 60
     assert (dest / "ComicInfo.xml").is_file()
     assert (dest / ".galleryvault.json").is_file()
+    gv_dir_data = json.loads((dest / ".galleryvault.json").read_text(encoding="utf-8"))
+    assert gv_dir_data["title"] == "Large One"
+    assert gv_dir_data["title_jpn"] == ""
+
+
+def test_cold_pack_gallery_title_jpn_handling(tmp_path: Path) -> None:
+    source = tmp_path / "jpn-gallery"
+    source.mkdir()
+    (source / "p1.jpg").write_bytes(b"page1")
+    cold_root = tmp_path / "cold"
+
+    # Valid title_jpn
+    dest = cold_pack_gallery(
+        source=source,
+        cold_root=cold_root,
+        gid=8888,
+        title="English Title",
+        title_jpn="日本語タイトル",
+    )
+    with zipfile.ZipFile(dest, "r") as zf:
+        gv_data = json.loads(zf.read(".galleryvault.json").decode("utf-8"))
+        assert gv_data["title"] == "English Title"
+        assert gv_data["title_jpn"] == "日本語タイトル"
+
+    # Numeric title_jpn should be converted to ""
+    source2 = tmp_path / "num-gallery"
+    source2.mkdir()
+    (source2 / "p1.jpg").write_bytes(b"page1")
+    dest2 = cold_pack_gallery(
+        source=source2,
+        cold_root=cold_root,
+        gid=9999,
+        title="English Title",
+        title_jpn="9999",
+    )
+    with zipfile.ZipFile(dest2, "r") as zf:
+        gv_data = json.loads(zf.read(".galleryvault.json").decode("utf-8"))
+        assert gv_data["title"] == "English Title"
+        assert gv_data["title_jpn"] == ""
 
 
 def test_cold_pack_gallery_page_count_boundary(tmp_path: Path) -> None:
