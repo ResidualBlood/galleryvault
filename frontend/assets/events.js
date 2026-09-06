@@ -484,7 +484,7 @@ function bindTagSuggest() {
     input.addEventListener("input", () => {
       clearTimeout(suggestTimer);
       const value = input.value.trim();
-      if (!value) { box.hidden = true; return; }
+      if (!value) { if (suggestController) { try { suggestController.abort(); } catch (_) {} suggestController = null; } box.hidden = true; return; }
       suggestTimer = setTimeout(() => loadTagSuggest(value, box, input), 200);
     });
     input.addEventListener("focus", () => {

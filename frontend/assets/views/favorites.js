@@ -375,8 +375,7 @@ async function downloadMissingFavorites() {
 }
 
 async function favListDownload(favcat) {
-  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
-    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  const selected = [...selFav];
   if (!selected.length) { toast(t("select")); return; }
   try {
     const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected });
@@ -386,8 +385,7 @@ async function favListDownload(favcat) {
 }
 
 async function favListDownloadOrig(favcat) {
-  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
-    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  const selected = [...selFav];
   if (!selected.length) { toast(t("select")); return; }
   try {
     const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected, quality: "original" });
@@ -397,8 +395,7 @@ async function favListDownloadOrig(favcat) {
 }
 
 async function favListArchive(favcat) {
-  const selected = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
-    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  const selected = [...selFav];
   if (!selected.length) { toast(t("select")); return; }
   const tier = await showArchiveDialog(selected);
   if (!tier) return;
@@ -410,8 +407,7 @@ async function favListArchive(favcat) {
 }
 
 async function favListUnfavorite(favcat) {
-  const items = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
-    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  const items = [...selFav];
   if (!items.length) { toast(t("select")); return; }
   if (!window.confirm(t("confirmFavRemove") + " " + items.length)) return;
   try {
@@ -423,8 +419,7 @@ async function favListUnfavorite(favcat) {
 }
 
 async function favListMove(favcat) {
-  const items = [...document.querySelectorAll('#fav-items [data-fav-gid]')]
-    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.favGid, 10));
+  const items = [...selFav];
   if (!items.length) { toast(t("select")); return; }
   const targetFavcat = await showMoveFavoritesDialog(items, favcat);
   if (targetFavcat == null || targetFavcat === favcat) return;

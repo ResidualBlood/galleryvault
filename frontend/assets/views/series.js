@@ -34,7 +34,7 @@ function seriesMemberCard(it) {
 
   return `<div class="gc-wrap" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}">
     <a class="gc" ${link}>
-      <div class="gc-cover"${cover ? ` style="--cover-url:url('${esc(cover)}')"` : ""}>
+      <div class="gc-cover"${cover ? ` style="--cover-url:url('${esc(cover).replace(/&#39;/g, "%27")}')"` : ""}>
         ${inner}
         ${stateBadge}
         ${cat ? `<span class="gc-cat">${cat}</span>` : ""}
