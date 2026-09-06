@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -140,6 +141,7 @@ def resolve_display_title(
         raw = cand.strip()
         if not raw or raw.isdigit():
             continue
+        raw = html.unescape(raw)
         stripped = _LEADING_NUMBER.sub("", raw).lstrip("-").strip()
         if stripped and not stripped.isdigit():
             return stripped

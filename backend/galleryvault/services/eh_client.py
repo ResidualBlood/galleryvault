@@ -1988,8 +1988,12 @@ class EhClient:
                 result[gid] = {
                     "token": gallery.get("token") or "",
                     "thumb": html.unescape(gallery.get("thumb", "") or ""),
-                    "title": gallery.get("title", "") or "",
-                    "title_jpn": gallery.get("title_jpn") or None,
+                    "title": html.unescape(gallery.get("title", "") or ""),
+                    "title_jpn": (
+                        html.unescape(gallery["title_jpn"])
+                        if gallery.get("title_jpn")
+                        else None
+                    ),
                     "category": gallery.get("category") or None,
                     "file_count": int(gallery.get("filecount") or 0),
                     "file_size": int(gallery.get("filesize") or 0) or None,

@@ -1,9 +1,23 @@
+import html
+import re
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import DownloadAttempt, DownloadTask
+
+_LEADING_NUMBER = re.compile(r"^\s*\d+[\s\-]+")
+
+
+def _clean_download_title(val: str | None) -> str | None:
+    if not val:
+        return val
+    t = html.unescape(val).strip()
+    stripped = _LEADING_NUMBER.sub("", t).lstrip("-").strip()
+    if not stripped or stripped.isdigit():
+        return t
+    return stripped
 
 
 class DownloadRepository:
@@ -27,6 +41,8 @@ class DownloadRepository:
         )
         if active:
             return None
+        title = _clean_download_title(title)
+        title_jpn = _clean_download_title(title_jpn)
         task = DownloadTask(
             gid=gid,
             token=token,
