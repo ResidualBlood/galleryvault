@@ -6,8 +6,8 @@ This document provides a comprehensive overview of GalleryVault's feature set an
 
 ## Local gallery library
 
-- **Scan** — Scans Ehviewer export directories, CBZ/CBR/7z/PDF archives, and plain image folders into a persistent, searchable PostgreSQL index. `.7z` extracts image suffixes only.
-- **Format fidelity** — `<gid>-<title>/` + `.ehviewer` (SpiderInfo V1/V2), JHenTai `metadata` JSON, and CBZ/CBR (+ ComicInfo.xml) restore full gallery identity; galleries without a gid can be browsed but take no part in downloads or dedupe.
+- **Scan** — Scans Ehviewer export directories, CBZ/CBR/7z/PDF archives, and plain image folders into a persistent, searchable PostgreSQL index. `.7z` extracts image suffixes only; bare image folders named with raw numeric GIDs no longer misassign directory names as Japanese titles.
+- **Format fidelity** — `<gid>-<title>/` + `.ehviewer` (SpiderInfo V1/V2), JHenTai `metadata` JSON, and CBZ/CBR (+ ComicInfo.xml) restore full gallery identity; cold storage archives (both CBZ packages and directories) write `title` and `title_jpn` in `.galleryvault.json` sidecars; galleries without a gid can be browsed but take no part in downloads or dedupe.
 - **Local lists / stars / notes** — Independent of EH; gid-less CBZ archives can join lists; library can filter by local list and star rating.
 - **Duplicate-copy cleanup** — When the same gid appears under several scan roots, a `duplicate_policy` (keep-stored / more pages / newer / larger / smaller / manual) keeps one copy automatically and lists every other copy on the *Duplicate copies* tab; also supports cross-GID duplicate clustering combining local galleries and cloud-only favorites via the management *cross-gid* tab.
 - **Title display** — `japanese` / `english` / `directory` settings drive the whole UI; downloaded folder names follow the independent *Download title* setting.

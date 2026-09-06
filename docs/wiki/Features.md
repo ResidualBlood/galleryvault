@@ -6,8 +6,8 @@
 
 ## 本地画廊库
 
-- **扫描入库**：扫描 Ehviewer 导出目录、CBZ/CBR/7z/PDF 与普通图片文件夹，建立持久化、可搜索的索引（PostgreSQL）。`.7z` 只解压图片后缀。
-- **格式还原**：`<gid>-<标题>/` + `.ehviewer`（SpiderInfo V1/V2）、JHenTai `metadata` JSON、CBZ/CBR（+ ComicInfo.xml）都能恢复完整画廊身份；无 gid 的画廊可浏览，但无法参与下载/查重。
+- **扫描入库**：扫描 Ehviewer 导出目录、CBZ/CBR/7z/PDF 与普通图片文件夹，建立持久化、可搜索的索引（PostgreSQL）。`.7z` 只解压图片后缀；纯数字 GID 图片目录不再误将目录名当作日文标题写入。
+- **格式还原**：`<gid>-<标题>/` + `.ehviewer`（SpiderInfo V1/V2）、JHenTai `metadata` JSON、CBZ/CBR（+ ComicInfo.xml）都能恢复完整画廊身份；冷存储归档（CBZ 与目录）生成的 `.galleryvault.json` sidecar 补充写入 `title` 与 `title_jpn` 元数据；无 gid 的画廊可浏览，但无法参与下载/查重。
 - **本地列表 / 星级 / 笔记**：不依赖 EH；无 gid 的 CBZ 也能进列表；库可按列表与本地星级筛选。
 - **重复副本清理**：同一画廊（gid）出现在多个扫描目录时，按 `duplicate_policy`（保留已入库/页数多/新/大/小或手动）自动保留一份，其余副本在「重复副本」页一键保留/删除；同时支持跨 GID 聚类查重（聚合本地画廊与云端未入库收藏，入口管理页查重 `cross-gid`）。
 - **标题显示**：`japanese` / `english` / `directory` 三档控制全站标题显示；下载目录命名由独立的「下载标题」设置决定，互不影响。

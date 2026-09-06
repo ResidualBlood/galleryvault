@@ -33,6 +33,7 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 ## Library (`#/library`)
 
 - Search by title, filter by category, sort across multiple fields, filter by reading status, and browse indexed galleries.
+- **Title Display Fallback**: When Title Display is configured to Japanese, galleries with an empty Japanese title or a numeric-only GID automatically fall back to the English title, preventing blank or raw-GID titles.
 - **Multi-criteria Sorting**: Order by **Ingest date (default)**, **Posted date**, **Title**, **Pages**, **Size**, and **Rating**, backed by dedicated database indexes for sub-second responses on large collections.
 - **Reading Status Filter**: Quickly filter by **All**, **Unread**, **Reading**, or **Completed**; the three are mutually exclusive. Unread excludes completed. Completed requires actually having read (progress > 0 and at the last page; a 1-page gallery with progress 0 is not completed).
 - **Collapsible Advanced Filters**: Secondary filters are collapsed into an expandable panel displaying an active filter count badge; expanding it reveals min/max page inputs, minimum rating (≥2 / ≥3 / ≥4 / ≥4.5), size range (MB → bytes), posted date, uploader substring, image quality (original/resample), language shortcuts (existing `language:` tags), local star rating, and local lists. These stick with sort, read status and tag filters.

@@ -15,8 +15,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Cold archive metadata sidecar title fields** (`backend/galleryvault/services/cold_archive.py`): 冷归档打包生成的 `.galleryvault.json` 补齐 `title` 与 `title_jpn` 字段（纯数字日文自动置空），对齐下载目录 manifest 元数据结构。
+
 ### Fixed
 
+- **Japanese title display fallback** (`backend/galleryvault/app/dependencies.py`): 标题显示模式为日文时，若 `title_jpn` 为空或纯数字 GID，展示层自动回退至英文 `title`，修复详情页及卡片标题显示为空白或纯数字的问题。
+- **Bare image directory scanner title parsing** (`backend/galleryvault/scanners/ehviewer.py`): 纯图片目录扫描器在缺少日文元数据时不再把纯数字 GID 目录名作为 `title_jpn` 写入数据库，仅保留合法包含标题后缀的目录名解析。
 - **Download magic header validation & redownload quality inheritance** (`backend/galleryvault/services/downloader.py`, `backend/galleryvault/app/routers/galleries.py`): 图片下载写入磁盘前严格校验 JPEG/PNG/WebP/GIF magic header，避免 HTML 错误页或空包落盘；缺页体检与断点续传发现坏图时自动重拉，重新下载正确继承画廊原有 quality 档位。
 - **Duplicate copies empty state notice** (`frontend/assets/views/duplicates.js`): 修复重复副本页无重复项时空状态提示文案。
 - 缺页体检扫描结束后写入任务历史，日志页「已完成」能看到
