@@ -23,6 +23,15 @@ Once enabled (takes effect on the next start):
 safely (e.g. a password manager) — **if the key is lost, the encrypted cookies /
 token / password hash cannot be decrypted**.
 
+## Cooperation between AUTH_SECRET and ENCRYPTION_KEY
+
+- **AUTH_SECRET**: Signs web session cookies (`galleryvault_session`) using HMAC-SHA256.
+  - **When unset in env**: The backend automatically generates a secure 32-byte random key on first launch and stores it in the `app_config` table under `runtime_auth`. On restarts, it is loaded and reused, so **user sessions survive container restarts**.
+  - **When explicitly configured in env**: The environment variable takes precedence, suited for centralized secret management.
+- **ENCRYPTION_KEY**: Master encryption key for database at-rest protection (AES-256-GCM).
+  - When `ENCRYPTION_KEY` is configured, the persisted `auth_secret` and password hash (`runtime_auth`) are encrypted as `enc:v1:...` to guard against database dumps.
+  - When `ENCRYPTION_KEY` is unset, `auth_secret` is stored in plaintext in the database, with zero side effects on normal application operations.
+
 ## Recovering from a lost key
 
 Once `ENCRYPTION_KEY` is lost, the old `enc:v1:` values cannot be decrypted

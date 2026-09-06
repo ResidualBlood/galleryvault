@@ -224,7 +224,7 @@ class Settings(BaseSettings):
             self.cold_storage_root = ""
         if not self.auth_secret:
             self.auth_secret = secrets.token_urlsafe(32)
-            logger.warning("AUTH_SECRET is missing; using a temporary process secret")
+            logger.info("AUTH_SECRET not set in env, will use DB-persisted secret or generate a new one")
 
 
 def normalize_library_roots(value: object) -> list[str]:

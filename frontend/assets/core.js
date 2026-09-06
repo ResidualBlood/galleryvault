@@ -109,7 +109,7 @@ async function refreshPause() {
 function startPausePolling() {
   if (pauseTimer) return;
   setTimeout(refreshPause, 1500);
-  pauseTimer = setInterval(refreshPause, 30 * 1000);
+  pauseTimer = setInterval(refreshPause, 300 * 1000);
 }
 
 function stopPausePolling() {
@@ -331,7 +331,7 @@ async function checkAuth() {
       }
       startCookieHealthPolling();
     }
-    // Global pause polling (30s)
+    // Global pause polling (5m)
     {
       refreshPause();
       startPausePolling();

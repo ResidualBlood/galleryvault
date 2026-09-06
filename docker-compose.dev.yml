@@ -24,6 +24,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       TZ: Asia/Shanghai
+      # Optional: Web session cookie signature secret (HMAC-SHA256).
+      # If unset, automatically persisted into DB.
+      # AUTH_SECRET: dev-secret-change-me-if-needed
     ports: ["${DEV_BACKEND_PORT:-8201}:8001"]
     volumes:
       - ./backend/galleryvault:/app/galleryvault

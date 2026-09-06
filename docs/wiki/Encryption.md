@@ -15,6 +15,15 @@
 
 **重要**：密钥必须独立于数据库妥善保管（例如密码管理器），与数据库备份分开放置——**密钥丢失后，已加密的 cookie / token / 密码哈希将无法解密**。
 
+## AUTH_SECRET 与 ENCRYPTION_KEY 协作机制
+
+- **AUTH_SECRET**：用于 Web 会话 Cookie（`galleryvault_session`）的 HMAC-SHA256 签名校验，保障客户端会话有效性。
+  - **环境变量未配置时**：后端首次启动会自动生成 32 字节高强度随机密钥，并作为 `runtime_auth` 写入数据库 `app_config` 表；后续重启时自动读取解密复用，**用户登录态不会因容器重启而失效**。
+  - **环境变量显式配置时**：优先使用环境变量中的静态密钥，适合需要统一密钥管理的运维场景。
+- **ENCRYPTION_KEY**：用于数据库中敏感字段的静态存储加密（AES-256-GCM）。
+  - 当配置了 `ENCRYPTION_KEY` 时，持久化到数据库的 `auth_secret` 以及管理员密码哈希（`runtime_auth` 表项）会自动加密存储为 `enc:v1:...` 密文，防止数据库脱裤造成密钥泄露。
+  - 当未配置 `ENCRYPTION_KEY` 时，落库的 `auth_secret` 以明文保存，系统所有业务与认证功能均正常运作，完全零副作用。
+
 ## 密钥丢失的恢复
 
 `ENCRYPTION_KEY` 丢失后，已加密的值（旧 `enc:v1:` 密文）用新密钥无法解密。cookies / bot token 可以在设置页重新填写覆盖，但 `auth_secret` 与密码哈希没有 API 可重置，必须清掉旧密文让系统重新生成：

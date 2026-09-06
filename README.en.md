@@ -30,6 +30,7 @@ docker compose up -d
    - `./cache` → `/gv-cache`: thumbnail cache.
    - `./db-data`: PostgreSQL data.
 5. Encryption is off by default. Without `ENCRYPTION_KEY`, cookies, tokens, and password hashes are stored in plaintext. To enable, uncomment that variable in compose and set a key; **a lost key cannot be recovered**. See [Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption). Database backups: [Backup](https://github.com/ResidualBlood/galleryvault/wiki/Backup-EN).
+6. Session signature and optional secret: `AUTH_SECRET` signs web session cookies. If not configured in environment variables, a secure random key is generated automatically on first startup and persisted into the database (encrypted at rest if `ENCRYPTION_KEY` is set), preserving user sessions across restarts. You can also explicitly specify it in compose.
 
 > To sync metadata or download from ExHentai, configure your account cookies in *Settings → ExHentai*; see the [Wiki Usage Guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN).
 

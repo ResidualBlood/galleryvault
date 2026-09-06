@@ -31,6 +31,10 @@ services:
       # losing it makes the encrypted values unrecoverable. Leave unset to
       # keep storing them as plaintext.
       # ENCRYPTION_KEY: change-me-to-a-long-random-string
+      # Optional: Web session cookie signature secret (HMAC-SHA256).
+      # If unset, a secure secret is automatically generated and safely stored in DB
+      # (encrypted if ENCRYPTION_KEY is configured), so user sessions survive container restarts.
+      # AUTH_SECRET: change-me-to-a-random-secret
     # The JSON API is only reachable through the frontend proxy; bind it to the
     # loopback interface so it is never exposed straight to the public network.
     ports: ["127.0.0.1:8001:8001"]

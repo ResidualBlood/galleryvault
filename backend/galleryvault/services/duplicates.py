@@ -626,21 +626,24 @@ async def scan_library_cross_gid_duplicates(
                 }
             )
 
-        all_candidates: list[Any] = list(galleries) + cloud_candidates
-        groups = find_gallery_duplicate_groups(
-            all_candidates,
-            tag_map=tag_map,
-            fav_gids=fav_gids,
-        )
+    all_candidates: list[Any] = list(galleries) + cloud_candidates
+    groups = find_gallery_duplicate_groups(
+        all_candidates,
+        tag_map=tag_map,
+        fav_gids=fav_gids,
+    )
 
+    async with session_factory() as session:
+        fav_repo = FavoritesRepository(session)
         ignored_keys = await fav_repo.ignored_duplicate_keys()
         ignored = await fav_repo.ignored_duplicates()
         ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
-        filtered_groups = [
-            g
-            for g in groups
-            if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
-        ]
+
+    filtered_groups = [
+        g
+        for g in groups
+        if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
+    ]
 
     try:
         from ..app.state import app_state

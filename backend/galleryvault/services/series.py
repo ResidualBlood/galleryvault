@@ -6,13 +6,16 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import update
+
+from ..db.models import Series
 from ..db.repositories.series import SeriesRepository
 from .duplicates import normalize_title
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from ..db.models import Gallery, Series
+    from ..db.models import Gallery
 
 logger = logging.getLogger(__name__)
 
@@ -363,7 +366,7 @@ async def rebuild_series_groups(
         return {"created": 0, "merged": 0}
 
     try:
-        async with session_factory() as session, session.begin():
+        async with session_factory() as session:
             repo = SeriesRepository(session)
             auto_series = await repo.get_auto_series()
             auto_series_ids = [s.id for s in auto_series]
@@ -421,96 +424,98 @@ async def rebuild_series_groups(
                 )
                 features[feat.key] = feat
 
-            # 阻塞（Blocking）：非空作者 / 非空 group / 精确 core
-            artist_blocks: dict[str, list[str]] = defaultdict(list)
-            group_blocks: dict[str, list[str]] = defaultdict(list)
-            core_blocks: dict[str, list[str]] = defaultdict(list)
+        # 阻塞（Blocking）：非空作者 / 非空 group / 精确 core
+        artist_blocks: dict[str, list[str]] = defaultdict(list)
+        group_blocks: dict[str, list[str]] = defaultdict(list)
+        core_blocks: dict[str, list[str]] = defaultdict(list)
 
-            for feat in features.values():
-                for a in feat.artists:
-                    if a:
-                        artist_blocks[a].append(feat.key)
-                for grp in feat.groups:
-                    if grp:
-                        group_blocks[grp].append(feat.key)
-                if feat.core and feat.core_len >= CORE_MIN_EFFECTIVE_LEN:
-                    core_blocks[feat.core].append(feat.key)
+        for feat in features.values():
+            for a in feat.artists:
+                if a:
+                    artist_blocks[a].append(feat.key)
+            for grp in feat.groups:
+                if grp:
+                    group_blocks[grp].append(feat.key)
+            if feat.core and feat.core_len >= CORE_MIN_EFFECTIVE_LEN:
+                core_blocks[feat.core].append(feat.key)
 
-            candidate_pairs: set[tuple[str, str]] = set()
-            for block in (artist_blocks, group_blocks, core_blocks):
-                for keys in block.values():
-                    if len(keys) >= 2:
-                        for i in range(len(keys)):
-                            for j in range(i + 1, len(keys)):
-                                u, v = keys[i], keys[j]
-                                if u > v:
-                                    u, v = v, u
-                                candidate_pairs.add((u, v))
+        candidate_pairs: set[tuple[str, str]] = set()
+        for block in (artist_blocks, group_blocks, core_blocks):
+            for keys in block.values():
+                if len(keys) >= 2:
+                    for i in range(len(keys)):
+                        for j in range(i + 1, len(keys)):
+                            u, v = keys[i], keys[j]
+                            if u > v:
+                                u, v = v, u
+                            candidate_pairs.add((u, v))
 
-            # 打分与并查集连边
-            uf = UnionFind(list(features.keys()))
-            for u, v in candidate_pairs:
-                _, can_edge = calculate_series_score(features[u], features[v])
-                if can_edge:
-                    uf.union(u, v)
+        # 打分与并查集连边
+        uf = UnionFind(list(features.keys()))
+        for u, v in candidate_pairs:
+            _, can_edge = calculate_series_score(features[u], features[v])
+            if can_edge:
+                uf.union(u, v)
 
-            # 簇提取（size >= 2 成组）
-            clusters_map: dict[str, list[GalleryFeatures]] = defaultdict(list)
-            for k, feat in features.items():
-                root = uf.find(k)
-                clusters_map[root].append(feat)
+        # 簇提取（size >= 2 成组）
+        clusters_map: dict[str, list[GalleryFeatures]] = defaultdict(list)
+        for k, feat in features.items():
+            root = uf.find(k)
+            clusters_map[root].append(feat)
 
-            valid_clusters = [
-                feats for feats in clusters_map.values() if len(feats) >= 2
-            ]
+        valid_clusters = [
+            feats for feats in clusters_map.values() if len(feats) >= 2
+        ]
 
-            if auto_series_ids:
-                await repo.clear_auto_series_items(auto_series_ids)
+        cluster_data = []
+        for feats in valid_clusters:
+            local_ids = {f.local_id for f in feats if f.is_local and f.local_id is not None}
+            cloud_gids = {f.gid for f in feats if not f.is_local and f.gid is not None}
+            mk = compute_cluster_match_key(feats)
+            name = determine_group_name(feats)
+            cluster_data.append(
+                {
+                    "feats": feats,
+                    "local_ids": local_ids,
+                    "cloud_gids": cloud_gids,
+                    "match_key": mk,
+                    "name": name,
+                }
+            )
 
-            cluster_data = []
-            for feats in valid_clusters:
-                local_ids = {f.local_id for f in feats if f.is_local and f.local_id is not None}
-                cloud_gids = {f.gid for f in feats if not f.is_local and f.gid is not None}
-                mk = compute_cluster_match_key(feats)
-                name = determine_group_name(feats)
-                cluster_data.append(
-                    {
-                        "feats": feats,
-                        "local_ids": local_ids,
-                        "cloud_gids": cloud_gids,
-                        "match_key": mk,
-                        "name": name,
-                    }
-                )
+        used_series_ids: set[int] = set()
+        cluster_series_map: dict[int, Series] = {}
 
-            used_series_ids: set[int] = set()
-            cluster_series_map: dict[int, Series] = {}
+        # 复用：先成员重叠（Member Overlap）
+        overlap_pairs = []
+        for c_idx, c_info in enumerate(cluster_data):
+            for s in auto_series:
+                old_local = old_series_to_gids.get(s.id, set())
+                old_cloud = old_series_to_cloud_gids.get(s.id, set())
+                overlap = len(c_info["local_ids"] & old_local) + len(c_info["cloud_gids"] & old_cloud)
+                if overlap > 0:
+                    overlap_pairs.append((overlap, c_idx, s))
 
-            # 复用：先成员重叠（Member Overlap）
-            overlap_pairs = []
-            for c_idx, c_info in enumerate(cluster_data):
-                for s in auto_series:
-                    old_local = old_series_to_gids.get(s.id, set())
-                    old_cloud = old_series_to_cloud_gids.get(s.id, set())
-                    overlap = len(c_info["local_ids"] & old_local) + len(c_info["cloud_gids"] & old_cloud)
-                    if overlap > 0:
-                        overlap_pairs.append((overlap, c_idx, s))
+        overlap_pairs.sort(key=lambda x: x[0], reverse=True)
+        for _, c_idx, s in overlap_pairs:
+            if c_idx not in cluster_series_map and s.id not in used_series_ids:
+                cluster_series_map[c_idx] = s
+                used_series_ids.add(s.id)
 
-            overlap_pairs.sort(key=lambda x: x[0], reverse=True)
-            for _, c_idx, s in overlap_pairs:
-                if c_idx not in cluster_series_map and s.id not in used_series_ids:
+        # 复用：后 match_key
+        for c_idx, c_info in enumerate(cluster_data):
+            if c_idx in cluster_series_map:
+                continue
+            for s in auto_series:
+                if s.id not in used_series_ids and s.match_key == c_info["match_key"]:
                     cluster_series_map[c_idx] = s
                     used_series_ids.add(s.id)
+                    break
 
-            # 复用：后 match_key
-            for c_idx, c_info in enumerate(cluster_data):
-                if c_idx in cluster_series_map:
-                    continue
-                for s in auto_series:
-                    if s.id not in used_series_ids and s.match_key == c_info["match_key"]:
-                        cluster_series_map[c_idx] = s
-                        used_series_ids.add(s.id)
-                        break
+        async with session_factory() as session, session.begin():
+            repo = SeriesRepository(session)
+            if auto_series_ids:
+                await repo.clear_auto_series_items(auto_series_ids)
 
             created_count = 0
             merged_count = 0
@@ -528,20 +533,31 @@ async def rebuild_series_groups(
                 if c_idx in cluster_series_map:
                     target_series = cluster_series_map[c_idx]
                     target_series.match_key = mk
+                    target_series_id = target_series.id
                     if not target_series.name_manual:
                         target_series.name = c_info["name"]
+                    if hasattr(session, "execute"):
+                        update_vals: dict[str, Any] = {"match_key": mk}
+                        if not target_series.name_manual:
+                            update_vals["name"] = c_info["name"]
+                        await session.execute(
+                            update(Series)
+                            .where(Series.id == target_series_id)
+                            .values(**update_vals)
+                        )
                 else:
                     target_series = await repo.create(
                         name=c_info["name"], match_key=mk, name_manual=False
                     )
+                    target_series_id = target_series.id
                     cluster_series_map[c_idx] = target_series
-                    used_series_ids.add(target_series.id)
+                    used_series_ids.add(target_series_id)
                     created_count += 1
 
                 local_list = [f.local_id for f in c_info["feats"] if f.is_local and f.local_id is not None]
                 if local_list:
-                    await repo.add_items(target_series.id, local_list, source="auto")
-                series_excls = cloud_exclusions.get(target_series.id, set())
+                    await repo.add_items(target_series_id, local_list, source="auto")
+                series_excls = cloud_exclusions.get(target_series_id, set())
                 cloud_list = [
                     f.gid
                     for f in c_info["feats"]
@@ -550,7 +566,7 @@ async def rebuild_series_groups(
                 if cloud_list:
                     add_cloud = getattr(repo, "add_cloud_items", None)
                     if add_cloud is not None:
-                        await add_cloud(target_series.id, cloud_list)
+                        await add_cloud(target_series_id, cloud_list)
                 merged_count += len(local_list) + len(cloud_list)
 
             # 同一 gid 只留本地：有 galleries.gid 只写 series_items，并删对应 series_cloud_items
@@ -565,6 +581,12 @@ async def rebuild_series_groups(
                         await repo.delete_series(s.id)
                     else:
                         s.match_key = None
+                        if hasattr(session, "execute"):
+                            await session.execute(
+                                update(Series)
+                                .where(Series.id == s.id)
+                                .values(match_key=None)
+                            )
 
             logger.info(
                 "series rebuild complete",

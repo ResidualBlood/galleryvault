@@ -30,6 +30,7 @@ docker compose up -d
    - `./cache` → `/gv-cache`：缩略图缓存。
    - `./db-data`：PostgreSQL 数据。
 5. 加密默认关闭。未设置 `ENCRYPTION_KEY` 时，cookie / token / 密码哈希明文入库。需要加密时在 compose 里取消注释该变量并填入密钥；**钥匙丢失不可恢复**。详见 [静态加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。数据库备份见 [备份与恢复](https://github.com/ResidualBlood/galleryvault/wiki/Backup)。
+6. 会话签名与可选密钥：`AUTH_SECRET` 用于 Web Cookie 签名。若未在环境变量中设置，系统会在首次启动时自动生成安全随机密钥并持久化至数据库（启用 `ENCRYPTION_KEY` 时自动加密落库），容器重启后保持登录态。若偏好通过环境变量统一管理凭据，可在 compose 中显式配置。
 
 > 如需与 ExHentai 同步元数据或下载画廊，请在「设置 → ExHentai」配置账户 Cookie；获取与配置说明见 [Wiki 使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)。
 
