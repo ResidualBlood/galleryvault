@@ -9,7 +9,7 @@ This document provides a comprehensive overview of GalleryVault's feature set an
 - **Scan** — Scans Ehviewer export directories, CBZ/CBR/7z/PDF archives, and plain image folders into a persistent, searchable PostgreSQL index. `.7z` extracts image suffixes only.
 - **Format fidelity** — `<gid>-<title>/` + `.ehviewer` (SpiderInfo V1/V2), JHenTai `metadata` JSON, and CBZ/CBR (+ ComicInfo.xml) restore full gallery identity; galleries without a gid can be browsed but take no part in downloads or dedupe.
 - **Local lists / stars / notes** — Independent of EH; gid-less CBZ archives can join lists; library can filter by local list and star rating.
-- **Duplicate-copy cleanup** — When the same gid appears under several scan roots, a `duplicate_policy` (keep-stored / more pages / newer / larger / smaller / manual) keeps one copy automatically and lists every other copy on the *Duplicate copies* page.
+- **Duplicate-copy cleanup** — When the same gid appears under several scan roots, a `duplicate_policy` (keep-stored / more pages / newer / larger / smaller / manual) keeps one copy automatically and lists every other copy on the *Duplicate copies* tab; also supports cross-GID duplicate clustering combining local galleries and cloud-only favorites via the management *cross-gid* tab.
 - **Title display** — `japanese` / `english` / `directory` settings drive the whole UI; downloaded folder names follow the independent *Download title* setting.
 
 ## Search & tags
@@ -45,7 +45,7 @@ This document provides a comprehensive overview of GalleryVault's feature set an
 
 - **Reader** — One-page streaming, LTR / RTL manga / double-page / **webtoon**, keyboard/space/click paging, `G` to jump, three-page preload, auto-advance after the last page, fullscreen and fit modes, saved reading position.
 - **Browse & history** — Newest-gallery browse, **Continue reading**, top-bar search, reading history, activity log, first-run wizard.
-- **Recycle bin & missing pages** — User-deleted / scan-missing galleries are restorable; integrity check re-downloads missing pages.
+- **Recycle bin & missing pages** — User-deleted / scan-missing galleries are restorable; integrity check uses a split scan-and-repair workflow without auto-scanning on page entry, triggering background audits on demand and re-downloading missing pages.
 - **PWA / light theme / CBZ export / OPDS** — Add to home screen caches UI shell only; detail page can export CBZ (requires session cookie); OPDS (`GET /api/opds`) supports HTTP Basic authentication (username `galleryvault`, password is web login password; failed attempts return 401 with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`; Cookie remains supported). Other `/api/*` routes (including CBZ export) remain cookie-only.
 
 ## Security & operations

@@ -2,15 +2,14 @@
 
 > [中文](Manage) · English | Part of the [Usage Guide](Usage-EN) series
 
-This guide covers GalleryVault's maintenance tools, including duplicate copy resolution, the recycle bin, missing page integrity checks, and runtime diagnostic logs.
+This guide covers GalleryVault's maintenance tools, including deduplication (three tabs: duplicate copies, favorite duplicates, cross-GID duplicates), the recycle bin, missing page and corrupt image integrity checks, and runtime diagnostic logs.
 
-## Duplicate Copies (`#/duplicates`)
+## Duplicate Copies & Deduplication (`#/duplicates`)
 
-- Accessible via the "Management" tab bar in desktop navigation (legacy hash `#/duplicates` remains directly usable). When the same gallery (same gid) exists under **more than one scan root** (an EhViewer download directory, a CBZ archive, a manual copy), the scan keeps one copy automatically per the **duplicate-copy policy** (`duplicate_policy` in Settings) and records every other copy on this page.
-- Policies: `keep_first` (default — the already-stored copy wins), `prefer_more_pages`, `prefer_newer`, `prefer_larger`, `prefer_smaller`, `manual` (never auto-resolve — everything is listed for manual review).
-- Each duplicate group shows every copy with a cover thumbnail, tags, page count, size and posted date; the copy the index currently points at carries a *current* badge.
-- Actions: **Keep this copy** (re-point the index at it), **Keep & delete others** (delete the other copies' files from disk — paths are restricted to the scan roots), **Dismiss group** (hide it; restorable).
-- The **Scan library** button triggers an immediate scan and refreshes the list upon completion (shows a paused notice when globally paused instead of starting a scan); pill filters for All / Pending / Dismissed display active highlights; dismissed groups stay hidden until the on-disk copies actually change.
+- Accessible via "Management" → "Duplicates" in desktop navigation (legacy hash `#/duplicates` remains directly usable, defaulting to the "Duplicate copies" tab). The view provides three sub-tabs with dedicated direct links:
+  - **Duplicate copies** (`#/duplicates?tab=copies`): When the same gallery (same gid) exists under **more than one scan root** (an EhViewer download directory, a CBZ archive, a manual copy), the scan keeps one copy automatically per the **duplicate-copy policy** (`duplicate_policy` in Settings) and records every other copy on this tab. Policies: `keep_first` (default — the already-stored copy wins), `prefer_more_pages`, `prefer_newer`, `prefer_larger` / `prefer_smaller`, `manual` (never auto-resolve — everything is listed for manual review). Each duplicate group shows every copy with a cover thumbnail, tags, page count, size and posted date (a *current* badge marks the active copy). Actions: **Keep this copy** (re-point the index at it), **Keep & delete others** (delete other copies' files from disk — paths restricted to scan roots), **Dismiss group** (hide it; restorable). The **Scan library** button triggers an immediate scan and refreshes the list upon completion (shows a paused notice when globally paused instead of starting a scan); pill filters for All / Pending / Dismissed display active highlights.
+  - **Favorite duplicates** (`#/duplicates?tab=favorites`): Groups different re-uploaded versions of the same title within ExHentai favorite folders (normalized title + artist match); supports bulk unfavoriting, unfavoriting while deleting local copies, or ignoring groups. See the [Favorites](Favorites-EN) guide for details.
+  - **Cross-GID duplicates** (`#/duplicates?tab=cross-gid`): Aggregates local library galleries with ExHentai cloud-only favorites across different GIDs (stripping event prefixes and normalizing titles and artists); cards display category, page count, and cover thumbnail; supports selecting items to bulk unfavorite, dismiss false positives, or delete downloaded local copies. Duplicates are clustered asynchronously after library scans and stored in an in-memory cache for sub-second page loads, with a manual "Refresh" button available.
 
 ## Recycle Bin (`#/recycle`)
 
@@ -18,10 +17,12 @@ This guide covers GalleryVault's maintenance tools, including duplicate copy res
 - **Restore** puts galleries back in the library (user-deleted only; scan-missing ghosts are not restored into the library); **Purge** asks again whether to delete files on disk (purged-with-files will not be re-ingested on scan).
 - Galleries in the recycle bin are **not** treated as “newer version already local” and will not trigger a hard-delete of the old copy.
 
-## Missing Pages (`#/integrity`)
+## Missing Pages & Integrity (`#/integrity`)
 
-- Accessible via the "Management" tab bar in desktop navigation (legacy hash `#/integrity` remains directly usable). Lists galleries whose recorded `page_count` disagrees with pages on disk (unset page counts are excluded).
-- **Repair / re-download** only fetches the missing pages.
+- Accessible via the "Management" tab bar in desktop navigation (legacy hash `#/integrity` remains directly usable). Lists galleries whose recorded `page_count` disagrees with pages on disk, or that contain corrupt image files (unset page counts are excluded). Entering the page does **not** trigger an automatic full scan, keeping large libraries responsive.
+- Split scan and repair workflow:
+  - **Scan missing & corrupt pages** (`POST /api/galleries/integrity/scan`): Triggers a background scan task checking image magic headers (JPEG/PNG/WebP/GIF header validation) and 4-digit / 8-digit zero padding with ~30 concurrency; records execution duration and summary into task history (`#/logs`); skips scan when globally paused.
+  - **Repair / re-download**: Select problematic galleries to re-download only missing and corrupt pages (inheriting original quality tier).
 
 ## Logs (`#/logs`)
 

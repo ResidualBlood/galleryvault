@@ -239,6 +239,8 @@ tier, the rest download page-by-page.
 | DELETE | `/api/galleries/{identifier}/progress` | Clear reading progress and that gallery's history row (`204`). Removes it from Continue Reading / History. |
 | DELETE | `/api/galleries/progress` | Clear / reset reading progress for all galleries (`204`). |
 | POST | `/api/galleries/{identifier}/sync-tags` | Sync tags from ExHentai. |
+| GET | `/api/galleries/integrity` | Paged list of galleries with integrity issues (`page`, `page_size` ≤ 500). Does not trigger a scan. Returns `{total, page, page_size, magic_scan, items: [{id, gid, title, page_count, actual_pages, file_count, cover_url, storage_path, tags}]}` where `magic_scan` contains `{running, started_at, completed_at, scanned, total, corrupt}`. |
+| POST | `/api/galleries/integrity/scan` | `202` – trigger background file integrity magic header scan (JPEG/PNG/WebP/GIF magic header and 4/8-digit zero padding). If globally paused, returns `200 {"status": "paused", "detail": "Global paused: integrity scan is disabled"}` without spawning. If already running, avoids duplicate spawn. Returns current `magic_scan` summary (`running`, `started_at`, `completed_at`, `scanned`, `total`, `corrupt`). |
 
 Example:
 
@@ -290,6 +292,8 @@ refresh is available via the button in Settings. Markdown icon syntax
 | POST | `/api/scan/duplicates/{gid}/dismiss` | Hide a duplicate group (survives rescans until the copies actually change). |
 | POST | `/api/scan/duplicates/{gid}/restore` | Bring a dismissed group back. |
 | GET | `/api/scan/duplicates/thumb/{key}` | Lazily-generated JPEG cover thumbnail for one copy (cached under `/gv-cache/thumbs/dup/{key}/0.jpg`). Invalid keys (`..`, slashes, or absolute paths) return `404`. |
+| GET | `/api/library/duplicates/cross-gid` | Cached cross-GID duplicate clusters grouped by normalized title and artist. Returns `{ready: bool, count: int, groups: [{key, artist, items: [{gid, token, title, title_jpn, display_title, gallery_id, storage_path, cover_url, ...}]}]}`. Groups combine both local galleries and cloud-only favorite entries with tags, category, and page count. |
+| POST | `/api/library/duplicates/cross-gid/refresh` | Trigger an immediate background re-clustering of cross-GID duplicate candidates and return refreshed results. (Note: ignoring a cross-GID group reuses `POST /api/favorites/duplicates/ignore`). |
 | GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
 | POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. |
 | POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |

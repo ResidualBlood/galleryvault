@@ -699,6 +699,26 @@
         }
       }
     },
+    "/api/galleries/integrity/scan": {
+      "post": {
+        "summary": "Trigger Integrity Scan",
+        "operationId": "trigger_integrity_scan_api_galleries_integrity_scan_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Trigger Integrity Scan Api Galleries Integrity Scan Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/galleries/restore": {
       "post": {
         "summary": "Restore Galleries",
@@ -3971,7 +3991,7 @@
     "/api/tag-sync/refresh-categories": {
       "post": {
         "summary": "Trigger Category Refresh",
-        "description": "Start a one-time \u5927\u5206\u7c7b backfill for galleries stuck in ``other``.",
+        "description": "Start a one-time 大分类 backfill for galleries stuck in ``other``.",
         "operationId": "trigger_category_refresh_api_tag_sync_refresh_categories_post",
         "responses": {
           "202": {
@@ -4238,6 +4258,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/duplicates/cross-gid": {
+      "get": {
+        "summary": "Get Cross Gid Duplicates",
+        "operationId": "get_cross_gid_duplicates_api_library_duplicates_cross_gid_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Cross Gid Duplicates Api Library Duplicates Cross Gid Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/duplicates/cross-gid/refresh": {
+      "post": {
+        "summary": "Refresh Cross Gid Duplicates",
+        "operationId": "refresh_cross_gid_duplicates_api_library_duplicates_cross_gid_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Refresh Cross Gid Duplicates Api Library Duplicates Cross Gid Refresh Post"
                 }
               }
             }

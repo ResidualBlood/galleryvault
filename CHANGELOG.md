@@ -8,10 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Cross-GID duplicate cluster tabs** (`backend/galleryvault/app/routers/duplicates.py`, `backend/galleryvault/services/duplicates.py`, `frontend/assets/views/duplicates.js`): 管理页查重支持三子标签（`copies` / `favorites` / `cross-gid`），跨 GID 查重聚合本地与云端未入库收藏，展示分类、页数与封面缩略图，支持勾选、取消收藏、忽略与删除已下载副本。
+- **Cross-GID duplicate background cache & prefix stripping** (`backend/galleryvault/services/duplicates.py`, `backend/galleryvault/services/scan_worker.py`, `backend/galleryvault/app/routers/duplicates.py`): 资料库扫描完成后后台异步聚类跨 GID 重复项并写入内存缓存；聚类算法支持循环剥离活动/展会前缀与标题规范化，提供即时查询与手动刷新端点。
+- **Cold storage archive 500-page cap & ZipFile LRU cache** (`backend/galleryvault/scanners/archive.py`, `backend/galleryvault/services/cold_archive.py`): 冷库归档 CBZ 生成增加单卷 500 页上限（与 2GiB 限制取 AND），超限自动切卷；阅读器与缩略图加载归档 CBZ 复用 ZipFile LRU 缓存避免频繁重复打开文件句柄。
+- **Split missing page scan & repair with background magic scan** (`backend/galleryvault/app/routers/galleries.py`, `backend/galleryvault/services/integrity_worker.py`, `frontend/assets/views/integrity.js`): 缺页体检将「扫描」与「修复」拆分为独立操作，进入页面不再自动全盘扫描；提供「扫描缺页与坏图」后台任务，限并发校验图片 magic header 与 4/8 位补零命名，扫描结束写入任务历史日志。
+
 ### Changed
 
 ### Fixed
 
+- **Download magic header validation & redownload quality inheritance** (`backend/galleryvault/services/downloader.py`, `backend/galleryvault/app/routers/galleries.py`): 图片下载写入磁盘前严格校验 JPEG/PNG/WebP/GIF magic header，避免 HTML 错误页或空包落盘；缺页体检与断点续传发现坏图时自动重拉，重新下载正确继承画廊原有 quality 档位。
+- **Duplicate copies empty state notice** (`frontend/assets/views/duplicates.js`): 修复重复副本页无重复项时空状态提示文案。
 - 缺页体检扫描结束后写入任务历史，日志页「已完成」能看到
 - 缺页体检识别 GIF 魔数，避免整本 GIF/尾页 GIF 误报
 - 缺页体检 8 位文件名找不到时回退 4 位，避免归档命名误报
