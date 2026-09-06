@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Favorite duplicates & gallery grid rendering fixes** (`frontend/assets/views/favorites.js`, `frontend/assets/views/gallery.js`, `backend/galleryvault/services/favorites.py`, `backend/galleryvault/services/duplicates.py`): 修复收藏夹查重按钮反馈与切页状态持久化，对齐 posted_at 避免多余 gdata 请求；修复画廊库向下滚动留白 4 个卡槽；跨 GID 查重任务补充并发锁。
+
 ## [1.8.3] - 2026-09-06
 
 ### Added
