@@ -434,7 +434,32 @@ def find_gallery_duplicate_groups(
         file_size = (
             getattr(g, "file_size", None) if not isinstance(g, dict) else g.get("file_size")
         )
-        pages = getattr(g, "pages", None) if not isinstance(g, dict) else g.get("pages")
+        pages = (
+            getattr(g, "pages", None)
+            or getattr(g, "page_count", None)
+            or getattr(g, "file_count", None)
+            if not isinstance(g, dict)
+            else (g.get("pages") or g.get("page_count") or g.get("file_count"))
+        )
+        if not isinstance(pages, int) or isinstance(pages, bool):
+            pages = None
+
+        category = (
+            getattr(g, "category", None)
+            if not isinstance(g, dict)
+            else g.get("category")
+        )
+        if not isinstance(category, str) or not category.strip():
+            category = None
+
+        favcat = (
+            getattr(g, "favcat", None)
+            if not isinstance(g, dict)
+            else g.get("favcat")
+        )
+        if not isinstance(favcat, int) or isinstance(favcat, bool):
+            favcat = None
+
         storage_path = (
             getattr(g, "storage_path", None)
             if not isinstance(g, dict)
@@ -506,6 +531,8 @@ def find_gallery_duplicate_groups(
             "token": token,
             "thumb": thumb,
             "favorited": favorited,
+            "category": category,
+            "favcat": favcat,
         }
 
         candidates.append(
@@ -573,6 +600,8 @@ async def scan_library_cross_gid_duplicates(
             title = f.title.strip() if f.title else ""
             if not title:
                 continue
+            cloud_category = getattr(f, "category", None)
+            cloud_favcat = getattr(f, "favcat", None)
             cloud_candidates.append(
                 {
                     "gallery_id": None,
@@ -584,6 +613,16 @@ async def scan_library_cross_gid_duplicates(
                     "file_size": f.file_size,
                     "thumb": f.thumb,
                     "favorited": True,
+                    "category": (
+                        cloud_category
+                        if isinstance(cloud_category, str) and cloud_category.strip()
+                        else None
+                    ),
+                    "favcat": (
+                        cloud_favcat
+                        if isinstance(cloud_favcat, int) and not isinstance(cloud_favcat, bool)
+                        else None
+                    ),
                 }
             )
 

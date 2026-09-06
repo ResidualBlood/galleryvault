@@ -498,6 +498,9 @@ function renderCrossGidList() {
           const thumbHtml = thumbSrc
             ? `<img class="dup-thumb" loading="lazy" src="${thumbSrc}" alt="">`
             : `<span class="dup-thumb dup-thumb-empty"></span>`;
+          const catText = it.category
+            ? catLabel(it.category)
+            : (it.favcat != null ? `#${it.favcat}${favCatNames[it.favcat] ? " " + favCatNames[it.favcat] : ""}` : "");
           return `
             <div class="dup-row">
               <label class="checkbox"><input type="checkbox" data-dup-gid="${it.gid}" data-key="${esc(g.key)}" data-favorited="${it.favorited ? "1" : "0"}" data-gi="${gi}" data-ii="${ii}"${selXgid.has(it.gid) ? " checked" : ""}>
@@ -507,6 +510,7 @@ function renderCrossGidList() {
                   <span class="dup-meta">
                     ${badgeHtml}
                     <span class="badge">#${it.gid}</span>
+                    ${catText ? `<span class="badge">${esc(catText)}</span>` : ""}
                     ${it.pages ? `<span class="badge">${it.pages} P</span>` : ""}
                     ${it.file_size ? `<span class="badge">${fmtSize(it.file_size)}</span>` : ""}
                     ${it.storage_type ? `<span class="badge">${esc(storageLabel(it.storage_type))}</span>` : ""}

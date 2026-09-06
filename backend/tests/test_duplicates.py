@@ -614,3 +614,38 @@ async def test_scan_library_cross_gid_duplicates_filter_ignored(monkeypatch):
     assert all(g["key"] != "david|magicquest" for g in groups)
     assert len(groups) == 0
 
+
+def test_cross_gid_duplicate_item_category_and_pages():
+    """验证跨GID重复项的 item_dict 正确携带 category、favcat 以及由 page_count/pages 转换的 pages."""
+    candidates = [
+        {
+            "id": 101,
+            "gid": 5001,
+            "title": "[Author] Duplicate Test Work Vol.1",
+            "category": "Manga",
+            "page_count": 42,
+        },
+        {
+            "gallery_id": None,
+            "gid": 5002,
+            "title": "[Author] Duplicate Test Work Vol.1 [Digital]",
+            "favcat": 2,
+            "url": "https://exhentai.org/g/5002/tok5002",
+        },
+    ]
+    groups = find_gallery_duplicate_groups(candidates)
+    assert len(groups) == 1
+    items = groups[0]["items"]
+    assert len(items) == 2
+
+    local_item = next(it for it in items if it["gid"] == 5001)
+    assert local_item["category"] == "Manga"
+    assert local_item["pages"] == 42
+    assert local_item["favcat"] is None
+
+    cloud_item = next(it for it in items if it["gid"] == 5002)
+    assert cloud_item["category"] is None
+    assert cloud_item["favcat"] == 2
+    assert cloud_item["pages"] is None
+
+
