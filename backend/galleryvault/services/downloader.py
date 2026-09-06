@@ -189,13 +189,18 @@ def _is_valid_image_magic(data: bytes) -> bool:
     return window.startswith(IMAGE_MAGIC_PREFIXES)
 
 
-def _existing_page_file(directory: Path, index: int) -> Path | None:
+def _existing_page_file(
+    directory: Path, index: int, quality: str | None = None
+) -> Path | None:
     """Return the already-downloaded page file for ``index`` (0-based) if present."""
     try:
         matches = list(directory.glob(f"{index + 1:08d}.*"))
     except OSError:
         return None
+    is_original = (quality or "").lower() == "original"
     for candidate in matches:
+        if is_original and candidate.suffix.casefold() == ".webp":
+            continue
         try:
             if candidate.is_file() and candidate.stat().st_size > 0:
                 with candidate.open("rb") as f:
@@ -418,9 +423,9 @@ class Downloader:
             # Resume support (Ehviewer / SXJ style): pages already on disk in the
             # temp dir OR the final target dir are skipped, so a retry only
             # fetches the pages that failed or were never written.
-            existing = _existing_page_file(temp, index)
+            existing = _existing_page_file(temp, index, quality)
             if existing is None:
-                existing = _existing_page_file(target, index)
+                existing = _existing_page_file(target, index, quality)
                 if existing is not None:
                     # Keep the page for the final atomic merge: copy the
                     # already-downloaded file into the temp dir.

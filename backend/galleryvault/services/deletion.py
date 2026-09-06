@@ -113,6 +113,71 @@ def prune_merged_stale_pages(path: Path, new_files: tuple[str, ...] = ()) -> int
     return removed
 
 
+_COLLAPSE_ORIGINAL_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".avif"}
+
+
+def collapse_same_stem_pages(path: Path) -> int:
+    """Collapse same-stem image variants in a gallery directory.
+
+    Keeps the first non-empty original format (.jpg/.jpeg/.png/.gif/.avif), or
+    the largest file if no original format is valid, unlinking any duplicates.
+    """
+    if not path.is_dir():
+        return 0
+
+    by_stem: dict[str, list[Path]] = {}
+    for item in path.iterdir():
+        if (
+            item.is_file()
+            and not item.name.startswith(".")
+            and item.suffix.casefold() in IMAGE_EXTENSIONS
+        ):
+            by_stem.setdefault(item.stem, []).append(item)
+
+    removed = 0
+    for siblings in by_stem.values():
+        if len(siblings) < 2:
+            continue
+        sorted_sibs = sorted(siblings, key=lambda p: p.name)
+        keeper: Path | None = None
+        for sib in sorted_sibs:
+            try:
+                if sib.suffix.casefold() in _COLLAPSE_ORIGINAL_SUFFIXES and sib.stat().st_size > 0:
+                    keeper = sib
+                    break
+            except OSError:
+                continue
+
+        if keeper is None:
+            def _file_size(p: Path) -> int:
+                try:
+                    return p.stat().st_size
+                except OSError:
+                    return -1
+
+            keeper = max(sorted_sibs, key=_file_size)
+
+        for stale in sorted_sibs:
+            if stale == keeper:
+                continue
+            in_dl = _is_in_download_root(stale)
+            stale_sz = safe_stat_size(stale) if in_dl else 0
+            try:
+                stale.unlink()
+                if stale_sz > 0:
+                    storage_tracker.record_download_delta(-stale_sz)
+                removed += 1
+            except OSError:
+                pass
+
+    if removed:
+        logger.info(
+            "collapsed same-stem duplicate pages",
+            extra=log_extra(path=str(path), removed=removed),
+        )
+    return removed
+
+
 def _scan_roots_default() -> list[str]:
     from ..app.dependencies import get_scan_roots
 

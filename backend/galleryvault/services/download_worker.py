@@ -21,7 +21,11 @@ from ..logging import bind_log_context, log_extra
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
 from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key
-from .deletion import prune_merged_stale_pages, remove_superseded_copy
+from .deletion import (
+    collapse_same_stem_pages,
+    prune_merged_stale_pages,
+    remove_superseded_copy,
+)
 from .downloader import (
     ArchiveNotRetryableError,
     DownloadCancelledError,
@@ -75,6 +79,7 @@ async def ingest_downloaded_gallery(result: Any) -> None:
             await asyncio.to_thread(
                 prune_merged_stale_pages, path, getattr(result, "new_files", ())
             )
+        await asyncio.to_thread(collapse_same_stem_pages, path)
 
         files = sorted(
             (

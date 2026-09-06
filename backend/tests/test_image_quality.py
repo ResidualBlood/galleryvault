@@ -295,10 +295,10 @@ async def test_ingest_downloaded_gallery_prunes_merged_stale_pages(
     assert ingested[0].image_quality == "original"
 
 
-async def test_ingest_downloaded_gallery_keeps_stale_for_resample(
+async def test_ingest_downloaded_gallery_collapses_same_stem_for_resample(
     tmp_path, monkeypatch
 ):
-    """A resample download must not prune same-stem files (no upgrade)."""
+    """When legal original exists, resample ingest keeps original and folds away webp."""
     merged = tmp_path / "merged"
     merged.mkdir()
     a = merged / "00000001.jpg"
@@ -323,16 +323,60 @@ async def test_ingest_downloaded_gallery_keeps_stale_for_resample(
 
     result = SimpleNamespace(
         gid=7, path=str(merged), title="T", title_jpn=None, token="tok",
-        category="misc", quality="resample", pages=2, tags=[],
-        new_files=("00000001.jpg",),
+        category="misc", quality="resample", pages=1, tags=[],
+        new_files=(),
     )
     try:
         await ingest_downloaded_gallery(result)
     finally:
         app_state.session_factory = orig_factory
 
-    assert a.exists() and b.exists()
-    assert len(ingested) == 1 and len(ingested[0].pages) == 2
+    assert a.exists() and not b.exists()
+    assert len(ingested) == 1 and len(ingested[0].pages) == 1
+
+
+async def test_ingest_downloaded_gallery_collapses_double_format_on_original_repair(
+    tmp_path, monkeypatch
+):
+    """Gallery 9359 scenario: 34 jpg + 34 webp on original repair (or all-skipped).
+    After collapse, exactly 34 files remain (all jpg), and page_count=34."""
+    gallery_dir = tmp_path / "2586458-art"
+    gallery_dir.mkdir()
+    for i in range(1, 35):
+        (gallery_dir / f"{i:08d}.jpg").write_bytes(b"original-jpg")
+        (gallery_dir / f"{i:08d}.webp").write_bytes(b"stale-webp")
+
+    session = _FakeSession(None)
+    ingested: list[GalleryMeta] = []
+
+    class _FakeIngest:
+        def __init__(self, _session):
+            pass
+
+        async def ingest(self, galleries):
+            ingested.extend(galleries)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: session
+    monkeypatch.setattr(download_worker, "GalleryIngestService", _FakeIngest)
+    monkeypatch.setattr(download_worker, "registry", SimpleNamespace(for_path=lambda p: _FakeScanner()))
+
+    # Repair with original quality and all pages already existing (new_files=())
+    result = SimpleNamespace(
+        gid=2586458, path=str(gallery_dir), title="GSUS", title_jpn=None, token="tok",
+        category="misc", quality="original", pages=34, tags=[],
+        new_files=(),
+    )
+    try:
+        await ingest_downloaded_gallery(result)
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert len(ingested) == 1
+    assert len(ingested[0].pages) == 34
+    assert ingested[0].file_count == 34
+    assert all(p.name.endswith(".jpg") for p in ingested[0].pages)
+    assert not list(gallery_dir.glob("*.webp"))
 
 
 # --- detail endpoint --------------------------------------------------------
