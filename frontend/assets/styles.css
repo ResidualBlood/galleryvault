@@ -356,7 +356,6 @@ button:disabled { opacity: .5; cursor: default; }
 
 /* nhentai-style gallery cards */
 .gc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-top: 16px; }
-.inf-page { display: contents; }
 .inf-page-placeholder { grid-column: 1 / -1; }
 .gc {
   display: flex; flex-direction: column; background: transparent; border: 0;

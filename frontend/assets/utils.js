@@ -8,46 +8,87 @@ function nsClass(ns) {
 }
 
 let pageRecycleObserver = null;
+const pageHtmlCache = new Map();
 
 function recycleOffscreenPages(grid) {
   if (!pageRecycleObserver) {
     pageRecycleObserver = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
-        const pageEl = entry.target;
-        if (!pageEl.classList.contains("inf-page")) return;
+        const target = entry.target;
         if (!entry.isIntersecting) {
-          if (!pageEl._isRecycled && pageEl.innerHTML) {
-            let h = pageEl.offsetHeight;
-            if (h === 0 && pageEl.children.length > 0) {
-              const first = pageEl.firstElementChild;
-              const last = pageEl.lastElementChild;
-              if (first && last) {
-                h = Math.round(last.getBoundingClientRect().bottom - first.getBoundingClientRect().top);
-              }
+          if (target.classList.contains("page-head")) {
+            const page = target.dataset.page;
+            if (!page) return;
+            const parent = target.parentNode;
+            if (!parent) return;
+            const cards = Array.from(parent.querySelectorAll(`[data-page-owner="${page}"]`));
+            if (cards.length === 0) return;
+
+            const first = cards[0];
+            const last = cards[cards.length - 1];
+            let h = 0;
+            if (first && last) {
+              const rFirst = first.getBoundingClientRect();
+              const rLast = last.getBoundingClientRect();
+              h = Math.round(rLast.bottom - rFirst.top);
             }
-            if (h > 0) {
-              pageEl._savedHtml = pageEl.innerHTML;
-              pageEl._isRecycled = true;
-              pageEl.style.minHeight = `${h}px`;
-              pageEl.innerHTML = `<div class="inf-page-placeholder" style="height:${h}px;grid-column:1/-1;"></div>`;
+            if (h <= 0 && first && last) {
+              h = Math.round((last.offsetTop + last.offsetHeight) - first.offsetTop);
             }
+            if (h <= 0) {
+              h = 300;
+            }
+
+            const savedHtml = cards.map(c => c.outerHTML).join("");
+            pageHtmlCache.set(String(page), savedHtml);
+
+            const placeholder = document.createElement("div");
+            placeholder.className = "inf-page-placeholder";
+            placeholder.dataset.page = String(page);
+            placeholder.style.gridColumn = "1 / -1";
+            placeholder.style.height = `${h}px`;
+            placeholder._savedHtml = savedHtml;
+
+            parent.insertBefore(placeholder, first);
+            pageRecycleObserver.unobserve(target);
+            cards.forEach(c => c.remove());
+            pageRecycleObserver.observe(placeholder);
           }
         } else {
-          if (pageEl._isRecycled && pageEl._savedHtml) {
-            pageEl.innerHTML = pageEl._savedHtml;
-            pageEl._savedHtml = null;
-            pageEl._isRecycled = false;
-            pageEl.style.minHeight = "";
-            if (typeof renderCardCheckboxes === "function") {
-              renderCardCheckboxes();
+          if (target.classList.contains("inf-page-placeholder")) {
+            const page = target.dataset.page;
+            if (!page) return;
+            const parent = target.parentNode;
+            if (!parent) return;
+            const savedHtml = pageHtmlCache.get(String(page)) || target._savedHtml;
+            if (!savedHtml) return;
+
+            const temp = document.createElement("div");
+            temp.innerHTML = savedHtml;
+            const restoredCards = Array.from(temp.children);
+            if (restoredCards.length > 0) {
+              restoredCards.forEach(c => parent.insertBefore(c, target));
+              pageRecycleObserver.unobserve(target);
+              target.remove();
+              pageHtmlCache.delete(String(page));
+
+              const newHead = restoredCards.find(c => c.classList.contains("page-head")) || restoredCards[0];
+              if (newHead) {
+                newHead.classList.add("page-head");
+                newHead.dataset.page = String(page);
+                pageRecycleObserver.observe(newHead);
+              }
+              if (typeof renderCardCheckboxes === "function") {
+                renderCardCheckboxes();
+              }
             }
           }
         }
       });
-    }, { rootMargin: "3000px" });
+    }, { rootMargin: "5000px" });
   }
   if (grid) {
-    grid.querySelectorAll(".inf-page").forEach(el => pageRecycleObserver.observe(el));
+    grid.querySelectorAll(".page-head, .inf-page-placeholder").forEach(el => pageRecycleObserver.observe(el));
   }
 }
 
@@ -56,6 +97,7 @@ function stopInfinite() {
     try { pageRecycleObserver.disconnect(); } catch (_) {}
     pageRecycleObserver = null;
   }
+  pageHtmlCache.clear();
   if (infiniteState) {
     try { infiniteState.observer && infiniteState.observer.disconnect(); } catch (_) {}
     try { infiniteState.controller && infiniteState.controller.abort(); } catch (_) {}
@@ -74,15 +116,14 @@ function startInfinite(containerId, fetchPage, buildItem) {
   let loading = false;
   let finished = false;
 
-  // Wrap any initial items into an inf-page if not already wrapped
-  const existingCards = Array.from(grid.children).filter(el => !el.classList.contains("inf-page") && !el.classList.contains("inf-scroll-sentinel"));
+  // Tag initial cards directly without wrapping div
+  const existingCards = Array.from(grid.children).filter(el => !el.classList.contains("inf-scroll-sentinel") && !el.classList.contains("inf-page-placeholder"));
   if (existingCards.length > 0) {
-    const page1 = document.createElement("div");
-    page1.className = "inf-page";
-    page1.dataset.infPage = String(page);
-    page1.dataset.page = String(page);
-    grid.insertBefore(page1, existingCards[0]);
-    existingCards.forEach(card => page1.appendChild(card));
+    existingCards[0].classList.add("page-head");
+    existingCards[0].dataset.page = String(page);
+    existingCards.forEach(card => {
+      card.dataset.pageOwner = String(page);
+    });
   }
 
   const sentinel = document.createElement("div");
@@ -106,14 +147,19 @@ function startInfinite(containerId, fetchPage, buildItem) {
       if (!items.length) { finished = true; try{observer.disconnect();}catch(_){} sentinel.remove(); return; }
       page = data.page || (page + 1);
 
-      const pageDiv = document.createElement("div");
-      pageDiv.className = "inf-page";
-      pageDiv.dataset.infPage = String(page);
-      pageDiv.dataset.page = String(page);
-      pageDiv.innerHTML = items.map(buildItem).join("");
-      sentinel.parentNode.insertBefore(pageDiv, sentinel);
-      if (pageRecycleObserver) {
-        pageRecycleObserver.observe(pageDiv);
+      const temp = document.createElement("div");
+      temp.innerHTML = items.map(buildItem).join("");
+      const newCards = Array.from(temp.children);
+      if (newCards.length > 0) {
+        newCards[0].classList.add("page-head");
+        newCards[0].dataset.page = String(page);
+        newCards.forEach(card => {
+          card.dataset.pageOwner = String(page);
+          sentinel.parentNode.insertBefore(card, sentinel);
+        });
+        if (pageRecycleObserver) {
+          pageRecycleObserver.observe(newCards[0]);
+        }
       }
 
       if ((data.page * (data.page_size || 24)) >= (data.total || 0)) {
