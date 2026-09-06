@@ -859,6 +859,8 @@ async def run_duplicates_scan() -> None:
                     or it.get("title")
                     or f"gid {it['gid']}"
                 )
+                if isinstance(it.get("posted_at"), datetime):
+                    it["posted_at"] = it["posted_at"].isoformat()
                 it["tags"] = [
                     {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
                     for ns, name in tag_map.get(it["gallery_id"], [])
@@ -872,7 +874,11 @@ async def run_duplicates_scan() -> None:
                     or it["title"]
                     or f"gid {it['gid']}"
                 )
-                it["posted_at"] = _unix_to_iso(meta.get("posted"))
+                if "posted_at" in meta:
+                    val = meta["posted_at"]
+                    it["posted_at"] = val.isoformat() if isinstance(val, datetime) else val
+                else:
+                    it["posted_at"] = _unix_to_iso(meta.get("posted"))
                 it["tags"] = [
                     {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
                     for ns, name in _parse_gdata_tags(meta.get("tags", []))

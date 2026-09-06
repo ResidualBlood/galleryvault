@@ -22,6 +22,16 @@ function dupGalThumb(c) {
     : `/api/scan/duplicates/thumb/${encodeURIComponent(c.key)}`;
   return `<img class="dup-thumb" loading="lazy" src="${src}" alt="">`;
 }
+let isPollingDupScan = false;
+
+function setDupScanBtn(scanning) {
+  const btn = document.querySelector('[data-action="dup-scan"]');
+  if (btn) {
+    btn.disabled = scanning;
+    btn.textContent = scanning ? "扫描中..." : t("dupScan");
+  }
+}
+
 async function renderFavManage() {
   await loadFavNames();
   const filterBtn = (val, label) =>
@@ -46,43 +56,127 @@ async function renderFavManage() {
       <p class="muted" id="dup-progress-text"></p>
     </div>
     <div id="dup-groups"><p class="muted">${esc(t("dupHint"))}</p></div>`;
-}
 
-async function runDupScan() {
-  const bar = document.getElementById("dup-progress");
-  const fill = document.getElementById("dup-progress-fill");
-  const text = document.getElementById("dup-progress-text");
-  const groupsEl = document.getElementById("dup-groups");
-  selDup.clear();
-  dupPage = 1;
-  dupLocallyIgnored.clear();
-  bar.hidden = false;
-  groupsEl.innerHTML = `<p>${esc(t("loading"))}</p>`;
-  try {
-    await api("POST", "/api/favorites/duplicates/scan");
-  } catch (e) { groupsEl.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
-  for (let i = 0; i < 120; i++) {
-    let st;
-    try { st = await api("GET", "/api/favorites/duplicates/status"); }
-    catch (e) { groupsEl.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
-    if (st.total > 0) {
-      const pct = Math.min(100, Math.round((st.done / st.total) * 100));
-      fill.style.width = pct + "%";
-      text.textContent = `${esc(st.stage || "")} ${st.done}/${st.total}`;
+  if (isPollingDupScan || (lastDupStatus && lastDupStatus.running)) {
+    setDupScanBtn(true);
+    const bar = document.getElementById("dup-progress");
+    if (bar) bar.hidden = false;
+    if (!isPollingDupScan) {
+      runDupScan(true);
     }
-    if (!st.running) {
-      fill.style.width = "100%";
-      if (st.last_error) { groupsEl.innerHTML = `<p class="error">${esc(st.last_error)}</p>`; return; }
-      lastDupStatus = st;
-      renderDupGroups(st);
+  } else if (lastDupStatus) {
+    if (lastDupStatus.last_error) {
+      const gEl = document.getElementById("dup-groups");
+      if (gEl) gEl.innerHTML = `<p class="error">${esc(lastDupStatus.last_error)}</p>`;
+    } else if (lastDupStatus.groups) {
+      renderDupGroups(lastDupStatus);
       renderCardCheckboxes();
       updateDupButtons();
-      bar.hidden = true;
+    }
+  } else {
+    try {
+      const st = await api("GET", "/api/favorites/duplicates/status");
+      if (st) {
+        if (st.running) {
+          lastDupStatus = st;
+          setDupScanBtn(true);
+          const bar = document.getElementById("dup-progress");
+          if (bar) bar.hidden = false;
+          runDupScan(true);
+        } else if (st.groups && st.groups.length > 0) {
+          lastDupStatus = st;
+          renderDupGroups(st);
+          renderCardCheckboxes();
+          updateDupButtons();
+        }
+      }
+    } catch (_) {}
+  }
+}
+
+async function runDupScan(isPolling = false) {
+  if (isPollingDupScan && !isPolling) return;
+  const resetBtn = () => {
+    isPollingDupScan = false;
+    setDupScanBtn(false);
+  };
+
+  setDupScanBtn(true);
+
+  if (!isPolling) {
+    selDup.clear();
+    dupPage = 1;
+    dupLocallyIgnored.clear();
+    const bar = document.getElementById("dup-progress");
+    const groupsEl = document.getElementById("dup-groups");
+    if (bar) bar.hidden = false;
+    if (groupsEl) groupsEl.innerHTML = `<p>${esc(t("loading"))}</p>`;
+    try {
+      await api("POST", "/api/favorites/duplicates/scan");
+    } catch (e) {
+      const gEl = document.getElementById("dup-groups");
+      if (gEl) gEl.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+      resetBtn();
       return;
     }
-    await new Promise(r => setTimeout(r, 300));
   }
-  groupsEl.innerHTML = `<p class="muted">${esc(t("loading"))}</p>`;
+
+  isPollingDupScan = true;
+  if (!lastDupStatus) lastDupStatus = { running: true };
+  else lastDupStatus.running = true;
+
+  try {
+    for (let i = 0; i < 120; i++) {
+      let st;
+      try {
+        st = await api("GET", "/api/favorites/duplicates/status");
+      } catch (e) {
+        const gEl = document.getElementById("dup-groups");
+        if (gEl) gEl.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+        resetBtn();
+        return;
+      }
+
+      lastDupStatus = st;
+
+      const bar = document.getElementById("dup-progress");
+      const fill = document.getElementById("dup-progress-fill");
+      const text = document.getElementById("dup-progress-text");
+      const groupsEl = document.getElementById("dup-groups");
+      const curBtn = document.querySelector('[data-action="dup-scan"]');
+      if (curBtn && !curBtn.disabled) {
+        setDupScanBtn(true);
+      }
+
+      if (bar) bar.hidden = false;
+      if (st.total > 0 && fill && text) {
+        const pct = Math.min(100, Math.round((st.done / st.total) * 100));
+        fill.style.width = pct + "%";
+        text.textContent = `${esc(st.stage || "")} ${st.done}/${st.total}`;
+      }
+
+      if (!st.running) {
+        if (fill) fill.style.width = "100%";
+        if (st.last_error) {
+          if (groupsEl) groupsEl.innerHTML = `<p class="error">${esc(st.last_error)}</p>`;
+          resetBtn();
+          return;
+        }
+        renderDupGroups(st);
+        renderCardCheckboxes();
+        updateDupButtons();
+        if (bar) bar.hidden = true;
+        resetBtn();
+        return;
+      }
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    const groupsEl = document.getElementById("dup-groups");
+    if (groupsEl) groupsEl.innerHTML = `<p class="muted">${esc(t("loading"))}</p>`;
+  } finally {
+    resetBtn();
+  }
 }
 
 function dupThumbHtml(it) {

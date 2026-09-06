@@ -274,7 +274,7 @@ button:disabled { opacity: .5; cursor: default; }
 .reader .nav { display: flex; gap: 16px; align-items: center; }
 .reader .reader-bar { width: 100%; display: flex; align-items: center; gap: 14px; }
 .reader .reader-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.inf-scroll-sentinel { height: 1px; }
+.inf-scroll-sentinel { height: 1px; grid-column: 1 / -1; }
 .inf-scroll-loading { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 12px; }
 .tag-groups { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .tag-group { display: flex; gap: 10px; align-items: baseline; }
@@ -356,7 +356,7 @@ button:disabled { opacity: .5; cursor: default; }
 
 /* nhentai-style gallery cards */
 .gc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-top: 16px; }
-.inf-page { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.inf-page { display: contents; }
 .inf-page-placeholder { grid-column: 1 / -1; }
 .gc {
   display: flex; flex-direction: column; background: transparent; border: 0;
@@ -689,7 +689,7 @@ a.row:hover { border-color: var(--accent); }
   h1 { margin-bottom: 8px; }
   .toolbar input, .toolbar select { min-width: 120px; }
   .form-grid { grid-template-columns: 1fr !important; }
-  .gc-grid, .inf-page { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .gc-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
   .table-wrap { overflow-x: auto; }
 }
@@ -709,7 +709,7 @@ a.row:hover { border-color: var(--accent); }
   .links { flex: 1; justify-content: flex-end; }
   .btn, .links a, .icon-button, .link-button { min-height: 44px; display: inline-flex; align-items: center; }
   main { padding: 14px 10px 50px; }
-  .gc-grid, .grid, .inf-page { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .gc-grid, .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .thumbs { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; }
   .reader .nav { flex-wrap: wrap; justify-content: center; gap: 12px; }
   .reader .nav a, .reader .nav span { font-size: .95rem; padding: 8px 14px; }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 from pathlib import Path
@@ -23,6 +24,7 @@ from ..state import app_state
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+_cross_gid_lock = asyncio.Lock()
 
 DUP_JPEG = "image/jpeg"
 
@@ -292,6 +294,10 @@ async def refresh_cross_gid_duplicates() -> dict[str, object]:
     if not session_factory:
         raise HTTPException(status_code=503, detail="Database not available")
 
-    await scan_library_cross_gid_duplicates(session_factory)
+    if _cross_gid_lock.locked():
+        raise HTTPException(status_code=409, detail="Cross-GID scan already running")
+
+    async with _cross_gid_lock:
+        await scan_library_cross_gid_duplicates(session_factory)
     return await get_cross_gid_duplicates()
 

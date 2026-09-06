@@ -17,7 +17,14 @@ function recycleOffscreenPages(grid) {
         if (!pageEl.classList.contains("inf-page")) return;
         if (!entry.isIntersecting) {
           if (!pageEl._isRecycled && pageEl.innerHTML) {
-            const h = pageEl.offsetHeight;
+            let h = pageEl.offsetHeight;
+            if (h === 0 && pageEl.children.length > 0) {
+              const first = pageEl.firstElementChild;
+              const last = pageEl.lastElementChild;
+              if (first && last) {
+                h = Math.round(last.getBoundingClientRect().bottom - first.getBoundingClientRect().top);
+              }
+            }
             if (h > 0) {
               pageEl._savedHtml = pageEl.innerHTML;
               pageEl._isRecycled = true;
