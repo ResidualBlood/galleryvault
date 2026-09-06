@@ -1,8 +1,10 @@
+import atexit
 import hashlib
 import io
 import json
 import re
 import threading
+import time
 import zipfile
 from collections import OrderedDict
 from pathlib import Path
@@ -143,22 +145,66 @@ class ArchiveScanner(GalleryScanner):
         return {"comic_info": values}, metadata
 
 
-_ZIP_CACHE_MAX = 32
-_zip_cache: OrderedDict[str, tuple[zipfile.ZipFile, float, threading.RLock]] = OrderedDict()
+_ZIP_CACHE_MAX = 16
+_zip_cache: OrderedDict[str, tuple[zipfile.ZipFile, float, float, threading.RLock]] = OrderedDict()
 _zip_cache_lock = threading.RLock()
+
+
+def _cleanup_stale_zips(ttl: float = 300.0) -> int:
+    """Close and remove cached ZipFiles that have been idle longer than ttl seconds."""
+    now = time.monotonic()
+    to_close: list[tuple[zipfile.ZipFile, threading.RLock]] = []
+    with _zip_cache_lock:
+        stale_keys = [
+            key for key, (_, _, last_access, _) in _zip_cache.items()
+            if now - last_access > ttl
+        ]
+        for key in stale_keys:
+            zf, _, _, file_lock = _zip_cache.pop(key)
+            to_close.append((zf, file_lock))
+
+    closed = 0
+    for zf, lock in to_close:
+        try:
+            with lock:
+                zf.close()
+                closed += 1
+        except Exception:  # noqa: BLE001, S110
+            pass
+    return closed
+
+
+def _close_all_zips() -> None:
+    """Close all open zip archives in cache (e.g. at process exit)."""
+    to_close: list[tuple[zipfile.ZipFile, threading.RLock]] = []
+    with _zip_cache_lock:
+        while _zip_cache:
+            _, item = _zip_cache.popitem()
+            to_close.append((item[0], item[3]))
+    for zf, lock in to_close:
+        try:
+            with lock:
+                zf.close()
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+
+atexit.register(_close_all_zips)
 
 
 def _get_cached_zip(path: Path | str) -> tuple[zipfile.ZipFile, threading.RLock]:
     resolved = Path(path).resolve()
     key = str(resolved)
     current_mtime = resolved.stat().st_mtime
+    now = time.monotonic()
 
     to_close: list[tuple[zipfile.ZipFile, threading.RLock]] = []
     with _zip_cache_lock:
         entry = _zip_cache.get(key)
         if entry is not None:
-            zf, cached_mtime, file_lock = entry
+            zf, cached_mtime, _, file_lock = entry
             if cached_mtime == current_mtime:
+                _zip_cache[key] = (zf, cached_mtime, now, file_lock)
                 _zip_cache.move_to_end(key)
                 return zf, file_lock
             del _zip_cache[key]
@@ -166,12 +212,12 @@ def _get_cached_zip(path: Path | str) -> tuple[zipfile.ZipFile, threading.RLock]
 
         new_zf = zipfile.ZipFile(resolved)
         new_lock = threading.RLock()
-        _zip_cache[key] = (new_zf, current_mtime, new_lock)
+        _zip_cache[key] = (new_zf, current_mtime, now, new_lock)
         _zip_cache.move_to_end(key)
 
         while len(_zip_cache) > _ZIP_CACHE_MAX:
             _, item = _zip_cache.popitem(last=False)
-            to_close.append((item[0], item[2]))
+            to_close.append((item[0], item[3]))
 
     for old_zf, old_lock in to_close:
         try:

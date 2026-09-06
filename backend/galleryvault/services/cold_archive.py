@@ -662,7 +662,20 @@ def cold_pack_gallery(
     return dest
 
 
-_archive_writer_lock = asyncio.Lock()
+_gallery_locks: dict[int, asyncio.Lock] = {}
+_gallery_locks_guard = asyncio.Lock()
+
+
+async def _get_gallery_lock(gallery_id: int) -> asyncio.Lock:
+    """Acquire or create a per-gallery lock under guard protection."""
+    async with _gallery_locks_guard:
+        lock = _gallery_locks.get(gallery_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _gallery_locks[gallery_id] = lock
+        return lock
+
+
 _active_gids: set[int] = set()
 
 
@@ -680,6 +693,7 @@ async def _do_archive_locked(
         logger.warning("No archive roots configured, cannot archive gallery %s", gallery_id)
         return None
 
+    # Step 1: Read gallery metadata under a brief session (released before compression)
     async with session_factory() as session:
         gallery = await session.get(Gallery, gallery_id)
         if not gallery or gallery.trashed:
@@ -735,77 +749,89 @@ async def _do_archive_locked(
             .order_by(GalleryPage.page_index)
         )
         old_page_names = [row[0] for row in (await session.execute(old_pages_stmt)).all()]
+        gallery_gid = gallery.gid
+        gallery_token = gallery.token
+        gallery_title = gallery.title
+        gallery_title_jpn = getattr(gallery, "title_jpn", None)
+        gallery_path_hash = gallery.path_hash
 
-        # 打包（delete_source=False，待 DB 更新成功后再删源）
-        try:
-            dest_path = await asyncio.to_thread(
-                cold_pack_gallery,
-                source=source_path,
-                cold_root=selected_root,
-                gid=gallery.gid,
-                token=gallery.token,
-                title=gallery.title,
-                title_jpn=getattr(gallery, "title_jpn", None),
-                tags=tags,
-                stable=gallery.path_hash,
-                site=gallery_site,
-                delete_source=False,
-            )
-        except (ColdAlreadyArchivedError, ColdDestinationExistsError) as exc:
-            logger.info("Skipping gallery %s: %s", gallery_id, exc)
-            return None
+    # Step 2: Pack and compress outside of DB session (no connection held)
+    try:
+        dest_path = await asyncio.to_thread(
+            cold_pack_gallery,
+            source=source_path,
+            cold_root=selected_root,
+            gid=gallery_gid,
+            token=gallery_token,
+            title=gallery_title,
+            title_jpn=gallery_title_jpn,
+            tags=tags,
+            stable=gallery_path_hash,
+            site=gallery_site,
+            delete_source=False,
+        )
+    except (ColdAlreadyArchivedError, ColdDestinationExistsError) as exc:
+        logger.info("Skipping gallery %s: %s", gallery_id, exc)
+        return None
 
-        # 收集页面信息以更新 DB
-        is_dest_cbz = dest_path.is_file() and dest_path.suffix.lower() in {".cbz", ".zip"}
-        dest_stat = dest_path.stat()
-        new_mtime_ns = dest_stat.st_mtime_ns
+    # Collect destination statistics
+    is_dest_cbz = dest_path.is_file() and dest_path.suffix.lower() in {".cbz", ".zip"}
+    dest_stat = dest_path.stat()
+    new_mtime_ns = dest_stat.st_mtime_ns
 
-        if is_dest_cbz:
-            new_size = dest_stat.st_size
-            with zipfile.ZipFile(dest_path, "r") as zf:
-                page_names = sorted(
-                    [
-                        n
-                        for n in zf.namelist()
-                        if not n.startswith(".")
-                        and Path(n).suffix.lower() in IMAGE_EXTENSIONS
-                        and Path(n).name.lower() not in _IGNORED_NAMES
-                    ],
-                    key=natural_key,
-                )
-        else:
-            new_size = sum(f.stat().st_size for f in dest_path.rglob("*") if f.is_file())
+    if is_dest_cbz:
+        new_size = dest_stat.st_size
+        with zipfile.ZipFile(dest_path, "r") as zf:
             page_names = sorted(
                 [
-                    p.name
-                    for p in dest_path.iterdir()
-                    if p.is_file()
-                    and not p.name.startswith(".")
-                    and p.suffix.lower() in IMAGE_EXTENSIONS
-                    and p.name.lower() not in _IGNORED_NAMES
+                    n
+                    for n in zf.namelist()
+                    if not n.startswith(".")
+                    and Path(n).suffix.lower() in IMAGE_EXTENSIONS
+                    and Path(n).name.lower() not in _IGNORED_NAMES
                 ],
                 key=natural_key,
             )
+    else:
+        new_size = sum(f.stat().st_size for f in dest_path.rglob("*") if f.is_file())
+        page_names = sorted(
+            [
+                p.name
+                for p in dest_path.iterdir()
+                if p.is_file()
+                and not p.name.startswith(".")
+                and p.suffix.lower() in IMAGE_EXTENSIONS
+                and p.name.lower() not in _IGNORED_NAMES
+            ],
+            key=natural_key,
+        )
 
-        new_sig = hashlib.sha256(f"{new_mtime_ns}:{new_size}".encode()).hexdigest()
+    new_sig = hashlib.sha256(f"{new_mtime_ns}:{new_size}".encode()).hexdigest()
+
+    # Step 3: Brief DB write transaction to update Gallery and GalleryPage
+    async def _apply_archive_db_updates(s: AsyncSession) -> bool:
+        gallery_obj = await s.get(Gallery, gallery_id)
+        if not gallery_obj:
+            logger.warning("Gallery %s was deleted before archive DB update", gallery_id)
+            return False
 
         # 更新 Gallery
-        gallery.storage_path = str(dest_path)
-        gallery.storage_type = "cbz" if is_dest_cbz else "folder"
-        gallery.path_hash = path_hash(dest_path)
-        gallery.storage_mtime_ns = new_mtime_ns
-        gallery.storage_size = new_size
-        gallery.storage_signature = new_sig
-        gallery.page_count = len(page_names)
+        gallery_obj.storage_path = str(dest_path)
+        gallery_obj.storage_type = "cbz" if is_dest_cbz else "folder"
+        gallery_obj.path_hash = path_hash(dest_path)
+        gallery_obj.storage_mtime_ns = new_mtime_ns
+        gallery_obj.storage_size = new_size
+        gallery_obj.storage_signature = new_sig
+        gallery_obj.page_count = len(page_names)
         if page_names:
-            gallery.cover_path = page_names[0]
-        gallery.updated_at = datetime.now(UTC)
+            gallery_obj.cover_path = page_names[0]
+        gallery_obj.updated_at = datetime.now(UTC)
 
         # 更新 GalleryPage
-        await session.execute(delete(GalleryPage).where(GalleryPage.gallery_id == gallery.id))
+        await s.execute(delete(GalleryPage).where(GalleryPage.gallery_id == gallery_obj.id))
         new_pages = [
             GalleryPage(
-                gallery_id=gallery.id,
+                gallery_id=gallery_obj.id,
                 page_index=idx,
                 member_name=pname,
                 media_type=Path(pname).suffix.lstrip(".").lower() or "jpg",
@@ -814,13 +840,23 @@ async def _do_archive_locked(
             for idx, pname in enumerate(page_names)
         ]
         if new_pages:
-            session.add_all(new_pages)
+            s.add_all(new_pages)
+        return True
 
-        await session.commit()
+    async with session_factory() as session:
+        if hasattr(session, "begin"):
+            async with session.begin():
+                if not await _apply_archive_db_updates(session):
+                    return None
+        else:
+            if not await _apply_archive_db_updates(session):
+                return None
+            if hasattr(session, "commit"):
+                await session.commit()
 
-        # 页变则清 thumbs：若页数或页文件名集合与归档前不同（或顺序不一致），清空缩略图缓存；完全一致则保留
-        if old_page_names != page_names:
-            _clear_gallery_thumbs(gallery.id)
+    # 页变则清 thumbs
+    if old_page_names != page_names:
+        _clear_gallery_thumbs(gallery_id)
 
     # DB 更新提交成功后，按设置决定是否删除 SSD 源
     if delete_source and source_path.resolve() != dest_path.resolve():
@@ -899,7 +935,8 @@ async def archive_one(
     if gid_to_unlock is not None:
         _active_gids.add(gid_to_unlock)
     try:
-        async with _archive_writer_lock:
+        lock = await _get_gallery_lock(target_id)
+        async with lock:
             return await _do_archive_locked(
                 target_id,
                 archive_roots=roots,
@@ -909,6 +946,10 @@ async def archive_one(
     finally:
         if gid_to_unlock is not None:
             _active_gids.discard(gid_to_unlock)
+        async with _gallery_locks_guard:
+            existing_lock = _gallery_locks.get(target_id)
+            if existing_lock is not None and not existing_lock.locked():
+                _gallery_locks.pop(target_id, None)
 
 
 async def run_cold_archive(

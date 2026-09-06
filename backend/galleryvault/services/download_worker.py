@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ..app.state import app_state
@@ -48,6 +48,14 @@ _PROGRESS_FLUSH_STEP = 20
 _PROGRESS_FLUSH_INTERVAL = 5.0
 _DOWNLOAD_RETRY_SWEEP_INTERVAL = 60.0
 _TELEGRAM_FLUSH_INTERVAL = 60.0
+
+_task_event: asyncio.Event | None = None
+
+
+def notify_new_task() -> None:
+    """Wake up download workers when a new task is enqueued or retried."""
+    if _task_event is not None:
+        _task_event.set()
 
 
 def retry_backoff(retry_count: int) -> int:
@@ -554,34 +562,80 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
                     p.unlink(missing_ok=True)
             raise DownloadCancelledError("download was cancelled")
         completed = False
+        now = datetime.now(UTC)
+        update_values: dict[str, Any] = {
+            "status": "success",
+            "target_path": str(result.path),
+            "category": result.category,
+            "error_message": None,
+            "retry_count": 0,
+            "retry_at": None,
+            "finished_at": now,
+        }
+        if result.title:
+            update_values["title"] = result.title
+        if getattr(result, "title_jpn", None):
+            update_values["title_jpn"] = result.title_jpn
+        if getattr(result, "pages", None):
+            update_values["current_page"] = func.coalesce(
+                DownloadTaskModel.total_pages, result.pages
+            )
+            update_values["total_pages"] = func.coalesce(
+                DownloadTaskModel.total_pages, result.pages
+            )
+
         async with session_cm() as session, session.begin():
-            row = await session.get(DownloadTaskModel, task.id)
-            if row is not None:
-                if row.status == "cancelled" or is_download_cancelled(task.id):
-                    raise DownloadCancelledError("download was cancelled")
-                if result.title:
-                    row.title = result.title
-                if getattr(result, "title_jpn", None):
-                    row.title_jpn = result.title_jpn
-                row.status, row.target_path, row.category = (
-                    "success",
-                    str(result.path),
-                    result.category,
+            if hasattr(session, "execute"):
+                stmt = (
+                    update(DownloadTaskModel)
+                    .where(
+                        DownloadTaskModel.id == task.id,
+                        DownloadTaskModel.status == "downloading",
+                    )
+                    .values(**update_values)
                 )
-                if getattr(row, "total_pages", None):
-                    row.current_page = row.total_pages
-                elif getattr(result, "pages", None) and hasattr(row, "current_page"):
-                    row.current_page = result.pages
-                    if hasattr(row, "total_pages"):
-                        row.total_pages = result.pages
-                row.error_message = None
-                row.retry_count = 0
-                row.retry_at = None
-                row.finished_at = datetime.now(UTC)
-                await DownloadRepository(session).record_attempt(
-                    task.id or 0, row.retry_count + 1, "success"
-                )
-                completed = True
+                update_result = await session.execute(stmt)
+                is_cancelled = bool(update_result.rowcount == 0)
+            else:
+                row = await session.get(DownloadTaskModel, task.id)
+                if (
+                    row is None
+                    or row.status != "downloading"
+                    or is_download_cancelled(task.id)
+                ):
+                    is_cancelled = True
+                else:
+                    is_cancelled = False
+                    row.status = "success"
+                    row.target_path = update_values.get("target_path")
+                    row.category = update_values.get("category")
+                    row.error_message = None
+                    row.retry_count = 0
+                    row.retry_at = None
+                    row.finished_at = update_values.get("finished_at")
+                    if "title" in update_values:
+                        row.title = update_values["title"]
+                    if "title_jpn" in update_values:
+                        row.title_jpn = update_values["title_jpn"]
+                    if getattr(result, "pages", None):
+                        row.current_page = getattr(row, "total_pages", None) or result.pages
+                        row.total_pages = getattr(row, "total_pages", None) or result.pages
+
+            if is_cancelled:
+                if result and hasattr(result, "path") and Path(result.path).exists():
+                    import shutil
+
+                    p = Path(result.path)
+                    if p.is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        p.unlink(missing_ok=True)
+                raise DownloadCancelledError("download was cancelled")
+
+            await DownloadRepository(session).record_attempt(
+                task.id or 0, 1, "success"
+            )
+            completed = True
 
         clear_download_cancelled(task.id)
         if completed:
@@ -700,6 +754,8 @@ async def download_worker_loop() -> None:
 
     settings = app_state.settings or get_settings()
     concurrency = max(1, settings.download_concurrency)
+    global _task_event
+    _task_event = asyncio.Event()
     # SQLite does not support FOR UPDATE SKIP LOCKED — multiple workers would
     # repeatedly claim the same row. Force single worker in that case.
     try:
@@ -736,9 +792,18 @@ async def download_worker_loop() -> None:
                             quality=row.quality,
                         )
                 if row is not None:
+                    if _task_event is not None:
+                        _task_event.clear()
                     await run_download(task)
                 else:
-                    await asyncio.sleep(1)
+                    if _task_event is not None:
+                        try:
+                            await asyncio.wait_for(_task_event.wait(), timeout=5.0)
+                        except TimeoutError:
+                            pass
+                        _task_event.clear()
+                    else:
+                        await asyncio.sleep(1)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -765,6 +830,7 @@ async def download_retry_sweep_loop() -> None:
             async with app_state.session_factory() as session, session.begin():
                 requeued = await DownloadRepository(session).sweep_auto_retry()
                 if requeued:
+                    notify_new_task()
                     logger.info("requeued failed downloads", extra=log_extra(count=requeued))
         except Exception as exc:  # noqa: BLE001
             logger.warning(

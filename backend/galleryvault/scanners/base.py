@@ -75,6 +75,10 @@ class ExistingGallery:
     file_count: int | None = None
     file_size: int | None = None
     posted_at: datetime | None = None
+    local_rating: int | None = None
+    is_starred: bool = False
+    rating: int = 0
+    has_custom_tags: bool = False
 
 
 @dataclass
@@ -92,6 +96,8 @@ class GalleryMeta:
     file_size: int | None = None
     rating: float | None = None
     posted_at: datetime | None = None
+    is_starred: bool = False
+    has_custom_tags: bool = False
     tags: list[dict[str, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     image_quality: str | None = None

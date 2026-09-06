@@ -41,6 +41,12 @@ class DownloadRepository:
         )
         self.session.add(task)
         await self.session.flush()
+        try:
+            from ...services.download_worker import notify_new_task
+
+            notify_new_task()
+        except Exception:  # noqa: BLE001, S110
+            pass
         return task
 
     async def retarget(

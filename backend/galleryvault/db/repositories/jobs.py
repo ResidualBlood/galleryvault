@@ -115,8 +115,14 @@ class BackgroundJobsRepository:
                 .order_by(BackgroundJob.id)
                 .limit(max(1, limit))
             )
+            stmt = (
+                update(BackgroundJob)
+                .where(BackgroundJob.id.in_(subquery))
+                .values(status="claimed", lease_until=now + timedelta(seconds=lease_seconds))
+                .returning(BackgroundJob.gallery_id, BackgroundJob.attempts)
+            )
         else:
-            subquery = (
+            locked = (
                 select(BackgroundJob.id)
                 .where(
                     BackgroundJob.job_type == job_type,
@@ -127,13 +133,14 @@ class BackgroundJobsRepository:
                 .order_by(BackgroundJob.id)
                 .with_for_update(skip_locked=True)
                 .limit(max(1, limit))
+                .cte("locked")
             )
-        stmt = (
-            update(BackgroundJob)
-            .where(BackgroundJob.id.in_(subquery))
-            .values(status="claimed", lease_until=now + timedelta(seconds=lease_seconds))
-            .returning(BackgroundJob.gallery_id, BackgroundJob.attempts)
-        )
+            stmt = (
+                update(BackgroundJob)
+                .where(BackgroundJob.id == locked.c.id)
+                .values(status="claimed", lease_until=now + timedelta(seconds=lease_seconds))
+                .returning(BackgroundJob.gallery_id, BackgroundJob.attempts)
+            )
         rows = await self.session.execute(stmt)
         return [(int(gallery_id), int(attempts)) for gallery_id, attempts in rows]
 

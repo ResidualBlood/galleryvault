@@ -454,20 +454,20 @@ async def favorite_size_sync(favcat: int) -> None:
     if favcat in _size_sync_inflight:
         return
     first = not _size_sync_inflight
-    _size_sync_inflight.add(favcat)
     tm = app_state.task_manager
     metadata_sync_state = tm.metadata_sync_state if tm else {}
-    metadata_sync_state["running"] = True
-    metadata_sync_state["stage"] = "listing"
-    if first:
-        metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
-        metadata_sync_state["applied"] = 0
-        metadata_sync_state["last_error"] = None
-        metadata_sync_state["history_recorded"] = False
-        if tm:
-            tm.clear_cancelled("metadata")
     fetched: dict[int, dict[str, Any]] = {}
     try:
+        _size_sync_inflight.add(favcat)
+        metadata_sync_state["running"] = True
+        metadata_sync_state["stage"] = "listing"
+        if first:
+            metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
+            metadata_sync_state["applied"] = 0
+            metadata_sync_state["last_error"] = None
+            metadata_sync_state["history_recorded"] = False
+            if tm:
+                tm.clear_cancelled("metadata")
         try:
             async with app_state.session_factory() as session, session.begin():
                 await GalleryRepository(session).seed_metadata_from_galleries(favcat)
@@ -832,95 +832,101 @@ async def run_duplicates_scan() -> None:
     from ..app.dependencies import resolve_display_title
     try:
         async with app_state.session_factory() as session:
-            items = await FavoritesRepository(session).all_items()
+            repo = FavoritesRepository(session)
+            items = await repo.all_items()
             gids = list({item[1] for item in items})
             duplicates_state["total"] = len(items)
             duplicates_state["stage"] = "analyzing"
-            gallery_titles = await FavoritesRepository(session).gallery_titles_by_gid(gids)
+            gallery_titles = await repo.gallery_titles_by_gid(gids)
             local_ids_all = [item[5] for item in items if item[5] is not None]
-            tag_map = await FavoritesRepository(session).tags_for_gallery_ids(local_ids_all)
-            duplicates_state["done"] = len(items)
-            duplicates_state["stage"] = "grouping"
-            groups = find_duplicate_groups(items, gallery_titles=gallery_titles, tag_map=tag_map)
-            group_items = [it for g in groups for it in g["items"]]
-            cloud_pairs = [
-                (it["gid"], it["token"]) for it in group_items if it["gallery_id"] is None
-            ]
-            duplicates_state["stage"] = "enriching"
-            gmeta = await favorites_metadata(cloud_pairs) if cloud_pairs else {}
+            tag_map = await repo.tags_for_gallery_ids(local_ids_all)
+
+        duplicates_state["done"] = len(items)
+        duplicates_state["stage"] = "grouping"
+        groups = find_duplicate_groups(items, gallery_titles=gallery_titles, tag_map=tag_map)
+        group_items = [it for g in groups for it in g["items"]]
+        cloud_pairs = [
+            (it["gid"], it["token"]) for it in group_items if it["gallery_id"] is None
+        ]
+        duplicates_state["stage"] = "enriching"
+        gmeta = await favorites_metadata(cloud_pairs) if cloud_pairs else {}
+        for it in group_items:
+            if it["gallery_id"] is not None:
+                en_title, jp_title = gallery_titles.get(it["gid"], (None, None))
+                it["title_jpn"] = jp_title
+                it["display_title"] = (
+                    resolve_display_title(en_title or it.get("title"), jp_title)
+                    or it.get("title")
+                    or f"gid {it['gid']}"
+                )
+                it["tags"] = [
+                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                    for ns, name in tag_map.get(it["gallery_id"], [])
+                ]
+            else:
+                meta = gmeta.get(it["gid"], {})
+                it["file_size"] = it["file_size"] or meta.get("file_size")
+                it["title_jpn"] = meta.get("title_jpn")
+                it["display_title"] = (
+                    resolve_display_title(it["title"] or meta.get("title"), meta.get("title_jpn"))
+                    or it["title"]
+                    or f"gid {it['gid']}"
+                )
+                it["posted_at"] = _unix_to_iso(meta.get("posted"))
+                it["tags"] = [
+                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                    for ns, name in _parse_gdata_tags(meta.get("tags", []))
+                ]
+        cover_map = await remote_cover_data_batch(cloud_pairs, gmeta)
+        for it in group_items:
+            if it["gallery_id"] is None:
+                it["cover_data"] = cover_map.get(it["gid"])
+        missing_posted = [
+            (it["gid"], it["token"])
+            for it in group_items
+            if not it["posted_at"] and it["token"]
+        ]
+        if missing_posted and app_state.eh_client is not None:
+            try:
+                posted_meta = await app_state.eh_client.fetch_gmetadata(missing_posted)
+            except Exception as exc:  # noqa: BLE001
+                posted_meta = {}
+                logger.warning(
+                    "duplicate posted enrichment failed",
+                    extra=log_extra(error=type(exc).__name__),
+                )
+            local_write: dict[int, datetime] = {}
             for it in group_items:
+                if it["posted_at"] or it["gid"] not in posted_meta:
+                    continue
+                posted = _unix_to_iso(posted_meta[it["gid"]].get("posted"))
+                if not posted:
+                    continue
+                it["posted_at"] = posted
                 if it["gallery_id"] is not None:
-                    en_title, jp_title = gallery_titles.get(it["gid"], (None, None))
-                    it["title_jpn"] = jp_title
-                    it["display_title"] = (
-                        resolve_display_title(en_title or it.get("title"), jp_title)
-                        or it.get("title")
-                        or f"gid {it['gid']}"
-                    )
-                    it["tags"] = [
-                        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                        for ns, name in tag_map.get(it["gallery_id"], [])
-                    ]
-                else:
-                    meta = gmeta.get(it["gid"], {})
-                    it["file_size"] = it["file_size"] or meta.get("file_size")
-                    it["title_jpn"] = meta.get("title_jpn")
-                    it["display_title"] = (
-                        resolve_display_title(it["title"] or meta.get("title"), meta.get("title_jpn"))
-                        or it["title"]
-                        or f"gid {it['gid']}"
-                    )
-                    it["posted_at"] = _unix_to_iso(meta.get("posted"))
-                    it["tags"] = [
-                        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                        for ns, name in _parse_gdata_tags(meta.get("tags", []))
-                    ]
-            cover_map = await remote_cover_data_batch(cloud_pairs, gmeta)
-            for it in group_items:
-                if it["gallery_id"] is None:
-                    it["cover_data"] = cover_map.get(it["gid"])
-            missing_posted = [
-                (it["gid"], it["token"])
-                for it in group_items
-                if not it["posted_at"] and it["token"]
-            ]
-            if missing_posted and app_state.eh_client is not None:
-                try:
-                    posted_meta = await app_state.eh_client.fetch_gmetadata(missing_posted)
-                except Exception as exc:  # noqa: BLE001
-                    posted_meta = {}
-                    logger.warning(
-                        "duplicate posted enrichment failed",
-                        extra=log_extra(error=type(exc).__name__),
-                    )
-                local_write: dict[int, datetime] = {}
-                for it in group_items:
-                    if it["posted_at"] or it["gid"] not in posted_meta:
-                        continue
-                    posted = _unix_to_iso(posted_meta[it["gid"]].get("posted"))
-                    if not posted:
-                        continue
-                    it["posted_at"] = posted
-                    if it["gallery_id"] is not None:
-                        local_write[it["gid"]] = datetime.fromisoformat(posted)
-                if local_write:
-                    async with app_state.session_factory() as session, session.begin():
-                        await FavoritesRepository(session).update_posted_at(local_write)
-            ignored_keys = await FavoritesRepository(session).ignored_duplicate_keys()
-            ignored = await FavoritesRepository(session).ignored_duplicates()
-            ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
-            groups = [
-                g
-                for g in groups
-                if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
-            ]
-            for g in groups:
-                g.pop("legacy_keys", None)
-            groups.sort(key=lambda g: -len(g["items"]))
-            duplicates_state["groups"] = groups
-            duplicates_state["ignored"] = ignored
-            duplicates_state["done"] = len(items)
-            duplicates_state["stage"] = "done"
+                    local_write[it["gid"]] = datetime.fromisoformat(posted)
+            if local_write:
+                async with app_state.session_factory() as session, session.begin():
+                    await FavoritesRepository(session).update_posted_at(local_write)
+
+        async with app_state.session_factory() as session:
+            repo = FavoritesRepository(session)
+            ignored_keys = await repo.ignored_duplicate_keys()
+            ignored = await repo.ignored_duplicates()
+
+        ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
+        groups = [
+            g
+            for g in groups
+            if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
+        ]
+        for g in groups:
+            g.pop("legacy_keys", None)
+        groups.sort(key=lambda g: -len(g["items"]))
+        duplicates_state["groups"] = groups
+        duplicates_state["ignored"] = ignored
+        duplicates_state["done"] = len(items)
+        duplicates_state["stage"] = "done"
     except Exception as exc:  # noqa: BLE001
         duplicates_state["last_error"] = f"{type(exc).__name__}: {exc}"
         duplicates_state["stage"] = "error"

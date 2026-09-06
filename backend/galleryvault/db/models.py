@@ -68,6 +68,12 @@ class Gallery(Base):
         Index("idx_galleries_file_size", "file_size"),
         Index("idx_galleries_trashed", "trashed"),
         Index("idx_galleries_expunged", "expunged"),
+        Index(
+            "ix_gallery_storage_path_like",
+            "storage_path",
+            postgresql_using="btree",
+            postgresql_ops={"storage_path": "text_pattern_ops"},
+        ),
         CheckConstraint(
             "local_rating IS NULL OR (local_rating >= 1 AND local_rating <= 5)",
             name="ck_galleries_local_rating",

@@ -207,15 +207,22 @@ async def prepare_galleries(pairs: list[tuple[int, str]]) -> list[PreparedGaller
                     need.append((gid, tok))
                     seen.add(gid)
         if need:
-            try:
-                fetched = await client.fetch_gmetadata(need)
-            except EhClientError as exc:
-                logger.info(
-                    "download prepare gdata failed",
-                    extra=log_extra(error=type(exc).__name__),
-                )
-                fetched = {}
-            gdata.update(fetched or {})
+            for start in range(0, len(need), 25):
+                batch = need[start : start + 25]
+                try:
+                    fetched = await client.fetch_gmetadata(batch)
+                    if fetched:
+                        gdata.update(fetched)
+                except EhClientError as exc:
+                    logger.info(
+                        "download prepare gdata failed",
+                        extra=log_extra(error=type(exc).__name__, count=len(batch)),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "download prepare gdata unexpected error",
+                        extra=log_extra(error=type(exc).__name__, count=len(batch)),
+                    )
             results = await _resolve_all()
     follow_gids = [p.gid for p in results if p.old_gid and not p.gone]
     local = await _local_gids(follow_gids)

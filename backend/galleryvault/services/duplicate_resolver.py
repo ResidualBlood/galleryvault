@@ -58,11 +58,27 @@ class Copy:
     signature: str = ""
     root_priority: int = 0  # 0 = highest-priority scan root
     is_current: bool = False  # True when this copy is the DB row
+    is_starred: bool = False
+    rating: int = 0
+    has_custom_tags: bool = False
     tags: list[dict[str, str]] = field(default_factory=list)
     meta: GalleryMeta | None = None  # present for freshly scanned copies
 
     @classmethod
     def from_meta(cls, gallery: GalleryMeta, root_priority: int) -> Copy:
+        tags = getattr(gallery, "tags", []) or []
+        has_custom = bool(getattr(gallery, "has_custom_tags", False))
+        if not has_custom and tags:
+            has_custom = any(
+                str(t.get("namespace", "")).strip().lower() in ("local", "custom", "my", "user")
+                for t in tags
+                if isinstance(t, dict)
+            )
+        is_starred = bool(
+            getattr(gallery, "is_starred", False)
+            or (getattr(gallery, "local_rating", None) == 5)
+        )
+        rating = int(getattr(gallery, "local_rating", None) or getattr(gallery, "rating", 0) or 0)
         return cls(
             path=gallery.path,
             gid=gallery.gid or 0,
@@ -75,11 +91,28 @@ class Copy:
             signature=gallery.storage_signature,
             root_priority=root_priority,
             is_current=False,
+            is_starred=is_starred,
+            rating=rating,
+            has_custom_tags=has_custom,
+            tags=tags if isinstance(tags, list) else [],
             meta=gallery,
         )
 
     @classmethod
     def from_existing(cls, row, root_priority: int) -> Copy:
+        tags = getattr(row, "tags", []) or []
+        has_custom = bool(getattr(row, "has_custom_tags", False))
+        if not has_custom and tags:
+            has_custom = any(
+                str(t.get("namespace", "")).strip().lower() in ("local", "custom", "my", "user")
+                for t in tags
+                if isinstance(t, dict)
+            )
+        is_starred = bool(
+            getattr(row, "is_starred", False)
+            or (getattr(row, "local_rating", None) == 5)
+        )
+        rating = int(getattr(row, "local_rating", None) or getattr(row, "rating", 0) or 0)
         return cls(
             path=Path(row.path),
             gid=row.gid,
@@ -93,6 +126,10 @@ class Copy:
             signature=row.signature,
             root_priority=root_priority,
             is_current=True,
+            is_starred=is_starred,
+            rating=rating,
+            has_custom_tags=has_custom,
+            tags=tags if isinstance(tags, list) else [],
         )
 
     def as_record(self) -> dict[str, object]:
@@ -107,6 +144,9 @@ class Copy:
             "file_size": self.file_size,
             "posted_at": self.posted_at.isoformat() if self.posted_at else None,
             "is_current": self.is_current,
+            "is_starred": self.is_starred,
+            "rating": self.rating,
+            "has_custom_tags": self.has_custom_tags,
             "tags": self.tags,
         }
 
@@ -136,8 +176,12 @@ class ResolvedGroup:
 
 
 def _tie_rank(copy: Copy) -> tuple[object, ...]:
-    """Deterministic fallback: prefer the current row, then root order, then path."""
-    return (0 if copy.is_current else 1, copy.root_priority, str(copy.path))
+    """Deterministic fallback: prefer starred, high rating (>=4), custom tags, current row, root order, path."""
+    has_star = 0 if copy.is_starred else 1
+    has_rating = 0 if (copy.rating or 0) >= 4 else 1
+    has_custom = 0 if copy.has_custom_tags else 1
+    is_curr = 0 if copy.is_current else 1
+    return (has_star, has_rating, has_custom, is_curr, copy.root_priority, str(copy.path))
 
 
 def _better(a: Copy, b: Copy, policy: str) -> bool:

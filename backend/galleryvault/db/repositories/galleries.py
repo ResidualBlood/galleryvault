@@ -142,23 +142,61 @@ class GalleryRepository:
         if not changed:
             return
         changed_ids = [row.id for row, _ in changed]
-        await self.session.execute(
-            delete(GalleryPage).where(GalleryPage.gallery_id.in_(changed_ids))
-        )
-        await self.session.execute(delete(GalleryTag).where(GalleryTag.gallery_id.in_(changed_ids)))
-        page_rows = []
-        tag_keys: set[tuple[str, str]] = set()
-        for row, gallery in changed:
-            page_rows.extend(
-                GalleryPage(
-                    gallery_id=row.id,
-                    page_index=page.index,
-                    member_name=page.name,
-                    media_type=page.media_type,
-                    manifest={"size": page.size, "mtime_ns": page.mtime_ns},
+
+        # 1. GalleryPage diff update: compare existing vs desired
+        existing_pages = list(
+            (
+                await self.session.scalars(
+                    select(GalleryPage).where(GalleryPage.gallery_id.in_(changed_ids))
                 )
-                for page in gallery.pages
+            ).all()
+        )
+        existing_pages_by_key = {
+            (p.gallery_id, p.page_index): p for p in existing_pages
+        }
+
+        pages_to_add: list[GalleryPage] = []
+        page_ids_to_delete: list[int] = []
+        desired_page_keys: set[tuple[int, int]] = set()
+
+        for row, gallery in changed:
+            for page in gallery.pages:
+                k = (row.id, page.index)
+                desired_page_keys.add(k)
+                existing_page = existing_pages_by_key.get(k)
+                manifest_val = {"size": page.size, "mtime_ns": page.mtime_ns}
+                if existing_page is None:
+                    pages_to_add.append(
+                        GalleryPage(
+                            gallery_id=row.id,
+                            page_index=page.index,
+                            member_name=page.name,
+                            media_type=page.media_type,
+                            manifest=manifest_val,
+                        )
+                    )
+                else:
+                    if existing_page.member_name != page.name:
+                        existing_page.member_name = page.name
+                    if existing_page.media_type != page.media_type:
+                        existing_page.media_type = page.media_type
+                    if existing_page.manifest != manifest_val:
+                        existing_page.manifest = manifest_val
+
+        for p in existing_pages:
+            if (p.gallery_id, p.page_index) not in desired_page_keys:
+                page_ids_to_delete.append(p.id)
+
+        if page_ids_to_delete:
+            await self.session.execute(
+                delete(GalleryPage).where(GalleryPage.id.in_(page_ids_to_delete))
             )
+        if pages_to_add:
+            self.session.add_all(pages_to_add)
+
+        # 2. Tag mapping and GalleryTag diff update
+        tag_keys: set[tuple[str, str]] = set()
+        for _, gallery in changed:
             tag_keys.update(
                 (
                     str(item.get("namespace", "misc")).strip() or "misc",
@@ -167,8 +205,6 @@ class GalleryRepository:
                 for item in gallery.tags
                 if str(item.get("name", "")).strip()
             )
-        if page_rows:
-            self.session.add_all(page_rows)
         if tag_keys:
             tag_rows = list(
                 (
@@ -195,17 +231,40 @@ class GalleryRepository:
                     ).all()
                 )
                 tag_map = {(tag.namespace, tag.name): tag for tag in tag_rows}
-            self.session.add_all(
-                GalleryTag(gallery_id=row.id, tag_id=tag_map[key].id)
-                for row, gallery in changed
-                for key in {
-                    (
-                        str(item.get("namespace", "misc")).strip() or "misc",
-                        str(item.get("name", "")).strip(),
+
+            existing_gallery_tags = list(
+                (
+                    await self.session.scalars(
+                        select(GalleryTag).where(GalleryTag.gallery_id.in_(changed_ids))
                     )
-                    for item in gallery.tags
-                    if str(item.get("name", "")).strip()
-                }
+                ).all()
+            )
+            existing_tag_pairs = {(gt.gallery_id, gt.tag_id) for gt in existing_gallery_tags}
+
+            desired_tag_pairs: set[tuple[int, int]] = set()
+            for row, gallery in changed:
+                for item in gallery.tags:
+                    ns = str(item.get("namespace", "misc")).strip() or "misc"
+                    name = str(item.get("name", "")).strip()
+                    if name and (ns, name) in tag_map:
+                        desired_tag_pairs.add((row.id, tag_map[(ns, name)].id))
+
+            tags_to_add = desired_tag_pairs - existing_tag_pairs
+            tags_to_remove = existing_tag_pairs - desired_tag_pairs
+
+            if tags_to_remove:
+                await self.session.execute(
+                    delete(GalleryTag).where(
+                        tuple_(GalleryTag.gallery_id, GalleryTag.tag_id).in_(list(tags_to_remove))
+                    )
+                )
+            if tags_to_add:
+                self.session.add_all(
+                    GalleryTag(gallery_id=gid, tag_id=tid) for gid, tid in tags_to_add
+                )
+        else:
+            await self.session.execute(
+                delete(GalleryTag).where(GalleryTag.gallery_id.in_(changed_ids))
             )
         await self.session.flush()
 
@@ -224,6 +283,31 @@ class GalleryRepository:
         # Coarse SQL prefilter: only stream rows whose stored path could live
         # under one of the roots, instead of pulling the whole non-expunged
         # table.  The resolved ``is_relative_to`` check below stays authoritative.
+        custom_tag_exists = (
+            select(1)
+            .select_from(GalleryTag)
+            .join(Tag, GalleryTag.tag_id == Tag.id)
+            .where(
+                GalleryTag.gallery_id == Gallery.id,
+                func.lower(Tag.namespace).in_(["local", "custom", "my", "user"]),
+            )
+            .exists()
+        )
+        fav_exists = (
+            select(1)
+            .select_from(FavoriteItem)
+            .where(
+                Gallery.gid.is_not(None),
+                FavoriteItem.gid == Gallery.gid,
+            )
+            .exists()
+        )
+        local_list_exists = (
+            select(1)
+            .select_from(LocalListItem)
+            .where(LocalListItem.gallery_id == Gallery.id)
+            .exists()
+        )
         result = await self.session.stream(
             select(
                 Gallery.path_hash,
@@ -237,6 +321,10 @@ class GalleryRepository:
                 Gallery.file_count,
                 Gallery.file_size,
                 Gallery.posted_at,
+                Gallery.local_rating,
+                custom_tag_exists.label("has_custom_tags"),
+                fav_exists.label("is_favorited"),
+                local_list_exists.label("in_local_list"),
             ).where(
                 and_(
                     Gallery.expunged.is_(False),
@@ -249,6 +337,13 @@ class GalleryRepository:
             m = row._mapping
             path = m["storage_path"]
             if any(Path(path).resolve().is_relative_to(root) for root in normalized):
+                local_rating = m.get("local_rating")
+                is_starred = bool(
+                    (local_rating is not None and local_rating == 5)
+                    or m.get("is_favorited")
+                    or m.get("in_local_list")
+                )
+                has_custom_tags = bool(m.get("has_custom_tags"))
                 out[m["path_hash"]] = ExistingGallery(
                     path=path,
                     signature=m["storage_signature"],
@@ -260,6 +355,10 @@ class GalleryRepository:
                     file_count=m["file_count"],
                     file_size=m["file_size"],
                     posted_at=m["posted_at"],
+                    local_rating=local_rating,
+                    is_starred=is_starred,
+                    rating=int(local_rating or 0),
+                    has_custom_tags=has_custom_tags,
                 )
         return out
 

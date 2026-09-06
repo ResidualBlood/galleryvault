@@ -251,8 +251,9 @@ class TelegramNotifier:
         # Reuse the shared client when present (the Telegram bot polls through
         # the same one), otherwise open a short-lived client for this call.
         shared = self.client is not None
+        call_timeout = httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0)
         client = self.client or httpx.AsyncClient(
-            timeout=15, proxy=self.settings.socks5_proxy or self.settings.http_proxy
+            timeout=call_timeout, proxy=self.settings.socks5_proxy or self.settings.http_proxy
         )
         try:
             sent = False
@@ -264,13 +265,21 @@ class TelegramNotifier:
                         "text": text,
                         "parse_mode": "HTML",
                     },
+                    timeout=call_timeout,
                 )
                 response.raise_for_status()
                 sent = True
             return sent
-        except httpx.HTTPError as exc:
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
             logger.warning(
-                "Telegram notification failed", extra=log_extra(error=type(exc).__name__)
+                "Telegram notification failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram notification unexpected error",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
             )
             return False
         finally:
