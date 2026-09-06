@@ -238,6 +238,15 @@ def _serialize_cross_gid_group(
             or it_copy.get("title")
             or (f"gid {it_copy.get('gid')}" if it_copy.get("gid") is not None else "")
         )
+        if (
+            it_copy.get("gallery_id") is None
+            and it_copy.get("gid") is not None
+            and it_copy.get("token")
+            and not it_copy.get("cover_url")
+        ):
+            it_copy["cover_url"] = (
+                f"/api/favorites/cover?gid={int(it_copy['gid'])}&token={it_copy['token']}"
+            )
         items.append(it_copy)
     return {
         "key": group.get("key"),

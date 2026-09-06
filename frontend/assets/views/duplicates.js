@@ -494,7 +494,7 @@ function renderCrossGidList() {
             : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`;
           const thumbSrc = isLocal
             ? `/api/galleries/${it.gallery_id}/thumb/0`
-            : (it.thumb || it.cover_data || null);
+            : (it.cover_url || it.cover_data || null);
           const thumbHtml = thumbSrc
             ? `<img class="dup-thumb" loading="lazy" src="${thumbSrc}" alt="">`
             : `<span class="dup-thumb dup-thumb-empty"></span>`;
