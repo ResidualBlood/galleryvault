@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import time as _time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from ..db.repository import BackgroundJobsRepository
 from ..logging import bind_log_context, log_extra
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
+from .storage_usage import safe_stat_size, storage_tracker
 from .tag_sync_worker import claim_jobs, complete_job, jobs_count, requeue_job
 from .thumbnails import ThumbnailError, ThumbnailService
 
@@ -235,3 +237,35 @@ async def thumbnail_worker_loop() -> None:
         await asyncio.gather(*workers)
     finally:
         pass
+
+
+async def orphan_thumbnail_cleanup_loop() -> None:
+    while True:
+        try:
+            await asyncio.sleep(86400)
+            if not app_state.session_factory:
+                continue
+            settings = app_state.settings or get_settings()
+            cache_dir = Path(settings.thumbnail_cache_dir)
+            if not cache_dir.exists():
+                continue
+            disk_ids: set[int] = {
+                int(p.name) for p in cache_dir.iterdir() if p.is_dir() and p.name.isdigit()
+            }
+            if not disk_ids:
+                continue
+            async with app_state.session_factory() as session:
+                rows = await session.scalars(select(Gallery.id))
+                db_ids = set(rows)
+            orphan_ids = disk_ids - db_ids
+            for gid in orphan_ids:
+                folder = cache_dir / str(gid)
+                if folder.exists() and folder.is_dir():
+                    sz = safe_stat_size(folder)
+                    shutil.rmtree(folder, ignore_errors=True)
+                    if sz > 0:
+                        storage_tracker.record_cache_delta(-sz)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("orphan thumbnail cleanup failed", extra=log_extra(error=type(exc).__name__))
