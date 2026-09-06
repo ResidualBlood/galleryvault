@@ -483,7 +483,7 @@ async function renderCrossGidDuplicates() {
       <a class="secondary" href="#/favorites/ignored" style="padding:8px 14px;border-radius:4px;margin-left:auto">${esc(t("dupIgnoredPage"))}</a>
     </div>
     <div id="dupxgid-groups"><p class="muted">${esc(t("loading"))}</p></div>`;
-  if (dupXgidCache === null && !dupXgidReady) {
+  if (dupXgidCache === null || !dupXgidReady) {
     await loadCrossGidDuplicates();
   } else {
     renderCrossGidList();
@@ -678,7 +678,22 @@ async function xgidDupAction(deleteLocal) {
     }
     toast(toastMsg);
     selXgid.clear();
-    await recomputeCrossGidDuplicates();
+    if (dupXgidCache) {
+      const favSet = new Set(favItems);
+      const groups = Array.isArray(dupXgidCache) ? dupXgidCache : (dupXgidCache.groups || []);
+      const updated = groups
+        .map(g => ({
+          ...g,
+          items: (g.items || []).filter(it => !favSet.has(it.gid)),
+        }))
+        .filter(g => g.items.length > 0);
+      if (Array.isArray(dupXgidCache)) {
+        dupXgidCache = updated;
+      } else {
+        dupXgidCache.groups = updated;
+      }
+    }
+    renderCrossGidList();
   } catch (e) {
     toast(e.message);
   }

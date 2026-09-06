@@ -451,8 +451,6 @@ function router() {
   if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
   if (app.view !== "archive" && archiveTimer) { clearInterval(archiveTimer); archiveTimer = null; }
   if (app.view !== "favlist") selFav.clear();
-  if (app.view !== "favmanage" && app.view !== "favignored") { selDup.clear(); }
-  if (app.view !== "dupxgid") { selXgid.clear(); }
   if (app.view !== "recycle") selRecycle.clear();
   if (app.view !== "integrity") selIntegrity.clear();
   if (app.view !== "reader" && readerFsActive) exitReaderFullscreen();
