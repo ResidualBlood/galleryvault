@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [1.8.3] - 2026-09-06
+
+### Added
+
 - **Cross-GID duplicate cluster tabs** (`backend/galleryvault/app/routers/duplicates.py`, `backend/galleryvault/services/duplicates.py`, `frontend/assets/views/duplicates.js`): 管理页查重支持三子标签（`copies` / `favorites` / `cross-gid`），跨 GID 查重聚合本地与云端未入库收藏，展示分类、页数与封面缩略图，支持勾选、取消收藏、忽略与删除已下载副本。
 - **Cross-GID duplicate background cache & prefix stripping** (`backend/galleryvault/services/duplicates.py`, `backend/galleryvault/services/scan_worker.py`, `backend/galleryvault/app/routers/duplicates.py`): 资料库扫描完成后后台异步聚类跨 GID 重复项并写入内存缓存；聚类算法支持循环剥离活动/展会前缀与标题规范化，提供即时查询与手动刷新端点。
 - **Cold storage archive 500-page cap & ZipFile LRU cache** (`backend/galleryvault/scanners/archive.py`, `backend/galleryvault/services/cold_archive.py`): 冷库归档 CBZ 生成增加单卷 500 页上限（与 2GiB 限制取 AND），超限自动切卷；阅读器与缩略图加载归档 CBZ 复用 ZipFile LRU 缓存避免频繁重复打开文件句柄。
