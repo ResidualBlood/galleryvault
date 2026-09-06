@@ -210,6 +210,8 @@ async function onClick(e) {
   if (action === "recycle-redownload") { recycleRedownload(); return; }
   if (action === "recycle-purge") { recyclePurge(); return; }
   if (action === "integrity-scan") { integrityScan(); return; }
+  if (action === "integrity-select-all") { integritySelectAll(); return; }
+  if (action === "integrity-clear") { integrityClearSelection(); return; }
   if (action === "integrity-repair") { integrityRepair(); return; }
   if (action === "archive-start") { archiveStart(); return; }
   if (action === "archive-cancel") { archiveCancel(); return; }

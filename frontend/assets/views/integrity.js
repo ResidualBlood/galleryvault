@@ -2,13 +2,17 @@
 
 async function renderIntegrity() {
   const page = app.query.page || "1";
+  const n = window.selIntegrity ? window.selIntegrity.size : 0;
+  const suffix = n ? ` (${n})` : "";
   renderView(`
     <header><p class="eyebrow">INTEGRITY</p><h1>${esc(t("missingPagesTitle"))}</h1>
     <p class="sub">${esc(t("missingPagesSub"))}</p></header>
     ${manageTabsHtml("integrity")}
     <div class="toolbar">
       <button class="btn btn-secondary" data-action="integrity-scan" type="button">${esc(t("scan") || "Scan")}</button>
-      <button class="btn btn-secondary" data-action="integrity-repair" type="button">${esc(t("retry"))} / ${esc(t("repair") || "Repair")}</button>
+      <button class="btn btn-secondary" data-action="integrity-select-all" type="button">${esc(t("selectAll"))}</button>
+      <button class="btn btn-secondary" data-action="integrity-clear" type="button">${esc(t("clearSel"))}</button>
+      <button class="btn btn-secondary" data-action="integrity-repair" type="button">${esc(t("retry"))} / ${esc(t("repair") || "Repair")}${suffix}</button>
     </div>
     <div id="integrity-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="integrity-pager"></div>`);
@@ -36,6 +40,7 @@ async function renderIntegrity() {
           const id = parseInt(cb.getAttribute("data-integrity-id"), 10);
           if (!window.selIntegrity) window.selIntegrity = new Set();
           if (cb.checked) selIntegrity.add(id); else selIntegrity.delete(id);
+          updateIntegrityButtons();
         });
       });
     }
@@ -71,3 +76,29 @@ async function integrityRepair() {
   if (window.selIntegrity) selIntegrity.clear();
   router();
 }
+
+function updateIntegrityButtons() {
+  const btn = document.querySelector('[data-action="integrity-repair"]');
+  if (!btn) return;
+  const n = (window.selIntegrity && window.selIntegrity.size) || 0;
+  btn.textContent = t("retry") + " / " + (t("repair") || "Repair") + (n ? ` (${n})` : "");
+}
+
+function integritySelectAll() {
+  if (!window.selIntegrity) window.selIntegrity = new Set();
+  document.querySelectorAll('#integrity-grid input[data-integrity-id]').forEach(cb => {
+    const id = parseInt(cb.getAttribute("data-integrity-id"), 10);
+    selIntegrity.add(id);
+    cb.checked = true;
+  });
+  updateIntegrityButtons();
+}
+
+function integrityClearSelection() {
+  if (window.selIntegrity) selIntegrity.clear();
+  document.querySelectorAll('#integrity-grid input[data-integrity-id]').forEach(cb => {
+    cb.checked = false;
+  });
+  updateIntegrityButtons();
+}
+
