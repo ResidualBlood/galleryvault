@@ -741,7 +741,7 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
         return;
       }
       if (res && res.animated && typeof res.duration_ms === "number" && res.duration_ms > 0) {
-        delayMs = Math.max(0, res.duration_ms - 100);
+        delayMs = res.duration_ms;
       }
     } catch (_) {
       // ignore network errors and fallback to userIntervalMs
@@ -756,6 +756,11 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
     slideshowTimer = null;
     if (sessionId !== readerSlideshowSession || app.view !== "reader") {
       return;
+    }
+    if (mediaType.includes("gif") || mediaType.includes("webp")) {
+      document.querySelectorAll(".reader img").forEach(img => {
+        img.style.visibility = "hidden";
+      });
     }
     const currentId = app.params.id;
     const currentTotal = Number(app.readerTotal);
