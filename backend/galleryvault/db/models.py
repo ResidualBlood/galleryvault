@@ -131,6 +131,7 @@ class DownloadTask(Base):
     mode: Mapped[str | None] = mapped_column(String(32))
     category: Mapped[str | None] = mapped_column(String(32))
     quality: Mapped[str | None] = mapped_column(String(16))
+    archive_fallback: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     archive_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     archive_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)

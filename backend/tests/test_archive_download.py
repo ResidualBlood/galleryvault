@@ -471,7 +471,14 @@ async def test_downloads_api_archive_fallback_serialization(
     from galleryvault.app.state import app_state
 
     class FakeTaskRow:
-        def __init__(self, id: int, gid: int, mode: str | None, status: str = "downloading") -> None:
+        def __init__(
+            self,
+            id: int,
+            gid: int,
+            mode: str | None,
+            status: str = "downloading",
+            archive_fallback: bool = False,
+        ) -> None:
             self.id = id
             self.gid = gid
             self.mode = mode
@@ -484,6 +491,7 @@ async def test_downloads_api_archive_fallback_serialization(
             self.total_pages = 10
             self.error_message = None
             self.quality = "resample"
+            self.archive_fallback = archive_fallback
 
     class FakeRepo:
         def __init__(self, session) -> None:
@@ -491,8 +499,8 @@ async def test_downloads_api_archive_fallback_serialization(
 
         async def list_page(self, page: int, page_size: int, status: str | None = None):
             rows = [
-                FakeTaskRow(1, 101, "archive"),
-                FakeTaskRow(2, 102, "archive", "failed"),
+                FakeTaskRow(1, 101, "archive", archive_fallback=True),
+                FakeTaskRow(2, 102, "archive", "failed", archive_fallback=True),
                 FakeTaskRow(3, 103, "archive"),
                 FakeTaskRow(4, 104, "pages"),
             ]

@@ -17,7 +17,6 @@ from ...services.download_worker import (
     clear_download_cancelled,
     mark_download_cancelled,
 )
-from ...services.downloader import Downloader
 from ...services.messages import GONE_DETAIL
 from ..dependencies import (
     db_error,
@@ -206,15 +205,8 @@ async def list_downloads(
     for x in rows:
         title = _row_val(x, "title")
         title_jpn = _row_val(x, "title_jpn")
-        mode = _row_val(x, "mode") or ""
         gid = _row_val(x, "gid")
-        is_fallback = False
-        if "archive" in mode:
-            if downloader is not None:
-                is_fallback = downloader.is_archive_fallback(gid)
-            else:
-                s = app_state.settings or get_current_settings()
-                is_fallback = Downloader.check_archive_fallback(Path(s.download_root), gid)
+        is_fallback = bool(_row_val(x, "archive_fallback", False))
         item: dict[str, Any] = {
             "id": _row_val(x, "id"),
             "gid": gid,

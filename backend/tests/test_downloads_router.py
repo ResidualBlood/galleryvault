@@ -135,3 +135,107 @@ async def test_downloads_router_list_downloads_cleans_titles(monkeypatch):
     res = await downloads_router.list_downloads(page=1, page_size=24, status="pending")
     assert len(res["items"]) == 1
     assert res["items"][0]["title"] == "[Nyako] 2026.4.18 <AI生成>"
+
+
+@pytest.mark.asyncio
+async def test_download_repository_progress_archive_fallback():
+    class FakeRow:
+        def __init__(self):
+            self.current_page = 0
+            self.total_pages = 0
+            self.archive_fallback = False
+            self.updated_at = None
+
+    fake_row = FakeRow()
+
+    class FakeSession:
+        async def get(self, model, task_id):
+            return fake_row
+
+        async def flush(self):
+            pass
+
+    repo = DownloadRepository(FakeSession())
+
+    # Update progress without archive_fallback -> remains False
+    await repo.progress(1, 2, 10)
+    assert fake_row.current_page == 2
+    assert fake_row.total_pages == 10
+    assert fake_row.archive_fallback is False
+
+    # Update progress with archive_fallback=True -> updates to True
+    await repo.progress(1, 3, 10, archive_fallback=True)
+    assert fake_row.current_page == 3
+    assert fake_row.archive_fallback is True
+
+    # Update progress with archive_fallback=None -> keeps True
+    await repo.progress(1, 4, 10, archive_fallback=None)
+    assert fake_row.current_page == 4
+    assert fake_row.archive_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_download_repository_list_page_archive_fallback():
+    task = DownloadTask(
+        id=1,
+        gid=1001,
+        token="tok",
+        title="Test Title",
+        status="downloading",
+        quality="resample",
+        archive_fallback=True,
+    )
+
+    class FakeResult:
+        def all(self):
+            return [(task, "Test Title", None)]
+
+    class FakeSession:
+        async def scalar(self, stmt):
+            return 1
+
+        async def execute(self, stmt):
+            return FakeResult()
+
+    repo = DownloadRepository(FakeSession())
+    total, items = await repo.list_page(1, 24)
+    assert total == 1
+    assert len(items) == 1
+    assert items[0]["archive_fallback"] is True
+    assert items[0].archive_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_download_worker_progress_archive_fallback(monkeypatch):
+    from galleryvault.app.state import app_state
+    from galleryvault.services.download_worker import download_progress
+
+    progress_calls = []
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def progress(self, task_id, current, total, archive_fallback=None):
+            progress_calls.append((task_id, current, total, archive_fallback))
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+    monkeypatch.setattr("galleryvault.services.download_worker.DownloadRepository", FakeRepo)
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: FakeSession()
+    try:
+        await download_progress(42, 5, 20, archive_fallback=True)
+        assert len(progress_calls) == 1
+        assert progress_calls[0] == (42, 5, 20, True)
+    finally:
+        app_state.session_factory = orig_factory
+

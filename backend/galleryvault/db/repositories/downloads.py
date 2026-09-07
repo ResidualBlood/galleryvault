@@ -205,11 +205,19 @@ class DownloadRepository:
         )
         await self.session.flush()
 
-    async def progress(self, task_id: int, current_page: int, total_pages: int) -> None:
+    async def progress(
+        self,
+        task_id: int,
+        current_page: int,
+        total_pages: int,
+        archive_fallback: bool | None = None,
+    ) -> None:
         row = await self.session.get(DownloadTask, task_id)
         if row is not None:
             row.current_page = current_page
             row.total_pages = total_pages
+            if archive_fallback is not None:
+                row.archive_fallback = archive_fallback
             row.updated_at = datetime.now(UTC)
         await self.session.flush()
 
@@ -258,6 +266,7 @@ class DownloadRepository:
                     mode=task.mode,
                     category=task.category,
                     quality=task.quality,
+                    archive_fallback=getattr(task, "archive_fallback", False),
                     archive_status=task.archive_status,
                     archive_error=task.archive_error,
                     retry_count=task.retry_count,

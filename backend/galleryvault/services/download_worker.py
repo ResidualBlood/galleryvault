@@ -302,12 +302,19 @@ def maybe_scan_after_download(result: Any) -> None:
     spawn_task(ingest_downloaded_gallery(result), "download ingest")
 
 
-async def download_progress(task_id: int | None, current_page: int, total_pages: int) -> None:
+async def download_progress(
+    task_id: int | None,
+    current_page: int,
+    total_pages: int,
+    archive_fallback: bool | None = None,
+) -> None:
     if task_id is None or not app_state.session_factory:
         return
     try:
         async with app_state.session_factory() as session, session.begin():
-            await DownloadRepository(session).progress(task_id, current_page, total_pages)
+            await DownloadRepository(session).progress(
+                task_id, current_page, total_pages, archive_fallback=archive_fallback
+            )
     except SQLAlchemyError as exc:
         logger.warning(
             "download progress persistence failed", extra=log_extra(error=type(exc).__name__)
@@ -503,6 +510,7 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
     maybe_scan_fn = maybe_scan_after_download
 
     row = None
+    exec_task: DownloadTask | None = None
     try:
         if is_download_cancelled(task.id):
             raise DownloadCancelledError("download was cancelled")
@@ -518,6 +526,19 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             row.status = "downloading"
             row.started_at = datetime.now(UTC)
 
+        exec_task = DownloadTask(
+            task.gid,
+            task.token,
+            task.title,
+            task.id,
+            1,
+            task.mode,
+            task.category,
+            max_pages=task.max_pages,
+            quality=task.quality,
+            archive_fallback=bool(getattr(task, "archive_fallback", False)),
+        )
+
         progress_state = {"last_persisted": 0, "last_flush": 0.0}
 
         async def _on_progress(current: int, total: int) -> None:
@@ -531,7 +552,10 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
                 or now - progress_state["last_flush"] >= _PROGRESS_FLUSH_INTERVAL
             ):
                 if task.id is not None:
-                    await download_progress(task.id, current, total)
+                    is_fb = bool(getattr(exec_task, "archive_fallback", False))
+                    await download_progress(
+                        task.id, current, total, archive_fallback=True if is_fb else None
+                    )
                 progress_state["last_persisted"] = current
                 progress_state["last_flush"] = now
 
@@ -539,17 +563,7 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             raise DownloadCancelledError("download was cancelled")
 
         result = await downloader.execute(
-            DownloadTask(
-                task.gid,
-                task.token,
-                task.title,
-                task.id,
-                1,
-                task.mode,
-                task.category,
-                max_pages=task.max_pages,
-                quality=task.quality,
-            ),
+            exec_task,
             progress=_on_progress,
         )
         if is_download_cancelled(task.id):
@@ -573,6 +587,8 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             "retry_at": None,
             "finished_at": now,
         }
+        if getattr(exec_task, "archive_fallback", False):
+            update_values["archive_fallback"] = True
         if result.title:
             update_values["title"] = result.title
         if getattr(result, "title_jpn", None):
@@ -614,6 +630,8 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
                     row.retry_count = 0
                     row.retry_at = None
                     row.finished_at = update_values.get("finished_at")
+                    if "archive_fallback" in update_values:
+                        row.archive_fallback = update_values["archive_fallback"]
                     if "title" in update_values:
                         row.title = update_values["title"]
                     if "title_jpn" in update_values:
@@ -722,6 +740,8 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
                         # The old `challenge ? backoff : now` caused non-challenge
                         # EhClientError to be retried in <1s, burning the retry budget.
                         row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count))
+                    if exec_task is not None and getattr(exec_task, "archive_fallback", False):
+                        row.archive_fallback = True
                     row.error_message = GONE_DETAIL if gone else f"{type(exc).__name__}: {exc}"
                     row.updated_at = now
                     await DownloadRepository(session).record_attempt(
