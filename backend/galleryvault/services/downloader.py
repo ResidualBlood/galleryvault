@@ -85,6 +85,8 @@ class DownloadClient(Protocol):
         gid: int,
         page: GalleryPageData,
         showkey: ShowkeyState | None = None,
+        *,
+        skip_hath: bool = False,
     ) -> GalleryPageData: ...
     async def download_image(self, url: str) -> bytes: ...
     async def fetch_archive_info(self, gid: int, token: str) -> object: ...
@@ -176,11 +178,11 @@ def _find_existing_dirname(root: Path, gid: int) -> str | None:
     return best
 
 
-IMAGE_MAGIC_PREFIXES = (b"RIFF", b"\xff\xd8\xff", b"\x89PNG")
+IMAGE_MAGIC_PREFIXES = (b"RIFF", b"\xff\xd8\xff", b"\x89PNG", b"GIF8")
 
 
 def _is_valid_image_magic(data: bytes) -> bool:
-    """Validate 20-byte window for image magic (RIFF / JPEG / PNG) without zero padding."""
+    """Validate 20-byte window for image magic (RIFF / JPEG / PNG / GIF) without zero padding."""
     if not data or len(data) < 20:
         return False
     window = data[:20]
@@ -468,9 +470,17 @@ class Downloader:
                     # task-level retry so the gallery stays complete.
                     for attempt in range(5):
                         try:
-                            current = await self.client.resolve_page(
-                                gallery.gid, current, showkey
-                            )
+                            try:
+                                current = await self.client.resolve_page(
+                                    gallery.gid,
+                                    current,
+                                    showkey,
+                                    skip_hath=(attempt > 0),
+                                )
+                            except TypeError:
+                                current = await self.client.resolve_page(
+                                    gallery.gid, current, showkey
+                                )
                             url = self._resolve_image_url(current, quality)
                             content_type = ""
                             fetch_with_type = getattr(
@@ -480,12 +490,20 @@ class Downloader:
                                 data, content_type = await fetch_with_type(url)
                             else:
                                 data = await self.client.download_image(url)
-                            if not data or data[:20].lstrip().lower().startswith(
+                            if not data:
+                                raise ValueError(
+                                    f"image response is invalid: 0 bytes received (url={url})"
+                                )
+                            if data[:20].lstrip().lower().startswith(
                                 (b"<html", b"<!doctype")
                             ):
-                                raise ValueError("image response is invalid")
+                                raise ValueError(
+                                    f"image response is invalid: html response detected (url={url})"
+                                )
                             if not _is_valid_image_magic(data):
-                                raise ValueError("image response is invalid")
+                                raise ValueError(
+                                    f"image response is invalid: unrecognized magic prefix {data[:16].hex()} (url={url})"
+                                )
                             extension = {
                                 "image/jpeg": ".jpg",
                                 "image/png": ".png",

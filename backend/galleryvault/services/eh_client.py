@@ -8,10 +8,10 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Self
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -1406,7 +1406,12 @@ class EhClient:
         ]
 
     async def resolve_page(
-        self, gid: int, page: GalleryPageData, showkey: ShowkeyState | None = None
+        self,
+        gid: int,
+        page: GalleryPageData,
+        showkey: ShowkeyState | None = None,
+        *,
+        skip_hath: bool = False,
     ) -> GalleryPageData:
         """Resolve one page's fresh image URLs right before downloading.
 
@@ -1417,6 +1422,26 @@ class EhClient:
         """
         if showkey is None:
             showkey = ShowkeyState()
+        if skip_hath and page.skip_hath_key:
+            parsed = urlparse(page.url)
+            query_pairs = [
+                (k, v)
+                for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+                if k != "nl"
+            ]
+            query_pairs.append(("nl", page.skip_hath_key))
+            target_url = urlunparse(
+                (
+                    parsed.scheme,
+                    parsed.netloc,
+                    parsed.path,
+                    parsed.params,
+                    urlencode(query_pairs),
+                    parsed.fragment,
+                )
+            )
+            target_page = replace(page, url=target_url)
+            return await self._resolve_page_from_html(gid, target_page, showkey)
         absolute = page.url
         viewer = VIEWER_HREF_RE.search(absolute)
         p_token = viewer.group("ptoken") if viewer else (page.token or "")

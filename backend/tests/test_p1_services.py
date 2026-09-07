@@ -92,7 +92,7 @@ class FakeDownloadClient:
         return GalleryData(gid, token, "safe/title", pages)
 
     async def resolve_page(
-        self, gid: int, page: GalleryPageData, showkey=None
+        self, gid: int, page: GalleryPageData, showkey=None, *, skip_hath: bool = False
     ) -> GalleryPageData:
         return GalleryPageData(
             page.index, page.url, page.token, f"https://img.test/{page.token}.jpg"
@@ -185,6 +185,7 @@ async def test_downloader_resumes_without_refetching_existing_pages(tmp_path: Pa
 @pytest.mark.parametrize(
     "bad_payload",
     [
+        b"",
         b"<html>error page</html>",
         b"<!DOCTYPE html><html><body>Error</body></html>",
         b"\x00" * 32,
@@ -223,6 +224,7 @@ async def test_downloader_rejects_invalid_magic_and_html(
         b"RIFF" + b"\x00" * 20,
         b"\xff\xd8\xff" + b"\x00" * 20,
         b"\x89PNG" + b"\x00" * 20,
+        b"GIF8" + b"\x00" * 20,
     ],
 )
 async def test_downloader_accepts_three_magics(tmp_path: Path, valid_header: bytes) -> None:
@@ -612,7 +614,7 @@ class FlakyDownloadClient(FakeDownloadClient):
         self.resolve_calls = 0
 
     async def resolve_page(
-        self, gid: int, page: GalleryPageData, showkey=None
+        self, gid: int, page: GalleryPageData, showkey=None, *, skip_hath: bool = False
     ) -> GalleryPageData:
         self.resolve_calls += 1
         # Each resolution returns a fresh-looking URL, as an expired keystamp
@@ -650,7 +652,7 @@ class AlwaysFailDownloadClient(FakeDownloadClient):
         self.calls = 3
 
     async def resolve_page(
-        self, gid: int, page: GalleryPageData, showkey=None
+        self, gid: int, page: GalleryPageData, showkey=None, *, skip_hath: bool = False
     ) -> GalleryPageData:
         return GalleryPageData(
             page.index, page.url, page.token, f"https://img.test/{page.token}.jpg"
@@ -671,6 +673,76 @@ async def test_downloader_escalates_after_five_page_attempts(tmp_path: Path) -> 
             DownloadTask(1, "tok", "title", id=9)
         )
     assert not (tmp_path / ".gv-1").exists() or True  # temp dir cleaned by caller
+
+
+@pytest.mark.asyncio
+async def test_downloader_retries_with_skip_hath(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fast_sleep(_):
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", _fast_sleep)
+
+    class RetryTrackingClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+            self.skip_hath_flags: list[bool] = []
+            self.download_attempts = 0
+
+        async def resolve_page(
+            self, gid: int, page: GalleryPageData, showkey=None, *, skip_hath: bool = False
+        ) -> GalleryPageData:
+            self.skip_hath_flags.append(skip_hath)
+            return GalleryPageData(
+                page.index, page.url, page.token, f"https://img.test/{page.token}.jpg"
+            )
+
+        async def download_image(self, url: str) -> bytes:
+            self.download_attempts += 1
+            if self.download_attempts == 1:
+                return b"invalid data"
+            return b"\xff\xd8\xff" + b"\x00" * 64
+
+    client = RetryTrackingClient()
+    downloader = Downloader(client, tmp_path)
+    result = await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert result.pages == 2
+    # First attempt had skip_hath=False, second attempt after failure had skip_hath=True
+    assert client.skip_hath_flags[:2] == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_eh_client_resolve_page_with_skip_hath(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = EhClient()
+    called_pages: list[GalleryPageData] = []
+
+    async def fake_resolve_html(
+        gid: int, page: GalleryPageData, showkey=None
+    ) -> GalleryPageData:
+        called_pages.append(page)
+        return GalleryPageData(
+            page.index,
+            page.url,
+            page.token,
+            "https://hath.test/next.jpg",
+            skip_hath_key="next_key",
+        )
+
+    monkeypatch.setattr(client, "_resolve_page_from_html", fake_resolve_html)
+
+    page = GalleryPageData(
+        0,
+        "https://e-hentai.org/s/abc/1-1?nl=old_key&foo=bar",
+        "abc",
+        skip_hath_key="skip123",
+    )
+    res = await client.resolve_page(1, page, skip_hath=True)
+    assert res.image_url == "https://hath.test/next.jpg"
+    assert len(called_pages) == 1
+    # Check old nl was removed and new nl was appended
+    assert "nl=skip123" in called_pages[0].url
+    assert "old_key" not in called_pages[0].url
+    assert "foo=bar" in called_pages[0].url
 
 
 def test_retry_backoff_progression() -> None:
