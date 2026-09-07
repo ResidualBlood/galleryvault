@@ -28,9 +28,10 @@ This guide covers GalleryVault's maintenance tools, including deduplication (thr
 
 Split into two tabs:
 
-1. **Task Activity**: Displays background tasks (library scan, tag sync, thumbnail generation, favorites metadata sync):
+1. **Task Activity**: Displays background tasks (including library scan, tag sync, thumbnail generation, favorites metadata sync, duplicate scans, gallery update detection, as well as silent inspection and maintenance tasks such as orphan thumbnail cleanup, periodic thumbnail seeding, download retry sweep, Cookie health checks, and storage calibration):
    - **Running**: start time · task name · `running · done/total` · progress bar · description · **Cancel** button; multiple tasks run side by side.
    - **Finished**: start time · task name · status badge (success / failed / cancelled) · description & reason · **duration** · finish time; finished tasks no longer show a progress bar.
+   - **Silent Tasks & Automated Observability**: In addition to front-end initiated actions, the system comprehensively tracks and displays periodic background tasks (such as orphan thumbnail cleanup, missing thumbnail seeding, failed download exponential backoff retry sweeps, Cookie session health checks, and storage usage calibration). Whether running or completed, their execution progress, duration, and status are clearly visible in the task activity list.
 2. **System Logs**: Live diagnostic runtime logs from backend memory ring buffer:
    - **Dynamic log level**: Change runtime log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`) on the fly without restarting containers;
    - **Real-time filtering & search**: Filter by minimum severity level (`INFO+`, `WARN+`, `ERROR+`) and instant text search;

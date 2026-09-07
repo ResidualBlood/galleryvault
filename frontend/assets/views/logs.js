@@ -78,13 +78,13 @@ function taskMeta(task, stage) {
     };
     case "favcheck":
     case "favorites-check": return { label: t("checkAll"), desc: t("favCheckDesc") };
-    case "duplicates": return { label: t("scanDuplicates") || "查重扫描", desc: t("duplicatesDesc") || "" };
-    case "gallery-updates": return { label: t("detectUpdates") || "检查更新", desc: t("updatesDesc") || "" };
-    case "orphan-thumbnail-cleanup": return { label: "清理孤儿缩略图", desc: "定期清理无对应画廊的缩略图缓存" };
-    case "thumbnail-periodic-seed": return { label: "缩略图周期播种", desc: "定期检查并补充缺少缩略图的画廊" };
-    case "download-retry-sweep": return { label: "下载失败重试巡检", desc: "自动重新入队符合重试条件的失败下载任务" };
-    case "cookie-health": return { label: "Cookie 健康巡检", desc: "定期探活 E-Hentai 登录状态" };
-    case "calibrate-storage": return { label: "存储容量校准", desc: "校准下载与缓存目录实际磁盘占用" };
+    case "duplicates": return { label: t("tasks.duplicates"), desc: t("tasks.duplicatesDesc") };
+    case "gallery-updates": return { label: t("tasks.galleryUpdates"), desc: t("tasks.galleryUpdatesDesc") };
+    case "orphan-thumbnail-cleanup": return { label: t("tasks.orphanThumbnailCleanup"), desc: t("tasks.orphanThumbnailCleanupDesc") };
+    case "thumbnail-periodic-seed": return { label: t("tasks.thumbnailPeriodicSeed"), desc: t("tasks.thumbnailPeriodicSeedDesc") };
+    case "download-retry-sweep": return { label: t("tasks.downloadRetrySweep"), desc: t("tasks.downloadRetrySweepDesc") };
+    case "cookie-health": return { label: t("tasks.cookieHealth"), desc: t("tasks.cookieHealthDesc") };
+    case "calibrate-storage": return { label: t("tasks.calibrateStorage"), desc: t("tasks.calibrateStorageDesc") };
     case "translation": return { label: t("translationUpdate"), desc: t("transDesc") };
     case "gallery-delete": return { label: t("deleteGalleryLog"), desc: t("deleteFiles") };
     case "favorites-remove": return { label: t("favoritesRemoveLog"), desc: t("confirmDupDelete") };
@@ -93,7 +93,7 @@ function taskMeta(task, stage) {
     case "series-rebuild": return { label: t("seriesRebuild"), desc: t("seriesSub") };
     case "download-clear-success": return { label: t("clearSuccessDlLog"), desc: t("downloadsSub") };
     case "archive": return { label: t("archiveLogLabel"), desc: t("archiveLogDesc") };
-    case "integrity": return { label: t("missingPagesTitle") || "缺页体检", desc: t("missingPagesSub") || "正在校验文件完整性" };
+    case "integrity": return { label: t("tasks.integrity"), desc: t("tasks.integrityDesc") };
     default: return { label: task, desc: "" };
   }
 }
