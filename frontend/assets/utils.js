@@ -7,97 +7,7 @@ function nsClass(ns) {
   return "nst-" + (ns && ["artist","character","parody","group","language","category","female","male","mixed","other","misc"].includes(ns) ? ns : "misc");
 }
 
-let pageRecycleObserver = null;
-const pageHtmlCache = new Map();
-
-function recycleOffscreenPages(grid) {
-  if (!pageRecycleObserver) {
-    pageRecycleObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        const target = entry.target;
-        if (!entry.isIntersecting) {
-          if (target.classList.contains("page-head")) {
-            const page = target.dataset.page;
-            if (!page) return;
-            const parent = target.parentNode;
-            if (!parent) return;
-            const cards = Array.from(parent.querySelectorAll(`[data-page-owner="${page}"]`));
-            if (cards.length === 0) return;
-
-            const first = cards[0];
-            const last = cards[cards.length - 1];
-            let h = 0;
-            if (first && last) {
-              const rFirst = first.getBoundingClientRect();
-              const rLast = last.getBoundingClientRect();
-              h = Math.round(rLast.bottom - rFirst.top);
-            }
-            if (h <= 0 && first && last) {
-              h = Math.round((last.offsetTop + last.offsetHeight) - first.offsetTop);
-            }
-            if (h <= 0) {
-              h = 300;
-            }
-
-            const savedHtml = cards.map(c => c.outerHTML).join("");
-            pageHtmlCache.set(String(page), savedHtml);
-
-            const placeholder = document.createElement("div");
-            placeholder.className = "inf-page-placeholder";
-            placeholder.dataset.page = String(page);
-            placeholder.style.gridColumn = "1 / -1";
-            placeholder.style.height = `${h}px`;
-            placeholder._savedHtml = savedHtml;
-
-            parent.insertBefore(placeholder, first);
-            pageRecycleObserver.unobserve(target);
-            cards.forEach(c => c.remove());
-            pageRecycleObserver.observe(placeholder);
-          }
-        } else {
-          if (target.classList.contains("inf-page-placeholder")) {
-            const page = target.dataset.page;
-            if (!page) return;
-            const parent = target.parentNode;
-            if (!parent) return;
-            const savedHtml = pageHtmlCache.get(String(page)) || target._savedHtml;
-            if (!savedHtml) return;
-
-            const temp = document.createElement("div");
-            temp.innerHTML = savedHtml;
-            const restoredCards = Array.from(temp.children);
-            if (restoredCards.length > 0) {
-              restoredCards.forEach(c => parent.insertBefore(c, target));
-              pageRecycleObserver.unobserve(target);
-              target.remove();
-              pageHtmlCache.delete(String(page));
-
-              const newHead = restoredCards.find(c => c.classList.contains("page-head")) || restoredCards[0];
-              if (newHead) {
-                newHead.classList.add("page-head");
-                newHead.dataset.page = String(page);
-                pageRecycleObserver.observe(newHead);
-              }
-              if (typeof renderCardCheckboxes === "function") {
-                renderCardCheckboxes();
-              }
-            }
-          }
-        }
-      });
-    }, { rootMargin: "5000px" });
-  }
-  if (grid) {
-    grid.querySelectorAll(".page-head, .inf-page-placeholder").forEach(el => pageRecycleObserver.observe(el));
-  }
-}
-
 function stopInfinite() {
-  if (pageRecycleObserver) {
-    try { pageRecycleObserver.disconnect(); } catch (_) {}
-    pageRecycleObserver = null;
-  }
-  pageHtmlCache.clear();
   if (infiniteState) {
     try { infiniteState.observer && infiniteState.observer.disconnect(); } catch (_) {}
     try { infiniteState.controller && infiniteState.controller.abort(); } catch (_) {}
@@ -106,76 +16,165 @@ function stopInfinite() {
   infiniteState = null;
 }
 
-function startInfinite(containerId, fetchPage, buildItem) {
+function startInfinite(containerId, fetchNext, buildItem, initialCursor = null) {
   stopInfinite();
   const container = document.getElementById(containerId);
   if (!container) return;
-  const grid = container.querySelector(".grid.gc-grid");
+  const grid = (container.classList && (container.classList.contains("thumbs") || container.classList.contains("gc-grid")))
+    ? container
+    : (container.querySelector(".grid.gc-grid, .thumbs") || container);
   if (!grid) return;
-  let page = parseInt((app.query.page || "1"), 10) || 1;
+
+  const isCursorMode = containerId === "disc-grid" || (typeof initialCursor === "string");
+  if (isCursorMode && !initialCursor) {
+    return;
+  }
+
+  let cursor = isCursorMode ? initialCursor : null;
+  let page = typeof initialCursor === "number"
+    ? initialCursor
+    : (parseInt((app.query && app.query.page) || "1", 10) || 1);
+
   let loading = false;
   let finished = false;
-
-  // Tag initial cards directly without wrapping div
-  const existingCards = Array.from(grid.children).filter(el => !el.classList.contains("inf-scroll-sentinel") && !el.classList.contains("inf-page-placeholder"));
-  if (existingCards.length > 0) {
-    existingCards[0].classList.add("page-head");
-    existingCards[0].dataset.page = String(page);
-    existingCards.forEach(card => {
-      card.dataset.pageOwner = String(page);
-    });
-  }
+  let errorCount = 0;
+  const maxErrors = 5;
 
   const sentinel = document.createElement("div");
   sentinel.className = "inf-scroll-sentinel";
+  sentinel.style.gridColumn = "1 / -1";
+  sentinel.style.minHeight = "1px";
+  sentinel.style.height = "auto";
+  sentinel.style.padding = "0";
+  sentinel.style.textAlign = "center";
+  sentinel.style.boxSizing = "border-box";
   grid.appendChild(sentinel);
 
-  recycleOffscreenPages(grid);
-
   const controller = new AbortController();
-  const observer = new IntersectionObserver(async (entries) => {
+
+  const cleanup = () => {
+    try { observer.disconnect(); } catch (_) {}
+    try { if (sentinel.parentNode) sentinel.remove(); } catch (_) {}
+  };
+
+  const loadNext = async () => {
     if (finished || loading) return;
-    if (!(entries[0] && entries[0].isIntersecting)) return;
     if (controller.signal.aborted) return;
+    if (isCursorMode && !cursor) {
+      finished = true;
+      cleanup();
+      return;
+    }
     loading = true;
     try {
-      const data = await fetchPage(page + 1);
+      let data;
+      if (isCursorMode) {
+        data = await fetchNext(cursor);
+      } else {
+        data = await fetchNext(page + 1);
+      }
       if (controller.signal.aborted) return;
-      // Route may have changed while fetching — abort append to detached DOM
-      if (!document.contains(grid) || !document.contains(sentinel)) { finished = true; return; }
+      if (!document.contains(grid) || !document.contains(sentinel)) {
+        finished = true;
+        return;
+      }
+
+      if (data && data.state && data.state !== "ok") {
+        finished = true;
+        if (typeof toast === "function" && typeof t === "function") {
+          toast(t(data.state === "rate_limited" ? "discoverRateLimited"
+            : data.state === "challenge" ? "discoverChallenge"
+            : data.state === "no_exhentai_access" ? "discoverSadPanda"
+            : data.state === "not_logged_in" ? "cookieExpiredNotice"
+            : "discoverError"));
+        }
+        if (typeof refreshCookieHealth === "function" && (data.state === "not_logged_in" || data.state === "no_exhentai_access")) {
+          refreshCookieHealth();
+        }
+        cleanup();
+        return;
+      }
+
       const items = (data && data.items) || [];
-      if (!items.length) { finished = true; try{observer.disconnect();}catch(_){} sentinel.remove(); return; }
-      page = data.page || (page + 1);
+      if (!items.length) {
+        finished = true;
+        cleanup();
+        return;
+      }
+
+      errorCount = 0;
+      sentinel.innerHTML = "";
+      sentinel.style.padding = "0";
+
+      if (isCursorMode) {
+        cursor = (data && data.next) || null;
+      } else {
+        page = (data && data.page) || (page + 1);
+      }
 
       const temp = document.createElement("div");
       temp.innerHTML = items.map(buildItem).join("");
       const newCards = Array.from(temp.children);
-      if (newCards.length > 0) {
-        newCards[0].classList.add("page-head");
-        newCards[0].dataset.page = String(page);
-        newCards.forEach(card => {
-          card.dataset.pageOwner = String(page);
-          sentinel.parentNode.insertBefore(card, sentinel);
-        });
-        if (pageRecycleObserver) {
-          pageRecycleObserver.observe(newCards[0]);
-        }
+      for (const card of newCards) {
+        sentinel.parentNode.insertBefore(card, sentinel);
       }
 
-      if ((data.page * (data.page_size || 24)) >= (data.total || 0)) {
-        finished = true;
-        try{observer.disconnect();}catch(_){}
-        sentinel.remove();
-      }
-      if (["lib-grid", "fav-items", "browse-grid"].includes(containerId)) {
+      if (typeof renderCardCheckboxes === "function" && ["lib-grid", "fav-items", "browse-grid", "disc-grid"].includes(containerId)) {
         renderCardCheckboxes();
       }
-    } catch (_) {
+
+      if (isCursorMode) {
+        if (!cursor) {
+          finished = true;
+          cleanup();
+          return;
+        }
+      } else {
+        const pageSize = data && (data.page_size || data.pageSize);
+        const total = data && data.total;
+        if (pageSize && total != null && total > 0) {
+          if ((page * pageSize) >= total) {
+            finished = true;
+            cleanup();
+            return;
+          }
+        }
+      }
+    } catch (err) {
       if (controller.signal.aborted) return;
-      finished = true; try{observer.disconnect();}catch(_){} sentinel.remove();
+      errorCount++;
+      if (errorCount > maxErrors) {
+        finished = true;
+        cleanup();
+        return;
+      }
+      sentinel.style.padding = "8px 0";
+      sentinel.innerHTML = `<button type="button" class="btn btn-secondary inf-retry-btn" style="margin:4px auto;cursor:pointer;font-size:13px">↻ Click to retry (${typeof t === "function" ? t("retry") : "Retry"})</button>`;
+      const btn = sentinel.querySelector(".inf-retry-btn");
+      if (btn) {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          if (!loading && !finished) loadNext();
+        };
+      }
+    } finally {
+      loading = false;
     }
-    finally { loading = false; }
+  };
+
+  sentinel.onclick = (e) => {
+    if (sentinel.querySelector(".inf-retry-btn")) {
+      e.stopPropagation();
+      if (!loading && !finished) loadNext();
+    }
+  };
+
+  const observer = new IntersectionObserver(async (entries) => {
+    if (entries[0] && entries[0].isIntersecting) {
+      await loadNext();
+    }
   }, { rootMargin: "900px" });
+
   observer.observe(sentinel);
   infiniteState = { observer, controller, sentinel };
 }

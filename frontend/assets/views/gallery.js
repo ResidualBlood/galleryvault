@@ -95,22 +95,11 @@ async function renderGallery() {
     currentGalleryCtx = galleryCtx;
     const pageStart = (thumbPage - 1) * perPage;
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
-    const thumbs = thumbsVisible.map(p => `
+    const thumbCard = p => `
       <a class="thumb" href="${navHash("reader", { id, page: p.index }, galleryCtx)}">
         <img loading="lazy" src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
-      </a>`).join("");
-    const thumbPagerParts = [];
-    if (thumbPage > 1) {
-      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...galleryCtx, page: thumbPage - 1, page_size: perPage })}">&lt;</a>`);
-    }
-    for (let p = Math.max(1, thumbPage - 2); p <= Math.min(totalPages, thumbPage + 2); p++) {
-      thumbPagerParts.push(p === thumbPage
-        ? `<strong class="cur" aria-current="page">${p}</strong>`
-        : `<a class="page-link" href="${navHash("gallery", { id }, { ...galleryCtx, page: p, page_size: perPage })}">${p}</a>`);
-    }
-    if (thumbPage < totalPages) {
-      thumbPagerParts.push(`<a class="page-link" href="${navHash("gallery", { id }, { ...galleryCtx, page: thumbPage + 1, page_size: perPage })}">&gt;</a>`);
-    }
+      </a>`;
+    const thumbs = thumbsVisible.map(thumbCard).join("");
     const txtMore = app.lang === "zh" ? "更多" : (t("navMore") || "More");
     const txtCollapse = app.lang === "zh" ? "收起" : "Collapse";
     const isMoreExpanded = preserveMoreExpandedOnce;
@@ -167,9 +156,9 @@ async function renderGallery() {
           </details>
         </section>
         <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
-        <section><h2>${esc(t("pagesSection"))}</h2>
+        <section id="gallery-thumbs-section"><h2>${esc(t("pagesSection"))}</h2>
           <div class="thumbs">${thumbs}</div>
-          <div class="pages pager">${thumbPagerParts.join(" ")} ${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
+          <div class="pages pager">${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
         </section>
       </div>`;
 
@@ -230,6 +219,16 @@ async function renderGallery() {
       } catch (_) {}
     }
     fillGalleryLists(id);
+    startInfinite("gallery-thumbs-section", async (nextPage) => {
+      const start = (nextPage - 1) * perPage;
+      const items = thumbsAll.slice(start, start + perPage);
+      return {
+        items,
+        page: nextPage,
+        page_size: perPage,
+        total: thumbsAll.length,
+      };
+    }, thumbCard, thumbPage);
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 

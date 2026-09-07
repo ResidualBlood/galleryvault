@@ -94,67 +94,6 @@ function discoverCard(it) {
   </div>`;
 }
 
-function startDiscoverInfinite(nextCursor) {
-  stopInfinite();
-  const container = document.getElementById("disc-grid");
-  if (!container || !nextCursor) return;
-  const grid = container.querySelector(".grid.gc-grid");
-  if (!grid) return;
-  let cursor = nextCursor;
-  let loading = false;
-  let finished = false;
-  const sentinel = document.createElement("div");
-  sentinel.className = "inf-scroll-sentinel";
-  grid.appendChild(sentinel);
-  const controller = new AbortController();
-  const observer = new IntersectionObserver(async (entries) => {
-    if (finished || loading) return;
-    if (!(entries[0] && entries[0].isIntersecting)) return;
-    if (controller.signal.aborted || !cursor) return;
-    loading = true;
-    try {
-      const data = await fetchDiscover(cursor);
-      if (controller.signal.aborted) return;
-      if (!document.contains(grid) || !document.contains(sentinel)) { finished = true; return; }
-      if (data && data.state && data.state !== "ok") {
-        finished = true;
-        toast(t(data.state === "rate_limited" ? "discoverRateLimited"
-          : data.state === "challenge" ? "discoverChallenge"
-          : data.state === "no_exhentai_access" ? "discoverSadPanda"
-          : data.state === "not_logged_in" ? "cookieExpiredNotice"
-          : "discoverError"));
-        if (data.state === "not_logged_in" || data.state === "no_exhentai_access") refreshCookieHealth();
-        try { observer.disconnect(); } catch (_) {}
-        sentinel.remove();
-        return;
-      }
-      const items = (data && data.items) || [];
-      if (!items.length) {
-        finished = true;
-        try { observer.disconnect(); } catch (_) {}
-        sentinel.remove();
-        return;
-      }
-      cursor = data.next || null;
-      sentinel.insertAdjacentHTML("beforebegin", items.map(discoverCard).join(""));
-      renderCardCheckboxes();
-      if (!cursor) {
-        finished = true;
-        try { observer.disconnect(); } catch (_) {}
-        sentinel.remove();
-      }
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      finished = true;
-      toast(err.message || t("discoverError"));
-      try { observer.disconnect(); } catch (_) {}
-      sentinel.remove();
-    } finally { loading = false; }
-  }, { rootMargin: "900px" });
-  observer.observe(sentinel);
-  infiniteState = { observer, controller, sentinel };
-}
-
 async function renderDiscover() {
   const q = app.query.q || "";
   const category = app.query.category || "";
@@ -218,7 +157,7 @@ async function renderDiscover() {
     }
     el.innerHTML = `<div class="grid gc-grid">` + data.items.map(discoverCard).join("") + `</div>`;
     renderCardCheckboxes();
-    startDiscoverInfinite(data.next);
+    startInfinite("disc-grid", fetchDiscover, discoverCard, data.next);
   } catch (e) {
     const el = document.getElementById("disc-grid");
     if (el) el.innerHTML = renderError(e.message || t("discoverError"));
