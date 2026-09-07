@@ -116,6 +116,7 @@ async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
                     stream.close()
                 except OSError:
                     pass
+        await asyncio.sleep(0.01)
     return generated, failed_pages
 
 
@@ -133,8 +134,8 @@ async def seed_thumbnails() -> None:
         service = _thumb_service()
         missing: list[int] = []
         missing_total = 0
-        for gallery_id, _page_count in pairs:
-            if service.cached(gallery_id, 0) is not None:
+        for gallery_id, page_count in pairs:
+            if not service.has_missing_pages(gallery_id, page_count):
                 continue
             missing_total += 1
             missing.append(gallery_id)
@@ -157,7 +158,8 @@ async def seed_thumbnails() -> None:
 async def thumbnail_worker_loop() -> None:
     if not app_state.session_factory:
         return
-    concurrency = 4
+    settings = app_state.settings or get_settings()
+    concurrency = settings.thumbnail_workers
     tm = app_state.task_manager
     thumb_state = tm.thumb_state if tm else {}
     thumb_state["running"] = True
@@ -269,3 +271,19 @@ async def orphan_thumbnail_cleanup_loop() -> None:
             break
         except Exception as exc:  # noqa: BLE001
             logger.warning("orphan thumbnail cleanup failed", extra=log_extra(error=type(exc).__name__))
+
+
+async def thumbnail_periodic_seed_loop() -> None:
+    while True:
+        try:
+            await asyncio.sleep(3600)
+            settings = app_state.settings or get_settings()
+            if settings.generate_thumbnails:
+                if app_state.task_manager and app_state.task_manager.thumb_state.get("running"):
+                    continue
+                await seed_thumbnails()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("periodic thumbnail seeding failed", extra=log_extra(error=type(exc).__name__))
+

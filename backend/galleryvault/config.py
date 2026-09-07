@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     archive_delete_source: bool = False
     thumbnail_cache_dir: str = "/gv-cache/thumbs"
     generate_thumbnails: bool = True
+    thumbnail_workers: int = 4
     log_level: str = "INFO"
     log_json: bool = False
     log_file: str | None = None
@@ -302,6 +303,7 @@ EDITABLE_SETTINGS = {
     "auth_required",
     "tag_translation_update_interval_minutes",
     "generate_thumbnails",
+    "thumbnail_workers",
     "duplicate_policy",
     "trusted_proxies",
     "global_paused",

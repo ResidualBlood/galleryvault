@@ -276,6 +276,7 @@ async def startup() -> None:
     from ..services.thumbnail_worker import (
         orphan_thumbnail_cleanup_loop,
         seed_thumbnails,
+        thumbnail_periodic_seed_loop,
         thumbnail_worker_loop,
     )
     from ..services.updates_worker import gallery_updates_finalize_loop
@@ -318,6 +319,7 @@ async def startup() -> None:
     app_state.extra["tag_sync_worker_task"] = asyncio.create_task(tag_sync_worker_loop())
     app_state.extra["thumb_worker_task"] = asyncio.create_task(thumbnail_worker_loop())
     app_state.extra["thumb_cleanup_task"] = asyncio.create_task(orphan_thumbnail_cleanup_loop())
+    app_state.extra["thumb_periodic_seed_task"] = asyncio.create_task(thumbnail_periodic_seed_loop())
 
     from ..services.storage_usage import storage_tracker
 
@@ -380,6 +382,7 @@ async def shutdown() -> None:
         app_state.extra.get("tag_sync_worker_task"),
         app_state.extra.get("thumb_worker_task"),
         app_state.extra.get("thumb_cleanup_task"),
+        app_state.extra.get("thumb_periodic_seed_task"),
         app_state.extra.get("storage_calibrate_task"),
     ]
     await stop_background_tasks(all_spawned, specific)

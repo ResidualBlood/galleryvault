@@ -91,6 +91,13 @@ class ThumbnailService:
             if not (root / f"{i}.jpg").is_file()
         ]
 
+    def has_missing_pages(self, gallery_id: int, page_count: int) -> bool:
+        root = self.root / str(gallery_id)
+        try:
+            return sum(1 for p in root.iterdir() if p.name.endswith(".jpg")) < page_count
+        except OSError:
+            return True
+
     def get_or_create_dup(self, key: str, page_bytes: bytes) -> Path:
         """Cached thumbnail for a duplicate copy, keyed by its path hash.
 
