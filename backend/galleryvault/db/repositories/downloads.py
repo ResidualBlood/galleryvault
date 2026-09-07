@@ -1,13 +1,27 @@
 import html
 import re
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import DownloadAttempt, DownloadTask
+from ..models import DownloadAttempt, DownloadTask, Gallery, GalleryMetadata
 
 _LEADING_NUMBER = re.compile(r"^\s*\d+[\s\-]+")
+
+
+class DownloadTaskRow(dict):
+    """Row mapping representing a DownloadTask with joined metadata."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(f"'DownloadTaskRow' object has no attribute '{name}'") from None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
 
 
 def _clean_download_title(val: str | None) -> str | None:
@@ -201,21 +215,64 @@ class DownloadRepository:
 
     async def list_page(
         self, page: int, page_size: int, status: str | None = None
-    ) -> tuple[int, list[DownloadTask]]:
-        query = select(DownloadTask)
+    ) -> tuple[int, list[dict]]:
+        count_query = select(func.count()).select_from(DownloadTask)
+        if status:
+            count_query = count_query.where(DownloadTask.status == status)
+        total = int(await self.session.scalar(count_query) or 0)
+
+        effective_title = func.coalesce(
+            func.nullif(DownloadTask.title, ""),
+            func.nullif(GalleryMetadata.title, ""),
+            Gallery.title,
+        ).label("effective_title")
+        effective_title_jpn = func.coalesce(
+            func.nullif(DownloadTask.title_jpn, ""),
+            func.nullif(GalleryMetadata.title_jpn, ""),
+            Gallery.title_jpn,
+        ).label("effective_title_jpn")
+
+        query = (
+            select(DownloadTask, effective_title, effective_title_jpn)
+            .outerjoin(GalleryMetadata, GalleryMetadata.gid == DownloadTask.gid)
+            .outerjoin(Gallery, Gallery.gid == DownloadTask.gid)
+        )
         if status:
             query = query.where(DownloadTask.status == status)
-        total = int(
-            await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
+        query = (
+            query.order_by(DownloadTask.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
-        rows = (
-            await self.session.scalars(
-                query.order_by(DownloadTask.id.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
+        res = await self.session.execute(query)
+        items: list[dict] = []
+        for task, eff_title, eff_title_jpn in res.all():
+            items.append(
+                DownloadTaskRow(
+                    id=task.id,
+                    gid=task.gid,
+                    token=task.token,
+                    title=eff_title,
+                    title_jpn=eff_title_jpn,
+                    status=task.status,
+                    mode=task.mode,
+                    category=task.category,
+                    quality=task.quality,
+                    archive_status=task.archive_status,
+                    archive_error=task.archive_error,
+                    retry_count=task.retry_count,
+                    max_retries=task.max_retries,
+                    current_page=task.current_page,
+                    total_pages=task.total_pages,
+                    error_message=task.error_message,
+                    target_path=task.target_path,
+                    created_at=task.created_at,
+                    updated_at=task.updated_at,
+                    started_at=task.started_at,
+                    finished_at=task.finished_at,
+                )
             )
-        ).all()
-        return total, list(rows)
+        return total, items
 
     async def cancel(self, task_id: int) -> bool:
         task = await self.session.get(DownloadTask, task_id)

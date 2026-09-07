@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ...db.models import DownloadTask as DownloadTaskModel
-from ...db.models import Gallery
-from ...db.repository import DownloadRepository, GalleryRepository, GalleryUpdatesRepository
+from ...db.repository import DownloadRepository, GalleryUpdatesRepository
 from ...services.download_prepare import PreparedGallery, prepare_galleries
 from ...services.download_worker import (
     clear_download_cancelled,
@@ -184,6 +183,12 @@ async def create_downloads_batch(body: DownloadBatchRequest) -> dict[str, object
     }
 
 
+def _row_val(row: Any, key: str, default: Any = None) -> Any:
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
+
+
 @router.get("/api/downloads")
 async def list_downloads(
     page: int = 1, page_size: int = 24, status: str | None = None
@@ -193,67 +198,58 @@ async def list_downloads(
     try:
         async for session in get_session():
             total, rows = await DownloadRepository(session).list_page(page, page_size, status)
-            missing = [x.gid for x in rows if not x.title and not getattr(x, "title_jpn", None)]
-            meta: dict[int, dict] = {}
-            if missing:
-                meta = await GalleryRepository(session).metadata_map(missing)
-                still = [g for g in missing if g not in meta]
-                if still:
-                    gal_rows = (
-                        await session.scalars(select(Gallery).where(Gallery.gid.in_(still)))
-                    ).all()
-                    for gal in gal_rows:
-                        meta[int(gal.gid)] = {
-                            "title": gal.title,
-                            "title_jpn": getattr(gal, "title_jpn", None),
-                        }
             break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     downloader = app_state.downloader
     items: list[dict[str, Any]] = []
     for x in rows:
-        title = x.title
-        title_jpn = getattr(x, "title_jpn", None)
-        if not title and not title_jpn:
-            cached = meta.get(int(x.gid)) or {}
-            title = cached.get("title")
-            title_jpn = cached.get("title_jpn")
-        mode = x.mode or ""
+        title = _row_val(x, "title")
+        title_jpn = _row_val(x, "title_jpn")
+        mode = _row_val(x, "mode") or ""
+        gid = _row_val(x, "gid")
         is_fallback = False
         if "archive" in mode:
             if downloader is not None:
-                is_fallback = downloader.is_archive_fallback(x.gid)
+                is_fallback = downloader.is_archive_fallback(gid)
             else:
                 s = app_state.settings or get_current_settings()
-                is_fallback = Downloader.check_archive_fallback(Path(s.download_root), x.gid)
+                is_fallback = Downloader.check_archive_fallback(Path(s.download_root), gid)
         item: dict[str, Any] = {
-            "id": x.id,
-            "gid": x.gid,
+            "id": _row_val(x, "id"),
+            "gid": gid,
             "title": resolve_display_title(title, title_jpn) or title,
-            "status": x.status,
-            "retry_count": x.retry_count,
-            "max_retries": x.max_retries,
-            "current_page": x.current_page or 0,
-            "total_pages": x.total_pages,
-            "error_message": x.error_message,
-            "mode": x.mode,
-            "quality": x.quality,
+            "status": _row_val(x, "status"),
+            "retry_count": _row_val(x, "retry_count", 0),
+            "max_retries": _row_val(x, "max_retries", 10),
+            "current_page": _row_val(x, "current_page", 0) or 0,
+            "total_pages": _row_val(x, "total_pages"),
+            "error_message": _row_val(x, "error_message"),
+            "mode": _row_val(x, "mode"),
+            "quality": _row_val(x, "quality"),
             "archive_fallback": is_fallback,
-            "archive_status": getattr(x, "archive_status", None),
-            "archive_error": getattr(x, "archive_error", None),
+            "archive_status": _row_val(x, "archive_status"),
+            "archive_error": _row_val(x, "archive_error"),
         }
-        if x.status == "downloading" and downloader is not None:
+        items.append(item)
+
+    downloading_items = [item for item in items if item.get("status") == "downloading"]
+    if downloading_items and downloader is not None:
+        async def _fetch_speed(target_item: dict[str, Any]) -> None:
             try:
                 stats = await downloader.speed_stats(
-                    x.gid, current_page=x.current_page or 0, total_pages=x.total_pages
+                    target_item["gid"],
+                    current_page=target_item.get("current_page", 0),
+                    total_pages=target_item.get("total_pages"),
                 )
-            except Exception:  # noqa: BLE001
-                stats = None
-            if stats:
-                item["speed"] = stats["speed"]
-                item["eta_seconds"] = stats["eta_seconds"]
-        items.append(item)
+                if stats:
+                    target_item["speed"] = stats.get("speed")
+                    target_item["eta_seconds"] = stats.get("eta_seconds")
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        await asyncio.gather(*(_fetch_speed(it) for it in downloading_items))
+
     return {
         "total": total,
         "page": page,

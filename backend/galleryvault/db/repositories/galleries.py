@@ -716,7 +716,14 @@ class GalleryRepository:
         # Limit the tag rows first, then compute usage counts only for the
         # visible page — counting usage for every matching tag then slicing was
         # a full-table aggregation on large libraries.
-        page_ids = match.order_by(Tag.namespace, Tag.name).offset((page - 1) * page_size).limit(page_size)
+        page_ids_query = (
+            match.order_by(Tag.namespace, Tag.name)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        page_ids_list = list((await self.session.scalars(page_ids_query)).all())
+        if not page_ids_list:
+            return total, []
         rows = (
             await self.session.execute(
                 select(Tag.namespace, Tag.name, func.count(Gallery.id))
@@ -726,7 +733,7 @@ class GalleryRepository:
                     Gallery,
                     and_(Gallery.id == GalleryTag.gallery_id, Gallery.expunged.is_(False)),
                 )
-                .where(Tag.id.in_(page_ids))
+                .where(Tag.id.in_(page_ids_list))
                 .group_by(Tag.id)
                 .order_by(Tag.namespace, Tag.name)
             )
@@ -806,17 +813,28 @@ class GalleryRepository:
         """Usage counts for a specific list of (namespace, name) pairs."""
         if not pairs:
             return []
-        conds = [tuple_(Tag.namespace, Tag.name) == pair for pair in pairs]
-        rows = await self.session.execute(
-            select(Tag.namespace, Tag.name, func.count(Gallery.id))
-            .select_from(Tag)
-            .join(GalleryTag, GalleryTag.tag_id == Tag.id)
-            .join(
-                Gallery, and_(Gallery.id == GalleryTag.gallery_id, Gallery.expunged.is_(False))
+        tag_rows = (
+            await self.session.execute(
+                select(Tag.id, Tag.namespace, Tag.name).where(
+                    tuple_(Tag.namespace, Tag.name).in_(list(pairs))
+                )
             )
-            .where(or_(*conds))
-            .group_by(Tag.id)
-        )
+        ).all()
+        if not tag_rows:
+            return []
+        tag_ids = [row[0] for row in tag_rows]
+        rows = (
+            await self.session.execute(
+                select(Tag.namespace, Tag.name, func.count(Gallery.id))
+                .select_from(Tag)
+                .join(GalleryTag, GalleryTag.tag_id == Tag.id)
+                .join(
+                    Gallery, and_(Gallery.id == GalleryTag.gallery_id, Gallery.expunged.is_(False))
+                )
+                .where(Tag.id.in_(tag_ids))
+                .group_by(Tag.id)
+            )
+        ).all()
         return [(ns, name, int(count)) for ns, name, count in rows]
 
     async def random_id(self) -> int | None:

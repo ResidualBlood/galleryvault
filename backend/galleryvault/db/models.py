@@ -152,6 +152,7 @@ class DownloadTask(Base):
             unique=True,
             postgresql_where=text("status IN ('pending', 'downloading')"),
         ),
+        Index("idx_download_tasks_status_id", "status", text("id DESC")),
         CheckConstraint(
             "status IN ('pending', 'downloading', 'success', 'failed', 'cancelled')",
             name="ck_download_task_status",
