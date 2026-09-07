@@ -204,6 +204,18 @@ async def refresh_services() -> None:
 
     ensure_translation_updater()
 
+    dl_task = app_state.extra.get("download_worker_task")
+    if dl_task is not None and not dl_task.done():
+        from .download_worker import adjust_download_concurrency
+
+        adjust_download_concurrency(settings.download_concurrency)
+
+    ts_task = app_state.extra.get("tag_sync_worker_task")
+    if ts_task is not None and not ts_task.done():
+        from .tag_sync_worker import adjust_tag_sync_concurrency
+
+        adjust_tag_sync_concurrency(settings.tag_sync_concurrency)
+
 
 def settings_public() -> dict[str, Any]:
     current = app_state.settings or get_settings()

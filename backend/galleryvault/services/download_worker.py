@@ -50,6 +50,7 @@ _DOWNLOAD_RETRY_SWEEP_INTERVAL = 60.0
 _TELEGRAM_FLUSH_INTERVAL = 60.0
 
 _task_event: asyncio.Event | None = None
+_worker_tasks: list[asyncio.Task] = []
 
 
 def notify_new_task() -> None:
@@ -739,6 +740,97 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             )
 
 
+def _effective_download_concurrency(concurrency: int | None = None) -> int:
+    if concurrency is None:
+        settings = app_state.settings or get_settings()
+        concurrency = getattr(settings, "download_concurrency", 2)
+    c = max(1, int(concurrency))
+    try:
+        engine = app_state.engine
+        if engine is not None and getattr(engine.dialect, "name", "") == "sqlite":
+            c = 1
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return c
+
+
+async def _download_worker() -> None:
+    while True:
+        try:
+            # Global pause: stop claiming new galleries (current page finishes)
+            try:
+                _settings = app_state.settings or get_settings()
+                if getattr(_settings, "global_paused", False):
+                    await asyncio.sleep(5)
+                    continue
+            except Exception:  # noqa: BLE001, S110
+                pass
+            row = None
+            if not app_state.session_factory:
+                await asyncio.sleep(1)
+                continue
+            async with app_state.session_factory() as session, session.begin():
+                row = await DownloadRepository(session).claim_pending()
+                if row is not None:
+                    task = DownloadTask(
+                        row.gid,
+                        row.token,
+                        row.title or str(row.gid),
+                        row.id,
+                        row.max_retries,
+                        row.mode,
+                        row.category or "other",
+                        max_pages=row.max_pages,
+                        quality=row.quality,
+                    )
+            if row is not None:
+                if _task_event is not None:
+                    _task_event.clear()
+                await run_download(task)
+            else:
+                if _task_event is not None:
+                    try:
+                        await asyncio.wait_for(_task_event.wait(), timeout=5.0)
+                    except TimeoutError:
+                        pass
+                    _task_event.clear()
+                else:
+                    await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "download worker iteration failed",
+                extra=log_extra(error=str(exc) or type(exc).__name__),
+            )
+            await asyncio.sleep(2)
+
+
+def adjust_download_concurrency(new_concurrency: int | None = None) -> None:
+    global _worker_tasks, _task_event
+    if _task_event is None:
+        _task_event = asyncio.Event()
+    target = _effective_download_concurrency(new_concurrency)
+    _worker_tasks = [t for t in _worker_tasks if not t.done()]
+    current = len(_worker_tasks)
+    if target > current:
+        for _ in range(target - current):
+            _worker_tasks.append(asyncio.create_task(_download_worker()))
+        logger.info(
+            "Adjusted download concurrency",
+            extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
+        )
+    elif target < current:
+        to_cancel = current - target
+        for _ in range(to_cancel):
+            t = _worker_tasks.pop()
+            t.cancel()
+        logger.info(
+            "Adjusted download concurrency",
+            extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
+        )
+
+
 async def download_worker_loop() -> None:
     """Recover and claim persisted jobs continuously."""
     if not app_state.session_factory:
@@ -752,72 +844,29 @@ async def download_worker_loop() -> None:
             extra=log_extra(error=str(exc) or type(exc).__name__),
         )
 
-    settings = app_state.settings or get_settings()
-    concurrency = max(1, settings.download_concurrency)
     global _task_event
-    _task_event = asyncio.Event()
-    # SQLite does not support FOR UPDATE SKIP LOCKED — multiple workers would
-    # repeatedly claim the same row. Force single worker in that case.
-    try:
-        engine = app_state.engine
-        if engine is not None and getattr(engine.dialect, "name", "") == "sqlite":
-            concurrency = 1
-    except Exception:  # noqa: BLE001, S110
-        pass
+    if _task_event is None:
+        _task_event = asyncio.Event()
 
-    async def _worker() -> None:
+    adjust_download_concurrency()
+
+    try:
         while True:
-            try:
-                # Global pause: stop claiming new galleries (current page finishes)
-                try:
-                    _settings = app_state.settings or get_settings()
-                    if getattr(_settings, "global_paused", False):
-                        await asyncio.sleep(5)
-                        continue
-                except Exception:  # noqa: BLE001, S110
-                    pass
-                row = None
-                async with app_state.session_factory() as session, session.begin():
-                    row = await DownloadRepository(session).claim_pending()
-                    if row is not None:
-                        task = DownloadTask(
-                            row.gid,
-                            row.token,
-                            row.title or str(row.gid),
-                            row.id,
-                            row.max_retries,
-                            row.mode,
-                            row.category or "other",
-                            max_pages=row.max_pages,
-                            quality=row.quality,
-                        )
-                if row is not None:
-                    if _task_event is not None:
-                        _task_event.clear()
-                    await run_download(task)
-                else:
-                    if _task_event is not None:
-                        try:
-                            await asyncio.wait_for(_task_event.wait(), timeout=5.0)
-                        except TimeoutError:
-                            pass
-                        _task_event.clear()
-                    else:
-                        await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "download worker iteration failed",
-                    extra=log_extra(error=str(exc) or type(exc).__name__),
-                )
-                await asyncio.sleep(2)
-
-    workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
-    try:
-        await asyncio.gather(*workers)
-    finally:
-        pass
+            await asyncio.sleep(10)
+            global _worker_tasks
+            _worker_tasks = [t for t in _worker_tasks if not t.done()]
+            settings = app_state.settings or get_settings()
+            target = _effective_download_concurrency(settings.download_concurrency)
+            if len(_worker_tasks) < target:
+                for _ in range(target - len(_worker_tasks)):
+                    _worker_tasks.append(asyncio.create_task(_download_worker()))
+    except asyncio.CancelledError:
+        for t in _worker_tasks:
+            t.cancel()
+        if _worker_tasks:
+            await asyncio.gather(*_worker_tasks, return_exceptions=True)
+        _worker_tasks.clear()
+        raise
 
 
 async def download_retry_sweep_loop() -> None:
