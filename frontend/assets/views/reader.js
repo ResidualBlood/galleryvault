@@ -24,16 +24,6 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
     onSwapComplete = alt;
     alt = undefined;
   }
-  const cleanupFreeze = () => {
-    if (img && img.parentNode) {
-      const freeze = img.parentNode.querySelector(".slideshow-freeze-frame");
-      if (freeze) {
-        freeze.remove();
-        img.style.display = "";
-        img.style.visibility = "";
-      }
-    }
-  };
   const notifyComplete = () => {
     if (typeof onSwapComplete === "function") {
       try { onSwapComplete(); } catch (_) {}
@@ -45,7 +35,6 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
     return;
   }
   if (img.getAttribute("src") === src && img.dataset.page === String(page)) {
-    cleanupFreeze();
     notifyComplete();
     return;
   }
@@ -62,7 +51,6 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
   const finish = () => {
     if (img._swapReqId !== reqId) return;
     if (img.parentNode) {
-      cleanupFreeze();
       newImg._swapReqId = reqId;
       img.replaceWith(newImg);
     }
@@ -768,26 +756,6 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
     slideshowTimer = null;
     if (sessionId !== readerSlideshowSession || app.view !== "reader") {
       return;
-    }
-    if (mediaType.includes("gif") || mediaType.includes("webp")) {
-      document.querySelectorAll(".reader img:not(.slideshow-freeze-frame)").forEach(img => {
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = img.naturalWidth || img.clientWidth;
-          canvas.height = img.naturalHeight || img.clientHeight;
-          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          const freezeImg = document.createElement("img");
-          freezeImg.src = canvas.toDataURL("image/webp");
-          freezeImg.className = img.className + " slideshow-freeze-frame";
-          if (img.id) freezeImg.id = img.id + "-freeze";
-
-          img.style.display = "none";
-          img.parentNode.insertBefore(freezeImg, img);
-        } catch (e) {
-          img.style.visibility = "hidden";
-        }
-      });
     }
     const currentId = app.params.id;
     const currentTotal = Number(app.readerTotal);
