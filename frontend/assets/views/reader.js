@@ -15,9 +15,29 @@ function updateProgressDebounced(id, target, total) {
   }, 500);
 }
 
-function swapImageSmoothly(img, src, page, alt) {
-  if (!img) return;
-  if (img.getAttribute("src") === src && img.dataset.page === String(page)) return;
+function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
+  if (typeof page === "function") {
+    onSwapComplete = page;
+    page = undefined;
+    alt = undefined;
+  } else if (typeof alt === "function") {
+    onSwapComplete = alt;
+    alt = undefined;
+  }
+  const notifyComplete = () => {
+    if (typeof onSwapComplete === "function") {
+      try { onSwapComplete(); } catch (_) {}
+    }
+  };
+
+  if (!img) {
+    notifyComplete();
+    return;
+  }
+  if (img.getAttribute("src") === src && img.dataset.page === String(page)) {
+    notifyComplete();
+    return;
+  }
 
   const reqId = (img._swapReqId = (img._swapReqId || 0) + 1);
   const newImg = document.createElement("img");
@@ -34,6 +54,7 @@ function swapImageSmoothly(img, src, page, alt) {
       newImg._swapReqId = reqId;
       img.replaceWith(newImg);
     }
+    notifyComplete();
   };
 
   if (typeof newImg.decode === "function") {
@@ -239,7 +260,21 @@ function jumpToReaderPage(targetPage) {
   const mode = getReaderMode();
   const isDoubleMode = mode.startsWith("double");
   const normalized = isDoubleMode && clamped > 0 && clamped % 2 === 0 ? clamped - 1 : clamped;
-  readerSwapPage(id, normalized);
+  if (app.query && app.query.slideshow) {
+    readerSlideshowSession++;
+    if (slideshowTimer) {
+      clearTimeout(slideshowTimer);
+      slideshowTimer = null;
+    }
+    const currentSession = readerSlideshowSession;
+    readerSwapPage(id, normalized, () => {
+      if (currentSession !== readerSlideshowSession || app.view !== "reader") return;
+      const sec = parseInt(app.query && app.query.slideshow, 10) || parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
+      scheduleNextSlide(Math.max(1, sec) * 1000, currentSession);
+    });
+  } else {
+    readerSwapPage(id, normalized);
+  }
 }
 
 function bindReaderKeys() {
@@ -264,7 +299,21 @@ function bindReaderKeys() {
     const cur = current();
     const nav = getReaderNav(cur, total, mode());
     if (nav.nextPage !== null) {
-      readerSwapPage(id, nav.nextPage);
+      if (app.query && app.query.slideshow) {
+        readerSlideshowSession++;
+        if (slideshowTimer) {
+          clearTimeout(slideshowTimer);
+          slideshowTimer = null;
+        }
+        const currentSession = readerSlideshowSession;
+        readerSwapPage(id, nav.nextPage, () => {
+          if (currentSession !== readerSlideshowSession || app.view !== "reader") return;
+          const sec = parseInt(app.query && app.query.slideshow, 10) || parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
+          scheduleNextSlide(Math.max(1, sec) * 1000, currentSession);
+        });
+      } else {
+        readerSwapPage(id, nav.nextPage);
+      }
     } else {
       exitReaderFullscreen();
       goReaderNext(id);
@@ -277,7 +326,21 @@ function bindReaderKeys() {
     const cur = current();
     const nav = getReaderNav(cur, total, mode());
     if (nav.prevPage !== null) {
-      readerSwapPage(id, nav.prevPage);
+      if (app.query && app.query.slideshow) {
+        readerSlideshowSession++;
+        if (slideshowTimer) {
+          clearTimeout(slideshowTimer);
+          slideshowTimer = null;
+        }
+        const currentSession = readerSlideshowSession;
+        readerSwapPage(id, nav.prevPage, () => {
+          if (currentSession !== readerSlideshowSession || app.view !== "reader") return;
+          const sec = parseInt(app.query && app.query.slideshow, 10) || parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
+          scheduleNextSlide(Math.max(1, sec) * 1000, currentSession);
+        });
+      } else {
+        readerSwapPage(id, nav.prevPage);
+      }
     }
   };
 
@@ -514,7 +577,12 @@ function syncReaderUrl() {
   }
 }
 
-function readerSwapPage(id, target) {
+function readerSwapPage(id, target, onSwapComplete) {
+  if (typeof id === "number" && (typeof target === "function" || target === undefined)) {
+    onSwapComplete = target;
+    target = id;
+    id = app.params.id;
+  }
   const total = Number(app.readerTotal);
   if (!Number.isFinite(total) || total <= 0) { exitReaderFullscreen(); return; }
   if (target >= total) { exitReaderFullscreen(); goReaderNext(id); return; }
@@ -544,11 +612,22 @@ function readerSwapPage(id, target) {
     const p2 = target > 0 && (target + 1 < total) ? target + 1 : null;
     const imgs = spreadEl.querySelectorAll("img");
     if (imgs.length >= 2) {
-      swapImageSmoothly(imgs[0], `/api/galleries/${id}/pages/${p1}`, p1, `Page ${p1 + 1}`);
       if (p2 !== null) {
         imgs[1].parentElement.style.display = "";
-        swapImageSmoothly(imgs[1], `/api/galleries/${id}/pages/${p2}`, p2, `Page ${p2 + 1}`);
+        if (typeof onSwapComplete === "function") {
+          let pending = 2;
+          const done = () => {
+            pending--;
+            if (pending === 0) onSwapComplete();
+          };
+          swapImageSmoothly(imgs[0], `/api/galleries/${id}/pages/${p1}`, p1, `Page ${p1 + 1}`, done);
+          swapImageSmoothly(imgs[1], `/api/galleries/${id}/pages/${p2}`, p2, `Page ${p2 + 1}`, done);
+        } else {
+          swapImageSmoothly(imgs[0], `/api/galleries/${id}/pages/${p1}`, p1, `Page ${p1 + 1}`);
+          swapImageSmoothly(imgs[1], `/api/galleries/${id}/pages/${p2}`, p2, `Page ${p2 + 1}`);
+        }
       } else {
+        swapImageSmoothly(imgs[0], `/api/galleries/${id}/pages/${p1}`, p1, `Page ${p1 + 1}`, onSwapComplete);
         imgs[1]._swapReqId = (imgs[1]._swapReqId || 0) + 1;
         imgs[1].removeAttribute("src");
         imgs[1].dataset.page = "";
@@ -561,13 +640,16 @@ function readerSwapPage(id, target) {
       if (suffix) suffix.textContent = readerJumpSuffix(p1, p2, total, (app.readerGallery && app.readerGallery.file_size) || 0, p2 !== null);
     } else {
       renderReader();
+      if (typeof onSwapComplete === "function") onSwapComplete();
       return;
     }
   } else if (!isDoubleMode && !spreadEl) {
     const img = document.getElementById("reader-img");
     if (img) {
-      swapImageSmoothly(img, `/api/galleries/${id}/pages/${target}`, target, `Page ${target + 1}`);
+      swapImageSmoothly(img, `/api/galleries/${id}/pages/${target}`, target, `Page ${target + 1}`, onSwapComplete);
       img.dataset.next = target + 1 < total ? String(target + 1) : "";
+    } else {
+      if (typeof onSwapComplete === "function") onSwapComplete();
     }
     const jump = document.getElementById("reader-jump-input");
     if (jump) jump.value = String(target + 1);
@@ -579,8 +661,17 @@ function readerSwapPage(id, target) {
     if (readerEl) {
       readerEl.innerHTML = buildReaderInnerHtml(id, target, total, mode, app.readerGallery);
       initReaderGestures();
+      if (typeof onSwapComplete === "function") {
+        const firstImg = readerEl.querySelector("img");
+        if (firstImg && typeof firstImg.decode === "function") {
+          firstImg.decode().then(onSwapComplete).catch(onSwapComplete);
+        } else {
+          onSwapComplete();
+        }
+      }
     } else {
       renderReader();
+      if (typeof onSwapComplete === "function") onSwapComplete();
       return;
     }
   }
@@ -676,8 +767,12 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
     const mode = getReaderMode();
     const nav = getReaderNav(currentPage, currentTotal, mode);
     if (nav.nextPage !== null) {
-      readerSwapPage(currentId, nav.nextPage);
-      scheduleNextSlide(userIntervalMs, sessionId);
+      readerSwapPage(currentId, nav.nextPage, () => {
+        if (sessionId !== readerSlideshowSession || app.view !== "reader") {
+          return;
+        }
+        scheduleNextSlide(userIntervalMs, sessionId);
+      });
     } else {
       stopSlideshow();
       exitReaderFullscreen();
@@ -685,6 +780,21 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
     }
   }, delayMs);
 }
+
+function resetSlideshow() {
+  readerSlideshowSession++;
+  if (slideshowTimer) {
+    clearTimeout(slideshowTimer);
+    slideshowTimer = null;
+  }
+  if (app.view !== "reader" || !app.query || !app.query.slideshow) {
+    return;
+  }
+  const sec = parseInt(app.query.slideshow, 10) || parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
+  const intervalMs = Math.max(1, sec) * 1000;
+  scheduleNextSlide(intervalMs, readerSlideshowSession);
+}
+window.resetSlideshow = resetSlideshow;
 
 function startSlideshow(sec) {
   readerSlideshowSession++;
