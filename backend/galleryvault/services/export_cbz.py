@@ -5,6 +5,8 @@ import zipfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from .downloader import _truncate_utf8
+
 ZIP_STORED = zipfile.ZIP_STORED
 
 
@@ -29,7 +31,8 @@ def is_cbz_file(path: Path) -> bool:
 
 def cbz_filename(title: str | None, gid: int | None, gallery_id: int) -> str:
     base = (title or "").strip() or (str(gid) if gid else f"gallery-{gallery_id}")
-    base = _UNSAFE_NAME.sub("_", base).strip(" .")[:80] or f"gallery-{gallery_id}"
+    base = _UNSAFE_NAME.sub("_", base).strip(" .") or f"gallery-{gallery_id}"
+    base = _truncate_utf8(base, 251)
     return f"{base}.cbz"
 
 

@@ -69,6 +69,18 @@ def test_cbz_filename_sanitizes() -> None:
     assert name.endswith(".cbz")
     assert "/" not in name and ":" not in name
 
+    # Long title > 80 chars preserved
+    long_title = "A" * 120
+    name_long = cbz_filename(long_title, 12, 3)
+    assert name_long == f"{long_title}.cbz"
+
+    # Truncate UTF-8 > 251 bytes
+    cjk_title = "画廊" * 70  # 140 chars, 420 bytes
+    name_cjk = cbz_filename(cjk_title, 12, 3)
+    assert name_cjk.endswith(".cbz")
+    assert len(name_cjk.encode("utf-8")) <= 255
+    assert len(name_cjk[:-4].encode("utf-8")) <= 251
+
 
 @pytest.fixture
 def export_test_client():

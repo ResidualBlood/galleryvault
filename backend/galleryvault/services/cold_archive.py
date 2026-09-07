@@ -21,6 +21,7 @@ from ..config import get_settings
 from ..db.models import DownloadTask, Gallery, GalleryPage, GalleryTag, Tag
 from ..db.repositories.base import path_hash
 from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key, parse_spider_info
+from .downloader import _truncate_utf8
 from .export_cbz import ZIP_STORED, page_archive_name
 
 logger = logging.getLogger(__name__)
@@ -58,13 +59,11 @@ class ColdAlreadyArchivedError(ColdStorageError):
     """Raised when source is already located under the cold storage root."""
 
 
-def safe_title(title: str | None, max_length: int = 80) -> str:
+def safe_title(title: str | None) -> str:
     """Sanitize title for directory and filename paths."""
     base = (title or "").strip()
     base = _UNSAFE_NAME.sub("_", base).strip(" .")
-    if not base:
-        return "gallery"
-    return base[:max_length].strip(" .") or "gallery"
+    return base or "gallery"
 
 
 def _resolve_base_url(site: str | None = None) -> str:
@@ -145,14 +144,16 @@ def compute_cold_path(
 
     if gid is not None:
         if is_cbz:
-            return root / "cbz" / hh / ii / f"{gid}-{safe}.cbz"
+            filename = _truncate_utf8(f"{gid}-{safe}", 251)
+            return root / "cbz" / hh / ii / f"{filename}.cbz"
         return root / "dir" / hh / ii / str(gid)
 
     if not stable:
         raise ValueError("stable (path_hash) is required when gid is None")
-    filename = f"{stable}-{safe}"
     if is_cbz:
+        filename = _truncate_utf8(f"{stable}-{safe}", 251)
         return root / "ungid" / hh / ii / f"{filename}.cbz"
+    filename = _truncate_utf8(f"{stable}-{safe}", 255)
     return root / "ungid" / hh / ii / filename
 
 
