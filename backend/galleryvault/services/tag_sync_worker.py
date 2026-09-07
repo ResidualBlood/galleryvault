@@ -168,48 +168,27 @@ async def fetch_translation_db() -> Any:
 
 
 async def translation_update_once() -> bool:
-    tm = app_state.task_manager
-    translation_state = tm.translation_state if tm else {}
-    if not translation_state.get("running"):
-        translation_state["started_at"] = datetime.now(UTC).isoformat()
-        translation_state["history_recorded"] = False
-    translation_state["running"] = True
+    from ..app.dependencies import get_task_manager
+
+    tm = get_task_manager()
     ok = False
-    try:
-        data = await fetch_translation_db()
+    async with tm.track_task("translation") as tracker:
+        try:
+            data = await fetch_translation_db()
 
-        def _apply_translations() -> int:
-            load_translations(reset=True)
-            return merge_translation_data(data)
+            def _apply_translations() -> int:
+                load_translations(reset=True)
+                return merge_translation_data(data)
 
-        entries = await asyncio.to_thread(_apply_translations)
-        translation_state["entries"] = entries
-        translation_state["last"] = datetime.now(UTC).isoformat()
-        translation_state["last_error"] = None
-        logger.info("tag translations updated", extra=log_extra(entries=entries))
-        ok = True
-    except Exception as exc:  # noqa: BLE001
-        translation_state["last_error"] = f"{type(exc).__name__}: {exc}"
-        logger.warning(
-            "tag translation update failed", extra=log_extra(error=type(exc).__name__)
-        )
-    finally:
-        translation_state["running"] = False
-        translation_state["completed_at"] = datetime.now(UTC).isoformat()
-        if tm and not translation_state.get("history_recorded"):
-            translation_state["history_recorded"] = True
-            tm.record_task(
-                "translation",
-                translation_state.get("started_at"),
-                translation_state["completed_at"],
-                "success" if ok else "failed",
-                reason=translation_state.get("last_error") or "",
-                done=int(translation_state.get("entries") or 0),
-                total=0,
+            entries = await asyncio.to_thread(_apply_translations)
+            tracker.update(entries=entries, last=datetime.now(UTC).isoformat(), last_error=None)
+            logger.info("tag translations updated", extra=log_extra(entries=entries))
+            ok = True
+        except Exception as exc:  # noqa: BLE001
+            tracker.update(last_error=f"{type(exc).__name__}: {exc}")
+            logger.warning(
+                "tag translation update failed", extra=log_extra(error=type(exc).__name__)
             )
-            from ..app.dependencies import spawn_task
-
-            spawn_task(tm.persist_history(), "persist task history")
     return ok
 
 

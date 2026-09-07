@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from starlette.concurrency import run_in_threadpool
@@ -116,30 +115,28 @@ async def backfill_image_quality(should_stop: Callable[[], bool] | None = None) 
 async def run_scan() -> None:
     if not app_state.session_factory:
         return
-    tm = app_state.task_manager
-    scan_state = tm.scan_state if tm else {}
+    from ..app.dependencies import get_task_manager
+
+    tm = get_task_manager()
     settings = app_state.settings or get_settings()
     if getattr(settings, "global_paused", False):
         logger.info("scan skipped: global paused", extra=log_extra(reason="global_paused"))
-        scan_state["running"] = False
+        tm.scan_state["running"] = False
         return
 
     with bind_log_context(worker="scan"):
-        async with scan_lock:
+        async with scan_lock, tm.track_task("scan", cancellable=True) as tracker:
             persisted = 0
             scanned = 0
             success = 0
             errors = 0
-            scan_state["running"] = True
-            scan_state["completed_at"] = None
-            scan_state["started_at"] = datetime.now(UTC).isoformat()
-            scan_state["scanned"] = 0
-            scan_state["persisted"] = 0
-            scan_state["success"] = 0
-            scan_state["errors"] = 0
-            scan_state["last"] = None
-            if tm:
-                tm.clear_cancelled("scan")
+            tracker.update(
+                scanned=0,
+                persisted=0,
+                success=0,
+                errors=0,
+                last=None,
+            )
             try:
                 async with app_state.session_factory() as session:
                     known = await GalleryRepository(session).existing_rows(_scan_roots())
@@ -149,9 +146,9 @@ async def run_scan() -> None:
                     existing=known,
                     duplicate_policy=settings.duplicate_policy,
                 )
-                iterator = service.scan_batches(should_stop=lambda: bool(tm and tm.is_cancelled("scan")))
+                iterator = service.scan_batches(should_stop=lambda: bool(tm.is_cancelled("scan")))
                 while True:
-                    if tm and tm.is_cancelled("scan"):
+                    if tm.is_cancelled("scan"):
                         break
                     batch = await run_in_threadpool(next, iterator, None)
                     if batch is None:
@@ -168,17 +165,19 @@ async def run_scan() -> None:
                             "library scan batch failed",
                             extra=log_extra(error=type(exc).__name__, message=str(exc), batch_size=len(batch)),
                         )
-                    scan_state["scanned"] = scanned
-                    scan_state["persisted"] = persisted
-                    scan_state["success"] = success
-                    scan_state["errors"] = errors
+                    tracker.update(
+                        scanned=scanned,
+                        persisted=persisted,
+                        success=success,
+                        errors=errors,
+                    )
 
-                if not (tm and tm.is_cancelled("scan")):
+                if not tm.is_cancelled("scan"):
                     async with app_state.session_factory() as session, session.begin():
                         expunged = await GalleryRepository(session).expunge_missing(
                             _scan_roots(), service.seen_path_hashes
                         )
-                    scan_state["expunged"] = expunged
+                    tracker.update(expunged=expunged)
                     try:
                         if service.last_duplicates:
                             async with app_state.session_factory() as session:
@@ -203,8 +202,10 @@ async def run_scan() -> None:
                         logger.warning(
                             "duplicate sync failed", extra=log_extra(error=type(exc).__name__)
                         )
-                    scan_state["duplicates"] = len(service.last_duplicates)
-                    scan_state["duplicate_gids"] = [group.gid for group in service.last_duplicates]
+                    tracker.update(
+                        duplicates=len(service.last_duplicates),
+                        duplicate_gids=[group.gid for group in service.last_duplicates],
+                    )
 
                     if settings.auto_sync_tags:
                         from .tag_sync_worker import enqueue_tag_sync
@@ -226,10 +227,10 @@ async def run_scan() -> None:
 
                     try:
                         quality_done = await backfill_image_quality(
-                            should_stop=lambda: bool(tm and tm.is_cancelled("scan"))
+                            should_stop=lambda: bool(tm.is_cancelled("scan"))
                         )
                         if quality_done:
-                            scan_state["image_quality_backfilled"] = quality_done
+                            tracker.update(image_quality_backfilled=quality_done)
                             logger.info("image quality backfilled", extra=log_extra(count=quality_done))
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
@@ -237,12 +238,13 @@ async def run_scan() -> None:
                         )
 
                     counters = service.last_counters
-                    scan_state["last"] = {
+                    last_dict = {
                         **counters.__dict__,
                         "persisted": persisted,
                         "expunged": expunged,
                     }
-                    logger.info("library scan persisted", extra=log_extra(**scan_state["last"]))
+                    tracker.update(last=last_dict)
+                    logger.info("library scan persisted", extra=log_extra(**last_dict))
                     await __import__("galleryvault.services.series", fromlist=["rebuild_series_groups"]).rebuild_series_groups()
                     try:
                         await __import__("galleryvault.services.duplicates", fromlist=["scan_library_cross_gid_duplicates"]).scan_library_cross_gid_duplicates()
@@ -252,31 +254,17 @@ async def run_scan() -> None:
                             extra=log_extra(error=type(exc).__name__),
                         )
             except Exception as exc:
-                scan_state["last"] = {"error": type(exc).__name__, "persisted": persisted}
+                tracker.update(
+                    last={"error": type(exc).__name__, "persisted": persisted},
+                    last_error=type(exc).__name__,
+                )
                 logger.exception(
                     "library scan persistence error",
                     extra=log_extra(error=type(exc).__name__, message=str(exc)),
                 )
             finally:
-                cancelled = bool(tm and tm.is_cancelled("scan"))
-                last = scan_state.get("last") or {}
-                scan_state["running"] = False
-                scan_state["completed_at"] = datetime.now(UTC).isoformat()
-                if tm:
-                    tm.record_task(
-                        "scan",
-                        scan_state.get("started_at"),
-                        scan_state["completed_at"],
-                        "cancelled" if cancelled else ("failed" if last.get("error") else "success"),
-                        reason="cancelled" if cancelled else last.get("error", ""),
-                        done=scanned,
-                        total=0,
-                    )
-                    tm.clear_cancelled("scan")
-                    from ..app.dependencies import spawn_task
-
-                    spawn_task(tm.persist_history(), "persist task history")
-
+                cancelled = bool(tm.is_cancelled("scan"))
+                last = tracker.get("last") or {}
                 try:
                     if not cancelled:
                         from .notifications import notify_scan
@@ -298,8 +286,8 @@ async def run_scan() -> None:
                             await app_state.telegram.send_message(
                                 scan_summary_message(
                                     last,
-                                    int(scan_state.get("duplicates") or 0),
-                                    list(scan_state.get("duplicate_gids") or []),
+                                    int(tracker.get("duplicates") or 0),
+                                    list(tracker.get("duplicate_gids") or []),
                                     settings.telegram_notify_lang,
                                 )
                             )

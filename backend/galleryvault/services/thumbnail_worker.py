@@ -256,17 +256,22 @@ async def orphan_thumbnail_cleanup_loop() -> None:
             }
             if not disk_ids:
                 continue
-            async with app_state.session_factory() as session:
-                rows = await session.scalars(select(Gallery.id))
-                db_ids = set(rows)
-            orphan_ids = disk_ids - db_ids
-            for gid in orphan_ids:
-                folder = cache_dir / str(gid)
-                if folder.exists() and folder.is_dir():
-                    sz = safe_stat_size(folder)
-                    shutil.rmtree(folder, ignore_errors=True)
-                    if sz > 0:
-                        storage_tracker.record_cache_delta(-sz)
+            from ..app.dependencies import get_task_manager
+
+            tm = get_task_manager()
+            async with tm.track_task("orphan-thumbnail-cleanup") as tracker:
+                async with app_state.session_factory() as session:
+                    rows = await session.scalars(select(Gallery.id))
+                    db_ids = set(rows)
+                orphan_ids = disk_ids - db_ids
+                for gid in orphan_ids:
+                    folder = cache_dir / str(gid)
+                    if folder.exists() and folder.is_dir():
+                        sz = safe_stat_size(folder)
+                        shutil.rmtree(folder, ignore_errors=True)
+                        if sz > 0:
+                            storage_tracker.record_cache_delta(-sz)
+                tracker.update(done=len(orphan_ids), total=len(disk_ids))
         except asyncio.CancelledError:
             break
         except Exception as exc:  # noqa: BLE001
@@ -279,9 +284,13 @@ async def thumbnail_periodic_seed_loop() -> None:
             await asyncio.sleep(3600)
             settings = app_state.settings or get_settings()
             if settings.generate_thumbnails:
-                if app_state.task_manager and app_state.task_manager.thumb_state.get("running"):
+                from ..app.dependencies import get_task_manager
+
+                tm = get_task_manager()
+                if tm.thumb_state.get("running"):
                     continue
-                await seed_thumbnails()
+                async with tm.track_task("thumbnail-periodic-seed"):
+                    await seed_thumbnails()
         except asyncio.CancelledError:
             break
         except Exception as exc:  # noqa: BLE001

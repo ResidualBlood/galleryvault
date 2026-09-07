@@ -67,6 +67,80 @@ def test_task_manager_cancellation_and_recording() -> None:
     summary = tm.get_running_summary()
     assert any(item["task"] == "scan" for item in summary)
 
+    # Test favorites-check name alignment
+    tm.scan_state["running"] = False
+    tm.favorites_check_state["running"] = True
+    tm.favorites_check_state["started_at"] = "2026-08-31T00:00:00Z"
+    summary = tm.get_running_summary()
+    assert any(item["task"] == "favorites-check" for item in summary)
+    assert not any(item["task"] == "favcheck" for item in summary)
+
+
+@pytest.mark.asyncio
+async def test_task_manager_track_task_lifecycle() -> None:
+    import asyncio
+
+    tm = TaskManager()
+
+    # 1. Normal execution with auto record_task
+    async with tm.track_task("scan") as tracker:
+        assert tm.scan_state["running"] is True
+        tracker.update(scanned=12, total=100)
+    assert tm.scan_state["running"] is False
+    assert len(tm.task_history) == 1
+    assert tm.task_history[0]["task"] == "scan"
+    assert tm.task_history[0]["status"] == "success"
+    assert tm.task_history[0]["done"] == 12
+
+    # 2. Error handling with exception re-raise
+    with pytest.raises(ValueError, match="scan error"):
+        async with tm.track_task("scan") as tracker:
+            raise ValueError("scan error")
+    assert tm.scan_state["running"] is False
+    assert tm.task_history[0]["status"] == "failed"
+    assert "scan error" in tm.task_history[0]["reason"]
+
+    # 3. Cancellation handling
+    with pytest.raises(asyncio.CancelledError):
+        async with tm.track_task("scan", cancellable=True) as tracker:
+            raise asyncio.CancelledError()
+    assert tm.task_history[0]["status"] == "cancelled"
+
+    # 4. Dynamic state task tracking and exposure in get_running_summary
+    async with tm.track_task("cookie-health") as tracker:
+        tracker.update(done=1, total=1)
+        running = tm.get_running_summary()
+        assert any(it["task"] == "cookie-health" for it in running)
+    assert tm.dynamic_states["cookie-health"]["running"] is False
+    assert tm.task_history[0]["task"] == "cookie-health"
+    assert tm.task_history[0]["status"] == "success"
+
+    # 5. favorites-check categories aggregation
+    async with tm.track_task("favorites-check") as tracker:
+        tracker.update(
+            categories={
+                "0": {"done": 4, "total": 10},
+                "1": {"done": 6, "total": 10},
+            }
+        )
+    assert tm.task_history[0]["task"] == "favorites-check"
+    assert tm.task_history[0]["done"] == 10
+    assert tm.task_history[0]["total"] == 20
+
+    # 6. Reentrant / concurrency reference counting
+    async with tm.track_task("metadata") as t1:
+        assert tm.metadata_sync_state["running"] is True
+        t1.update(done=5, total=20)
+        async with tm.track_task("metadata") as t2:
+            assert tm.metadata_sync_state["running"] is True
+            t2.update(done=15, total=20)
+        # Exited t2, but t1 is still active
+        assert tm.metadata_sync_state["running"] is True
+    # Now t1 exited
+    assert tm.metadata_sync_state["running"] is False
+    assert tm.task_history[0]["task"] == "metadata"
+    assert tm.task_history[0]["done"] == 15
+
 
 def test_histogram_metrics_observation_and_render() -> None:
     observe_histogram("gv_test_duration_seconds", 0.05, {"handler": "test"})

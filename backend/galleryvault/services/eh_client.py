@@ -2452,7 +2452,18 @@ async def cookie_health_loop(interval_seconds: int = 1800) -> None:
         except asyncio.CancelledError:
             return
         try:
-            await probe_cookie_health()
+            from ..app.dependencies import get_task_manager
+
+            tm = get_task_manager()
+            async with tm.track_task("cookie-health") as tracker:
+                health = await probe_cookie_health()
+                tracker.update(
+                    done=1 if health.get("state") == "valid" else 0,
+                    total=1,
+                    stage=health.get("state"),
+                )
+                if health.get("state") in ("failed", "expired"):
+                    tracker.update(last_error=health.get("detail"))
         except asyncio.CancelledError:
             return
         except Exception:  # noqa: BLE001, S110

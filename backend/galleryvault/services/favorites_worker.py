@@ -453,186 +453,143 @@ async def favorite_size_sync(favcat: int) -> None:
         return
     if favcat in _size_sync_inflight:
         return
-    first = not _size_sync_inflight
-    tm = app_state.task_manager
-    metadata_sync_state = tm.metadata_sync_state if tm else {}
+    from ..app.dependencies import get_task_manager
+
+    tm = get_task_manager()
     fetched: dict[int, dict[str, Any]] = {}
+    _size_sync_inflight.add(favcat)
     try:
-        _size_sync_inflight.add(favcat)
-        metadata_sync_state["running"] = True
-        metadata_sync_state["stage"] = "listing"
-        if first:
-            metadata_sync_state["started_at"] = datetime.now(UTC).isoformat()
-            metadata_sync_state["applied"] = 0
-            metadata_sync_state["last_error"] = None
-            metadata_sync_state["history_recorded"] = False
-            if tm:
-                tm.clear_cancelled("metadata")
-        try:
-            async with app_state.session_factory() as session, session.begin():
-                await GalleryRepository(session).seed_metadata_from_galleries(favcat)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(
-                "favorite metadata seed skipped", extra=log_extra(favcat=favcat, error=type(exc).__name__)
-            )
-
-        async with app_state.session_factory() as session:
-            folder_items = await FavoritesRepository(session).all_gids_for_favcat(favcat)
-            folder_gids = [gid for gid, _, _ in folder_items]
-            gal_read = GalleryRepository(session)
-            cached_meta = await gal_read.metadata_map(folder_gids)
-            null_quality = await gal_read.null_image_quality_gids(folder_gids)
-
-        def _positive_eh_size(meta: dict | None) -> bool:
-            size = (meta or {}).get("file_size")
+        async with tm.track_task("metadata", cancellable=True) as tracker:
+            tracker.update(stage="listing")
             try:
-                return int(size) > 0
-            except (TypeError, ValueError):
-                return False
-
-        missing: list[tuple[int, str]] = []
-        seen_need: set[int] = set()
-        for gid, token, _thumb in folder_items:
-            if not token or gid in seen_need:
-                continue
-            seen_need.add(gid)
-            if gid not in cached_meta or (
-                gid in null_quality and not _positive_eh_size(cached_meta.get(gid))
-            ):
-                missing.append((gid, token))
-        metadata_sync_state["total"] = len(missing)
-        metadata_sync_state["done"] = 0
-        metadata_sync_state["stage"] = "fetching"
-        batch_size = EXHENTAI_API_CHUNK_SIZE
-        for start in range(0, len(missing), batch_size):
-            if tm and tm.is_cancelled("metadata"):
-                break
-            chunk = missing[start : start + batch_size]
-            try:
-                chunk_meta = await app_state.eh_client.fetch_gmetadata(chunk)
-                fetched.update(chunk_meta)
+                async with app_state.session_factory() as session, session.begin():
+                    await GalleryRepository(session).seed_metadata_from_galleries(favcat)
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "gdata batch failed during size sync",
-                    extra=log_extra(error=type(exc).__name__, count=len(chunk)),
+                logger.debug(
+                    "favorite metadata seed skipped", extra=log_extra(favcat=favcat, error=type(exc).__name__)
                 )
-            metadata_sync_state["done"] = min(len(missing), start + batch_size)
-        async with app_state.session_factory() as session, session.begin():
-            gal = GalleryRepository(session)
-            if fetched:
-                await gal.upsert_metadata(
-                    [{"gid": gid, **meta} for gid, meta in fetched.items()]
-                )
-                repo = FavoritesRepository(session)
-                for gid, meta in fetched.items():
-                    size = meta.get("file_size")
-                    if size:
-                        await repo.set_file_size(favcat, gid, int(size))
-                cached_meta.update(fetched)
-            combined = dict(cached_meta)
-            meta_map = await gal.metadata_map(folder_gids)
-            for gid, meta in meta_map.items():
-                if gid not in combined:
-                    combined[gid] = meta
-            local = await gal.storage_size_map(folder_gids)
-            inferred = {
-                gid: quality
-                for gid, (storage_size, stype) in local.items()
-                if (
-                    quality := infer_image_quality(
-                        storage_size,
-                        (combined.get(gid) or {}).get("file_size"),
-                        stype,
+
+            async with app_state.session_factory() as session:
+                folder_items = await FavoritesRepository(session).all_gids_for_favcat(favcat)
+                folder_gids = [gid for gid, _, _ in folder_items]
+                gal_read = GalleryRepository(session)
+                cached_meta = await gal_read.metadata_map(folder_gids)
+                null_quality = await gal_read.null_image_quality_gids(folder_gids)
+
+            def _positive_eh_size(meta: dict | None) -> bool:
+                size = (meta or {}).get("file_size")
+                try:
+                    return int(size) > 0
+                except (TypeError, ValueError):
+                    return False
+
+            missing: list[tuple[int, str]] = []
+            seen_need: set[int] = set()
+            for gid, token, _thumb in folder_items:
+                if not token or gid in seen_need:
+                    continue
+                seen_need.add(gid)
+                if gid not in cached_meta or (
+                    gid in null_quality and not _positive_eh_size(cached_meta.get(gid))
+                ):
+                    missing.append((gid, token))
+            tracker.update(total=len(missing), done=0, stage="fetching")
+            batch_size = EXHENTAI_API_CHUNK_SIZE
+            for start in range(0, len(missing), batch_size):
+                if tm.is_cancelled("metadata"):
+                    break
+                chunk = missing[start : start + batch_size]
+                try:
+                    chunk_meta = await app_state.eh_client.fetch_gmetadata(chunk)
+                    fetched.update(chunk_meta)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "gdata batch failed during size sync",
+                        extra=log_extra(error=type(exc).__name__, count=len(chunk)),
                     )
-                )
-            }
-            if inferred:
-                await gal.set_image_qualities(inferred)
-
-        metadata_sync_state["stage"] = "covers"
-        cache_dir = _remote_cover_cache_dir()
-        coverless: list[tuple[int, str]] = []
-        thumb_meta: dict[int, dict[str, Any]] = {}
-        for gid, token, listing_thumb in folder_items:
-            if _cover_cache_file(cache_dir, gid) is not None:
-                continue
-            thumb = listing_thumb or (cached_meta.get(gid) or {}).get("thumb")
-            if thumb:
-                coverless.append((gid, token))
-                thumb_meta[gid] = {"thumb": thumb}
-        metadata_sync_state["total"] = len(coverless)
-        metadata_sync_state["done"] = 0
-        for start in range(0, len(coverless), _COVER_HEAL_CHUNK):
-            if tm and tm.is_cancelled("metadata"):
-                break
-            chunk = coverless[start : start + _COVER_HEAL_CHUNK]
-            await remote_cover_data_batch(
-                chunk,
-                {gid: thumb_meta[gid] for gid, _token in chunk},
-                download=True,
-                encode=False,
-            )
-            metadata_sync_state["done"] = min(len(coverless), start + _COVER_HEAL_CHUNK)
-        if coverless:
-            logger.info(
-                "favorite covers healed",
-                extra=log_extra(favcat=favcat, healed=len(coverless)),
-            )
-
-        metadata_sync_state["stage"] = "apply"
-        applied = 0
-        for _ in range(100):
-            if tm and tm.is_cancelled("metadata"):
-                break
+                tracker.update(done=min(len(missing), start + batch_size))
             async with app_state.session_factory() as session, session.begin():
-                applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
-                    favcat, 200
+                gal = GalleryRepository(session)
+                if fetched:
+                    await gal.upsert_metadata(
+                        [{"gid": gid, **meta} for gid, meta in fetched.items()]
+                    )
+                    repo = FavoritesRepository(session)
+                    for gid, meta in fetched.items():
+                        size = meta.get("file_size")
+                        if size:
+                            await repo.set_file_size(favcat, gid, int(size))
+                    cached_meta.update(fetched)
+                combined = dict(cached_meta)
+                meta_map = await gal.metadata_map(folder_gids)
+                for gid, meta in meta_map.items():
+                    if gid not in combined:
+                        combined[gid] = meta
+                local = await gal.storage_size_map(folder_gids)
+                inferred = {
+                    gid: quality
+                    for gid, (storage_size, stype) in local.items()
+                    if (
+                        quality := infer_image_quality(
+                            storage_size,
+                            (combined.get(gid) or {}).get("file_size"),
+                            stype,
+                        )
+                    )
+                }
+                if inferred:
+                    await gal.set_image_qualities(inferred)
+
+            tracker.update(stage="covers")
+            cache_dir = _remote_cover_cache_dir()
+            coverless: list[tuple[int, str]] = []
+            thumb_meta: dict[int, dict[str, Any]] = {}
+            for gid, token, listing_thumb in folder_items:
+                if _cover_cache_file(cache_dir, gid) is not None:
+                    continue
+                thumb = listing_thumb or (cached_meta.get(gid) or {}).get("thumb")
+                if thumb:
+                    coverless.append((gid, token))
+                    thumb_meta[gid] = {"thumb": thumb}
+            tracker.update(total=len(coverless), done=0)
+            for start in range(0, len(coverless), _COVER_HEAL_CHUNK):
+                if tm.is_cancelled("metadata"):
+                    break
+                chunk = coverless[start : start + _COVER_HEAL_CHUNK]
+                await remote_cover_data_batch(
+                    chunk,
+                    {gid: thumb_meta[gid] for gid, _token in chunk},
+                    download=True,
+                    encode=False,
                 )
-            if not applied_round:
-                break
-            applied += applied_round
-            metadata_sync_state["applied"] = (
-                int(metadata_sync_state.get("applied") or 0) + applied_round
-            )
-        if applied:
-            logger.info(
-                "favorite metadata applied", extra=log_extra(favcat=favcat, applied=applied)
-            )
+                tracker.update(done=min(len(coverless), start + _COVER_HEAL_CHUNK))
+            if coverless:
+                logger.info(
+                    "favorite covers healed",
+                    extra=log_extra(favcat=favcat, healed=len(coverless)),
+                )
+
+            tracker.update(stage="apply")
+            applied = 0
+            for _ in range(100):
+                if tm.is_cancelled("metadata"):
+                    break
+                async with app_state.session_factory() as session, session.begin():
+                    applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
+                        favcat, 200
+                    )
+                if not applied_round:
+                    break
+                applied += applied_round
+                tracker.update(applied=int(tracker.get("applied") or 0) + applied_round)
+            if applied:
+                logger.info(
+                    "favorite metadata applied", extra=log_extra(favcat=favcat, applied=applied)
+                )
     except Exception as exc:  # noqa: BLE001
-        metadata_sync_state["last_error"] = str(exc)
+        logger.warning("favorite size sync error", extra=log_extra(favcat=favcat, error=str(exc)))
     finally:
         _size_sync_inflight.discard(favcat)
-        finishing = not _size_sync_inflight
-        if finishing:
-            metadata_sync_state["running"] = False
-            metadata_sync_state["completed_at"] = datetime.now(UTC).isoformat()
-            metadata_sync_state["stage"] = None
-            if tm and not metadata_sync_state.get("history_recorded"):
-                metadata_sync_state["history_recorded"] = True
-                cancelled = tm.is_cancelled("metadata")
-                status = (
-                    "cancelled"
-                    if cancelled
-                    else ("failed" if metadata_sync_state.get("last_error") else "success")
-                )
-                tm.record_task(
-                    "metadata",
-                    metadata_sync_state.get("started_at"),
-                    metadata_sync_state["completed_at"],
-                    status,
-                    reason=(
-                        "cancelled"
-                        if cancelled
-                        else str(metadata_sync_state.get("last_error") or "")
-                    ),
-                    done=int(metadata_sync_state.get("done") or 0),
-                    total=int(metadata_sync_state.get("total") or 0),
-                )
-                from ..app.dependencies import spawn_task
-
-                spawn_task(tm.persist_history(), "persist task history")
-            if tm:
-                tm.clear_cancelled("metadata")
 
 
 async def run_favorites_check(
@@ -645,8 +602,9 @@ async def run_favorites_check(
 async def _run_favorites_check_inner(
     favcat: int, service: FavoritesService, *, scheduled: bool = False
 ) -> None:
-    tm = app_state.task_manager
-    favorites_check_state = tm.favorites_check_state if tm else {}
+    from ..app.dependencies import get_task_manager
+
+    tm = get_task_manager()
     skip_decision_fn = favorites_skip_decision
     counts_cached_fn = favorite_counts_cached
     session_cm = app_state.session_factory
@@ -660,139 +618,101 @@ async def _run_favorites_check_inner(
         "done": 0,
         "total": 0,
     }
-    categories = favorites_check_state.setdefault("categories", {})
-    already_running = any(
-        isinstance(c, dict) and c.get("running") for c in categories.values()
-    )
-    categories[str(favcat)] = entry
-    favorites_check_state["running"] = True
-    if not already_running:
-        favorites_check_state["started_at"] = datetime.now(UTC).isoformat()
-        favorites_check_state["history_recorded"] = False
-    try:
+    async with tm.track_task("favorites-check") as tracker:
+        categories = tracker.setdefault("categories", {})
+        categories[str(favcat)] = entry
         try:
             try:
-                counts = await counts_cached_fn(wait_on_cold=True)
-            except TypeError:
-                counts = await counts_cached_fn()
-            entry["total"] = counts.get(favcat, 0)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "could not fetch live count for check progress",
-                extra=log_extra(favcat=favcat, error=type(exc).__name__),
-            )
-
-        async with session_cm() as session:
-            category = await FavoritesRepository(session).category(favcat)
-
-        live_count = int(entry.get("total") or 0)
-        if scheduled and category is not None and getattr(category, "last_success_at", None) is not None:
-            try:
-                async with session_cm() as session:
-                    known = await FavoritesRepository(session).count_known_gids(favcat)
-                skip_counts = favorites_check_state.setdefault("skip_counts", {})
-                should_skip, next_skip = skip_decision_fn(
-                    int(skip_counts.get(str(favcat), 0)),
-                    scheduled=True,
-                    category_ready=True,
-                    live_count=live_count,
-                    known=known,
-                )
-                skip_counts[str(favcat)] = next_skip
-                if should_skip:
-                    entry["done"] = entry["total"] = live_count
-                    entry["skipped"] = True
-                    async with session_cm() as session, session.begin():
-                        await FavoritesRepository(session).checked(favcat, True)
-                    logger.info(
-                        "favorites check skipped (cloud count unchanged)",
-                        extra=log_extra(favcat=favcat, cloud=live_count, known=known),
-                    )
-                    return
+                try:
+                    counts = await counts_cached_fn(wait_on_cold=True)
+                except TypeError:
+                    counts = await counts_cached_fn()
+                entry["total"] = counts.get(favcat, 0)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "favorites skip heuristic failed",
+                    "could not fetch live count for check progress",
                     extra=log_extra(favcat=favcat, error=type(exc).__name__),
                 )
 
-        def _progress(done: int) -> None:
-            entry["done"] = done
+            async with session_cm() as session:
+                category = await FavoritesRepository(session).category(favcat)
 
-        settings = app_state.settings or get_settings()
-        # Test stubs (e.g. test_download_cancel_race) may lack archive fields — default safely
-        archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
-        archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
-        archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
-        if category is not None and not getattr(category, "enabled", True):
-            await service.check_category(favcat, mode="monitor_only", progress=_progress)
-        else:
-            await service.check_category(
-                favcat,
-                mode=getattr(category, "mode", "incremental") if category else "incremental",
-                progress=_progress,
-                archive_enabled=archive_enabled,
-                archive_max_pages=archive_max_pages,
-                archive_quality=archive_quality,
-            )
-        entry["error"] = None
-        async with session_cm() as session, session.begin():
-            await FavoritesRepository(session).checked(favcat, True)
-        # Auto-detect gallery updates after a successful favorites check so a
-        # re-uploaded gallery (old gid gone, new gid in favorites) does not
-        # linger as ``deleted`` or in the wrong category.
-        from ..app.dependencies import spawn_task
+            live_count = int(entry.get("total") or 0)
+            if scheduled and category is not None and getattr(category, "last_success_at", None) is not None:
+                try:
+                    async with session_cm() as session:
+                        known = await FavoritesRepository(session).count_known_gids(favcat)
+                    skip_counts = tracker.setdefault("skip_counts", {})
+                    should_skip, next_skip = skip_decision_fn(
+                        int(skip_counts.get(str(favcat), 0)),
+                        scheduled=True,
+                        category_ready=True,
+                        live_count=live_count,
+                        known=known,
+                    )
+                    skip_counts[str(favcat)] = next_skip
+                    if should_skip:
+                        entry["done"] = entry["total"] = live_count
+                        entry["skipped"] = True
+                        async with session_cm() as session, session.begin():
+                            await FavoritesRepository(session).checked(favcat, True)
+                        logger.info(
+                            "favorites check skipped (cloud count unchanged)",
+                            extra=log_extra(favcat=favcat, cloud=live_count, known=known),
+                        )
+                        return
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "favorites skip heuristic failed",
+                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                    )
 
-        spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
-        try:
-            from .updates_worker import detect_gallery_updates
+            def _progress(done: int) -> None:
+                entry["done"] = done
 
-            spawn_task(detect_gallery_updates(), "gallery updates detect")
-        except Exception as exc:
-            logger.debug("ignoring error during post-check updates spawn", exc_info=exc)
-    except Exception as exc:  # noqa: BLE001
-        entry["error"] = str(exc)
-        logger.error(
-            "favorites check failed",
-            extra=log_extra(favcat=favcat, error=str(exc) or type(exc).__name__),
-        )
-        try:
+            settings = app_state.settings or get_settings()
+            archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
+            archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
+            archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
+            if category is not None and not getattr(category, "enabled", True):
+                await service.check_category(favcat, mode="monitor_only", progress=_progress)
+            else:
+                await service.check_category(
+                    favcat,
+                    mode=getattr(category, "mode", "incremental") if category else "incremental",
+                    progress=_progress,
+                    archive_enabled=archive_enabled,
+                    archive_max_pages=archive_max_pages,
+                    archive_quality=archive_quality,
+                )
+            entry["error"] = None
             async with session_cm() as session, session.begin():
-                await FavoritesRepository(session).checked(favcat, False)
-        except Exception as exc2:
-            logger.debug("ignoring error during favorites check failure record", exc_info=exc2)
-    finally:
-        entry["running"] = False
-        entry["completed"] = datetime.now(UTC).isoformat()
-        all_running = any(
-            c.get("running") for c in categories.values() if isinstance(c, dict)
-        )
-        if not all_running:
-            favorites_check_state["running"] = False
-            favorites_check_state["completed_at"] = datetime.now(UTC).isoformat()
-            if tm and not favorites_check_state.get("history_recorded"):
-                favorites_check_state["history_recorded"] = True
-                cat_rows = [
-                    c for c in categories.values() if isinstance(c, dict)
-                ]
-                done = sum(int(c.get("done") or 0) for c in cat_rows)
-                total = sum(int(c.get("total") or 0) for c in cat_rows)
-                failed = any(c.get("error") for c in cat_rows)
-                reason = next(
-                    (str(c.get("error")) for c in cat_rows if c.get("error")),
-                    "",
-                )
-                tm.record_task(
-                    "favorites-check",
-                    favorites_check_state.get("started_at"),
-                    favorites_check_state["completed_at"],
-                    "failed" if failed else "success",
-                    reason=reason,
-                    done=done,
-                    total=total,
-                )
-                from ..app.dependencies import spawn_task
+                await FavoritesRepository(session).checked(favcat, True)
 
-                spawn_task(tm.persist_history(), "persist task history")
+            from ..app.dependencies import spawn_task
+
+            spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
+            try:
+                from .updates_worker import detect_gallery_updates
+
+                spawn_task(detect_gallery_updates(), "gallery updates detect")
+            except Exception as exc:
+                logger.debug("ignoring error during post-check updates spawn", exc_info=exc)
+        except Exception as exc:  # noqa: BLE001
+            entry["error"] = str(exc)
+            tracker.update(last_error=str(exc))
+            logger.error(
+                "favorites check failed",
+                extra=log_extra(favcat=favcat, error=str(exc) or type(exc).__name__),
+            )
+            try:
+                async with session_cm() as session, session.begin():
+                    await FavoritesRepository(session).checked(favcat, False)
+            except Exception as exc2:
+                logger.debug("ignoring error during favorites check failure record", exc_info=exc2)
+        finally:
+            entry["running"] = False
+            entry["completed"] = datetime.now(UTC).isoformat()
 
 
 async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
@@ -824,117 +744,113 @@ async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
 async def run_duplicates_scan() -> None:
     if not app_state.session_factory:
         return
-    tm = app_state.task_manager
-    duplicates_state = tm.duplicates_state if tm else {}
-    duplicates_state.update(
-        {"running": True, "stage": "reading", "done": 0, "total": 0, "last_error": None, "groups": []}
-    )
-    from ..app.dependencies import resolve_display_title
-    try:
-        async with app_state.session_factory() as session:
-            repo = FavoritesRepository(session)
-            items = await repo.all_items()
-            gids = list({item[1] for item in items})
-            duplicates_state["total"] = len(items)
-            duplicates_state["stage"] = "analyzing"
-            gallery_titles = await repo.gallery_titles_by_gid(gids)
-            local_ids_all = [item[5] for item in items if item[5] is not None]
-            tag_map = await repo.tags_for_gallery_ids(local_ids_all)
+    from ..app.dependencies import get_task_manager, resolve_display_title
 
-        duplicates_state["done"] = len(items)
-        duplicates_state["stage"] = "grouping"
-        groups = find_duplicate_groups(items, gallery_titles=gallery_titles, tag_map=tag_map)
-        group_items = [it for g in groups for it in g["items"]]
-        cloud_pairs = [
-            (it["gid"], it["token"]) for it in group_items if it["gallery_id"] is None
-        ]
-        duplicates_state["stage"] = "enriching"
-        gmeta = await favorites_metadata(cloud_pairs) if cloud_pairs else {}
-        for it in group_items:
-            if it["gallery_id"] is not None:
-                en_title, jp_title = gallery_titles.get(it["gid"], (None, None))
-                it["title_jpn"] = jp_title
-                it["display_title"] = (
-                    resolve_display_title(en_title or it.get("title"), jp_title)
-                    or it.get("title")
-                    or f"gid {it['gid']}"
-                )
-                if isinstance(it.get("posted_at"), datetime):
-                    it["posted_at"] = it["posted_at"].isoformat()
-                it["tags"] = [
-                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                    for ns, name in tag_map.get(it["gallery_id"], [])
-                ]
-            else:
-                meta = gmeta.get(it["gid"], {})
-                it["file_size"] = it["file_size"] or meta.get("file_size")
-                it["title_jpn"] = meta.get("title_jpn")
-                it["display_title"] = (
-                    resolve_display_title(it["title"] or meta.get("title"), meta.get("title_jpn"))
-                    or it["title"]
-                    or f"gid {it['gid']}"
-                )
-                if "posted_at" in meta:
-                    val = meta["posted_at"]
-                    it["posted_at"] = val.isoformat() if isinstance(val, datetime) else val
-                else:
-                    it["posted_at"] = _unix_to_iso(meta.get("posted"))
-                it["tags"] = [
-                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                    for ns, name in _parse_gdata_tags(meta.get("tags", []))
-                ]
-        cover_map = await remote_cover_data_batch(cloud_pairs, gmeta)
-        for it in group_items:
-            if it["gallery_id"] is None:
-                it["cover_data"] = cover_map.get(it["gid"])
-        missing_posted = [
-            (it["gid"], it["token"])
-            for it in group_items
-            if not it["posted_at"] and it["token"]
-        ]
-        if missing_posted and app_state.eh_client is not None:
-            try:
-                posted_meta = await app_state.eh_client.fetch_gmetadata(missing_posted)
-            except Exception as exc:  # noqa: BLE001
-                posted_meta = {}
-                logger.warning(
-                    "duplicate posted enrichment failed",
-                    extra=log_extra(error=type(exc).__name__),
-                )
-            local_write: dict[int, datetime] = {}
+    tm = get_task_manager()
+    async with tm.track_task("duplicates") as tracker:
+        tracker.update(stage="reading", done=0, total=0, last_error=None, groups=[])
+        try:
+            async with app_state.session_factory() as session:
+                repo = FavoritesRepository(session)
+                items = await repo.all_items()
+                gids = list({item[1] for item in items})
+                tracker.update(total=len(items), stage="analyzing")
+                gallery_titles = await repo.gallery_titles_by_gid(gids)
+                local_ids_all = [item[5] for item in items if item[5] is not None]
+                tag_map = await repo.tags_for_gallery_ids(local_ids_all)
+
+            tracker.update(done=len(items), stage="grouping")
+            groups = find_duplicate_groups(items, gallery_titles=gallery_titles, tag_map=tag_map)
+            group_items = [it for g in groups for it in g["items"]]
+            cloud_pairs = [
+                (it["gid"], it["token"]) for it in group_items if it["gallery_id"] is None
+            ]
+            tracker.update(stage="enriching")
+            gmeta = await favorites_metadata(cloud_pairs) if cloud_pairs else {}
             for it in group_items:
-                if it["posted_at"] or it["gid"] not in posted_meta:
-                    continue
-                posted = _unix_to_iso(posted_meta[it["gid"]].get("posted"))
-                if not posted:
-                    continue
-                it["posted_at"] = posted
                 if it["gallery_id"] is not None:
-                    local_write[it["gid"]] = datetime.fromisoformat(posted)
-            if local_write:
-                async with app_state.session_factory() as session, session.begin():
-                    await FavoritesRepository(session).update_posted_at(local_write)
+                    en_title, jp_title = gallery_titles.get(it["gid"], (None, None))
+                    it["title_jpn"] = jp_title
+                    it["display_title"] = (
+                        resolve_display_title(en_title or it.get("title"), jp_title)
+                        or it.get("title")
+                        or f"gid {it['gid']}"
+                    )
+                    if isinstance(it.get("posted_at"), datetime):
+                        it["posted_at"] = it["posted_at"].isoformat()
+                    it["tags"] = [
+                        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                        for ns, name in tag_map.get(it["gallery_id"], [])
+                    ]
+                else:
+                    meta = gmeta.get(it["gid"], {})
+                    it["file_size"] = it["file_size"] or meta.get("file_size")
+                    it["title_jpn"] = meta.get("title_jpn")
+                    it["display_title"] = (
+                        resolve_display_title(it["title"] or meta.get("title"), meta.get("title_jpn"))
+                        or it["title"]
+                        or f"gid {it['gid']}"
+                    )
+                    if "posted_at" in meta:
+                        val = meta["posted_at"]
+                        it["posted_at"] = val.isoformat() if isinstance(val, datetime) else val
+                    else:
+                        it["posted_at"] = _unix_to_iso(meta.get("posted"))
+                    it["tags"] = [
+                        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+                        for ns, name in _parse_gdata_tags(meta.get("tags", []))
+                    ]
+            cover_map = await remote_cover_data_batch(cloud_pairs, gmeta)
+            for it in group_items:
+                if it["gallery_id"] is None:
+                    it["cover_data"] = cover_map.get(it["gid"])
+            missing_posted = [
+                (it["gid"], it["token"])
+                for it in group_items
+                if not it["posted_at"] and it["token"]
+            ]
+            if missing_posted and app_state.eh_client is not None:
+                try:
+                    posted_meta = await app_state.eh_client.fetch_gmetadata(missing_posted)
+                except Exception as exc:  # noqa: BLE001
+                    posted_meta = {}
+                    logger.warning(
+                        "duplicate posted enrichment failed",
+                        extra=log_extra(error=type(exc).__name__),
+                    )
+                local_write: dict[int, datetime] = {}
+                for it in group_items:
+                    if it["posted_at"] or it["gid"] not in posted_meta:
+                        continue
+                    posted = _unix_to_iso(posted_meta[it["gid"]].get("posted"))
+                    if not posted:
+                        continue
+                    it["posted_at"] = posted
+                    if it["gallery_id"] is not None:
+                        local_write[it["gid"]] = datetime.fromisoformat(posted)
+                if local_write:
+                    async with app_state.session_factory() as session, session.begin():
+                        await FavoritesRepository(session).update_posted_at(local_write)
 
-        async with app_state.session_factory() as session:
-            repo = FavoritesRepository(session)
-            ignored_keys = await repo.ignored_duplicate_keys()
-            ignored = await repo.ignored_duplicates()
+            async with app_state.session_factory() as session:
+                repo = FavoritesRepository(session)
+                ignored_keys = await repo.ignored_duplicate_keys()
+                ignored = await repo.ignored_duplicates()
 
-        ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
-        groups = [
-            g
-            for g in groups
-            if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
-        ]
-        for g in groups:
-            g.pop("legacy_keys", None)
-        groups.sort(key=lambda g: -len(g["items"]))
-        duplicates_state["groups"] = groups
-        duplicates_state["ignored"] = ignored
-        duplicates_state["done"] = len(items)
-        duplicates_state["stage"] = "done"
-    except Exception as exc:  # noqa: BLE001
-        duplicates_state["last_error"] = f"{type(exc).__name__}: {exc}"
-        duplicates_state["stage"] = "error"
-    finally:
-        duplicates_state["running"] = False
+            ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
+            groups = [
+                g
+                for g in groups
+                if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
+            ]
+            for g in groups:
+                g.pop("legacy_keys", None)
+            groups.sort(key=lambda g: -len(g["items"]))
+            tracker.update(
+                groups=groups,
+                ignored=ignored,
+                done=len(items),
+                stage="done",
+            )
+        except Exception as exc:  # noqa: BLE001
+            tracker.update(last_error=f"{type(exc).__name__}: {exc}", stage="error")

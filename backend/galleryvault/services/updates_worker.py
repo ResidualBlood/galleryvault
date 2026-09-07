@@ -164,147 +164,145 @@ async def detect_gallery_updates() -> None:
     session_cm = app_state.session_factory
     if session_cm is None:
         return
-    repo_cls = GalleryUpdatesRepository
-    tm = app_state.task_manager
-    gallery_updates_state = tm.gallery_updates_state if tm else {}
+    from ..app.dependencies import get_task_manager
 
-    if bool(gallery_updates_state.get("detecting")):
+    tm = get_task_manager()
+    if bool(tm.gallery_updates_state.get("detecting")):
         return
+    repo_cls = GalleryUpdatesRepository
     with bind_log_context(worker="updates"):
-        gallery_updates_state.update({"detecting": True, "last_error": None})
-        detected: list[dict[str, Any]] = []
-        found = 0
-        to_insert: list[dict[str, Any]] = []
-        to_finalize: list[Any] = []
-        to_attach: dict[int, int] = {}
-        try:
-            async with session_cm() as session:
-                fav_rows = await session.execute(
-                    select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.title, FavoriteItem.favcat)
-                )
-                fav_gids: set[int] = set()
-                by_title: dict[str, tuple[int, str, int]] = {}
-                for gid, token, title, favcat in fav_rows:
-                    gid = int(gid)
-                    fav_gids.add(gid)
-                    nt = normalize_update_title(title or "")
-                    if nt and nt not in by_title:
-                        by_title[nt] = (gid, str(token), int(favcat))
-                    if "|" in (title or ""):
-                        for part in title.split("|"):
-                            p_nt = normalize_update_title(part)
-                            if p_nt and p_nt not in by_title:
-                                by_title[p_nt] = (gid, str(token), int(favcat))
-                repo = repo_cls(session)
-                tracking = await repo.tracking_by_gallery_id()
-                page = 1
-                while True:
-                    rows = await session.execute(
-                        select(Gallery.id, Gallery.gid, Gallery.title, Gallery.title_jpn)
-                        .where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
-                        .order_by(Gallery.id)
-                        .offset((page - 1) * 500)
-                        .limit(500)
+        async with tm.track_task("gallery-updates") as tracker:
+            detected: list[dict[str, Any]] = []
+            found = 0
+            to_insert: list[dict[str, Any]] = []
+            to_finalize: list[Any] = []
+            to_attach: dict[int, int] = {}
+            try:
+                async with session_cm() as session:
+                    fav_rows = await session.execute(
+                        select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.title, FavoriteItem.favcat)
                     )
-                    batch = rows.all()
-                    if not batch:
-                        break
-                    for gallery_id, gid, title, title_jpn in batch:
-                        if gid is None or gid in fav_gids:
-                            continue
-                        tracked_row = tracking.get(int(gallery_id))
-                        if tracked_row is not None and getattr(tracked_row, "status", None) == "ignored":
-                            continue
+                    fav_gids: set[int] = set()
+                    by_title: dict[str, tuple[int, str, int]] = {}
+                    for gid, token, title, favcat in fav_rows:
+                        gid = int(gid)
+                        fav_gids.add(gid)
                         nt = normalize_update_title(title or "")
-                        match = by_title.get(nt)
-                        if not match and title_jpn:
-                            match = by_title.get(normalize_update_title(title_jpn))
-                        if not match and "|" in (title or ""):
+                        if nt and nt not in by_title:
+                            by_title[nt] = (gid, str(token), int(favcat))
+                        if "|" in (title or ""):
                             for part in title.split("|"):
-                                match = by_title.get(normalize_update_title(part))
-                                if match:
-                                    break
-                        if match and match[0] != int(gid):
-                            new_gid, new_token, favcat = match
-                            detected.append(
-                                {
-                                    "gallery_id": int(gallery_id),
-                                    "old_gid": int(gid),
-                                    "new_gid": new_gid,
-                                    "new_token": new_token,
-                                    "title": title,
-                                    "favcat": favcat,
-                                    "existing_id": getattr(tracked_row, "id", None),
-                                    "existing_status": getattr(tracked_row, "status", None),
-                                }
-                            )
-                    if len(batch) < 500:
-                        break
-                    page += 1
-                local_new: set[int] = set()
-                active_tasks: dict[int, int] = {}
-                if detected:
-                    new_gids = [e["new_gid"] for e in detected]
-                    local_new = await repo.local_new_gids(new_gids)
-                    active_tasks = await repo.active_task_ids_for_gids(new_gids)
-            for entry in detected:
-                status = entry.get("existing_status")
-                if entry["new_gid"] in local_new:
-                    to_finalize.append(
-                        SimpleNamespace(
-                            id=entry.get("existing_id"),
-                            gallery_id=entry["gallery_id"],
+                                p_nt = normalize_update_title(part)
+                                if p_nt and p_nt not in by_title:
+                                    by_title[p_nt] = (gid, str(token), int(favcat))
+                    repo = repo_cls(session)
+                    tracking = await repo.tracking_by_gallery_id()
+                    page = 1
+                    while True:
+                        rows = await session.execute(
+                            select(Gallery.id, Gallery.gid, Gallery.title, Gallery.title_jpn)
+                            .where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
+                            .order_by(Gallery.id)
+                            .offset((page - 1) * 500)
+                            .limit(500)
                         )
-                    )
-                    continue
-                extra: dict[str, Any] = {}
-                task_id = active_tasks.get(entry["new_gid"])
-                if status is None:
-                    if task_id:
-                        extra["status"] = "downloading"
-                        extra["download_task_id"] = task_id
-                    to_insert.append(
-                        {
-                            "gallery_id": entry["gallery_id"],
-                            "old_gid": entry["old_gid"],
-                            "new_gid": entry["new_gid"],
-                            "new_token": entry["new_token"],
-                            "title": entry["title"],
-                            "favcat": entry["favcat"],
-                            **extra,
-                        }
-                    )
-                elif status in {"pending", "failed"} and task_id:
-                    to_attach[int(entry["new_gid"])] = int(task_id)
-            if to_insert:
-                async with session_cm() as session, session.begin():
-                    found = await repo_cls(session).detect_many(
-                        to_insert, known_gallery_ids=set()
-                    )
-            if to_attach:
-                async with session_cm() as session, session.begin():
-                    attached_repo = repo_cls(session)
-                    for gid, task_id in to_attach.items():
-                        await attached_repo.attach_download(gid, task_id)
-            for ref in to_finalize:
-                await finalize_gallery_update(ref)
-            gallery_updates_state.update(
-                {"found": found, "last_detected_at": datetime.now(UTC).isoformat()}
-            )
-            if found:
-                logger.info(
-                    "gallery update scan found new-version candidates",
-                    extra=log_extra(found=found),
+                        batch = rows.all()
+                        if not batch:
+                            break
+                        for gallery_id, gid, title, title_jpn in batch:
+                            if gid is None or gid in fav_gids:
+                                continue
+                            tracked_row = tracking.get(int(gallery_id))
+                            if tracked_row is not None and getattr(tracked_row, "status", None) == "ignored":
+                                continue
+                            nt = normalize_update_title(title or "")
+                            match = by_title.get(nt)
+                            if not match and title_jpn:
+                                match = by_title.get(normalize_update_title(title_jpn))
+                            if not match and "|" in (title or ""):
+                                for part in title.split("|"):
+                                    match = by_title.get(normalize_update_title(part))
+                                    if match:
+                                        break
+                            if match and match[0] != int(gid):
+                                new_gid, new_token, favcat = match
+                                detected.append(
+                                    {
+                                        "gallery_id": int(gallery_id),
+                                        "old_gid": int(gid),
+                                        "new_gid": new_gid,
+                                        "new_token": new_token,
+                                        "title": title,
+                                        "favcat": favcat,
+                                        "existing_id": getattr(tracked_row, "id", None),
+                                        "existing_status": getattr(tracked_row, "status", None),
+                                    }
+                                )
+                        if len(batch) < 500:
+                            break
+                        page += 1
+                    local_new: set[int] = set()
+                    active_tasks: dict[int, int] = {}
+                    if detected:
+                        new_gids = [e["new_gid"] for e in detected]
+                        local_new = await repo.local_new_gids(new_gids)
+                        active_tasks = await repo.active_task_ids_for_gids(new_gids)
+                for entry in detected:
+                    status = entry.get("existing_status")
+                    if entry["new_gid"] in local_new:
+                        to_finalize.append(
+                            SimpleNamespace(
+                                id=entry.get("existing_id"),
+                                gallery_id=entry["gallery_id"],
+                            )
+                        )
+                        continue
+                    extra: dict[str, Any] = {}
+                    task_id = active_tasks.get(entry["new_gid"])
+                    if status is None:
+                        if task_id:
+                            extra["status"] = "downloading"
+                            extra["download_task_id"] = task_id
+                        to_insert.append(
+                            {
+                                "gallery_id": entry["gallery_id"],
+                                "old_gid": entry["old_gid"],
+                                "new_gid": entry["new_gid"],
+                                "new_token": entry["new_token"],
+                                "title": entry["title"],
+                                "favcat": entry["favcat"],
+                                **extra,
+                            }
+                        )
+                    elif status in {"pending", "failed"} and task_id:
+                        to_attach[int(entry["new_gid"])] = int(task_id)
+                if to_insert:
+                    async with session_cm() as session, session.begin():
+                        found = await repo_cls(session).detect_many(
+                            to_insert, known_gallery_ids=set()
+                        )
+                if to_attach:
+                    async with session_cm() as session, session.begin():
+                        attached_repo = repo_cls(session)
+                        for gid, task_id in to_attach.items():
+                            await attached_repo.attach_download(gid, task_id)
+                for ref in to_finalize:
+                    await finalize_gallery_update(ref)
+                tracker.update(
+                    found=found,
+                    last_detected_at=datetime.now(UTC).isoformat(),
                 )
-        except Exception as exc:  # noqa: BLE001
-            gallery_updates_state["last_error"] = f"{type(exc).__name__}: {exc}"
-            logger.warning(
-                "gallery update detection failed",
-                extra=log_extra(error=type(exc).__name__, message=str(exc)),
-            )
-        finally:
-            gallery_updates_state["detecting"] = False
-            gallery_updates_state["last_run"] = datetime.now(UTC).isoformat()
+                if found:
+                    logger.info(
+                        "gallery update scan found new-version candidates",
+                        extra=log_extra(found=found),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                tracker.update(last_error=f"{type(exc).__name__}: {exc}")
+                logger.warning(
+                    "gallery update detection failed",
+                    extra=log_extra(error=type(exc).__name__, message=str(exc)),
+                )
 
 
 async def run_gallery_updates(

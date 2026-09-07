@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -36,6 +38,29 @@ class TaskProgress:
         d = asdict(self)
         d.update(self.meta)
         return d
+
+
+class TaskTracker:
+    """Wrapper around task state dictionary for structured progress reporting."""
+
+    def __init__(self, task_name: str, state: dict[str, Any]):
+        self.task_name = task_name
+        self.state = state
+
+    def update(self, **kwargs: Any) -> None:
+        self.state.update(kwargs)
+
+    def __getitem__(self, key: str) -> Any:
+        return self.state[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.state[key] = value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.state.get(key, default)
+
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        return self.state.setdefault(key, default)
 
 
 class TaskManager:
@@ -143,6 +168,8 @@ class TaskManager:
             "corrupt_ids": [],
             "last_error": None,
         }
+        self.dynamic_states: dict[str, Any] = {}
+        self._active_tasks: dict[str, int] = {}
 
     # Cancellation flags
     def request_cancel(self, task_key: str | int) -> None:
@@ -153,6 +180,156 @@ class TaskManager:
 
     def is_cancelled(self, task_key: str | int) -> bool:
         return task_key in self._cancelled_tasks
+
+    def _resolve_task_state(self, task_name: str) -> dict[str, Any]:
+        state_map = {
+            "scan": self.scan_state,
+            "tag-sync": self.tag_sync_state,
+            "thumbs": self.thumb_state,
+            "metadata": self.metadata_sync_state,
+            "favcheck": self.favorites_check_state,
+            "favorites-check": self.favorites_check_state,
+            "translation": self.translation_state,
+            "duplicates": self.duplicates_state,
+            "gallery-updates": self.gallery_updates_state,
+            "archive": self.archive_state,
+            "integrity": self.integrity_state,
+        }
+        if task_name in state_map:
+            return state_map[task_name]
+        return self.dynamic_states.setdefault(task_name, {})
+
+    def _extract_progress(self, task_name: str, state: dict[str, Any]) -> tuple[int, int]:
+        if task_name in ("favcheck", "favorites-check"):
+            categories = state.get("categories")
+            if isinstance(categories, dict):
+                cat_rows = [c for c in categories.values() if isinstance(c, dict)]
+                done = sum(int(c.get("done") or 0) for c in cat_rows)
+                total = sum(int(c.get("total") or 0) for c in cat_rows)
+                return done, total
+        if task_name == "thumbs":
+            succeeded = int(state.get("succeeded") or 0)
+            failed = int(state.get("failed") or 0)
+            done = int(state.get("processed") or (succeeded + failed))
+            total = int(state.get("total") or 0)
+            return done, total
+        if task_name == "scan":
+            return int(state.get("scanned") or state.get("persisted") or 0), int(state.get("total") or 0)
+        if task_name == "tag-sync":
+            return int(state.get("processed") or 0), int(state.get("total") or 0)
+        if task_name == "translation":
+            return int(state.get("entries") or 0), int(state.get("total") or 0)
+        if task_name == "gallery-updates":
+            return int(state.get("found") or 0), int(state.get("total") or 0)
+        if task_name == "integrity":
+            return int(state.get("scanned") or 0), int(state.get("total") or 0)
+        done = int(
+            state.get("done")
+            or state.get("processed")
+            or state.get("scanned")
+            or state.get("entries")
+            or state.get("found")
+            or 0
+        )
+        total = int(state.get("total") or 0)
+        return done, total
+
+    @asynccontextmanager
+    async def track_task(self, task_name: str, cancellable: bool = False):
+        """Asynchronous context manager tracking task lifecycle, error logging, and history persistence."""
+        state = self._resolve_task_state(task_name)
+        active_count = self._active_tasks.get(task_name, 0) + 1
+        self._active_tasks[task_name] = active_count
+
+        now = _utc_now_iso()
+        if active_count == 1:
+            if cancellable:
+                self.clear_cancelled(task_name)
+            if task_name == "gallery-updates":
+                state["detecting"] = True
+                state["last_run"] = now
+            else:
+                state["running"] = True
+            state["started_at"] = now
+            state["completed_at"] = None
+            state["last_error"] = None
+            state["history_recorded"] = False
+            state["cancellable"] = cancellable
+
+        tracker = TaskTracker(task_name, state)
+        status = "success"
+        reason = ""
+        try:
+            yield tracker
+        except asyncio.CancelledError:
+            status = "cancelled"
+            reason = "cancelled"
+            state["last_error"] = "cancelled"
+            raise
+        except Exception as exc:
+            status = "failed"
+            reason = state.get("last_error") or f"{type(exc).__name__}: {exc}"
+            state["last_error"] = str(reason)
+            raise
+        finally:
+            active_count = max(0, self._active_tasks.get(task_name, 1) - 1)
+            self._active_tasks[task_name] = active_count
+
+            if active_count == 0:
+                completed_at = _utc_now_iso()
+                state["completed_at"] = completed_at
+                if task_name == "gallery-updates":
+                    state["detecting"] = False
+                    state["last_run"] = completed_at
+                else:
+                    state["running"] = False
+
+                if self.is_cancelled(task_name):
+                    status = "cancelled"
+                    reason = "cancelled"
+                    self.clear_cancelled(task_name)
+                elif state.get("last_error"):
+                    err = str(state.get("last_error"))
+                    if err == "cancelled":
+                        status = "cancelled"
+                        reason = "cancelled"
+                    elif status == "success":
+                        status = "failed"
+                        reason = err
+                elif task_name in ("favcheck", "favorites-check"):
+                    categories = state.get("categories")
+                    if isinstance(categories, dict):
+                        cat_rows = [c for c in categories.values() if isinstance(c, dict)]
+                        if any(c.get("error") for c in cat_rows):
+                            status = "failed"
+                            reason = next(
+                                (str(c.get("error")) for c in cat_rows if c.get("error")),
+                                "failed",
+                            )
+
+                if state.get("reason"):
+                    reason = str(state["reason"])
+
+                done, total = self._extract_progress(task_name, state)
+                canonical_name = "favorites-check" if task_name in ("favcheck", "favorites-check") else task_name
+
+                if not state.get("history_recorded"):
+                    state["history_recorded"] = True
+                    self.record_task(
+                        task=canonical_name,
+                        started_at=state.get("started_at"),
+                        completed_at=completed_at,
+                        status=status,
+                        reason=str(reason or ""),
+                        done=done,
+                        total=total,
+                    )
+                    try:
+                        from ..app.dependencies import spawn_task
+
+                        spawn_task(self.persist_history(), "persist task history")
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("failed to spawn persist task history", extra={"error": str(exc)})
 
     # History & Recording
     def record_task(
@@ -260,7 +437,7 @@ class TaskManager:
             })
         if self.favorites_check_state.get("running"):
             running_tasks.append({
-                "task": "favcheck",
+                "task": "favorites-check",
                 "started_at": self.favorites_check_state.get("started_at"),
                 "done": sum(
                     int(item.get("done") or 0)
@@ -287,7 +464,7 @@ class TaskManager:
         if self.duplicates_state.get("running"):
             running_tasks.append({
                 "task": "duplicates",
-                "started_at": None,
+                "started_at": self.duplicates_state.get("started_at"),
                 "done": self.duplicates_state.get("done", 0),
                 "total": self.duplicates_state.get("total", 0),
                 "stage": self.duplicates_state.get("stage"),
@@ -296,7 +473,7 @@ class TaskManager:
         if self.gallery_updates_state.get("detecting"):
             running_tasks.append({
                 "task": "gallery-updates",
-                "started_at": self.gallery_updates_state.get("last_run"),
+                "started_at": self.gallery_updates_state.get("started_at") or self.gallery_updates_state.get("last_run"),
                 "done": self.gallery_updates_state.get("found", 0),
                 "total": None,
                 "stage": "detecting",
@@ -320,6 +497,17 @@ class TaskManager:
                 "stage": None,
                 "cancellable": False,
             })
+
+        for name, d_state in self.dynamic_states.items():
+            if d_state.get("running"):
+                running_tasks.append({
+                    "task": name,
+                    "started_at": d_state.get("started_at"),
+                    "done": int(d_state.get("done") or d_state.get("processed") or 0),
+                    "total": int(d_state.get("total") or 0) if d_state.get("total") is not None else None,
+                    "stage": d_state.get("stage"),
+                    "cancellable": bool(d_state.get("cancellable", False)),
+                })
 
         return running_tasks
 

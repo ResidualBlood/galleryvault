@@ -135,41 +135,47 @@ class StorageUsageTracker:
 
     async def calibrate(self, download_root: Path | str, cache_root: Path | str) -> None:
         """Run low-priority background calibration."""
-        dl_path = Path(download_root)
-        c_path = Path(cache_root)
+        from ..app.dependencies import get_task_manager
 
-        self.downloads.computing = True
-        self.cache.computing = True
-        self._delta_downloads = 0
-        self._delta_cache = 0
+        tm = get_task_manager()
+        async with tm.track_task("calibrate-storage") as tracker:
+            dl_path = Path(download_root)
+            c_path = Path(cache_root)
 
-        # Calibrate downloads
-        try:
-            dl_bytes = await measure_dir_bytes(dl_path)
-            self.downloads.bytes = max(0, dl_bytes + self._delta_downloads)
-            self.downloads.computed_at = time.time()
-            self.downloads.computing = False
-            self.downloads.stale = False
-        except asyncio.CancelledError:
-            self.downloads.computing = False
-            raise
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("downloads storage calibration failed", extra={"error": str(exc)})
-            self.downloads.computing = False
+            self.downloads.computing = True
+            self.cache.computing = True
+            self._delta_downloads = 0
+            self._delta_cache = 0
 
-        # Calibrate cache
-        try:
-            c_bytes = await measure_dir_bytes(c_path)
-            self.cache.bytes = max(0, c_bytes + self._delta_cache)
-            self.cache.computed_at = time.time()
-            self.cache.computing = False
-            self.cache.stale = False
-        except asyncio.CancelledError:
-            self.cache.computing = False
-            raise
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("cache storage calibration failed", extra={"error": str(exc)})
-            self.cache.computing = False
+            # Calibrate downloads
+            try:
+                dl_bytes = await measure_dir_bytes(dl_path)
+                self.downloads.bytes = max(0, dl_bytes + self._delta_downloads)
+                self.downloads.computed_at = time.time()
+                self.downloads.computing = False
+                self.downloads.stale = False
+            except asyncio.CancelledError:
+                self.downloads.computing = False
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("downloads storage calibration failed", extra={"error": str(exc)})
+                self.downloads.computing = False
+
+            # Calibrate cache
+            try:
+                c_bytes = await measure_dir_bytes(c_path)
+                self.cache.bytes = max(0, c_bytes + self._delta_cache)
+                self.cache.computed_at = time.time()
+                self.cache.computing = False
+                self.cache.stale = False
+            except asyncio.CancelledError:
+                self.cache.computing = False
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("cache storage calibration failed", extra={"error": str(exc)})
+                self.cache.computing = False
+
+            tracker.update(done=1, total=1)
 
     def trigger_calibration(
         self, download_root: Path | str, cache_root: Path | str

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 
 from starlette.concurrency import run_in_threadpool
@@ -60,21 +59,16 @@ async def run_integrity_magic_scan() -> None:
         return
 
     settings = app_state.settings or get_settings()
-    tm = getattr(app_state, "task_manager", None)
-    if tm is None:
-        return
+    from ..app.dependencies import get_task_manager
 
-    state = tm.integrity_state
+    tm = get_task_manager()
     if getattr(settings, "global_paused", False):
-        state["running"] = False
+        tm.integrity_state["running"] = False
         return
 
     with bind_log_context(task="integrity_magic_scan"):
-        async with integrity_scan_lock:
-            state["corrupt_ids"] = []
-            state["scanned"] = 0
-            state["completed_at"] = None
-            state["last_error"] = None
+        async with integrity_scan_lock, tm.track_task("integrity") as tracker:
+            tracker.update(corrupt_ids=[], scanned=0, last_error=None)
 
             semaphore = asyncio.Semaphore(MAGIC_SCAN_GALLERY_CONCURRENCY)
             after_id = 0
@@ -99,7 +93,8 @@ async def run_integrity_magic_scan() -> None:
                         break
 
                     after_id = batch[-1].id
-                    state["total"] = state["scanned"] + len(batch)
+                    scanned = int(tracker.get("scanned", 0) or 0)
+                    tracker.update(total=scanned + len(batch))
 
                     tasks = [
                         _scan_one(
@@ -111,37 +106,20 @@ async def run_integrity_magic_scan() -> None:
                     ]
                     results = await asyncio.gather(*tasks)
 
+                    corrupt_ids = list(tracker.get("corrupt_ids") or [])
                     for gid, has_issue in results:
-                        state["scanned"] += 1
+                        scanned += 1
                         if has_issue:
-                            state["corrupt_ids"].append(gid)
+                            corrupt_ids.append(gid)
+                    tracker.update(scanned=scanned, corrupt_ids=corrupt_ids)
 
             except asyncio.CancelledError:
-                state["last_error"] = "cancelled"
-                logger.info("integrity magic scan cancelled", extra=log_extra(scanned=state["scanned"]))
+                tracker.update(last_error="cancelled")
+                logger.info("integrity magic scan cancelled", extra=log_extra(scanned=tracker.get("scanned")))
+                raise
             except Exception as exc:
-                state["last_error"] = type(exc).__name__
+                tracker.update(last_error=type(exc).__name__)
                 logger.exception(
                     "integrity magic scan error",
                     extra=log_extra(error=type(exc).__name__, message=str(exc)),
                 )
-            finally:
-                state["running"] = False
-                state["completed_at"] = datetime.now(UTC).isoformat()
-                last_error = state.get("last_error")
-                if last_error == "cancelled":
-                    status = "cancelled"
-                elif last_error:
-                    status = "failed"
-                else:
-                    status = "success"
-                tm.record_task(
-                    "integrity",
-                    state.get("started_at"),
-                    state.get("completed_at"),
-                    status,
-                    reason=str(last_error or ""),
-                    done=int(state.get("scanned", 0) or 0),
-                    total=int(state.get("total", 0) or 0),
-                )
-                await tm.persist_history()

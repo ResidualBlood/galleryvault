@@ -1016,19 +1016,7 @@ async def run_cold_archive(
             continue
         candidate_ids.append(row_id)
 
-    started_at = datetime.now(UTC).isoformat()
     total = len(candidate_ids)
-    tm.archive_state.update({
-        "running": True,
-        "done": 0,
-        "total": total,
-        "skipped": 0,
-        "failed": 0,
-        "last_error": None,
-        "started_at": started_at,
-        "completed_at": None,
-    })
-
     from .notifications import _notify_lang, notify_archive
 
     zh = _notify_lang() != "en"
@@ -1047,60 +1035,41 @@ async def run_cold_archive(
     failed = 0
     was_cancelled = False
 
-    for gid_or_id in candidate_ids:
-        # Check cancellation between galleries
-        if tm.is_cancelled("archive"):
-            was_cancelled = True
-            break
+    async with tm.track_task("archive", cancellable=True) as tracker:
+        tracker.update(done=0, total=total, skipped=0, failed=0, last_error=None)
+        for gid_or_id in candidate_ids:
+            # Check cancellation between galleries
+            if tm.is_cancelled("archive"):
+                was_cancelled = True
+                break
 
-        try:
-            res = await archive_one(
-                gid_or_id,
-                archive_roots=roots,
-                session_factory=sf,
-            )
-            if res is not None:
-                done += 1
-            else:
+            try:
+                res = await archive_one(
+                    gid_or_id,
+                    archive_roots=roots,
+                    session_factory=sf,
+                )
+                if res is not None:
+                    done += 1
+                else:
+                    skipped += 1
+            except (ColdAlreadyArchivedError, ColdDestinationExistsError):
                 skipped += 1
-        except (ColdAlreadyArchivedError, ColdDestinationExistsError):
-            skipped += 1
-        except Exception as exc:
-            failed += 1
-            tm.archive_state["last_error"] = str(exc)
-            logger.exception("Failed to archive gallery %s", gid_or_id)
+            except Exception as exc:
+                failed += 1
+                tracker.update(last_error=str(exc))
+                logger.exception("Failed to archive gallery %s", gid_or_id)
 
-        tm.archive_state["done"] = done
-        tm.archive_state["skipped"] = skipped
-        tm.archive_state["failed"] = failed
+            tracker.update(done=done, skipped=skipped, failed=failed)
 
-        if tm.is_cancelled("archive"):
-            was_cancelled = True
-            break
+            if tm.is_cancelled("archive"):
+                was_cancelled = True
+                break
 
-    completed_at = datetime.now(UTC).isoformat()
-    tm.archive_state["running"] = False
-    tm.archive_state["completed_at"] = completed_at
-
-    status = "cancelled" if was_cancelled else ("failed" if failed > 0 and done == 0 else "success")
-    reason = f"done {done} / skip {skipped} / fail {failed}"
-    if was_cancelled:
-        reason += " (cancelled)"
-
-    tm.record_task(
-        "archive",
-        started_at=started_at,
-        completed_at=completed_at,
-        status=status,
-        reason=reason,
-        done=done,
-        total=total,
-    )
-    tm.clear_cancelled("archive")
-    try:
-        await tm.persist_history()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to persist archive history: %s", exc)
+        reason = f"done {done} / skip {skipped} / fail {failed}"
+        if was_cancelled:
+            reason += " (cancelled)"
+        tracker.update(reason=reason)
 
     has_fail = failed > 0
     end_kind = "archive_fail" if has_fail else "archive_ok"

@@ -875,12 +875,22 @@ async def download_retry_sweep_loop() -> None:
         await asyncio.sleep(_DOWNLOAD_RETRY_SWEEP_INTERVAL)
         if not app_state.session_factory:
             continue
+        from ..app.dependencies import get_task_manager
+
+        tm = get_task_manager()
         try:
-            async with app_state.session_factory() as session, session.begin():
+            async with (
+                tm.track_task("download-retry-sweep") as tracker,
+                app_state.session_factory() as session,
+                session.begin(),
+            ):
                 requeued = await DownloadRepository(session).sweep_auto_retry()
+                tracker.update(done=requeued, total=requeued)
                 if requeued:
                     notify_new_task()
                     logger.info("requeued failed downloads", extra=log_extra(count=requeued))
+        except asyncio.CancelledError:
+            break
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "download retry sweep failed", extra=log_extra(error=type(exc).__name__)

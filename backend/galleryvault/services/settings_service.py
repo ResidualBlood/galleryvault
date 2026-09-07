@@ -173,7 +173,7 @@ async def refresh_services() -> None:
     if old_telegram is not None:
         await old_telegram.flush_summary()
         await old_telegram.aclose()
-    if old_client is not None:
+    if old_client is not None and hasattr(old_client, "aclose"):
         await old_client.aclose()
 
     client = EhClient(settings, max_concurrency=settings.exhentai_max_concurrency)
