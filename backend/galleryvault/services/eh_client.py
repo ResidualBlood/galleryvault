@@ -170,6 +170,10 @@ class EhParseError(EhClientError):
     pass
 
 
+class EhChallengeError(EhClientError):
+    """ExHentai 302 temporary anti-abuse / remoteapi.php challenge."""
+
+
 def _is_auth_failure_page(body: str) -> bool:
     """Detect the ExHentai sadpanda login / IP-banned page.
 
@@ -1103,6 +1107,17 @@ class EhClient:
             return state, f"HTTP {last_response.status_code}"
         return "failed", type(last_error).__name__
 
+    async def probe_challenge(self, sample_path: str = "/") -> bool:
+        """Probe ExHentai to check if the 302 anti-abuse challenge has cleared."""
+        try:
+            response = await self._get(sample_path)
+            url_str = str(response.url)
+            if "remoteapi.php" in url_str or "poni=no" in url_str:
+                return False
+            return not (sample_path.startswith("/g/") and not str(response.url.path).startswith("/g/"))
+        except Exception:  # noqa: BLE001
+            return False
+
     async def fetch_gallery_metadata(self, gid: int, token: str) -> GalleryData:
         """Fetch only gallery metadata; tag sync must not enumerate or download pages."""
         response = await self._get(f"/g/{int(gid)}/{token}/")
@@ -1110,7 +1125,7 @@ class EhClient:
         # 302s through remoteapi.php and lands on "/" with no content. The
         # cookie is still valid — treat as transient, not "gone".
         if not str(response.url.path).startswith("/g/"):
-            raise EhClientError("ExHentai is challenging this client (temporary anti-abuse)")
+            raise EhChallengeError("ExHentai is challenging this client (temporary anti-abuse)")
         body = response.text
         if _is_auth_failure_page(body):
             raise EhClientError("ExHentai authentication is required or expired")
@@ -1147,7 +1162,7 @@ class EhClient:
         # (…/?poni=no). The session cookie is fine — the IP is being
         # rate-challenged temporarily. Callers treat this as retryable.
         if not str(response.url.path).startswith("/g/"):
-            raise EhClientError("ExHentai is challenging this client (temporary anti-abuse)")
+            raise EhChallengeError("ExHentai is challenging this client (temporary anti-abuse)")
         body = response.text
         title, title_jpn = _parse_gallery_titles(body)
         newer = parse_newer_gallery(body, int(gid))
@@ -1207,6 +1222,8 @@ class EhClient:
 
             async def _fetch_page(offset: int) -> tuple[int, str]:
                 page_response = await self._get(f"{base}?p={offset}")
+                if not str(page_response.url.path).startswith("/g/"):
+                    raise EhChallengeError("ExHentai is challenging this client (temporary anti-abuse)")
                 return offset, page_response.text
 
             fetched: dict[int, str] = {}
@@ -1215,6 +1232,8 @@ class EhClient:
                     *(_fetch_page(o) for o in offsets)
                 ):
                     fetched[offset] = text
+            except EhChallengeError:
+                raise
             except Exception:  # noqa: BLE001 - redo the range serially below
                 fetched = {}
             if fetched:
@@ -1241,6 +1260,8 @@ class EhClient:
                 if offset > 5000:
                     break
                 page_response = await self._get(f"{base}?p={offset}")
+                if not str(page_response.url.path).startswith("/g/"):
+                    raise EhChallengeError("ExHentai is challenging this client (temporary anti-abuse)")
                 collected = _collect_hrefs(page_response.text, max_pages)
                 if collected == 0:
                     empty_streak += 1

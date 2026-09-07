@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time as _time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -32,6 +33,7 @@ from .downloader import (
     DownloadTask,
 )
 from .eh_client import (  # noqa: F401  # kept for backoff classification docs
+    EhChallengeError,
     EhClientError,
     GalleryGoneError,
     GalleryReplacedError,
@@ -499,6 +501,106 @@ async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> D
     )
 
 
+_CHALLENGE_PROBE_INTERVAL = float(os.getenv("GV_CHALLENGE_PROBE_INTERVAL", "600"))
+
+
+async def _trigger_challenge_pause(sample_path: str | None = None) -> None:
+    """Trigger global pause due to ExHentai 302 anti-abuse challenge."""
+    app_state.extra["auto_resume_challenge"] = True
+    if sample_path:
+        app_state.extra["challenge_sample_path"] = sample_path
+
+    from .settings_service import update_runtime_settings
+
+    update_runtime_settings({"global_paused": True})
+
+    if app_state.session_factory:
+        try:
+            from ..db.repository import SettingsRepository
+
+            async with app_state.session_factory() as session, session.begin():
+                existing = await SettingsRepository(session).get()
+                merged = {**existing, "global_paused": True}
+                await SettingsRepository(session).save(merged)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "failed to persist global_paused setting on challenge",
+                extra=log_extra(error=str(exc)),
+            )
+
+    if app_state.telegram is not None:
+        try:
+            await app_state.telegram.send_message("🚨 触发 302 临时挑战，系统自动暂停下载")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "failed to send challenge telegram alert",
+                extra=log_extra(error=type(exc).__name__),
+            )
+
+
+async def _resume_challenge_pause() -> None:
+    """Resume global pause after ExHentai 302 anti-abuse challenge clears."""
+    app_state.extra["auto_resume_challenge"] = False
+    app_state.extra.pop("challenge_sample_path", None)
+
+    from .settings_service import update_runtime_settings
+
+    update_runtime_settings({"global_paused": False})
+
+    if app_state.session_factory:
+        try:
+            from ..db.repository import SettingsRepository
+
+            async with app_state.session_factory() as session, session.begin():
+                existing = await SettingsRepository(session).get()
+                merged = {**existing, "global_paused": False}
+                await SettingsRepository(session).save(merged)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "failed to persist global_paused setting on resume",
+                extra=log_extra(error=str(exc)),
+            )
+
+    notify_new_task()
+
+    if app_state.telegram is not None:
+        try:
+            await app_state.telegram.send_message("✅ 302 临时挑战解除，自动恢复下载")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "failed to send challenge resume telegram alert",
+                extra=log_extra(error=type(exc).__name__),
+            )
+
+
+async def challenge_probe_loop() -> None:
+    """Periodically probe ExHentai if paused due to anti-abuse challenge."""
+    while True:
+        try:
+            await asyncio.sleep(_CHALLENGE_PROBE_INTERVAL)
+            settings = app_state.settings or get_settings()
+            if not getattr(settings, "global_paused", False) or not app_state.extra.get(
+                "auto_resume_challenge"
+            ):
+                continue
+
+            client = app_state.eh_client
+            if client is None and app_state.downloader is not None:
+                client = getattr(app_state.downloader, "client", None)
+            if client is None:
+                continue
+
+            sample_path = app_state.extra.get("challenge_sample_path", "/")
+            cleared = await client.probe_challenge(sample_path)
+            if cleared:
+                logger.info("ExHentai anti-abuse challenge has cleared; resuming downloads")
+                await _resume_challenge_pause()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("challenge probe failed", extra=log_extra(error=type(exc).__name__))
+
+
 async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> None:
     session_cm = app_state.session_factory
     if session_cm is None:
@@ -708,6 +810,30 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
             pass
         clear_download_cancelled(task.id)
         logger.info("download cancelled", extra=log_extra(gid=task.gid))
+    except EhChallengeError as exc:
+        logger.warning(
+            "download challenge encountered; auto-pausing downloads",
+            extra=log_extra(gid=task.gid, error=str(exc)),
+        )
+        now = datetime.now(UTC)
+        try:
+            async with session_cm() as session, session.begin():
+                row = await session.get(DownloadTaskModel, task.id)
+                if row and row.status != "cancelled":
+                    row.status = "pending"
+                    row.retry_at = now
+                    row.error_message = "自动暂停：检测到 ExHentai 302 临时挑战"
+                    row.updated_at = now
+                    await DownloadRepository(session).record_attempt(
+                        task.id or 0, row.retry_count, "challenged", "EhChallengeError"
+                    )
+        except SQLAlchemyError as db_exc:
+            logger.error(
+                "download status persistence failed on challenge",
+                extra=log_extra(error=str(db_exc) or type(db_exc).__name__),
+            )
+        sample_path = f"/g/{task.gid}/{task.token}/" if task.token else "/"
+        await _trigger_challenge_pause(sample_path)
     except Exception as exc:
         logger.exception(
             "download task failed",
@@ -870,6 +996,8 @@ async def download_worker_loop() -> None:
 
     adjust_download_concurrency()
 
+    probe_task = asyncio.create_task(challenge_probe_loop())
+
     try:
         while True:
             await asyncio.sleep(10)
@@ -881,10 +1009,12 @@ async def download_worker_loop() -> None:
                 for _ in range(target - len(_worker_tasks)):
                     _worker_tasks.append(asyncio.create_task(_download_worker()))
     except asyncio.CancelledError:
+        probe_task.cancel()
         for t in _worker_tasks:
             t.cancel()
-        if _worker_tasks:
-            await asyncio.gather(*_worker_tasks, return_exceptions=True)
+        tasks_to_wait = [probe_task, *_worker_tasks]
+        if tasks_to_wait:
+            await asyncio.gather(*tasks_to_wait, return_exceptions=True)
         _worker_tasks.clear()
         raise
 
