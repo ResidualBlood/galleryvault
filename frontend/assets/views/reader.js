@@ -741,7 +741,7 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
         return;
       }
       if (res && res.animated && typeof res.duration_ms === "number" && res.duration_ms > 0) {
-        delayMs = res.duration_ms;
+        delayMs = Math.max(0, res.duration_ms - 100);
       }
     } catch (_) {
       // ignore network errors and fallback to userIntervalMs
