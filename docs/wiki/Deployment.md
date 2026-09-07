@@ -82,6 +82,10 @@ Web 登录会话 Cookie（`galleryvault_session`）与防跨站请求伪造 Cook
 
 设置 `ENCRYPTION_KEY` 环境变量即可让 cookie / token / 密码哈希以 AES-256-GCM 加密存储。详见 [静态加密](Encryption)。
 
+### 302 临时挑战探针间隔（可选）
+
+设置 `GV_CHALLENGE_PROBE_INTERVAL` 环境变量（默认 `600`，单位秒）用于配置遇到 ExHentai 302 临时防爬挑战自动暂停后的后台探针探测周期。探针探测确认解除后会自动恢复下载。
+
 ### ExHentai cookie（收藏夹/云同步必需）
 
 收藏夹检查、封面抓取、下载都依赖 ExHentai 登录态。cookie 在**首次运行向导**或**设置 → ExHentai** 中配置（`ipb_member_id` / `ipb_pass_hash` / `igneous`，可「测试登录」验证），保存后**加密存库**（依赖上面的 `ENCRYPTION_KEY`），不会回显。获取方法参见 [入门指南：配置 ExHentai Cookie](Usage#配置-exhentai-cookie)。

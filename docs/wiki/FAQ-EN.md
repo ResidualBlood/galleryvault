@@ -87,6 +87,10 @@ No new tasks are claimed. Scans return `paused`. The downloads-page toggle and T
 `/pause` `/resume` are the same switch (web pause matches the Bot) and survive
 restart. See [Downloads → Global pause and resuming tasks](Downloads-EN#global-pause-and-resuming-tasks).
 
+## What should I do if downloads auto-pause with a 302 challenge alert?
+
+This is a temporary ExHentai anti-abuse limit. The system auto-pauses to protect your account credentials. Background probes check every 10 minutes and automatically resume your downloads once cleared. Usually, **no manual action is required**.
+
 ## Discover vs the local library?
 
 `#/discover` browses and searches live ExHentai listings online; the library (`#/library`) manages galleries stored locally. See [Library & Browsing → Discover](Library-EN#discover-discover).

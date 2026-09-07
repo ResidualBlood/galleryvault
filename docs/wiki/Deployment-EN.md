@@ -114,6 +114,10 @@ The frontend image ships a TLS template (the commented section of
 Setting the `ENCRYPTION_KEY` environment variable stores cookies / tokens /
 password hashes encrypted with AES-256-GCM. See [Encryption](Encryption-EN).
 
+### 302 Challenge probe interval (optional)
+
+Setting the `GV_CHALLENGE_PROBE_INTERVAL` environment variable (default `600` seconds) configures the background probe interval when downloads are auto-paused due to an ExHentai 302 anti-abuse challenge. Downloads automatically resume once the probe confirms the challenge is cleared.
+
 ### ExHentai cookies (required for favorites / cloud sync)
 
 Favorites checks, cover fetching and downloads all depend on an ExHentai

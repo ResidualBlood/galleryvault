@@ -62,6 +62,10 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 暂停后不再领取新页，已开始的当前页会下完；不再 claim；扫描返回 `paused`。Web 下载页按钮与 Telegram `/pause` `/resume` 是同一开关，网页暂停后 Bot 一致，重启后仍保持暂停。详见 [下载管理 → 全局暂停与任务恢复](Downloads#全局暂停与任务恢复)。
 
+## 收到“触发 302 临时挑战”告警并全局暂停怎么办？
+
+这是 ExHentai 的临时限流防封机制。系统会自动全局暂停以保护账号凭据。后台探针会每 10 分钟自动探测一次，一旦解除限制将自动恢复下载队列。您通常**无需手动干预**。
+
 ## 发现页和画廊库有什么区别？
 
 发现页（`#/discover`）用于在线浏览 / 搜索 ExHentai 资源；画廊库（`#/library`）用于管理本地已入库的画廊。详见 [浏览与画廊库 → 发现](Library#发现discover)。
