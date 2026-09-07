@@ -546,7 +546,7 @@ def _favorites_next_url(body: str) -> str:
     return value
 
 
-_NEXT_CURSOR_RE = re.compile(r"^\d+-\d+$")
+_NEXT_CURSOR_RE = re.compile(r"^\d+(-\d+)?$")
 _TOPLIST_CURSOR_RE = re.compile(r"^\d+$")
 
 
@@ -588,7 +588,7 @@ def _search_next_cursor(body: str) -> str | None:
         cur = _cursor_from_url(unext.group(1))
         if cur:
             return cur
-    fallback = re.search(r"[?&]next=(\d+-\d+)", body)
+    fallback = re.search(r"[?&]next=(\d+(?:-\d+)?)", body)
     if fallback:
         return fallback.group(1)
     return None

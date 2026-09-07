@@ -673,8 +673,12 @@ def test_eh_search_router_toplist_cursor_validation(monkeypatch: pytest.MonkeyPa
         resp_invalid2 = client.get("/api/eh/search?list=toplist&next=abc")
         assert resp_invalid2.status_code == 422
 
-        # In standard search, numeric cursor like "1" is invalid (expects gid-ts)
-        resp_invalid3 = client.get("/api/eh/search?list=search&next=1")
+        # In standard search, numeric cursor like "1" is valid (gid or gid-ts)
+        resp_valid_search = client.get("/api/eh/search?list=search&next=1")
+        assert resp_valid_search.status_code == 200
+
+        # Invalid cursor for standard search (alphabetic) returns 422
+        resp_invalid3 = client.get("/api/eh/search?list=search&next=abc")
         assert resp_invalid3.status_code == 422
     finally:
         app_state.eh_client = orig_client

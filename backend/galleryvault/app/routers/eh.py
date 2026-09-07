@@ -30,7 +30,7 @@ _EH_CAT_BITS: dict[str, int] = {
     "misc": 512,
 }
 _EH_CAT_ALL = 1023
-_NEXT_CURSOR_RE = re.compile(r"^\d+-\d+$")
+_NEXT_CURSOR_RE = re.compile(r"^\d+(-\d+)?$")
 _TOPLIST_CURSOR_RE = re.compile(r"^\d+$")
 _SEARCH_TTL_OK = 90.0
 _SEARCH_TTL_ERR = 15.0
