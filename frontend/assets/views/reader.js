@@ -624,43 +624,86 @@ async function goReaderNext(id) {
   } catch (_) { /* no next gallery */ }
 }
 
+let readerSlideshowSession = 0;
+
+async function scheduleNextSlide(userIntervalMs, sessionId) {
+  if (sessionId !== readerSlideshowSession || app.view !== "reader") {
+    return;
+  }
+  const id = app.params.id;
+  const total = Number(app.readerTotal);
+  if (!Number.isFinite(total) || total <= 0) {
+    stopSlideshow();
+    return;
+  }
+  const cur = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  let delayMs = userIntervalMs;
+
+  const g = app.readerGallery;
+  const pageObj = g && Array.isArray(g.pages) ? g.pages[cur] : null;
+  const mediaType = pageObj && pageObj.media_type ? String(pageObj.media_type).toLowerCase() : "";
+
+  if (mediaType.includes("gif") || mediaType.includes("webp")) {
+    try {
+      const res = await fetch(`/api/galleries/${id}/pages/${cur}/meta`).then(r => r.ok ? r.json() : null);
+      if (sessionId !== readerSlideshowSession || app.view !== "reader") {
+        return;
+      }
+      if (res && res.animated && typeof res.duration_ms === "number" && res.duration_ms > 0) {
+        delayMs = Math.max(res.duration_ms, userIntervalMs);
+      }
+    } catch (_) {
+      // ignore network errors and fallback to userIntervalMs
+    }
+  }
+
+  if (sessionId !== readerSlideshowSession || app.view !== "reader") {
+    return;
+  }
+
+  slideshowTimer = setTimeout(() => {
+    slideshowTimer = null;
+    if (sessionId !== readerSlideshowSession || app.view !== "reader") {
+      return;
+    }
+    const currentId = app.params.id;
+    const currentTotal = Number(app.readerTotal);
+    if (!Number.isFinite(currentTotal) || currentTotal <= 0) {
+      stopSlideshow();
+      return;
+    }
+    const currentPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+    const mode = getReaderMode();
+    const nav = getReaderNav(currentPage, currentTotal, mode);
+    if (nav.nextPage !== null) {
+      readerSwapPage(currentId, nav.nextPage);
+      scheduleNextSlide(userIntervalMs, sessionId);
+    } else {
+      stopSlideshow();
+      exitReaderFullscreen();
+      goReaderNext(currentId);
+    }
+  }, delayMs);
+}
+
 function startSlideshow(sec) {
+  readerSlideshowSession++;
   if (slideshowTimer) {
-    clearInterval(slideshowTimer);
+    clearTimeout(slideshowTimer);
     slideshowTimer = null;
   }
   const intervalMs = Math.max(1, parseInt(sec, 10) || 5) * 1000;
   if (!document.fullscreenElement) {
     enterReaderFullscreen();
   }
-  slideshowTimer = setInterval(() => {
-    if (app.view !== "reader") {
-      stopSlideshow();
-      return;
-    }
-    const id = app.params.id;
-    const total = Number(app.readerTotal);
-    if (!Number.isFinite(total) || total <= 0) {
-      stopSlideshow();
-      return;
-    }
-    const cur = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
-    const mode = getReaderMode();
-    const nav = getReaderNav(cur, total, mode);
-    if (nav.nextPage !== null) {
-      readerSwapPage(id, nav.nextPage);
-    } else {
-      stopSlideshow();
-      exitReaderFullscreen();
-      goReaderNext(id);
-    }
-  }, intervalMs);
+  scheduleNextSlide(intervalMs, readerSlideshowSession);
 }
 window.startSlideshow = startSlideshow;
 
 function stopSlideshow() {
+  readerSlideshowSession++;
   if (slideshowTimer) {
-    clearInterval(slideshowTimer);
+    clearTimeout(slideshowTimer);
     slideshowTimer = null;
   }
   if (app.query && app.query.slideshow !== undefined) {

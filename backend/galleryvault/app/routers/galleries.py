@@ -8,10 +8,11 @@ import tempfile
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
+from PIL import Image, ImageSequence
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -1595,6 +1596,51 @@ async def get_page(identifier: int, page_index: int) -> StreamingResponse:
     )
 
 
+def _inspect_image_meta(stream: BinaryIO) -> dict[str, Any]:
+    try:
+        with Image.open(stream) as img:
+            is_animated = bool(getattr(img, "is_animated", False))
+            if not is_animated:
+                return {"animated": False, "duration_ms": 0}
+            total_duration = 0
+            for frame in ImageSequence.Iterator(img):
+                dur = frame.info.get("duration", 100)
+                if not isinstance(dur, (int, float)) or dur <= 0:
+                    dur = 100
+                total_duration += int(dur)
+            return {"animated": True, "duration_ms": total_duration}
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to inspect image meta: %s", exc)
+        return {"animated": False, "duration_ms": 0}
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
+@router.get("/api/galleries/{identifier}/pages/{page_index}/meta")
+async def get_page_meta(identifier: int, page_index: int) -> dict[str, Any]:
+    row, pages = await _gallery(identifier)
+    if not 0 <= page_index < len(pages):
+        raise HTTPException(status_code=404, detail="Page not found")
+    page = pages[page_index]
+    scanner = registry.for_path(Path(row.storage_path or ""))
+    if scanner is None:
+        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
+    try:
+        stream = await run_in_threadpool(
+            scanner.open_page,
+            _meta(row, pages),
+            PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to open page for meta: %s", exc)
+        return {"animated": False, "duration_ms": 0}
+
+    return await run_in_threadpool(_inspect_image_meta, stream)
+
+
 @router.get("/api/galleries/{identifier}/thumb/{page_index}")
 async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
     row, pages = await _gallery(identifier)
@@ -1656,4 +1702,5 @@ async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
 
 
 gallery_page = get_page
+gallery_page_meta = get_page_meta
 gallery_thumbnail = get_thumbnail
