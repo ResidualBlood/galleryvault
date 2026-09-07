@@ -854,8 +854,8 @@ async def _do_archive_locked(
             if hasattr(session, "commit"):
                 await session.commit()
 
-    # 页变则清 thumbs
-    if old_page_names != page_names:
+    # 页数变化则清 thumbs（纯重命名不清理）
+    if len(old_page_names) != len(page_names):
         _clear_gallery_thumbs(gallery_id)
 
     # DB 更新提交成功后，按设置决定是否删除 SSD 源

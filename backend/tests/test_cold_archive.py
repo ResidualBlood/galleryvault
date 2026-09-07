@@ -1536,9 +1536,9 @@ async def test_archive_one_preserves_thumbs_when_pages_identical(tmp_path: Path)
 
     source = ssd_root / "302-Page Same Test"
     source.mkdir()
-    # 归档后产生 2 页：0001.jpg, 0002.jpg
-    (source / "0001.jpg").write_bytes(b"p1")
-    (source / "0002.jpg").write_bytes(b"p2")
+    # 归档后产生 2 页：0001.jpg, 0002.jpg（由 01.jpg, 02.jpg 重命名而来）
+    (source / "01.jpg").write_bytes(b"p1")
+    (source / "02.jpg").write_bytes(b"p2")
 
     # 创建该画廊已有的缩略图缓存目录及文件
     gallery_thumb_dir = thumb_root / "89"
@@ -1558,12 +1558,12 @@ async def test_archive_one_preserves_thumbs_when_pages_identical(tmp_path: Path)
         trashed=False,
         path_hash="oldhash89",
         page_count=2,
-        cover_path="0001.jpg",
+        cover_path="01.jpg",
         source_meta=None,
     )
 
-    # 模拟归档前 GalleryPage 页数和文件名完全一致（0001.jpg, 0002.jpg）
-    old_rows = [("0001.jpg",), ("0002.jpg",)]
+    # 模拟归档前 GalleryPage 页数相同但文件名不同（纯重命名：01.jpg, 02.jpg -> 0001.jpg, 0002.jpg）
+    old_rows = [("01.jpg",), ("02.jpg",)]
 
     class FakeSession:
         async def __aenter__(self):
@@ -1600,7 +1600,7 @@ async def test_archive_one_preserves_thumbs_when_pages_identical(tmp_path: Path)
         session_factory=lambda: FakeSession(),
     )
     assert dest is not None
-    # 页数与顺序完全一致则保留 thumbs
+    # 页数一致（即使重命名）则保留 thumbs
     assert gallery_thumb_dir.exists()
     assert thumb_file.exists()
     assert thumb_file.read_bytes() == b"thumb0"
