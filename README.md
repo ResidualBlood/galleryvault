@@ -2,7 +2,7 @@
 
 GalleryVault 是私有、自托管的本地画廊库：文件和收藏留在你的机器上，不把库交给别人。
 
-把 Ehviewer 导出目录、CBZ/CBR 与图片文件夹编成可搜索的 Web 库；可选从 ExHentai 同步标签与元数据、下载画廊并监控收藏。阅读、搜索、系列作品成组、标签云与标签翻译同在中英界面，Docker Compose 即可部署。
+把 Ehviewer 导出目录、CBZ/CBR 与图片文件夹编成可搜索的 Web 库；可选从 ExHentai 同步标签与元数据、下载画廊并监控收藏。支持多模式阅读（含动图原生时长自适应的幻灯片轮播）、搜索筛选、系列作品成组、标签云与标签翻译，中英双语界面，Docker Compose 即可部署。
 
 [![Backend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml)
 [![Frontend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml)
@@ -49,9 +49,16 @@ docker compose up -d
 
 完整文档见 **[GitHub Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**：
 
-- **[使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)** — 浏览搜索、阅读器、下载管理、收藏夹与查重、PWA 与设置
+- **[使用指南](https://github.com/ResidualBlood/galleryvault/wiki/Usage)** — 浏览搜索、阅读器（日漫/双页/条漫/动图自适应幻灯片轮播）、下载管理、收藏夹与查重、PWA 与设置
 - **[部署指南](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)** — Docker Compose 部署、目录挂载、权限配置、静态加密、安全加固与备份
 - **[API 与开发](https://github.com/ResidualBlood/galleryvault/wiki/API)** — REST API 规范参考与 [开发指南](https://github.com/ResidualBlood/galleryvault/wiki/Development)
+
+## 运维与工具脚本
+
+仓库 `scripts/` 目录提供了生产环境运维诊断与容器日志分析工具：
+
+- **`scripts/monitor_prod_logs.sh`**：远程实时抓取生产环境容器（backend、frontend、db）日志，支持自定义监听时长（默认 `30m`）与心跳轮询，自动拉取归档至本地临时目录并触发分析。
+- **`scripts/analyze_prod_logs.py`**：自动化分析生产日志归档，提取 ERROR/WARNING 错误异常与堆栈、统计 HTTP 状态码分布、高频请求路由与慢请求耗时，输出彩色诊断摘要报告。
 
 ## 致谢
 

@@ -6,7 +6,7 @@ This guide covers GalleryVault's system settings, client and OPDS integration, T
 
 ## Settings (`#/settings`)
 
-- **Account**: change password (this **revokes every logged-in session**) and toggle *Require login*.
+- **Account**: change password (this **revokes every logged-in session**) and toggle *Require login*. Web session cookies (`galleryvault_session`) and CSRF cookies (`galleryvault_csrf`) default to a 10-year expiration (`315360000` seconds) for persistent login; changing the password or resetting the secret immediately invalidates all active sessions.
 - **Interface**:
   - **Title display**: `japanese` (default, Japanese title preferred) / `english` / `directory` (folder name). The library, browse, gallery detail, favorites (including cloud-only items), favorites-duplicates and duplicate-copies pages all show titles according to this setting.
 - **Site & Proxy**:
@@ -21,7 +21,7 @@ This guide covers GalleryVault's system settings, client and OPDS integration, T
 - **Tags**:
   - **Tag sync**: automatic sync after scans/startup, interval and concurrency, and a **Sync tags now** button.
   - **Translation auto-update**: interval (minutes, 0 = off) and **Update now**.
-- **Thumbnails**: auto-generation toggle, **Generate now**, and the **live thumbnail status**.
+- **Thumbnails**: auto-generation toggle, **Generate now**, and the **live thumbnail status**. The background engine includes automated maintenance tasks: **orphan thumbnail cleanup** (periodically sweeps the cache directory to remove orphaned files whose galleries no longer exist in the database, reclaiming storage) and a **periodic seeding mechanism** (regularly checks and seeds missing cover and page thumbnail generation jobs for newly ingested or incomplete galleries), ensuring cache completeness without accumulating stale files.
 - **Telegram (Collapsed)**: bot token, chat ID, allowed user IDs, **notification level** (summary / immediate / failures-only / off) and **notification language** (中文 / English) — download, scan, favorites-check and bot-reply notifications all use the selected language, formatted as Telegram HTML (bold titles, mono gids); gallery titles are never translated. A **Send test message** button verifies the bot can reach the chat.
 - **PWA**: add to home screen. The service worker caches only the html/css/js shell (js/css **network-first**, then update the cache; offline falls back to cache), **not gallery images or `/api/`**.
 - **Light theme**: ◐ in the top bar; `localStorage gv_theme=dark|light`, default dark.

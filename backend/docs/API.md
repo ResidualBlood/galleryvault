@@ -139,7 +139,7 @@ manual cleanup on the *Duplicate copies* page). All duplicates are recorded in
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?, quality?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. `quality` (`resample`/`original`) overrides the global `download_quality` for this task (page-by-page original downloads ignore H@H and fetch full-size images). Returns `202 {id, gid, status}`. |
-| GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤500), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress and `retry_count`/`max_retries`. |
+| GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤500), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress, `retry_count`/`max_retries`, and `archive_fallback` (boolean indicating whether an archive task fell back to page-by-page H@H mode). Backed by the `idx_download_tasks_status_id` composite index to eliminate N+1 filesystem checks. |
 | POST | `/api/downloads/{task_id}/cancel` | Cancel a pending or downloading task. An in-flight download is interrupted (page writes stop, partial files are removed; the worker does not write to disk upon cancellation). Cancel latency is bounded by the page-progress ticks (at most one in-flight page finishes first). |
 | POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`). Retries are otherwise automatic: transient failures re-queue with an exponential backoff up to `max_retries` (default 10), and a periodic sweep re-activates `failed` tasks that still have budget left. |
 | DELETE | `/api/downloads/{task_id}` | `204` – permanently remove a download task and its attempt log. |
@@ -246,7 +246,7 @@ tier, the rest download page-by-page.
 | PUT | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – records progress and history. |
 | POST | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – records progress and history (equivalent alias to PUT). (200 JSON, 422). |
 | DELETE | `/api/galleries/{identifier}/progress` | Clear reading progress and that gallery's history row (`204`). Removes it from Continue Reading / History. |
-| DELETE | `/api/galleries/progress` | Clear / reset reading progress for all galleries (`204`). |
+| DELETE | `/api/galleries/progress` | Clear / reset reading progress for all galleries (`204`). Requires query parameter `confirm=true` (`400 Bad Request` if omitted) to prevent accidental bulk wipe. |
 | POST | `/api/galleries/{identifier}/sync-tags` | Sync tags from ExHentai. |
 | GET | `/api/galleries/integrity` | Paged list of galleries with integrity issues (`page`, `page_size` ≤ 500). Does not trigger a scan. Returns `{total, page, page_size, magic_scan, items: [{id, gid, title, page_count, actual_pages, file_count, cover_url, storage_path, tags}]}` where `magic_scan` contains `{running, started_at, completed_at, scanned, total, corrupt}`. |
 | POST | `/api/galleries/integrity/scan` | `202` – trigger background file integrity magic header scan (JPEG/PNG/WebP/GIF magic header and 4/8-digit zero padding). If globally paused, returns `200 {"status": "paused", "detail": "Global paused: integrity scan is disabled"}` without spawning. If already running, avoids duplicate spawn. Returns current `magic_scan` summary (`running`, `started_at`, `completed_at`, `scanned`, `total`, `corrupt`). |
@@ -262,7 +262,7 @@ curl -b cookies.txt 'http://localhost:8001/api/galleries?q=myth&page=1&page_size
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/history` | Reading history (`page`, `page_size`). |
-| DELETE | `/api/history` | Clear history (`204`). |
+| DELETE | `/api/history` | Clear history (`204`). Requires query parameter `confirm=true` (`400 Bad Request` if omitted) to prevent accidental clearing. |
 | GET | `/api/tags/search` | Search local tags. Query `q`, `page`, `page_size` (≤500), `namespace`. Items include `display` (Chinese translation when available) and `usage_count`. With `zh=1`, `q` is matched against Chinese translations (for the tag-autocomplete in the search box). |
 | GET | `/api/tags/search/status` | Tag translation auto-update status (`entries`, `last`, `last_error`, `source`, `interval_minutes`). |
 | POST | `/api/tags/search/reload` | `202` – download the latest EhTagTranslation release (`db.text.json`) and reload translations now. |

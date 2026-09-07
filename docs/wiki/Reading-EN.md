@@ -10,7 +10,7 @@ This guide covers gallery detail views, tag and metadata synchronization, and we
 - Page thumbnails are paginated, **30 per page by default** (switchable to 5/30/50/100/200/500); the choice is remembered and survives the reader round trip.
 - **Thumbnails open at your reading position**: without an explicit `?page=`, the pager starts on the page containing your last reading progress (so returning from the reader lands near where you were); an explicit `?page=` always wins.
 - **Click a tag** to jump to the library and **append** it to the active tag filter (combine several tags to narrow down).
-- **Start reading** opens the reader (positioned at your last reading spot).
+- **Start reading & Slideshow auto-play**: "Start reading" opens the reader (positioned at your last reading spot); the toolbar also provides a "▶ Slideshow" button and interval input (in seconds) to start hands-free auto-advance directly from the gallery details.
 - **Export CBZ**: download this gallery as a CBZ. An on-disk `.cbz` is served as-is; a directory gallery is packed in page order (on-disk format is not rewritten).
 - **Open on ExHentai**: opens the corresponding gallery page on ExHentai in a new tab. The link is built from the configured base URL (`{base}/g/{gid}/{token}/`); your browser must be logged in to EH. Not shown for local galleries without a token.
 - **Sync tags**: pulls that gallery's tags/metadata from ExHentai, or reuses the favorites cache when available (no network).
@@ -28,6 +28,7 @@ This guide covers gallery detail views, tag and metadata synchronization, and we
 - Streams one page at a time. Page with **←/→ arrows**, **space** or **click**.
 - **Page Jump Input & `G` Shortcut**: Direct page number input in the toolbar jumps immediately on Enter; pressing **`G`** anywhere focuses the page jump input or opens a quick jump prompt in fullscreen.
 - **Multi-mode reading (LTR / RTL Manga / Double-page / Webtoon)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, **Double RTL**, and **Webtoon** with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1). Webtoon is a vertical continuous strip (`loading="lazy"`); the visible page is written as reading progress. Click/arrow paging and double-page spreads are not used; the toolbar still supports `G` jump and back-to-details.
+- **Slideshow auto-play**: The reader toolbar provides a "▶" play/pause button and an inline interval input (default 5 seconds, persisted to `gv_slideshow_interval`). When active, pages automatically advance based on the timer. For animated images (animated WebP / GIF), the backend streams and parses the native total animation duration, and the reader automatically extends the delay to let the full animation loop complete before flipping to the next page. Manual navigation or adjusting the interval seamlessly pauses or reschedules the timer.
 - **Mobile Touch Gestures**: Supports double-tap zoom (2.2x) and two-finger pinch-to-zoom.
 - **Advances to the next gallery after the last page**.
 - Preloads the next three pages (four pages in double-spread mode), so paging is instant.

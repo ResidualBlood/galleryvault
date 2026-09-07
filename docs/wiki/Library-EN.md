@@ -51,7 +51,7 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 - **Batch add to favorites**: after selecting cards, **Add to favorites** picks a folder 0–9 and submits in chunks of 25; **only cloud-confirmed gids are written locally** (add is a move — one gid lives in one favcat); gid-less local archives are skipped with a toast.
 - **Bulk & filtered deletion**:
   - Ticking gallery cards reveals a **Delete selected** action, with an option to delete corresponding files on disk (**leaving files on disk sends the row to `#/recycle` → User deleted**, restorable, see [Library Maintenance](Manage-EN); when partial copy deletion fails, records stay consistent with remaining on-disk paths);
-  - **Delete filtered** removes all galleries matching the active category, search query, read status, or tag filter at once. A 5,000-row safety guard rejects excessive matches with `409` to prevent accidental library wipes; deletion runs safely in 500-row batches, keeping the DB row and logging a notice if disk files are read-only.
+  - **Delete filtered** removes all galleries matching the active category, search query, read status, or tag filter at once. Requests without active filter criteria are strictly rejected to prevent accidental full-library wipes; a 5,000-row safety guard rejects excessive matches with `409` to prevent accidental library wipes; deletion runs safely in 500-row batches, keeping the DB row and logging a notice if disk files are read-only.
 - **Scan library** triggers a filesystem scan: new archives are ingested, and galleries missing from disk go to `#/recycle` → Scan missing (restorable; purge removes them from the index). The completion Telegram notification appends `N duplicate-copy group(s) found (gid …)` when duplicates were detected, pointing to the [Duplicate copies](Manage-EN) page. A **global pause** skips the scan (the trigger returns `paused`).
 
 ## Local Lists (`#/library`)
@@ -73,6 +73,6 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 ## History (`#/history`)
 
 - Lists reading history per gallery (last reading position and time), with direct "Read Now" shortcuts and per-gallery "✕" mark-as-unread buttons (clears progress and removes the row from History / Continue Reading).
-- **Clear history**: clears timeline entries (does not affect progress bookmarks on galleries).
-- **Clear reading progress**: resets reading progress for all galleries after confirmation (marks all as unread / progress reset to 0).
+- **Clear history**: clears timeline entries (does not affect progress bookmarks on galleries). Requires modal confirmation and passing an explicit `?confirm=true` query parameter to prevent accidental or unauthorized clearing.
+- **Clear reading progress**: resets reading progress for all galleries after confirmation (marks all as unread / progress reset to 0). Requires passing an explicit `?confirm=true` query parameter to prevent accidental deletion.
 - The reading position is saved automatically by the reader and restored when you reopen a gallery / reader.

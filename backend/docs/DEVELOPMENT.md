@@ -343,3 +343,42 @@ docker compose -f docker-compose.dev.yml up -d --build
   already scrubbed in `logging.py`.
 - Do not commit cookies, `.env`, `TEMP/*`, or `media/`. (There is no longer a
   `config.json`; settings persist in the database.)
+
+## Production Log Monitoring & Analysis Scripts
+
+The `scripts/` directory provides command-line tools for inspecting and diagnosing production container logs:
+
+### 1. `scripts/monitor_prod_logs.sh`
+
+Remotely streams and collects logs from production containers (`galleryvault-backend`, `galleryvault-frontend`, `galleryvault-db`) over SSH, bundles them into a compressed archive, transfers them locally, and triggers automated analysis.
+
+- **Syntax**:
+  ```bash
+  ./scripts/monitor_prod_logs.sh [duration]
+  ```
+- **Arguments**:
+  - `duration`: Collection window duration (default `30m`). Supports suffixes `s`, `m`, `h` (e.g. `10m`, `1h`).
+- **Environment variables**:
+  - `PROD_HOST`: Remote host SSH target (default: `root@192.168.1.123`).
+  - `CHECK_INTERVAL`: Polling interval in seconds (default: adaptive, up to 300s).
+- **Execution flow**:
+  1. Generates and transfers a self-contained collector script to `${PROD_HOST}:/tmp/prod_collector.sh`;
+  2. Runs concurrent log streaming (`docker logs -f`) for backend, frontend, and db into `/tmp/galleryvault-prod-logs/`;
+  3. Periodically monitors collector process health and archive disk usage;
+  4. Automatically downloads the resulting `tar.gz` to local `/tmp/galleryvault-prod-logs-<timestamp>/`;
+  5. Cleans up remote files and runs `scripts/analyze_prod_logs.py` on the extracted logs.
+
+### 2. `scripts/analyze_prod_logs.py`
+
+Parses extracted container log files (or `.tar.gz` log bundles) and generates a structured, colorized terminal report.
+
+- **Syntax**:
+  ```bash
+  python3 scripts/analyze_prod_logs.py <log_dir_or_archive>
+  ```
+- **Key Metrics Analyzed**:
+  - **HTTP Status Code Breakdown**: Total requests, 2xx/3xx/4xx/5xx counts, and error percentages;
+  - **Top Routes & Error Hotspots**: Identifies high-traffic API routes and paths triggering 4xx/5xx responses;
+  - **Exception Clustering**: Groups Python exception types (e.g. `IntegrityError`, `TimeoutException`, `KeyError`) with occurrence counts;
+  - **Component Health Overview**: Segregates line counts, warnings, and errors across `backend`, `frontend` (nginx access/error), and `db` (PostgreSQL);
+  - **Structured Error Tracing**: Highlights critical traceback entries with timestamps and logger names.

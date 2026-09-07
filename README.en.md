@@ -2,7 +2,7 @@
 
 GalleryVault is a private, self-hosted local gallery library. Your files and collection stay on your machine; you don't hand the library to someone else.
 
-It indexes Ehviewer export folders, CBZ/CBR archives, and image directories into a searchable web library. Optionally sync tags and metadata from ExHentai, download galleries, and watch favorites. Reader, search, series grouping, tag cloud, and tag translation share a Chinese/English UI; deploy with Docker Compose.
+It indexes Ehviewer export folders, CBZ/CBR archives, and image directories into a searchable web library. Optionally sync tags and metadata from ExHentai, download galleries, and watch favorites. Features multi-mode reading (including slideshow with native animated duration adaptation), advanced search filters, series grouping, tag cloud, and tag translation across a bilingual Chinese/English UI; deploy with Docker Compose.
 
 [![Backend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml)
 [![Frontend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml)
@@ -49,9 +49,16 @@ docker compose up -d
 
 Full documentation is available on the **[GitHub Wiki](https://github.com/ResidualBlood/galleryvault/wiki)**:
 
-- **[Usage Guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN)** — Browse, search, reader, downloads, favorites & deduplication, PWA & settings
+- **[Usage Guide](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN)** — Browse, search, reader (LTR / RTL manga / double-page / webtoon / animated slideshow), downloads, favorites & deduplication, PWA & settings
 - **[Deployment Guide](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN)** — Docker Compose, volume mounts, permissions, encryption at rest, hardening & backups
 - **[API & Development](https://github.com/ResidualBlood/galleryvault/wiki/API)** — REST API specifications and [Development guide](https://github.com/ResidualBlood/galleryvault/wiki/Development)
+
+## Operations & Tooling
+
+The `scripts/` directory provides production log collection and diagnostic tooling:
+
+- **`scripts/monitor_prod_logs.sh`**: Streams and collects logs from production containers (backend, frontend, db) over SSH for a specified duration (default: `30m`), automatically packages them into a local temporary archive, and invokes the analyzer.
+- **`scripts/analyze_prod_logs.py`**: Analyzes production log archives, extracts ERROR/WARNING stack traces, calculates HTTP status code distributions, top routes, and latency bottlenecks, and outputs formatted diagnostic summaries.
 
 ## Acknowledgements
 

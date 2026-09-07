@@ -8,12 +8,68 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Archive fallback flag database persistence** (`backend/alembic/versions/0037_add_archive_fallback_to_download_tasks.py`, `backend/galleryvault/db/models.py`, `backend/galleryvault/app/routers/downloads.py`): 下载任务新增 `archive_fallback` 字段入库持久化，彻底消除任务列表查询时对磁盘 `.archive.json` 临时文件的 N+1 频繁探测。
+- **Fast WebP animation duration stream parser** (`backend/galleryvault/app/routers/galleries.py`): 后端新增轻量级二进制流解析 WebP 动图时长方法，无需全量解码即可快速提取多帧总播放时长。
+- **Maintenance task translations in logs view** (`frontend/assets/locales/`): 日志页后台任务活动补全孤儿缩略图清理与周期播种等静默运维任务的中英文翻译与说明。
+
 ### Changed
+
+- **Slideshow timing buffers and transition smoothing** (`frontend/assets/views/reader.js`): 幻灯片轮播为动图增加 100ms 缓冲并优化切换定时，避免动图循环截断与画面视觉残留。
 
 ### Fixed
 
+- **Gitignore handoff and agent instructions** (`.gitignore`): 将 `HANDOFF.md` 与 `AGENTS.md` 明确追加至 gitignore，避免本地接手记录与调度规约意外提交。
+
+## [1.9.2] - 2026-09-07
+
+### Added
+
+- **Animated image duration dynamic adaptation in slideshow** (`backend/galleryvault/app/routers/galleries.py`, `frontend/assets/views/reader.js`): 阅读器幻灯片轮播新增对动态图片（WebP / GIF）时长的自动适配，按动图原生总播放时长动态延长切页延迟。
+- **Task tracking unification with TaskManager.track_task** (`backend/galleryvault/app/lifespan.py`, `backend/galleryvault/services/`): 统一后台任务追踪上下文管理器，规范化任务执行进度与生命周期。
+
+### Fixed
+
+- **Slideshow timer wait for image decode** (`frontend/assets/views/reader.js`): 修复幻灯片翻页计时器在图片完全解码前过早开始倒计时的问题，保障首帧及大图展示时长。
+
+## [1.9.1] - 2026-09-07
+
+### Added
+
+- **Database composite index for download tasks** (`backend/alembic/versions/0036_add_idx_download_tasks_status_id.py`, `backend/galleryvault/db/models.py`): 新增 `idx_download_tasks_status_id` 状态与 ID 联合索引，显著优化任务队列按状态过滤与分页的查询性能。
+- **Periodic thumbnail seeding loop and full page count check** (`backend/galleryvault/services/thumbnail_worker.py`, `backend/galleryvault/config.py`): 新增缩略图周期播种巡检后台任务，支持动态并发 worker 巡检并补齐画廊全量缺失缩略图。
+
+### Changed
+
+- **Inline number input for slideshow interval** (`frontend/assets/views/reader.js`, `frontend/assets/views/gallery.js`): 替换原有弹窗式 prompt 交互，在阅读器工具栏与详情页直接嵌入内联秒数输入框并添加 Tooltip 提示。
+- **Dynamic worker concurrency scaling** (`backend/galleryvault/services/download_worker.py`, `backend/galleryvault/services/tag_sync_worker.py`): 支持运行时动态调整下载与标签同步并发 worker 数量。
+- **Gallery favorite note UI placement** (`frontend/assets/views/gallery.js`): 将画廊收藏备注输入移入详情页「更多」操作区，精简主操作栏。
+
+### Fixed
+
+- **Numeric GID pagination cursor regex** (`backend/galleryvault/services/eh_client.py`): 放宽 ExHentai 游标正则匹配规则，支持纯数字 GID 结果翻页。
+- **Infinite scroll stabilization and smooth thumbnail loading** (`frontend/assets/`): 修复画廊库与查重页无限滚动生命周期异常，优化缩略图平滑加载体验。
+
+## [1.9.0] - 2026-09-07
+
+### Added
+
+- **Reader slideshow auto-advance with customizable interval** (`frontend/assets/views/reader.js`, `frontend/assets/views/gallery.js`, `frontend/assets/locales/`): 阅读器与画廊详情页支持幻灯片轮播，工具栏与详情页支持输入自定义秒数播放间隔（默认 5s，持久化至 `gv_slideshow_interval`），支持自动翻页与手动暂停/恢复。
+- **Orphan thumbnail background cleanup loop** (`backend/galleryvault/services/thumbnail_worker.py`, `backend/galleryvault/app/lifespan.py`): 新增孤儿缩略图定时清理后台循环，自动扫描清理已在数据库中删除画廊的残留缩略图文件以释放磁盘空间。
+- **Production log monitoring & analysis tooling** (`scripts/monitor_prod_logs.sh`, `scripts/analyze_prod_logs.py`): 新增生产容器日志远程抓取、自动归档与彩色诊断分析工具脚本。
+
+### Changed
+
+- **Session & CSRF cookie 10-year lifetime** (`backend/galleryvault/app/middleware.py`, `backend/galleryvault/config.py`): 延长 Session 与 CSRF Cookie 默认过期时间至 10 年（315360000 秒），确保长期稳定免登录。
+- **Reader image decoding & paging optimization** (`frontend/assets/views/reader.js`): 优化阅读器平滑切页性能，引入异步图片解码等待与事件节流。
+- **Duplicates selection persistence & local count deduction** (`frontend/assets/views/duplicates.js`): 优化查重页切页勾选状态保持与本地即时扣减反馈。
+
+### Fixed
+
+- **Security: path traversal, empty bulk delete, prune guard, and delete confirmations** (`backend/galleryvault/app/routers/duplicates.py`, `backend/galleryvault/app/routers/galleries.py`, `backend/galleryvault/db/repositories/favorites.py`, `backend/galleryvault/services/favorites.py`): 修复查重副本路径穿越漏洞（`Path.resolve()` 强校验）；禁止无筛选条件的批量删除；防范收藏夹 prune 空清空；清空历史与重置进度接口必须带 `confirm=true` 参数。
 - **Flat DOM gallery view virtual scrolling** (`frontend/assets/views/gallery.js`): 修复虚拟滚动中移除 `.inf-page` 包裹容器，采用平铺 DOM 与头部卡片观测，解决画廊库打开变空白并彻底消除网格留白。
 - **Favorite duplicates & gallery grid rendering fixes** (`frontend/assets/views/favorites.js`, `frontend/assets/views/gallery.js`, `backend/galleryvault/services/favorites.py`, `backend/galleryvault/services/duplicates.py`): 修复收藏夹查重按钮反馈与切页状态持久化，对齐 posted_at 避免多余 gdata 请求；修复画廊库向下滚动留白 4 个卡槽；跨 GID 查重任务补充并发锁。
+- **Task titles unescape & GID stripping** (`backend/galleryvault/app/routers/downloads.py`): 下载任务列表标题去除转义 HTML 实体与冗余 GID 前缀。
+- **Backend concurrency, DB locks & resource leaks** (`backend/galleryvault/`): 修复 12 项并发竞态、降低锁粒度、消除定时器与内存泄漏。
 
 ## [1.8.3] - 2026-09-06
 
@@ -1278,7 +1334,14 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.2...HEAD
+[1.9.2]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.1...v1.9.2
+[1.9.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.0...v1.9.1
+[1.9.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.8.3...v1.9.0
+[1.8.3]: https://github.com/ResidualBlood/galleryvault/compare/v1.8.2...v1.8.3
+[1.8.2]: https://github.com/ResidualBlood/galleryvault/compare/v1.8.1...v1.8.2
+[1.8.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.8.0...v1.8.1
+[1.8.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.6.0...v1.6.1
