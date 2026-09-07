@@ -70,7 +70,7 @@ async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
                     samesite="lax",
                     secure=secure,
                     httponly=False,
-                    max_age=86400 * 30,
+                    max_age=settings.auth_session_ttl,
                 )
             except Exception:  # noqa: BLE001, S110
                 pass
@@ -188,7 +188,7 @@ async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
                 samesite="lax",
                 secure=secure,
                 httponly=False,
-                max_age=86400 * 30,
+                max_age=settings.auth_session_ttl,
             )
         except Exception:  # noqa: BLE001, S110
             pass

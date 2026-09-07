@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     auth_password: str | None = None
     auth_required: bool = True
     auth_cookie_name: str = "galleryvault_session"
-    auth_session_ttl: int = 86400
+    auth_session_ttl: int = 315360000
     auth_cookie_secure: bool = False
     tag_translation_update_interval_minutes: int = 720
     exhentai_base_url: str = "https://exhentai.org"
