@@ -112,8 +112,8 @@ async function renderGallery() {
         <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page + 1}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span> ${qualityBadge}</p></header>
         <div class="toolbar">
           <a class="btn btn-primary" href="${navHash("reader", { id, page: progress.current_page }, galleryCtx)}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
-          <input type="number" id="gallery-slideshow-sec" class="form-control" style="width: 4rem; display: inline-block; margin-right: 0.5rem;" value="${ssSec}" min="1">
-          <button class="btn btn-secondary" data-action="gallery-slideshow" data-id="${id}" type="button">▶ ${esc(t("slideshow"))}</button>
+          <input type="number" id="gallery-slideshow-sec" class="form-control form-control-sm" style="width: 3.5rem; display: inline-block; margin-right: 0.5rem;" value="${ssSec}" min="1" title="${esc(t("slideshowInterval"))}">
+          <button class="btn btn-sm btn-secondary" data-action="gallery-slideshow" data-id="${id}" type="button">▶ ${esc(t("slideshow"))}</button>
           ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
           <button class="btn btn-secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
           <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>

@@ -30,7 +30,7 @@ window.GV_LOCALES.zh = {
   downloadsSub: "下载任务。",
   favorites: "收藏夹", history: "历史", settings: "设置", logout: "退出",
   navMore: "更多", navManage: "管理",
-  scan: "扫描库", random: "随机", readNow: "开始阅读", slideshow: "幻灯片", slideshowPrompt: "请输入幻灯片播放间隔（秒）：", syncTags: "同步标签",
+  scan: "扫描库", random: "随机", readNow: "开始阅读", slideshow: "幻灯片", slideshowInterval: "间隔(秒)", slideshowPrompt: "请输入幻灯片播放间隔（秒）：", syncTags: "同步标签",
   tagSection: "标签", pagesSection: "页面", details: "详情", prev: "上一页",
   next: "下一页", allPages: "所有页面", clearHistory: "清空历史", clearProgress: "清除阅读进度",
   confirmClearProgress: "确定清空所有画廊的阅读进度（全部重置为未读状态）？", progressCleared: "已清空所有阅读进度",

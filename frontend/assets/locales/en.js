@@ -30,7 +30,7 @@ window.GV_LOCALES.en = {
   downloadsSub: "Download tasks.",
   favorites: "Favorites", history: "History", settings: "Settings", logout: "Logout",
   navMore: "More", navManage: "Manage",
-  scan: "Scan library", random: "Random", readNow: "Read now", slideshow: "Slideshow", slideshowPrompt: "Enter slideshow interval in seconds:", syncTags: "Sync tags",
+  scan: "Scan library", random: "Random", readNow: "Read now", slideshow: "Slideshow", slideshowInterval: "Interval (s)", slideshowPrompt: "Enter slideshow interval in seconds:", syncTags: "Sync tags",
   tagSection: "Tags", pagesSection: "Pages", details: "Details", prev: "Previous",
   next: "Next", allPages: "All pages", clearHistory: "Clear history", clearProgress: "Clear reading progress",
   confirmClearProgress: "Are you sure you want to reset reading progress for all galleries?", progressCleared: "Reading progress cleared",

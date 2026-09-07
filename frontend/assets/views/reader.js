@@ -165,8 +165,8 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
         <span>${readerJumpSuffix(page, isDouble && page + 1 < total ? page + 1 : null, total, g.file_size || 0, isDouble)}</span>
       </span>
       <span class="reader-actions">
-        <input type="number" id="reader-slideshow-sec" class="form-control input-sm" style="width: 4rem; display: inline-block; margin-right: 0.5rem;" value="${ssSec}" min="1">
-        <button class="btn btn-icon" data-action="reader-slideshow" title="${esc(t("slideshow"))}">▶</button>
+        <input type="number" id="reader-slideshow-sec" class="form-control form-control-sm" style="width: 3.5rem; display: inline-block; margin-right: 0.5rem;" value="${ssSec}" min="1" title="${esc(t("slideshowInterval"))}">
+        <button class="btn btn-sm btn-icon" data-action="reader-slideshow" title="${esc(t("slideshow"))}">▶</button>
         <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
         <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
         <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
