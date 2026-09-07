@@ -387,7 +387,7 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
     monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete)
 
     try:
-        body = FilteredDeleteRequest(q="", category=None, tags="", tag_mode="or", delete_files=False)
+        body = FilteredDeleteRequest(q="test", category=None, tags="", tag_mode="or", delete_files=False)
         result = await delete_galleries_filtered(body)
         assert result["matched"] == 1200
         assert result["deleted"] == 1200

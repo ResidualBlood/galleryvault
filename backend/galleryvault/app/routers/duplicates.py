@@ -93,7 +93,7 @@ async def list_duplicates() -> dict[str, object]:
 
 @router.post("/api/scan/duplicates/{gid}/resolve")
 async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str, object]:
-    chosen = Path(body.path)
+    chosen = Path(body.path).resolve()
     if not _in_roots(chosen):
         raise HTTPException(status_code=422, detail="path is outside the scan roots")
     async for session in get_session():
@@ -103,7 +103,7 @@ async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str
     if group is None:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     copies = group["copies"]
-    if not any(str(copy.get("path")) == str(chosen) for copy in copies):
+    if not any(Path(str(copy.get("path"))).resolve() == chosen for copy in copies):
         raise HTTPException(status_code=422, detail="path is not a copy in this group")
 
     meta = await _scan_copy(chosen)
@@ -121,7 +121,7 @@ async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str
                 path.unlink(missing_ok=True)
 
         for copy in copies:
-            target = Path(str(copy.get("path")))
+            target = Path(str(copy.get("path"))).resolve()
             if target == chosen or not _in_roots(target):
                 continue
             try:

@@ -1188,7 +1188,12 @@ async def history(page: int = 1, page_size: int = 24) -> dict[str, object]:
 
 
 @router.delete("/api/history", status_code=204)
-async def clear_history() -> None:
+async def clear_history(confirm: bool = False) -> None:
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=true is required to clear all history",
+        )
     async for session in get_session():
         async with session.begin():
             await GalleryRepository(session).clear_history()
@@ -1196,7 +1201,12 @@ async def clear_history() -> None:
 
 
 @router.delete("/api/galleries/progress", status_code=204)
-async def clear_all_gallery_progress() -> None:
+async def clear_all_gallery_progress(confirm: bool = False) -> None:
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=true is required to clear all progress",
+        )
     async for session in get_session():
         async with session.begin():
             await GalleryRepository(session).clear_progress()
@@ -1346,6 +1356,37 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
                 resolved_q = keywords
         parsed_tags = _dedupe_tags(parsed_tags)
         parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
+        has_filters = any(
+            (
+                bool(resolved_q and resolved_q.strip()),
+                bool(parsed_tags),
+                bool(parsed_exc_tags),
+                bool(category),
+                exclude_favorited,
+                bool(read_status and read_status != "all"),
+                min_rating is not None,
+                page_min is not None,
+                page_max is not None,
+                body.size_min is not None,
+                body.size_max is not None,
+                bool(body.posted_from or body.min_posted_at),
+                bool(body.posted_to or body.max_posted_at),
+                bool(body.uploader and body.uploader.strip()),
+                bool(body.image_quality and body.image_quality in _IMAGE_QUALITY),
+                body.min_local_rating is not None,
+                body.list_id is not None,
+                body.favorite is not None,
+                body.read is not None,
+                body.expunged is not None,
+                bool(body.media_type),
+                bool(body.storage_type),
+            )
+        )
+        if not has_filters:
+            raise HTTPException(
+                status_code=400,
+                detail="Empty filter condition is not allowed for filtered deletion",
+            )
         matching_ids: list[int] = []
         async for session in get_session():
             repo = GalleryRepository(session)
