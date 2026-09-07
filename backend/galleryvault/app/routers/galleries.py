@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import tempfile
@@ -1596,14 +1597,93 @@ async def get_page(identifier: int, page_index: int) -> StreamingResponse:
     )
 
 
+def _skip_stream_bytes(stream: BinaryIO, num_bytes: int) -> bool:
+    if num_bytes <= 0:
+        return True
+    try:
+        stream.seek(num_bytes, 1)
+        return True
+    except (OSError, AttributeError, io.UnsupportedOperation):
+        remaining = num_bytes
+        while remaining > 0:
+            chunk = stream.read(min(remaining, 65536))
+            if not chunk:
+                return False
+            remaining -= len(chunk)
+        return True
+
+
+def _fast_parse_webp_duration(stream: BinaryIO) -> int | None:
+    header = stream.read(12)
+    if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WEBP":
+        return None
+
+    total_duration = 0
+    anmf_count = 0
+
+    while True:
+        chunk_header = stream.read(8)
+        if len(chunk_header) < 8:
+            break
+        fourcc = chunk_header[:4]
+        chunk_size = int.from_bytes(chunk_header[4:8], "little")
+        padding = chunk_size % 2
+
+        if fourcc == b"ANMF":
+            if chunk_size < 16:
+                return None
+            payload_head = stream.read(16)
+            if len(payload_head) < 16:
+                return None
+            dur = int.from_bytes(payload_head[12:15], "little")
+            if dur <= 0:
+                dur = 100
+            total_duration += dur
+            anmf_count += 1
+            skip = (chunk_size - 16) + padding
+        else:
+            skip = chunk_size + padding
+
+        if not _skip_stream_bytes(stream, skip):
+            break
+
+    if anmf_count > 0:
+        return total_duration
+    return None
+
+
 def _inspect_image_meta(stream: BinaryIO) -> dict[str, Any]:
     try:
+        start_pos = 0
+        try:
+            start_pos = stream.tell()
+        except (OSError, AttributeError, io.UnsupportedOperation):
+            start_pos = 0
+
+        try:
+            fast_duration = _fast_parse_webp_duration(stream)
+            if fast_duration is not None:
+                return {"animated": True, "duration_ms": fast_duration}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Fast WebP parsing failed, fallback to Pillow: %s", exc)
+
+        try:
+            stream.seek(start_pos)
+        except (OSError, AttributeError, io.UnsupportedOperation):
+            try:
+                stream.seek(0)
+            except (OSError, AttributeError, io.UnsupportedOperation):
+                pass
+
         with Image.open(stream) as img:
             is_animated = bool(getattr(img, "is_animated", False))
             if not is_animated:
                 return {"animated": False, "duration_ms": 0}
+            is_webp = getattr(img, "format", "") == "WEBP"
             total_duration = 0
             for frame in ImageSequence.Iterator(img):
+                if is_webp:
+                    frame.load()
                 dur = frame.info.get("duration", 100)
                 if not isinstance(dur, (int, float)) or dur <= 0:
                     dur = 100
