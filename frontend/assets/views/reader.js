@@ -153,6 +153,8 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
     ? `<div class="nav">${nextBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${prevBtn}</div>`
     : `<div class="nav">${prevBtn}<a class="btn btn-secondary" href="${navHash("gallery", { id }, readerContext())}">${esc(t("allPages"))}</a>${nextBtn}</div>`;
 
+  const ssSec = parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
+
   return `
     <div class="reader-bar toolbar">
       <a class="link-button" href="${navHash("gallery", { id }, readerContext())}">← ${esc(t("details"))}</a>
@@ -163,6 +165,7 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
         <span>${readerJumpSuffix(page, isDouble && page + 1 < total ? page + 1 : null, total, g.file_size || 0, isDouble)}</span>
       </span>
       <span class="reader-actions">
+        <input type="number" id="reader-slideshow-sec" class="form-control input-sm" style="width: 4rem; display: inline-block; margin-right: 0.5rem;" value="${ssSec}" min="1">
         <button class="btn btn-icon" data-action="reader-slideshow" title="${esc(t("slideshow"))}">▶</button>
         <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
         <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
@@ -668,11 +671,9 @@ function stopSlideshow() {
 window.stopSlideshow = stopSlideshow;
 
 window.startReaderSlideshow = function() {
-  const saved = parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
-  const raw = window.prompt(t("slideshowPrompt"), String(saved));
-  if (raw === null) return;
-  const sec = parseInt(raw, 10);
-  if (!sec || sec <= 0) return;
+  const el = document.getElementById("reader-slideshow-sec");
+  const raw = el ? parseInt(el.value, 10) : 0;
+  const sec = (raw && raw > 0) ? raw : (parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5);
   localStorage.setItem("gv_slideshow_interval", String(sec));
   app.query.slideshow = String(sec);
   syncReaderUrl();
