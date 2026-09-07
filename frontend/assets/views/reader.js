@@ -44,7 +44,11 @@ function swapImageSmoothly(img, src, page, alt) {
 }
 
 function readerContext() {
-  return { ...libraryContext(), ...(app.query.from ? { from: app.query.from } : {}) };
+  return {
+    ...libraryContext(),
+    ...(app.query.from ? { from: app.query.from } : {}),
+    ...(app.query.slideshow ? { slideshow: app.query.slideshow } : {}),
+  };
 }
 
 function getReaderMode() {
@@ -159,6 +163,7 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
         <span>${readerJumpSuffix(page, isDouble && page + 1 < total ? page + 1 : null, total, g.file_size || 0, isDouble)}</span>
       </span>
       <span class="reader-actions">
+        <button class="btn btn-icon" data-action="reader-slideshow" title="${esc(t("slideshow"))}">▶</button>
         <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
         <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
         <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
@@ -211,6 +216,10 @@ async function renderReader() {
 
     initReaderGestures();
     try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
+    const ssSec = parseInt(app.query && app.query.slideshow, 10);
+    if (ssSec > 0) {
+      startSlideshow(ssSec);
+    }
   } catch (e) {
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
@@ -236,7 +245,10 @@ function bindReaderKeys() {
     document.removeEventListener("click", readerKeyHandler);
     readerKeyHandler = null;
   }
-  if (app.view !== "reader") return;
+  if (app.view !== "reader") {
+    stopSlideshow();
+    return;
+  }
 
   const id = app.params.id;
   const current = () => Math.max(0, parseInt(app.params.page || "0", 10) || 0);
@@ -481,9 +493,12 @@ function clearReaderFsState() {
 }
 
 function onFullscreenChange() {
-  if (!document.fullscreenElement && readerFsActive) {
-    clearReaderFsState();
-    syncReaderUrl();
+  if (!document.fullscreenElement) {
+    stopSlideshow();
+    if (readerFsActive) {
+      clearReaderFsState();
+      syncReaderUrl();
+    }
   }
 }
 
@@ -605,3 +620,61 @@ async function goReaderNext(id) {
     location.hash = navHash("reader", { id: r.id, page: 0 }, readerContext());
   } catch (_) { /* no next gallery */ }
 }
+
+function startSlideshow(sec) {
+  if (slideshowTimer) {
+    clearInterval(slideshowTimer);
+    slideshowTimer = null;
+  }
+  const intervalMs = Math.max(1, parseInt(sec, 10) || 5) * 1000;
+  if (!document.fullscreenElement) {
+    enterReaderFullscreen();
+  }
+  slideshowTimer = setInterval(() => {
+    if (app.view !== "reader") {
+      stopSlideshow();
+      return;
+    }
+    const id = app.params.id;
+    const total = Number(app.readerTotal);
+    if (!Number.isFinite(total) || total <= 0) {
+      stopSlideshow();
+      return;
+    }
+    const cur = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+    const mode = getReaderMode();
+    const nav = getReaderNav(cur, total, mode);
+    if (nav.nextPage !== null) {
+      readerSwapPage(id, nav.nextPage);
+    } else {
+      stopSlideshow();
+      exitReaderFullscreen();
+      goReaderNext(id);
+    }
+  }, intervalMs);
+}
+window.startSlideshow = startSlideshow;
+
+function stopSlideshow() {
+  if (slideshowTimer) {
+    clearInterval(slideshowTimer);
+    slideshowTimer = null;
+  }
+  if (app.query && app.query.slideshow !== undefined) {
+    delete app.query.slideshow;
+    syncReaderUrl();
+  }
+}
+window.stopSlideshow = stopSlideshow;
+
+window.startReaderSlideshow = function() {
+  const saved = parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
+  const raw = window.prompt(t("slideshowPrompt"), String(saved));
+  if (raw === null) return;
+  const sec = parseInt(raw, 10);
+  if (!sec || sec <= 0) return;
+  localStorage.setItem("gv_slideshow_interval", String(sec));
+  app.query.slideshow = String(sec);
+  syncReaderUrl();
+  startSlideshow(sec);
+};

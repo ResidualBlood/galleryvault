@@ -4,6 +4,8 @@
 // renderGallery moved from app.js
 
 let preserveMoreExpandedOnce = false;
+let currentGalleryProgressPage = 0;
+let currentGalleryCtx = {};
 
 async function renderGallery() {
   const id = app.params.id;
@@ -89,6 +91,8 @@ async function renderGallery() {
       }
     }
     const galleryCtx = { ...libraryContext(), ...(!isInvalidFrom ? { from: rawFrom } : {}) };
+    currentGalleryProgressPage = progress.current_page || 0;
+    currentGalleryCtx = galleryCtx;
     const pageStart = (thumbPage - 1) * perPage;
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbs = thumbsVisible.map(p => `
@@ -118,6 +122,7 @@ async function renderGallery() {
         <p class="sub">gid ${esc(g.gid || "local")} · ${g.page_count} pages · ${esc(t("progress"))} ${progress.current_page + 1}/${progress.total_pages || g.page_count} · ${fmtSize(g.file_size || 0)} <span id="gallery-favcats"></span> ${qualityBadge}</p></header>
         <div class="toolbar">
           <a class="btn btn-primary" href="${navHash("reader", { id, page: progress.current_page }, galleryCtx)}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
+          <button class="btn btn-secondary" data-action="gallery-slideshow" data-id="${id}" type="button">▶ ${esc(t("slideshow"))}</button>
           ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
           <button class="btn btn-secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
           <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>
@@ -388,3 +393,14 @@ async function unfavoriteGallery(el) {
     renderGallery();
   } catch (e) { toast(e.message); }
 }
+
+window.startGallerySlideshow = function(id) {
+  const saved = parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
+  const raw = window.prompt(t("slideshowPrompt"), String(saved));
+  if (raw === null) return;
+  const sec = parseInt(raw, 10);
+  if (!sec || sec <= 0) return;
+  localStorage.setItem("gv_slideshow_interval", String(sec));
+  const page = currentGalleryProgressPage || 0;
+  location.hash = navHash("reader", { id, page }, { ...currentGalleryCtx, slideshow: sec });
+};

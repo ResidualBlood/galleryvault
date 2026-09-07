@@ -82,5 +82,7 @@ window.selRecycle = selRecycle;
 window.selIntegrity = selIntegrity;
 window.selXgid = selXgid;
 
+let slideshowTimer = null;
+
 // 未来扩展 viewState
 // app.viewState = app.viewState || {};

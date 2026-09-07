@@ -248,6 +248,8 @@ async function onClick(e) {
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
   if (action === "tag-ns") { e.preventDefault(); selectTagNamespace(el.getAttribute("data-ns")); return; }
+  if (action === "gallery-slideshow") { startGallerySlideshow(el.getAttribute("data-id")); return; }
+  if (action === "reader-slideshow") { startReaderSlideshow(); return; }
   if (action === "reader-mode") { cycleReaderMode(); return; }
   if (action === "reader-fit") { toggleReaderFit(); return; }
   if (action === "reader-fullscreen") { toggleReaderFullscreen(); return; }
