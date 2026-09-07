@@ -2430,9 +2430,11 @@ class EhClient:
         except httpx.RequestError as exc:
             logger.warning(
                 "image download request failed",
-                extra=log_extra(error=type(exc).__name__),
+                extra=log_extra(error=type(exc).__name__, host=host),
             )
-            raise EhClientError("ExHentai image download failed") from exc
+            raise EhClientError(
+                f"ExHentai image download failed: {type(exc).__name__} on {host}"
+            ) from exc
 
 
 async def probe_cookie_health() -> dict[str, Any]:

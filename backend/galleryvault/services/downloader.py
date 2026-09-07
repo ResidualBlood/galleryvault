@@ -522,23 +522,27 @@ class Downloader:
                             downloaded.add(index)
                             storage_tracker.record_download_delta(len(data))
                             await self._record_bytes(gallery.gid, len(data), 1)
+                            last_error = None
                             break
                         except DownloadCancelledError:
                             raise
-                        except EhImageSlowError:
-                            # A throttled/slow H@H node will not heal in the
-                            # sub-second window of the per-page retry — re-hitting
-                            # it five times only burns slots. Surface it now so the
-                            # persistent DownloadManager applies its 30s backoff and
-                            # retries just the failed page later.
-                            raise
+                        except EhImageSlowError as exc:
+                            err_msg = str(exc).lower()
+                            if "509" in err_msg or "rate limited" in err_msg:
+                                # A 509 placeholder means account or IP quota is exhausted.
+                                # Re-hitting immediately burns slots; surface it so DownloadManager
+                                # applies task-level backoff.
+                                raise
+                            last_error = exc
+                            if attempt < 4:
+                                await asyncio.sleep(1.5 * (attempt + 1))
                         except Exception as exc:  # noqa: BLE001 - per-page retry
                             # Includes EhClientError from a 403/expired keystamp or
                             # a failed re-resolution: the next round fetches a fresh
                             # URL and tries again.
                             last_error = exc
                             if attempt < 4:
-                                await asyncio.sleep(0.5 * (attempt + 1))
+                                await asyncio.sleep(1.5 * (attempt + 1))
                     if last_error is not None:
                         raise last_error
                     break

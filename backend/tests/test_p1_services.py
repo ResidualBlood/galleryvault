@@ -712,6 +712,108 @@ async def test_downloader_retries_with_skip_hath(tmp_path: Path, monkeypatch: py
 
 
 @pytest.mark.asyncio
+async def test_downloader_aborts_immediately_on_509_placeholder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _fast_sleep(_):
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", _fast_sleep)
+
+    class RateLimitedClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+            self.skip_hath_flags: list[bool] = []
+
+        async def fetch_gallery(
+            self,
+            gid: int,
+            token: str,
+            max_pages: int | None = None,
+            *,
+            resolve_urls: bool = True,
+        ) -> GalleryData:
+            self.calls = 3
+            pages = [GalleryPageData(0, "one", "p1")]
+            return GalleryData(gid, token, "safe/title", pages)
+
+        async def resolve_page(
+            self, gid: int, page: GalleryPageData, showkey=None, *, skip_hath: bool = False
+        ) -> GalleryPageData:
+            self.skip_hath_flags.append(skip_hath)
+            return GalleryPageData(
+                page.index, page.url, page.token, f"https://img.test/{page.token}.jpg"
+            )
+
+        async def download_image(self, url: str) -> bytes:
+            from galleryvault.services.eh_client import EhImageSlowError
+
+            raise EhImageSlowError("ExHentai rate limited (509 placeholder)")
+
+    client = RateLimitedClient()
+    downloader = Downloader(client, tmp_path)
+    from galleryvault.services.eh_client import EhImageSlowError
+
+    with pytest.raises(EhImageSlowError, match="509 placeholder"):
+        await downloader.execute(DownloadTask(1, "tok", "title", id=9))
+    # Immediate abort without page-level retry
+    assert client.skip_hath_flags == [False]
+
+
+@pytest.mark.asyncio
+async def test_downloader_retries_with_skip_hath_on_throttled_node(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _fast_sleep(_):
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", _fast_sleep)
+
+    class ThrottledRetryClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+            self.skip_hath_flags: list[bool] = []
+            self.download_attempts = 0
+
+        async def fetch_gallery(
+            self,
+            gid: int,
+            token: str,
+            max_pages: int | None = None,
+            *,
+            resolve_urls: bool = True,
+        ) -> GalleryData:
+            self.calls = 3
+            pages = [GalleryPageData(0, "one", "p1")]
+            return GalleryData(gid, token, "safe/title", pages)
+
+        async def resolve_page(
+            self, gid: int, page: GalleryPageData, showkey=None, *, skip_hath: bool = False
+        ) -> GalleryPageData:
+            self.skip_hath_flags.append(skip_hath)
+            return GalleryPageData(
+                page.index, page.url, page.token, f"https://img.test/{page.token}.jpg"
+            )
+
+        async def download_image(self, url: str) -> bytes:
+            self.download_attempts += 1
+            if self.download_attempts == 1:
+                from galleryvault.services.eh_client import EhImageSlowError
+
+                raise EhImageSlowError("H@H node throttled (5 KB/s < 10 KB/s)")
+            return b"\xff\xd8\xff" + b"\x00" * 64
+
+    client = ThrottledRetryClient()
+    downloader = Downloader(client, tmp_path)
+    result = await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert result.pages == 1
+    # First attempt had skip_hath=False, retry after throttled node had skip_hath=True
+    assert client.skip_hath_flags == [False, True]
+
+
+@pytest.mark.asyncio
 async def test_eh_client_resolve_page_with_skip_hath(monkeypatch: pytest.MonkeyPatch) -> None:
     client = EhClient()
     called_pages: list[GalleryPageData] = []
@@ -1060,6 +1162,23 @@ async def test_download_image_rejects_truncated_and_hijacked() -> None:
                 "https://node.hath.network/h/redirect.jpg"
             )
         with pytest.raises(EhClientError, match="incomplete"):
+            await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")
+
+
+@pytest.mark.asyncio
+async def test_download_image_request_error_includes_host_and_error_type() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused", request=request)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        eh = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=client)
+        from galleryvault.services.eh_client import EhClientError
+
+        with pytest.raises(
+            EhClientError,
+            match=r"ExHentai image download failed: ConnectError on node\.hath\.network",
+        ):
             await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")
 
 
