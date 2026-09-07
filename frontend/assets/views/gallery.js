@@ -197,13 +197,13 @@ async function renderGallery() {
           const oldNote = $view().querySelector("#fav-note");
           if (oldNote) oldNote.closest("details")?.remove();
           const noteWrap = document.createElement("details");
+          noteWrap.open = true;
           noteWrap.innerHTML = `<summary>${esc(t("favNote"))}</summary>
             <div class="toolbar">
               <input id="fav-note" value="${esc(fav.note || "")}" placeholder="${esc(t("favNote"))}" style="min-width:220px">
               <button class="btn btn-secondary" data-action="save-fav-note" data-gid="${fav.gid}" data-token="${esc(fav.token || g.token || "")}" data-favcat="${(fav.favcats && fav.favcats[0] != null) ? fav.favcats[0] : 0}" type="button">${esc(t("saveFavNote"))}</button>
             </div>`;
-          const header = $view().querySelector("header");
-          if (header) header.insertAdjacentElement("afterend", noteWrap);
+          if (moreSection) moreSection.insertBefore(noteWrap, moreSection.firstChild);
         } else {
           if (addBtn) {
             addBtn.hidden = false;
