@@ -143,10 +143,6 @@ async function renderSettings() {
         </select>`)}
         <div class="toolbar"><a class="btn btn-secondary" href="#/duplicates" style="padding:8px 14px;border-radius:4px">${esc(t("dupGalTitle"))}</a></div>
       </fieldset>
-      <section class="panel" style="margin:16px 0;padding:16px">
-        <h2>${esc(t("storageTitle"))}</h2>
-        <div id="storage-dash"><p class="muted">${esc(t("loading"))}</p></div>
-      </section>
       <fieldset><legend>${app.lang === "zh" ? "下载" : "Downloads"}</legend>
         <div class="form-grid">
           ${field(t("downloadRoot"), `<input name="download_root" value="${esc(s.download_root || "")}">`)}
@@ -233,6 +229,10 @@ async function renderSettings() {
           </div>
         </details>
       </fieldset>
+      <section class="panel" style="margin:16px 0;padding:16px">
+        <h2>${esc(t("storageTitle"))}</h2>
+        <div id="storage-dash"><p class="muted">${esc(t("loading"))}</p></div>
+      </section>
       <div class="toolbar"><button class="btn btn-primary" type="submit">${esc(t("save"))}</button></div>
     </form>`);
   api("GET", "/api/tags/search/status").then(status => {
@@ -254,27 +254,99 @@ async function fillStorageDash() {
   if (!el) return;
   try {
     const d = await api("GET", "/api/system/storage");
-    const row = (key, label) => {
+    const isZh = app.lang === "zh";
+
+    const rows = [
+      { key: "library", label: t("storageLibrary") },
+      { key: "cold", label: t("storageCold") },
+      { key: "downloads", label: t("storageDownloads") },
+      { key: "cache", label: t("storageCache") },
+    ];
+
+    const tbodyHtml = rows.map(({ key, label }) => {
       const info = d[key] || {};
-      let sizeStr = "";
+      const pathStr = info.path || "-";
+
+      let itemsStr = "-";
+      if (key === "library" || key === "cold") {
+        if (info.gallery_count != null) {
+          itemsStr = isZh
+            ? `${info.gallery_count} 画廊 / ${info.image_count || 0} 图片`
+            : `${info.gallery_count} galleries / ${info.image_count || 0} images`;
+        }
+      } else if (key === "cache") {
+        if (info.thumbnail_count != null) {
+          itemsStr = isZh
+            ? `约 ${info.thumbnail_count} 缩略图`
+            : `~${info.thumbnail_count} thumbs`;
+        }
+      }
+
+      let sizeStr = "0";
       if (info.computing) {
         sizeStr = info.bytes != null
           ? `${fmtSize(info.bytes)} (${esc(t("storageComputing"))})`
           : esc(t("storageComputing"));
-      } else {
-        sizeStr = info.bytes != null ? fmtSize(info.bytes) : "0";
+      } else if (info.bytes != null) {
+        sizeStr = fmtSize(info.bytes);
       }
-      const miss = info.exists ? "" : ` (${esc(t("missing"))})`;
-      const vol = (info.disk_total != null && info.disk_free != null)
-        ? ` <span class="muted">[${fmtSize(info.disk_free)} ${esc(t("storageFree"))} / ${fmtSize(info.disk_total)}]</span>`
-        : "";
-      return `<p><strong>${esc(label)}</strong> ${esc(info.path || "")}${vol} — ${sizeStr}${miss}</p>`;
-    };
+
+      let freeStr = "-";
+      if (info.disk_total != null && info.disk_free != null) {
+        freeStr = `${fmtSize(info.disk_free)} / ${fmtSize(info.disk_total)}`;
+      }
+
+      let statusHtml = "";
+      if (!info.exists) {
+        statusHtml = `<span class="badge" style="color:var(--danger, #f44336)">${esc(t("missing"))}</span>`;
+      } else if (info.computing) {
+        statusHtml = `<span class="badge" style="color:var(--accent)">${esc(t("storageComputing"))}</span>`;
+      } else {
+        statusHtml = `<span class="badge" style="color:var(--success, #4caf50)">OK</span>`;
+      }
+
+      return `<tr>
+        <td><strong>${esc(label)}</strong></td>
+        <td><code>${esc(pathStr)}</code></td>
+        <td>${esc(itemsStr)}</td>
+        <td>${sizeStr}</td>
+        <td>${esc(freeStr)}</td>
+        <td>${statusHtml}</td>
+      </tr>`;
+    }).join("");
+
+    const thCategory = isZh ? "类别" : "Category";
+    const thPath = isZh ? "路径" : "Path";
+    const thItems = isZh ? "项目数" : "Items";
+    const thUsed = isZh ? "已用空间" : "Used Space";
+    const thFree = isZh ? "挂载盘可用" : "Free Space";
+    const thStatus = isZh ? "状态" : "Status";
+
+    const tableHtml = `
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>${esc(thCategory)}</th>
+              <th>${esc(thPath)}</th>
+              <th>${esc(thItems)}</th>
+              <th>${esc(thUsed)}</th>
+              <th>${esc(thFree)}</th>
+              <th>${esc(thStatus)}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tbodyHtml}
+          </tbody>
+        </table>
+      </div>
+    `;
+
     const largest = (d.largest || []).map(it =>
       `<li><a href="${navHash("gallery", { id: it.id }, { from: currentFromPath() })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
     ).join("");
     const purgeBtnHtml = `<div style="margin:12px 0 16px"><button class="btn btn-secondary btn-sm" type="button" data-action="archive-purge-sources">${esc(t("purgeArchivedSourcesBtn"))}</button></div>`;
-    el.innerHTML = row("library", t("storageLibrary")) + row("cold", t("storageCold")) + row("downloads", t("storageDownloads")) + row("cache", t("storageCache")) +
+    el.innerHTML = tableHtml +
       purgeBtnHtml +
       `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;
 

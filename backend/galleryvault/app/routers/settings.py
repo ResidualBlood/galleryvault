@@ -464,24 +464,57 @@ async def system_storage(
     cold_root = (getattr(settings, "cold_storage_root", None) or "").strip()
     library_bytes = 0
     cold_bytes = 0
+    library_galleries = 0
+    library_images = 0
+    cold_galleries = 0
+    cold_images = 0
     largest: list[dict[str, object]] = []
     try:
+        from sqlalchemy import func, not_, select
+
+        from ...db.models import Gallery
+
         repo = GalleryRepository(session)
         library_bytes = await repo.library_storage_sum()
+        valid_cond = (Gallery.expunged.is_(False), Gallery.trashed.is_(False))
         if cold_root:
-            from sqlalchemy import func, select
-
-            from ...db.models import Gallery
-
             size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
-            cold_val = await session.scalar(
-                select(func.coalesce(func.sum(size_col), 0)).where(
-                    Gallery.expunged.is_(False),
-                    Gallery.trashed.is_(False),
-                    Gallery.storage_path.startswith(cold_root),
-                )
+            cold_stmt = select(
+                func.count(Gallery.id),
+                func.coalesce(func.sum(Gallery.page_count), 0),
+                func.coalesce(func.sum(size_col), 0),
+            ).where(
+                *valid_cond,
+                Gallery.storage_path.startswith(cold_root),
             )
-            cold_bytes = int(cold_val or 0)
+            cold_row = (await session.execute(cold_stmt)).first()
+            if cold_row:
+                cold_galleries = int(cold_row[0] or 0)
+                cold_images = int(cold_row[1] or 0)
+                cold_bytes = int(cold_row[2] or 0)
+
+            lib_stmt = select(
+                func.count(Gallery.id),
+                func.coalesce(func.sum(Gallery.page_count), 0),
+            ).where(
+                *valid_cond,
+                Gallery.storage_path.is_(None)
+                | not_(Gallery.storage_path.startswith(cold_root)),
+            )
+            lib_row = (await session.execute(lib_stmt)).first()
+            if lib_row:
+                library_galleries = int(lib_row[0] or 0)
+                library_images = int(lib_row[1] or 0)
+        else:
+            lib_stmt = select(
+                func.count(Gallery.id),
+                func.coalesce(func.sum(Gallery.page_count), 0),
+            ).where(*valid_cond)
+            lib_row = (await session.execute(lib_stmt)).first()
+            if lib_row:
+                library_galleries = int(lib_row[0] or 0)
+                library_images = int(lib_row[1] or 0)
+
         rows = await repo.largest_by_storage(10)
         largest = [
             {
@@ -530,6 +563,12 @@ async def system_storage(
         computing=l_snap.computing,
     )
     cold = _path_info(cold_root, bytes_value=cold_bytes)
+    cache_thumbs = library_images + cold_images
+    library["gallery_count"] = library_galleries
+    library["image_count"] = library_images
+    cold["gallery_count"] = cold_galleries
+    cold["image_count"] = cold_images
+    cache["thumbnail_count"] = cache_thumbs
     return {
         "library": library,
         "cold": cold,
