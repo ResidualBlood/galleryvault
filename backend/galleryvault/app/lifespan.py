@@ -314,18 +314,23 @@ async def startup() -> None:
 
     app_state.extra["download_worker_task"] = asyncio.create_task(download_worker_loop())
     app_state.extra["download_retry_sweep_task"] = asyncio.create_task(download_retry_sweep_loop())
-    app_state.extra["gallery_updates_finalize_task"] = asyncio.create_task(gallery_updates_finalize_loop())
+    app_state.extra["gallery_updates_finalize_task"] = asyncio.create_task(
+        gallery_updates_finalize_loop()
+    )
     app_state.extra["telegram_flush_task"] = asyncio.create_task(telegram_flush_loop())
     app_state.extra["tag_sync_worker_task"] = asyncio.create_task(tag_sync_worker_loop())
     app_state.extra["thumb_worker_task"] = asyncio.create_task(thumbnail_worker_loop())
     app_state.extra["thumb_cleanup_task"] = asyncio.create_task(orphan_thumbnail_cleanup_loop())
-    app_state.extra["thumb_periodic_seed_task"] = asyncio.create_task(thumbnail_periodic_seed_loop())
+    app_state.extra["thumb_periodic_seed_task"] = asyncio.create_task(
+        thumbnail_periodic_seed_loop()
+    )
 
     from ..services.storage_usage import storage_tracker
 
     calib_coro = storage_tracker.calibrate(
         settings_obj.download_root,
         Path(settings_obj.thumbnail_cache_dir).parent,
+        library_root=(settings_obj.library_roots or [None])[0],
     )
     calib_task = spawn_task(calib_coro, "storage calibration startup")
     if calib_task is None:
@@ -350,7 +355,9 @@ async def startup() -> None:
             try:
                 await seed_coro
             except Exception as exc:  # noqa: BLE001
-                logger.warning("thumbnail seeding failed", extra=log_extra(error=type(exc).__name__))
+                logger.warning(
+                    "thumbnail seeding failed", extra=log_extra(error=type(exc).__name__)
+                )
 
     ensure_translation_updater()
     try:
@@ -387,7 +394,9 @@ async def shutdown() -> None:
     ]
     await stop_background_tasks(all_spawned, specific)
     if app_state.telegram is not None:
-        if hasattr(app_state.telegram, "flush_summary") and callable(app_state.telegram.flush_summary):
+        if hasattr(app_state.telegram, "flush_summary") and callable(
+            app_state.telegram.flush_summary
+        ):
             with contextlib.suppress(Exception):
                 await app_state.telegram.flush_summary()
         if hasattr(app_state.telegram, "aclose") and callable(app_state.telegram.aclose):

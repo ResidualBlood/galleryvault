@@ -273,36 +273,18 @@ async function fillStorageDash() {
     const largest = (d.largest || []).map(it =>
       `<li><a href="${navHash("gallery", { id: it.id }, { from: currentFromPath() })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
     ).join("");
-    const purgeBtnHtml = `<div style="margin:12px 0 16px"><button class="btn btn-secondary btn-sm" type="button" onclick="purgeArchivedSources()">${esc(t("purgeArchivedSourcesBtn"))}</button></div>`;
+    const purgeBtnHtml = `<div style="margin:12px 0 16px"><button class="btn btn-secondary btn-sm" type="button" data-action="archive-purge-sources">${esc(t("purgeArchivedSourcesBtn"))}</button></div>`;
     el.innerHTML = row("library", t("storageLibrary")) + row("cold", t("storageCold")) + row("downloads", t("storageDownloads")) + row("cache", t("storageCache")) +
       purgeBtnHtml +
       `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;
 
-    if (d.downloads?.computing || d.cache?.computing) {
+    if (d.downloads?.computing || d.cache?.computing || d.library?.computing) {
       setTimeout(() => {
         if (document.getElementById("storage-dash")) fillStorageDash();
       }, 3000);
     }
   } catch (e) {
     el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
-  }
-}
-
-async function purgeArchivedSources() {
-  const msg = t("purgeSourcesConfirm");
-  if (!confirm(msg)) return;
-  try {
-    const res = await api("POST", "/api/system/purge-archived-sources");
-    const count = res?.deleted_dirs ?? 0;
-    toast(`${t("purgeSourcesDone")}${count}`);
-    if (typeof fillStorageDash === "function" && document.getElementById("storage-dash")) {
-      await fillStorageDash();
-    }
-    if (typeof updateArchiveState === "function" && document.getElementById("archive-status-panel")) {
-      await updateArchiveState();
-    }
-  } catch (e) {
-    toast(e.message);
   }
 }
 

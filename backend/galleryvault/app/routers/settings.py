@@ -34,6 +34,7 @@ from ..dependencies import (
     get_current_settings,
     get_eh_client,
     get_session,
+    get_task_manager,
     spawn_task,
 )
 from ..schemas import LogLevelRequest, SavedSearchRequest, SettingsRequest
@@ -227,7 +228,9 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
                 async with session.begin():
                     resumed = await GalleryRepository(session).resume_not_visible()
                 if resumed:
-                    logger.info("resumed tag sync for not-visible galleries", extra={"count": resumed})
+                    logger.info(
+                        "resumed tag sync for not-visible galleries", extra={"count": resumed}
+                    )
                 break
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not resume not-visible galleries", extra={"error": str(exc)})
@@ -482,10 +485,14 @@ async def system_storage() -> dict[str, object]:
         logger.warning("storage dashboard db failed", extra={"error": str(exc)})
 
     # Ensure background calibration is initiated if not already running and no snapshot exists
+    lib_path = (settings.library_roots or [None])[0]
     dl_snap = storage_tracker.get_downloads_snapshot()
     c_snap = storage_tracker.get_cache_snapshot()
-    if dl_snap.bytes is None or c_snap.bytes is None:
-        storage_tracker.trigger_calibration(settings.download_root, cache_root)
+    l_snap = storage_tracker.get_library_snapshot()
+    if dl_snap.bytes is None or c_snap.bytes is None or (lib_path and l_snap.bytes is None):
+        storage_tracker.trigger_calibration(
+            settings.download_root, cache_root, library_root=lib_path
+        )
 
     downloads = _path_info(
         settings.download_root,
@@ -501,8 +508,16 @@ async def system_storage() -> dict[str, object]:
         stale=c_snap.stale,
         computing=c_snap.computing,
     )
-    lib_path = (settings.library_roots or [None])[0]
-    library = _path_info(lib_path, bytes_value=library_bytes)
+    lib_val = (
+        l_snap.bytes if l_snap.bytes is not None else (None if l_snap.computing else library_bytes)
+    )
+    library = _path_info(
+        lib_path,
+        bytes_value=lib_val,
+        computed_at=l_snap.computed_at,
+        stale=l_snap.stale,
+        computing=l_snap.computing,
+    )
     cold = _path_info(cold_root, bytes_value=cold_bytes)
     return {
         "library": library,
@@ -513,12 +528,15 @@ async def system_storage() -> dict[str, object]:
     }
 
 
-@router.post("/api/system/purge-archived-sources")
-async def purge_archived_sources() -> dict[str, int]:
+@router.post("/api/system/purge-archived-sources", status_code=202)
+async def purge_archived_sources() -> dict[str, object]:
     """Purge leftover source directories for galleries already archived to cold storage."""
-    from ...services.cold_archive import purge_archived_sources_internal
+    from ...services.cold_archive import run_purge_archived_sources
 
-    deleted = await purge_archived_sources_internal()
-    return {"deleted_dirs": deleted}
+    tm = get_task_manager()
+    state = tm._resolve_task_state("purge-archived-sources")
+    if state.get("running"):
+        return {"status": "running"}
 
-
+    spawn_task(run_purge_archived_sources(tm), "purge archived sources")
+    return {"status": "started"}

@@ -244,7 +244,7 @@ async function onClick(e) {
   if (action === "integrity-repair") { integrityRepair(); return; }
   if (action === "archive-start") { archiveStart(); return; }
   if (action === "archive-cancel") { archiveCancel(); return; }
-  if (action === "archive-purge-sources") { purgeArchivedSources(); return; }
+  if (action === "archive-purge-sources") { purgeArchivedSources(el); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }
@@ -647,5 +647,35 @@ document.addEventListener("blur", e => {
   const last = parseInt(el.max, 10) || 1;
   jumpPage(el, last);
 }, true);
+
+async function purgeArchivedSources(btn) {
+  const msg = t("purgeSourcesConfirm");
+  if (!confirm(msg)) return;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api("POST", "/api/system/purge-archived-sources");
+    if (res?.status === "started") {
+      toast(t("purgeSourcesStarted") || "Purge task started in background");
+    } else if (res?.status === "running") {
+      toast(t("taskRunning") || "Task already running");
+    } else {
+      toast(res?.message || t("purgeSourcesStarted") || "Started");
+    }
+  } catch (err) {
+    toast(err.message || String(err));
+  } finally {
+    if (btn) {
+      setTimeout(() => {
+        btn.disabled = false;
+      }, 1000);
+    }
+    if (typeof fillStorageDash === "function" && document.getElementById("storage-dash")) {
+      fillStorageDash();
+    }
+    if (typeof updateArchiveState === "function" && document.getElementById("archive-status-panel")) {
+      updateArchiveState();
+    }
+  }
+}
 
 

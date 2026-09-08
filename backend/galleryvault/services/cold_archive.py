@@ -744,7 +744,10 @@ async def _do_archive_locked(
             .join(GalleryTag, GalleryTag.tag_id == Tag.id)
             .where(GalleryTag.gallery_id == gallery_id)
         )
-        tags = [{"namespace": row[0], "name": row[1]} for row in (await session.execute(tags_stmt)).all()]
+        tags = [
+            {"namespace": row[0], "name": row[1]}
+            for row in (await session.execute(tags_stmt)).all()
+        ]
 
         # 画廊已有 site 或从 source_meta 中读取
         gallery_site = getattr(gallery, "site", None)
@@ -977,6 +980,8 @@ async def archive_one(
 
 async def purge_archived_sources_internal(
     session_factory: Callable[[], AsyncSession] | None = None,
+    tracker: Any | None = None,
+    tm: Any | None = None,
 ) -> int:
     """Safely scan download_root and library_roots for leftover source dirs of archived galleries.
 
@@ -1016,9 +1021,7 @@ async def purge_archived_sources_internal(
         # Safety guard: never delete any path currently recorded as a gallery's active storage_path
         active_paths_stmt = select(Gallery.storage_path).where(Gallery.storage_path.is_not(None))
         active_paths = {
-            Path(p).resolve()
-            for p in (await session.scalars(active_paths_stmt)).all()
-            if p
+            Path(p).resolve() for p in (await session.scalars(active_paths_stmt)).all() if p
         }
 
     dl_root_raw = getattr(settings, "download_root", None)
@@ -1042,10 +1045,30 @@ async def purge_archived_sources_internal(
 
     def _sync_purge() -> int:
         purged = 0
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        def _report_progress(done_count: int) -> None:
+            if tracker is None:
+                return
+            if loop and not loop.is_closed():
+                loop.call_soon_threadsafe(lambda: tracker.update(done=done_count, stage="purging"))
+            else:
+                tracker.update(done=done_count, stage="purging")
+
+        _report_progress(0)
+
         for s_root in scan_roots:
             if not s_root.exists():
                 continue
             for dirpath, dirnames, _filenames in os.walk(s_root):
+                if tm and tm.is_cancelled("purge-archived-sources"):
+                    logger.info("Purge archived sources task cancelled during directory walk")
+                    return purged
+
                 # Exclude hidden directories
                 dirnames[:] = [d for d in dirnames if not d.startswith(".")]
                 cur_dir = Path(dirpath).resolve()
@@ -1066,7 +1089,11 @@ async def purge_archived_sources_internal(
                         gid = spider.gid
                     except (OSError, ValueError):
                         try:
-                            lines = [line.strip() for line in eh_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+                            lines = [
+                                line.strip()
+                                for line in eh_file.read_text(encoding="utf-8").splitlines()
+                                if line.strip()
+                            ]
                             for line in lines[:3]:
                                 if line.isdigit() and int(line) > 0:
                                     gid = int(line)
@@ -1090,13 +1117,25 @@ async def purge_archived_sources_internal(
                                 is_dl = cur_dir.is_relative_to(dl_root)
                             except (AttributeError, ValueError, TypeError, OSError):
                                 is_dl = False
-                        sz = safe_stat_size(cur_dir) if is_dl else 0
+                        is_lib = False
+                        if not is_dl:
+                            for lr in lib_roots:
+                                try:
+                                    if cur_dir.is_relative_to(lr):
+                                        is_lib = True
+                                        break
+                                except (AttributeError, ValueError, TypeError, OSError):
+                                    continue
+                        sz = safe_stat_size(cur_dir) if (is_dl or is_lib) else 0
                         try:
                             shutil.rmtree(cur_dir, ignore_errors=True)
                             if not cur_dir.exists():
                                 purged += 1
                                 if is_dl and sz > 0:
                                     storage_tracker.record_download_delta(-sz)
+                                elif is_lib and sz > 0:
+                                    storage_tracker.record_library_delta(-sz)
+                                _report_progress(purged)
                                 logger.info(
                                     "Purged leftover source directory for archived gallery %s: %s",
                                     gid,
@@ -1107,6 +1146,42 @@ async def purge_archived_sources_internal(
         return purged
 
     return await asyncio.to_thread(_sync_purge)
+
+
+async def run_purge_archived_sources(
+    tm: Any | None = None,
+    session_factory: Callable[[], AsyncSession] | None = None,
+) -> int:
+    """Execute purge archived sources task within task manager tracking."""
+    from ..app.dependencies import get_current_settings, get_task_manager
+    from .storage_usage import storage_tracker
+
+    if tm is None:
+        tm = get_task_manager()
+
+    async with tm.track_task("purge-archived-sources", cancellable=True) as tracker:
+        tracker.update(done=0, stage="purging")
+        purged = await purge_archived_sources_internal(
+            session_factory=session_factory,
+            tracker=tracker,
+            tm=tm,
+        )
+        tracker.update(done=purged, stage="finished")
+
+        try:
+            settings = app_state.settings or get_current_settings()
+            dl_root = getattr(settings, "download_root", "")
+            cache_root = Path(getattr(settings, "thumbnail_cache_dir", "")).parent
+            lib_root = (getattr(settings, "library_roots", []) or [None])[0]
+            await storage_tracker.calibrate(
+                download_root=dl_root,
+                cache_root=cache_root,
+                library_root=lib_root,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("storage calibration after purge failed", extra={"error": str(exc)})
+
+        return purged
 
 
 async def run_cold_archive(
@@ -1247,11 +1322,7 @@ async def run_cold_archive(
         )
     else:
         end_title = "批量归档完成" if zh else "Batch archive complete"
-        end_detail = (
-            f"完成 {done}，跳过 {skipped}"
-            if zh
-            else f"done {done} / skip {skipped}"
-        )
+        end_detail = f"完成 {done}，跳过 {skipped}" if zh else f"done {done} / skip {skipped}"
     if was_cancelled:
         end_detail += " (已取消)" if zh else " (cancelled)"
 
@@ -1268,4 +1339,3 @@ async def run_cold_archive(
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to send telegram batch archive end: %s", exc)
-

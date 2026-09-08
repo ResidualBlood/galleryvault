@@ -93,6 +93,10 @@ function taskMeta(task, stage) {
     case "series-rebuild": return { label: t("seriesRebuild"), desc: t("seriesSub") };
     case "download-clear-success": return { label: t("clearSuccessDlLog"), desc: t("downloadsSub") };
     case "archive": return { label: t("archiveLogLabel"), desc: t("archiveLogDesc") };
+    case "purge-archived-sources": return {
+      label: t("tasks.purgeArchivedSources") || "Purge Archived Sources",
+      desc: t("tasks.purgeArchivedSourcesDesc") || "Scan and purge leftover source files",
+    };
     case "integrity": return { label: t("tasks.integrity"), desc: t("tasks.integrityDesc") };
     default: return { label: task, desc: "" };
   }

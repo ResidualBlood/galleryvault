@@ -176,20 +176,3 @@ async function archiveCancel() {
   }
 }
 
-async function purgeArchivedSources() {
-  const msg = t("purgeSourcesConfirm");
-  if (!confirm(msg)) return;
-  try {
-    const res = await api("POST", "/api/system/purge-archived-sources");
-    const count = res?.deleted_dirs ?? 0;
-    toast(`${t("purgeSourcesDone")}${count}`);
-    if (typeof fillStorageDash === "function" && document.getElementById("storage-dash")) {
-      await fillStorageDash();
-    }
-    if (typeof updateArchiveState === "function" && document.getElementById("archive-status-panel")) {
-      await updateArchiveState();
-    }
-  } catch (err) {
-    toast(err.message || String(err));
-  }
-}

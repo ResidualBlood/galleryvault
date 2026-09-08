@@ -42,21 +42,28 @@ async def test_storage_tracker_deltas_and_calibrate(tmp_path: Path) -> None:
     dl_root.mkdir()
     cache_root = tmp_path / "cache"
     cache_root.mkdir()
+    lib_root = tmp_path / "library"
+    lib_root.mkdir()
 
     # Initial state
     assert tracker.downloads.computing is True
     assert tracker.downloads.bytes is None
+    assert tracker.library.computing is True
+    assert tracker.library.bytes is None
 
     # Expected baseline
     dl_base = await measure_dir_bytes(dl_root)
     cache_base = await measure_dir_bytes(cache_root)
+    lib_base = await measure_dir_bytes(lib_root)
 
-    # Calibrate empty roots
-    await tracker.calibrate(dl_root, cache_root)
+    # Calibrate roots including library
+    await tracker.calibrate(dl_root, cache_root, lib_root)
     assert tracker.downloads.computing is False
     assert tracker.downloads.bytes == dl_base
     assert tracker.cache.bytes == cache_base
+    assert tracker.library.bytes == lib_base
     assert tracker.downloads.computed_at is not None
+    assert tracker.library.computed_at is not None
 
     # Deltas after calibration
     tracker.record_download_delta(200)
@@ -66,8 +73,14 @@ async def test_storage_tracker_deltas_and_calibrate(tmp_path: Path) -> None:
     tracker.record_cache_delta(30)
     assert tracker.cache.bytes == cache_base + 30
 
+    tracker.record_library_delta(100)
+    tracker.record_library_delta(-40)
+    assert tracker.library.bytes == lib_base + 60
 
-def test_system_storage_api_fast_and_no_walk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_system_storage_api_fast_and_no_walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     app_state.settings = Settings(
         auth_required=False,
         download_root=str(tmp_path / "dl"),
@@ -80,6 +93,8 @@ def test_system_storage_api_fast_and_no_walk(tmp_path: Path, monkeypatch: pytest
     storage_tracker.downloads.computing = False
     storage_tracker.cache.bytes = 512
     storage_tracker.cache.computing = False
+    storage_tracker.library.bytes = 2048
+    storage_tracker.library.computing = False
 
     # Ensure os.walk is never called inside GET /api/system/storage
     walk_called = []
@@ -101,6 +116,8 @@ def test_system_storage_api_fast_and_no_walk(tmp_path: Path, monkeypatch: pytest
     assert "cache" in data
     assert "largest" in data
 
+    assert data["library"]["bytes"] == 2048
+    assert data["library"]["computing"] is False
     assert data["downloads"]["bytes"] == 1024
     assert data["downloads"]["computing"] is False
     assert data["cache"]["bytes"] == 512
@@ -213,6 +230,7 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
     )
 
     storage_tracker.downloads.bytes = 5000
+    storage_tracker.library.bytes = 3000
 
     # 1. 模拟已归档画廊在 dl_dir 的残留文件夹：gid 1001
     g1_dir = dl_dir / "1001-gallery-one"
@@ -256,7 +274,9 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
             if "storage_type" in sql:
                 return FakeScalars([1001, 1002])
             if "storage_path" in sql:
-                return FakeScalars([str(cold_dir / "cbz" / "1001.cbz"), str(cold_dir / "cbz" / "1002.cbz")])
+                return FakeScalars(
+                    [str(cold_dir / "cbz" / "1001.cbz"), str(cold_dir / "cbz" / "1002.cbz")]
+                )
             return FakeScalars([])
 
     orig_factory = app_state.session_factory
@@ -269,6 +289,7 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
         assert g3_dir.exists()
         assert g4_dir.exists()
         assert storage_tracker.downloads.bytes == 4000
+        assert storage_tracker.library.bytes < 3000
     finally:
         app_state.session_factory = orig_factory
 
@@ -276,15 +297,67 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
 def test_purge_archived_sources_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from typing import Any
 
+    from galleryvault.app.dependencies import get_task_manager
+
     app_state.settings = Settings(auth_required=False)
+    tm = get_task_manager()
+    state = tm._resolve_task_state("purge-archived-sources")
+    state["running"] = False
 
     async def fake_purge(*args: Any, **kwargs: Any) -> int:
         return 3
 
-    monkeypatch.setattr("galleryvault.services.cold_archive.purge_archived_sources_internal", fake_purge)
+    monkeypatch.setattr("galleryvault.services.cold_archive.run_purge_archived_sources", fake_purge)
 
     client = TestClient(app)
     resp = client.post("/api/system/purge-archived-sources")
-    assert resp.status_code == 200
-    assert resp.json() == {"deleted_dirs": 3}
+    assert resp.status_code == 202
+    assert resp.json() == {"status": "started"}
 
+    # Second call while running -> re-entrance prevention
+    state["running"] = True
+    resp2 = client.post("/api/system/purge-archived-sources")
+    assert resp2.status_code == 202
+    assert resp2.json() == {"status": "running"}
+    state["running"] = False
+
+
+@pytest.mark.asyncio
+async def test_run_purge_archived_sources_task_flow(tmp_path: Path) -> None:
+    from typing import Any
+
+    from galleryvault.services.cold_archive import run_purge_archived_sources
+    from galleryvault.services.tasks import TaskManager
+
+    class FakeScalars:
+        def __init__(self, data: list[Any]) -> None:
+            self._data = data
+
+        def all(self) -> list[Any]:
+            return self._data
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def scalars(self, stmt: Any) -> FakeScalars:
+            return FakeScalars([])
+
+    tm = TaskManager()
+    calibrated = []
+
+    async def fake_calibrate(*args: Any, **kwargs: Any) -> None:
+        calibrated.append(True)
+
+    orig_calib = storage_tracker.calibrate
+    storage_tracker.calibrate = fake_calibrate  # type: ignore[assignment]
+    try:
+        purged = await run_purge_archived_sources(tm=tm, session_factory=lambda: FakeSession())
+        assert isinstance(purged, int)
+        assert len(calibrated) == 1
+        assert any(t.get("task") == "purge-archived-sources" for t in tm.task_history)
+    finally:
+        storage_tracker.calibrate = orig_calib

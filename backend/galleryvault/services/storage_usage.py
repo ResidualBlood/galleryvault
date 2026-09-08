@@ -86,7 +86,9 @@ async def measure_dir_bytes(path: Path) -> int:
                     pass
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.debug("du -sb failed, falling back to controlled walk", extra={"error": str(exc)})
+            logger.debug(
+                "du -sb failed, falling back to controlled walk", extra={"error": str(exc)}
+            )
 
     # Fallback to controlled walk run in a thread
     def _walk() -> int:
@@ -107,17 +109,29 @@ async def measure_dir_bytes(path: Path) -> int:
 
 class StorageUsageTracker:
     def __init__(self) -> None:
+        self.library = StorageSnapshot(computing=True)
         self.downloads = StorageSnapshot(computing=True)
         self.cache = StorageSnapshot(computing=True)
+        self._delta_library = 0
         self._delta_downloads = 0
         self._delta_cache = 0
         self._calibration_task: asyncio.Task | None = None
+
+    def get_library_snapshot(self) -> StorageSnapshot:
+        return self.library
 
     def get_downloads_snapshot(self) -> StorageSnapshot:
         return self.downloads
 
     def get_cache_snapshot(self) -> StorageSnapshot:
         return self.cache
+
+    def record_library_delta(self, delta: int) -> None:
+        if delta == 0:
+            return
+        if self.library.bytes is not None:
+            self.library.bytes = max(0, self.library.bytes + delta)
+        self._delta_library += delta
 
     def record_download_delta(self, delta: int) -> None:
         if delta == 0:
@@ -133,7 +147,12 @@ class StorageUsageTracker:
             self.cache.bytes = max(0, self.cache.bytes + delta)
         self._delta_cache += delta
 
-    async def calibrate(self, download_root: Path | str, cache_root: Path | str) -> None:
+    async def calibrate(
+        self,
+        download_root: Path | str,
+        cache_root: Path | str,
+        library_root: Path | str | None = None,
+    ) -> None:
         """Run low-priority background calibration."""
         from ..app.dependencies import get_task_manager
 
@@ -146,6 +165,12 @@ class StorageUsageTracker:
             self.cache.computing = True
             self._delta_downloads = 0
             self._delta_cache = 0
+
+            lib_path: Path | None = None
+            if library_root:
+                lib_path = Path(library_root)
+                self.library.computing = True
+                self._delta_library = 0
 
             # Calibrate downloads
             try:
@@ -175,15 +200,33 @@ class StorageUsageTracker:
                 logger.warning("cache storage calibration failed", extra={"error": str(exc)})
                 self.cache.computing = False
 
+            # Calibrate library if provided
+            if lib_path is not None:
+                try:
+                    lib_bytes = await measure_dir_bytes(lib_path)
+                    self.library.bytes = max(0, lib_bytes + self._delta_library)
+                    self.library.computed_at = time.time()
+                    self.library.computing = False
+                    self.library.stale = False
+                except asyncio.CancelledError:
+                    self.library.computing = False
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("library storage calibration failed", extra={"error": str(exc)})
+                    self.library.computing = False
+
             tracker.update(done=1, total=1)
 
     def trigger_calibration(
-        self, download_root: Path | str, cache_root: Path | str
+        self,
+        download_root: Path | str,
+        cache_root: Path | str,
+        library_root: Path | str | None = None,
     ) -> asyncio.Task | None:
         if self._calibration_task and not self._calibration_task.done():
             return self._calibration_task
         try:
-            task = asyncio.create_task(self.calibrate(download_root, cache_root))
+            task = asyncio.create_task(self.calibrate(download_root, cache_root, library_root))
             self._calibration_task = task
             return task
         except RuntimeError:
