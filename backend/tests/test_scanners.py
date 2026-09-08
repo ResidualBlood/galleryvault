@@ -416,3 +416,88 @@ def test_scanners_strip_gid_prefix_on_fallback(tmp_path: Path) -> None:
         z.writestr("0001.jpg", b"page")
     archive_meta = CbzZipScanner().scan(cbz_path)
     assert archive_meta.title == "ArchiveTitle"
+
+
+def test_cbz_comic_info_writer_truncation(tmp_path: Path) -> None:
+    cbz_path = tmp_path / "long_writer.cbz"
+    long_writer = "A" * 200
+    with zipfile.ZipFile(cbz_path, "w") as z:
+        z.writestr("0001.jpg", b"page")
+        z.writestr(
+            "ComicInfo.xml",
+            f"<ComicInfo><Title>T</Title><Writer>{long_writer}</Writer></ComicInfo>".encode(),
+        )
+    archive_meta = CbzZipScanner().scan(cbz_path)
+    assert len(archive_meta.uploader) == 128
+    assert archive_meta.uploader == "A" * 128
+
+
+def test_ehviewer_comic_info_writer_truncation(tmp_path: Path) -> None:
+    bare_dir = tmp_path / "12345-LongWriter"
+    bare_dir.mkdir()
+    (bare_dir / "0001.jpg").write_bytes(b"page")
+    long_writer = "B" * 200
+    (bare_dir / "ComicInfo.xml").write_text(
+        f"<ComicInfo><Title>T</Title><Writer>{long_writer}</Writer></ComicInfo>",
+        encoding="utf-8",
+    )
+    meta = BareImageDirScanner().scan(bare_dir)
+    assert meta.uploader is not None
+    assert len(meta.uploader) == 128
+    assert meta.uploader == "B" * 128
+
+
+def test_get_scan_roots_includes_archive_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from galleryvault.app.dependencies import get_scan_roots
+    from galleryvault.app.state import app_state
+    from galleryvault.config import Settings
+
+    custom_settings = Settings(
+        library_roots=[str(tmp_path / "lib")],
+        download_root=str(tmp_path / "dl"),
+        archive_roots=[str(tmp_path / "archive1"), str(tmp_path / "archive2")],
+    )
+    monkeypatch.setattr(app_state, "settings", custom_settings)
+    roots = get_scan_roots()
+    assert str(tmp_path / "archive1") in roots
+    assert str(tmp_path / "archive2") in roots
+    assert str(tmp_path / "lib") in roots
+    assert str(tmp_path / "dl") in roots
+
+
+def test_get_scan_roots_fallback_cold_storage_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from galleryvault.app.dependencies import get_scan_roots
+    from galleryvault.app.state import app_state
+    from galleryvault.config import Settings
+
+    custom_settings = Settings(
+        library_roots=[str(tmp_path / "lib")],
+        download_root=str(tmp_path / "dl"),
+        cold_storage_root=str(tmp_path / "cold"),
+    )
+    monkeypatch.setattr(app_state, "settings", custom_settings)
+    roots = get_scan_roots()
+    assert str(tmp_path / "cold") in roots
+
+
+def test_delete_local_copy_in_archive_root_allowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from galleryvault.app.state import app_state
+    from galleryvault.config import Settings
+    from galleryvault.services.deletion import delete_local_copy
+
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    target_file = archive_dir / "old_gallery.cbz"
+    target_file.write_bytes(b"data")
+
+    custom_settings = Settings(
+        library_roots=[str(tmp_path / "lib")],
+        download_root=str(tmp_path / "dl"),
+        archive_roots=[str(archive_dir)],
+    )
+    monkeypatch.setattr(app_state, "settings", custom_settings)
+
+    assert delete_local_copy(target_file) is True
+    assert not target_file.exists()
+
+

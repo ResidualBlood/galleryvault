@@ -142,7 +142,7 @@ class ArchiveScanner(GalleryScanner):
                 if tag.strip()
             ]
         if values.get("Writer"):
-            metadata["uploader"] = values["Writer"]
+            metadata["uploader"] = values["Writer"][:128]
         return {"comic_info": values}, metadata
 
 

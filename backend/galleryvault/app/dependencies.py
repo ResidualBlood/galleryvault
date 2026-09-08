@@ -45,6 +45,14 @@ def get_scan_roots() -> list[str]:
     roots = list(s.library_roots)
     if s.download_root not in roots:
         roots.append(s.download_root)
+    for ar in getattr(s, "archive_roots", []) or []:
+        if ar and ar not in roots:
+            roots.append(ar)
+    archive_root = getattr(s, "archive_root", None)
+    if archive_root and archive_root not in roots:
+        roots.append(archive_root)
+    if getattr(s, "cold_storage_root", None) and s.cold_storage_root not in roots:
+        roots.append(s.cold_storage_root)
     return normalize_library_roots(roots)
 
 

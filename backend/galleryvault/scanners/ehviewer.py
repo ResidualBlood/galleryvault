@@ -557,7 +557,7 @@ class BareImageDirScanner(GalleryScanner):
                         if t.strip()
                     ]
                 if values.get("Writer"):
-                    uploader = values["Writer"]
+                    uploader = values["Writer"][:128]
             except (ElementTree.ParseError, OSError):
                 warnings.append("invalid ComicInfo.xml")
 
