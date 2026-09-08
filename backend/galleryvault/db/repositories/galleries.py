@@ -1736,4 +1736,29 @@ class GalleryRepository:
         )
         return {gid: synced_at for gid, synced_at in rows}
 
+    async def update_titles(
+        self,
+        gallery_id: int,
+        title: str | None,
+        title_jpn: str | None,
+    ) -> bool:
+        """Update gallery title and title_jpn when clean metadata is available."""
+        gallery = await self.session.get(Gallery, gallery_id)
+        if gallery is None:
+            return False
+        changed = False
+        if title is not None:
+            clean_title = str(title).strip()
+            if clean_title and gallery.title != clean_title:
+                gallery.title = clean_title
+                changed = True
+        if title_jpn is not None:
+            clean_jpn = str(title_jpn).strip()
+            if clean_jpn and not clean_jpn.isdigit() and gallery.title_jpn != clean_jpn:
+                gallery.title_jpn = clean_jpn
+                changed = True
+        if changed:
+            await self.session.flush()
+        return changed
+
 

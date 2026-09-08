@@ -224,6 +224,36 @@ def test_cold_pack_gallery_title_jpn_handling(tmp_path: Path) -> None:
         assert gv_data["title_jpn"] == ""
 
 
+def test_compute_cold_path_strips_double_gid(tmp_path: Path) -> None:
+    cold_root = tmp_path / "cold"
+    gid = 2849972
+    p1 = compute_cold_path(cold_root, is_cbz=True, gid=gid, title="2849972-[Artist] Clean Title")
+    assert p1.name == "2849972-[Artist] Clean Title.cbz"
+
+    p2 = compute_cold_path(cold_root, is_cbz=True, gid=gid, title="2849972-2849972-[Artist] Clean Title")
+    assert p2.name == "2849972-[Artist] Clean Title.cbz"
+
+
+def test_cold_pack_gallery_strips_double_gid_title(tmp_path: Path) -> None:
+    source = tmp_path / "double-gid-gallery"
+    source.mkdir()
+    (source / "p1.jpg").write_bytes(b"page1")
+    cold_root = tmp_path / "cold"
+
+    dest = cold_pack_gallery(
+        source=source,
+        cold_root=cold_root,
+        gid=2849972,
+        title="2849972-[雨 と 棘] Pure Love",
+        title_jpn="[雨 と 棘] Pure Love",
+    )
+    assert not dest.name.startswith("2849972-2849972-")
+    assert dest.name == "2849972-[雨 と 棘] Pure Love.cbz"
+    with zipfile.ZipFile(dest, "r") as zf:
+        gv_data = json.loads(zf.read(".galleryvault.json").decode("utf-8"))
+        assert gv_data["title"] == "[雨 と 棘] Pure Love"
+
+
 def test_cold_pack_gallery_page_count_boundary(tmp_path: Path) -> None:
     cold_root = tmp_path / "cold"
 

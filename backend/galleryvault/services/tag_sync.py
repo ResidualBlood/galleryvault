@@ -35,6 +35,13 @@ class TagSyncRepository(Protocol):
 
     async def upsert_metadata(self, entries: list[dict]) -> int: ...
 
+    async def update_titles(
+        self,
+        gallery_id: int,
+        title: str | None,
+        title_jpn: str | None,
+    ) -> bool: ...
+
 
 class TagSyncError(ValueError):
     """The local gallery cannot be synchronized with its current metadata."""
@@ -128,6 +135,14 @@ class TagSyncService:
             synced_at,
             category=plan.get("category"),
         )
+        new_title = plan.get("title")
+        new_title_jpn = plan.get("title_jpn")
+        if (new_title or new_title_jpn) and hasattr(self.repository, "update_titles"):
+            await self.repository.update_titles(
+                gallery_id,
+                str(new_title) if new_title is not None else None,
+                str(new_title_jpn) if new_title_jpn is not None else None,
+            )
         if plan.get("source") == "network":
             # Backfill the cache so sibling galleries with the same gid (or a
             # later folder check / duplicate scan) need no further ExHentai fetch.
@@ -172,6 +187,14 @@ class TagSyncService:
             count = await self.repository.replace_tags(
                 gallery, cached["tags"], synced_at, category=cached.get("category")
             )
+            cached_title = cached.get("title")
+            cached_title_jpn = cached.get("title_jpn")
+            if (cached_title or cached_title_jpn) and hasattr(self.repository, "update_titles"):
+                await self.repository.update_titles(
+                    gallery.id,
+                    str(cached_title) if cached_title is not None else None,
+                    str(cached_title_jpn) if cached_title_jpn is not None else None,
+                )
             return TagSyncResult(
                 gallery.gid, cached.get("title") or gallery.title, count, synced_at, "cache"
             )
@@ -193,6 +216,12 @@ class TagSyncService:
         count = await self.repository.replace_tags(
             gallery, unique_tags, synced_at, category=metadata.category
         )
+        if (metadata.title or metadata.title_jpn) and hasattr(self.repository, "update_titles"):
+            await self.repository.update_titles(
+                gallery.id,
+                metadata.title,
+                metadata.title_jpn,
+            )
         # Backfill the cache so sibling galleries with the same gid (or a later
         # folder check / duplicate scan) need no further ExHentai fetch.
         try:

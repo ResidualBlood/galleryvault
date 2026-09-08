@@ -16,6 +16,40 @@ MAX_PAGES = 100_000
 MAX_HEADER_LINE_LENGTH = 1024
 
 
+def strip_gid_prefix(name: str, gid: int | str | None = None) -> str:
+    """Strip leading GID prefix(es) from a title or directory/file name.
+
+    If gid is provided, strictly and iteratively strips leading occurrences of
+    f"{gid}-", f"{gid}_", or f"{gid} " to avoid corrupting genuine titles that
+    start with numbers. If gid is None, iteratively strips generic leading
+    numbers followed by a delimiter ("-", "_", or whitespace).
+    """
+    if not name:
+        return ""
+    s = str(name).strip()
+    if gid is not None:
+        gid_str = str(gid).strip()
+        if gid_str:
+            prefix_pattern = re.compile(rf"^\s*{re.escape(gid_str)}\s*[-\s_]\s*")
+            while True:
+                m = prefix_pattern.match(s)
+                if m:
+                    s = s[m.end():]
+                else:
+                    break
+            if s == gid_str:
+                return ""
+            return s.strip()
+    generic_pattern = re.compile(r"^\s*\d+\s*[-\s_]\s*")
+    while True:
+        m = generic_pattern.match(s)
+        if m:
+            s = s[m.end():]
+        else:
+            break
+    return s.strip()
+
+
 @dataclass(frozen=True)
 class SpiderPageEntry:
     index: int
@@ -252,7 +286,8 @@ class EhviewerDirScanner(GalleryScanner):
                     source_meta.update(extra)
             except (OSError, json.JSONDecodeError):
                 warnings.append("invalid .galleryvault.json")
-        title = source_meta.get("title") or path.name
+        fallback_title = strip_gid_prefix(path.name, gid) or path.name
+        title = source_meta.get("title") or fallback_title
         title_jpn = source_meta.get("title_jpn")
         tags = source_meta.get("tags") or []
         return GalleryMeta(
@@ -461,6 +496,7 @@ class BareImageDirScanner(GalleryScanner):
         rest = match.group(2) if match else path.name
         if gid is None and path.name.isdigit():
             gid = int(path.name)
+        rest = strip_gid_prefix(rest, gid) or rest
         files = sorted(
             (
                 item

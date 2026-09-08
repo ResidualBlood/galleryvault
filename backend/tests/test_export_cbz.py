@@ -81,6 +81,16 @@ def test_cbz_filename_sanitizes() -> None:
     assert len(name_cjk.encode("utf-8")) <= 255
     assert len(name_cjk[:-4].encode("utf-8")) <= 251
 
+    # Strip leading GID from contaminated title
+    name_dirty = cbz_filename("2849972-[Artist] Some Title", 2849972, 10)
+    assert name_dirty == "[Artist] Some Title.cbz"
+
+    name_double_dirty = cbz_filename("2849972-2849972-[Artist] Some Title", 2849972, 10)
+    assert name_double_dirty == "[Artist] Some Title.cbz"
+
+    name_pure_gid = cbz_filename("2849972", 2849972, 10)
+    assert name_pure_gid == "2849972.cbz"
+
 
 @pytest.fixture
 def export_test_client():

@@ -20,7 +20,7 @@ from ..app.state import app_state
 from ..config import get_settings
 from ..db.models import DownloadTask, Gallery, GalleryPage, GalleryTag, Tag
 from ..db.repositories.base import path_hash
-from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key, parse_spider_info
+from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key, parse_spider_info, strip_gid_prefix
 from .downloader import _truncate_utf8
 from .export_cbz import ZIP_STORED, page_archive_name
 
@@ -140,7 +140,8 @@ def compute_cold_path(
     """
     root = Path(cold_root).resolve()
     hh, ii = cold_partition(gid=gid, stable=stable)
-    safe = safe_title(title)
+    cleaned_title = strip_gid_prefix(title or "", gid) if gid is not None else (title or "")
+    safe = safe_title(cleaned_title)
 
     if gid is not None:
         if is_cbz:
@@ -460,6 +461,11 @@ def _extract_source_meta(
     if not current_title:
         current_title = stem
 
+    if current_gid is not None and current_title:
+        current_title = strip_gid_prefix(current_title, current_gid) or current_title
+    elif current_title:
+        current_title = strip_gid_prefix(current_title, None) or current_title
+
     if current_gid is None and not current_stable:
         current_stable = path_hash(source)
 
@@ -535,6 +541,9 @@ def cold_pack_gallery(
         stable=stable,
         site=site,
     )
+
+    if res_gid is not None and res_title:
+        res_title = strip_gid_prefix(res_title, res_gid) or res_title
 
     is_source_cbz = src.is_file() and src.suffix.lower() in {".cbz", ".zip"}
     if not src.is_dir() and not is_source_cbz:

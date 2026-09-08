@@ -10,6 +10,7 @@ from galleryvault.scanners.ehviewer import (
     BareImageDirScanner,
     EhviewerDirScanner,
     parse_spider_info,
+    strip_gid_prefix,
 )
 from galleryvault.services.library import LibraryService
 
@@ -378,3 +379,40 @@ def test_cbz_scanner_open_page_consecutive_reads(tmp_path: Path) -> None:
     # Third open_page call on first page again (reusing cached ZipFile)
     with scanner.open_page(meta, meta.pages[0]) as s3:
         assert s3.read() == b"page-1-bytes"
+
+
+def test_strip_gid_prefix() -> None:
+    assert strip_gid_prefix("2849972-[雨 と 棘] 漫画", 2849972) == "[雨 と 棘] 漫画"
+    assert strip_gid_prefix("2849972-2849972-[雨 と 棘] 漫画", 2849972) == "[雨 と 棘] 漫画"
+    assert strip_gid_prefix("2849972_Title", 2849972) == "Title"
+    assert strip_gid_prefix("2849972 Title", 2849972) == "Title"
+    assert strip_gid_prefix("2849972", 2849972) == ""
+    assert strip_gid_prefix("12345-Title", None) == "Title"
+    assert strip_gid_prefix("1984-A Novel", 999999) == "1984-A Novel"
+    assert strip_gid_prefix("1984-A Novel", None) == "A Novel"
+    assert strip_gid_prefix("", 123) == ""
+    assert strip_gid_prefix("Plain Title", 123) == "Plain Title"
+
+
+def test_scanners_strip_gid_prefix_on_fallback(tmp_path: Path) -> None:
+    # 1. EhviewerDirScanner with directory name 12345-CleanTitle
+    eh_dir = tmp_path / "12345-CleanTitle"
+    eh_dir.mkdir()
+    (eh_dir / ".ehviewer").write_text("VERSION1\n0\n12345\ntoken\n1\n1\n1\n1\n0 pt\n")
+    (eh_dir / "0001.jpg").write_bytes(b"page")
+    eh_meta = EhviewerDirScanner().scan(eh_dir)
+    assert eh_meta.title == "CleanTitle"
+
+    # 2. BareImageDirScanner with double GID in directory name
+    bare_dir = tmp_path / "12345-12345-BareTitle"
+    bare_dir.mkdir()
+    (bare_dir / "0001.jpg").write_bytes(b"page")
+    bare_meta = BareImageDirScanner().scan(bare_dir)
+    assert bare_meta.title == "BareTitle"
+
+    # 3. CbzZipScanner with GID prefix in filename
+    cbz_path = tmp_path / "12345-ArchiveTitle.cbz"
+    with zipfile.ZipFile(cbz_path, "w") as z:
+        z.writestr("0001.jpg", b"page")
+    archive_meta = CbzZipScanner().scan(cbz_path)
+    assert archive_meta.title == "ArchiveTitle"

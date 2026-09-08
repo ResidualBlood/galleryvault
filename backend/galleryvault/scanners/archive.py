@@ -12,7 +12,7 @@ from typing import BinaryIO
 from xml.etree import ElementTree
 
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
-from .ehviewer import IMAGE_EXTENSIONS, natural_key
+from .ehviewer import IMAGE_EXTENSIONS, natural_key, strip_gid_prefix
 
 
 def _normalize_tags(raw: object) -> list[dict[str, str]]:
@@ -100,8 +100,9 @@ class ArchiveScanner(GalleryScanner):
         token = str(metadata["token"]) if metadata.get("token") else None
         tags = metadata.get("tags") or []
         image_quality = str(metadata["image_quality"]) if metadata.get("image_quality") else None
+        fallback_title = strip_gid_prefix(path.stem, gid) or path.stem
         return GalleryMeta(
-            title=str(metadata.get("title") or path.stem),
+            title=str(metadata.get("title") or fallback_title),
             path=path,
             storage_type=self.storage_type,
             pages=pages,
