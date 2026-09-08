@@ -210,6 +210,7 @@ def test_thumbnail_and_favorites_increments_cache(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
+    import json
     from typing import Any
 
     from galleryvault.services.cold_archive import purge_archived_sources_internal
@@ -229,8 +230,8 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
         archive_roots=[str(cold_dir)],
     )
 
-    storage_tracker.downloads.bytes = 5000
-    storage_tracker.library.bytes = 3000
+    storage_tracker.downloads.bytes = 10000
+    storage_tracker.library.bytes = 10000
 
     # 1. 模拟已归档画廊在 dl_dir 的残留文件夹：gid 1001
     g1_dir = dl_dir / "1001-gallery-one"
@@ -243,7 +244,7 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
     (g2_dir / ".ehviewer").write_text("1002\ntoken2\n1\n", encoding="utf-8")
     (g2_dir / "0001.jpg").write_bytes(b"y" * 500)
 
-    # 3. 模拟未归档画廊（未在 DB 中设为 cbz）：gid 2001
+    # 3. 模拟未归档画廊（未在 DB 中设为 cold storage）：gid 2001
     g3_dir = dl_dir / "2001-unarchived"
     g3_dir.mkdir()
     (g3_dir / "0001.jpg").write_bytes(b"z" * 200)
@@ -252,6 +253,40 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
     g4_dir = dl_dir / "3001-active"
     g4_dir.mkdir()
     (g4_dir / "0001.jpg").write_bytes(b"w" * 300)
+
+    # 5. 模拟冷存储 folder 画廊残留（已归档为文件夹形式的大画廊）：gid 1003
+    g5_dir = lib_dir / "1003_folder_archive"
+    g5_dir.mkdir()
+    (g5_dir / ".galleryvault.json").write_text(json.dumps({"gid": 1003}), encoding="utf-8")
+    (g5_dir / "0001.jpg").write_bytes(b"f" * 400)
+
+    # 6. 模拟已归档画廊遗留的 .gv- 临时下载目录：gid 1004
+    g6_dir = dl_dir / ".gv-1004-tmp"
+    g6_dir.mkdir()
+    (g6_dir / "temp.bin").write_bytes(b"t" * 600)
+
+    # 7. 模拟活跃下载中正在写入的 .gv- 临时目录：gid 3002（必须安全拦截跳过）
+    g7_dir = dl_dir / ".gv-3002-downloading"
+    g7_dir.mkdir()
+    (g7_dir / "part.bin").write_bytes(b"p" * 700)
+
+    # 8. 模拟包含 JHenTai metadata 文件的已归档画廊残留：gid 1005
+    g8_dir = lib_dir / "jhentai-1005"
+    g8_dir.mkdir()
+    (g8_dir / "metadata").write_text(json.dumps({"gallery": {"gid": 1005}}), encoding="utf-8")
+    (g8_dir / "0001.jpg").write_bytes(b"j" * 300)
+
+    # 9. 模拟纯数字目录名的已归档画廊残留：gid 1006
+    g9_dir = lib_dir / "1006"
+    g9_dir.mkdir()
+    (g9_dir / "0001.jpg").write_bytes(b"n" * 250)
+
+    class FakeResult:
+        def __init__(self, data: list[Any]) -> None:
+            self._data = data
+
+        def all(self) -> list[Any]:
+            return self._data
 
     class FakeScalars:
         def __init__(self, data: list[Any]) -> None:
@@ -267,29 +302,55 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
         async def __aexit__(self, *args: object) -> None:
             pass
 
+        async def execute(self, stmt: Any) -> FakeResult:
+            return FakeResult([
+                (1001, str(cold_dir / "cbz" / "1001.cbz")),
+                (1002, str(cold_dir / "cbz" / "1002.cbz")),
+                (1003, str(cold_dir / "folder" / "1003")),  # folder-based cold archive
+                (1004, str(cold_dir / "cbz" / "1004.cbz")),
+                (1005, str(cold_dir / "cbz" / "1005.cbz")),
+                (1006, str(cold_dir / "cbz" / "1006.cbz")),
+                (2001, str(dl_dir / "2001-unarchived")),   # Not under cold storage
+                (3002, str(cold_dir / "cbz" / "3002.cbz")), # In cold, but currently downloading!
+            ])
+
         async def scalars(self, stmt: Any) -> FakeScalars:
             sql = str(stmt)
             if "download_tasks" in sql:
-                return FakeScalars([3001])
-            if "storage_type" in sql:
-                return FakeScalars([1001, 1002])
+                # 3001 and 3002 are actively downloading
+                return FakeScalars([3001, 3002])
             if "storage_path" in sql:
-                return FakeScalars(
-                    [str(cold_dir / "cbz" / "1001.cbz"), str(cold_dir / "cbz" / "1002.cbz")]
-                )
+                return FakeScalars([
+                    str(cold_dir / "cbz" / "1001.cbz"),
+                    str(cold_dir / "cbz" / "1002.cbz"),
+                    str(cold_dir / "folder" / "1003"),
+                    str(cold_dir / "cbz" / "1004.cbz"),
+                    str(cold_dir / "cbz" / "1005.cbz"),
+                    str(cold_dir / "cbz" / "1006.cbz"),
+                    str(dl_dir / "2001-unarchived"),
+                ])
             return FakeScalars([])
 
     orig_factory = app_state.session_factory
     try:
         app_state.session_factory = lambda: FakeSession()
         deleted = await purge_archived_sources_internal()
-        assert deleted == 2
+        # 删除了 1001 (dl), 1002 (lib), 1003 (lib folder), 1004 (dl .gv-), 1005 (lib jhentai), 1006 (lib numeric)
+        assert deleted == 6
         assert not g1_dir.exists()
         assert not g2_dir.exists()
+        assert not g5_dir.exists()
+        assert not g6_dir.exists()
+        assert not g8_dir.exists()
+        assert not g9_dir.exists()
+
+        # 未归档与活跃下载中的必须保留！
         assert g3_dir.exists()
         assert g4_dir.exists()
-        assert storage_tracker.downloads.bytes == 4000
-        assert storage_tracker.library.bytes < 3000
+        assert g7_dir.exists()  # .gv-3002-downloading 被强力前置守卫拦截跳过
+
+        assert storage_tracker.downloads.bytes < 10000
+        assert storage_tracker.library.bytes < 10000
     finally:
         app_state.session_factory = orig_factory
 
@@ -343,6 +404,9 @@ async def test_run_purge_archived_sources_task_flow(tmp_path: Path) -> None:
         async def __aexit__(self, *args: object) -> None:
             pass
 
+        async def execute(self, stmt: Any) -> FakeScalars:
+            return FakeScalars([])
+
         async def scalars(self, stmt: Any) -> FakeScalars:
             return FakeScalars([])
 
@@ -361,3 +425,96 @@ async def test_run_purge_archived_sources_task_flow(tmp_path: Path) -> None:
         assert any(t.get("task") == "purge-archived-sources" for t in tm.task_history)
     finally:
         storage_tracker.calibrate = orig_calib
+
+
+@pytest.mark.asyncio
+async def test_purge_archived_sources_no_truncation_and_safety_lock(tmp_path: Path) -> None:
+    import json
+    from typing import Any
+
+    from galleryvault.services.cold_archive import purge_archived_sources_internal
+
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir()
+    lib_dir = tmp_path / "library"
+    lib_dir.mkdir()
+    cold_dir = tmp_path / "cold"
+    cold_dir.mkdir()
+
+    app_state.settings = Settings(
+        auth_required=False,
+        download_root=str(dl_dir),
+        library_roots=[str(lib_dir)],
+        cold_storage_root=str(cold_dir),
+        archive_roots=[str(cold_dir)],
+    )
+
+    # 1. 活跃路径目录 active_parent，里面嵌套了一个已归档残留 4001
+    active_parent = lib_dir / "active_parent"
+    active_parent.mkdir()
+    nested_archived = active_parent / " 4001 - nested_archived "
+    nested_archived.mkdir()
+    (nested_archived / "0001.jpg").write_bytes(b"data")
+
+    # 2. 活跃下载任务的 .gv- 临时目录：gid 5001
+    active_gv_dir = dl_dir / ".gv-5001-downloading"
+    active_gv_dir.mkdir()
+    (active_gv_dir / "0001.tmp").write_bytes(b"active-downloading-data")
+
+    # 3. JHenTai 根级 gid metadata 的残留：gid 4002
+    jhentai_dir = lib_dir / "jhentai_root"
+    jhentai_dir.mkdir()
+    (jhentai_dir / "metadata").write_text(json.dumps({"gid": 4002}), encoding="utf-8")
+    (jhentai_dir / "0001.jpg").write_bytes(b"data")
+
+    class FakeResult:
+        def __init__(self, data: list[Any]) -> None:
+            self._data = data
+
+        def all(self) -> list[Any]:
+            return self._data
+
+    class FakeScalars:
+        def __init__(self, data: list[Any]) -> None:
+            self._data = data
+
+        def all(self) -> list[Any]:
+            return self._data
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def execute(self, stmt: Any) -> FakeResult:
+            return FakeResult([
+                (4001, str(cold_dir / "folder" / "4001")),
+                (4002, str(cold_dir / "cbz" / "4002.cbz")),
+            ])
+
+        async def scalars(self, stmt: Any) -> FakeScalars:
+            sql = str(stmt)
+            if "download_tasks" in sql:
+                return FakeScalars([5001])
+            if "storage_path" in sql:
+                # active_parent 本身是某画廊的 storage_path
+                return FakeScalars([str(active_parent)])
+            return FakeScalars([])
+
+    orig_factory = app_state.session_factory
+    try:
+        app_state.session_factory = lambda: FakeSession()
+        deleted = await purge_archived_sources_internal()
+        assert deleted == 2
+        # active_parent 本身未被删
+        assert active_parent.exists()
+        # nested_archived 子目录未被截断，且已被成功删除
+        assert not nested_archived.exists()
+        # active_gv_dir 处于 active_dl_gids，绝对不能被删除
+        assert active_gv_dir.exists()
+        # jhentai_dir 成功清理
+        assert not jhentai_dir.exists()
+    finally:
+        app_state.session_factory = orig_factory

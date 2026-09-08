@@ -985,8 +985,8 @@ async def purge_archived_sources_internal(
 ) -> int:
     """Safely scan download_root and library_roots for leftover source dirs of archived galleries.
 
-    Deletes source folders for galleries already archived to cold storage (storage_type == 'cbz')
-    without active downloads/archiving tasks, and records download delta if inside download_root.
+    Deletes source folders for galleries already archived to cold storage (both cbz and folder format)
+    without active downloads/archiving tasks, and records download/library deltas.
     Returns the count of purged directories.
     """
     settings = app_state.settings or get_settings()
@@ -995,13 +995,20 @@ async def purge_archived_sources_internal(
         logger.warning("No session factory available for purge_archived_sources_internal")
         return 0
 
+    cold_roots = [Path(r).resolve() for r in resolve_archive_roots()]
+
     async with sf() as session:
-        # GIDs that have already been archived to cbz
-        archived_stmt = select(Gallery.gid).where(
-            Gallery.storage_type == "cbz",
+        # GIDs that have already been archived to cold storage
+        archived_stmt = select(Gallery.gid, Gallery.storage_path).where(
             Gallery.gid.is_not(None),
+            Gallery.storage_path.is_not(None),
         )
-        archived_gids = set((await session.scalars(archived_stmt)).all())
+        archived_rows = (await session.execute(archived_stmt)).all()
+        archived_gids = {
+            gid
+            for gid, sp in archived_rows
+            if is_under_cold(sp, cold_roots)
+        }
         if not archived_gids:
             return 0
 
@@ -1028,8 +1035,6 @@ async def purge_archived_sources_internal(
     dl_root = Path(dl_root_raw).resolve() if dl_root_raw else None
     lib_roots_raw = getattr(settings, "library_roots", []) or []
     lib_roots = [Path(r).resolve() for r in lib_roots_raw if r]
-
-    cold_roots = [Path(r).resolve() for r in resolve_archive_roots()]
 
     scan_roots: list[Path] = []
     if dl_root and dl_root.exists():
@@ -1069,48 +1074,96 @@ async def purge_archived_sources_internal(
                     logger.info("Purge archived sources task cancelled during directory walk")
                     return purged
 
-                # Exclude hidden directories
-                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                # Exclude hidden directories except temporary .gv- downloads
+                dirnames[:] = [d for d in dirnames if not d.startswith(".") or d.startswith(".gv-")]
                 cur_dir = Path(dirpath).resolve()
                 if cur_dir == s_root:
                     continue
                 if is_under_cold(cur_dir, cold_roots):
-                    dirnames.clear()
                     continue
                 if cur_dir in active_paths:
-                    dirnames.clear()
                     continue
 
                 gid: int | None = None
-                eh_file = cur_dir / ".ehviewer"
-                if eh_file.is_file():
+
+                # 1. Try reading .galleryvault.json
+                gv_file = cur_dir / ".galleryvault.json"
+                if gv_file.is_file():
                     try:
-                        spider = parse_spider_info(eh_file.read_text(encoding="utf-8"))
-                        gid = spider.gid
-                    except (OSError, ValueError):
-                        try:
-                            lines = [
-                                line.strip()
-                                for line in eh_file.read_text(encoding="utf-8").splitlines()
-                                if line.strip()
-                            ]
-                            for line in lines[:3]:
-                                if line.isdigit() and int(line) > 0:
-                                    gid = int(line)
-                                    break
-                        except OSError:
-                            pass
+                        data = json.loads(gv_file.read_text(encoding="utf-8"))
+                        if isinstance(data, dict):
+                            raw_gid = data.get("gid")
+                            if raw_gid is not None and str(raw_gid).isdigit() and int(raw_gid) > 0:
+                                gid = int(raw_gid)
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        pass
+
+                # 2. Try reading metadata (JHenTai)
                 if gid is None:
-                    m = re.match(r"^(\d+)-", cur_dir.name)
-                    if m:
+                    meta_file = cur_dir / "metadata"
+                    if meta_file.is_file():
                         try:
-                            gid = int(m.group(1))
+                            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                            if isinstance(meta, dict):
+                                raw_gid = meta.get("gid")
+                                if raw_gid is None and isinstance(meta.get("gallery"), dict):
+                                    raw_gid = meta["gallery"].get("gid")
+                                if raw_gid is not None and str(raw_gid).isdigit() and int(raw_gid) > 0:
+                                    gid = int(raw_gid)
+                        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                            pass
+
+                # 3. Try reading .ehviewer
+                if gid is None:
+                    eh_file = cur_dir / ".ehviewer"
+                    if eh_file.is_file():
+                        try:
+                            spider = parse_spider_info(eh_file.read_text(encoding="utf-8"))
+                            gid = spider.gid
+                        except (OSError, ValueError):
+                            try:
+                                lines = [
+                                    line.strip()
+                                    for line in eh_file.read_text(encoding="utf-8").splitlines()
+                                    if line.strip()
+                                ]
+                                for line in lines[:3]:
+                                    if line.isdigit() and int(line) > 0:
+                                        gid = int(line)
+                                        break
+                            except OSError:
+                                pass
+
+                # 4. Regex and name matching
+                if gid is None:
+                    m_gv = re.match(r"^\.gv-(\d+)", cur_dir.name)
+                    if m_gv:
+                        try:
+                            gid = int(m_gv.group(1))
                         except ValueError:
                             pass
 
+                if gid is None:
+                    m_pre = re.match(r"^\s*(\d+)\s*[-\s_]", cur_dir.name)
+                    if m_pre:
+                        try:
+                            gid = int(m_pre.group(1))
+                        except ValueError:
+                            pass
+
+                if gid is None and cur_dir.name.isdigit():
+                    try:
+                        gid = int(cur_dir.name)
+                    except ValueError:
+                        pass
+
                 if gid is not None:
                     dirnames.clear()
-                    if gid in purgeable_gids:
+                    # First priority guard: never delete active downloads or ongoing archive tasks
+                    if gid in active_gids:
+                        continue
+
+                    if gid in archived_gids and gid not in active_gids:
                         is_dl = False
                         if dl_root:
                             try:
