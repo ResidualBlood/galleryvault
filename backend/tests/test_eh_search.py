@@ -254,20 +254,35 @@ def test_usable_thumb_src_skips_chrome_and_rewrites_w_path() -> None:
     assert _usable_thumb_src(s_w) == w_url
 
 
-def test_classify_search_body_sad_panda_empty_expired() -> None:
-    assert classify_search_body("Sad Panda\n") == "no_exhentai_access"
-    assert classify_search_body("") == "challenge"
-    assert classify_search_body("   ") == "challenge"
-    assert classify_search_body("expired login session") == "not_logged_in"
-    assert classify_search_body(SEARCH_LIST_HTML) == "ok"
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ("Sad Panda\n", "no_exhentai_access"),
+        ("", "challenge"),
+        ("   ", "challenge"),
+        ("expired login session", "not_logged_in"),
+        (SEARCH_LIST_HTML, "ok"),
+    ],
+)
+def test_classify_search_body(body: str, expected: str) -> None:
+    assert classify_search_body(body) == expected
 
 
-def test_parse_category_param_mask_and_names() -> None:
-    assert parse_category_param(None) is None
-    assert parse_category_param("") is None
-    assert parse_category_param("0") == 0
-    assert parse_category_param("2") == 2
-    assert parse_category_param("manga") == 1023 ^ 2
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        (None, None),
+        ("", None),
+        ("0", 0),
+        ("2", 2),
+        ("manga", 1023 ^ 2),
+    ],
+)
+def test_parse_category_param(raw: str | None, expected: int | None) -> None:
+    assert parse_category_param(raw) == expected
+
+
+def test_parse_category_param_invalid() -> None:
     with pytest.raises(HTTPException) as exc:
         parse_category_param("nope")
     assert exc.value.status_code == 422
@@ -309,64 +324,38 @@ async def test_search_galleries_parses_fixture_and_sends_cursor_not_page() -> No
         await client.client.aclose()
 
 
+@pytest.mark.parametrize(
+    "status_code, body, headers, expected_state",
+    [
+        (509, "bandwidth exceeded", {}, "rate_limited"),
+        (200, "", {}, "challenge"),
+        (200, "Sad Panda\n", {}, "no_exhentai_access"),
+        (
+            302,
+            "",
+            {"Location": "https://forums.e-hentai.org/remoteapi.php?ex=1"},
+            "challenge",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_search_galleries_509() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(509, text="bandwidth exceeded")
-
-    client = await _client_for(handler)
-    try:
-        result = await client.search_galleries(q="test")
-        assert result.state == "rate_limited"
-        assert result.items == []
-    finally:
-        await client.client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_search_galleries_empty_body_is_challenge_not_empty() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="")
-
-    client = await _client_for(handler)
-    try:
-        result = await client.search_galleries(q="test")
-        assert result.state == "challenge"
-        assert result.state != "empty"
-        assert result.items == []
-    finally:
-        await client.client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_search_galleries_sad_panda() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="Sad Panda\n")
-
-    client = await _client_for(handler)
-    try:
-        result = await client.search_galleries(q="test")
-        assert result.state == "no_exhentai_access"
-        assert result.items == []
-    finally:
-        await client.client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_search_galleries_remoteapi_302_is_challenge_not_cookie() -> None:
+async def test_search_galleries_error_states(
+    status_code: int, body: str, headers: dict[str, str], expected_state: str
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if "remoteapi.php" in str(request.url):
             return httpx.Response(200, text="")
-        return httpx.Response(
-            302,
-            headers={"Location": "https://forums.e-hentai.org/remoteapi.php?ex=1"},
-        )
+        return httpx.Response(status_code, text=body, headers=headers)
 
     client = await _client_for(handler)
     try:
         result = await client.search_galleries(q="test")
-        assert result.state == "challenge"
-        assert result.state not in {"not_logged_in", "empty", "no_exhentai_access"}
+        assert result.state == expected_state
+        assert result.items == []
+        if status_code == 302:
+            assert result.state not in {"not_logged_in", "empty", "no_exhentai_access"}
+        elif status_code == 200 and not body:
+            assert result.state != "empty"
     finally:
         await client.client.aclose()
 
@@ -636,7 +625,22 @@ async def test_search_toplist_pagination_cursor() -> None:
         await client.client.aclose()
 
 
-def test_eh_search_router_toplist_cursor_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "url, expected_status, expected_fields",
+    [
+        ("/api/eh/search?list=toplist&next=1", 200, {"state": "ok", "next": "2", "list": "toplist"}),
+        ("/api/eh/search?list=toplist&next=111111-1770000000", 422, None),
+        ("/api/eh/search?list=toplist&next=abc", 422, None),
+        ("/api/eh/search?list=search&next=1", 200, None),
+        ("/api/eh/search?list=search&next=abc", 422, None),
+    ],
+)
+def test_eh_search_router_cursor_validation(
+    url: str,
+    expected_status: int,
+    expected_fields: dict[str, str] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -658,28 +662,12 @@ def test_eh_search_router_toplist_cursor_validation(monkeypatch: pytest.MonkeyPa
     app.include_router(eh_router)
     client = TestClient(app)
     try:
-        # Valid numeric cursor for toplist passes router validation
-        resp = client.get("/api/eh/search?list=toplist&next=1")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["state"] == "ok"
-        assert data["next"] == "2"
-        assert data["list"] == "toplist"
-
-        # Invalid cursor for toplist (gid-ts or alphabetic) returns 422
-        resp_invalid = client.get("/api/eh/search?list=toplist&next=111111-1770000000")
-        assert resp_invalid.status_code == 422
-
-        resp_invalid2 = client.get("/api/eh/search?list=toplist&next=abc")
-        assert resp_invalid2.status_code == 422
-
-        # In standard search, numeric cursor like "1" is valid (gid or gid-ts)
-        resp_valid_search = client.get("/api/eh/search?list=search&next=1")
-        assert resp_valid_search.status_code == 200
-
-        # Invalid cursor for standard search (alphabetic) returns 422
-        resp_invalid3 = client.get("/api/eh/search?list=search&next=abc")
-        assert resp_invalid3.status_code == 422
+        resp = client.get(url)
+        assert resp.status_code == expected_status
+        if expected_fields:
+            data = resp.json()
+            for k, v in expected_fields.items():
+                assert data[k] == v
     finally:
         app_state.eh_client = orig_client
         app_state.extra.pop("eh_search_cache", None)
