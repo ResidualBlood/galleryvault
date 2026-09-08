@@ -55,6 +55,10 @@ class ColdStorageError(Exception):
 class ColdDestinationExistsError(ColdStorageError, FileExistsError):
     """Raised when cold storage destination already exists."""
 
+    def __init__(self, message: str = "", dest_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.dest_path = dest_path
+
 
 class ColdAlreadyArchivedError(ColdStorageError):
     """Raised when source is already located under the cold storage root."""
@@ -306,6 +310,96 @@ def is_under_cold(
         return False
     except (ValueError, OSError):
         return False
+
+
+def _validate_cold_destination(dest_path: Path) -> bool:
+    """Validate that an existing cold archive destination is healthy and non-empty."""
+    try:
+        if not dest_path.exists():
+            return False
+        if dest_path.is_file() and dest_path.suffix.lower() in {".cbz", ".zip"}:
+            if dest_path.stat().st_size <= 0:
+                return False
+            if not zipfile.is_zipfile(dest_path):
+                return False
+            with zipfile.ZipFile(dest_path, "r") as zf:
+                if zf.testzip() is not None:
+                    return False
+                return any(
+                    not n.startswith(".")
+                    and Path(n).suffix.lower() in IMAGE_EXTENSIONS
+                    and Path(n).name.lower() not in _IGNORED_NAMES
+                    for n in zf.namelist()
+                )
+        elif dest_path.is_dir():
+            return any(
+                p.is_file()
+                and not p.name.startswith(".")
+                and p.suffix.lower() in IMAGE_EXTENSIONS
+                and p.name.lower() not in _IGNORED_NAMES
+                for p in dest_path.rglob("*")
+            )
+        return False
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Validation failed for cold archive destination %s: %s", dest_path, exc)
+        return False
+
+
+def _check_physically_archived(gid: int, cold_roots: Sequence[Path]) -> bool:
+    """Check if a gallery GID physically exists in cold storage (cbz or dir)."""
+    try:
+        hh, ii = cold_partition(gid=gid)
+    except Exception:  # noqa: BLE001
+        return False
+
+    def _is_matching_cbz(path: Path) -> bool:
+        if not path.is_file() or path.stat().st_size <= 0:
+            return False
+        name = path.name
+        if not (name == f"{gid}.cbz" or (name.startswith(f"{gid}-") and name.endswith(".cbz"))):
+            return False
+        return zipfile.is_zipfile(path)
+
+    def _is_matching_dir(path: Path) -> bool:
+        if not path.is_dir():
+            return False
+        try:
+            return any(path.iterdir())
+        except OSError:
+            return False
+
+    for c_root in cold_roots:
+        # 1. Standard partition path: cbz/hh/ii/{gid}-*.cbz or {gid}.cbz
+        cbz_part_dir = c_root / "cbz" / hh / ii
+        if cbz_part_dir.is_dir():
+            try:
+                for f in cbz_part_dir.iterdir():
+                    if _is_matching_cbz(f):
+                        return True
+            except OSError:
+                pass
+
+        # 2. Standard partition path: dir/hh/ii/{gid}
+        dir_part_target = c_root / "dir" / hh / ii / str(gid)
+        if _is_matching_dir(dir_part_target):
+            return True
+
+        # 3. Direct fallback path: cbz/{gid}-*.cbz or cbz/{gid}.cbz
+        cbz_direct_dir = c_root / "cbz"
+        if cbz_direct_dir.is_dir():
+            try:
+                for f in cbz_direct_dir.iterdir():
+                    if _is_matching_cbz(f):
+                        return True
+            except OSError:
+                pass
+
+        # 4. Direct fallback path: dir/{gid}
+        dir_direct_target = c_root / "dir" / str(gid)
+        if _is_matching_dir(dir_direct_target):
+            return True
+
+    return False
 
 
 def select_archive_root(
@@ -584,7 +678,10 @@ def cold_pack_gallery(
     )
 
     if dest.exists():
-        raise ColdDestinationExistsError(f"Cold archive destination already exists: {dest}")
+        raise ColdDestinationExistsError(
+            f"Cold archive destination already exists: {dest}",
+            dest_path=dest,
+        )
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial_path = dest.parent / f"{dest.name}.partial"
@@ -784,43 +881,62 @@ async def _do_archive_locked(
             site=gallery_site,
             delete_source=False,
         )
-    except (ColdAlreadyArchivedError, ColdDestinationExistsError) as exc:
+    except ColdAlreadyArchivedError as exc:
         logger.info("Skipping gallery %s: %s", gallery_id, exc)
         return None
+    except ColdDestinationExistsError as exc:
+        if exc.dest_path and _validate_cold_destination(exc.dest_path):
+            logger.info(
+                "Adopting existing cold destination for gallery %s: %s",
+                gallery_id,
+                exc.dest_path,
+            )
+            dest_path = exc.dest_path
+        else:
+            logger.info("Skipping gallery %s: %s", gallery_id, exc)
+            return None
 
     # Collect destination statistics
-    is_dest_cbz = dest_path.is_file() and dest_path.suffix.lower() in {".cbz", ".zip"}
-    dest_stat = dest_path.stat()
-    new_mtime_ns = dest_stat.st_mtime_ns
+    try:
+        is_dest_cbz = dest_path.is_file() and dest_path.suffix.lower() in {".cbz", ".zip"}
+        dest_stat = dest_path.stat()
+        new_mtime_ns = dest_stat.st_mtime_ns
 
-    if is_dest_cbz:
-        new_size = dest_stat.st_size
-        with zipfile.ZipFile(dest_path, "r") as zf:
+        if is_dest_cbz:
+            new_size = dest_stat.st_size
+            with zipfile.ZipFile(dest_path, "r") as zf:
+                page_names = sorted(
+                    [
+                        n
+                        for n in zf.namelist()
+                        if not n.startswith(".")
+                        and Path(n).suffix.lower() in IMAGE_EXTENSIONS
+                        and Path(n).name.lower() not in _IGNORED_NAMES
+                    ],
+                    key=natural_key,
+                )
+        else:
+            new_size = sum(f.stat().st_size for f in dest_path.rglob("*") if f.is_file())
             page_names = sorted(
                 [
-                    n
-                    for n in zf.namelist()
-                    if not n.startswith(".")
-                    and Path(n).suffix.lower() in IMAGE_EXTENSIONS
-                    and Path(n).name.lower() not in _IGNORED_NAMES
+                    p.name
+                    for p in dest_path.iterdir()
+                    if p.is_file()
+                    and not p.name.startswith(".")
+                    and p.suffix.lower() in IMAGE_EXTENSIONS
+                    and p.name.lower() not in _IGNORED_NAMES
                 ],
                 key=natural_key,
             )
-    else:
-        new_size = sum(f.stat().st_size for f in dest_path.rglob("*") if f.is_file())
-        page_names = sorted(
-            [
-                p.name
-                for p in dest_path.iterdir()
-                if p.is_file()
-                and not p.name.startswith(".")
-                and p.suffix.lower() in IMAGE_EXTENSIONS
-                and p.name.lower() not in _IGNORED_NAMES
-            ],
-            key=natural_key,
-        )
 
-    new_sig = hashlib.sha256(f"{new_mtime_ns}:{new_size}".encode()).hexdigest()
+        if not page_names:
+            logger.warning("No valid pages found in destination %s for gallery %s", dest_path, gallery_id)
+            return None
+
+        new_sig = hashlib.sha256(f"{new_mtime_ns}:{new_size}".encode()).hexdigest()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to collect destination stats for gallery %s: %s", gallery_id, exc)
+        return None
 
     # Step 3: Brief DB write transaction to update Gallery and GalleryPage
     async def _apply_archive_db_updates(s: AsyncSession) -> bool:
@@ -1009,8 +1125,6 @@ async def purge_archived_sources_internal(
             for gid, sp in archived_rows
             if is_under_cold(sp, cold_roots)
         }
-        if not archived_gids:
-            return 0
 
         # GIDs with active downloads
         active_dl_stmt = select(DownloadTask.gid).where(
@@ -1020,16 +1134,14 @@ async def purge_archived_sources_internal(
         active_dl_gids = set((await session.scalars(active_dl_stmt)).all())
         active_gids = active_dl_gids | _active_gids
 
-        # Candidate GIDs to purge
-        purgeable_gids = archived_gids - active_gids
-        if not purgeable_gids:
-            return 0
-
         # Safety guard: never delete any path currently recorded as a gallery's active storage_path
         active_paths_stmt = select(Gallery.storage_path).where(Gallery.storage_path.is_not(None))
         active_paths = {
             Path(p).resolve() for p in (await session.scalars(active_paths_stmt)).all() if p
         }
+
+    if not archived_gids and not cold_roots:
+        return 0
 
     dl_root_raw = getattr(settings, "download_root", None)
     dl_root = Path(dl_root_raw).resolve() if dl_root_raw else None
@@ -1069,17 +1181,28 @@ async def purge_archived_sources_internal(
         for s_root in scan_roots:
             if not s_root.exists():
                 continue
-            for dirpath, dirnames, _filenames in os.walk(s_root):
+            for dirpath, dirnames, filenames in os.walk(s_root):
                 if tm and tm.is_cancelled("purge-archived-sources"):
                     logger.info("Purge archived sources task cancelled during directory walk")
                     return purged
 
+                cur_dir = Path(dirpath).resolve()
+                if is_under_cold(cur_dir, cold_roots):
+                    continue
+
+                # Clean leftover .log and .nomedia waste files
+                for fname in filenames:
+                    if fname.lower().endswith(".log") or fname.lower() == ".nomedia":
+                        waste_file = cur_dir / fname
+                        try:
+                            waste_file.unlink(missing_ok=True)
+                            logger.debug("Cleaned leftover waste file: %s", waste_file)
+                        except OSError as exc:
+                            logger.warning("Failed to delete waste file %s: %s", waste_file, exc)
+
                 # Exclude hidden directories except temporary .gv- downloads
                 dirnames[:] = [d for d in dirnames if not d.startswith(".") or d.startswith(".gv-")]
-                cur_dir = Path(dirpath).resolve()
                 if cur_dir == s_root:
-                    continue
-                if is_under_cold(cur_dir, cold_roots):
                     continue
                 if cur_dir in active_paths:
                     continue
@@ -1163,7 +1286,9 @@ async def purge_archived_sources_internal(
                     if gid in active_gids:
                         continue
 
-                    if gid in archived_gids and gid not in active_gids:
+                    # Check DB archived state or fallback to physical check in cold storage
+                    is_archived = (gid in archived_gids) or _check_physically_archived(gid, cold_roots)
+                    if is_archived:
                         is_dl = False
                         if dl_root:
                             try:

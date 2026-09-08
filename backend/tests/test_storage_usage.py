@@ -281,6 +281,12 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
     g9_dir.mkdir()
     (g9_dir / "0001.jpg").write_bytes(b"n" * 250)
 
+    # 10. 模拟孤立的 .log 与 .nomedia 废弃文件
+    waste_log = dl_dir / "orphaned.log"
+    waste_log.write_text("failed log", encoding="utf-8")
+    waste_nomedia = lib_dir / ".nomedia"
+    waste_nomedia.write_text("", encoding="utf-8")
+
     class FakeResult:
         def __init__(self, data: list[Any]) -> None:
             self._data = data
@@ -348,6 +354,10 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
         assert g3_dir.exists()
         assert g4_dir.exists()
         assert g7_dir.exists()  # .gv-3002-downloading 被强力前置守卫拦截跳过
+
+        # 废弃文件已顺手清理
+        assert not waste_log.exists()
+        assert not waste_nomedia.exists()
 
         assert storage_tracker.downloads.bytes < 10000
         assert storage_tracker.library.bytes < 10000
@@ -516,5 +526,112 @@ async def test_purge_archived_sources_no_truncation_and_safety_lock(tmp_path: Pa
         assert active_gv_dir.exists()
         # jhentai_dir 成功清理
         assert not jhentai_dir.exists()
+    finally:
+        app_state.session_factory = orig_factory
+
+
+@pytest.mark.asyncio
+async def test_purge_archived_sources_physical_matching_and_waste_clean(tmp_path: Path) -> None:
+    import zipfile
+    from typing import Any
+
+    from galleryvault.services.cold_archive import cold_partition, purge_archived_sources_internal
+
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir()
+    lib_dir = tmp_path / "library"
+    lib_dir.mkdir()
+    cold_dir = tmp_path / "cold"
+    cold_dir.mkdir()
+
+    app_state.settings = Settings(
+        auth_required=False,
+        download_root=str(dl_dir),
+        library_roots=[str(lib_dir)],
+        cold_storage_root=str(cold_dir),
+        archive_roots=[str(cold_dir)],
+    )
+
+    # 1. GID 8001: 物理 cold storage 中存在 cbz，但在 DB 中无归档记录；在 lib_dir 存在源目录
+    hh1, ii1 = cold_partition(gid=8001)
+    cbz_part = cold_dir / "cbz" / hh1 / ii1
+    cbz_part.mkdir(parents=True, exist_ok=True)
+    cbz_file = cbz_part / "8001-MyPhysical.cbz"
+    with zipfile.ZipFile(cbz_file, "w") as zf:
+        zf.writestr("0001.jpg", b"fakeimg")
+    src_8001 = lib_dir / "8001-MyPhysical"
+    src_8001.mkdir()
+    (src_8001 / "0001.jpg").write_bytes(b"orig")
+
+    # 2. GID 8002: 物理 cold storage 中存在 dir 归档，但在 DB 中无归档记录；在 dl_dir 存在源目录
+    hh2, ii2 = cold_partition(gid=8002)
+    dir_part = cold_dir / "dir" / hh2 / ii2 / "8002"
+    dir_part.mkdir(parents=True, exist_ok=True)
+    (dir_part / "0001.jpg").write_bytes(b"fakeimg")
+    src_8002 = dl_dir / "8002-Folder"
+    src_8002.mkdir()
+    (src_8002 / "0001.jpg").write_bytes(b"orig")
+
+    # 3. GID 8003: 物理存在，但正处于活跃下载中（active_gids）；绝对不能被删除
+    hh3, ii3 = cold_partition(gid=8003)
+    cbz_part3 = cold_dir / "cbz" / hh3 / ii3
+    cbz_part3.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(cbz_part3 / "8003.cbz", "w") as zf:
+        zf.writestr("0001.jpg", b"fakeimg")
+    src_8003 = dl_dir / "8003-Active"
+    src_8003.mkdir()
+    (src_8003 / "0001.jpg").write_bytes(b"orig")
+
+    # 4. 杂质文件：.log 与 .nomedia
+    waste_log = dl_dir / "debug.log"
+    waste_log.write_text("log data", encoding="utf-8")
+    waste_nomedia = lib_dir / ".nomedia"
+    waste_nomedia.write_text("", encoding="utf-8")
+
+    class FakeResult:
+        def __init__(self, data: list[Any]) -> None:
+            self._data = data
+
+        def all(self) -> list[Any]:
+            return self._data
+
+    class FakeScalars:
+        def __init__(self, data: list[Any]) -> None:
+            self._data = data
+
+        def all(self) -> list[Any]:
+            return self._data
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def execute(self, stmt: Any) -> FakeResult:
+            # DB 中没有任何 cold storage 归档记录
+            return FakeResult([])
+
+        async def scalars(self, stmt: Any) -> FakeScalars:
+            sql = str(stmt)
+            if "download_tasks" in sql:
+                # 8003 处于 active 状态
+                return FakeScalars([8003])
+            return FakeScalars([])
+
+    orig_factory = app_state.session_factory
+    try:
+        app_state.session_factory = lambda: FakeSession()
+        purged = await purge_archived_sources_internal()
+        # 8001 和 8002 物理匹配命中并成功清理
+        assert purged == 2
+        assert not src_8001.exists()
+        assert not src_8002.exists()
+        # 8003 活跃受保护
+        assert src_8003.exists()
+        # 杂质文件被顺手清除
+        assert not waste_log.exists()
+        assert not waste_nomedia.exists()
     finally:
         app_state.session_factory = orig_factory

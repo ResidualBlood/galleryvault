@@ -431,9 +431,10 @@ def test_rejects_already_in_cold_and_existing_dest(tmp_path: Path) -> None:
     dest = cold_pack_gallery(source=source, cold_root=cold_root, gid=111, title="Test")
     assert dest.exists()
 
-    # Pack again -> ColdDestinationExistsError
-    with pytest.raises(ColdDestinationExistsError):
+    # Pack again -> ColdDestinationExistsError with dest_path
+    with pytest.raises(ColdDestinationExistsError) as exc_info:
         cold_pack_gallery(source=source, cold_root=cold_root, gid=111, title="Test")
+    assert exc_info.value.dest_path == dest
 
 
 def test_helper_page_archive_name() -> None:
@@ -1781,6 +1782,220 @@ def test_scan_worker_multiple_archive_roots() -> None:
         assert "/archive2" in roots
     finally:
         app_state.settings = orig
+
+
+def test_cold_destination_exists_error_dest_path() -> None:
+    p = Path("/tmp/dest.cbz")
+    err = ColdDestinationExistsError("collision", dest_path=p)
+    assert err.dest_path == p
+    assert "collision" in str(err)
+
+    err_none = ColdDestinationExistsError("collision")
+    assert err_none.dest_path is None
+
+
+def test_validate_cold_destination_helpers(tmp_path: Path) -> None:
+    from galleryvault.services.cold_archive import _validate_cold_destination
+
+    # 1. Nonexistent
+    assert not _validate_cold_destination(tmp_path / "nonexistent.cbz")
+
+    # 2. Empty / 0-byte cbz
+    empty_cbz = tmp_path / "empty.cbz"
+    empty_cbz.write_bytes(b"")
+    assert not _validate_cold_destination(empty_cbz)
+
+    # 3. Invalid zip content
+    corrupt_cbz = tmp_path / "corrupt.cbz"
+    corrupt_cbz.write_bytes(b"not a real zip file content")
+    assert not _validate_cold_destination(corrupt_cbz)
+
+    # 4. Valid cbz without images
+    no_img_cbz = tmp_path / "no_img.cbz"
+    with zipfile.ZipFile(no_img_cbz, "w") as zf:
+        zf.writestr("test.txt", "hello")
+    assert not _validate_cold_destination(no_img_cbz)
+
+    # 5. Valid cbz with images
+    valid_cbz = tmp_path / "valid.cbz"
+    with zipfile.ZipFile(valid_cbz, "w") as zf:
+        zf.writestr("0001.jpg", b"fakeimg")
+        zf.writestr("ComicInfo.xml", b"<xml/>")
+    assert _validate_cold_destination(valid_cbz)
+
+    # 6. Empty dir
+    empty_dir = tmp_path / "empty_dir"
+    empty_dir.mkdir()
+    assert not _validate_cold_destination(empty_dir)
+
+    # 7. Valid dir with images
+    valid_dir = tmp_path / "valid_dir"
+    valid_dir.mkdir()
+    (valid_dir / "0001.jpg").write_bytes(b"fakeimg")
+    assert _validate_cold_destination(valid_dir)
+
+
+@pytest.mark.asyncio
+async def test_archive_one_adopts_existing_cold_destination_and_unlocks(tmp_path: Path) -> None:
+    from galleryvault.services.cold_archive import archive_one, compute_cold_path
+
+    cold_root = tmp_path / "cold"
+    cold_root.mkdir()
+    ssd_root = tmp_path / "ssd"
+    ssd_root.mkdir()
+
+    source = ssd_root / "201-Existing Cold Gallery"
+    source.mkdir()
+    (source / "01.jpg").write_bytes(b"page1")
+
+    # Pre-create the destination in cold storage
+    dest = compute_cold_path(cold_root, is_cbz=True, gid=201, title="Existing Cold Gallery")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w") as zf:
+        zf.writestr("0001.jpg", b"page1_cold")
+        zf.writestr("ComicInfo.xml", b"<xml/>")
+
+    class FakeGallery:
+        def __init__(self):
+            self.id = 56
+            self.gid = 201
+            self.token = "tok201"
+            self.title = "Existing Cold Gallery"
+            self.storage_path = str(source)
+            self.storage_type = "folder"
+            self.storage_size = 100
+            self.file_size = 100
+            self.trashed = False
+            self.path_hash = "hash201"
+            self.page_count = 1
+            self.cover_path = "01.jpg"
+
+    gallery_obj = FakeGallery()
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, model, ident):
+            from galleryvault.db.models import Gallery
+
+            if model is Gallery and ident == 56:
+                return gallery_obj
+            return None
+
+        async def scalar(self, stmt):
+            return None
+
+        async def execute(self, stmt):
+            class Res:
+                def all(self):
+                    return []
+
+            return Res()
+
+        def add_all(self, items):
+            pass
+
+        async def commit(self):
+            pass
+
+    adopted_dest = await archive_one(
+        56,
+        cold_root=cold_root,
+        delete_source=True,
+        session_factory=lambda: FakeSession(),
+    )
+
+    # Destination was adopted
+    assert adopted_dest == dest
+    assert adopted_dest.exists()
+    # Source was deleted to resolve deadlock
+    assert not source.exists()
+    # DB was updated to point to the cold path
+    assert gallery_obj.storage_path == str(dest)
+    assert gallery_obj.storage_type == "cbz"
+
+
+@pytest.mark.asyncio
+async def test_archive_one_rejects_corrupted_existing_cold_destination(tmp_path: Path) -> None:
+    from galleryvault.services.cold_archive import archive_one, compute_cold_path
+
+    cold_root = tmp_path / "cold"
+    cold_root.mkdir()
+    ssd_root = tmp_path / "ssd"
+    ssd_root.mkdir()
+
+    source = ssd_root / "202-Corrupted Gallery"
+    source.mkdir()
+    (source / "01.jpg").write_bytes(b"page1")
+
+    # Pre-create corrupted destination in cold storage (0 bytes)
+    dest = compute_cold_path(cold_root, is_cbz=True, gid=202, title="Corrupted Gallery")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"")
+
+    class FakeGallery:
+        def __init__(self):
+            self.id = 57
+            self.gid = 202
+            self.token = "tok202"
+            self.title = "Corrupted Gallery"
+            self.storage_path = str(source)
+            self.storage_type = "folder"
+            self.storage_size = 100
+            self.file_size = 100
+            self.trashed = False
+            self.path_hash = "hash202"
+            self.page_count = 1
+            self.cover_path = "01.jpg"
+
+    gallery_obj = FakeGallery()
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, model, ident):
+            from galleryvault.db.models import Gallery
+
+            if model is Gallery and ident == 57:
+                return gallery_obj
+            return None
+
+        async def scalar(self, stmt):
+            return None
+
+        async def execute(self, stmt):
+            class Res:
+                def all(self):
+                    return []
+
+            return Res()
+
+        def add_all(self, items):
+            pass
+
+        async def commit(self):
+            pass
+
+    res = await archive_one(
+        57,
+        cold_root=cold_root,
+        delete_source=True,
+        session_factory=lambda: FakeSession(),
+    )
+
+    # Rejected corrupted destination
+    assert res is None
+    # Source preserved safely
+    assert source.exists()
+    assert gallery_obj.storage_path == str(source)
 
 
 
