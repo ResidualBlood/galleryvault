@@ -85,6 +85,15 @@ Once the newly assigned GID is fully downloaded into the library, clicking **Sca
 ### 4. What is Cross-GID Deduplication?
 Different translation groups or quality variants of the same artwork often carry distinct GIDs online. Cross-GID deduplication clusters these works together locally, allowing you to easily identify duplicates, select the best version, and purge redundant copies.
 
+### 5. How do I resolve "File name too long" / "[Errno 36]" errors during archiving or downloads?
+- **Root Cause**: Linux ext4 and most modern filesystems impose a strict 255-byte limit per filename component. Multi-byte CJK characters consume 3 bytes each in UTF-8. Legacy character-based truncation often overflowed 255 bytes when saving long titles or appending temporary suffixes like `.cbz.partial`, triggering operating system `[Errno 36] File name too long` exceptions.
+- **Current Standard**: GalleryVault enforces a **243-byte truncation standard** on base filenames (leaving 12 bytes for the `.cbz.partial` staging suffix, ensuring the total length never exceeds 255 bytes). Directory names are clamped to 247 bytes.
+- **Fixing Existing Archives**: If legacy archives fail file integrity checks or sync tools due to overlong names, run the offline utility `python scripts/repair_cbz_filenames.py` to automatically rename and align them with the 243-byte limit.
+
+### 6. How do I batch-clean duplicated leading GID prefixes (e.g., `[12345] 12345-Title`)?
+- **Cause**: Exports from third-party tools or repeated multi-hop migrations can introduce redundant leading GID prefixes into directory names or cold archive CBZ files (e.g. `[12345] 12345-Title` or `12345-12345-Title`), causing malformed title indexing or polluted archive indices.
+- **Remediation**: The repository provides an offline batch repair tool `backend/galleryvault/scripts/repair_cold_archives.py`. Supporting a `--dry-run` safety flag, it strips redundant leading GIDs from directory and CBZ names, cleans up nested GID patterns, and queries the upstream GData API in batch chunks to re-verify and sanitize metadata (see **[Backup & Restore → Offline Full Repair & Metadata Sanitization Tools](Backup-EN#offline-full-repair--metadata-sanitization-tools)**).
+
 ---
 
 ## 5. Reader, Tags & Client Ecosystem

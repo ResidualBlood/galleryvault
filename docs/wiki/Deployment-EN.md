@@ -214,6 +214,18 @@ Tune these parameters in *Settings* based on your network conditions:
 - **`exhentai_max_concurrency`**: Default `6`. Hard global cap protecting your account from burst traffic triggers.
 - **`GV_CHALLENGE_PROBE_INTERVAL`**: Default `600` seconds. Background probe cycle when auto-paused by anti-bot challenges.
 
+### 3. Database Connection Pool Tuning
+
+For high-concurrency background workers, mass gallery imports, and batch fetching workflows, SQLAlchemy async connection pool parameters can be tuned via environment variables in `docker-compose.yml` or `.env`:
+
+| Environment Variable / Key | Default | Description |
+| --- | --- | --- |
+| `database_pool_size` | `20` | SQLAlchemy connection pool base permanent connection capacity. |
+| `database_max_overflow` | `10` | Maximum temporary overflow connections allowed during concurrency bursts, automatically closed once returned. |
+| `database_pool_timeout` | `15` | Timeout (in seconds) to wait when acquiring an available connection from the pool. |
+
+Working in tandem with dependency injection lifecycle management and Unit of Work (UoW) / transaction and network I/O isolation, database sessions are acquired only during active DB operations and released immediately, preventing large-scale batch tasks and slow network I/O from exhausting the pool.
+
 ---
 
 ## Upgrades

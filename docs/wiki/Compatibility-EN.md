@@ -130,9 +130,10 @@ For cold archive storage or portable exports, GalleryVault writes a `.galleryvau
 1. **Bare numeric/title directories without `.ehviewer`** (e.g. `123456-Title/`):
    - The scanner extracts the prefix digits as the `gid`.
    - If cloud credentials are configured, background jobs will backfill covers, categories, and tags via GData APIs.
-2. **CBZ / CBR archives**:
+2. **CBZ / CBR Archives & Specifications**:
    - Filenames prefixed with GID (e.g. `123456-title.cbz`) are indexed immediately.
-   - Embedded `ComicInfo.xml` metadata is parsed to extract titles, authors, and tag namespaces.
+   - **ComicInfo.xml Compatibility & Writer Truncation**: Embedded `ComicInfo.xml` metadata is parsed to extract titles, authors, and tag namespaces. During ingestion, overlong `Writer` tags are automatically truncated to 128 characters to prevent database column overflow errors from halting ingestion.
+   - **243-Byte Filename Truncation Standard**: When generating or managing CBZ archives, GalleryVault replaces legacy character-based truncation with Linux ext4 byte-level rules. CBZ base filenames are clamped to 243 bytes, leaving sufficient headroom for the temporary `.cbz.partial` suffix (12 bytes) to strictly stay within the ext4 255-byte limit. Directory names are capped at 247 bytes. This completely resolves `[Errno 36] File name too long` exceptions caused by CJK multi-byte characters and overlong titles.
 3. **Galleries without a GID**:
    - Fully browsable and readable locally, with support for star ratings and custom reading lists.
    - Without a persistent GID, these entries cannot participate in cloud sync, re-upload update tracking, or cross-GID duplicate resolution.
