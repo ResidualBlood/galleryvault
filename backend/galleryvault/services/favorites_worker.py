@@ -694,35 +694,30 @@ async def _run_favorites_check_inner(
                             extra=log_extra(favcat=favcat, error=type(exc).__name__),
                         )
 
-                def _progress(done: int) -> None:
-                    entry["done"] = done
+            def _progress(done: int) -> None:
+                entry["done"] = done
 
-                settings = app_state.settings or get_settings()
-                archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
-                archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
-                archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
-                check_kwargs: dict[str, Any] = {
-                    "progress": _progress,
-                    "session": session,
-                }
-                if category is not None and not getattr(category, "enabled", True):
-                    check_kwargs["mode"] = "monitor_only"
-                else:
-                    check_kwargs["mode"] = (
-                        getattr(category, "mode", "incremental") if category else "incremental"
-                    )
-                    check_kwargs["archive_enabled"] = archive_enabled
-                    check_kwargs["archive_max_pages"] = archive_max_pages
-                    check_kwargs["archive_quality"] = archive_quality
+            settings = app_state.settings or get_settings()
+            archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
+            archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
+            archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
+            check_kwargs: dict[str, Any] = {
+                "progress": _progress,
+            }
+            if category is not None and not getattr(category, "enabled", True):
+                check_kwargs["mode"] = "monitor_only"
+            else:
+                check_kwargs["mode"] = (
+                    getattr(category, "mode", "incremental") if category else "incremental"
+                )
+                check_kwargs["archive_enabled"] = archive_enabled
+                check_kwargs["archive_max_pages"] = archive_max_pages
+                check_kwargs["archive_quality"] = archive_quality
 
-                try:
-                    await service.check_category(favcat, **check_kwargs)
-                except TypeError:
-                    check_kwargs.pop("session", None)
-                    await service.check_category(favcat, **check_kwargs)
-                entry["error"] = None
-                async with session.begin():
-                    await FavoritesRepository(session).checked(favcat, True)
+            await service.check_category(favcat, **check_kwargs)
+            entry["error"] = None
+            async with session_cm() as session, session.begin():
+                await FavoritesRepository(session).checked(favcat, True)
 
             from ..app.dependencies import spawn_task
 

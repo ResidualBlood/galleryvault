@@ -583,48 +583,51 @@ async def scan_library_cross_gid_duplicates(
 
         fav_stmt = select(FavoriteItem).order_by(FavoriteItem.gid.asc())
         fav_items = list((await session.scalars(fav_stmt)).all())
-        fav_gids = {int(f.gid) for f in fav_items if f.gid is not None}
 
-        local_gids = {int(g.gid) for g in galleries if g.gid is not None}
-        seen_fav_gids: set[int] = set()
-        cloud_candidates: list[dict[str, Any]] = []
-        for f in fav_items:
-            if f.gid is None:
-                continue
-            gid = int(f.gid)
-            if gid in local_gids:
-                continue
-            if gid in seen_fav_gids:
-                continue
-            seen_fav_gids.add(gid)
-            title = f.title.strip() if f.title else ""
-            if not title:
-                continue
-            cloud_category = getattr(f, "category", None)
-            cloud_favcat = getattr(f, "favcat", None)
-            cloud_candidates.append(
-                {
-                    "gallery_id": None,
-                    "gid": gid,
-                    "title": title,
-                    "title_jpn": None,
-                    "url": f.url,
-                    "token": f.token,
-                    "file_size": f.file_size,
-                    "thumb": f.thumb,
-                    "favorited": True,
-                    "category": (
-                        cloud_category
-                        if isinstance(cloud_category, str) and cloud_category.strip()
-                        else None
-                    ),
-                    "favcat": (
-                        cloud_favcat
-                        if isinstance(cloud_favcat, int) and not isinstance(cloud_favcat, bool)
-                        else None
-                    ),
-                }
-            )
+        ignored_keys = await fav_repo.ignored_duplicate_keys()
+        ignored = await fav_repo.ignored_duplicates()
+
+    fav_gids = {int(f.gid) for f in fav_items if f.gid is not None}
+    local_gids = {int(g.gid) for g in galleries if g.gid is not None}
+    seen_fav_gids: set[int] = set()
+    cloud_candidates: list[dict[str, Any]] = []
+    for f in fav_items:
+        if f.gid is None:
+            continue
+        gid = int(f.gid)
+        if gid in local_gids:
+            continue
+        if gid in seen_fav_gids:
+            continue
+        seen_fav_gids.add(gid)
+        title = f.title.strip() if f.title else ""
+        if not title:
+            continue
+        cloud_category = getattr(f, "category", None)
+        cloud_favcat = getattr(f, "favcat", None)
+        cloud_candidates.append(
+            {
+                "gallery_id": None,
+                "gid": gid,
+                "title": title,
+                "title_jpn": None,
+                "url": f.url,
+                "token": f.token,
+                "file_size": f.file_size,
+                "thumb": f.thumb,
+                "favorited": True,
+                "category": (
+                    cloud_category
+                    if isinstance(cloud_category, str) and cloud_category.strip()
+                    else None
+                ),
+                "favcat": (
+                    cloud_favcat
+                    if isinstance(cloud_favcat, int) and not isinstance(cloud_favcat, bool)
+                    else None
+                ),
+            }
+        )
 
     all_candidates: list[Any] = list(galleries) + cloud_candidates
     groups = find_gallery_duplicate_groups(
@@ -633,12 +636,7 @@ async def scan_library_cross_gid_duplicates(
         fav_gids=fav_gids,
     )
 
-    async with session_factory() as session:
-        fav_repo = FavoritesRepository(session)
-        ignored_keys = await fav_repo.ignored_duplicate_keys()
-        ignored = await fav_repo.ignored_duplicates()
-        ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
-
+    ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
     filtered_groups = [
         g
         for g in groups

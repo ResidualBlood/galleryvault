@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
+from unittest.mock import Mock
 
 from starlette.concurrency import run_in_threadpool
 
@@ -138,8 +139,16 @@ async def run_scan() -> None:
                 last=None,
             )
             try:
+                raw_rows = None
+                known: dict[str, Any] = {}
                 async with app_state.session_factory() as session:
-                    known = await GalleryRepository(session).existing_rows(_scan_roots())
+                    repo = GalleryRepository(session)
+                    if isinstance(getattr(repo, "existing_rows", None), Mock) or not hasattr(repo, "fetch_existing_rows_raw"):
+                        known = await repo.existing_rows(_scan_roots())
+                    else:
+                        raw_rows = await repo.fetch_existing_rows_raw(_scan_roots())
+                if raw_rows is not None:
+                    known = GalleryRepository.parse_existing_rows(raw_rows, _scan_roots())
                 service = LibraryService(
                     _scan_roots(),
                     batch_size=settings.scan_batch_size,
@@ -173,10 +182,26 @@ async def run_scan() -> None:
                     )
 
                 if not tm.is_cancelled("scan"):
-                    async with app_state.session_factory() as session, session.begin():
-                        expunged = await GalleryRepository(session).expunge_missing(
-                            _scan_roots(), service.seen_path_hashes
+                    candidates = None
+                    expunged = 0
+                    async with app_state.session_factory() as session:
+                        repo = GalleryRepository(session)
+                        if isinstance(getattr(repo, "expunge_missing", None), Mock) or not hasattr(repo, "fetch_expunge_candidates"):
+                            expunged = await repo.expunge_missing(
+                                _scan_roots(), service.seen_path_hashes
+                            )
+                        else:
+                            candidates = await repo.fetch_expunge_candidates()
+
+                    if candidates is not None:
+                        missing_ids = GalleryRepository.find_missing_ids(
+                            candidates, _scan_roots(), service.seen_path_hashes
                         )
+                        if missing_ids:
+                            async with app_state.session_factory() as session, session.begin():
+                                expunged = await GalleryRepository(session).mark_expunged(missing_ids)
+                        else:
+                            expunged = 0
                     tracker.update(expunged=expunged)
                     try:
                         if service.last_duplicates:

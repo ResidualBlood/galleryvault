@@ -1,6 +1,7 @@
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import and_, case, delete, false, func, null, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -268,21 +269,17 @@ class GalleryRepository:
             )
         await self.session.flush()
 
-    async def existing_rows(self, roots: Sequence[str | Path]) -> dict[str, ExistingGallery]:
-        """Return path hash -> gallery row for non-expunged rows under ``roots``.
+    async def fetch_existing_rows_raw(
+        self, roots: Sequence[str | Path]
+    ) -> list[dict[str, Any]]:
+        """Fetch raw mappings for existing galleries under roots.
 
-        The richer payload (gid, title, size, posted date...) lets the library
-        scanner both skip unchanged copies by signature and fold already-ingested
-        copies into duplicate-copy resolution.  Streams with ``yield_per`` so a
-        library of hundreds of thousands of galleries never materialises every
-        ``Gallery`` ORM object at once.
+        Performs only the SQL query and returns raw dicts, without holding
+        the session for path resolution or object instantiation.
         """
         if not roots:
-            return {}
+            return []
         normalized = [str(Path(root).resolve()) for root in roots]
-        # Coarse SQL prefilter: only stream rows whose stored path could live
-        # under one of the roots, instead of pulling the whole non-expunged
-        # table.  The resolved ``is_relative_to`` check below stays authoritative.
         custom_tag_exists = (
             select(1)
             .select_from(GalleryTag)
@@ -308,33 +305,55 @@ class GalleryRepository:
             .where(LocalListItem.gallery_id == Gallery.id)
             .exists()
         )
-        result = await self.session.stream(
-            select(
-                Gallery.path_hash,
-                Gallery.storage_signature,
-                Gallery.storage_path,
-                Gallery.gid,
-                Gallery.id,
-                Gallery.storage_type,
-                Gallery.title,
-                Gallery.title_jpn,
-                Gallery.file_count,
-                Gallery.file_size,
-                Gallery.posted_at,
-                Gallery.local_rating,
-                custom_tag_exists.label("has_custom_tags"),
-                fav_exists.label("is_favorited"),
-                local_list_exists.label("in_local_list"),
-            ).where(
-                and_(
-                    Gallery.expunged.is_(False),
-                    or_(*(Gallery.storage_path.startswith(root) for root in normalized)),
-                )
+        stmt = select(
+            Gallery.path_hash,
+            Gallery.storage_signature,
+            Gallery.storage_path,
+            Gallery.gid,
+            Gallery.id,
+            Gallery.storage_type,
+            Gallery.title,
+            Gallery.title_jpn,
+            Gallery.file_count,
+            Gallery.file_size,
+            Gallery.posted_at,
+            Gallery.local_rating,
+            custom_tag_exists.label("has_custom_tags"),
+            fav_exists.label("is_favorited"),
+            local_list_exists.label("in_local_list"),
+        ).where(
+            and_(
+                Gallery.expunged.is_(False),
+                or_(*(Gallery.storage_path.startswith(root) for root in normalized)),
             )
         )
+        if hasattr(self.session, "execute"):
+            result = await self.session.execute(stmt)
+            if hasattr(result, "mappings"):
+                return [dict(m) for m in result.mappings().all()]
+            return [
+                dict(row._mapping) if hasattr(row, "_mapping") else row
+                for row in (result.all() if hasattr(result, "all") else [])
+            ]
+        else:
+            result = await self.session.stream(stmt)
+            raw = [row async for row in result]
+            return [
+                dict(row._mapping) if hasattr(row, "_mapping") else row
+                for row in raw
+            ]
+
+    @staticmethod
+    def parse_existing_rows(
+        raw_rows: Sequence[Mapping[str, Any] | Any], roots: Sequence[str | Path]
+    ) -> dict[str, ExistingGallery]:
+        """Convert raw db rows to ExistingGallery dict in memory (outside session)."""
+        if not roots or not raw_rows:
+            return {}
+        normalized = [str(Path(root).resolve()) for root in roots]
         out: dict[str, ExistingGallery] = {}
-        async for row in result:
-            m = row._mapping
+        for row in raw_rows:
+            m = row._mapping if hasattr(row, "_mapping") else row
             path = m["storage_path"]
             if any(Path(path).resolve().is_relative_to(root) for root in normalized):
                 local_rating = m.get("local_rating")
@@ -361,6 +380,13 @@ class GalleryRepository:
                     has_custom_tags=has_custom_tags,
                 )
         return out
+
+    async def existing_rows(self, roots: Sequence[str | Path]) -> dict[str, ExistingGallery]:
+        """Return path hash -> gallery row for non-expunged rows under ``roots``."""
+        if not roots:
+            return {}
+        raw_rows = await self.fetch_existing_rows_raw(roots)
+        return self.parse_existing_rows(raw_rows, roots)
 
     async def sync_duplicates(self, groups) -> int:
         """Persist the duplicate groups a scan just produced.
@@ -462,22 +488,59 @@ class GalleryRepository:
         row = await self.session.get(DuplicateRecord, gid)
         return row.copies or [] if row is not None else []
 
-    async def expunge_missing(self, roots: Sequence[str | Path], seen: set[str]) -> int:
-        normalized = [str(Path(root).resolve()) for root in roots]
-        result = await self.session.stream(
-            select(Gallery.id, Gallery.path_hash, Gallery.storage_path).where(
-                Gallery.expunged.is_(False), Gallery.trashed.is_(False)
-            )
+    async def fetch_expunge_candidates(self) -> list[dict[str, Any]]:
+        """Short read: select active gallery paths and hashes without holding a transaction."""
+        stmt = select(Gallery.id, Gallery.path_hash, Gallery.storage_path).where(
+            Gallery.expunged.is_(False), Gallery.trashed.is_(False)
         )
+        if hasattr(self.session, "execute"):
+            result = await self.session.execute(stmt)
+            if hasattr(result, "mappings"):
+                return [dict(m) for m in result.mappings().all()]
+            return [
+                dict(row._mapping) if hasattr(row, "_mapping") else row
+                for row in (result.all() if hasattr(result, "all") else [])
+            ]
+        else:
+            result = await self.session.stream(stmt)
+            raw = [row async for row in result]
+            return [
+                dict(row._mapping) if hasattr(row, "_mapping") else row
+                for row in raw
+            ]
+
+    @staticmethod
+    def find_missing_ids(
+        candidates: Sequence[Mapping[str, Any] | Any],
+        roots: Sequence[str | Path],
+        seen: set[str],
+    ) -> list[int]:
+        """In-memory comparison: find IDs of galleries missing from disk."""
+        if not roots or not candidates:
+            return []
+        normalized = [str(Path(root).resolve()) for root in roots]
         missing_ids: list[int] = []
-        async for row in result:
-            m = row._mapping
+        for row in candidates:
+            m = row._mapping if hasattr(row, "_mapping") else row
             path = Path(m["storage_path"]).resolve()
             if any(path.is_relative_to(root) for root in normalized) and m["path_hash"] not in seen:
                 missing_ids.append(m["id"])
-        for start in range(0, len(missing_ids), 5000):
-            await self._mark_expunged(missing_ids[start : start + 5000])
+        return missing_ids
+
+    async def mark_expunged(self, ids: list[int]) -> int:
+        """Short write: mark the given IDs as expunged in batches."""
+        if not ids:
+            return 0
+        for start in range(0, len(ids), 5000):
+            await self._mark_expunged(ids[start : start + 5000])
         await self.session.flush()
+        return len(ids)
+
+    async def expunge_missing(self, roots: Sequence[str | Path], seen: set[str]) -> int:
+        candidates = await self.fetch_expunge_candidates()
+        missing_ids = self.find_missing_ids(candidates, roots, seen)
+        if missing_ids:
+            await self.mark_expunged(missing_ids)
         return len(missing_ids)
 
     async def _mark_expunged(self, ids: list[int]) -> None:
