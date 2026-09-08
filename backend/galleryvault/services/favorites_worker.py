@@ -33,7 +33,15 @@ logger = logging.getLogger(__name__)
 
 
 class FavoritesRepositoryProxy:
+    def __init__(self, session: Any = None) -> None:
+        self.session = session
+
+    def with_session(self, session: Any) -> FavoritesRepositoryProxy:
+        return FavoritesRepositoryProxy(session=session)
+
     async def _call(self, method: str, *args: Any) -> Any:
+        if self.session is not None:
+            return await getattr(FavoritesRepository(self.session), method)(*args)
         if not app_state.session_factory:
             return None
         async with app_state.session_factory() as session, session.begin():
@@ -64,9 +72,29 @@ class FavoritesRepositoryProxy:
 
 
 class FavoriteDownloadQueue:
+    def __init__(self, session: Any = None) -> None:
+        self.session = session
+
+    def with_session(self, session: Any) -> FavoriteDownloadQueue:
+        return FavoriteDownloadQueue(session=session)
+
     async def enqueue(
         self, item: Any, mode: str = "favorite", quality: str | None = None
     ) -> bool:
+        if self.session is not None:
+            task = await DownloadRepository(self.session).create(
+                item.gid,
+                item.token,
+                item.title,
+                mode,
+                quality=quality,
+                title_jpn=getattr(item, "title_jpn", None),
+            )
+            if task is None:
+                return False
+            await GalleryUpdatesRepository(self.session).attach_download(item.gid, task.id)
+            logger.info("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
+            return True
         if not app_state.session_factory:
             return False
         async with app_state.session_factory() as session, session.begin():
@@ -637,57 +665,64 @@ async def _run_favorites_check_inner(
             async with session_cm() as session:
                 category = await FavoritesRepository(session).category(favcat)
 
-            live_count = int(entry.get("total") or 0)
-            if scheduled and category is not None and getattr(category, "last_success_at", None) is not None:
-                try:
-                    async with session_cm() as session:
+                live_count = int(entry.get("total") or 0)
+                if scheduled and category is not None and getattr(category, "last_success_at", None) is not None:
+                    try:
                         known = await FavoritesRepository(session).count_known_gids(favcat)
-                    skip_counts = tracker.setdefault("skip_counts", {})
-                    should_skip, next_skip = skip_decision_fn(
-                        int(skip_counts.get(str(favcat), 0)),
-                        scheduled=True,
-                        category_ready=True,
-                        live_count=live_count,
-                        known=known,
-                    )
-                    skip_counts[str(favcat)] = next_skip
-                    if should_skip:
-                        entry["done"] = entry["total"] = live_count
-                        entry["skipped"] = True
-                        async with session_cm() as session, session.begin():
-                            await FavoritesRepository(session).checked(favcat, True)
-                        logger.info(
-                            "favorites check skipped (cloud count unchanged)",
-                            extra=log_extra(favcat=favcat, cloud=live_count, known=known),
+                        skip_counts = tracker.setdefault("skip_counts", {})
+                        should_skip, next_skip = skip_decision_fn(
+                            int(skip_counts.get(str(favcat), 0)),
+                            scheduled=True,
+                            category_ready=True,
+                            live_count=live_count,
+                            known=known,
                         )
-                        return
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "favorites skip heuristic failed",
-                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                        skip_counts[str(favcat)] = next_skip
+                        if should_skip:
+                            entry["done"] = entry["total"] = live_count
+                            entry["skipped"] = True
+                            async with session.begin():
+                                await FavoritesRepository(session).checked(favcat, True)
+                            logger.info(
+                                "favorites check skipped (cloud count unchanged)",
+                                extra=log_extra(favcat=favcat, cloud=live_count, known=known),
+                            )
+                            return
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "favorites skip heuristic failed",
+                            extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                        )
+
+                def _progress(done: int) -> None:
+                    entry["done"] = done
+
+                settings = app_state.settings or get_settings()
+                archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
+                archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
+                archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
+                check_kwargs: dict[str, Any] = {
+                    "progress": _progress,
+                    "session": session,
+                }
+                if category is not None and not getattr(category, "enabled", True):
+                    check_kwargs["mode"] = "monitor_only"
+                else:
+                    check_kwargs["mode"] = (
+                        getattr(category, "mode", "incremental") if category else "incremental"
                     )
+                    check_kwargs["archive_enabled"] = archive_enabled
+                    check_kwargs["archive_max_pages"] = archive_max_pages
+                    check_kwargs["archive_quality"] = archive_quality
 
-            def _progress(done: int) -> None:
-                entry["done"] = done
-
-            settings = app_state.settings or get_settings()
-            archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
-            archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
-            archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
-            if category is not None and not getattr(category, "enabled", True):
-                await service.check_category(favcat, mode="monitor_only", progress=_progress)
-            else:
-                await service.check_category(
-                    favcat,
-                    mode=getattr(category, "mode", "incremental") if category else "incremental",
-                    progress=_progress,
-                    archive_enabled=archive_enabled,
-                    archive_max_pages=archive_max_pages,
-                    archive_quality=archive_quality,
-                )
-            entry["error"] = None
-            async with session_cm() as session, session.begin():
-                await FavoritesRepository(session).checked(favcat, True)
+                try:
+                    await service.check_category(favcat, **check_kwargs)
+                except TypeError:
+                    check_kwargs.pop("session", None)
+                    await service.check_category(favcat, **check_kwargs)
+                entry["error"] = None
+                async with session.begin():
+                    await FavoritesRepository(session).checked(favcat, True)
 
             from ..app.dependencies import spawn_task
 

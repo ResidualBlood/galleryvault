@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.repository import LocalListRepository
-from ..dependencies import db_error, get_session, get_task_manager, spawn_task
+from ..dependencies import db_error, get_session, get_task_manager, resolve_session, spawn_task
 from ..schemas import LocalListCreateRequest, LocalListItemsRequest
 
 router = APIRouter()
@@ -30,11 +31,12 @@ def _record_list_log(action: str, list_id: int, done: int, total: int) -> None:
 
 
 @router.get("/api/lists")
-async def list_local_lists() -> dict[str, object]:
+async def list_local_lists(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            rows = await LocalListRepository(session).list_all()
-            break
+        rows = await LocalListRepository(session).list_all()
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {
@@ -51,15 +53,17 @@ async def list_local_lists() -> dict[str, object]:
 
 
 @router.post("/api/lists", status_code=201)
-async def create_local_list(body: LocalListCreateRequest) -> dict[str, object]:
+async def create_local_list(
+    body: LocalListCreateRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async for session in get_session():
-            async with session.begin():
-                row = await LocalListRepository(session).create(name)
-            break
+        async with session.begin():
+            row = await LocalListRepository(session).create(name)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     _record_list_log("create", row.id, 1, 1)
@@ -67,15 +71,18 @@ async def create_local_list(body: LocalListCreateRequest) -> dict[str, object]:
 
 
 @router.patch("/api/lists/{list_id}")
-async def rename_local_list(list_id: int, body: LocalListCreateRequest) -> dict[str, object]:
+async def rename_local_list(
+    list_id: int,
+    body: LocalListCreateRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async for session in get_session():
-            async with session.begin():
-                row = await LocalListRepository(session).rename(list_id, name)
-            break
+        async with session.begin():
+            row = await LocalListRepository(session).rename(list_id, name)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     if row is None:
@@ -84,12 +91,14 @@ async def rename_local_list(list_id: int, body: LocalListCreateRequest) -> dict[
 
 
 @router.delete("/api/lists/{list_id}")
-async def delete_local_list(list_id: int) -> dict[str, object]:
+async def delete_local_list(
+    list_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                ok = await LocalListRepository(session).delete_list(list_id)
-            break
+        async with session.begin():
+            ok = await LocalListRepository(session).delete_list(list_id)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     if not ok:
@@ -99,23 +108,25 @@ async def delete_local_list(list_id: int) -> dict[str, object]:
 
 
 @router.get("/api/lists/{list_id}")
-async def get_local_list(list_id: int) -> dict[str, object]:
+async def get_local_list(
+    list_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     from sqlalchemy import select
 
     from ...db.models import LocalListItem
 
     try:
-        async for session in get_session():
-            repo = LocalListRepository(session)
-            row = await repo.get(list_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="list not found")
-            ids = (
-                await session.scalars(
-                    select(LocalListItem.gallery_id).where(LocalListItem.list_id == list_id)
-                )
-            ).all()
-            break
+        repo = LocalListRepository(session)
+        row = await repo.get(list_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="list not found")
+        ids = (
+            await session.scalars(
+                select(LocalListItem.gallery_id).where(LocalListItem.list_id == list_id)
+            )
+        ).all()
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -129,16 +140,19 @@ async def get_local_list(list_id: int) -> dict[str, object]:
 
 
 @router.post("/api/lists/{list_id}/items")
-async def add_local_list_items(list_id: int, body: LocalListItemsRequest) -> dict[str, object]:
+async def add_local_list_items(
+    list_id: int,
+    body: LocalListItemsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                repo = LocalListRepository(session)
-                row = await repo.get(list_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="list not found")
-                added = await repo.add_items(list_id, body.gallery_ids)
-            break
+        async with session.begin():
+            repo = LocalListRepository(session)
+            row = await repo.get(list_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="list not found")
+            added = await repo.add_items(list_id, body.gallery_ids)
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -148,16 +162,19 @@ async def add_local_list_items(list_id: int, body: LocalListItemsRequest) -> dic
 
 
 @router.post("/api/lists/{list_id}/items/remove")
-async def remove_local_list_items(list_id: int, body: LocalListItemsRequest) -> dict[str, object]:
+async def remove_local_list_items(
+    list_id: int,
+    body: LocalListItemsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                repo = LocalListRepository(session)
-                row = await repo.get(list_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="list not found")
-                removed = await repo.remove_items(list_id, body.gallery_ids)
-            break
+        async with session.begin():
+            repo = LocalListRepository(session)
+            row = await repo.get(list_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="list not found")
+            removed = await repo.remove_items(list_id, body.gallery_ids)
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -167,20 +184,22 @@ async def remove_local_list_items(list_id: int, body: LocalListItemsRequest) -> 
 
 
 @router.get("/api/galleries/{identifier}/lists")
-async def gallery_local_lists(identifier: int) -> dict[str, object]:
+async def gallery_local_lists(
+    identifier: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     from sqlalchemy import select
 
     from ...db.models import Gallery
 
     try:
-        async for session in get_session():
-            row = await session.scalar(select(Gallery).where(Gallery.id == identifier))
-            if row is None:
-                row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
-            if row is None:
-                raise HTTPException(status_code=404, detail="Gallery not found")
-            lists = await LocalListRepository(session).lists_for_gallery(row.id)
-            break
+        row = await session.scalar(select(Gallery).where(Gallery.id == identifier))
+        if row is None:
+            row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Gallery not found")
+        lists = await LocalListRepository(session).lists_for_gallery(row.id)
     except HTTPException:
         raise
     except SQLAlchemyError as exc:

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import shutil
 import time as _time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
@@ -216,7 +216,9 @@ async def thumbnail_worker_loop() -> None:
                 if failed_pages:
                     thumb_state["failed"] = thumb_state.get("failed", 0) + 1
                     if attempts < 3:
-                        await requeue_job(JOB_THUMB, gallery_id)
+                        delay = min(300, 10 * (2 ** max(0, attempts - 1)))
+                        next_retry = datetime.now(UTC) + timedelta(seconds=delay)
+                        await requeue_job(JOB_THUMB, gallery_id, next_attempt_at=next_retry)
                     else:
                         await complete_job(JOB_THUMB, gallery_id)
                 else:
@@ -226,7 +228,9 @@ async def thumbnail_worker_loop() -> None:
                 thumb_state["failed"] = thumb_state.get("failed", 0) + 1
                 thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
                 if attempts < 3:
-                    await requeue_job(JOB_THUMB, gallery_id)
+                    delay = min(300, 10 * (2 ** max(0, attempts - 1)))
+                    next_retry = datetime.now(UTC) + timedelta(seconds=delay)
+                    await requeue_job(JOB_THUMB, gallery_id, next_attempt_at=next_retry)
                 else:
                     await complete_job(JOB_THUMB, gallery_id)
             thumb_state["processed"] = (

@@ -1,134 +1,232 @@
-# 部署
+# 部署指南
 
-## Docker Compose
+> **中文** · [English](Deployment-EN)
 
-仓库根目录的 `docker-compose.yml` 包含三个服务，容器名固定：
+GalleryVault 采用模块化容器架构设计。本文档提供从基础 Docker Compose 到典型生产架构拓扑、反向代理配置与存储调优的完整部署指引。
 
-| 服务 | 容器名 | 宿主端口 |
-|------|--------|----------|
-| 前端 nginx SPA | `galleryvault-frontend` | 8000 |
-| FastAPI 后端 | `galleryvault-backend` | 127.0.0.1:8001（仅本机） |
-| PostgreSQL | `galleryvault-db` | 内部 |
+---
+
+## 生产部署架构拓扑
+
+在典型的生产或私有 NAS 环境中，建议通过反向代理（如 Nginx 或 Caddy）终结 TLS 并将请求分发至 GalleryVault：
+
+```text
+               ┌────────────────────────────────────────────────────────┐
+               │              公网 / 私网客户端 (Web / OPDS)              │
+               └───────────────────────────┬────────────────────────────┘
+                                           │ HTTPS (:443) / HTTP
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │          外部反向代理 (Nginx / Caddy / Traefik)         │
+               │   - TLS 证书终结 & HSTS 加固                            │
+               │   - 透传 Host、X-Real-IP 与 X-Forwarded-Proto           │
+               └───────────────────────────┬────────────────────────────┘
+                                           │ HTTP (:8000)
+    ┌──────────────────────────────────────┴──────────────────────────────────────┐
+    │  Docker Compose 容器栈                                                       │
+    │                                                                             │
+    │  ┌───────────────────────┐              ┌────────────────────────────────┐  │
+    │  │ galleryvault-frontend │              │      galleryvault-backend      │  │
+    │  │ (SPA 静态托管 + Nginx)  ├─────────────►│       (FastAPI 业务核心)       │  │
+    │  │ 端口: 8000             │  反代 /api   │ 端口: 127.0.0.1:8001 (本地环回) │  │
+    │  └───────────────────────┘              └───────┬────────────────────────┘  │
+    │                                                 │                           │
+    │                                                 │ PostgreSQL 协议           │
+    │                                                 ▼                           │
+    │                                         ┌────────────────────────────────┐  │
+    │                                         │        galleryvault-db         │  │
+    │                                         │      (PostgreSQL 数据库)       │  │
+    │                                         └────────────────────────────────┘  │
+    └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Docker Compose 标准部署
+
+项目根目录的 `docker-compose.yml` 包含完整的三容器拓扑：
+
+| 服务 | 容器名称 | 默认端口映射 | 说明 |
+| :--- | :--- | :--- | :--- |
+| 前端网关 | `galleryvault-frontend` | `0.0.0.0:8000 -> 80` | 提供前端 SPA 静态托管，反代 API 并处理请求流控 |
+| 后端核心 | `galleryvault-backend` | `127.0.0.1:8001 -> 8001` | FastAPI 业务服务，默认仅监听宿主环回接口 |
+| 关系数据库 | `galleryvault-db` | 容器内部网络端口 | PostgreSQL 16 数据库，存储索引与系统状态 |
 
 ```bash
+mkdir -p galleryvault && cd galleryvault
+curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
-Docker Hub 上的镜像是 `linux/amd64` 与 `linux/arm64` 双架构 manifest，`docker compose pull` 会自动拉取与宿主机匹配的架构。
+镜像基于多架构 Manifest（`linux/amd64` 与 `linux/arm64`），Docker 会根据宿主硬件自动匹配。
 
-> 三个服务均设置了 `restart: always`（容器异常退出自动重启）与日志轮转（json-file，单文件 ≤10MB、保留 3 份，共占用 ≤30MB）。
+> 首次登录请访问 `http://<主机IP>:8000`，使用默认口令 **`p1a2s3s4`** 登录，并在「设置」中立即修改密码。
 
-启动后打开 `http://<host>:8000`，用默认密码 `p1a2s3s4` 登录——**登录后请立即在设置中修改密码**（默认密码只供首次使用）。
+---
 
-> 本地开发与热重载环境（Dev Compose）请参见 [开发指南](Development#dev-compose)。
+## 存储拓扑与数据卷挂载
 
-## 数据目录
+### 1. 核心持久化目录
 
-| 路径 | 说明 |
-|------|------|
-| `./db-data` | PostgreSQL 数据（索引、设置、历史），容器重建后保留 |
-| `./library` | **库目录**：已有画廊归档（Ehviewer 导出、CBZ/CBR），新下载不会写入；删除画廊时若挂载可写会一并删除这里对应文件 |
-| `./downloads` | **下载目录**：新下载的画廊存放于此，自动扫描（热目录新建文件夹名遵循 `download_title`，无日文时回退英文） |
-| `./cache` | **缩略图缓存**（自动生成），不会写入画廊目录 |
-| `./Archive` | **归档目录**（可选，compose 默认注释）：分层归档目标（冷库 CBZ 统一以 `gid-英文标题.cbz` 命名，不跟随 `download_title`），可叠加多卷挂载（如 `./Archive:/archive`、`./Archive2:/archive2`），启用时取消注释并在设置页配置容器内路径 |
+| 本地路径 | 容器内挂载点 | 读写属性 | 功能说明 |
+| :--- | :--- | :--- | :--- |
+| `./db-data` | `/var/lib/postgresql/data` | 读写 (`rw`) | PostgreSQL 核心数据（UID 999），保存全量索引与配置 |
+| `./library` | `/library` | 读写 (`rw`) 或只读 (`ro`) | 主画廊库，存放已有归档，**下载任务绝不写入此目录** |
+| `./downloads` | `/downloads` | 读写 (`rw`) | 下载落盘目录，新下载文件在此生成并触发增量入库 |
+| `./cache` | `/gv-cache` | 读写 (`rw`) | 缩略图与封面缓存，避免高频请求重复拉取图片 |
+| `./Archive` | `/archive` | 读写 (`rw`) | （可选）分层冷存储归档目标卷，用于存放长期低频画廊 |
 
-> 挂载多个宿主目录、将其他 Ehviewer 下载目录作为**仅扫描不下载**的库，见下文。
+### 2. 冷热分层存储与多盘挂载
 
-## 将其他 Ehviewer 下载目录作为「仅扫描不下载」的库
-
-如果有多份 Ehviewer 下载内容想让它们都被扫描、但**新下载只写入 `download_root`**，把它们挂载进 backend 容器（建议 `:ro` 只读，仅当不需要在该目录里删除画廊时），再在「设置 → 库根目录」加入容器内路径：
+如果您在 NAS 上拥有多块存储池或希望将既有下载目录作为**仅扫描不写入**的库，可按如下方式在 `docker-compose.yml` 中追加数据卷：
 
 ```yaml
     volumes:
       - ./library:/library
       - ./downloads:/downloads
-      - /mnt/你的/ehviewer下载目录:/Ehviewer2:ro   # 新增
       - ./cache:/gv-cache
+      # 额外挂载多块外部硬盘或 NAS 共享路径：
+      - /mnt/storage_pool2/ehviewer_export:/mnt/pool2:ro
+      - /mnt/cold_archive/disk1:/archive1:rw
 ```
 
-1. 在 `docker-compose.yml` 的 `backend.volumes` 下追加一行（宿主路径换成你的目录，容器内路径任取）。
-2. 重启 backend：`docker compose up -d backend`。
-3. 在「设置 → 库根目录」加入该容器内路径（每行一个）并保存。
-4. 点击「扫描库」开始索引（保存设置不会自动触发扫描）。
+**生效步骤**：
+1. 编辑 `docker-compose.yml` 中的 `backend.volumes` 并重启容器：`docker compose up -d backend`。
+2. 打开 Web 界面进入「系统设置 → 库根目录」，在多行文本框中填入容器内路径（如 `/mnt/pool2`，每行一个）并保存。
+3. 点击「扫描库」开始索引。系统会将这些目录统一汇聚至统一资产视图中。
 
-`library_roots` 是库根：画廊会被索引、标签同步正常，但新下载只会落到 `download_root`，绝不会写入这些目录。删除画廊时**若挂载可写**会一并删除库根下的对应文件；若挂载为只读，删除会失败并在 toast 与日志页提示（DB 行保留，不会被下次扫描当作新画廊重新入库）。
+---
 
-> **多个已有画廊目录**：有几个就挂几条 volume（容器内路径各取一个唯一名字，如 `/gallery1`、`/gallery2`），然后在「库根目录」每行填一个容器内路径。`download_root` 会被自动并入库根，无需重复填写。
+## 反向代理最佳实践
 
-> **路径配置在设置页**：compose 已不设路径 env（不再通过环境变量配置 `DOWNLOAD_ROOT` 或 `COLD_STORAGE_ROOT`），路径统一去设置页填写（存入数据库）。首次启动未保存设置前默认 `download_root=/downloads`、`library_roots` 包含 `/library`，后续以设置页保存的值为准。
+为确保登录限速、防跨站请求伪造（CSRF）与安全认证正常工作，反向代理必须正确透传客户端来源信息。
 
-## 安全加固
+### 1. Nginx 完整配置范例
 
-后端默认绑定 `127.0.0.1:8001`，只通过前端 nginx 代理访问；登录接口按真实客户端 IP 限速（每 IP 60 秒 10 次），`/api` 限流 30 次/秒（由前端 nginx 的 `limit_req` 实现）。
+```nginx
+# /etc/nginx/conf.d/galleryvault.conf
 
-> **受信代理白名单 `TRUSTED_PROXIES`**：`X-Forwarded-For` / `X-Real-IP` 仅当直连 IP 为 `127.0.0.1` / `::1` / `testclient` 或在 `TRUSTED_PROXIES` 白名单时才被信任（支持单 IP 或 CIDR，如 `10.0.0.0/8,192.168.1.10`），其余私网 IP 不再隐式可信，避免内网任意客户端伪造 XFF 绕过登录限速。未配置时仅本机环回可信；在反代后部署时请按实际反代 IP 段配置。
+upstream galleryvault_upstream {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
 
-### 会话与 CSRF Cookie（10 年持久化）
+server {
+    listen 80;
+    server_name vault.example.com;
+    return 301 https://$host$request_uri;
+}
 
-Web 登录会话 Cookie（`galleryvault_session`）与防跨站请求伪造 Cookie（`galleryvault_csrf`）默认有效时长（Max-Age）均为 10 年（`315360000` 秒）。配合系统在首次启动时自动生成并持久化于数据库的签名密钥（`AUTH_SECRET`），容器更新、重启或主机维护后用户登录态无感保持，无需频繁重新登录。若需强制注销所有设备的会话凭据，在系统设置中修改一次密码即可使全站所有存量 Cookie 立即作废。
+server {
+    listen 443 ssl http2;
+    server_name vault.example.com;
 
-### 启用 TLS（可选）
+    ssl_certificate     /etc/ssl/certs/vault.example.com.crt;
+    ssl_certificate_key /etc/ssl/private/vault.example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
 
-要公网 HTTPS 访问，在 nginx 终止 TLS（或前置 Caddy/反代），并设置 `AUTH_COOKIE_SECURE=true`：
+    # 客户端上传与单文件大包支持 (如 CBZ 导出与整包传输)
+    client_max_body_size 500M;
+
+    # 安全响应头
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
+    location / {
+        proxy_pass http://galleryvault_upstream;
+        proxy_http_version 1.1;
+
+        # 核心头信息透传 (防 CSRF 拦截与 IP 鉴权关键)
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 支持流式传输与长连接
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}
+```
+
+### 2. Caddyfile 完整配置范例
+
+```caddyfile
+vault.example.com {
+    encode gzip zstd
+    
+    # 自动证书申请与 HTTPS
+    tls admin@example.com
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        
+        # 调优长连接与流式下载超时
+        transport http {
+            read_timeout 600s
+            write_timeout 600s
+        }
+    }
+}
+```
+
+---
+
+## 权限管理与非 Root 降权排错 (PUID / PGID)
+
+默认情况下，后端容器以 `root (0:0)` 权限运行。在群晖（Synology）、QNAP 或 TrueNAS 等私有存储环境中，为保证宿主机文件权限一致，推荐配置非 root 映射：
 
 ```yaml
     environment:
-      AUTH_COOKIE_SECURE: "true"   # backend 服务
+      - PUID=1000
+      - PGID=1000
 ```
 
-前端镜像自带 TLS 配置模板（`nginx.conf` 注释部分），把证书挂载进容器并指向 `ssl_certificate` 路径即可，启用后建议加 HSTS 头。
+### 权限排错指南
+- **数据目录被 root 锁定**：若此前曾以 root 启动，请在宿主机执行修复属主：
+  ```bash
+  chown -R 1000:1000 ./downloads ./library ./cache
+  ```
+- **数据库容器启动报错 `chown: changing ownership of '/var/lib/postgresql/data': Operation not permitted`**：
+  - **严重警告**：PostgreSQL 官方镜像固定依赖容器内 `postgres` 用户（UID 999）。**切勿对宿主 `./db-data` 目录执行批量 `chown -R 1000:1000`**。若已误改，请将其属主改回 999：
+    ```bash
+    chown -R 999:999 ./db-data
+    ```
 
-### 静态加密（可选）
+---
 
-设置 `ENCRYPTION_KEY` 环境变量即可让 cookie / token / 密码哈希以 AES-256-GCM 加密存储。详见 [静态加密](Encryption)。
+## 性能调优与并发限流策略
 
-### 302 临时挑战探针间隔（可选）
-
-设置 `GV_CHALLENGE_PROBE_INTERVAL` 环境变量（默认 `600`，单位秒）用于配置遇到 ExHentai 302 临时防爬挑战自动暂停后的后台探针探测周期。探针探测确认解除后会自动恢复下载。
-
-### ExHentai cookie（收藏夹/云同步必需）
-
-收藏夹检查、封面抓取、下载都依赖 ExHentai 登录态。cookie 在**首次运行向导**或**设置 → ExHentai** 中配置（`ipb_member_id` / `ipb_pass_hash` / `igneous`，可「测试登录」验证），保存后**加密存库**（依赖上面的 `ENCRYPTION_KEY`），不会回显。获取方法参见 [入门指南：配置 ExHentai Cookie](Usage#配置-exhentai-cookie)。
-
-> 注意：**不要**在 `docker-compose.yml` 里写 `EXHENTAI_COOKIES` 环境变量——设置的单数据源是数据库；环境变量缺失时收藏夹检查会 302 回首页、静默空跑（收藏夹无封面、列表为空），误以为是网络/风控问题。
-
-### 自定义权限 / 非 root 运行 (PUID / PGID)
-
-后端镜像支持通过环境变量指定运行身份：
-- **默认（未配置 `PUID`/`PGID`）**：直接以 `root (0:0)` 权限运行，无需手动 `chown` 挂载目录，启动即用。注意：以 root 模式运行时，新下载的画廊文件和系统日志在宿主机上的属主为 `root`。
-- **自定义指定（如 NAS / 非特权 Linux 用户，推荐）**：在 `docker-compose.yml` 中指定 `PUID` 与 `PGID`（如 `PUID=1000` / `PGID=1000`），容器启动时会自动校验参数、动态映射并降权运行，同时在初次启动时自动修复 `/downloads`、`/gv-cache` 等可写目录属主。若想让 `./library` 库根支持删除画廊，请确保宿主目录对该 UID 可写（如 `chown -R 1000:1000 <宿主目录>`）。
-
-> **注意**：`./db-data` 属 postgres（UID 999），**切勿 chown**，否则会导致数据库容器启动失败。
-
-### 可选：集成 Dozzle 实时查看容器日志
-
-如果需要更直观地在浏览器中分屏查看 Nginx、FastAPI 后端及 PostgreSQL 容器的实时日志输出流，可在 `docker-compose.yml` 中按需追加轻量级的 [Dozzle](https://github.com/amir20/dozzle) 容器（占用 ~10MB 内存）：
+### 1. 受信代理白名单 (`TRUSTED_PROXIES`)
+为防止恶意客户端伪造 `X-Forwarded-For` 绕过登录防爆破限速，系统默认仅信任本机环回地址。在反向代理后部署时，请在 `docker-compose.yml` 中明确指定反代所在的 IP 网段：
 
 ```yaml
-  dozzle:
-    image: amir20/dozzle:latest
-    container_name: galleryvault-dozzle
-    restart: always
     environment:
-      DOZZLE_NO_ANALYTICS: "true"
-      DOZZLE_LEVEL: "info"
-      DOZZLE_FILTER: "name=galleryvault*"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      # 建议绑定本地回环端口或指定内网端口；公网访问建议置于反向代理或身份认证后
-      - "127.0.0.1:8888:8080"
+      - TRUSTED_PROXIES=127.0.0.1,172.16.0.0/12,192.168.1.0/24
 ```
 
-> **安全提示**：挂载 `/var/run/docker.sock` 时请务必保留 `:ro`（只读），并建议仅绑定 `127.0.0.1` 本地回环接口或通过 SSH 隧道/反向代理访问，避免直接将 Docker 控制接口暴露到公网。
+### 2. 调度与限流调优指引
 
-## 升级
+可在 Web「系统设置」中微调以下参数以适应不同带宽与网络链路：
+
+- **`download_concurrency`（并发画廊数）**：默认 `2`。建议配置在 `1-4` 之间，避免多画廊并行抢占配额。
+- **`page_concurrency`（单画廊并发页数）**：默认 `4`，上限 `16`。高速稳定链路可适度上调；UDP/代理链路出现抖动时建议下调至 `2-4`。
+- **`exhentai_max_concurrency`（全局并发上限）**：默认 `6`。系统内部硬限制，严控发往服务端的突发请求密度，保障账号安全。
+- **`GV_CHALLENGE_PROBE_INTERVAL`（302 探针间隔）**：默认 `600` 秒。遭遇防爬限制时的探测周期。
+
+---
+
+## 系统更新与升级
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-数据库迁移会在 backend 启动时自动执行（alembic），无需手动操作。镜像使用 `:latest` 标签，`pull` 即可获得新版本。
-
-> **不要**用 `curl -o docker-compose.yml` 覆盖本地 compose——它可能含有你的定制（端口、挂载目录、`ENCRYPTION_KEY` 等）。如需获取更新的 compose 模板，先备份本地文件，再手动比对合并修改。
+Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，平滑升级无须手动介入。

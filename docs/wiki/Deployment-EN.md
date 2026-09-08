@@ -1,179 +1,226 @@
-# Deployment
+# Deployment Guide
 
-## Docker Compose
+> [中文](Deployment) · **English**
 
-The `docker-compose.yml` in the repository root runs three services with fixed
-container names:
+GalleryVault features a modular containerized architecture. This guide covers everything from standard Docker Compose setup to typical production network topologies, reverse proxy configurations, and storage performance tuning.
 
-| Service | Container name | Host port |
-|---------|----------------|-----------|
-| Frontend nginx SPA | `galleryvault-frontend` | 8000 |
-| FastAPI backend | `galleryvault-backend` | 127.0.0.1:8001 (loopback only) |
-| PostgreSQL | `galleryvault-db` | internal |
+---
+
+## Production Architecture Topology
+
+In a typical production or private NAS deployment, it is strongly recommended to terminate TLS via an external reverse proxy (such as Nginx or Caddy) and forward traffic to GalleryVault:
+
+```text
+               ┌────────────────────────────────────────────────────────┐
+               │           Public / LAN Clients (Web & OPDS)            │
+               └───────────────────────────┬────────────────────────────┘
+                                           │ HTTPS (:443) / HTTP
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │         External Reverse Proxy (Nginx / Caddy)          │
+               │   - TLS Certificate Termination & HSTS                  │
+               │   - Forwards Host, X-Real-IP, and X-Forwarded-Proto     │
+               └───────────────────────────┬────────────────────────────┘
+                                           │ HTTP (:8000)
+    ┌──────────────────────────────────────┴──────────────────────────────────────┐
+    │  Docker Compose Container Stack                                             │
+    │                                                                             │
+    │  ┌───────────────────────┐              ┌────────────────────────────────┐  │
+    │  │ galleryvault-frontend │              │      galleryvault-backend      │  │
+    │  │ (SPA Web + Nginx)     ├─────────────►│      (FastAPI Business Core)   │  │
+    │  │ Port: 8000            │ Proxies /api │ Port: 127.0.0.1:8001 (Loopback)│  │
+    │  └───────────────────────┘              └───────┬────────────────────────┘  │
+    │                                                 │                           │
+    │                                                 │ PostgreSQL Protocol       │
+    │                                                 ▼                           │
+    │                                         ┌────────────────────────────────┐  │
+    │                                         │        galleryvault-db         │  │
+    │                                         │     (PostgreSQL Database)      │  │
+    │                                         └────────────────────────────────┘  │
+    └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Docker Compose Standard Deployment
+
+The repository's `docker-compose.yml` provisions three integrated services:
+
+| Service | Container Name | Port Mapping | Purpose |
+| :--- | :--- | :--- | :--- |
+| Frontend Gateway | `galleryvault-frontend` | `0.0.0.0:8000 -> 80` | Static SPA hosting, internal API proxy, and request rate limiting |
+| Backend Core | `galleryvault-backend` | `127.0.0.1:8001 -> 8001` | FastAPI core service, bound only to host loopback interface |
+| Relational DB | `galleryvault-db` | Internal port only | PostgreSQL 16 database storing indexes, histories, and settings |
 
 ```bash
+mkdir -p galleryvault && cd galleryvault
+curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
-The images on Docker Hub are multi-arch manifests for `linux/amd64` and
-`linux/arm64`; `docker compose pull` fetches the architecture that matches the
-host automatically.
+Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd64` and `linux/arm64`), which automatically pull the architecture matching your host.
 
-> All three services set `restart: always` (containers restart automatically on
-> an abnormal exit) and log rotation (json-file driver, ≤10MB per file, 3 files
-> kept, ≤30MB total).
+> Initial web login is accessible at `http://<host-ip>:8000` using the default password **`p1a2s3s4`**. Change this password immediately in *Settings*.
 
-Then open `http://<host>:8000` and log in with the default password
-`p1a2s3s4` — **change it in Settings right away** (the default is for first
-login only).
+---
 
-> For local development and live-reload environment (Dev Compose), see [Development](Development#dev-compose).
+## Storage Topology & Volume Mounts
 
-## Data directories
+### 1. Persistent Storage Roots
 
-| Path | Purpose |
-|------|---------|
-| `./db-data` | PostgreSQL data (index, settings, history) — survives container recreation |
-| `./library` | **Library**: your existing archives (Ehviewer exports, CBZ/CBR). New downloads never land here; deleting a gallery removes its files here when the mount is writable |
-| `./downloads` | **Download directory**: galleries downloaded from ExHentai, scanned automatically (hot folder names follow `download_title`, falling back to English if no Japanese title) |
-| `./cache` | **Thumbnail cache** (generated), never written into the galleries |
-| `./Archive` | **Archive** (optional, commented in compose by default): tiered archive destination (cold storage CBZ files are consistently named `gid-<English title>.cbz`, not following `download_title`); multiple volumes can be mounted (e.g. `./Archive:/archive`, `./Archive2:/archive2`); uncomment and configure in Settings to enable |
+| Local Host Path | Container Path | Access Mode | Purpose |
+| :--- | :--- | :--- | :--- |
+| `./db-data` | `/var/lib/postgresql/data` | Read-Write (`rw`) | PostgreSQL data (UID 999); stores primary index and credentials |
+| `./library` | `/library` | `rw` or `ro` | Primary library root for existing archives; **downloads never land here** |
+| `./downloads` | `/downloads` | Read-Write (`rw`) | Target directory for active downloads; automatically indexed |
+| `./cache` | `/gv-cache` | Read-Write (`rw`) | Thumbnail and cover image cache; saves external bandwidth |
+| `./Archive` | `/archive` | Read-Write (`rw`) | (Optional) Tiered cold storage destination for low-frequency archives |
 
-> To mount several host directories and use other Ehviewer download folders as
-> **scan-only** libraries, see below.
+### 2. Tiered Storage & Multi-Disk Mounting
 
-## Using other Ehviewer download folders as scan-only libraries
-
-If you have several folders of Ehviewer downloads and want them all scanned
-while **new downloads only land in `download_root`**, mount each one into the
-backend container (use `:ro` when you don't need to delete galleries in it) and
-add the in-container path under *Settings → Library roots*:
+To mount multiple storage pools on your NAS or scan existing collections without downloading into them:
 
 ```yaml
     volumes:
       - ./library:/library
       - ./downloads:/downloads
-      - /mnt/your/ehviewer/download-folder:/Ehviewer2:ro   # added
       - ./cache:/gv-cache
+      # Additional disk volumes or network shares:
+      - /mnt/storage_pool2/ehviewer_export:/mnt/pool2:ro
+      - /mnt/cold_archive/disk1:/archive1:rw
 ```
 
-1. Add a line under `backend.volumes` in `docker-compose.yml` (any host path,
-   any in-container path such as `/Ehviewer2`).
-2. Restart the backend: `docker compose up -d backend`.
-3. In *Settings → Library roots* add that in-container path (one
-   per line) and save.
-4. Click **Scan library** to index it (saving settings does not auto-scan).
+**Steps to Apply**:
+1. Add paths under `backend.volumes` in `docker-compose.yml` and restart the backend: `docker compose up -d backend`.
+2. Open *Settings → Library roots*, enter the container paths (e.g. `/mnt/pool2`, one per line), and save.
+3. Click **Scan library**. All mounted roots will be aggregated into the central library view.
 
-`library_roots` are library roots: galleries are indexed and tag-synced
-normally, but downloads only ever go to `download_root` and are never written
-into these folders. Deleting a gallery **removes its files under these roots
-when the mount is writable**; on a read-only mount the deletion fails and is
-reported in the toast and on the Logs page (the DB row is kept so the next scan
-does not re-import it as a fresh gallery).
+---
 
-> **Multiple existing gallery folders**: add one volume per folder (give each a
-> unique in-container path such as `/gallery1`, `/gallery2`), then list each
-> in-container path in *Settings → Library roots* (one per line).
-> `download_root` is always included in the library roots automatically, so you
-> don't need to repeat it.
+## Reverse Proxy Best Practices
 
-> **Path configuration is in Settings**: compose no longer sets path env vars
-> (such as `DOWNLOAD_ROOT` or `COLD_STORAGE_ROOT`); configure paths in Settings
-> (persisted to the DB). Fresh installs default to `download_root=/downloads`
-> and `library_roots` containing `/library` before settings are first saved.
+To ensure rate limiting, CSRF protections, and session authentication function properly, the reverse proxy must pass client identity headers correctly.
 
-## Security hardening
+### 1. Nginx Configuration Sample
 
-The backend binds `127.0.0.1:8001` by default and is only reachable through
-the nginx frontend proxy; login is rate-limited per real client IP (10 attempts
-/ 60 s) and `/api` is throttled at 30 r/s (implemented by the frontend nginx
-`limit_req`).
+```nginx
+# /etc/nginx/conf.d/galleryvault.conf
 
-> **Trusted proxy whitelist `TRUSTED_PROXIES`**: `X-Forwarded-For` / `X-Real-IP` are only trusted when the direct peer is `127.0.0.1` / `::1` / `testclient` or listed in `TRUSTED_PROXIES` (single IP or CIDR, e.g. `10.0.0.0/8,192.168.1.10`). Private ranges are **not** implicitly trusted — set the whitelist to your reverse-proxy's IP range when behind a proxy to avoid spoofed XFF bypassing the login rate limit.
+upstream galleryvault_upstream {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
 
-### Session & CSRF Cookies (10-year Persistence)
+server {
+    listen 80;
+    server_name vault.example.com;
+    return 301 https://$host$request_uri;
+}
 
-Web session cookies (`galleryvault_session`) and CSRF tokens (`galleryvault_csrf`) have a default max-age of 10 years (`315360000` seconds). Combined with the database-persisted session signing secret (`AUTH_SECRET`), user logins survive container restarts, upgrades, and host reboots without repeated authentication prompts. To immediately revoke all active sessions across all client devices, change the account password in Settings.
+server {
+    listen 443 ssl http2;
+    server_name vault.example.com;
 
-### TLS (optional)
+    ssl_certificate     /etc/ssl/certs/vault.example.com.crt;
+    ssl_certificate_key /etc/ssl/private/vault.example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
 
-To serve the UI over HTTPS, terminate TLS at nginx (or in front of it with
-Caddy / a reverse proxy) and set `AUTH_COOKIE_SECURE=true`:
+    client_max_body_size 500M;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
+    location / {
+        proxy_pass http://galleryvault_upstream;
+        proxy_http_version 1.1;
+
+        # Mandatory headers for CSRF validation and IP throttling
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}
+```
+
+### 2. Caddyfile Configuration Sample
+
+```caddyfile
+vault.example.com {
+    encode gzip zstd
+    tls admin@example.com
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        
+        transport http {
+            read_timeout 600s
+            write_timeout 600s
+        }
+    }
+}
+```
+
+---
+
+## User Permissions & Troubleshooting (PUID / PGID)
+
+By default, the backend container operates as `root (0:0)`. On dedicated NAS systems (Synology, QNAP, TrueNAS), specifying custom user mappings is recommended:
 
 ```yaml
     environment:
-      AUTH_COOKIE_SECURE: "true"   # backend service
+      - PUID=1000
+      - PGID=1000
 ```
 
-The frontend image ships a TLS template (the commented section of
-`nginx.conf`): mount your certificate into the container, point
-`ssl_certificate` at it, and add HSTS once HTTPS is live.
+### Permission Troubleshooting
+- **Files Locked by Root**: If previously run under root, reassign ownership on the host:
+  ```bash
+  chown -R 1000:1000 ./downloads ./library ./cache
+  ```
+- **Database Boot Error `Operation not permitted`**:
+  - **Important Warning**: The PostgreSQL image strictly relies on container user `postgres` (UID 999). **Never run `chown -R 1000:1000` against `./db-data`**. If changed accidentally, restore ownership to 999:
+    ```bash
+    chown -R 999:999 ./db-data
+    ```
 
-### At-rest encryption (optional)
+---
 
-Setting the `ENCRYPTION_KEY` environment variable stores cookies / tokens /
-password hashes encrypted with AES-256-GCM. See [Encryption](Encryption-EN).
+## Tuning & Concurrency Safeguards
 
-### 302 Challenge probe interval (optional)
-
-Setting the `GV_CHALLENGE_PROBE_INTERVAL` environment variable (default `600` seconds) configures the background probe interval when downloads are auto-paused due to an ExHentai 302 anti-abuse challenge. Downloads automatically resume once the probe confirms the challenge is cleared.
-
-### ExHentai cookies (required for favorites / cloud sync)
-
-Favorites checks, cover fetching and downloads all depend on an ExHentai
-session. Configure the cookies in the **first-run wizard** or **Settings →
-ExHentai** (`ipb_member_id` / `ipb_pass_hash` / `igneous`, verified with "Test
-login"); they are stored **encrypted in the database** (via `ENCRYPTION_KEY`)
-and never echoed back. For instructions on obtaining cookies, see [Usage Guide: Cookie Setup](Usage-EN#configuring-exhentai-cookies).
-
-> Note: **do not** set an `EXHENTAI_COOKIES` environment variable in
-> `docker-compose.yml` — the database is the single source of truth for
-> settings. Without cookies, favorites checks redirect to the home page and
-> silently record nothing (no covers, empty lists), which is easy to mistake
-> for a network/anti-abuse problem.
-
-### Custom Permissions / Non-root runtime (PUID / PGID)
-
-The backend image supports configurable runtime user identity via environment variables:
-- **Default (no `PUID`/`PGID` set)**: Runs directly as `root (0:0)` with zero setup and no manual host permission adjustments required. Note that in root mode, newly downloaded archives and system logs will be owned by `root` on the host.
-- **Custom unprivileged user (NAS / standard Linux host, recommended)**: Set `PUID` and `PGID` in `docker-compose.yml` (e.g. `PUID=1000`, `PGID=1000`). The container validates parameters, drops privileges at startup, and automatically aligns ownership on `/downloads` and `/gv-cache`. To allow gallery deletions under library roots (e.g. `./library`), ensure the host directory is writable by that UID (e.g. `chown -R 1000:1000 <host-folder>`).
-
-> **Note**: `./db-data` belongs to postgres (UID 999) — **do not chown it**, as this will cause the database container to fail on boot.
-
-### Optional: View container logs in real time with Dozzle
-
-If you prefer viewing live multi-container log streams (Nginx, FastAPI backend, PostgreSQL) side by side in a web browser, you can append a lightweight [Dozzle](https://github.com/amir20/dozzle) container (~10MB memory usage) to your `docker-compose.yml`:
+### 1. Trusted Proxies (`TRUSTED_PROXIES`)
+To prevent spoofed `X-Forwarded-For` headers from bypassing brute-force login throttles, only loopback addresses are trusted by default. Behind an external reverse proxy, explicitly define your proxy network range:
 
 ```yaml
-  dozzle:
-    image: amir20/dozzle:latest
-    container_name: galleryvault-dozzle
-    restart: always
     environment:
-      DOZZLE_NO_ANALYTICS: "true"
-      DOZZLE_LEVEL: "info"
-      DOZZLE_FILTER: "name=galleryvault*"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      # Recommended to bind to loopback or private LAN only; protect with reverse proxy if accessed publicly
-      - "127.0.0.1:8888:8080"
+      - TRUSTED_PROXIES=127.0.0.1,172.16.0.0/12,192.168.1.0/24
 ```
 
-> **Security Note**: Keep the `:ro` (read-only) flag on `/var/run/docker.sock`, and bind only to `127.0.0.1` loopback or access via an SSH tunnel / authenticated reverse proxy to avoid exposing Docker daemon endpoints directly to the public network.
+### 2. Concurrency Tuning Guide
 
-## Upgrading
+Tune these parameters in *Settings* based on your network conditions:
+
+- **`download_concurrency`**: Default `2`. Sets the number of simultaneously downloading galleries.
+- **`page_concurrency`**: Default `4` (max `16`). Adjust according to proxy stability; reduce to `2-4` if connection drops occur over UDP/proxy hops.
+- **`exhentai_max_concurrency`**: Default `6`. Hard global cap protecting your account from burst traffic triggers.
+- **`GV_CHALLENGE_PROBE_INTERVAL`**: Default `600` seconds. Background probe cycle when auto-paused by anti-bot challenges.
+
+---
+
+## Upgrades
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Database migrations (Alembic) run automatically when the backend starts — no
-manual step needed. Images use the `:latest` tag, so `pull` fetches new
-releases.
-
-> Do **not** overwrite your local `docker-compose.yml` with
-> `curl -o docker-compose.yml` — it likely contains your customizations (ports,
-> volume mounts, `ENCRYPTION_KEY`, …). If you need a newer compose template,
-> back it up first and merge the changes by hand.
+Alembic schema migrations run automatically during backend container initialization.

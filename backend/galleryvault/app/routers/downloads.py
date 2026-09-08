@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.models import DownloadTask as DownloadTaskModel
 from ...db.repository import DownloadRepository, GalleryUpdatesRepository
@@ -24,6 +25,7 @@ from ..dependencies import (
     get_session,
     get_task_manager,
     resolve_display_title,
+    resolve_session,
     spawn_task,
 )
 from ..schemas import DownloadBatchRequest, DownloadRequest
@@ -39,6 +41,7 @@ async def _create_from_prepared(
     max_pages: int | None,
     quality: str | None,
     fallback_title: str | None = None,
+    session: AsyncSession | None = None,
 ) -> tuple[str, dict[str, object]]:
     if prepared.gone:
         return "gone", {
@@ -57,33 +60,43 @@ async def _create_from_prepared(
     title = prepared.title or fallback_title
     if not quality:
         quality = get_current_settings().download_quality or "resample"
+    if session is None:
+        if not app_state.session_factory:
+            raise HTTPException(status_code=503, detail="Database session factory not initialized")
+        async with app_state.session_factory() as s:
+            return await _create_from_prepared(
+                prepared,
+                mode=mode,
+                max_pages=max_pages,
+                quality=quality,
+                fallback_title=fallback_title,
+                session=s,
+            )
     try:
-        async for session in get_session():
-            async with session.begin():
-                task = await DownloadRepository(session).create(
-                    prepared.gid,
-                    prepared.token,
-                    title,
-                    mode,
-                    max_pages,
-                    quality,
-                    title_jpn=prepared.title_jpn,
-                )
-                if task is None:
-                    return "skipped", {
-                        "gid": prepared.gid,
-                        "old_gid": prepared.old_gid,
-                        "title": title or str(prepared.gid),
-                        "detail": "already queued",
-                    }
-                payload = {
-                    "id": task.id,
-                    "gid": task.gid,
+        async with session.begin():
+            task = await DownloadRepository(session).create(
+                prepared.gid,
+                prepared.token,
+                title,
+                mode,
+                max_pages,
+                quality,
+                title_jpn=prepared.title_jpn,
+            )
+            if task is None:
+                return "skipped", {
+                    "gid": prepared.gid,
                     "old_gid": prepared.old_gid,
-                    "title": resolve_display_title(task.title, task.title_jpn) or str(task.gid),
-                    "status": "pending",
+                    "title": title or str(prepared.gid),
+                    "detail": "already queued",
                 }
-            break
+            payload = {
+                "id": task.id,
+                "gid": task.gid,
+                "old_gid": prepared.old_gid,
+                "title": resolve_display_title(task.title, task.title_jpn) or str(task.gid),
+                "status": "pending",
+            }
     except IntegrityError:
         return "skipped", {
             "gid": prepared.gid,
@@ -98,7 +111,11 @@ async def _create_from_prepared(
 
 
 @router.post("/api/downloads", status_code=202)
-async def create_download(body: DownloadRequest) -> dict[str, object]:
+async def create_download(
+    body: DownloadRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     if app_state.downloader is None:
         raise HTTPException(status_code=503, detail="Downloader is unavailable")
     prepared = (
@@ -112,6 +129,7 @@ async def create_download(body: DownloadRequest) -> dict[str, object]:
         max_pages=body.max_pages,
         quality=body.quality,
         fallback_title=body.title,
+        session=session,
     )
     if status == "gone":
         raise HTTPException(status_code=404, detail=GONE_DETAIL)
@@ -124,7 +142,11 @@ async def create_download(body: DownloadRequest) -> dict[str, object]:
 
 
 @router.post("/api/downloads/batch", status_code=202)
-async def create_downloads_batch(body: DownloadBatchRequest) -> dict[str, object]:
+async def create_downloads_batch(
+    body: DownloadBatchRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     if app_state.downloader is None:
         raise HTTPException(status_code=503, detail="Downloader is unavailable")
     pairs = [(int(item.gid), str(item.token)) for item in body.items]
@@ -144,6 +166,7 @@ async def create_downloads_batch(body: DownloadBatchRequest) -> dict[str, object
                 max_pages=max_pages,
                 quality=quality,
                 fallback_title=item.title,
+                session=session,
             )
         except Exception:  # noqa: BLE001
             failed += 1
@@ -190,14 +213,16 @@ def _row_val(row: Any, key: str, default: Any = None) -> Any:
 
 @router.get("/api/downloads")
 async def list_downloads(
-    page: int = 1, page_size: int = 24, status: str | None = None
+    page: int = 1,
+    page_size: int = 24,
+    status: str | None = None,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     try:
-        async for session in get_session():
-            total, rows = await DownloadRepository(session).list_page(page, page_size, status)
-            break
+        total, rows = await DownloadRepository(session).list_page(page, page_size, status)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     downloader = app_state.downloader
@@ -251,13 +276,14 @@ async def list_downloads(
 
 
 @router.post("/api/downloads/clear-success")
-async def clear_success_downloads() -> dict[str, object]:
+async def clear_success_downloads(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     deleted = 0
     try:
-        async for session in get_session():
-            async with session.begin():
-                deleted = await DownloadRepository(session).delete_success()
-            break
+        async with session.begin():
+            deleted = await DownloadRepository(session).delete_success()
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     now = datetime.now(UTC).isoformat()
@@ -276,22 +302,24 @@ async def clear_success_downloads() -> dict[str, object]:
 
 
 @router.post("/api/downloads/{task_id}/retry")
-async def retry_download(task_id: int) -> dict[str, object]:
+async def retry_download(
+    task_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                row = await session.get(DownloadTaskModel, task_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="Download task not found")
-                if row.status not in {"failed", "cancelled", "success"}:
-                    raise HTTPException(status_code=409, detail="Task is still active")
-                row.status = "pending"
-                row.retry_count = 0
-                row.retry_at = None
-                row.error_message = None
-                row.finished_at = None
-                row.max_retries = 10
-            break
+        async with session.begin():
+            row = await session.get(DownloadTaskModel, task_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="Download task not found")
+            if row.status not in {"failed", "cancelled", "success"}:
+                raise HTTPException(status_code=409, detail="Task is still active")
+            row.status = "pending"
+            row.retry_count = 0
+            row.retry_at = None
+            row.error_message = None
+            row.finished_at = None
+            row.max_retries = 10
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -302,18 +330,20 @@ async def retry_download(task_id: int) -> dict[str, object]:
 
 
 @router.post("/api/downloads/{task_id}/cancel")
-async def cancel_download(task_id: int) -> dict[str, object]:
+async def cancel_download(
+    task_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     was_active = False
     try:
-        async for session in get_session():
-            async with session.begin():
-                row = await session.get(DownloadTaskModel, task_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="Download task not found")
-                was_active = row.status in {"pending", "downloading"}
-                if not await DownloadRepository(session).cancel(task_id):
-                    raise HTTPException(status_code=404, detail="Download task not found")
-            break
+        async with session.begin():
+            row = await session.get(DownloadTaskModel, task_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="Download task not found")
+            was_active = row.status in {"pending", "downloading"}
+            if not await DownloadRepository(session).cancel(task_id):
+                raise HTTPException(status_code=404, detail="Download task not found")
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -325,23 +355,25 @@ async def cancel_download(task_id: int) -> dict[str, object]:
 
 
 @router.delete("/api/downloads/{task_id}", status_code=204)
-async def delete_download_task(task_id: int) -> None:
+async def delete_download_task(
+    task_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> None:
+    session = await resolve_session(session, fallback_dep=get_session)
     gid: int | None = None
     was_downloading = False
     try:
-        async for session in get_session():
-            async with session.begin():
-                row = await session.get(DownloadTaskModel, task_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="Download task not found")
-                gid = row.gid
-                was_downloading = row.status == "downloading"
-                if not await DownloadRepository(session).delete(task_id):
-                    raise HTTPException(status_code=404, detail="Download task not found")
-                await GalleryUpdatesRepository(session).mark_failed_by_task(
-                    task_id, "download task removed"
-                )
-            break
+        async with session.begin():
+            row = await session.get(DownloadTaskModel, task_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="Download task not found")
+            gid = row.gid
+            was_downloading = row.status == "downloading"
+            if not await DownloadRepository(session).delete(task_id):
+                raise HTTPException(status_code=404, detail="Download task not found")
+            await GalleryUpdatesRepository(session).mark_failed_by_task(
+                task_id, "download task removed"
+            )
     except HTTPException:
         raise
     except SQLAlchemyError as exc:

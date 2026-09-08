@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,10 +16,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..app.dependencies import db_error
 from ..app.state import app_state
 from ..db.models import DownloadTask as DownloadTaskModel
-from ..db.models import FavoriteItem, Gallery
+from ..db.models import DuplicateRecord, FavoriteItem, Gallery, GalleryUpdate
 from ..db.repository import DownloadRepository, GalleryUpdatesRepository
+from ..db.uow import UnitOfWork
 from ..logging import bind_log_context, log_extra
-from .deletion import delete_galleries_local
 
 logger = logging.getLogger(__name__)
 
@@ -118,29 +119,112 @@ async def finalize_gallery_update(row: Any) -> None:
     session_cm = app_state.session_factory
     if session_cm is None:
         return
-    if getattr(row, "gallery_id", None) is None:
+    gallery_id = getattr(row, "gallery_id", None)
+    if gallery_id is None:
         return
+
+    update_id = getattr(row, "id", None)
     repo_cls = GalleryUpdatesRepository
+    old_storage_path: str | None = None
+    old_gid: int | None = None
+
     try:
-        results = await delete_galleries_local(
-            [row.gallery_id], delete_files=True, delete_all_copies=False
-        )
-        record_gallery_update_log(results)
-    except Exception as exc:  # noqa: BLE001
+        async with session_cm() as session, session.begin():
+            uow = UnitOfWork(session)
+            old_gallery = await uow.session.get(Gallery, gallery_id)
+            if old_gallery is None:
+                return
+
+            old_storage_path = old_gallery.storage_path
+            old_gid = old_gallery.gid
+
+            update_row: GalleryUpdate | None = None
+            if update_id is not None:
+                update_row = await uow.updates.get(update_id)
+            if update_row is None and old_gallery.id is not None:
+                update_row = await uow.session.scalar(
+                    select(GalleryUpdate).where(GalleryUpdate.gallery_id == old_gallery.id)
+                )
+
+            new_gid = getattr(row, "new_gid", None)
+            if new_gid is None and update_row is not None:
+                new_gid = update_row.new_gid
+
+            # 新画廊关联与旧版本信息转移
+            if new_gid is not None:
+                new_gallery = await uow.session.scalar(
+                    select(Gallery).where(
+                        Gallery.gid == int(new_gid),
+                        Gallery.expunged.is_(False),
+                        Gallery.trashed.is_(False),
+                    )
+                )
+                if new_gallery is not None:
+                    # 转移旧画廊用户数据（本地评分与备注、分类）
+                    if old_gallery.local_rating is not None and new_gallery.local_rating is None:
+                        new_gallery.local_rating = old_gallery.local_rating
+                    if old_gallery.local_note and not new_gallery.local_note:
+                        new_gallery.local_note = old_gallery.local_note
+                    if old_gallery.category and not new_gallery.category:
+                        new_gallery.category = old_gallery.category
+                    new_gallery.updated_at = datetime.now(UTC)
+
+            # 标记状态完结并在级联下删除旧版本画廊
+            if update_row is not None:
+                update_row.status = "completed"
+                update_row.error_message = None
+                update_row.updated_at = datetime.now(UTC)
+
+            await uow.session.delete(old_gallery)
+            if old_gid is not None:
+                dup_row = await uow.session.get(DuplicateRecord, old_gid)
+                if dup_row is not None:
+                    await uow.session.delete(dup_row)
+
+        # 事务成功提交后，执行物理文件删除与日志记录
+        if old_storage_path:
+            p = Path(old_storage_path)
+            try:
+                from .deletion import delete_local_copy
+
+                delete_local_copy(p)
+            except Exception as io_err:  # noqa: BLE001
+                logger.warning(
+                    "failed to delete old gallery physical copy",
+                    extra=log_extra(
+                        gallery_id=gallery_id,
+                        path=old_storage_path,
+                        error=type(io_err).__name__,
+                    ),
+                )
+        record_gallery_update_log([
+            {
+                "gallery_id": gallery_id,
+                "gid": old_gid,
+                "db_removed": True,
+                "deleted_paths": [old_storage_path] if old_storage_path else [],
+                "failed_paths": [],
+            }
+        ])
+    except Exception as exc:
         logger.warning(
-            "gallery update finalize failed",
-            extra=log_extra(update_id=row.id, error=type(exc).__name__),
+            "gallery update finalize failed, rolled back to downloading",
+            extra=log_extra(update_id=update_id, gallery_id=gallery_id, error=type(exc).__name__),
         )
-        if getattr(row, "id", None) is None:
-            return
-        try:
-            async with session_cm() as session, session.begin():
-                await repo_cls(session).mark_failed(row.id, str(exc))
-        except Exception as exc2:  # noqa: BLE001
-            logger.warning(
-                "could not record gallery update failure",
-                extra=log_extra(update_id=row.id, error=type(exc2).__name__),
-            )
+        if update_id is not None:
+            try:
+                async with session_cm() as retry_session, retry_session.begin():
+                    update_row = await repo_cls(retry_session).get(update_id)
+                    if update_row is not None:
+                        update_row.status = "downloading"
+                        update_row.error_message = f"Finalize error, will retry: {exc}"
+                        update_row.updated_at = datetime.now(UTC)
+            except Exception as exc2:  # noqa: BLE001
+                logger.warning(
+                    "could not reset gallery update status to downloading",
+                    extra=log_extra(update_id=update_id, error=type(exc2).__name__),
+                )
+        raise
 
 
 async def finalize_updates_for_new_gid(new_gid: int) -> int:
@@ -149,11 +233,22 @@ async def finalize_updates_for_new_gid(new_gid: int) -> int:
         return 0
     async with session_cm() as session:
         rows = await GalleryUpdatesRepository(session).actionable_by_new_gid(int(new_gid))
-        refs = [SimpleNamespace(id=r.id, gallery_id=r.gallery_id) for r in rows]
+        refs = [
+            SimpleNamespace(
+                id=r.id, gallery_id=r.gallery_id, new_gid=getattr(r, "new_gid", new_gid)
+            )
+            for r in rows
+        ]
     done = 0
     for ref in refs:
-        await finalize_gallery_update(ref)
-        done += 1
+        try:
+            await finalize_gallery_update(ref)
+            done += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "finalize_updates_for_new_gid failed for row, leaving actionable for retry",
+                extra=log_extra(update_id=ref.id, new_gid=new_gid, error=type(exc).__name__),
+            )
     return done
 
 
@@ -251,6 +346,7 @@ async def detect_gallery_updates() -> None:
                             SimpleNamespace(
                                 id=entry.get("existing_id"),
                                 gallery_id=entry["gallery_id"],
+                                new_gid=entry.get("new_gid"),
                             )
                         )
                         continue
@@ -332,7 +428,13 @@ async def run_gallery_updates(
             )
             for row in pending_rows:
                 if row.new_gid in local:
-                    ready.append(SimpleNamespace(id=row.id, gallery_id=row.gallery_id))
+                    ready.append(
+                        SimpleNamespace(
+                            id=row.id,
+                            gallery_id=row.gallery_id,
+                            new_gid=row.new_gid,
+                        )
+                    )
                     started += 1
                     continue
                 task = await dl_repo_cls(session).create(

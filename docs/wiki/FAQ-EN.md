@@ -1,168 +1,102 @@
-# FAQ
+# Frequently Asked Questions (FAQ)
 
-## Why aren't some tags translated?
+> [中文](FAQ) · **English**
 
-Translations come from
-[EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)
-(fetched automatically). Tags not covered by that database (mostly obscure
-artists / original titles) stay as-is; multi-value tags (`A | B`) only show the
-translated part and untranslated aliases are hidden. You can refresh manually
-via *Update translations now* on the Logs page.
+This document organizes common troubleshooting scenarios and operational questions for GalleryVault by domain.
 
-## After removing a library directory, do its galleries disappear?
+---
 
-A scan only soft-deletes (`expunged`) galleries that are still under a scanned
-root but weren't seen this pass. Removing a directory from Settings alone does
-not affect existing galleries; adding the directory back and rescanning
-restores them. To avoid false expunges, remove the path from *Library roots*
-before removing the directory.
+## Quick Index
+- [1. Installation & Deployment Troubleshooting](#1-installation--deployment-troubleshooting)
+- [2. Credentials, Cookies & Security](#2-credentials-cookies--security)
+- [3. Download Pipeline & Concurrency](#3-download-pipeline--concurrency)
+- [4. Library Management, Deduplication & Updates](#4-library-management-deduplication--updates)
+- [5. Reader, Tags & Client Ecosystem](#5-reader-tags--client-ecosystem)
 
-## A download failed; the logs say `image download request failed`?
+---
 
-That's a **transient network failure** (ExHentai / H@H node or your proxy link),
-not an app bug — retry it from the Downloads page. To diagnose, check the
-backend logs (on the fixed build each line carries an `[error='...']` suffix):
+## 1. Installation & Deployment Troubleshooting
 
+### 1. Behind a reverse proxy or across subnets, write operations fail with "Cross-origin request rejected"?
+This is GalleryVault's built-in CSRF protection verifying client origin against the host header. When deploying behind external proxies (Nginx, Caddy, Cloudflare), ensure the proxy forwards the incoming host header (e.g. `proxy_set_header Host $http_host;`). In addition, configure `TRUSTED_PROXIES` in `docker-compose.yml` with your proxy CIDR range. See **[Deployment Guide → Security Hardening](Deployment-EN#reverse-proxy-best-practices)**.
+
+### 2. How do I change external ports or bind a custom domain?
+Adjust the external port mapping for `galleryvault-frontend` in `docker-compose.yml` (e.g. `"8888:80"`). For custom domain names and HTTPS certificates, terminating TLS at an external Nginx or Caddy proxy is recommended.
+
+### 3. PostgreSQL container fails to boot with `Operation not permitted`?
+The official PostgreSQL image relies strictly on container UID 999 (`postgres`). **Never run a blanket `chown` on `./db-data`** for normal host users. If accidentally modified, restore ownership on the host: `chown -R 999:999 ./db-data`.
+
+### 4. Does scanning a 7z archive extract all files to disk?
+**No.** The scanner extracts and validates image byte streams in memory, without creating temporary residual files on host storage.
+
+---
+
+## 2. Credentials, Cookies & Security
+
+### 1. Are all devices logged out when the administrator password is changed?
+**Yes.** This is an intentional security design: changing the password immediately revokes all persisted session credentials across all devices, requiring re-authentication.
+
+### 2. What happens if I lose my `ENCRYPTION_KEY`?
+Database encryption uses mathematically irreversible AES-256-GCM. **A lost key cannot be recovered**. Refer to **[Encryption at Rest → Recovering from a Lost Key](Encryption-EN#recovering-from-a-lost-key)** for emergency reset procedures.
+
+### 3. Top banner shows "Cookie expired" or "No ExHentai access"?
+System probes run periodically in the background:
+- **Cookie expired**: The session has ended. Go to *Settings → ExHentai*, supply fresh cookies, and click *Test login*.
+- **No ExHentai access**: Account lacks required tier privileges or `igneous` is missing. You can switch to the public domain `e-hentai.org`. During these alerts, background sync pauses safely to prevent data corruption.
+
+### 4. Why shouldn't credentials be configured via environment variables?
+The PostgreSQL database serves as the single source of truth (SSOT) for application settings. Hardcoding secrets in environment files risks silent discrepancies; settings should be maintained in the Web UI, where they are automatically encrypted at rest when `ENCRYPTION_KEY` is configured.
+
+---
+
+## 3. Download Pipeline & Concurrency
+
+### 1. Downloads auto-pause with a 302 challenge warning?
+This occurs when the upstream service applies temporary anti-scraping rate limits. GalleryVault automatically suspends the queue to protect your account. Background probes check every 10 minutes (configurable via `GV_CHALLENGE_PROBE_INTERVAL`), and the queue **resumes automatically once the restriction is lifted**.
+
+### 2. Do archive downloads re-charge GP on resumes or retry?
+**Never.** When an archive download starts, the assigned download URL is cached in local task metadata. Range resumes or error retries reuse this exact URL and **never charge GP again**.
+
+### 3. How do I troubleshoot `image download request failed` errors?
+This indicates transient upstream connectivity issues, slow H@H nodes, or proxy drops. The system automatically retries with exponential backoff (30s up to 6h). Inspect logs using:
 ```bash
 docker logs galleryvault-backend --since 6h | grep -E "download task failed|page download failed"
 ```
+- `ReadTimeout`: An upstream H@H node stalled; the watchdog will drop it and retry.
+- `ConnectTimeout` / `RemoteProtocolError`: Proxy link instability. Check proxy node quality or lower `page_concurrency` in Settings.
 
-- `[error='ReadTimeout']` → a H@H node stalled / is too slow; try another node
-  or a different time window.
-- `[error='ConnectTimeout']` / `[error='ConnectError']` /
-  `[error='RemoteProtocolError']` → the proxy path is unstable. If you route
-  through a UDP proxy such as Hysteria 2, jitter on the international link can
-  drop long-lived streams — prefer a TCP-based protocol (VLESS+TCP / Reality /
-  Shadowsocks / Trojan), or lower `page_concurrency`.
-- `EhClientError: ExHentai request failed` → transient network error on a
-  page/API request; it already backs off 30s and retries on its own.
+### 4. Why does an in-flight page keep downloading after clicking Pause?
+Clicking Pause stops claiming new pages or tasks from the pool. Images currently mid-transfer finish their byte stream safely to prevent corrupt files on disk.
 
-## Downloads don't use concurrency / are slow?
+---
 
-- `download_concurrency` in Settings controls how many galleries download at
-  once.
-- The backend enforces a **global ExHentai concurrency cap**
-  (`exhentai_max_concurrency`, default 6) to avoid triggering anti-bot; on
-  rate limits (429/509) it backs off and retries.
+## 4. Library Management, Deduplication & Updates
 
-## All devices logged out after I changed the password?
+### 1. Do galleries disappear if their mount path is removed from Settings?
+**No.** Removing a path simply excludes it from subsequent scanning sweeps. Already ingested metadata and gallery records remain intact in the database.
 
-Yes, by design: changing the password **revokes every logged-in session**, so
-each device has to log in again.
+### 2. Can deleted galleries be restored?
+- If deleted **without** checking "Delete files from disk", the gallery moves to the Recycle Bin and can be restored with a single click.
+- If deleted with disk purge checked, files are permanently deleted from storage.
 
-## Can't log in / password error?
+### 3. Why does an updated gallery still appear under Updates after downloading?
+Once the newly assigned GID is fully downloaded into the library, clicking **Scan now** deletes the obsolete local archive and dismisses the update record. If marked as "Ignored", it remains unchanged.
 
-- The default password is `p1a2s3s4` for first login — change it afterwards.
-- If you turned off *Require login* in Settings, auth is bypassed (direct
-  access, no password needed).
+### 4. What is Cross-GID Deduplication?
+Different translation groups or quality variants of the same artwork often carry distinct GIDs online. Cross-GID deduplication clusters these works together locally, allowing you to easily identify duplicates, select the best version, and purge redundant copies.
 
-## I lost my key?
+---
 
-See [Encryption at Rest → Recovering from a lost key](Encryption-EN#recovering-from-a-lost-key).
+## 5. Reader, Tags & Client Ecosystem
 
-## How do I change the port / bind a domain?
+### 1. Why are certain tags untranslated?
+Tag translations are sourced directly from the authoritative [EhTagTranslation/Database](https://github.com/EhTagTranslation/Database). Unregistered tags or rare author names display in their original language. You can fetch updates at any time via *Update translations now* on the Logs page.
 
-Change port mappings in `docker-compose.yml`; for reverse proxy configuration and domain binding see [Deployment → Security hardening](Deployment-EN#security-hardening).
+### 2. Do search filters persist after reading and returning?
+**Yes.** The reader preserves search filter contexts. Navigating through pages and returning to the library retains all active multi-tag filters, sorting criteria, and scroll positions.
 
-## Write operations (delete/submit) fail with "Cross-origin request rejected" behind reverse proxy or across subnets?
+### 3. How do I connect third-party mobile readers (Tachiyomi / Mihon / Panels)?
+GalleryVault provides a standard OPDS catalog endpoint at `GET /api/opds`. Add the OPDS feed in your reader client using HTTP Basic authentication (username: `galleryvault`, password: your administrator web password).
 
-This is CSRF protection detecting host mismatch across proxy boundaries; ensure the reverse proxy forwards the `Host` header (e.g. `proxy_set_header Host $http_host;`) or configure `TRUSTED_PROXIES`. See [Deployment → Security hardening](Deployment-EN#security-hardening).
-
-## Red top banner says cookie is invalid or no ExHentai access?
-
-A probe runs at startup and every 30 minutes, plus once right after login. The red top banner distinguishes two states:
-- **Cookie expired**: session is expired; follow the banner to Settings, re-enter cookies and use *Test login*.
-- **No ExHentai access**: account lacks ExHentai access (empty/blank 200 response on exhentai.org or Sad Panda); check account permissions, configure `igneous`, or switch base URL to `e-hentai.org`.
-
-Cloud sync pauses while the cookie is invalid or lacks access.
-
-## Can I get a deleted gallery back?
-
-**Without deleting files** → see [Gallery Management → Recycle bin](Manage-EN#recycle-bin-and-restoring-galleries) *User deleted* to restore. Missing on disk after a scan → *Scan missing*. **Purge with delete files** cannot be undone from that page (a later scan will not re-ingest it).
-
-## I hit Pause — why are downloads / scans still running?
-
-After pause, no new pages are claimed; the current in-flight page finishes.
-No new tasks are claimed. Scans return `paused`. The downloads-page toggle and Telegram
-`/pause` `/resume` are the same switch (web pause matches the Bot) and survive
-restart. See [Downloads → Global pause and resuming tasks](Downloads-EN#global-pause-and-resuming-tasks).
-
-## What should I do if downloads auto-pause with a 302 challenge alert?
-
-This is a temporary ExHentai anti-abuse limit. The system auto-pauses to protect your account credentials. Background probes check every 10 minutes and automatically resume your downloads once cleared. Usually, **no manual action is required**.
-
-## Discover vs the local library?
-
-`#/discover` browses and searches live ExHentai listings online; the library (`#/library`) manages galleries stored locally. See [Library & Browsing → Discover](Library-EN#discover-discover).
-
-## Does Add to Home Screen download galleries onto the phone?
-
-**No.** The PWA caches the UI shell only; js/css are network-first (cache on
-offline fallback) and never cache gallery images or `/api/`.
-
-## How do I use OPDS?
-
-Third-party reader clients can connect to the OPDS catalog via HTTP Basic authentication (fixed username `galleryvault`, password is the web login password). Note that Basic auth is strictly limited to `GET /api/opds`; CBZ archive exports and all other `/api/*` endpoints require standard session cookies, are no longer unauthenticated, and do not accept Basic credentials. For details, see [Settings → OPDS & CBZ export](Settings-EN#settings-settings).
-
-## Does scanning a 7z unpack the whole archive?
-
-**No.** Only image suffixes are extracted; everything else stays packed.
-
-## Downloads page warns that image quota is near the limit?
-
-That is ExHentai Image Limit (cached ~30 min with GP). Above ~80% the top
-banner warns you — pause to avoid HTTP 509.
-
-## Do archive download retries or Range resumes charge GP multiple times?
-
-**No**. When an archive download starts, the ExHentai zip URL is persisted under the task's metadata (`.archive.json`). Any subsequent resume (HTTP Range) or error retry continues with the same URL and **never charges GP again**. If an archive channel is completely unavailable, the task falls back cleanly to page-by-page downloading over H@H (which costs 0 GP).
-
-## Incremental already downloaded the new version, but Gallery updates still lists it?
-
-If the new gid is already in the local library, **Scan now** deletes the old copy and the row disappears — no need to click Update selected. Ignored rows are never auto-deleted. Favorites enqueue / ingest also pin and finalize the update row. See [Favorites & Updates → Gallery updates](Favorites-EN#gallery-updates-updates).
-
-## Favorites aren't auto-downloading?
-
-All three must hold: the **download favorites** master switch in Settings is on
-+ the folder is **enabled** on the Favorites page (new folders are disabled by default and require checking and saving) + the mode is "incremental"
-or "force download". See [Favorites & Updates → Favorites](Favorites-EN#favorites-favorites).
-
-## Favorites check succeeds but no covers / the list is empty?
-
-- The backend needs **ExHentai cookies** configured (Settings → ExHentai →
-  fill in `ipb_member_id` / `ipb_pass_hash` / `igneous` and use "Test login").
-  They are stored **encrypted in the database** (`ENCRYPTION_KEY`) — do **not**
-  set `EXHENTAI_COOKIES` in `docker-compose.yml`. Without cookies `favorites.php`
-  redirects to the home page and the check silently records nothing.
-- **Check now** warms covers onto disk (`/gv-cache/remote-covers/{gid}.img`)
-  in the background; opening a folder only reads that cache (`<img>` via
-  `/api/favorites/cover`) and does not wait on ExHentai. Large folders fill in
-  over time. Use **Download missing items** on the overview if some covers are
-  still absent.
-
-## How do I search by several tags at once?
-
-Multiple tags can be combined with AND / OR modes and `-tag` exclusions. For usage details, see [Library & Browsing → Library](Library-EN#library-library).
-
-## Does my search filter survive reading and coming back?
-
-Yes. When you open a gallery from a searched library, the search context and tag filters are preserved across reader paging and back navigation. See [Gallery Detail & Reader → Reader](Reading-EN#reader-readeridpage).
-
-## How do I jump to the original gallery on ExHentai?
-
-The gallery detail page provides an "Open on ExHentai" button for galleries with a token (requires browser logged in to EH). See [Gallery Detail & Reader → Gallery Detail](Reading-EN#gallery-detail-galleryid).
-
-## Will ExHentai-only galleries be misdeleted when I use the public mirror?
-
-No. A gallery that only ExHentai exposes returns the same 404 as a deleted one
-on `e-hentai.org`, but it is **not** treated as deleted: tag sync is *paused*
-and the category stays untouched. Switching the base URL back to `exhentai.org`
-in Settings **resumes** the sync automatically.
-
-## How do I set the base URL (里站 / 外站)?
-
-In Settings → ExHentai → Base URL, choose between `exhentai.org` (里站), `e-hentai.org` (外站), or a custom proxy domain. Changes take effect immediately. See [Settings → Settings](Settings-EN#settings-settings).
-
-## Which pages honour the title-display setting?
-
-Controls title display (Japanese / English / directory) across library, browse, detail, and favorites views independently from download folder naming. See [Settings → Settings](Settings-EN#settings-settings).
+### 4. Does "Add to Home Screen" (PWA) download galleries for offline use?
+**No.** The PWA caches the web interface shell and static assets only to deliver app-like responsiveness. Galleries and images stream on demand to avoid filling mobile storage.

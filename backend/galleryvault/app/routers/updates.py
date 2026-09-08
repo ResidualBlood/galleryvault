@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.repository import FavoritesRepository, GalleryUpdatesRepository
 from ...services.updates_worker import detect_gallery_updates, run_gallery_updates
-from ..dependencies import db_error, get_current_settings, get_session, get_task_manager, spawn_task
+from ..dependencies import (
+    db_error,
+    get_current_settings,
+    get_session,
+    get_task_manager,
+    resolve_session,
+    spawn_task,
+)
 
 router = APIRouter()
 
@@ -26,24 +34,24 @@ async def gallery_updates_list(
     page: int = 1,
     page_size: int = 24,
     state: str = "active",
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, Any]:
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     if state not in {"active", "all", "pending", "downloading", "failed", "ignored"}:
         raise HTTPException(status_code=422, detail="invalid state")
+    session = await resolve_session(session)
     status_filter = None
     if state == "active":
         status_filter = None
     elif state != "all":
         status_filter = state
     try:
-        async for session in get_session():
-            total, rows = await GalleryUpdatesRepository(session).list_page(
-                page, page_size, status_filter
-            )
-            favcats = [r.favcat for r in rows]
-            names = await FavoritesRepository(session).category_names(favcats)
-            break
+        total, rows = await GalleryUpdatesRepository(session).list_page(
+            page, page_size, status_filter
+        )
+        favcats = [r.favcat for r in rows]
+        names = await FavoritesRepository(session).category_names(favcats)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     items = []
@@ -84,15 +92,16 @@ async def gallery_updates_scan() -> dict[str, Any]:
 
 
 @router.get("/api/updates/status")
-async def gallery_updates_status() -> dict[str, Any]:
+async def gallery_updates_status(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, Any]:
+    session = await resolve_session(session)
     tm = get_task_manager()
     counts: dict[str, int] = {}
     try:
-        async for session in get_session():
-            for st in ("pending", "downloading", "failed", "ignored"):
-                total, _ = await GalleryUpdatesRepository(session).list_page(1, 1, st)
-                counts[st] = total
-            break
+        for st in ("pending", "downloading", "failed", "ignored"):
+            total, _ = await GalleryUpdatesRepository(session).list_page(1, 1, st)
+            counts[st] = total
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {
@@ -116,47 +125,57 @@ async def gallery_updates_run(body: UpdateIdsRequest) -> dict[str, Any]:
 
 
 @router.post("/api/updates/ignore")
-async def gallery_updates_ignore(body: UpdateIdsRequest) -> dict[str, Any]:
+async def gallery_updates_ignore(
+    body: UpdateIdsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
+    session = await resolve_session(session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                ignored = await GalleryUpdatesRepository(session).mark_ignored(body.ids)
-            break
+        async with session.begin():
+            ignored = await GalleryUpdatesRepository(session).mark_ignored(body.ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {"ignored": ignored}
 
 
 @router.get("/api/updates/ignored")
-async def gallery_updates_ignored(page: int = 1, page_size: int = 24) -> dict[str, Any]:
-    return await gallery_updates_list(page, page_size, state="ignored")
+async def gallery_updates_ignored(
+    page: int = 1,
+    page_size: int = 24,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, Any]:
+    return await gallery_updates_list(page, page_size, state="ignored", session=session)
 
 
 @router.post("/api/updates/unignore")
-async def gallery_updates_unignore(body: UpdateIdsRequest) -> dict[str, Any]:
+async def gallery_updates_unignore(
+    body: UpdateIdsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
+    session = await resolve_session(session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                restored = await GalleryUpdatesRepository(session).unignore(body.ids)
-            break
+        async with session.begin():
+            restored = await GalleryUpdatesRepository(session).unignore(body.ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {"restored": restored}
 
 
 @router.post("/api/updates/delete", status_code=200)
-async def gallery_updates_delete(body: UpdateIdsRequest) -> dict[str, Any]:
+async def gallery_updates_delete(
+    body: UpdateIdsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, Any]:
     if not body.ids:
         raise HTTPException(status_code=422, detail="No update ids provided")
+    session = await resolve_session(session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                deleted = await GalleryUpdatesRepository(session).delete_many(body.ids)
-            break
+        async with session.begin():
+            deleted = await GalleryUpdatesRepository(session).delete_many(body.ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {"deleted": deleted}

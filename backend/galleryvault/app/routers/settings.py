@@ -6,8 +6,9 @@ import logging
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import normalize_library_roots
 from ...db.models import FavoritesMonitor
@@ -35,6 +36,7 @@ from ..dependencies import (
     get_eh_client,
     get_session,
     get_task_manager,
+    resolve_session,
     spawn_task,
 )
 from ..schemas import LogLevelRequest, SavedSearchRequest, SettingsRequest
@@ -45,21 +47,26 @@ router = APIRouter()
 
 
 @router.get("/api/settings")
-async def settings_get() -> dict[str, object]:
+async def settings_get(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            persisted = await SettingsRepository(session).get()
-            persisted = decrypt_user_settings(persisted)
-            update_runtime_settings(persisted)
-            break
+        persisted = await SettingsRepository(session).get()
+        persisted = decrypt_user_settings(persisted)
+        update_runtime_settings(persisted)
     except Exception as exc:  # noqa: BLE001
         logger.warning("settings could not be re-read", extra={"error": str(exc)})
     return settings_public()
 
 
 @router.post("/api/settings")
-async def settings_save(body: SettingsRequest) -> dict[str, object]:
-    return await _save_settings(body)
+async def settings_save(
+    body: SettingsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    return await _save_settings(body, session=session)
 
 
 @router.get("/api/settings/cookie-health")
@@ -121,7 +128,14 @@ async def settings_test_exhentai() -> JSONResponse:
     )
 
 
-async def _save_settings(body: SettingsRequest) -> dict[str, object]:
+async def _save_settings(
+    body: SettingsRequest, session: AsyncSession | None = None
+) -> dict[str, object]:
+    if session is None:
+        if not app_state.session_factory:
+            raise HTTPException(status_code=503, detail="Database session factory not initialized")
+        async with app_state.session_factory() as s:
+            return await _save_settings(body, session=s)
     values = body.model_dump(exclude_none=True)
     if "cold_storage_root" in values and isinstance(values["cold_storage_root"], str):
         values["cold_storage_root"] = values["cold_storage_root"].strip()
@@ -179,9 +193,7 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
 
     db_settings = {}
     try:
-        async for session in get_session():
-            db_settings = await SettingsRepository(session).get()
-            break
+        db_settings = await SettingsRepository(session).get()
     except Exception:  # noqa: BLE001
         db_settings = {}
 
@@ -202,21 +214,19 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
         persisted_values["telegram_bot_token"] = encrypt(token)
 
     try:
-        async for session in get_session():
-            async with session.begin():
-                await SettingsRepository(session).save(persisted_values)
-                for item in favorites:
-                    favcat = _favcat(item)
-                    row = await FavoritesRepository(session).category(favcat)
-                    if row is None:
-                        row = FavoritesMonitor(favcat=favcat)
-                        session.add(row)
-                    row.enabled = bool(item.get("enabled", False))
-                    row.mode = str(item["mode"])
-                    row.poll_interval_seconds = max(
-                        60, int(item.get("poll_interval_minutes", 720)) * 60
-                    )
-            break
+        async with session.begin():
+            await SettingsRepository(session).save(persisted_values)
+            for item in favorites:
+                favcat = _favcat(item)
+                row = await FavoritesRepository(session).category(favcat)
+                if row is None:
+                    row = FavoritesMonitor(favcat=favcat)
+                    session.add(row)
+                row.enabled = bool(item.get("enabled", False))
+                row.mode = str(item["mode"])
+                row.poll_interval_seconds = max(
+                    60, int(item.get("poll_interval_minutes", 720)) * 60
+                )
     except Exception as exc:
         raise db_error(exc) from exc
 
@@ -224,14 +234,12 @@ async def _save_settings(body: SettingsRequest) -> dict[str, object]:
     new_base = str(persisted_values.get("exhentai_base_url") or "")
     if is_public_site(old_base) and not is_public_site(new_base):
         try:
-            async for session in get_session():
-                async with session.begin():
-                    resumed = await GalleryRepository(session).resume_not_visible()
-                if resumed:
-                    logger.info(
-                        "resumed tag sync for not-visible galleries", extra={"count": resumed}
-                    )
-                break
+            async with session.begin():
+                resumed = await GalleryRepository(session).resume_not_visible()
+            if resumed:
+                logger.info(
+                    "resumed tag sync for not-visible galleries", extra={"count": resumed}
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not resume not-visible galleries", extra={"error": str(exc)})
     await refresh_services()
@@ -329,19 +337,20 @@ _SAVED_SEARCH_MAX = 30
 
 
 async def _user_settings() -> dict:
-    async for session in get_session():
-        return await SettingsRepository(session).get()
+    if app_state.session_factory:
+        async with app_state.session_factory() as session:
+            return await SettingsRepository(session).get()
     return {}
 
 
 async def _merge_user_settings(updates: dict) -> dict:
-    async for session in get_session():
-        async with session.begin():
+    if app_state.session_factory:
+        async with app_state.session_factory() as session, session.begin():
             repo = SettingsRepository(session)
             existing = await repo.get()
             merged = {**existing, **updates}
             await repo.save(merged)
-        return merged
+            return merged
     return updates
 
 
@@ -442,7 +451,10 @@ def _path_info(
 
 
 @router.get("/api/system/storage")
-async def system_storage() -> dict[str, object]:
+async def system_storage(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     from pathlib import Path
 
     from ...services.storage_usage import storage_tracker
@@ -454,33 +466,32 @@ async def system_storage() -> dict[str, object]:
     cold_bytes = 0
     largest: list[dict[str, object]] = []
     try:
-        async for session in get_session():
-            repo = GalleryRepository(session)
-            library_bytes = await repo.library_storage_sum()
-            if cold_root:
-                from sqlalchemy import func, select
+        repo = GalleryRepository(session)
+        library_bytes = await repo.library_storage_sum()
+        if cold_root:
+            from sqlalchemy import func, select
 
-                from ...db.models import Gallery
+            from ...db.models import Gallery
 
-                size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
-                cold_val = await session.scalar(
-                    select(func.coalesce(func.sum(size_col), 0)).where(
-                        Gallery.expunged.is_(False),
-                        Gallery.trashed.is_(False),
-                        Gallery.storage_path.startswith(cold_root),
-                    )
+            size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+            cold_val = await session.scalar(
+                select(func.coalesce(func.sum(size_col), 0)).where(
+                    Gallery.expunged.is_(False),
+                    Gallery.trashed.is_(False),
+                    Gallery.storage_path.startswith(cold_root),
                 )
-                cold_bytes = int(cold_val or 0)
-            rows = await repo.largest_by_storage(10)
-            largest = [
-                {
-                    "id": row.id,
-                    "title": display_title(row),
-                    "storage_size": row.storage_size or row.file_size or 0,
-                }
-                for row in rows
-            ]
-            break
+            )
+            cold_bytes = int(cold_val or 0)
+        rows = await repo.largest_by_storage(10)
+        largest = [
+            {
+                "id": row.id,
+                "title": display_title(row),
+                "storage_size": row.storage_size or row.file_size or 0,
+                "file_count": row.page_count or 0,
+            }
+            for row in rows
+        ]
     except Exception as exc:  # noqa: BLE001
         logger.warning("storage dashboard db failed", extra={"error": str(exc)})
 

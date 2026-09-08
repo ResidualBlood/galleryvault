@@ -6,13 +6,14 @@ import re
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.models import FavoriteItem, Gallery
 from ...services.eh_client import EhClient, EhClientError, EhSearchResult, SearchGallery
-from ..dependencies import db_error, get_current_settings, get_session
+from ..dependencies import db_error, get_current_settings, get_session, resolve_session
 from ..state import app_state
 
 router = APIRouter()
@@ -187,7 +188,9 @@ async def eh_search(
     next_cursor: str | None = Query(default=None, alias="next"),
     list_type: Annotated[str, Query(alias="list")] = "search",
     tl: int | None = None,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, Any]:
+    session = await resolve_session(session, fallback_dep=get_session)
     kind = (list_type or "search").strip().lower()
     if kind not in _EH_LISTS:
         raise HTTPException(status_code=422, detail="invalid list")
@@ -255,9 +258,7 @@ async def eh_search(
     state = str(payload.get("state") or "ok")
     if items and state == "ok":
         try:
-            async for session in get_session():
-                items = await attach_search_badges(session, items)
-                break
+            items = await attach_search_badges(session, items)
         except SQLAlchemyError as exc:
             raise db_error(exc) from exc
     else:

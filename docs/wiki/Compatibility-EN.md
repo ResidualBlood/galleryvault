@@ -1,44 +1,138 @@
 # Compatibility and Scope
 
-> [中文](Compatibility) · English
+> [中文](Compatibility) · **English**
 
-GalleryVault focuses on managing local gallery archives, natively supporting download formats from popular clients with high fidelity metadata parsing.
+GalleryVault focuses on managing local digital gallery archives, natively supporting download formats from major mobile clients with high-fidelity metadata parsing.
 
-## Primary Support: EhViewer Family Clients
+---
 
-GalleryVault is built **primarily for galleries downloaded by [Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)**:
-- **Directory structure**: `<gid>-<title>/` image folder plus a `.ehviewer` metadata file.
-- **Metadata format**: SpiderInfo VERSION1 / VERSION2 containing gallery gid, token, and per-page pToken. The scanner parses these to accurately restore full gallery identity.
+## Client Support Matrix
 
-Because `.ehviewer` originates from Hippo Seven's EhViewer (`com.hippo.ehviewer.spider.SpiderInfo`), **any client in this ecosystem writing this format is fully compatible**:
+| Client / Ecosystem Tool | Support Level | Metadata Detection | Details |
+| :--- | :--- | :--- | :--- |
+| **Ehviewer_CN_SXJ** | Primary Reference | `.ehviewer` (SpiderInfo V1/V2) | The project's reference architecture for directory and metadata structures |
+| **FooIbar / EhViewer (MD3)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Natively indexes gallery and page-level metadata |
+| **Ehviewer-Overhauled** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Completely upstream-compatible; mount and scan directly |
+| **EhViewer-NekoInverter / NekoWhite** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Natively supported with full category and tag parsing |
+| **axlecho / MHViewer** & forks | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Full export format compatibility |
+| **EhViewer-Apple (iOS / macOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Direct ingestion of mobile exports |
+| **Ehviewer_OHOS (HarmonyOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Full export format compatibility |
+| **JHenTai (Flutter Multi-platform)** | Full Support | `metadata` (JSON format) | Automatically parses JSON tags, categories, and timestamps |
+| **Tachiyomi / Mihon / Panels** | Protocol Integration | OPDS Catalog (`/api/opds`) | Connects via HTTP Basic authentication for remote browsing and reading |
+| **Generic CBZ / CBR Archives** | Standard Support | `ComicInfo.xml` / filename prefix | Recognizes `gid-title.cbz` formats and embedded metadata schemas |
 
-- **Original EhViewer** ([seven332/EhViewer](https://github.com/seven332/EhViewer), deprecated).
-- **Active main forks**:
-  - [**FooIbar/EhViewer**](https://github.com/FooIbar/EhViewer) (Material Design 3)
-  - [**Ehviewer-Overhauled/Ehviewer**](https://github.com/Ehviewer-Overhauled/Ehviewer)
-  - [**EhViewer-NekoInverter/EhViewer**](https://github.com/EhViewer-NekoInverter/EhViewer)
-  - [**exzhawk/EhViewer**](https://github.com/exzhawk/EhViewer)
-  - [**AdNotFound/EhViewer**](https://github.com/AdNotFound/EhViewer)
-  - [**WarnError/Ehviewer-NekoWhite**](https://github.com/WarnError/Ehviewer-NekoWhite)
-  - [**NotFaceGUI/EhViewer-Auto-Translation-Ver**](https://github.com/NotFaceGUI/EhViewer-Auto-Translation-Ver)
-  - [**axlecho/MHViewer**](https://github.com/axlecho/MHViewer) and other forks
-- **Cross-platform ports**:
-  - [**EhViewer-Apple**](https://github.com/felixchaos/EhViewer-Apple) (iOS / macOS)
-  - [**Ehviewer_OHOS**](https://github.com/suibianqwe/Ehviewer_OHOS) (HarmonyOS)
-- **Ecosystem companion tools**:
-  - [**LRReader**](https://github.com/Xslx98/LRReader) (Android, LANraragi client)
-  - [**exhentai-manga-manager**](https://github.com/SchneeHertz/exhentai-manga-manager)
-  - [**ehviewer_manga_manager**](https://github.com/Schweik7/ehviewer_manga_manager) (Python CLI)
-  - [**LANraragi**](https://github.com/Difegue/LANraragi)'s `Ehviewer.pm` metadata plugin
+---
 
-## Other Formats & Graceful Degradation
+## Directory Organization Topology
 
-- **[JHenTai](https://github.com/jiangtian616/JHenTai)** (cross-platform Flutter: Android / iOS / Windows / macOS / Linux):
-  - **Natively supported**: `<gid> - <title>/` plus `metadata` JSON.
-  - Ingestion restores full gallery identity (gid, token, tags, category, publish date). Feel free to submit an issue with a sample `metadata` file if you encounter anomalies.
-- **Graceful degradation**:
-  - **Plain `<gid>-<title>` folders without `.ehviewer`**: Identifies gid only.
-  - **CBZ / CBR archives**: gid must prefix the archive filename (e.g. `123456-title.cbz`).
-  - **Galleries without gid**: Fully browsable and readable locally, but **cannot take part in online downloads, update checking, or favorites deduplication**.
-- **Sidecar metadata**:
-  - GalleryVault's downloader writes `.galleryvault.json` (category, title, tags) sidecars upon download, which are read on rescan or index rebuilds.
+GalleryVault supports flexible multi-tier mounts. A standard directory topology looks like:
+
+```
+/library (or custom scan roots)
+├── 123456-GalleryTitleA/
+│   ├── .ehviewer                  # SpiderInfo metadata file
+│   ├── 0001.jpg
+│   ├── 0002.jpg
+│   └── 0003.jpg
+├── 234567 - GalleryTitleB/
+│   ├── metadata                   # JHenTai JSON metadata file
+│   ├── 1.png
+│   └── 2.png
+├── 345678-GalleryTitleC.cbz       # Standard CBZ package (with ComicInfo.xml)
+└── /archive (Tiered cold storage volume)
+    └── 456789-GalleryTitleD/
+        ├── .galleryvault.json     # GalleryVault standard sidecar index
+        ├── 0001.webp
+        └── 0002.webp
+```
+
+---
+
+## Metadata Specifications & Samples
+
+### 1. `.ehviewer` Specification (SpiderInfo)
+
+Originating from Hippo Seven's EhViewer specification (`com.hippo.ehviewer.spider.SpiderInfo`), this file uses structured multi-line text:
+
+```text
+SpiderInfo VERSION2
+123456
+a1b2c3d4e5
+Category Name
+Gallery Title (English / Romaji)
+Gallery Japanese Title
+2026-09-08 12:00:00
+uploader_username
+4.5
+48
+tag_namespace:tag_name,group:group_name,artist:artist_name
+```
+
+- **Line 1**: Format identifier (`SpiderInfo VERSION1` or `SpiderInfo VERSION2`).
+- **Line 2**: Global gallery identifier (`gid`).
+- **Line 3**: Remote access token (`token`).
+- **Subsequent lines**: Category, primary title, Japanese title, posted timestamp, uploader, rating, page count, and comma-separated tags.
+
+### 2. JHenTai `metadata` JSON Specification
+
+JHenTai saves gallery metadata in a standard JSON format located in the gallery root:
+
+```json
+{
+  "gid": 234567,
+  "token": "f6e5d4c3b2",
+  "title": "Sample Gallery Title",
+  "japaneseTitle": "サンプルギャラリータイトル",
+  "category": "Manga",
+  "uploader": "SampleUploader",
+  "publishTime": "2026-09-08 12:00:00",
+  "rating": 4.8,
+  "filecount": 32,
+  "tags": {
+    "artist": ["artist_name"],
+    "female": ["long hair", "glasses"],
+    "language": ["chinese", "translated"]
+  }
+}
+```
+
+GalleryVault's scanner automatically maps these properties to its internal database schema without requiring external network lookups.
+
+### 3. `.galleryvault.json` Sidecar Specification
+
+For cold archive storage or portable exports, GalleryVault writes a `.galleryvault.json` sidecar alongside the archive to preserve complete metadata offline:
+
+```json
+{
+  "version": 1,
+  "gid": 345678,
+  "token": "b9c8d7e6f5",
+  "title": "Archived Gallery Title",
+  "title_jpn": "アーカイブ画廊タイトル",
+  "category": "Doujinshi",
+  "uploader": "archive_manager",
+  "posted": "2026-09-08T12:00:00Z",
+  "rating": 4.75,
+  "pages": 64,
+  "tags": [
+    "artist:sample_artist",
+    "female:long hair",
+    "language:chinese"
+  ],
+  "archived_at": "2026-09-08T18:30:00Z"
+}
+```
+
+---
+
+## Graceful Degradation & Fallback
+
+1. **Bare numeric/title directories without `.ehviewer`** (e.g. `123456-Title/`):
+   - The scanner extracts the prefix digits as the `gid`.
+   - If cloud credentials are configured, background jobs will backfill covers, categories, and tags via GData APIs.
+2. **CBZ / CBR archives**:
+   - Filenames prefixed with GID (e.g. `123456-title.cbz`) are indexed immediately.
+   - Embedded `ComicInfo.xml` metadata is parsed to extract titles, authors, and tag namespaces.
+3. **Galleries without a GID**:
+   - Fully browsable and readable locally, with support for star ratings and custom reading lists.
+   - Without a persistent GID, these entries cannot participate in cloud sync, re-upload update tracking, or cross-GID duplicate resolution.

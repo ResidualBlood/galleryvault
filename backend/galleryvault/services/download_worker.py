@@ -502,75 +502,95 @@ async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> D
 
 
 _CHALLENGE_PROBE_INTERVAL = float(os.getenv("GV_CHALLENGE_PROBE_INTERVAL", "600"))
+_challenge_lock = asyncio.Lock()
+_last_resume_time = 0.0
+_RESUME_DEBOUNCE_SECONDS = float(os.getenv("GV_RESUME_DEBOUNCE_SECONDS", "1.0"))
 
 
 async def _trigger_challenge_pause(sample_path: str | None = None) -> None:
     """Trigger global pause due to ExHentai 302 anti-abuse challenge."""
-    app_state.extra["auto_resume_challenge"] = True
-    if sample_path:
-        app_state.extra["challenge_sample_path"] = sample_path
+    async with _challenge_lock:
+        if app_state.extra.get("auto_resume_challenge") and getattr(
+            app_state.settings or get_settings(), "global_paused", False
+        ):
+            if sample_path and not app_state.extra.get("challenge_sample_path"):
+                app_state.extra["challenge_sample_path"] = sample_path
+            return
+        app_state.extra["auto_resume_challenge"] = True
+        if sample_path:
+            app_state.extra["challenge_sample_path"] = sample_path
 
-    from .settings_service import update_runtime_settings
+        from .settings_service import update_runtime_settings
 
-    update_runtime_settings({"global_paused": True})
+        update_runtime_settings({"global_paused": True})
 
-    if app_state.session_factory:
-        try:
-            from ..db.repository import SettingsRepository
+        if app_state.session_factory:
+            try:
+                from ..db.repository import SettingsRepository
 
-            async with app_state.session_factory() as session, session.begin():
-                existing = await SettingsRepository(session).get()
-                merged = {**existing, "global_paused": True}
-                await SettingsRepository(session).save(merged)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "failed to persist global_paused setting on challenge",
-                extra=log_extra(error=str(exc)),
-            )
+                async with app_state.session_factory() as session, session.begin():
+                    existing = await SettingsRepository(session).get()
+                    merged = {**existing, "global_paused": True}
+                    await SettingsRepository(session).save(merged)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "failed to persist global_paused setting on challenge",
+                    extra=log_extra(error=str(exc)),
+                )
 
-    if app_state.telegram is not None:
-        try:
-            await app_state.telegram.send_message("🚨 触发 302 临时挑战，系统自动暂停下载")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "failed to send challenge telegram alert",
-                extra=log_extra(error=type(exc).__name__),
-            )
+        if app_state.telegram is not None:
+            try:
+                await app_state.telegram.send_message("🚨 触发 302 临时挑战，系统自动暂停下载")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "failed to send challenge telegram alert",
+                    extra=log_extra(error=type(exc).__name__),
+                )
 
 
 async def _resume_challenge_pause() -> None:
     """Resume global pause after ExHentai 302 anti-abuse challenge clears."""
-    app_state.extra["auto_resume_challenge"] = False
-    app_state.extra.pop("challenge_sample_path", None)
+    global _last_resume_time
+    async with _challenge_lock:
+        if not app_state.extra.get("auto_resume_challenge") and not getattr(
+            app_state.settings or get_settings(), "global_paused", False
+        ):
+            return
+        now_ts = _time.monotonic()
+        if now_ts - _last_resume_time < _RESUME_DEBOUNCE_SECONDS and not app_state.extra.get("auto_resume_challenge"):
+            return
+        _last_resume_time = now_ts
+        app_state.extra["auto_resume_challenge"] = False
+        app_state.extra.pop("challenge_sample_path", None)
 
-    from .settings_service import update_runtime_settings
+        from .settings_service import update_runtime_settings
 
-    update_runtime_settings({"global_paused": False})
+        update_runtime_settings({"global_paused": False})
 
-    if app_state.session_factory:
-        try:
-            from ..db.repository import SettingsRepository
+        if app_state.session_factory:
+            try:
+                from ..db.repository import SettingsRepository
 
-            async with app_state.session_factory() as session, session.begin():
-                existing = await SettingsRepository(session).get()
-                merged = {**existing, "global_paused": False}
-                await SettingsRepository(session).save(merged)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "failed to persist global_paused setting on resume",
-                extra=log_extra(error=str(exc)),
-            )
+                async with app_state.session_factory() as session, session.begin():
+                    existing = await SettingsRepository(session).get()
+                    merged = {**existing, "global_paused": False}
+                    await SettingsRepository(session).save(merged)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "failed to persist global_paused setting on resume",
+                    extra=log_extra(error=str(exc)),
+                )
 
-    notify_new_task()
+        notify_new_task()
 
-    if app_state.telegram is not None:
-        try:
-            await app_state.telegram.send_message("✅ 302 临时挑战解除，自动恢复下载")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "failed to send challenge resume telegram alert",
-                extra=log_extra(error=type(exc).__name__),
-            )
+        if app_state.telegram is not None:
+            try:
+                await app_state.telegram.send_message("✅ 302 临时挑战解除，自动恢复下载")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "failed to send challenge resume telegram alert",
+                    extra=log_extra(error=type(exc).__name__),
+                )
 
 
 async def challenge_probe_loop() -> None:
@@ -821,7 +841,7 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
                 row = await session.get(DownloadTaskModel, task.id)
                 if row and row.status != "cancelled":
                     row.status = "pending"
-                    row.retry_at = now
+                    row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count or 1))
                     row.error_message = "自动暂停：检测到 ExHentai 302 临时挑战"
                     row.updated_at = now
                     await DownloadRepository(session).record_attempt(
@@ -932,7 +952,33 @@ async def _download_worker() -> None:
             if row is not None:
                 if _task_event is not None:
                     _task_event.clear()
-                await run_download(task)
+                try:
+                    await run_download(task)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "run_download unhandled exception",
+                        extra=log_extra(task_id=task.id, gid=task.gid, error=str(exc) or type(exc).__name__),
+                    )
+                    if app_state.session_factory and task.id:
+                        try:
+                            async with app_state.session_factory() as session, session.begin():
+                                r = await session.get(DownloadTaskModel, task.id)
+                                if r and r.status not in ("cancelled", "failed"):
+                                    now = datetime.now(UTC)
+                                    r.retry_count += 1
+                                    if r.retry_count >= r.max_retries:
+                                        r.status = "failed"
+                                        r.retry_at = None
+                                        r.finished_at = now
+                                    else:
+                                        r.status = "pending"
+                                        r.retry_at = now + timedelta(seconds=retry_backoff(r.retry_count))
+                                    r.error_message = f"UnhandledWorkerError: {exc}"
+                                    r.updated_at = now
+                        except Exception:  # noqa: BLE001, S110
+                            pass
             else:
                 if _task_event is not None:
                     try:

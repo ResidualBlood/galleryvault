@@ -19,13 +19,17 @@ logger = logging.getLogger(__name__)
 
 
 def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker]:
+    pool_size = getattr(settings, "database_pool_size", 20)
+    max_overflow = getattr(settings, "database_max_overflow", 10)
+    pool_timeout = getattr(settings, "database_pool_timeout", 15)
+
     engine = create_async_engine(
         settings.database_url,
         pool_pre_ping=True,
-        pool_size=20,
-        max_overflow=10,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
         pool_recycle=3600,
-        pool_timeout=15,
+        pool_timeout=pool_timeout,
     )
 
     raw_pool = getattr(engine.sync_engine, "pool", None)

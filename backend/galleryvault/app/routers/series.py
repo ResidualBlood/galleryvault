@@ -5,17 +5,25 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.models import Gallery
 from ...db.repositories.galleries import GalleryRepository
 from ...db.repositories.series import SeriesRepository
 from ...services.series import rebuild_series_groups
 from ...services.tag_translation import translated_tag
-from ..dependencies import db_error, display_title, get_session, get_task_manager, spawn_task
+from ..dependencies import (
+    db_error,
+    display_title,
+    get_session,
+    get_task_manager,
+    resolve_session,
+    spawn_task,
+)
 
 router = APIRouter()
 
@@ -139,32 +147,32 @@ async def list_series(
     page: int = 1,
     page_size: int = 25,
     show_all: int = 0,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     page = max(1, page)
     page_size = max(1, min(100, page_size))
     is_show_all = bool(show_all)
 
     try:
-        async for session in get_session():
-            repo = SeriesRepository(session)
-            rows, total = await repo.list_paged(
-                page=page, page_size=page_size, show_all=is_show_all
-            )
-            local_gallery_ids = []
-            for _, _, members in rows:
-                for m in members:
-                    if isinstance(m, Gallery):
-                        local_gallery_ids.append(m.id)
-                    elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
-                        local_gallery_ids.append(m["gallery_id"])
-                    elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
-                        local_gallery_ids.append(m.id)
-            tag_map = (
-                await GalleryRepository(session).tags_for_galleries(local_gallery_ids)
-                if local_gallery_ids
-                else {}
-            )
-            break
+        repo = SeriesRepository(session)
+        rows, total = await repo.list_paged(
+            page=page, page_size=page_size, show_all=is_show_all
+        )
+        local_gallery_ids = []
+        for _, _, members in rows:
+            for m in members:
+                if isinstance(m, Gallery):
+                    local_gallery_ids.append(m.id)
+                elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
+                    local_gallery_ids.append(m["gallery_id"])
+                elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
+                    local_gallery_ids.append(m.id)
+        tag_map = (
+            await GalleryRepository(session).tags_for_galleries(local_gallery_ids)
+            if local_gallery_ids
+            else {}
+        )
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
@@ -188,28 +196,30 @@ async def list_series(
 
 
 @router.get("/api/series/{series_id}")
-async def get_series(series_id: int) -> dict[str, object]:
+async def get_series(
+    series_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            repo = SeriesRepository(session)
-            res = await repo.get_with_galleries(series_id)
-            if res is None:
-                raise HTTPException(status_code=404, detail="series not found")
-            s, members = res
-            local_ids = []
-            for m in members:
-                if isinstance(m, Gallery):
-                    local_ids.append(m.id)
-                elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
-                    local_ids.append(m["gallery_id"])
-                elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
-                    local_ids.append(m.id)
-            tag_map = (
-                await GalleryRepository(session).tags_for_galleries(local_ids)
-                if local_ids
-                else {}
-            )
-            break
+        repo = SeriesRepository(session)
+        res = await repo.get_with_galleries(series_id)
+        if res is None:
+            raise HTTPException(status_code=404, detail="series not found")
+        s, members = res
+        local_ids = []
+        for m in members:
+            if isinstance(m, Gallery):
+                local_ids.append(m.id)
+            elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
+                local_ids.append(m["gallery_id"])
+            elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
+                local_ids.append(m.id)
+        tag_map = (
+            await GalleryRepository(session).tags_for_galleries(local_ids)
+            if local_ids
+            else {}
+        )
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -227,15 +237,17 @@ async def get_series(series_id: int) -> dict[str, object]:
 
 
 @router.post("/api/series", status_code=201)
-async def create_series(body: SeriesCreateRequest) -> dict[str, object]:
+async def create_series(
+    body: SeriesCreateRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async for session in get_session():
-            async with session.begin():
-                row = await SeriesRepository(session).create(name, match_key=None, name_manual=True)
-            break
+        async with session.begin():
+            row = await SeriesRepository(session).create(name, match_key=None, name_manual=True)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {
@@ -250,15 +262,18 @@ async def create_series(body: SeriesCreateRequest) -> dict[str, object]:
 
 
 @router.patch("/api/series/{series_id}")
-async def rename_series(series_id: int, body: SeriesCreateRequest) -> dict[str, object]:
+async def rename_series(
+    series_id: int,
+    body: SeriesCreateRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async for session in get_session():
-            async with session.begin():
-                row = await SeriesRepository(session).rename(series_id, name)
-            break
+        async with session.begin():
+            row = await SeriesRepository(session).rename(series_id, name)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     if row is None:
@@ -267,12 +282,14 @@ async def rename_series(series_id: int, body: SeriesCreateRequest) -> dict[str, 
 
 
 @router.delete("/api/series/{series_id}")
-async def delete_series(series_id: int) -> dict[str, object]:
+async def delete_series(
+    series_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                ok = await SeriesRepository(session).delete_series(series_id)
-            break
+        async with session.begin():
+            ok = await SeriesRepository(session).delete_series(series_id)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     if not ok:
@@ -281,16 +298,19 @@ async def delete_series(series_id: int) -> dict[str, object]:
 
 
 @router.post("/api/series/{series_id}/items")
-async def add_series_items(series_id: int, body: SeriesItemsRequest) -> dict[str, object]:
+async def add_series_items(
+    series_id: int,
+    body: SeriesItemsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                repo = SeriesRepository(session)
-                row = await repo.get(series_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="series not found")
-                added = await repo.add_items(series_id, body.gallery_ids, source="manual")
-            break
+        async with session.begin():
+            repo = SeriesRepository(session)
+            row = await repo.get(series_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="series not found")
+            added = await repo.add_items(series_id, body.gallery_ids, source="manual")
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -300,36 +320,38 @@ async def add_series_items(series_id: int, body: SeriesItemsRequest) -> dict[str
 
 @router.get("/api/series/{series_id}/cloud-candidates")
 async def get_series_cloud_candidates(
-    series_id: int, q: str | None = None
+    series_id: int,
+    q: str | None = None,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            repo = SeriesRepository(session)
-            series = await repo.get(series_id)
-            if series is None:
-                raise HTTPException(status_code=404, detail="series not found")
-            items = await repo.get_cloud_candidates(series_id, q=q)
-            return {"items": items}
+        repo = SeriesRepository(session)
+        series = await repo.get(series_id)
+        if series is None:
+            raise HTTPException(status_code=404, detail="series not found")
+        items = await repo.get_cloud_candidates(series_id, q=q)
+        return {"items": items}
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    return {"items": []}
 
 
 @router.post("/api/series/{series_id}/cloud-items")
 async def add_series_cloud_items(
-    series_id: int, body: SeriesCloudItemsRequest
+    series_id: int,
+    body: SeriesCloudItemsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                repo = SeriesRepository(session)
-                row = await repo.get(series_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="series not found")
-                res = await repo.add_cloud_items_flow(series_id, body.gids)
-            break
+        async with session.begin():
+            repo = SeriesRepository(session)
+            row = await repo.get(series_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="series not found")
+            res = await repo.add_cloud_items_flow(series_id, body.gids)
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -339,17 +361,18 @@ async def add_series_cloud_items(
 
 @router.post("/api/series/{series_id}/cloud-items/remove")
 async def remove_series_cloud_items(
-    series_id: int, body: SeriesCloudItemsRequest
+    series_id: int,
+    body: SeriesCloudItemsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                repo = SeriesRepository(session)
-                row = await repo.get(series_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="series not found")
-                removed = await repo.remove_cloud_items(series_id, body.gids)
-            break
+        async with session.begin():
+            repo = SeriesRepository(session)
+            row = await repo.get(series_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="series not found")
+            removed = await repo.remove_cloud_items(series_id, body.gids)
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -358,29 +381,32 @@ async def remove_series_cloud_items(
 
 
 @router.post("/api/series/{series_id}/items/remove")
-async def remove_series_items(series_id: int, body: SeriesItemsRequest) -> dict[str, object]:
+async def remove_series_items(
+    series_id: int,
+    body: SeriesItemsRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            async with session.begin():
-                repo = SeriesRepository(session)
-                row = await repo.get(series_id)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="series not found")
-                gallery_ids = list(body.gallery_ids)
-                if body.gids:
-                    extra_ids = list(
-                        (
-                            await session.scalars(
-                                select(Gallery.id).where(
-                                    Gallery.gid.in_(body.gids),
-                                    Gallery.trashed.is_(False),
-                                )
+        async with session.begin():
+            repo = SeriesRepository(session)
+            row = await repo.get(series_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="series not found")
+            gallery_ids = list(body.gallery_ids)
+            if body.gids:
+                extra_ids = list(
+                    (
+                        await session.scalars(
+                            select(Gallery.id).where(
+                                Gallery.gid.in_(body.gids),
+                                Gallery.trashed.is_(False),
                             )
-                        ).all()
-                    )
-                    gallery_ids.extend(extra_ids)
-                removed = await repo.remove_items(series_id, gallery_ids)
-            break
+                        )
+                    ).all()
+                )
+                gallery_ids.extend(extra_ids)
+            removed = await repo.remove_items(series_id, gallery_ids)
     except HTTPException:
         raise
     except SQLAlchemyError as exc:

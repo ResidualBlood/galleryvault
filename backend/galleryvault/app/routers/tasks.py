@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
 from ...db.repository import BackgroundJobsRepository, GalleryRepository, SettingsRepository
@@ -13,7 +14,7 @@ from ...services.scan_worker import run_scan
 from ...services.settings_service import update_runtime_settings
 from ...services.tag_sync_worker import category_refresh_once, enqueue_tag_sync, jobs_count
 from ...services.thumbnail_worker import seed_thumbnails
-from ..dependencies import get_session, get_task_manager, spawn_task
+from ..dependencies import get_session, get_task_manager, resolve_session, spawn_task
 from ..schemas import QuotaResponse
 from ..state import app_state
 
@@ -21,10 +22,10 @@ router = APIRouter()
 
 
 async def _clear_jobs(job_type: str) -> None:
-    async for session in get_session():
-        async with session.begin():
-            await BackgroundJobsRepository(session).clear(job_type)
-        break
+    if not app_state.session_factory:
+        return
+    async with app_state.session_factory() as session, session.begin():
+        await BackgroundJobsRepository(session).clear(job_type)
 
 
 @router.get("/api/pause")
@@ -34,7 +35,10 @@ async def get_pause() -> dict[str, object]:
 
 
 @router.post("/api/pause", status_code=200)
-async def set_pause(body: dict) -> dict[str, object]:
+async def set_pause(
+    body: dict, session: AsyncSession = Depends(get_session)  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     # Accept {"paused": bool} or {"global_paused": bool}
     if "paused" in body:
         paused = bool(body["paused"])
@@ -49,13 +53,10 @@ async def set_pause(body: dict) -> dict[str, object]:
     app_state.settings = new_settings
     update_runtime_settings({"global_paused": paused})
     try:
-        if app_state.session_factory:
-            async for session in get_session():
-                async with session.begin():
-                    existing = await SettingsRepository(session).get()
-                    merged = {**existing, "global_paused": paused}
-                    await SettingsRepository(session).save(merged)
-                break
+        async with session.begin():
+            existing = await SettingsRepository(session).get()
+            merged = {**existing, "global_paused": paused}
+            await SettingsRepository(session).save(merged)
     except Exception as exc:
         from ..dependencies import db_error
 
@@ -317,20 +318,21 @@ async def trigger_thumbnail_generation() -> dict[str, object]:
 
 
 @router.post("/api/tag-sync/start", status_code=202)
-async def trigger_tag_sync() -> dict[str, object]:
+async def trigger_tag_sync(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
     """Re-queue every gallery that still needs tag sync (manual full run)."""
+    session = await resolve_session(session, fallback_dep=get_session)
     tm = get_task_manager()
-    async for session in get_session():
-        last_id = 0
-        seeded = 0
-        while True:
-            ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
-            if not ids:
-                break
-            await enqueue_tag_sync(ids)
-            seeded += len(ids)
-            last_id = ids[-1]
-        break
+    last_id = 0
+    seeded = 0
+    while True:
+        ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
+        if not ids:
+            break
+        await enqueue_tag_sync(ids)
+        seeded += len(ids)
+        last_id = ids[-1]
 
     if seeded == 0 and not tm.tag_sync_state.get("running"):
         now = datetime.now(UTC).isoformat()

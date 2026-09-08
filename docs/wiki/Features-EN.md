@@ -1,55 +1,80 @@
 # Features
 
-> [中文](Features) · English
+> [中文](Features) · **English**
 
-This document provides a comprehensive overview of GalleryVault's feature set and architecture highlights.
+This document systematically details GalleryVault's core architecture, feature matrix, and engineering design highlights.
 
-## Local gallery library
+---
 
-- **Scan** — Scans Ehviewer export directories, CBZ/CBR/7z/PDF archives, and plain image folders into a persistent, searchable PostgreSQL index. `.7z` extracts image suffixes only; bare image folders named with raw numeric GIDs no longer misassign directory names as Japanese titles.
-- **Format fidelity** — `<gid>-<title>/` + `.ehviewer` (SpiderInfo V1/V2), JHenTai `metadata` JSON, and CBZ/CBR (+ ComicInfo.xml) restore full gallery identity; cold storage archives (both CBZ packages and directories) write `title` and `title_jpn` in `.galleryvault.json` sidecars; galleries without a gid can be browsed but take no part in downloads or dedupe.
-- **Local lists / stars / notes** — Independent of EH; gid-less CBZ archives can join lists; library can filter by local list and star rating.
-- **Duplicate-copy cleanup** — When the same gid appears under several scan roots, a `duplicate_policy` (keep-stored / more pages / newer / larger / smaller / manual) keeps one copy automatically and lists every other copy on the *Duplicate copies* tab; also supports cross-GID duplicate clustering combining local galleries and cloud-only favorites via the management *cross-gid* tab.
-- **Title display** — `japanese` / `english` / `directory` settings drive the whole UI; downloaded folder names follow the independent *Download title* setting.
+## Architecture & Core Philosophy
 
-## Search & tags
+GalleryVault is not a generic e-book reader, but a dedicated private archival and synchronization system tailored for digital gallery assets, high-fidelity metadata, and distributed sync workflows.
 
-- **Multi-tag & mixed search** — Clicking tags (suggestions / detail page / tag cloud) stacks AND/OR filters; exclude `-tag`; search box accepts `动图 中国` combos and `ns:name` syntax, tags are opt-in (click a suggestion), and Enter runs a plain title search (multi-word AND).
-- **Library filters** — Sort by ingest / posted / title / pages / size / rating; filter by read status, page/size/posted/uploader/quality/language, local stars and lists; saved searches; Shift-click a card tag to exclude.
-- **Tag translations** — Pulls the latest EhTagTranslation database; Chinese input reverse-matches (typing 巨乳 suggests `big breasts`); tags page search box uses the same Chinese autocomplete.
-- **Bilingual UI** — English / 中文, switchable at any time; tags show their translations in the Chinese view.
-- **Tag cloud** — Namespace groups (Tag / Artist / Character / Parody / Group / Female / Male / Language), size weighted by usage.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Web Frontend (Vanilla SPA)              │
+│  Library  ·  Tag Cloud  ·  Favorites Monitor  ·  Updates    │
+└──────────────┬───────────────────────────────▲──────────────┘
+               │ HTTP / JSON API (:8000)       │
+┌──────────────▼───────────────────────────────┴──────────────┐
+│                    FastAPI Backend Core (:8001)             │
+│  ┌────────────────────────┐   ┌───────────────────────────┐ │
+│  │ Storage & Parsing      │   │ Concurrency & Downloads   │ │
+│  │ Ehviewer/Sidecar/CBZ   │   │ Rate Limiter / Watchdogs  │ │
+│  │ Cross-GID Deduplication│   │ Range Resume / 302 Probes │ │
+│  └───────────┬────────────┘   └─────────────┬─────────────┘ │
+│              │                              │               │
+│  ┌───────────▼──────────────────────────────▼─────────────┐ │
+│  │            State Engine & Persistent PostgreSQL          │ │
+│  │      AES-256-GCM Encryption at Rest · 10-yr Session     │ │
+│  └────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
-## ExHentai integration
+---
 
-- **Metadata sync** — Fetches metadata / categories / tags with your own cookies; a gdata batch cache is reused by scans and favorites.
-- **Public-mirror safe** — With `e-hentai.org` configured, ExHentai-only galleries *pause* tag sync (never misclassified as deleted) and resume when the base URL switches back.
-- **Favorites monitor & management** — Watches the ten folders (incremental / watch-only / force modes), auto-downloads missing galleries, per-folder lists, skip heuristic to save bandwidth, and duplicate scan with ignore/restore; detail and library pages can add/move favorites (cloud-first).
-- **Favorites advanced filters** — Favorite folder views support collapsible advanced filters (local rating, pages, size, date, uploader, quality, language, local lists).
-- **Gallery updates** (`#/updates`) — Detects local copies of galleries that ExHentai has re-uploaded (a new gid); one click downloads the new version and deletes the old local copy. If the new gid is already in the library, detection finalizes automatically.
-- **Open on ExHentai** — A one-click link to the original gallery from the detail page (built from configured base URL).
-- **Cookie health** — Startup and periodic probes; expired cookies or no ExHentai access show distinct red top banners linking to Settings.
-- **Discover** (`#/discover`) — Search/browse ExHentai in the Web UI (including Popular / Watched / Toplist); one-click download or add-to-favorites (cloud-success only).
+## Detailed Feature Matrix
 
-## Download manager
+### 1. Local Asset Archiving & High-Fidelity Parsing
+- **Zero-Friction Ehviewer Ingestion**: Directly scans standard `<gid>-<title>/` directory trees, parsing `.ehviewer` metadata files (SpiderInfo V1 & V2) to restore gid, token, category, and page indexes without file moves or extraction.
+- **Multi-Format Ingestion**: Full compatibility with CBZ and CBR archives (with embedded `ComicInfo.xml`), JHenTai `metadata` JSON files, and standardized `.galleryvault.json` sidecar files in tiered cold storage.
+- **Clean Image Streaming**: Gracefully inspects `.7z` archives to extract image streams on demand without littering temporary files on the host disk; provides browsing, rating, and listing support for gid-less local galleries.
+- **Tiered Cold/Hot Storage**: Decouples the active download workspace (hot tier) from read-only archival pools (cold storage), allowing seamless archive migrations on demand.
+- **Custom Local Taxonomy**: Organizes media collections using local star ratings, custom reading lists, and private notes completely independent of external providers.
 
-- **Ehviewer-style downloads** — Concurrent page downloads, live progress, resumable retries (missing pages only), partial downloads (`max_pages`), cancel and bulk retry; paste URL/`gid/token` on the downloads page (pages or archive) and follow newer versions when ExHentai replaced the listing.
-- **Archive downloads (ExHentai zip)** — Official whole-gallery zip channel: spend GP for big galleries, per-task quality override (original/resample), single-connection streaming with Range resume, retries never re-charge GP, and a read-only GP cost preview dialog.
-- **Global pause & quota** — Pause persists (same switch on Web and bot); downloads page shows GP and image quota (~30 min cache).
-- **Slow-node watchdog** — Per-image total-time budget + warm-up window + minimum speed; a sluggish H@H node no longer holds a whole gallery hostage.
-- **Self-healing failures** — Transient errors re-queue with **exponential backoff** (30s → 6h, up to 10 attempts); periodic sweep re-activates failed tasks that still have retry budget.
-- **Instant ingestion** — Finished downloads are written into the index (tags and cover included), no full scan; existing download folders are reused.
-- **Telegram & in-app notifications** — Download/scan/favorites notices (summary / immediate / failures-only / off); bot commands (`/help`, `/queue`, `/cancel`, `/stats`, `/pause`, `/resume`, `/status`), paste a URL to enqueue. Top-bar bell works without Telegram.
+### 2. Intelligent Lifecycle Tracking & Deduplication
+- **Re-Upload Version Tracking (Updates)**: Continuously checks for re-uploaded works or upgraded listings (detecting newly assigned GIDs), allowing one-click upgrades that fetch the new version while removing obsolete local archives.
+- **Cross-GID Clustering & Deduplication**: Analyzes gallery clusters across different scan roots and cloud favorite folders, grouping alternative translations, duplicate uploads, or re-compressed variants for rapid batch resolution.
+- **Duplicate-Copy Cleanup**: When identical GIDs appear across multiple mount paths, automated policies (keep stored / most pages / largest / newest / manual) retain the preferred copy and purge redundant files.
+- **Independent Title Rendering**: Supports switching title displays across Japanese, English, and directory naming styles without modifying file names on disk or altering download destination paths.
 
-## Reader & UI
+### 3. Deep Cloud Metadata Integration
+- **Batch Metadata Caching (gdata)**: Efficiently retrieves category information, ratings, and tag sets using user credentials, backed by persistent caching to avoid redundant requests.
+- **10 Independent Favorite Folders**: Configures independent sync policies ("Incremental download", "Watch only", or "Scheduled poll") for each folder, queueing new additions automatically.
+- **Public & Private Domain Adaptability**: Switches cleanly between `exhentai.org`, `e-hentai.org`, and custom proxy mirrors; safely pauses tag sync for restricted listings under public domains to prevent false deletions.
+- **Active Credential Probing**: Automatically validates credential status on boot and during periodic cycles, alerting users through top banners before background sync jobs stall.
+- **Integrated Discover View**: Explores live cloud listings (Popular, Watched, Top lists) directly from the Web interface, enabling one-click ingestion or remote favoriting.
 
-- **Reader** — One-page streaming, LTR / RTL manga / double-page / **webtoon**, keyboard/space/click paging, `G` to jump, three-page preload, auto-advance after the last page, fullscreen and fit modes, saved reading position.
-- **Browse & history** — Newest-gallery browse, **Continue reading**, top-bar search, reading history, activity log, first-run wizard.
-- **Recycle bin & missing pages** — User-deleted / scan-missing galleries are restorable; integrity check uses a split scan-and-repair workflow without auto-scanning on page entry, triggering background audits on demand and re-downloading missing pages.
-- **PWA / light theme / CBZ export / OPDS** — Add to home screen caches UI shell only; detail page can export CBZ (requires session cookie); OPDS (`GET /api/opds`) supports HTTP Basic authentication (username `galleryvault`, password is web login password; failed attempts return 401 with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`; Cookie remains supported). Other `/api/*` routes (including CBZ export) remain cookie-only.
+### 4. Resilient Concurrency Pipeline & Self-Healing
+- **Dual-Mode Download Engine**:
+  - **Concurrent Page Streaming**: Fine-grained concurrency limits, real-time progress monitors, and resumable retries (downloading missing pages only).
+  - **Official Archive Downloads**: Utilizes official whole-gallery zip streams via GP quotas, supporting single-connection transfers with Range resume capabilities that **never re-charge GP on retry**.
+- **Slow-Node Watchdog**: Monitors individual image timeouts, transfer warm-up windows, and minimum throughput thresholds, automatically dropping stalling H@H nodes.
+- **Exponential Backoff Recovery**: Transient network anomalies, proxy disruptions, or server timeouts trigger automatic exponential backoff retries (30 seconds up to 6 hours, up to 10 attempts).
+- **Anti-Abuse 302 Protection**: Detects temporary 302 challenge redirects, automatically suspends the download queue to safeguard credentials, and polls background probes (default 10-minute intervals) to resume when cleared.
+- **Instant Ingestion**: Completed downloads are indexed into the database and their thumbnails cached immediately, bypassing full library rescans.
 
-## Security & operations
+### 5. Immersive Reading & Open Interoperability
+- **Versatile Reader**:
+  - **Layout Modes**: Right-to-Left (Japanese manga), Left-to-Right, vertical continuous cascade (webtoon mode), and dual-page split viewing.
+  - **Controls & Navigation**: Keyboard shortcuts, mouse wheel scrolling, touch tap zones, `G` key jump navigation, multi-page prefetching, and seamless navigation to subsequent galleries.
+- **Frame-Rate Adaptive Slideshow**: Inspects GIF and WebP image metadata to time slideshow intervals to the asset's native animation duration and frame delays.
+- **Advanced Tag Search**: Powered by the EhTagTranslation multi-language database; supports tag autocomplete, AND/OR logic combinations, exclusion filters (`-tag`), and multi-language reverse-lookup (e.g. typing Chinese suggests English equivalents).
+- **Standard OPDS Catalog**: Exposes a standard OPDS endpoint (`GET /api/opds`) with HTTP Basic authentication for direct access in Tachiyomi, Mihon, and Panels.
+- **Recycle Bin & Audit Log**: Safely stages user-deleted or offline items in a restorable recycle bin with complete activity logs.
 
-- **Security** — PBKDF2 auth, login rate limiting, cross-origin checks and domain whitelist, password change revokes every session; backend runs as root by default or drops privileges with `PUID`/`PGID`; optional **encryption at rest** (`ENCRYPTION_KEY`, AES-256-GCM).
-- **Proxy** — HTTP or SOCKS5 (pick one), used for ExHentai access, downloads and translation updates.
-- **One-command deployment** — Two Docker Hub images plus PostgreSQL with a single `docker compose up`; automatic migrations on upgrade and `scripts/backup.sh` for backups.
+### 6. Security Hardening & Production Reliability
+- **AES-256-GCM Database Encryption**: Encrypts sensitive credentials, cookies, and tokens at rest when `ENCRYPTION_KEY` is configured.
+- **10-Year Persistent Sessions**: Persists session cookie signing secrets in the database across container rebuilds and updates; immediate session invalidation on password updates.
+- **Unprivileged Runtime (PUID / PGID)**: Configurable runtime user and group mappings prevent host permission issues on private NAS environments; strict CSRF protection with trusted proxy whitelisting (`TRUSTED_PROXIES`).
+- **Turnkey Containerization**: Multi-architecture Docker Hub images (AMD64 / ARM64) with built-in Alembic migrations for single-command deployments.

@@ -5,12 +5,13 @@ from __future__ import annotations
 import html
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.repository import GalleryRepository
-from ..dependencies import db_error, display_title, get_session
+from ..dependencies import db_error, display_title, get_session, resolve_session
 
 router = APIRouter()
 
@@ -26,11 +27,12 @@ def _atom_date(value: datetime | None) -> str:
 
 
 @router.get("/api/opds")
-async def opds_catalog(request: Request) -> Response:
+async def opds_catalog(
+    request: Request, session: AsyncSession = Depends(get_session)  # noqa: B008
+) -> Response:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            _total, rows = await GalleryRepository(session).list_page(1, _OPDS_LIMIT)
-            break
+        _total, rows = await GalleryRepository(session).list_page(1, _OPDS_LIMIT)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     base = str(request.base_url).rstrip("/")

@@ -8,6 +8,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, HTTPException
@@ -204,3 +205,96 @@ def spawn_task(coroutine: Any, operation: str) -> asyncio.Task | None:
         spawned.add(task)
         task.add_done_callback(spawned.discard)
     return task
+
+
+from fastapi.params import Depends as DependsType
+
+
+class _ManagedSessionWrapper:
+    """Wraps an AsyncSession obtained from an async generator, ensuring aclose() on completion or GC."""
+
+    def __init__(self, session: Any, gen: AsyncIterator[Any] | None = None) -> None:
+        self._session = session
+        self._gen = gen
+        self._closed = False
+        try:
+            task = asyncio.current_task()
+            if task is not None:
+                task.add_done_callback(lambda _t: self._schedule_close())
+        except RuntimeError:
+            pass
+
+    def _schedule_close(self) -> None:
+        if self._closed or self._gen is None:
+            return
+        self._closed = True
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                loop.create_task(self._gen.aclose())
+        except RuntimeError:
+            pass
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if hasattr(self._session, "aclose"):
+                await self._session.aclose()
+            elif hasattr(self._session, "close"):
+                res = self._session.close()
+                if hasattr(res, "__await__"):
+                    await res
+        finally:
+            if self._gen is not None:
+                await self._gen.aclose()
+
+    async def close(self) -> None:
+        await self.aclose()
+
+    async def __aenter__(self) -> Any:
+        if hasattr(self._session, "__aenter__"):
+            return await self._session.__aenter__()
+        return self._session
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> Any:
+        try:
+            if hasattr(self._session, "__aexit__"):
+                return await self._session.__aexit__(exc_type, exc_val, exc_tb)
+        finally:
+            await self.aclose()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+    @property
+    def __class__(self) -> Any:  # type: ignore[override]
+        return self._session.__class__
+
+    def __del__(self) -> None:
+        self._schedule_close()
+
+
+async def resolve_session(session: Any, fallback_dep: Any = None) -> AsyncSession:
+    """Resolve session parameter if endpoint was called directly in tests without FastAPI DI."""
+    if not isinstance(session, DependsType) and session is not None:
+        return session
+    dep = fallback_dep or getattr(session, "dependency", None) or get_session
+    gen = dep()
+    if hasattr(gen, "__anext__"):
+        try:
+            raw_session = await gen.__anext__()
+        except StopAsyncIteration:
+            raise HTTPException(status_code=503, detail="Database session factory not initialized")
+        return _ManagedSessionWrapper(raw_session, gen=gen)  # type: ignore[return-value]
+    elif hasattr(gen, "__await__"):
+        return await gen
+    elif callable(gen):
+        return gen()
+    return session

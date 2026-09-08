@@ -841,3 +841,164 @@ async def test_favcats_for_gid_with_update_fallback(monkeypatch):
     repo = FavoritesRepository(FakeSession())
     favcats = await repo.favcats_for_gid(100, gallery_id=1)
     assert favcats == [6]
+
+
+@pytest.mark.asyncio
+async def test_finalize_gallery_update_migrates_metadata_and_deletes_old():
+    from types import SimpleNamespace
+
+    from galleryvault.db.models import Gallery, GalleryUpdate
+    from galleryvault.services.updates_worker import finalize_gallery_update
+
+    old_gal = Gallery(
+        id=10,
+        gid=100,
+        title="Old",
+        storage_path=None,
+        local_rating=5,
+        local_note="Awesome note",
+        category="Manga",
+    )
+    new_gal = Gallery(
+        id=20,
+        gid=200,
+        title="New",
+        storage_path=None,
+        local_rating=None,
+        local_note=None,
+        category=None,
+        expunged=False,
+        trashed=False,
+    )
+    update_row = GalleryUpdate(
+        id=1,
+        gallery_id=10,
+        old_gid=100,
+        new_gid=200,
+        new_token="tok",
+        title="Title",
+        favcat=1,
+        status="downloading",
+    )
+
+    deleted = []
+
+    class FakeSession:
+        def __init__(self):
+            self.begun = False
+            self.committed = False
+            self.rolled_back = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+        async def get(self, model, pk):
+            if model is Gallery and pk == 10:
+                return old_gal
+            if model is GalleryUpdate and pk == 1:
+                return update_row
+            return None
+
+        async def scalar(self, stmt):
+            sql = str(stmt).lower()
+            if "where galleries.gid = :gid_1" in sql or "galleries" in sql:
+                return new_gal
+            if "gallery_updates" in sql:
+                return update_row
+            return None
+
+        async def delete(self, obj):
+            deleted.append(obj)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: FakeSession()
+    try:
+        ref = SimpleNamespace(id=1, gallery_id=10, new_gid=200)
+        await finalize_gallery_update(ref)
+    finally:
+        app_state.session_factory = orig_factory
+
+    # Check that metadata transferred to new_gal
+    assert new_gal.local_rating == 5
+    assert new_gal.local_note == "Awesome note"
+    assert new_gal.category == "Manga"
+    # Check that old gallery was marked for deletion
+    assert old_gal in deleted
+    # Check that update_row status was completed
+    assert update_row.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_finalize_gallery_update_rolls_back_and_resets_downloading_on_failure():
+    from types import SimpleNamespace
+
+    from galleryvault.db.models import Gallery, GalleryUpdate
+    from galleryvault.services.updates_worker import finalize_gallery_update
+
+    old_gal = Gallery(id=10, gid=100, title="Old", storage_path=None)
+    update_row = GalleryUpdate(
+        id=1,
+        gallery_id=10,
+        old_gid=100,
+        new_gid=200,
+        new_token="tok",
+        title="Title",
+        favcat=1,
+        status="failed",
+    )
+
+    class FailingSession:
+        def __init__(self, should_fail=True):
+            self.should_fail = should_fail
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+        async def get(self, model, pk):
+            if model is Gallery:
+                if self.should_fail:
+                    raise RuntimeError("DB connection dropped")
+                return old_gal
+            if model is GalleryUpdate and pk == 1:
+                return update_row
+            return None
+
+        async def scalar(self, stmt):
+            return None
+
+        async def delete(self, obj):
+            pass
+
+    call_count = 0
+
+    def session_provider():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return FailingSession(should_fail=True)
+        return FailingSession(should_fail=False)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = session_provider
+    try:
+        ref = SimpleNamespace(id=1, gallery_id=10, new_gid=200)
+        with pytest.raises(RuntimeError, match="DB connection dropped"):
+            await finalize_gallery_update(ref)
+    finally:
+        app_state.session_factory = orig_factory
+
+    # Status must be reset to downloading for automatic retry
+    assert update_row.status == "downloading"
+    assert "DB connection dropped" in (update_row.error_message or "")

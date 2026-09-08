@@ -4,22 +4,22 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...observability import render_metrics, set_gauge
-from ..dependencies import get_session, get_task_manager
+from ..dependencies import get_session, get_task_manager, resolve_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/healthz")
-async def healthz() -> dict[str, str]:
+async def healthz(session: AsyncSession = Depends(get_session)) -> dict[str, str]:  # noqa: B008
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async for session in get_session():
-            await session.execute(select(1))
-            break
+        await session.execute(select(1))
     except Exception as exc:
         logger.warning("health check failed", extra={"error": type(exc).__name__})
         raise HTTPException(status_code=503, detail="database unavailable") from exc

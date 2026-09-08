@@ -8,9 +8,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from ...db.repository import FavoritesRepository, GalleryRepository
@@ -19,7 +20,7 @@ from ...services.deletion import in_scan_roots
 from ...services.ingest import GalleryIngestService
 from ...services.tag_translation import translated_tag
 from ...services.thumbnails import ThumbnailError, ThumbnailService
-from ..dependencies import get_current_settings, get_session, resolve_display_title
+from ..dependencies import get_current_settings, get_session, resolve_display_title, resolve_session
 from ..state import app_state
 
 logger = logging.getLogger(__name__)
@@ -66,10 +67,11 @@ async def _scan_copy(path: Path) -> Any:
 
 
 @router.get("/api/scan/duplicates")
-async def list_duplicates() -> dict[str, object]:
-    async for session in get_session():
-        groups = await GalleryRepository(session).list_duplicates()
-        break
+async def list_duplicates(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    groups = await GalleryRepository(session).list_duplicates()
     for group in groups:
         for copy in group.get("copies") or []:
             directory = str(Path(str(copy.get("path") or "")).name)
@@ -92,13 +94,16 @@ async def list_duplicates() -> dict[str, object]:
 
 
 @router.post("/api/scan/duplicates/{gid}/resolve")
-async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str, object]:
+async def resolve_duplicate(
+    gid: int,
+    body: DuplicateResolveRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     chosen = Path(body.path).resolve()
     if not _in_roots(chosen):
         raise HTTPException(status_code=422, detail="path is outside the scan roots")
-    async for session in get_session():
-        groups = await GalleryRepository(session).list_duplicates()
-        break
+    groups = await GalleryRepository(session).list_duplicates()
     group = next((g for g in groups if int(g["gid"]) == gid), None)
     if group is None:
         raise HTTPException(status_code=404, detail="duplicate group not found")
@@ -107,10 +112,8 @@ async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str
         raise HTTPException(status_code=422, detail="path is not a copy in this group")
 
     meta = await _scan_copy(chosen)
-    async for session in get_session():
-        async with session.begin():
-            await GalleryIngestService(session).ingest([meta])
-        break
+    async with session.begin():
+        await GalleryIngestService(session).ingest([meta])
 
     if body.delete_others:
 
@@ -131,43 +134,48 @@ async def resolve_duplicate(gid: int, body: DuplicateResolveRequest) -> dict[str
                     "duplicate copy deletion failed",
                     extra={"path": str(target), "error": str(exc)},
                 )
-        async for session in get_session():
-            async with session.begin():
-                await GalleryRepository(session).delete_duplicate(gid)
-            break
+        async with session.begin():
+            await GalleryRepository(session).delete_duplicate(gid)
 
-    async for session in get_session():
-        refreshed = await GalleryRepository(session).list_duplicates()
-        break
+    refreshed = await GalleryRepository(session).list_duplicates()
     return {"groups": refreshed, "count": len(refreshed)}
 
 
 @router.post("/api/scan/duplicates/{gid}/dismiss")
-async def dismiss_duplicate(gid: int) -> dict[str, str]:
-    async for session in get_session():
-        async with session.begin():
-            ok = await GalleryRepository(session).set_duplicate_status(gid, "dismissed")
-        break
+async def dismiss_duplicate(
+    gid: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with session.begin():
+        ok = await GalleryRepository(session).set_duplicate_status(gid, "dismissed")
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     return {"status": "dismissed"}
 
 
 @router.post("/api/scan/duplicates/{gid}/restore")
-async def restore_duplicate(gid: int) -> dict[str, str]:
-    async for session in get_session():
-        async with session.begin():
-            ok = await GalleryRepository(session).set_duplicate_status(gid, "open")
-        break
+async def restore_duplicate(
+    gid: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with session.begin():
+        ok = await GalleryRepository(session).set_duplicate_status(gid, "open")
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     return {"status": "open"}
 
 
 @router.get("/api/scan/duplicates/thumb/{key}")
-async def duplicate_thumb(key: str) -> FileResponse:
+async def duplicate_thumb(
+    key: str,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> FileResponse:
     if not key or ".." in key or "/" in key or "\\" in key or Path(key).is_absolute():
         raise HTTPException(status_code=404, detail="copy not found")
+
+    session = await resolve_session(session, fallback_dep=get_session)
 
     service = _get_thumb_service()
     dup_root = (service.root / "dup").resolve()
@@ -180,9 +188,7 @@ async def duplicate_thumb(key: str) -> FileResponse:
 
     cached = candidate
     if not cached.is_file():
-        async for session in get_session():
-            groups = await GalleryRepository(session).list_duplicates()
-            break
+        groups = await GalleryRepository(session).list_duplicates()
         target: Path | None = None
         for group in groups:
             for copy in group.get("copies") or []:

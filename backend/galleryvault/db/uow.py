@@ -89,13 +89,17 @@ class UnitOfWork:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         if self.session is not None:
             try:
-                if exc_type is not None and hasattr(self.session, "rollback"):
-                    await self.session.rollback()
-                elif self._began and hasattr(self.session, "commit"):
-                    await self.session.commit()
-                elif not self._external_session and hasattr(self.session, "commit"):
-                    # Factory-owned session that didn't explicitly begin (e.g. no begin attr)
-                    await self.session.commit()
+                if self._external_session:
+                    # External session: life-cycle and tx boundary belong to caller/outer context
+                    pass
+                else:
+                    if exc_type is not None and hasattr(self.session, "rollback"):
+                        await self.session.rollback()
+                    elif self._began and hasattr(self.session, "commit"):
+                        await self.session.commit()
+                    elif hasattr(self.session, "commit"):
+                        # Factory-owned session that didn't explicitly begin (e.g. no begin attr)
+                        await self.session.commit()
             finally:
                 if not self._external_session and hasattr(self.session, "close"):
                     await self.session.close()

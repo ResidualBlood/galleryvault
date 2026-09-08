@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from ...db.repository import GalleryRepository
@@ -17,7 +18,7 @@ from ...services.tag_translation import (
     translated_tag,
     translation_entry_count,
 )
-from ..dependencies import get_current_settings, get_session, get_task_manager
+from ..dependencies import get_current_settings, get_session, get_task_manager, resolve_session
 from ..state import app_state
 
 router = APIRouter()
@@ -30,15 +31,15 @@ async def tag_search(
     page: int = 1,
     page_size: int = 60,
     zh: bool = False,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
     if zh and q and q.strip():
         matched = await run_in_threadpool(search_zh, q, page_size)
-        async for session in get_session():
-            repo = GalleryRepository(session)
-            rows = await repo.tag_counts_for([(ns, name) for ns, name, _ in matched])
-            break
+        repo = GalleryRepository(session)
+        rows = await repo.tag_counts_for([(ns, name) for ns, name, _ in matched])
         counts = {(ns, name): count for ns, name, count in rows}
         return {
             "total": len(matched),
@@ -55,11 +56,9 @@ async def tag_search(
                 for ns, name, display in matched
             ],
         }
-    async for session in get_session():
-        repo = GalleryRepository(session)
-        total, rows = await repo.search_tags(q, page, page_size, namespace)
-        facets = await tag_facets_cached() if not namespace else []
-        break
+    repo = GalleryRepository(session)
+    total, rows = await repo.search_tags(q, page, page_size, namespace)
+    facets = await tag_facets_cached() if not namespace else []
     facet_items = [
         {"namespace": name, "total": count}
         for name, count in sorted(facets, key=lambda x: -x[1])

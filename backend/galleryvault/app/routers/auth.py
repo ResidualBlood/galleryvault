@@ -6,7 +6,7 @@ import logging
 import secrets as _secrets
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
@@ -15,6 +15,7 @@ from fastapi.responses import (
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...auth import (
     DEFAULT_PASSWORD,
@@ -29,7 +30,7 @@ from ...db.models import Gallery
 from ...db.repository import SettingsRepository
 from ...logging import log_extra
 from ...secrets import encrypt, encryption_enabled
-from ..dependencies import db_error, get_current_settings, get_session
+from ..dependencies import db_error, get_current_settings, get_session, resolve_session
 from ..state import app_state
 
 logger = logging.getLogger(__name__)
@@ -132,7 +133,10 @@ async def auth_session() -> dict[str, object]:
 
 
 @router.get("/api/onboarding/status")
-async def onboarding_status() -> dict[str, object]:
+async def onboarding_status(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     settings = get_current_settings()
     password_default = settings.auth_required and not (
         settings.auth_password_hash or settings.auth_password
@@ -140,11 +144,9 @@ async def onboarding_status() -> dict[str, object]:
     exhentai_configured = bool(settings.exhentai_cookies)
     library_count = 0
     try:
-        async for session in get_session():
-            library_count = int(
-                await session.scalar(select(func.count()).select_from(Gallery)) or 0
-            )
-            break
+        library_count = int(
+            await session.scalar(select(func.count()).select_from(Gallery)) or 0
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("onboarding status could not read library count", extra={"error": str(exc)})
     return {
@@ -155,7 +157,12 @@ async def onboarding_status() -> dict[str, object]:
 
 
 @router.post("/api/auth/change-password", status_code=204)
-async def change_password(request: Request, body: ChangePasswordRequest) -> Response:
+async def change_password(
+    request: Request,
+    body: ChangePasswordRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> Response:
+    session = await resolve_session(session, fallback_dep=get_session)
     effective = _password_effective()
     using_default = effective is None
     current_valid = (
@@ -171,10 +178,8 @@ async def change_password(request: Request, body: ChangePasswordRequest) -> Resp
     if encryption_enabled():
         stored = {k: encrypt(v) for k, v in stored.items()}
     try:
-        async for session in get_session():
-            async with session.begin():
-                await SettingsRepository(session).save_extra(stored)
-            break
+        async with session.begin():
+            await SettingsRepository(session).save_extra(stored)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
