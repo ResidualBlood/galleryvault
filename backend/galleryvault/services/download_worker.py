@@ -1030,7 +1030,7 @@ async def download_retry_sweep_loop() -> None:
         tm = get_task_manager()
         try:
             async with (
-                tm.track_task("download-retry-sweep") as tracker,
+                tm.track_task("download-retry-sweep", record_if_empty=False) as tracker,
                 app_state.session_factory() as session,
                 session.begin(),
             ):

@@ -141,6 +141,18 @@ async def test_task_manager_track_task_lifecycle() -> None:
     assert tm.task_history[0]["task"] == "metadata"
     assert tm.task_history[0]["done"] == 15
 
+    # 7. Silent record if empty
+    history_len = len(tm.task_history)
+    async with tm.track_task("download-retry-sweep", record_if_empty=False) as tracker:
+        tracker.update(done=0, total=0)
+    assert len(tm.task_history) == history_len
+
+    async with tm.track_task("download-retry-sweep", record_if_empty=False) as tracker:
+        tracker.update(done=1, total=1)
+    assert len(tm.task_history) == history_len + 1
+    assert tm.task_history[0]["task"] == "download-retry-sweep"
+    assert tm.task_history[0]["done"] == 1
+
 
 def test_histogram_metrics_observation_and_render() -> None:
     observe_histogram("gv_test_duration_seconds", 0.05, {"handler": "test"})

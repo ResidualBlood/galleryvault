@@ -235,7 +235,12 @@ class TaskManager:
         return done, total
 
     @asynccontextmanager
-    async def track_task(self, task_name: str, cancellable: bool = False):
+    async def track_task(
+        self,
+        task_name: str,
+        cancellable: bool = False,
+        record_if_empty: bool = True,
+    ):
         """Asynchronous context manager tracking task lifecycle, error logging, and history persistence."""
         state = self._resolve_task_state(task_name)
         active_count = self._active_tasks.get(task_name, 0) + 1
@@ -315,21 +320,28 @@ class TaskManager:
 
                 if not state.get("history_recorded"):
                     state["history_recorded"] = True
-                    self.record_task(
-                        task=canonical_name,
-                        started_at=state.get("started_at"),
-                        completed_at=completed_at,
-                        status=status,
-                        reason=str(reason or ""),
-                        done=done,
-                        total=total,
+                    skip_record = (
+                        not record_if_empty
+                        and status == "success"
+                        and done == 0
+                        and total == 0
                     )
-                    try:
-                        from ..app.dependencies import spawn_task
+                    if not skip_record:
+                        self.record_task(
+                            task=canonical_name,
+                            started_at=state.get("started_at"),
+                            completed_at=completed_at,
+                            status=status,
+                            reason=str(reason or ""),
+                            done=done,
+                            total=total,
+                        )
+                        try:
+                            from ..app.dependencies import spawn_task
 
-                        spawn_task(self.persist_history(), "persist task history")
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("failed to spawn persist task history", extra={"error": str(exc)})
+                            spawn_task(self.persist_history(), "persist task history")
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("failed to spawn persist task history", extra={"error": str(exc)})
 
     # History & Recording
     def record_task(
