@@ -63,7 +63,7 @@ async def test_tag_sync_apply_plan_updates_titles() -> None:
     gallery = Gallery(
         id=42,
         gid=2849972,
-        token="abcdef123456",
+        token="tok42",  # gitleaks:allow
         title="2849972-[Contaminated] Gallery",
         title_jpn=None,
     )
@@ -95,7 +95,7 @@ async def test_tag_sync_apply_plan_updates_titles() -> None:
     plan = {
         "source": "network",
         "gid": 2849972,
-        "token": "abcdef123456",
+        "token": "tok42",  # gitleaks:allow
         "title": "Clean Canonical Title",
         "title_jpn": "純粋な日本語タイトル",
         "category": "Manga",
