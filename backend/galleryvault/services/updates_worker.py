@@ -118,16 +118,13 @@ async def finalize_gallery_update(row: Any) -> None:
     session_cm = app_state.session_factory
     if session_cm is None:
         return
+    if getattr(row, "gallery_id", None) is None:
+        return
     repo_cls = GalleryUpdatesRepository
     try:
-        results = []
-        async with session_cm() as session, session.begin():
-            gallery = await session.get(Gallery, row.gallery_id)
-            if gallery is None:
-                return
-            results = await delete_galleries_local(
-                session, [gallery], delete_files=True, delete_all_copies=False
-            )
+        results = await delete_galleries_local(
+            [row.gallery_id], delete_files=True, delete_all_copies=False
+        )
         record_gallery_update_log(results)
     except Exception as exc:  # noqa: BLE001
         logger.warning(

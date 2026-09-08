@@ -185,9 +185,11 @@ def _scan_roots_default() -> list[str]:
 
 
 async def delete_galleries_local(
-    session: AsyncSession,
-    galleries: list[Gallery],
+    gallery_ids: list[int] | list[Gallery] | AsyncSession,
+    galleries: list[Gallery] | list[int] | None = None,
     *,
+    session: AsyncSession | None = None,
+    session_factory: Callable[[], Any] | None = None,
     scan_roots: list[str] | None = None,
     delete_files: bool,
     delete_all_copies: bool,
@@ -196,15 +198,49 @@ async def delete_galleries_local(
 ) -> list[dict]:
     """Delete galleries (DB rows + optional on-disk copies) with safety boundary checks.
 
-    When ``trash`` is None (default), ``delete_files=False`` soft-deletes to
-    recycle bin (trashed=True, files kept), while ``delete_files=True`` hard-deletes
-    only if all file deletions succeed. Pass ``trash=True`` to force soft-delete
-    even when files are removed (keeps row for purge), or ``trash=False`` to force
-    hard-delete.
+    Phase 1: Query metadata and targets in a short read session.
+    Phase 2: Perform disk I/O outside of any DB session or transaction.
+    Phase 3: Persist DB status (trash/delete) in a short write transaction.
     """
+    from contextlib import asynccontextmanager
     from datetime import UTC, datetime
 
-    from ..db.repository import GalleryRepository
+    from sqlalchemy import select
+
+    from ..db.models import DuplicateRecord, Gallery
+    from ..db.repositories.base import path_hash
+    from ..db.repository import GalleryRepository, _chunked
+
+    provided_session: AsyncSession | None = None
+    if galleries is not None and not isinstance(gallery_ids, (list, tuple, set)):
+        provided_session = gallery_ids  # type: ignore[assignment]
+        raw_items = galleries
+    elif isinstance(gallery_ids, (list, tuple, set)):
+        provided_session = session
+        raw_items = gallery_ids
+    else:
+        provided_session = gallery_ids  # type: ignore[assignment]
+        raw_items = galleries or []
+
+    raw_ids = [item.id if hasattr(item, "id") else int(item) for item in raw_items]
+    ids = list(dict.fromkeys(raw_ids))
+    if not ids:
+        return []
+
+    if session_factory is not None:
+        get_cm = session_factory
+    elif provided_session is not None:
+        @asynccontextmanager
+        async def _provided_cm():
+            yield provided_session
+
+        get_cm = _provided_cm
+    else:
+        from ..app.state import app_state
+
+        get_cm = app_state.session_factory
+        if get_cm is None:
+            raise RuntimeError("Database session factory is not configured")
 
     deleter_fn = delete_local_copy
 
@@ -216,18 +252,47 @@ async def delete_galleries_local(
         except TypeError:
             return deleter_fn(p)
 
-    # Auto-decide trash vs hard-delete when not explicitly set
-    auto_trash = trash
-    results: list[dict] = []
-    for gallery in galleries:
-        gid = gallery.gid
-        targets = [Path(gallery.storage_path)] if gallery.storage_path else []
-        if delete_all_copies and gid is not None:
-            copies = await GalleryRepository(session).duplicate_copies_for_gid(gid)
-            for copy in copies:
-                p = Path(str(copy.get("path") or ""))
-                if p not in targets:
-                    targets.append(p)
+    # Phase 1: Query metadata and duplicate targets in a short read session
+    items_meta: list[dict[str, Any]] = []
+    galleries_map: dict[int, Gallery] = {}
+    async with get_cm() as sess:
+        repo = GalleryRepository(sess)
+        for chunk in _chunked(ids):
+            stmt = select(Gallery).where(Gallery.id.in_(chunk))
+            rows = (await sess.scalars(stmt)).all()
+            for g in rows:
+                galleries_map[g.id] = g
+
+        for item in raw_items:
+            if hasattr(item, "id") and item.id not in galleries_map:
+                galleries_map[item.id] = item
+
+        for gid_val in ids:
+            gallery = galleries_map.get(gid_val)
+            if gallery is None:
+                continue
+            gid = gallery.gid
+            targets = [Path(gallery.storage_path)] if gallery.storage_path else []
+            if delete_all_copies and gid is not None:
+                copies = await repo.duplicate_copies_for_gid(gid)
+                for copy in copies:
+                    p = Path(str(copy.get("path") or ""))
+                    if p not in targets:
+                        targets.append(p)
+            items_meta.append({
+                "gallery_id": gallery.id,
+                "gid": gid,
+                "storage_path": gallery.storage_path,
+                "targets": targets,
+            })
+
+    if not items_meta:
+        return []
+
+    # Phase 2: Perform disk I/O outside of any DB session or transaction
+    io_results: list[dict[str, Any]] = []
+    for meta in items_meta:
+        targets = meta["targets"]
         deleted_paths: list[str] = []
         failed_paths: list[str] = []
         if delete_files:
@@ -236,77 +301,106 @@ async def delete_galleries_local(
                     deleted_paths.append(str(target))
                 else:
                     failed_paths.append(str(target))
-        # Decide soft vs hard delete
-        should_trash = auto_trash
-        if should_trash is None:
-            should_trash = not delete_files
-        if should_trash:
-            # Soft-delete to recycle bin (keep row, mark trashed, files may be kept or already deleted)
-            gallery.trashed = True
-            gallery.trashed_at = datetime.now(UTC)
-            gallery.updated_at = datetime.now(UTC)
-            # If delete_files was requested and succeeded, files are already gone, but row stays trashed for purge
-            db_removed = False
-            trashed = True
+        io_results.append({
+            "gallery_id": meta["gallery_id"],
+            "gid": meta["gid"],
+            "storage_path": meta["storage_path"],
+            "targets": targets,
+            "deleted_paths": deleted_paths,
+            "failed_paths": failed_paths,
+        })
+
+    # Phase 3: Persist DB status (trash/delete) in a short write transaction
+    auto_trash = trash
+    results: list[dict[str, Any]] = []
+    async with get_cm() as sess:
+        begin_ctx = sess.begin() if hasattr(sess, "begin") and callable(sess.begin) else None
+        if begin_ctx is not None and hasattr(begin_ctx, "__aenter__"):
+            cm_begin = begin_ctx
         else:
-            if not delete_files or not failed_paths:
-                await session.delete(gallery)
-                if delete_all_copies and gid is not None and not failed_paths:
-                    await GalleryRepository(session).delete_duplicate(gid)
-                db_removed = True
-                trashed = False
-            else:
-                db_removed = False
-                trashed = False
-                if delete_all_copies and deleted_paths:
-                    from ..db.models import DuplicateRecord
-                    from ..db.repositories.base import path_hash
+            @asynccontextmanager
+            async def _noop_begin():
+                yield sess
 
-                    # Update DuplicateRecord to remove successfully deleted copies
-                    if gid is not None:
-                        dup_row = await session.get(DuplicateRecord, gid)
-                        if dup_row is not None:
+            cm_begin = _noop_begin()
+
+        async with cm_begin:
+            repo = GalleryRepository(sess)
+            for item in io_results:
+                gallery_id = item["gallery_id"]
+                gid = item["gid"]
+                storage_path = item["storage_path"]
+                targets = item["targets"]
+                deleted_paths = item["deleted_paths"]
+                failed_paths = item["failed_paths"]
+
+                gallery = await sess.get(Gallery, gallery_id)
+                if gallery is None and galleries_map.get(gallery_id) is not None:
+                    gallery = galleries_map[gallery_id]
+
+                should_trash = auto_trash
+                if should_trash is None:
+                    should_trash = not delete_files
+
+                if should_trash:
+                    if gallery is not None:
+                        gallery.trashed = True
+                        gallery.trashed_at = datetime.now(UTC)
+                        gallery.updated_at = datetime.now(UTC)
+                    db_removed = False
+                    trashed = True
+                else:
+                    if not delete_files or not failed_paths:
+                        if gallery is not None:
+                            await sess.delete(gallery)
+                        if delete_all_copies and gid is not None and not failed_paths:
+                            await repo.delete_duplicate(gid)
+                        db_removed = True
+                        trashed = False
+                    else:
+                        db_removed = False
+                        trashed = False
+                        if delete_all_copies and deleted_paths and gid is not None:
+                            dup_row = await sess.get(DuplicateRecord, gid)
+                            if dup_row is not None:
+                                    deleted_resolved = {Path(p).resolve() for p in deleted_paths}
+                                    remaining_copies = [
+                                        c for c in (dup_row.copies or [])
+                                        if Path(str(c.get("path") or "")).resolve() not in deleted_resolved
+                                    ]
+                                    if not remaining_copies:
+                                        await sess.delete(dup_row)
+                                    else:
+                                        dup_row.copies = remaining_copies
+                                        if (
+                                            dup_row.winner_path
+                                            and Path(dup_row.winner_path).resolve() in deleted_resolved
+                                        ):
+                                            dup_row.winner_path = str(remaining_copies[0].get("path") or "")
+                                        dup_row.updated_at = datetime.now(UTC)
+
+                        if storage_path and gallery is not None:
+                            gallery_resolved = Path(storage_path).resolve()
                             deleted_resolved = {Path(p).resolve() for p in deleted_paths}
-                            remaining_copies = [
-                                c for c in (dup_row.copies or [])
-                                if Path(str(c.get("path") or "")).resolve() not in deleted_resolved
-                            ]
-                            if not remaining_copies:
-                                await session.delete(dup_row)
-                            else:
-                                dup_row.copies = remaining_copies
-                                if (
-                                    dup_row.winner_path
-                                    and Path(dup_row.winner_path).resolve() in deleted_resolved
-                                ):
-                                    dup_row.winner_path = str(remaining_copies[0].get("path") or "")
-                                dup_row.updated_at = datetime.now(UTC)
-
-                    # If gallery.storage_path was deleted, point it to a surviving copy
-                    if gallery.storage_path:
-                        gallery_resolved = Path(gallery.storage_path).resolve()
-                        deleted_resolved = {Path(p).resolve() for p in deleted_paths}
-                        if gallery_resolved in deleted_resolved:
-                            failed_resolved = [Path(p).resolve() for p in failed_paths]
-                            surviving = [p for p in targets if p.resolve() in failed_resolved]
-                            if not surviving and failed_paths:
-                                surviving = [Path(failed_paths[0])]
-                            if surviving:
-                                new_path = surviving[0]
-                                gallery.storage_path = str(new_path)
-                                gallery.path_hash = path_hash(new_path)
-                                gallery.updated_at = datetime.now(UTC)
-        results.append(
-            {
-                "gallery_id": gallery.id,
-                "gid": gid,
-                "db_removed": db_removed,
-                "trashed": trashed,
-                "deleted_paths": deleted_paths,
-                "failed_paths": failed_paths,
-            }
-        )
-    await session.flush()
+                            if gallery_resolved in deleted_resolved:
+                                failed_resolved = [Path(p).resolve() for p in failed_paths]
+                                surviving = [p for p in targets if p.resolve() in failed_resolved]
+                                if not surviving and failed_paths:
+                                    surviving = [Path(failed_paths[0])]
+                                if surviving:
+                                    new_path = surviving[0]
+                                    gallery.storage_path = str(new_path)
+                                    gallery.path_hash = path_hash(new_path)
+                                    gallery.updated_at = datetime.now(UTC)
+                results.append({
+                    "gallery_id": gallery_id,
+                    "gid": gid,
+                    "db_removed": db_removed,
+                    "trashed": trashed,
+                    "deleted_paths": deleted_paths,
+                    "failed_paths": failed_paths,
+                })
+            await sess.flush()
     return results
 
 

@@ -715,23 +715,21 @@ async def purge_galleries(body: BulkDeleteRequest) -> dict[str, object]:
     if not ids:
         raise HTTPException(status_code=422, detail="No gallery ids provided")
     try:
-        async for session in get_session():
-            async with session.begin():
-                galleries: list[Gallery] = []
-                for chunk in _chunked(list(dict.fromkeys(ids))):
-                    rows = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
-                    galleries.extend(rows.all())
-                results = await delete_galleries_local(
-                    session,
-                    galleries,
-                    delete_files=body.delete_files,
-                    delete_all_copies=body.delete_all_copies,
-                    trash=False,
-                )
-                purged = sum(1 for r in results if r.get("db_removed"))
-                failed = [p for r in results for p in r.get("failed_paths", [])]
-                _record_gallery_delete_log(results, body.delete_files)
-            break
+        unique_ids = list(dict.fromkeys(ids))
+        results: list[dict] = []
+        for chunk in _chunked(unique_ids):
+            batch_results = await delete_galleries_local(
+                chunk,
+                delete_files=body.delete_files,
+                delete_all_copies=body.delete_all_copies,
+                trash=False,
+            )
+            results.extend(batch_results)
+        purged = sum(1 for r in results if r.get("db_removed"))
+        failed = [p for r in results for p in r.get("failed_paths", [])]
+        _record_gallery_delete_log(results, body.delete_files)
+    except HTTPException:
+        raise
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {"purged": purged, "failed_deletions": failed, "results": results}
@@ -1263,19 +1261,24 @@ async def redownload_gallery(
 async def delete_gallery(
     identifier: int, delete_files: bool = False, delete_all_copies: bool = False
 ) -> None:
+    results: list[dict] = []
     try:
+        target_id: int | None = None
         async for session in get_session():
-            async with session.begin():
-                row = await session.get(Gallery, identifier)
-                if row is None:
-                    row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
-                if row is None:
-                    raise HTTPException(status_code=404, detail="Gallery not found")
-                results = await delete_galleries_local(
-                    session, [row], delete_files=delete_files, delete_all_copies=delete_all_copies
-                )
-            _record_gallery_delete_log(results, delete_files)
+            row = await session.get(Gallery, identifier)
+            if row is None:
+                row = await session.scalar(select(Gallery).where(Gallery.gid == identifier))
+            if row is not None:
+                target_id = row.id
             break
+
+        if target_id is None:
+            raise HTTPException(status_code=404, detail="Gallery not found")
+
+        results = await delete_galleries_local(
+            [target_id], delete_files=delete_files, delete_all_copies=delete_all_copies
+        )
+        _record_gallery_delete_log(results, delete_files)
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -1297,23 +1300,19 @@ async def delete_galleries_bulk(body: BulkDeleteRequest) -> dict[str, object]:
     ids = body.ids or body.gallery_ids or []
     if not ids:
         raise HTTPException(status_code=422, detail="No gallery ids provided")
+    results: list[dict] = []
     try:
-        async for session in get_session():
-            async with session.begin():
-                galleries: list[Gallery] = []
-                for chunk in _chunked(list(dict.fromkeys(ids))):
-                    rows = await session.scalars(
-                        select(Gallery).where(Gallery.id.in_(chunk))
-                    )
-                    galleries.extend(rows.all())
-                results = await delete_galleries_local(
-                    session,
-                    galleries,
-                    delete_files=body.delete_files,
-                    delete_all_copies=body.delete_all_copies,
-                )
-            _record_gallery_delete_log(results, body.delete_files)
-            break
+        unique_ids = list(dict.fromkeys(ids))
+        for chunk in _chunked(unique_ids):
+            batch_results = await delete_galleries_local(
+                chunk,
+                delete_files=body.delete_files,
+                delete_all_copies=body.delete_all_copies,
+            )
+            results.extend(batch_results)
+        _record_gallery_delete_log(results, body.delete_files)
+    except HTTPException:
+        raise
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     deleted = sum(1 for r in results if r.get("db_removed") or r.get("trashed"))
@@ -1443,15 +1442,11 @@ async def delete_galleries_filtered(body: FilteredDeleteRequest) -> dict[str, ob
 
         results: list[dict] = []
         if matching_ids:
-            async for session in get_session():
-                async with session.begin():
-                    for chunk in _chunked(list(dict.fromkeys(matching_ids))):
-                        batch = await session.scalars(select(Gallery).where(Gallery.id.in_(chunk)))
-                        res = await delete_galleries_local(
-                            session, list(batch), delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
-                        )
-                        results.extend(res)
-                break
+            for chunk in _chunked(list(dict.fromkeys(matching_ids))):
+                res = await delete_galleries_local(
+                    chunk, delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
+                )
+                results.extend(res)
         _record_gallery_delete_log(results, body.delete_files)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -1482,12 +1477,32 @@ def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: b
 async def sync_gallery_tags(identifier: int, redirect: bool = False) -> dict[str, object]:
     from fastapi.responses import RedirectResponse
 
+    plan: dict[str, object] | None = None
+    result: object | None = None
+    count = 0
+    synced_at = datetime.now(UTC)
     try:
+        client = get_eh_client()
         async for session in get_session():
-            async with session.begin():
-                client = get_eh_client()
-                result = await TagSyncService(client, GalleryRepository(session)).sync(identifier)
+            service = TagSyncService(client, GalleryRepository(session))
+            if callable(getattr(service, "fetch_plan", None)) and callable(
+                getattr(service, "apply_plan", None)
+            ):
+                plan = await service.fetch_plan(identifier)
+            else:
+                async with session.begin():
+                    result = await service.sync(identifier)
             break
+
+        if plan is not None:
+            async for session in get_session():
+                async with session.begin():
+                    count = await TagSyncService(client, GalleryRepository(session)).apply_plan(
+                        identifier, plan
+                    )
+                break
+        elif result is None:
+            raise HTTPException(status_code=404, detail="Gallery not found")
     except GalleryNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (GalleryGidMissing, GalleryTokenMissing) as exc:
@@ -1501,14 +1516,24 @@ async def sync_gallery_tags(identifier: int, redirect: bool = False) -> dict[str
         raise HTTPException(status_code=502, detail="ExHentai metadata request failed") from exc
     if redirect:
         return RedirectResponse(f"/galleries/{identifier}", status_code=303)
+    if result is not None:
+        return {
+            "id": identifier,
+            "gid": getattr(result, "gid", None),
+            "title": getattr(result, "title", None),
+            "count": getattr(result, "count", getattr(result, "tags_added", 0)),
+            "tags_added": getattr(result, "tags_added", getattr(result, "count", 0)),
+            "synced_at": getattr(result, "synced_at", None),
+            "source": getattr(result, "source", None),
+        }
     return {
         "id": identifier,
-        "gid": getattr(result, "gid", None),
-        "title": getattr(result, "title", None),
-        "count": getattr(result, "count", getattr(result, "tags_added", 0)),
-        "tags_added": getattr(result, "tags_added", getattr(result, "count", 0)),
-        "synced_at": getattr(result, "synced_at", None),
-        "source": getattr(result, "source", None),
+        "gid": plan.get("gid") if plan else None,
+        "title": plan.get("title") if plan else None,
+        "count": count,
+        "tags_added": count,
+        "synced_at": synced_at,
+        "source": plan.get("source") if plan else None,
     }
 
 

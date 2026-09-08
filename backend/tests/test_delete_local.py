@@ -377,11 +377,18 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
 
     monkeypatch.setattr(galleries_module, "GalleryRepository", Repo)
 
-    async def fake_delete(session, batch, *, delete_files, delete_all_copies):
-        deleted_batches.append(len(batch))
+    async def fake_delete(batch, *args, delete_files=False, delete_all_copies=False, **kw):
+        actual_batch = args[0] if args else batch
+        deleted_batches.append(len(actual_batch))
         return [
-            {"gallery_id": g.id, "gid": g.gid, "db_removed": True, "deleted_paths": [], "failed_paths": []}
-            for g in batch
+            {
+                "gallery_id": g if isinstance(g, int) else g.id,
+                "gid": getattr(g, "gid", None),
+                "db_removed": True,
+                "deleted_paths": [],
+                "failed_paths": [],
+            }
+            for g in actual_batch
         ]
 
     monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete)
@@ -479,10 +486,17 @@ async def test_delete_filtered_with_q_and_read_status(monkeypatch):
 
     monkeypatch.setattr(galleries_module, "GalleryRepository", Repo)
 
-    async def fake_delete(_session, batch, *, delete_files, delete_all_copies):
+    async def fake_delete(batch, *args, delete_files=False, delete_all_copies=False, **kw):
+        actual_batch = args[0] if args else batch
         return [
-            {"gallery_id": g.id, "gid": g.gid, "db_removed": True, "deleted_paths": [], "failed_paths": []}
-            for g in batch
+            {
+                "gallery_id": g if isinstance(g, int) else g.id,
+                "gid": getattr(g, "gid", None),
+                "db_removed": True,
+                "deleted_paths": [],
+                "failed_paths": [],
+            }
+            for g in actual_batch
         ]
 
     monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete)
@@ -562,7 +576,7 @@ async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monke
 
     monkeypatch.setattr(galleries_module, "GalleryRepository", Repo)
 
-    async def fake_delete(session, batch, *, delete_files, delete_all_copies):
+    async def fake_delete(*args, **kw):
         return []
 
     monkeypatch.setattr(galleries_module, "delete_galleries_local", fake_delete)

@@ -210,16 +210,16 @@ async def run_scan() -> None:
                     if settings.auto_sync_tags:
                         from .tag_sync_worker import enqueue_tag_sync
                         try:
-                            async with app_state.session_factory() as session:
-                                last_id = 0
-                                while True:
+                            last_id = 0
+                            while True:
+                                async with app_state.session_factory() as session:
                                     ids = await GalleryRepository(session).pending_tag_sync_ids(
                                         1000, last_id
                                     )
-                                    if not ids:
-                                        break
-                                    await enqueue_tag_sync(ids)
-                                    last_id = ids[-1]
+                                if not ids:
+                                    break
+                                await enqueue_tag_sync(ids)
+                                last_id = ids[-1]
                         except Exception as exc:  # noqa: BLE001
                             logger.warning(
                                 "tag sync enqueue failed", extra=log_extra(error=type(exc).__name__)

@@ -603,28 +603,30 @@ async def favorites_remove(body: FavoritesRemoveRequest) -> dict[str, object]:
     deleted_local_galleries = 0
     failed_deletions: list[str] = []
     try:
-        async for session in get_session():
-            async with session.begin():
-                if successful_gids and (body.delete_local or body.delete_files):
-                    mapping = await FavoritesRepository(session).galleries_for_gids(
-                        successful_gids
-                    )
-                    galleries: list[Gallery] = []
-                    for gallery_id in mapping.values():
-                        gallery = await session.get(Gallery, gallery_id)
-                        if gallery is not None:
-                            galleries.append(gallery)
-                    results = await delete_galleries_local(
-                        session, galleries, delete_files=True, delete_all_copies=body.delete_all_copies
-                    )
-                    deleted_local_galleries = sum(1 for r in results if r.get("db_removed"))
-                    for r in results:
-                        failed_deletions.extend(r.get("failed_paths", []))
-                if successful_gids:
+        gallery_ids: list[int] = []
+        if successful_gids and (body.delete_local or body.delete_files):
+            async for session in get_session():
+                mapping = await FavoritesRepository(session).galleries_for_gids(
+                    successful_gids
+                )
+                gallery_ids = [gid for gid in mapping.values() if gid is not None]
+                break
+
+            if gallery_ids:
+                results = await delete_galleries_local(
+                    gallery_ids, delete_files=True, delete_all_copies=body.delete_all_copies
+                )
+                deleted_local_galleries = sum(1 for r in results if r.get("db_removed"))
+                for r in results:
+                    failed_deletions.extend(r.get("failed_paths", []))
+
+        if successful_gids:
+            async for session in get_session():
+                async with session.begin():
                     local_removed = await FavoritesRepository(session).remove_gids(
                         successful_gids
                     )
-            break
+                break
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 

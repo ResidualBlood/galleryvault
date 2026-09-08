@@ -137,6 +137,16 @@ def test_tag_sync_success_and_upstream_failure_are_safe(
         def __init__(self, client, repository):
             pass
 
+        async def fetch_plan(self, identifier: int) -> dict[str, object]:
+            if identifier == 7:
+                return {"gid": 42, "title": "title", "source": "network"}
+            if identifier == 8:
+                raise GalleryGidMissing("Gallery has no ExHentai gid")
+            raise RuntimeError("cookie=secret-token")
+
+        async def apply_plan(self, identifier: int, plan: dict[str, object]) -> int:
+            return 2
+
         async def sync(self, identifier: int):
             if identifier == 7:
                 return TagSyncResult(42, "title", 2, datetime.now(UTC))
@@ -158,6 +168,26 @@ def test_tag_sync_success_and_upstream_failure_are_safe(
         failure = client.post("/api/galleries/9/sync-tags")
         assert failure.status_code == 502
         assert "secret-token" not in failure.text
+
+        class LegacyService:
+            def __init__(self, client, repository):
+                pass
+
+            async def sync(self, identifier: int):
+                if identifier == 7:
+                    return TagSyncResult(42, "title", 2, datetime.now(UTC))
+                if identifier == 8:
+                    raise GalleryGidMissing("Gallery has no ExHentai gid")
+                raise RuntimeError("cookie=secret-token")
+
+        monkeypatch.setattr(galleries_router, "TagSyncService", LegacyService)
+        legacy_success = client.post("/api/galleries/7/sync-tags")
+        assert legacy_success.status_code == 200
+        assert legacy_success.json()["gid"] == 42 and legacy_success.json()["count"] == 2
+        assert client.post("/api/galleries/8/sync-tags").status_code == 422
+        legacy_failure = client.post("/api/galleries/9/sync-tags")
+        assert legacy_failure.status_code == 502
+        assert "secret-token" not in legacy_failure.text
     finally:
         app_state.session_factory = orig_factory
         app_state.eh_client = orig_client

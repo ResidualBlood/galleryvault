@@ -205,11 +205,12 @@ async def test_purge_uses_delete_galleries_local_with_delete_files(monkeypatch, 
     # Use a real DB via the test DB? Instead, mock the helper and verify args
     called = {}
 
-    async def fake_delete(session, galleries, *, delete_files, delete_all_copies, trash=None, **kw):
+    async def fake_delete(galleries, *args, delete_files=False, delete_all_copies=False, trash=None, **kw):
+        actual = args[0] if args else galleries
         called["delete_files"] = delete_files
         called["trash"] = trash
-        called["count"] = len(galleries)
-        return [{"gallery_id": g.id, "db_removed": True, "trashed": False, "failed_paths": [], "deleted_paths": []} for g in galleries]
+        called["count"] = len(actual)
+        return [{"gallery_id": g if isinstance(g, int) else g.id, "db_removed": True, "trashed": False, "failed_paths": [], "deleted_paths": []} for g in actual]
 
     monkeypatch.setattr(gal_mod, "delete_galleries_local", fake_delete)
 
@@ -281,8 +282,9 @@ async def test_delete_bulk_soft_delete_counts_trashed(monkeypatch):
 
     monkeypatch.setattr(gal_mod, "get_session", fake_get_session)
 
-    async def fake_delete(session, galleries, **kw):
-        return [{"gallery_id": g.id, "gid": g.gid, "db_removed": False, "trashed": True, "failed_paths": [], "deleted_paths": []} for g in galleries]
+    async def fake_delete(galleries, *args, **kw):
+        actual = args[0] if args else galleries
+        return [{"gallery_id": g if isinstance(g, int) else g.id, "gid": getattr(g, "gid", None), "db_removed": False, "trashed": True, "failed_paths": [], "deleted_paths": []} for g in actual]
 
     monkeypatch.setattr(gal_mod, "delete_galleries_local", fake_delete)
 
@@ -291,8 +293,9 @@ async def test_delete_bulk_soft_delete_counts_trashed(monkeypatch):
     assert res["trashed"] == 1
 
     # Hard delete should still be 1
-    async def fake_delete2(session, galleries, **kw):
-        return [{"gallery_id": g.id, "gid": g.gid, "db_removed": True, "trashed": False, "failed_paths": [], "deleted_paths": []} for g in galleries]
+    async def fake_delete2(galleries, *args, **kw):
+        actual = args[0] if args else galleries
+        return [{"gallery_id": g if isinstance(g, int) else g.id, "gid": getattr(g, "gid", None), "db_removed": True, "trashed": False, "failed_paths": [], "deleted_paths": []} for g in actual]
     monkeypatch.setattr(gal_mod, "delete_galleries_local", fake_delete2)
     res2 = await gal_mod.delete_galleries_bulk(BulkDeleteRequest(ids=[10], delete_files=True))
     assert res2["deleted"] == 1
