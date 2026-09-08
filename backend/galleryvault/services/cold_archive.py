@@ -801,38 +801,10 @@ async def _do_archive_locked(
         logger.warning("No archive roots configured, cannot archive gallery %s", gallery_id)
         return None
 
-    # Step 1: Read gallery metadata under a brief session (released before compression)
+    # Step 1: Read gallery metadata under a brief session (released before disk I/O and compression)
     async with session_factory() as session:
         gallery = await session.get(Gallery, gallery_id)
         if not gallery or gallery.trashed:
-            return None
-
-        source_path = Path(gallery.storage_path).resolve()
-        if not source_path.exists():
-            logger.warning("Source path does not exist for gallery %s: %s", gallery_id, source_path)
-            return None
-
-        # 已在任一 cold：skip
-        if is_under_cold(source_path, roots):
-            logger.info("Source %s is already under cold storage root, skipping", source_path)
-            return None
-
-        # 选盘：剩余≥体积×1.2 中取剩余最大
-        stat_size = gallery.storage_size or gallery.file_size or 0
-        if stat_size <= 0:
-            if source_path.is_file():
-                stat_size = source_path.stat().st_size
-            elif source_path.is_dir():
-                stat_size = sum(f.stat().st_size for f in source_path.rglob("*") if f.is_file())
-
-        required_free = int(stat_size * 1.2)
-        selected_root, _ = select_archive_root(required_free, archive_roots=roots)
-        if selected_root is None:
-            logger.warning(
-                "No cold storage root has free space >= required (%s) for gallery %s, skipping",
-                required_free,
-                gallery_id,
-            )
             return None
 
         # 获取 tags
@@ -865,6 +837,41 @@ async def _do_archive_locked(
         gallery_title = gallery.title
         gallery_title_jpn = getattr(gallery, "title_jpn", None)
         gallery_path_hash = gallery.path_hash
+        gallery_storage_path = gallery.storage_path
+        gallery_storage_size = gallery.storage_size
+        gallery_file_size = gallery.file_size
+
+    if not gallery_storage_path:
+        logger.warning("No storage path recorded for gallery %s", gallery_id)
+        return None
+
+    source_path = Path(gallery_storage_path).resolve()
+    if not source_path.exists():
+        logger.warning("Source path does not exist for gallery %s: %s", gallery_id, source_path)
+        return None
+
+    # 已在任一 cold：skip
+    if is_under_cold(source_path, roots):
+        logger.info("Source %s is already under cold storage root, skipping", source_path)
+        return None
+
+    # 选盘：剩余≥体积×1.2 中取剩余最大
+    stat_size = gallery_storage_size or gallery_file_size or 0
+    if stat_size <= 0:
+        if source_path.is_file():
+            stat_size = source_path.stat().st_size
+        elif source_path.is_dir():
+            stat_size = sum(f.stat().st_size for f in source_path.rglob("*") if f.is_file())
+
+    required_free = int(stat_size * 1.2)
+    selected_root, _ = select_archive_root(required_free, archive_roots=roots)
+    if selected_root is None:
+        logger.warning(
+            "No cold storage root has free space >= required (%s) for gallery %s, skipping",
+            required_free,
+            gallery_id,
+        )
+        return None
 
     # Step 2: Pack and compress outside of DB session (no connection held)
     try:
@@ -1120,11 +1127,6 @@ async def purge_archived_sources_internal(
             Gallery.storage_path.is_not(None),
         )
         archived_rows = (await session.execute(archived_stmt)).all()
-        archived_gids = {
-            gid
-            for gid, sp in archived_rows
-            if is_under_cold(sp, cold_roots)
-        }
 
         # GIDs with active downloads
         active_dl_stmt = select(DownloadTask.gid).where(
@@ -1132,13 +1134,20 @@ async def purge_archived_sources_internal(
             DownloadTask.gid.is_not(None),
         )
         active_dl_gids = set((await session.scalars(active_dl_stmt)).all())
-        active_gids = active_dl_gids | _active_gids
 
         # Safety guard: never delete any path currently recorded as a gallery's active storage_path
         active_paths_stmt = select(Gallery.storage_path).where(Gallery.storage_path.is_not(None))
-        active_paths = {
-            Path(p).resolve() for p in (await session.scalars(active_paths_stmt)).all() if p
-        }
+        active_paths_raw = (await session.scalars(active_paths_stmt)).all()
+
+    archived_gids = {
+        gid
+        for gid, sp in archived_rows
+        if is_under_cold(sp, cold_roots)
+    }
+    active_gids = active_dl_gids | _active_gids
+    active_paths = {
+        Path(p).resolve() for p in active_paths_raw if p
+    }
 
     if not archived_gids and not cold_roots:
         return 0
