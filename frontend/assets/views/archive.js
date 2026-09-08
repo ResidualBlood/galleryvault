@@ -22,6 +22,7 @@ async function renderArchive() {
     <div class="toolbar" id="archive-toolbar">
       <button class="btn btn-primary" data-action="archive-start" type="button" id="archive-start-btn">${esc(t("archiveStart"))}</button>
       <button class="btn btn-secondary" data-action="archive-cancel" type="button" id="archive-cancel-btn" disabled>${esc(t("archiveCancel"))}</button>
+      <button class="btn btn-secondary" data-action="archive-purge-sources" type="button">${esc(t("archivePurgeSources"))}</button>
     </div>
     <div id="archive-status-panel"><div class="panel" style="margin:16px 0;padding:20px;max-width:640px">${renderLoading()}</div></div>
   `);
@@ -172,5 +173,23 @@ async function archiveCancel() {
     toast(err.message || String(err));
   } finally {
     await updateArchiveState();
+  }
+}
+
+async function purgeArchivedSources() {
+  const msg = t("purgeSourcesConfirm");
+  if (!confirm(msg)) return;
+  try {
+    const res = await api("POST", "/api/system/purge-archived-sources");
+    const count = res?.deleted_dirs ?? 0;
+    toast(`${t("purgeSourcesDone")}${count}`);
+    if (typeof fillStorageDash === "function" && document.getElementById("storage-dash")) {
+      await fillStorageDash();
+    }
+    if (typeof updateArchiveState === "function" && document.getElementById("archive-status-panel")) {
+      await updateArchiveState();
+    }
+  } catch (err) {
+    toast(err.message || String(err));
   }
 }

@@ -244,6 +244,7 @@ async function onClick(e) {
   if (action === "integrity-repair") { integrityRepair(); return; }
   if (action === "archive-start") { archiveStart(); return; }
   if (action === "archive-cancel") { archiveCancel(); return; }
+  if (action === "archive-purge-sources") { purgeArchivedSources(); return; }
   if (action === "delete-filtered") { deleteFiltered(); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
   if (action === "sel-delete") { deleteSelected(); return; }

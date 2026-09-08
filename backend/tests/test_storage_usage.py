@@ -189,3 +189,102 @@ def test_thumbnail_and_favorites_increments_cache(tmp_path: Path) -> None:
 
     svc.get_or_create(gallery_id=999, page_index=0, page_bytes=raw_img)
     assert storage_tracker.cache.bytes > 522
+
+
+@pytest.mark.asyncio
+async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
+    from typing import Any
+
+    from galleryvault.services.cold_archive import purge_archived_sources_internal
+
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir()
+    lib_dir = tmp_path / "library"
+    lib_dir.mkdir()
+    cold_dir = tmp_path / "cold"
+    cold_dir.mkdir()
+
+    app_state.settings = Settings(
+        auth_required=False,
+        download_root=str(dl_dir),
+        library_roots=[str(lib_dir)],
+        cold_storage_root=str(cold_dir),
+        archive_roots=[str(cold_dir)],
+    )
+
+    storage_tracker.downloads.bytes = 5000
+
+    # 1. 模拟已归档画廊在 dl_dir 的残留文件夹：gid 1001
+    g1_dir = dl_dir / "1001-gallery-one"
+    g1_dir.mkdir()
+    (g1_dir / "0001.jpg").write_bytes(b"x" * 1000)
+
+    # 2. 模拟已归档画廊在 lib_dir 包含 .ehviewer 的残留文件夹：gid 1002
+    g2_dir = lib_dir / "gallery-two"
+    g2_dir.mkdir()
+    (g2_dir / ".ehviewer").write_text("1002\ntoken2\n1\n", encoding="utf-8")
+    (g2_dir / "0001.jpg").write_bytes(b"y" * 500)
+
+    # 3. 模拟未归档画廊（未在 DB 中设为 cbz）：gid 2001
+    g3_dir = dl_dir / "2001-unarchived"
+    g3_dir.mkdir()
+    (g3_dir / "0001.jpg").write_bytes(b"z" * 200)
+
+    # 4. 模拟活跃下载中的画廊：gid 3001
+    g4_dir = dl_dir / "3001-active"
+    g4_dir.mkdir()
+    (g4_dir / "0001.jpg").write_bytes(b"w" * 300)
+
+    class FakeScalars:
+        def __init__(self, data: list[Any]) -> None:
+            self._data = data
+
+        def all(self) -> list[Any]:
+            return self._data
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def scalars(self, stmt: Any) -> FakeScalars:
+            sql = str(stmt)
+            if "download_tasks" in sql:
+                return FakeScalars([3001])
+            if "storage_type" in sql:
+                return FakeScalars([1001, 1002])
+            if "storage_path" in sql:
+                return FakeScalars([str(cold_dir / "cbz" / "1001.cbz"), str(cold_dir / "cbz" / "1002.cbz")])
+            return FakeScalars([])
+
+    orig_factory = app_state.session_factory
+    try:
+        app_state.session_factory = lambda: FakeSession()
+        deleted = await purge_archived_sources_internal()
+        assert deleted == 2
+        assert not g1_dir.exists()
+        assert not g2_dir.exists()
+        assert g3_dir.exists()
+        assert g4_dir.exists()
+        assert storage_tracker.downloads.bytes == 4000
+    finally:
+        app_state.session_factory = orig_factory
+
+
+def test_purge_archived_sources_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from typing import Any
+
+    app_state.settings = Settings(auth_required=False)
+
+    async def fake_purge(*args: Any, **kwargs: Any) -> int:
+        return 3
+
+    monkeypatch.setattr("galleryvault.services.cold_archive.purge_archived_sources_internal", fake_purge)
+
+    client = TestClient(app)
+    resp = client.post("/api/system/purge-archived-sources")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted_dirs": 3}
+

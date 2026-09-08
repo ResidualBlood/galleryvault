@@ -512,3 +512,13 @@ async def system_storage() -> dict[str, object]:
         "largest": largest,
     }
 
+
+@router.post("/api/system/purge-archived-sources")
+async def purge_archived_sources() -> dict[str, int]:
+    """Purge leftover source directories for galleries already archived to cold storage."""
+    from ...services.cold_archive import purge_archived_sources_internal
+
+    deleted = await purge_archived_sources_internal()
+    return {"deleted_dirs": deleted}
+
+

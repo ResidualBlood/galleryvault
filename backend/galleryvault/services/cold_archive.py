@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import shutil
 import zipfile
@@ -871,10 +872,22 @@ async def _do_archive_locked(
     # DB 更新提交成功后，按设置决定是否删除 SSD 源
     if delete_source and source_path.resolve() != dest_path.resolve():
         try:
+            from .storage_usage import safe_stat_size, storage_tracker
+
+            settings = app_state.settings or get_settings()
+            try:
+                dl_root = Path(settings.download_root).resolve()
+                is_dl = source_path.resolve().is_relative_to(dl_root)
+            except (AttributeError, ValueError, TypeError, OSError):
+                is_dl = False
+            sz = safe_stat_size(source_path) if is_dl else 0
+
             if source_path.is_dir():
                 shutil.rmtree(source_path, ignore_errors=True)
             elif source_path.is_file():
                 source_path.unlink(missing_ok=True)
+            if is_dl and sz > 0 and not source_path.exists():
+                storage_tracker.record_download_delta(-sz)
             logger.info("Deleted SSD source %s after archive to %s", source_path, dest_path)
         except OSError as exc:
             logger.warning("Failed to delete SSD source %s: %s", source_path, exc)
@@ -960,6 +973,140 @@ async def archive_one(
             existing_lock = _gallery_locks.get(target_id)
             if existing_lock is not None and not existing_lock.locked():
                 _gallery_locks.pop(target_id, None)
+
+
+async def purge_archived_sources_internal(
+    session_factory: Callable[[], AsyncSession] | None = None,
+) -> int:
+    """Safely scan download_root and library_roots for leftover source dirs of archived galleries.
+
+    Deletes source folders for galleries already archived to cold storage (storage_type == 'cbz')
+    without active downloads/archiving tasks, and records download delta if inside download_root.
+    Returns the count of purged directories.
+    """
+    settings = app_state.settings or get_settings()
+    sf = session_factory or app_state.session_factory
+    if sf is None:
+        logger.warning("No session factory available for purge_archived_sources_internal")
+        return 0
+
+    async with sf() as session:
+        # GIDs that have already been archived to cbz
+        archived_stmt = select(Gallery.gid).where(
+            Gallery.storage_type == "cbz",
+            Gallery.gid.is_not(None),
+        )
+        archived_gids = set((await session.scalars(archived_stmt)).all())
+        if not archived_gids:
+            return 0
+
+        # GIDs with active downloads
+        active_dl_stmt = select(DownloadTask.gid).where(
+            DownloadTask.status.in_(["pending", "downloading"]),
+            DownloadTask.gid.is_not(None),
+        )
+        active_dl_gids = set((await session.scalars(active_dl_stmt)).all())
+        active_gids = active_dl_gids | _active_gids
+
+        # Candidate GIDs to purge
+        purgeable_gids = archived_gids - active_gids
+        if not purgeable_gids:
+            return 0
+
+        # Safety guard: never delete any path currently recorded as a gallery's active storage_path
+        active_paths_stmt = select(Gallery.storage_path).where(Gallery.storage_path.is_not(None))
+        active_paths = {
+            Path(p).resolve()
+            for p in (await session.scalars(active_paths_stmt)).all()
+            if p
+        }
+
+    dl_root_raw = getattr(settings, "download_root", None)
+    dl_root = Path(dl_root_raw).resolve() if dl_root_raw else None
+    lib_roots_raw = getattr(settings, "library_roots", []) or []
+    lib_roots = [Path(r).resolve() for r in lib_roots_raw if r]
+
+    cold_roots = [Path(r).resolve() for r in resolve_archive_roots()]
+
+    scan_roots: list[Path] = []
+    if dl_root and dl_root.exists():
+        scan_roots.append(dl_root)
+    for lr in lib_roots:
+        if lr.exists() and lr not in scan_roots:
+            scan_roots.append(lr)
+
+    if not scan_roots:
+        return 0
+
+    from .storage_usage import safe_stat_size, storage_tracker
+
+    def _sync_purge() -> int:
+        purged = 0
+        for s_root in scan_roots:
+            if not s_root.exists():
+                continue
+            for dirpath, dirnames, _filenames in os.walk(s_root):
+                # Exclude hidden directories
+                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                cur_dir = Path(dirpath).resolve()
+                if cur_dir == s_root:
+                    continue
+                if is_under_cold(cur_dir, cold_roots):
+                    dirnames.clear()
+                    continue
+                if cur_dir in active_paths:
+                    dirnames.clear()
+                    continue
+
+                gid: int | None = None
+                eh_file = cur_dir / ".ehviewer"
+                if eh_file.is_file():
+                    try:
+                        spider = parse_spider_info(eh_file.read_text(encoding="utf-8"))
+                        gid = spider.gid
+                    except (OSError, ValueError):
+                        try:
+                            lines = [line.strip() for line in eh_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+                            for line in lines[:3]:
+                                if line.isdigit() and int(line) > 0:
+                                    gid = int(line)
+                                    break
+                        except OSError:
+                            pass
+                if gid is None:
+                    m = re.match(r"^(\d+)-", cur_dir.name)
+                    if m:
+                        try:
+                            gid = int(m.group(1))
+                        except ValueError:
+                            pass
+
+                if gid is not None:
+                    dirnames.clear()
+                    if gid in purgeable_gids:
+                        is_dl = False
+                        if dl_root:
+                            try:
+                                is_dl = cur_dir.is_relative_to(dl_root)
+                            except (AttributeError, ValueError, TypeError, OSError):
+                                is_dl = False
+                        sz = safe_stat_size(cur_dir) if is_dl else 0
+                        try:
+                            shutil.rmtree(cur_dir, ignore_errors=True)
+                            if not cur_dir.exists():
+                                purged += 1
+                                if is_dl and sz > 0:
+                                    storage_tracker.record_download_delta(-sz)
+                                logger.info(
+                                    "Purged leftover source directory for archived gallery %s: %s",
+                                    gid,
+                                    cur_dir,
+                                )
+                        except OSError as exc:
+                            logger.warning("Failed to purge source directory %s: %s", cur_dir, exc)
+        return purged
+
+    return await asyncio.to_thread(_sync_purge)
 
 
 async def run_cold_archive(
@@ -1080,6 +1227,14 @@ async def run_cold_archive(
         if was_cancelled:
             reason += " (cancelled)"
         tracker.update(reason=reason)
+
+    if getattr(settings, "archive_delete_source", True):
+        try:
+            purged = await purge_archived_sources_internal(session_factory=sf)
+            if purged > 0:
+                logger.info("Auto-purged %d leftover archived source directories", purged)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Auto-purge archived sources failed: %s", exc)
 
     has_fail = failed > 0
     end_kind = "archive_fail" if has_fail else "archive_ok"
