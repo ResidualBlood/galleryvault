@@ -2,3 +2,5 @@
 3443dcf7984c6595cc77bf653550aed04fa1132b:backend/tests/test_logging.py:generic-api-key:494
 8866c6a4281983d4da19008779d3ffcd0e09db42:backend/tests/test_logging.py:generic-api-key:494
 8866c6a4281983d4da19008779d3ffcd0e09db42:backend/tests/test_logging.py:generic-api-key:501
+d1478c8426f67e3bfcfeb669c6be203d6266b1aa:backend/tests/test_tag_sync.py:generic-api-key:66
+d1478c8426f67e3bfcfeb669c6be203d6266b1aa:backend/tests/test_tag_sync.py:generic-api-key:98
