@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..logging import log_extra
-from ..scanners.ehviewer import natural_key
+from ..scanners.ehviewer import natural_key, strip_gid_prefix
 from .eh_client import (
     ArchiveExpiredError,
     EhImageSlowError,
@@ -152,7 +152,9 @@ def gallery_dirname(
     else:
         suitable = (title_jpn or title or "").strip()
     if suitable:
-        return _truncate_utf8(f"{gid}-{safe_title(suitable)}")
+        clean_suitable = strip_gid_prefix(suitable, gid)
+        if clean_suitable:
+            return _truncate_utf8(f"{gid}-{safe_title(clean_suitable)}")
     return str(gid)
 
 
