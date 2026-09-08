@@ -133,12 +133,16 @@ async def seed_thumbnails() -> None:
             pairs = [(int(row[0]), int(row[1])) for row in rows if row[1]]
         service = _thumb_service()
         missing: list[int] = []
-        missing_total = 0
-        for gallery_id, page_count in pairs:
-            if not service.has_missing_pages(gallery_id, page_count):
-                continue
-            missing_total += 1
-            missing.append(gallery_id)
+
+        def _check_missing(chunk: list[tuple[int, int]]) -> list[int]:
+            return [gid for gid, count in chunk if service.has_missing_pages(gid, count)]
+
+        for start in range(0, len(pairs), 500):
+            chunk = pairs[start : start + 500]
+            missing.extend(await asyncio.to_thread(_check_missing, chunk))
+            await asyncio.sleep(0.01)
+
+        missing_total = len(missing)
         added = 0
         for start in range(0, len(missing), 500):
             async with app_state.session_factory() as session, session.begin():

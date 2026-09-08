@@ -92,26 +92,29 @@ async def ingest_downloaded_gallery(result: Any) -> None:
             )
         await asyncio.to_thread(collapse_same_stem_pages, path)
 
-        files = sorted(
-            (
-                item
-                for item in path.iterdir()
-                if item.is_file()
-                and not item.name.startswith(".")
-                and item.suffix.casefold() in IMAGE_EXTENSIONS
-            ),
-            key=lambda item: natural_key(item.name),
-        )
-        pages = [
-            PageInfo(
-                i,
-                item.name,
-                item.suffix.casefold().lstrip("."),
-                item.stat().st_size,
-                item.stat().st_mtime_ns,
+        def _gather_pages(p: Path) -> list[PageInfo]:
+            files = sorted(
+                (
+                    item
+                    for item in p.iterdir()
+                    if item.is_file()
+                    and not item.name.startswith(".")
+                    and item.suffix.casefold() in IMAGE_EXTENSIONS
+                ),
+                key=lambda item: natural_key(item.name),
             )
-            for i, item in enumerate(files)
-        ]
+            return [
+                PageInfo(
+                    i,
+                    item.name,
+                    item.suffix.casefold().lstrip("."),
+                    item.stat().st_size,
+                    item.stat().st_mtime_ns,
+                )
+                for i, item in enumerate(files)
+            ]
+
+        pages = await asyncio.to_thread(_gather_pages, path)
         raw_tags = getattr(result, "tags", None) or ()
         if isinstance(raw_tags, dict):
             tags = [

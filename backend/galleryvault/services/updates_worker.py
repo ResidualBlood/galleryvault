@@ -270,27 +270,32 @@ async def detect_gallery_updates() -> None:
             to_finalize: list[Any] = []
             to_attach: dict[int, int] = {}
             try:
+                fav_gids: set[int] = set()
+                by_title: dict[str, tuple[int, str, int]] = {}
                 async with session_cm() as session:
-                    fav_rows = await session.execute(
-                        select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.title, FavoriteItem.favcat)
-                    )
-                    fav_gids: set[int] = set()
-                    by_title: dict[str, tuple[int, str, int]] = {}
-                    for gid, token, title, favcat in fav_rows:
-                        gid = int(gid)
-                        fav_gids.add(gid)
-                        nt = normalize_update_title(title or "")
-                        if nt and nt not in by_title:
-                            by_title[nt] = (gid, str(token), int(favcat))
-                        if "|" in (title or ""):
-                            for part in title.split("|"):
-                                p_nt = normalize_update_title(part)
-                                if p_nt and p_nt not in by_title:
-                                    by_title[p_nt] = (gid, str(token), int(favcat))
+                    fav_rows = (
+                        await session.execute(
+                            select(FavoriteItem.gid, FavoriteItem.token, FavoriteItem.title, FavoriteItem.favcat)
+                        )
+                    ).all()
                     repo = repo_cls(session)
                     tracking = await repo.tracking_by_gallery_id()
-                    page = 1
-                    while True:
+
+                for gid, token, title, favcat in fav_rows:
+                    gid = int(gid)
+                    fav_gids.add(gid)
+                    nt = normalize_update_title(title or "")
+                    if nt and nt not in by_title:
+                        by_title[nt] = (gid, str(token), int(favcat))
+                    if "|" in (title or ""):
+                        for part in title.split("|"):
+                            p_nt = normalize_update_title(part)
+                            if p_nt and p_nt not in by_title:
+                                by_title[p_nt] = (gid, str(token), int(favcat))
+
+                page = 1
+                while True:
+                    async with session_cm() as session:
                         rows = await session.execute(
                             select(Gallery.id, Gallery.gid, Gallery.title, Gallery.title_jpn)
                             .where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
@@ -299,44 +304,47 @@ async def detect_gallery_updates() -> None:
                             .limit(500)
                         )
                         batch = rows.all()
-                        if not batch:
-                            break
-                        for gallery_id, gid, title, title_jpn in batch:
-                            if gid is None or gid in fav_gids:
-                                continue
-                            tracked_row = tracking.get(int(gallery_id))
-                            if tracked_row is not None and getattr(tracked_row, "status", None) == "ignored":
-                                continue
-                            nt = normalize_update_title(title or "")
-                            match = by_title.get(nt)
-                            if not match and title_jpn:
-                                match = by_title.get(normalize_update_title(title_jpn))
-                            if not match and "|" in (title or ""):
-                                for part in title.split("|"):
-                                    match = by_title.get(normalize_update_title(part))
-                                    if match:
-                                        break
-                            if match and match[0] != int(gid):
-                                new_gid, new_token, favcat = match
-                                detected.append(
-                                    {
-                                        "gallery_id": int(gallery_id),
-                                        "old_gid": int(gid),
-                                        "new_gid": new_gid,
-                                        "new_token": new_token,
-                                        "title": title,
-                                        "favcat": favcat,
-                                        "existing_id": getattr(tracked_row, "id", None),
-                                        "existing_status": getattr(tracked_row, "status", None),
-                                    }
-                                )
-                        if len(batch) < 500:
-                            break
-                        page += 1
-                    local_new: set[int] = set()
-                    active_tasks: dict[int, int] = {}
-                    if detected:
-                        new_gids = [e["new_gid"] for e in detected]
+                    if not batch:
+                        break
+                    for gallery_id, gid, title, title_jpn in batch:
+                        if gid is None or gid in fav_gids:
+                            continue
+                        tracked_row = tracking.get(int(gallery_id))
+                        if tracked_row is not None and getattr(tracked_row, "status", None) == "ignored":
+                            continue
+                        nt = normalize_update_title(title or "")
+                        match = by_title.get(nt)
+                        if not match and title_jpn:
+                            match = by_title.get(normalize_update_title(title_jpn))
+                        if not match and "|" in (title or ""):
+                            for part in title.split("|"):
+                                match = by_title.get(normalize_update_title(part))
+                                if match:
+                                    break
+                        if match and match[0] != int(gid):
+                            new_gid, new_token, favcat = match
+                            detected.append(
+                                {
+                                    "gallery_id": int(gallery_id),
+                                    "old_gid": int(gid),
+                                    "new_gid": new_gid,
+                                    "new_token": new_token,
+                                    "title": title,
+                                    "favcat": favcat,
+                                    "existing_id": getattr(tracked_row, "id", None),
+                                    "existing_status": getattr(tracked_row, "status", None),
+                                }
+                            )
+                    if len(batch) < 500:
+                        break
+                    page += 1
+
+                local_new: set[int] = set()
+                active_tasks: dict[int, int] = {}
+                if detected:
+                    new_gids = [e["new_gid"] for e in detected]
+                    async with session_cm() as session:
+                        repo = repo_cls(session)
                         local_new = await repo.local_new_gids(new_gids)
                         active_tasks = await repo.active_task_ids_for_gids(new_gids)
                 for entry in detected:

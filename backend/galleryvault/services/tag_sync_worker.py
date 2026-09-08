@@ -257,14 +257,14 @@ async def category_refresh_once() -> int:
         if not app_state.session_factory or not app_state.eh_client:
             return 0
         ids: list[int] = []
-        async with app_state.session_factory() as session:
-            last_id = 0
-            while True:
+        last_id = 0
+        while True:
+            async with app_state.session_factory() as session:
                 batch = await GalleryRepository(session).pending_category_refresh_ids(500, last_id)
-                if not batch:
-                    break
-                ids.extend(batch)
-                last_id = batch[-1]
+            if not batch:
+                break
+            ids.extend(batch)
+            last_id = batch[-1]
         for gallery_id in ids:
             try:
                 async with app_state.session_factory() as session, session.begin():
@@ -583,17 +583,18 @@ async def tag_sync_worker_loop() -> None:
     tm = app_state.task_manager
     tag_sync_state = tm.tag_sync_state if tm else {}
     try:
-        async with app_state.session_factory() as session:
-            last_id = 0
-            seeded = 0
-            while True:
+        last_id = 0
+        seeded = 0
+        while True:
+            async with app_state.session_factory() as session:
                 ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
-                if not ids:
-                    break
-                await enqueue_tag_sync(ids)
-                seeded += len(ids)
-                last_id = ids[-1]
-            tag_sync_state["total"] = seeded + int(tag_sync_state.get("processed", 0))
+            if not ids:
+                break
+            await enqueue_tag_sync(ids)
+            seeded += len(ids)
+            last_id = ids[-1]
+            await asyncio.sleep(0.05)
+        tag_sync_state["total"] = seeded + int(tag_sync_state.get("processed", 0))
     except Exception as exc:  # noqa: BLE001
         logger.warning("tag sync seeding failed", extra=log_extra(error=type(exc).__name__))
     tag_sync_state["queued"] = await jobs_count(JOB_TAG_SYNC)
