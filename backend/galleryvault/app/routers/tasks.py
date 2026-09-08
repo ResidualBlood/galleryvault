@@ -298,6 +298,16 @@ async def trigger_category_refresh() -> dict[str, object]:
     }
 
 
+@router.post("/api/tag-sync/repair-categories")
+async def repair_categories(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    """One-click local repair for galleries stuck in misc/other using cached metadata."""
+    session = await resolve_session(session, fallback_dep=get_session)
+    count = await GalleryRepository(session).sync_categories_from_metadata()
+    return {"status": "ok", "repaired": count}
+
+
 @router.get("/api/thumbs/status")
 async def thumb_status() -> dict[str, object]:
     tm = get_task_manager()

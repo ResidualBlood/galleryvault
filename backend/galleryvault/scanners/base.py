@@ -40,8 +40,10 @@ def normalize_category(value: object) -> str:
 def infer_category(path: Path, metadata: dict[str, Any] | None = None) -> str:
     metadata = metadata or {}
     for value in (metadata.get("category"), *(parent.name for parent in path.parents)):
-        candidate = str(value or "").strip().casefold().replace(" ", "_")
-        if candidate in CATEGORIES:
+        if not value:
+            continue
+        candidate = normalize_category(value)
+        if candidate != GENERIC_CATEGORY:
             return candidate
     return GENERIC_CATEGORY
 

@@ -16,13 +16,14 @@ class GalleryIngestService:
         # saw (gid known) get tags/title/category/posted filled in here, so no
         # per-gallery ExHentai fetch is needed after ingest.
         cached = await self.repository.metadata_map(
-            [g.gid for g in galleries if g.gid is not None and not g.tags]
+            [g.gid for g in galleries if g.gid is not None and (not g.tags or not g.category)]
         )
         for gallery in galleries:
-            if gallery.gid is None or gallery.tags or gallery.gid not in cached:
+            if gallery.gid is None or gallery.gid not in cached:
                 continue
             meta = cached[gallery.gid]
-            gallery.tags = [{"namespace": t["namespace"], "name": t["name"]} for t in meta["tags"]]
+            if not gallery.tags:
+                gallery.tags = [{"namespace": t["namespace"], "name": t["name"]} for t in meta["tags"]]
             gallery.category = gallery.category or meta["category"]
             gallery.title_jpn = gallery.title_jpn or meta["title_jpn"]
             gallery.rating = gallery.rating or meta["rating"]

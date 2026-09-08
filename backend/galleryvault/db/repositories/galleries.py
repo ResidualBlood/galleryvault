@@ -1226,7 +1226,7 @@ class GalleryRepository:
                 Gallery.id > last_id,
                 Gallery.gid.is_not(None),
                 Gallery.token.is_not(None),
-                Gallery.category == "other",
+                Gallery.category.in_(["other", "misc"]),
                 Gallery.tags_synced_at.is_not(None),
                 Gallery.category_refreshed_at.is_(None),
             )
@@ -1240,12 +1240,31 @@ class GalleryRepository:
             select(func.count(Gallery.id)).where(
                 Gallery.gid.is_not(None),
                 Gallery.token.is_not(None),
-                Gallery.category == "other",
+                Gallery.category.in_(["other", "misc"]),
                 Gallery.tags_synced_at.is_not(None),
                 Gallery.category_refreshed_at.is_(None),
             )
         )
         return int(rows or 0)
+
+    async def sync_categories_from_metadata(self) -> int:
+        """Bulk update galleries with 'misc'/'other' category from gallery_metadata."""
+        statement = (
+            update(Gallery)
+            .where(
+                Gallery.gid == GalleryMetadata.gid,
+                Gallery.category.in_(["misc", "other"]),
+                GalleryMetadata.category.is_not(None),
+                GalleryMetadata.category.not_in(["misc", "other"]),
+            )
+            .values(
+                category=GalleryMetadata.category,
+                category_refreshed_at=func.now(),
+            )
+        )
+        result = await self.session.execute(statement)
+        await self.session.flush()
+        return int(result.rowcount or 0)
 
     async def get_by_identifier(self, identifier: int) -> Gallery | None:
         """Fetch a gallery by ``id`` or ``gid`` without deleting it."""

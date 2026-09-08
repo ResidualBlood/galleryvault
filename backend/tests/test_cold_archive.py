@@ -1998,5 +1998,58 @@ async def test_archive_one_rejects_corrupted_existing_cold_destination(tmp_path:
     assert gallery_obj.storage_path == str(source)
 
 
+def test_build_galleryvault_json_with_category() -> None:
+    from galleryvault.services.cold_archive import build_galleryvault_json
 
+    # When category is provided
+    content = build_galleryvault_json(
+        gid=123,
+        token="abc",
+        tags=[{"namespace": "artist", "name": "foo"}],
+        p_tokens=["tok1"],
+        title="Sample",
+        category="doujinshi",
+    )
+    data = json.loads(content.decode("utf-8"))
+    assert data["category"] == "doujinshi"
+    assert data["gid"] == 123
+    assert data["title"] == "Sample"
+
+    # When category is None
+    content_none = build_galleryvault_json(
+        gid=123,
+        token="abc",
+        tags=[],
+        p_tokens=[],
+        title="Sample",
+        category=None,
+    )
+    data_none = json.loads(content_none.decode("utf-8"))
+    assert "category" not in data_none
+
+
+def test_extract_source_meta_extracts_category(tmp_path: Path) -> None:
+    from galleryvault.services.cold_archive import _extract_source_meta
+
+    # 1. Directory source with .galleryvault.json containing category
+    dir_path = tmp_path / "test_dir"
+    dir_path.mkdir()
+    gv_file = dir_path / ".galleryvault.json"
+    gv_file.write_text(json.dumps({"gid": 999, "category": "manga"}), encoding="utf-8")
+    meta_dir = _extract_source_meta(dir_path)
+    assert meta_dir[8] == "manga"
+
+    # 2. CBZ archive source with .galleryvault.json containing category
+    cbz_path = tmp_path / "test.cbz"
+    with zipfile.ZipFile(cbz_path, "w") as zf:
+        zf.writestr(".galleryvault.json", json.dumps({"category": "non-h"}).encode("utf-8"))
+        zf.writestr("01.jpg", b"image data")
+    meta_cbz = _extract_source_meta(cbz_path)
+    assert meta_cbz[8] == "non-h"
+
+    # 3. Source without category falls back to passed parameter
+    empty_dir = tmp_path / "empty_dir"
+    empty_dir.mkdir()
+    meta_fallback = _extract_source_meta(empty_dir, category="cosplay")
+    assert meta_fallback[8] == "cosplay"
 

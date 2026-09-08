@@ -501,3 +501,25 @@ def test_delete_local_copy_in_archive_root_allowed(monkeypatch: pytest.MonkeyPat
     assert not target_file.exists()
 
 
+def test_infer_category_metadata_and_parent_fallback(tmp_path: Path) -> None:
+    from galleryvault.scanners.base import infer_category
+
+    # 1. Metadata has valid category -> normalized
+    cat_dir = tmp_path / "somedir" / "123-title"
+    assert infer_category(cat_dir, {"category": "Doujinshi"}) == "doujinshi"
+    assert infer_category(cat_dir, {"category": "MANGA"}) == "manga"
+
+    # 2. Metadata has misc/other -> falls back to parent directory if valid
+    manga_dir = tmp_path / "Manga" / "123-title"
+    assert infer_category(manga_dir, {"category": "misc"}) == "manga"
+    assert infer_category(manga_dir, {"category": "other"}) == "manga"
+
+    # 3. No category in metadata -> infers from parent directory
+    cg_dir = tmp_path / "Artist CG" / "456-title"
+    assert infer_category(cg_dir, {}) == "artistcg"
+    assert infer_category(cg_dir, None) == "artistcg"
+
+    # 4. Neither metadata nor parents contain valid category -> fallback to misc
+    unknown_dir = tmp_path / "UnknownParent" / "Subdir" / "789-title"
+    assert infer_category(unknown_dir, {}) == "misc"
+

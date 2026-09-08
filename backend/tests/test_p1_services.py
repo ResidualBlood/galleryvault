@@ -1012,16 +1012,61 @@ async def test_repository_replaces_tag_rows_and_reuses_tag_names() -> None:
 
 @pytest.mark.asyncio
 async def test_pending_category_refresh_returns_ids() -> None:
+    captured_statements = []
+
     class Rows:
         def __iter__(self):
             return iter([(7,), (11,)])
 
     class Session:
         async def execute(self, statement):
+            captured_statements.append(statement)
             return Rows()
 
-    result = await GalleryRepository(Session()).pending_category_refresh_ids()
+        async def scalar(self, statement):
+            captured_statements.append(statement)
+            return 2
+
+    repo = GalleryRepository(Session())
+    result = await repo.pending_category_refresh_ids()
     assert result == [7, 11]
+
+    count = await repo.count_pending_category_refresh()
+    assert count == 2
+
+    # Verify both 'other' and 'misc' are captured in queries
+    for stmt in captured_statements:
+        sql = str(stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        assert "'other'" in sql and "'misc'" in sql
+
+
+@pytest.mark.asyncio
+async def test_sync_categories_from_metadata() -> None:
+    captured_statements = []
+    flushed = False
+
+    class Result:
+        rowcount = 15
+
+    class Session:
+        async def execute(self, statement):
+            captured_statements.append(statement)
+            return Result()
+
+        async def flush(self):
+            nonlocal flushed
+            flushed = True
+
+    repo = GalleryRepository(Session())
+    count = await repo.sync_categories_from_metadata()
+    assert count == 15
+    assert flushed is True
+    assert len(captured_statements) == 1
+
+    sql = str(captured_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+    assert "update galleries" in sql
+    assert "gallery_metadata" in sql
+    assert "'misc'" in sql and "'other'" in sql
 
 
 class _RowResult:

@@ -193,13 +193,14 @@ def build_galleryvault_json(
     p_tokens: Sequence[str] | None,
     title: str | None = None,
     title_jpn: str | None = None,
+    category: str | None = None,
 ) -> bytes:
     """Generate .galleryvault.json content."""
     clean_title = title or ""
     clean_title_jpn = title_jpn or ""
     if clean_title_jpn.strip().isdigit():
         clean_title_jpn = ""
-    data = {
+    data: dict[str, Any] = {
         "gid": gid,
         "token": token or None,
         "title": clean_title,
@@ -207,6 +208,8 @@ def build_galleryvault_json(
         "tags": normalize_tags(tags),
         "p_tokens": list(p_tokens or []),
     }
+    if category is not None:
+        data["category"] = category
     return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
 
@@ -466,7 +469,8 @@ def _extract_source_meta(
     p_tokens: Sequence[str] | None = None,
     stable: str | None = None,
     site: str | None = None,
-) -> tuple[int | None, str | None, str, str, list[dict[str, str]], list[str], str, str | None]:
+    category: str | None = None,
+) -> tuple[int | None, str | None, str, str, list[dict[str, str]], list[str], str, str | None, str | None]:
     """Fill missing metadata from source filesystem artifacts if available."""
     current_gid = gid
     current_token = token
@@ -478,6 +482,7 @@ def _extract_source_meta(
     current_p_tokens = list(p_tokens or [])
     current_stable = stable
     current_site = site
+    current_category = category
 
     if source.is_dir():
         # Check .galleryvault.json
@@ -502,6 +507,8 @@ def _extract_source_meta(
                         current_p_tokens = [str(x) for x in data["p_tokens"]]
                     if not current_site and data.get("site"):
                         current_site = str(data["site"])
+                    if data.get("category"):
+                        current_category = str(data["category"])
             except (json.JSONDecodeError, OSError, ValueError):
                 logger.debug("Failed reading .galleryvault.json from %s", source)
 
@@ -541,6 +548,8 @@ def _extract_source_meta(
                             current_p_tokens = [str(x) for x in data["p_tokens"]]
                         if not current_site and data.get("site"):
                             current_site = str(data["site"])
+                        if data.get("category"):
+                            current_category = str(data["category"])
         except (zipfile.BadZipFile, json.JSONDecodeError, OSError, ValueError):
             logger.debug("Failed reading zip metadata from %s", source)
 
@@ -576,6 +585,7 @@ def _extract_source_meta(
         current_p_tokens,
         current_stable or "",
         current_site,
+        current_category,
     )
 
 
@@ -592,6 +602,7 @@ def cold_pack_gallery(
     stable: str | None = None,
     writer: str | None = None,
     site: str | None = None,
+    category: str | None = None,
     max_cbz_bytes: int = COLD_ARCHIVE_MAX_CBZ_BYTES,
     max_cbz_pages: int = COLD_ARCHIVE_MAX_CBZ_PAGES,
     delete_source: bool = False,
@@ -625,6 +636,7 @@ def cold_pack_gallery(
         res_p_tokens,
         res_stable,
         res_site,
+        res_category,
     ) = _extract_source_meta(
         src,
         gid=gid,
@@ -635,6 +647,7 @@ def cold_pack_gallery(
         p_tokens=p_tokens,
         stable=stable,
         site=site,
+        category=category,
     )
 
     if res_gid is not None and res_title:
@@ -710,6 +723,7 @@ def cold_pack_gallery(
         p_tokens=res_p_tokens,
         title=res_title,
         title_jpn=res_title_jpn,
+        category=res_category,
     )
 
     try:
@@ -836,6 +850,7 @@ async def _do_archive_locked(
         gallery_token = gallery.token
         gallery_title = gallery.title
         gallery_title_jpn = getattr(gallery, "title_jpn", None)
+        gallery_category = getattr(gallery, "category", None)
         gallery_path_hash = gallery.path_hash
         gallery_storage_path = gallery.storage_path
         gallery_storage_size = gallery.storage_size
@@ -886,6 +901,7 @@ async def _do_archive_locked(
             tags=tags,
             stable=gallery_path_hash,
             site=gallery_site,
+            category=gallery_category,
             delete_source=False,
         )
     except ColdAlreadyArchivedError as exc:
