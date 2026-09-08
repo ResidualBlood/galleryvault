@@ -144,16 +144,16 @@ def compute_cold_path(
 
     if gid is not None:
         if is_cbz:
-            filename = _truncate_utf8(f"{gid}-{safe}", 251)
+            filename = _truncate_utf8(f"{gid}-{safe}", 243)
             return root / "cbz" / hh / ii / f"{filename}.cbz"
         return root / "dir" / hh / ii / str(gid)
 
     if not stable:
         raise ValueError("stable (path_hash) is required when gid is None")
     if is_cbz:
-        filename = _truncate_utf8(f"{stable}-{safe}", 251)
+        filename = _truncate_utf8(f"{stable}-{safe}", 243)
         return root / "ungid" / hh / ii / f"{filename}.cbz"
-    filename = _truncate_utf8(f"{stable}-{safe}", 255)
+    filename = _truncate_utf8(f"{stable}-{safe}", 247)
     return root / "ungid" / hh / ii / filename
 
 

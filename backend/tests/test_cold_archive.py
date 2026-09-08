@@ -75,17 +75,19 @@ def test_compute_cold_path_shapes(tmp_path: Path) -> None:
     p_long = compute_cold_path(cold_root, is_cbz=True, gid=gid, title=long_title)
     assert p_long.name == f"{gid}-{long_title}.cbz"
 
-    # Truncate UTF-8 > 251 bytes for CBZ filename base
+    # Truncate UTF-8 > 243 bytes for CBZ filename base
     cjk_title = "测试" * 50  # 100 chars, 300 bytes
     p_cjk = compute_cold_path(cold_root, is_cbz=True, gid=gid, title=cjk_title)
     assert len(p_cjk.name.encode("utf-8")) <= 255
     assert p_cjk.name.endswith(".cbz")
     stem_bytes = p_cjk.name[:-4].encode("utf-8")
-    assert len(stem_bytes) <= 251
+    assert len(stem_bytes) <= 243
+    assert len((p_cjk.name + ".partial").encode("utf-8")) <= 255
 
-    # ungid dir mode truncates to 255 bytes
+    # ungid dir mode truncates to 247 bytes
     p_ungid_long_dir = compute_cold_path(cold_root, is_cbz=False, stable=stable, title=cjk_title)
-    assert len(p_ungid_long_dir.name.encode("utf-8")) <= 255
+    assert len(p_ungid_long_dir.name.encode("utf-8")) <= 247
+    assert len((p_ungid_long_dir.name + ".partial").encode("utf-8")) <= 255
 
 
 def test_small_dir_packs_to_cbz_triplet_and_filters_forbidden(tmp_path: Path) -> None:

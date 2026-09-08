@@ -5,7 +5,7 @@ scripts/repair_cbz_filenames.py
 Scans galleries in the database whose storage_path points to cold archive
 (e.g., {cold_root}/cbz/..., {cold_root}/ungid/..., or cold:*), recalculates
 the expected destination path using the updated safe_title and byte-truncation
-rules (Linux 255 bytes / 251 bytes base for .cbz), and if the filename has
+rules (Linux 255 bytes / 243 bytes base for .cbz / 247 bytes for dir), and if the filename has
 changed:
   1. Atomically renames the file/directory on disk (os.replace).
   2. Updates galleries.storage_path in the database.
