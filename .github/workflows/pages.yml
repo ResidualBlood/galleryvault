@@ -91,7 +91,7 @@ jobs:
       - name: Cache node_modules
         if: steps.check.outputs.should_build == 'true'
         id: cache-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: docs-site/node_modules
           key: node-modules-${{ runner.os }}-node-20-${{ hashFiles('docs-site/package-lock.json') }}
@@ -103,7 +103,7 @@ jobs:
 
       - name: Cache Vite build cache
         if: steps.check.outputs.should_build == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         continue-on-error: true
         with:
           path: |
