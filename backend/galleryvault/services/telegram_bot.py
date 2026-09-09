@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..config import Settings
+from ..logging import log_extra
 from ..services.eh_client import parse_gallery_url
 from ..services.messages import (
     bot_already_local,
@@ -200,7 +201,7 @@ class TelegramBotService:
                         merged = {**existing, "global_paused": value}
                         await SettingsRepository(session).save(merged)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("global pause persist failed", extra={"error": type(exc).__name__})
+                logger.warning("global pause persist failed", extra=log_extra(error=type(exc).__name__))
 
         if text == "/pause":
             await _set_global_paused(True)
@@ -329,8 +330,10 @@ class TelegramBotService:
                 await self.poll_once()
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - network errors must not kill the app
+            except Exception as exc:
                 logger.warning(
-                    "Telegram bot polling failed", extra={"context": {"error": type(exc).__name__}}
+                    "Telegram bot polling failed",
+                    extra=log_extra(error=type(exc).__name__),
+                    exc_info=True,
                 )
                 await asyncio.sleep(2)

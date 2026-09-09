@@ -6,10 +6,49 @@ let currentLogsTab = "activity";
 let systemLogSearch = "";
 let systemLogMinLevel = "INFO";
 let systemLogLevel = "INFO";
+let systemLogAutoScroll = true;
+let isUserScrolledUp = false;
+let lastRenderedLogId = null;
+let lastSearchQuery = "";
+let lastMinLevel = "INFO";
+const MAX_SYSLOG_DOM_NODES = 1000;
+
+function scrollSyslogToBottom() {
+  const container = document.getElementById("syslog-container");
+  if (!container) return;
+  container.scrollTop = container.scrollHeight;
+}
+
+function bindSyslogEvents() {
+  const container = document.getElementById("syslog-container");
+  if (container && !container.__gvScrollBound) {
+    container.__gvScrollBound = true;
+    container.addEventListener("scroll", () => {
+      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+      isUserScrolledUp = !atBottom;
+    });
+  }
+
+  const autoScrollToggle = document.getElementById("syslog-autoscroll");
+  if (autoScrollToggle && !autoScrollToggle.__gvBound) {
+    autoScrollToggle.__gvBound = true;
+    autoScrollToggle.addEventListener("change", (e) => {
+      systemLogAutoScroll = Boolean(e.target.checked);
+      if (systemLogAutoScroll) {
+        isUserScrolledUp = false;
+        scrollSyslogToBottom();
+      }
+    });
+  }
+}
 
 async function renderLogs() {
   const tab = app.query.tab || currentLogsTab;
   currentLogsTab = tab;
+  lastRenderedLogId = null;
+  isUserScrolledUp = false;
+  lastSearchQuery = systemLogSearch;
+  lastMinLevel = systemLogMinLevel;
 
   renderView(`
     <header>
@@ -55,15 +94,20 @@ async function renderLogs() {
           </select>
         </label>
         <input type="search" id="syslog-search-input" placeholder="${esc(t("searchLogs"))}" value="${esc(systemLogSearch)}" style="flex:1; min-width:180px;">
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;user-select:none;">
+          <input type="checkbox" id="syslog-autoscroll" ${systemLogAutoScroll ? "checked" : ""}>
+          <span>${esc(t("autoScroll") || (document.documentElement.lang === "en" ? "Auto-scroll" : "自动滚动"))}</span>
+        </label>
         <a class="btn btn-secondary" href="/api/system/logs/download" download style="display:inline-flex;align-items:center;padding:5px 12px;font-size:13px;text-decoration:none;border-radius:4px" target="_blank">${esc(t("downloadLogs"))}</a>
         <button class="secondary" data-action="refresh-system-logs" type="button">${esc(t("refreshLogs"))}</button>
         <button class="secondary" data-action="clear-system-logs" type="button">${esc(t("clearLogs"))}</button>
       </div>
       <div id="syslog-storage-info" style="font-size:11px;color:var(--muted);margin-bottom:8px;"></div>
-      <div id="syslog-container"><p>${esc(t("loading"))}</p></div>
+      <div id="syslog-container" style="max-height:72vh;overflow-y:auto;scroll-behavior:smooth;"><p>${esc(t("loading"))}</p></div>
     </div>
   `);
 
+  bindSyslogEvents();
   pollLogs();
 }
 
@@ -161,6 +205,14 @@ function renderSystemLogRow(row) {
 async function fetchSystemLogs() {
   const container = document.getElementById("syslog-container");
   if (!container) return;
+  bindSyslogEvents();
+
+  if (systemLogSearch !== lastSearchQuery || systemLogMinLevel !== lastMinLevel) {
+    lastRenderedLogId = null;
+    lastSearchQuery = systemLogSearch;
+    lastMinLevel = systemLogMinLevel;
+  }
+
   try {
     const q = new URLSearchParams({
       min_level: systemLogMinLevel,
@@ -181,12 +233,47 @@ async function fetchSystemLogs() {
     }
     const logs = data.logs || [];
     if (!logs.length) {
+      lastRenderedLogId = null;
       container.innerHTML = `<p class="muted">${esc(t("noLogs"))}</p>`;
+      return;
+    }
+
+    let rowsEl = container.querySelector(".syslog-rows");
+    const maxIncomingId = logs.reduce((acc, it) => Math.max(acc, Number(it.id) || 0), 0);
+    const needsFullRender = (
+      !rowsEl ||
+      lastRenderedLogId === null ||
+      (maxIncomingId > 0 && lastRenderedLogId > maxIncomingId)
+    );
+
+    if (needsFullRender) {
+      const chronological = logs.slice().reverse();
+      container.innerHTML = `<div class="syslog-rows">${chronological.map(renderSystemLogRow).join("")}</div>`;
+      lastRenderedLogId = maxIncomingId;
+      if (systemLogAutoScroll && !isUserScrolledUp) {
+        scrollSyslogToBottom();
+      }
     } else {
-      container.innerHTML = `<div class="syslog-rows">${logs.map(renderSystemLogRow).join("")}</div>`;
+      const newLogs = logs.filter(l => (Number(l.id) || 0) > lastRenderedLogId);
+      if (newLogs.length > 0) {
+        newLogs.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+        const html = newLogs.map(renderSystemLogRow).join("");
+        rowsEl.insertAdjacentHTML("beforeend", html);
+        lastRenderedLogId = Math.max(lastRenderedLogId, ...newLogs.map(l => Number(l.id) || 0));
+
+        while (rowsEl.children.length > MAX_SYSLOG_DOM_NODES) {
+          rowsEl.removeChild(rowsEl.firstElementChild);
+        }
+
+        if (systemLogAutoScroll && !isUserScrolledUp) {
+          scrollSyslogToBottom();
+        }
+      }
     }
   } catch (err) {
-    if (container) container.innerHTML = `<p class="danger">${esc(err.message)}</p>`;
+    if (container && !container.querySelector(".syslog-rows")) {
+      container.innerHTML = `<p class="danger">${esc(err.message)}</p>`;
+    }
   }
 }
 
@@ -227,6 +314,9 @@ async function switchLogTab(tab) {
     actPanel.style.display = tab === "activity" ? "block" : "none";
     sysPanel.style.display = tab === "system" ? "block" : "none";
   }
+  if (tab === "system") {
+    bindSyslogEvents();
+  }
   pollLogs();
 }
 
@@ -245,6 +335,7 @@ async function clearSystemLogs() {
   try {
     await api("DELETE", "/api/system/logs");
     toast(t("logsCleared"));
+    lastRenderedLogId = null;
     fetchSystemLogs();
   } catch (err) {
     toast(err.message);

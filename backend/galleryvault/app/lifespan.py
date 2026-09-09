@@ -110,8 +110,8 @@ def hydrate_startup_logs(max_lines: int = 500) -> None:
         from ..logging import hydrate_recent_logs
 
         hydrate_recent_logs(max_lines=max_lines)
-    except Exception as exc:
-        logger.debug("startup log hydration skipped", exc_info=exc)
+    except Exception:
+        logger.warning("startup log hydration skipped", exc_info=True)
 
 
 async def bootstrap_auth() -> None:

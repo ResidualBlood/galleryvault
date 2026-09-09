@@ -24,6 +24,7 @@ from ...logging import (
     get_log_level,
     get_log_root,
     get_recent_logs,
+    mask_sensitive,
     set_log_level,
 )
 from ...secrets import encrypt, encrypt_json, encryption_enabled, is_encrypted
@@ -347,14 +348,22 @@ async def system_logs_download() -> Response:
         "",
     ]
     for it in reversed(recent):
-        ctx_str = " ".join(f"{k}={v!r}" for k, v in it.get("context", {}).items())
-        line = f"{it.get('time')} {it.get('level', 'INFO'):<8} {it.get('logger', 'app')}: {it.get('message')}"
+        raw_ctx = it.get("context", {})
+        masked_ctx = mask_sensitive(raw_ctx) if isinstance(raw_ctx, dict) else raw_ctx
+        ctx_str = (
+            " ".join(f"{k}={v!r}" for k, v in masked_ctx.items())
+            if isinstance(masked_ctx, dict)
+            else ""
+        )
+        msg = mask_sensitive(str(it.get("message", "")))
+        line = f"{it.get('time')} {it.get('level', 'INFO'):<8} {it.get('logger', 'app')}: {msg}"
         if ctx_str:
             line += f" [{ctx_str}]"
         if it.get("exception"):
-            line += f"\n{it.get('exception')}"
+            exc_str = mask_sensitive(str(it.get("exception")))
+            line += f"\n{exc_str}"
         lines.append(line)
-    content = "\n".join(lines) + "\n"
+    content = mask_sensitive("\n".join(lines) + "\n")
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",

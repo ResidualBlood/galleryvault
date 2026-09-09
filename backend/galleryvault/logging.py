@@ -5,6 +5,7 @@ import contextlib
 import contextvars
 import json
 import logging
+import os
 import re
 import sys
 import threading
@@ -39,6 +40,12 @@ _SENSITIVE_KEYS = {
     "star",
     "api_key",
     "authorization",
+    "refresh_token",
+    "cookie",
+    "set-cookie",
+    "access_token",
+    "client_secret",
+    "auth_code",
 }
 
 _COOKIE_PATTERN = re.compile(
@@ -46,6 +53,12 @@ _COOKIE_PATTERN = re.compile(
 )
 _TELEGRAM_TOKEN_PATTERN = re.compile(r"\b\d{8,11}:[A-Za-z0-9_-]{30,}\b")
 _BEARER_PATTERN = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9_\-\.]{16,}\b")
+_URL_PARAM_PATTERN = re.compile(
+    r"(?i)\b((?:[a-z0-9_]+_)?(?:token|secret|password|key|auth_code))=([^;&'\"\s#]+)"
+)
+
+_MAX_LOG_LENGTH = 10 * 1024  # 10KB
+_TRUNCATED_MARKER = "...[TRUNCATED]"
 
 _STANDARD_LOG_RECORD_ATTRS = {
     "name",
@@ -115,7 +128,8 @@ def mask_sensitive(value: Any) -> Any:
     if isinstance(value, str):
         masked = _COOKIE_PATTERN.sub(r"\1=***", value)
         masked = _TELEGRAM_TOKEN_PATTERN.sub(r"***:TOKEN***", masked)
-        return _BEARER_PATTERN.sub(r"\1***", masked)
+        masked = _BEARER_PATTERN.sub(r"\1***", masked)
+        return _URL_PARAM_PATTERN.sub(r"\1=***", masked)
     if isinstance(value, dict):
         sanitized: dict[str, Any] = {}
         for k, v in value.items():
@@ -151,19 +165,35 @@ class _Formatter(logging.Formatter):
             self.use_colors = use_colors and not as_json
 
     def format(self, record: logging.LogRecord) -> str:
-        context = _extract_record_context(record)
+        context = dict(_extract_record_context(record))
         message = mask_sensitive(record.getMessage())
-        rid = _request_id_var.get() or context.pop("request_id", None)
+        if len(message) > _MAX_LOG_LENGTH:
+            message = message[:_MAX_LOG_LENGTH] + _TRUNCATED_MARKER
+
+        rid = _request_id_var.get() or context.get("request_id")
 
         formatted_exc: str | None = None
         if record.exc_info:
             if not record.exc_text:
                 record.exc_text = self.formatException(record.exc_info)
             formatted_exc = record.exc_text
+            if formatted_exc and len(formatted_exc) > _MAX_LOG_LENGTH:
+                formatted_exc = formatted_exc[:_MAX_LOG_LENGTH] + "\n" + _TRUNCATED_MARKER
 
         formatted_stack: str | None = None
         if record.stack_info:
             formatted_stack = self.formatStack(record.stack_info)
+            if formatted_stack and len(formatted_stack) > _MAX_LOG_LENGTH:
+                formatted_stack = formatted_stack[:_MAX_LOG_LENGTH] + "\n" + _TRUNCATED_MARKER
+
+        cleaned_context: dict[str, Any] = {}
+        for k, v in context.items():
+            if k == "request_id":
+                continue
+            if isinstance(v, str) and len(v) > _MAX_LOG_LENGTH:
+                cleaned_context[k] = v[:_MAX_LOG_LENGTH] + _TRUNCATED_MARKER
+            else:
+                cleaned_context[k] = v
 
         if self.as_json:
             data = {
@@ -171,7 +201,7 @@ class _Formatter(logging.Formatter):
                 "level": record.levelname,
                 "logger": record.name,
                 "message": message,
-                **context,
+                **cleaned_context,
             }
             if rid:
                 data["request_id"] = rid
@@ -192,15 +222,19 @@ class _Formatter(logging.Formatter):
 
         now_str = datetime.now().astimezone().isoformat(timespec="seconds")
         prefix = f"{now_str} {level_str} {record.name}: {message}"
-        if rid:
-            context["request_id"] = rid
 
-        suffix = " ".join(f"{key}={value!r}" for key, value in context.items())
+        display_context = dict(cleaned_context)
+        if rid:
+            display_context["request_id"] = rid
+
+        suffix = " ".join(f"{key}={value!r}" for key, value in display_context.items())
         line = f"{prefix}" + (f" [{suffix}]" if suffix else "")
         if formatted_exc:
             line += f"\n{formatted_exc}"
         if formatted_stack:
             line += f"\n{formatted_stack}"
+        if len(line) > _MAX_LOG_LENGTH:
+            line = line[:_MAX_LOG_LENGTH] + _TRUNCATED_MARKER
         return line
 
 
@@ -510,8 +544,11 @@ def configure_logging(
     log_backup_count: int = 3,
 ) -> None:
     global _current_log_file, _current_log_root
+    env_json = os.getenv("GALLERYVAULT_LOG_FORMAT", "").strip().lower() == "json"
+    effective_as_json = as_json or env_json
+
     stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(_Formatter(as_json, use_colors=use_colors))
+    stream_handler.setFormatter(_Formatter(effective_as_json, use_colors=use_colors))
     access_filter = _HttpAccessFilter()
     stream_handler.addFilter(access_filter)
     _ring_buffer_handler.filters = [
@@ -532,7 +569,7 @@ def configure_logging(
                 backupCount=log_backup_count,
                 encoding="utf-8",
             )
-            file_handler.setFormatter(_Formatter(as_json=as_json, use_colors=False))
+            file_handler.setFormatter(_Formatter(as_json=effective_as_json, use_colors=False))
             file_handler.addFilter(access_filter)
             handlers.append(file_handler)
             _current_log_file = log_path

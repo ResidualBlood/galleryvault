@@ -323,7 +323,8 @@ async def download_progress(
             )
     except SQLAlchemyError as exc:
         logger.warning(
-            "download progress persistence failed", extra=log_extra(error=type(exc).__name__)
+            "download progress persistence failed",
+            extra=log_extra(task_id=task_id, error=type(exc).__name__),
         )
 
 
@@ -504,13 +505,39 @@ async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> D
     )
 
 
+def _extract_http_meta(exc: BaseException) -> dict[str, Any]:
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return {}
+    meta: dict[str, Any] = {}
+    status_code = getattr(resp, "status_code", None)
+    if status_code is not None:
+        meta["status_code"] = status_code
+    headers = getattr(resp, "headers", None)
+    if headers and hasattr(headers, "items"):
+        summary = {
+            str(k): str(v)
+            for k, v in headers.items()
+            if str(k).lower() in {"location", "server", "cf-ray", "content-type", "retry-after"}
+        }
+        if summary:
+            meta["headers"] = summary
+    return meta
+
+
 _CHALLENGE_PROBE_INTERVAL = float(os.getenv("GV_CHALLENGE_PROBE_INTERVAL", "600"))
 _challenge_lock = asyncio.Lock()
 _last_resume_time = 0.0
 _RESUME_DEBOUNCE_SECONDS = float(os.getenv("GV_RESUME_DEBOUNCE_SECONDS", "1.0"))
 
 
-async def _trigger_challenge_pause(sample_path: str | None = None) -> None:
+async def _trigger_challenge_pause(
+    sample_path: str | None = None,
+    *,
+    task_id: int | None = None,
+    gid: int | None = None,
+    response_meta: dict[str, Any] | None = None,
+) -> None:
     """Trigger global pause due to ExHentai 302 anti-abuse challenge."""
     async with _challenge_lock:
         if app_state.extra.get("auto_resume_challenge") and getattr(
@@ -535,19 +562,31 @@ async def _trigger_challenge_pause(sample_path: str | None = None) -> None:
                     existing = await SettingsRepository(session).get()
                     merged = {**existing, "global_paused": True}
                     await SettingsRepository(session).save(merged)
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
+            except Exception as exc:
+                err_extra: dict[str, Any] = {"error": str(exc)}
+                if task_id is not None:
+                    err_extra["task_id"] = task_id
+                if gid is not None:
+                    err_extra["gid"] = gid
+                if response_meta:
+                    err_extra.update(response_meta)
+                logger.exception(
                     "failed to persist global_paused setting on challenge",
-                    extra=log_extra(error=str(exc)),
+                    extra=log_extra(**err_extra),
                 )
 
         if app_state.telegram is not None:
             try:
                 await app_state.telegram.send_message("🚨 触发 302 临时挑战，系统自动暂停下载")
             except Exception as exc:  # noqa: BLE001
+                alert_extra: dict[str, Any] = {"error": type(exc).__name__}
+                if task_id is not None:
+                    alert_extra["task_id"] = task_id
+                if gid is not None:
+                    alert_extra["gid"] = gid
                 logger.warning(
                     "failed to send challenge telegram alert",
-                    extra=log_extra(error=type(exc).__name__),
+                    extra=log_extra(**alert_extra),
                 )
 
 
@@ -893,9 +932,16 @@ async def _run_download_inner(
         clear_download_cancelled(task.id)
         logger.info("download cancelled", extra=log_extra(gid=task.gid))
     except EhChallengeError as exc:
+        http_meta = _extract_http_meta(exc)
+        challenge_extra: dict[str, Any] = {
+            "task_id": task.id,
+            "gid": task.gid,
+            "error": str(exc),
+        }
+        challenge_extra.update(http_meta)
         logger.warning(
             "download challenge encountered; auto-pausing downloads",
-            extra=log_extra(gid=task.gid, error=str(exc)),
+            extra=log_extra(**challenge_extra),
         )
         now = datetime.now(UTC)
         try:
@@ -910,16 +956,33 @@ async def _run_download_inner(
                         task.id or 0, row.retry_count, "challenged", "EhChallengeError"
                     )
         except SQLAlchemyError as db_exc:
-            logger.error(
+            logger.exception(
                 "download status persistence failed on challenge",
-                extra=log_extra(error=str(db_exc) or type(db_exc).__name__),
+                extra=log_extra(
+                    task_id=task.id,
+                    gid=task.gid,
+                    error=str(db_exc) or type(db_exc).__name__,
+                ),
             )
         sample_path = f"/g/{task.gid}/{task.token}/" if task.token else "/"
-        await _trigger_challenge_pause(sample_path)
+        await _trigger_challenge_pause(
+            sample_path,
+            task_id=task.id,
+            gid=task.gid,
+            response_meta=http_meta,
+        )
     except Exception as exc:
+        http_meta = _extract_http_meta(exc)
+        fail_extra: dict[str, Any] = {
+            "task_id": task.id,
+            "gid": task.gid,
+            "error": type(exc).__name__,
+            "message": str(exc),
+        }
+        fail_extra.update(http_meta)
         logger.exception(
             "download task failed",
-            extra=log_extra(gid=task.gid, error=type(exc).__name__, message=str(exc)),
+            extra=log_extra(**fail_extra),
         )
         try:
             gone = False
@@ -1040,8 +1103,8 @@ async def _download_worker() -> None:
                     await run_download(task)
                 except asyncio.CancelledError:
                     raise
-                except Exception as exc:  # noqa: BLE001
-                    logger.error(
+                except Exception as exc:
+                    logger.exception(
                         "run_download unhandled exception",
                         extra=log_extra(task_id=task.id, gid=task.gid, error=str(exc) or type(exc).__name__),
                     )

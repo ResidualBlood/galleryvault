@@ -726,8 +726,8 @@ async def _run_favorites_check_inner(
                 from .updates_worker import detect_gallery_updates
 
                 spawn_task(detect_gallery_updates(), "gallery updates detect")
-            except Exception as exc:
-                logger.debug("ignoring error during post-check updates spawn", exc_info=exc)
+            except Exception:
+                logger.warning("ignoring error during post-check updates spawn", exc_info=True)
         except Exception as exc:  # noqa: BLE001
             entry["error"] = str(exc)
             tracker.update(last_error=str(exc))
@@ -738,8 +738,8 @@ async def _run_favorites_check_inner(
             try:
                 async with session_cm() as session, session.begin():
                     await FavoritesRepository(session).checked(favcat, False)
-            except Exception as exc2:
-                logger.debug("ignoring error during favorites check failure record", exc_info=exc2)
+            except Exception:
+                logger.warning("ignoring error during favorites check failure record", exc_info=True)
         finally:
             entry["running"] = False
             entry["completed"] = datetime.now(UTC).isoformat()

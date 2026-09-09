@@ -21,6 +21,7 @@ from ..app.state import app_state
 from ..config import get_settings
 from ..db.models import DownloadTask, Gallery, GalleryPage, GalleryTag, Tag
 from ..db.repositories.base import path_hash
+from ..logging import log_extra
 from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key, parse_spider_info, strip_gid_prefix
 from .downloader import _truncate_utf8
 from .export_cbz import ZIP_STORED, page_archive_name
@@ -857,12 +858,18 @@ async def _do_archive_locked(
         gallery_file_size = gallery.file_size
 
     if not gallery_storage_path:
-        logger.warning("No storage path recorded for gallery %s", gallery_id)
+        logger.warning(
+            "No storage path recorded for gallery",
+            extra=log_extra(gallery_id=gallery_id),
+        )
         return None
 
     source_path = Path(gallery_storage_path).resolve()
     if not source_path.exists():
-        logger.warning("Source path does not exist for gallery %s: %s", gallery_id, source_path)
+        logger.warning(
+            "Source path does not exist for gallery",
+            extra=log_extra(gallery_id=gallery_id, source_path=str(source_path)),
+        )
         return None
 
     # 已在任一 cold：skip
@@ -882,9 +889,8 @@ async def _do_archive_locked(
     selected_root, _ = select_archive_root(required_free, archive_roots=roots)
     if selected_root is None:
         logger.warning(
-            "No cold storage root has free space >= required (%s) for gallery %s, skipping",
-            required_free,
-            gallery_id,
+            "No cold storage root has enough free space, skipping",
+            extra=log_extra(gallery_id=gallery_id, required_free=required_free),
         )
         return None
 
@@ -953,19 +959,29 @@ async def _do_archive_locked(
             )
 
         if not page_names:
-            logger.warning("No valid pages found in destination %s for gallery %s", dest_path, gallery_id)
+            logger.warning(
+                "No valid pages found in destination",
+                extra=log_extra(gallery_id=gallery_id, dest_path=str(dest_path)),
+            )
             return None
 
         new_sig = hashlib.sha256(f"{new_mtime_ns}:{new_size}".encode()).hexdigest()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to collect destination stats for gallery %s: %s", gallery_id, exc)
+    except Exception as exc:
+        logger.warning(
+            "Failed to collect destination stats for gallery",
+            extra=log_extra(gallery_id=gallery_id, error=str(exc)),
+            exc_info=True,
+        )
         return None
 
     # Step 3: Brief DB write transaction to update Gallery and GalleryPage
     async def _apply_archive_db_updates(s: AsyncSession) -> bool:
         gallery_obj = await s.get(Gallery, gallery_id)
         if not gallery_obj:
-            logger.warning("Gallery %s was deleted before archive DB update", gallery_id)
+            logger.warning(
+                "Gallery was deleted before archive DB update",
+                extra=log_extra(gallery_id=gallery_id),
+            )
             return False
 
         # 更新 Gallery

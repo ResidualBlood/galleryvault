@@ -18,6 +18,7 @@ from galleryvault.logging import (
     _HttpAccessFilter,
     _ring_buffer_handler,
     bind_log_context,
+    configure_logging,
     get_log_level,
     log_extra,
     mask_sensitive,
@@ -578,4 +579,238 @@ async def test_cover_hit_miss_and_fallback_logging(
         resp_no_gid = await galleries_router.get_thumbnail(102, 0)
         assert resp_no_gid.status_code == 200
         assert not any("cover fallback:" in rec.message for rec in caplog.records)
+
+
+def test_mask_sensitive_url_and_dict() -> None:
+    # 1. New dictionary sensitive keys
+    data = {
+        "refresh_token": "rt_secret_12345",
+        "cookie": "session=abcde",
+        "Set-Cookie": "auth=xyz; Path=/",
+        "access_token": "at_99999",
+        "client_secret": "cs_topsecret",
+        "auth_code": "code_88888",
+        "safe_field": "visible_value",
+    }
+    masked = mask_sensitive(data)
+    assert masked["refresh_token"] == "***"
+    assert masked["cookie"] == "***"
+    assert masked["Set-Cookie"] == "***"
+    assert masked["access_token"] == "***"
+    assert masked["client_secret"] == "***"
+    assert masked["auth_code"] == "***"
+    assert masked["safe_field"] == "visible_value"
+
+    # 2. URL query parameters regex masking
+    url = (
+        "https://example.com/oauth/callback?"
+        "token=tok123&refresh_token=ref456&client_secret=cs789&key=priv000&"
+        "access_token=at111&auth_code=ac222&password=pwd333&user=alice"
+    )
+    masked_url = mask_sensitive(url)
+    assert "token=***" in masked_url
+    assert "refresh_token=***" in masked_url
+    assert "client_secret=***" in masked_url
+    assert "key=***" in masked_url
+    assert "access_token=***" in masked_url
+    assert "auth_code=***" in masked_url
+    assert "password=***" in masked_url
+    assert "user=alice" in masked_url
+    assert "tok123" not in masked_url
+    assert "cs789" not in masked_url
+
+    # 3. Fragment, quotes, and standalone params
+    edge_cases = [
+        "https://example.com/path?secret=my_secret#heading",
+        "'https://example.com/api?api_key=secret_key'",
+        "bot_token=secret_bot_token",
+    ]
+    masked_edges = [mask_sensitive(u) for u in edge_cases]
+    assert "secret=***#heading" in masked_edges[0]
+    assert "'https://example.com/api?api_key=***'" in masked_edges[1]
+    assert "bot_token=***" in masked_edges[2]
+
+
+def test_formatter_context_mutation() -> None:
+    text_formatter = _Formatter(as_json=False, use_colors=False)
+    json_formatter = _Formatter(as_json=True)
+    logger = logging.getLogger("test_mutation_logger")
+
+    original_context = {
+        "request_id": "req-shared-123",
+        "task_id": 42,
+        "worker": "test_worker",
+    }
+    shared_copy = dict(original_context)
+
+    record = logger.makeRecord(
+        name="test_mutation_logger",
+        level=logging.INFO,
+        fn="test_logging.py",
+        lno=100,
+        msg="testing shared context immutability",
+        args=(),
+        exc_info=None,
+        extra=log_extra(**shared_copy),
+    )
+
+    # Format with text formatter
+    text_out = text_formatter.format(record)
+    assert "req-shared-123" in text_out
+    assert "task_id=42" in text_out
+    # Ensure shared_copy and record.context were not mutated in place
+    assert shared_copy == original_context
+    assert record.context == original_context
+
+    # Format the exact same record with JSON formatter
+    json_out = json_formatter.format(record)
+    parsed = json.loads(json_out)
+    assert parsed["request_id"] == "req-shared-123"
+    assert parsed["task_id"] == 42
+    assert parsed["worker"] == "test_worker"
+
+    # Context still untouched
+    assert shared_copy == original_context
+    assert record.context == original_context
+
+
+def test_formatter_truncation() -> None:
+    text_formatter = _Formatter(as_json=False, use_colors=False)
+    json_formatter = _Formatter(as_json=True)
+    logger = logging.getLogger("test_truncation_logger")
+
+    huge_msg = "X" * 15000  # > 10KB
+    record = logger.makeRecord(
+        name="test_truncation_logger",
+        level=logging.INFO,
+        fn="test_logging.py",
+        lno=200,
+        msg=huge_msg,
+        args=(),
+        exc_info=None,
+    )
+
+    # Text mode
+    formatted_text = text_formatter.format(record)
+    assert "...[TRUNCATED]" in formatted_text
+    assert len(formatted_text) < 15000
+
+    # JSON mode
+    formatted_json = json_formatter.format(record)
+    parsed = json.loads(formatted_json)
+    assert parsed["message"].endswith("...[TRUNCATED]")
+    assert len(parsed["message"]) == 10 * 1024 + len("...[TRUNCATED]")
+
+    # Context value truncation
+    record_ctx = logger.makeRecord(
+        name="test_truncation_logger",
+        level=logging.INFO,
+        fn="test_logging.py",
+        lno=201,
+        msg="normal message",
+        args=(),
+        exc_info=None,
+        extra=log_extra(large_payload="Y" * 12000),
+    )
+    json_ctx_out = json.loads(json_formatter.format(record_ctx))
+    assert json_ctx_out["large_payload"].endswith("...[TRUNCATED]")
+
+    # Exception traceback truncation
+    huge_exc = "Traceback (most recent call last):\n" + ("  line in foo\n" * 1000)
+    record_exc = logger.makeRecord(
+        name="test_truncation_logger",
+        level=logging.ERROR,
+        fn="test_file.py",
+        lno=202,
+        msg="error with huge trace",
+        args=(),
+        exc_info=(RuntimeError, RuntimeError("boom"), None),
+    )
+    record_exc.exc_text = huge_exc
+    text_exc_out = text_formatter.format(record_exc)
+    assert "...[TRUNCATED]" in text_exc_out
+
+
+def test_configure_logging_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    orig_handlers = list(logging.getLogger().handlers)
+    orig_level = logging.getLogger().level
+
+    try:
+        # 1. Environment variable GALLERYVAULT_LOG_FORMAT=json
+        monkeypatch.setenv("GALLERYVAULT_LOG_FORMAT", "json")
+        log_file = tmp_path / "app_json.log"
+        configure_logging(log_file=log_file)
+
+        root = logging.getLogger()
+        stream_handler = next(
+            h for h in root.handlers if isinstance(h, logging.StreamHandler) and not isinstance(h, RingBufferHandler)
+        )
+        assert getattr(stream_handler.formatter, "as_json", False) is True
+
+        file_handler = next(h for h in root.handlers if isinstance(h, logging.FileHandler))
+        assert getattr(file_handler.formatter, "as_json", False) is True
+
+        # Emit log and check JSON formatting
+        root.info("test json env log", extra=log_extra(event_id=123))
+        file_content = log_file.read_text(encoding="utf-8").strip()
+        assert file_content
+        parsed = json.loads(file_content.splitlines()[-1])
+        assert parsed["message"] == "test json env log"
+        assert parsed["event_id"] == 123
+
+        # 2. Environment variable unset / text
+        monkeypatch.delenv("GALLERYVAULT_LOG_FORMAT", raising=False)
+        log_file_text = tmp_path / "app_text.log"
+        configure_logging(log_file=log_file_text, as_json=False)
+
+        stream_handler_text = next(
+            h for h in root.handlers if isinstance(h, logging.StreamHandler) and not isinstance(h, RingBufferHandler)
+        )
+        assert getattr(stream_handler_text.formatter, "as_json", True) is False
+    finally:
+        root = logging.getLogger()
+        root.handlers[:] = orig_handlers
+        root.setLevel(orig_level)
+
+
+def test_api_download_logs_masked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from galleryvault import logging as gv_logging
+
+    orig_settings = app_state.settings
+    app_state.settings = Settings(auth_required=False, exhentai_base_url="https://exhentai.org")
+    client = TestClient(app)
+
+    try:
+        # Force in-memory fallback path by setting log file to None
+        monkeypatch.setattr(gv_logging, "_current_log_file", None)
+
+        # Clear buffer and inject log records with sensitive context and message
+        gv_logging.clear_recent_logs()
+        test_logger = logging.getLogger("test_mask_download")
+        test_logger.warning(
+            "failed auth request to https://api.telegram.org/bot123456789:ABCdefGHIjklMNOpqrSTUvwxyz012345/webhook?token=my_secret_token",
+            extra=log_extra(
+                password="super_secret_password",
+                cookie="ipb_member_id=1001; ipb_pass_hash=e10adc3949ba59abbe56e057f20f883e",
+                refresh_token="ref_tok_secret_value",
+            ),
+        )
+
+        resp = client.get("/api/system/logs/download")
+        assert resp.status_code == 200
+        content = resp.text
+
+        # Verify fallback header
+        assert "In-Memory Fallback" in content
+
+        # Verify sensitive info is masked
+        assert "super_secret_password" not in content
+        assert "e10adc3949ba59abbe56e057f20f883e" not in content
+        assert "my_secret_token" not in content
+        assert "ref_tok_secret_value" not in content
+        assert "***" in content
+    finally:
+        app_state.settings = orig_settings
+
+
 

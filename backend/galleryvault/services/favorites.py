@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..app.dependencies import get_current_settings
+from ..logging import log_extra
 from .eh_client import FavoriteData
 from .messages import (
     favorites_check_failed,
@@ -85,13 +86,11 @@ class FavoritesService:
                 last = exc
                 logger.warning(
                     "favorites check attempt failed",
-                    extra={
-                        "context": {
-                            "favcat": favcat,
-                            "attempt": attempt,
-                            "error": type(exc).__name__,
-                        }
-                    },
+                    extra=log_extra(
+                        favcat=favcat,
+                        attempt=attempt,
+                        error=type(exc).__name__,
+                    ),
                 )
         if not fetched:
             await repo.checked(favcat, False)
@@ -141,7 +140,7 @@ class FavoritesService:
             except Exception as exc:  # noqa: BLE001 - fall back to page-by-page
                 logger.warning(
                     "favorites archive sizing failed; falling back to page-by-page",
-                    extra={"context": {"favcat": favcat, "error": type(exc).__name__}},
+                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
                 )
         for item in candidates:
             if mode == "monitor_only":
@@ -173,9 +172,7 @@ class FavoritesService:
                 failed += 1
                 logger.warning(
                     "favorite download enqueue failed",
-                    extra={
-                        "context": {"favcat": favcat, "gid": item.gid, "error": type(exc).__name__}
-                    },
+                    extra=log_extra(favcat=favcat, gid=item.gid, error=type(exc).__name__),
                 )
                 if self.notifier:
                     await self.notifier.send_message(
@@ -184,15 +181,13 @@ class FavoritesService:
         if candidates and mode != "monitor_only":
             logger.info(
                 "favorite downloads queued",
-                extra={
-                    "context": {
-                        "favcat": favcat,
-                        "queued": downloaded,
-                        "existing": max(0, len(unique) - len(candidates)),
-                        "total": len(unique),
-                        "failed": failed,
-                    }
-                },
+                extra=log_extra(
+                    favcat=favcat,
+                    queued=downloaded,
+                    existing=max(0, len(unique) - len(candidates)),
+                    total=len(unique),
+                    failed=failed,
+                ),
             )
         await repo.checked(favcat, failed == 0)
         log_check = getattr(repo, "log_check", None)
