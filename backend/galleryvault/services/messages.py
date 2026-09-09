@@ -83,7 +83,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "download_gone": "❌ <b>{title}</b>已删除或不存在（404）",
         "download_updated": (
             "🔄 原 gid <code>{old}</code> → 新版 gid <code>{new}</code>，"
-            "改为下载 <b>{title}</b>"
+            "更新 <b>{title}</b>"
         ),
         "archive_start": "📦 批量归档开始：共 <b>{total}</b> 本",
         "archive_ok": "📦 归档完成 <b>{title}</b>",
@@ -153,7 +153,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "download_gone": "❌ <b>{title}</b> deleted or not found (404)",
         "download_updated": (
             "🔄 Original gid <code>{old}</code> → new gid <code>{new}</code>, "
-            "downloading <b>{title}</b>"
+            "updating <b>{title}</b>"
         ),
         "archive_start": "📦 Batch archive started: <b>{total}</b> galleries",
         "archive_ok": "📦 Archive complete: <b>{title}</b>",

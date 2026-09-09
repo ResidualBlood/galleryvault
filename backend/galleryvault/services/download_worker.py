@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from ..app.state import app_state
 from ..config import get_settings
 from ..db.models import DownloadTask as DownloadTaskModel
-from ..db.models import Gallery
+from ..db.models import Gallery, GalleryUpdate
 from ..db.repository import DownloadRepository
 from ..logging import bind_log_context, log_extra
 from ..scanners import registry
@@ -478,7 +478,6 @@ async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> D
     except OSError:
         pass
     title = exc.title or str(exc.new_gid)
-    await record_download_notification("updated", title, f"{exc.old_gid}:{exc.new_gid}")
     tm = app_state.task_manager
     if tm:
         now = datetime.now(UTC).isoformat()
@@ -624,7 +623,12 @@ async def challenge_probe_loop() -> None:
             logger.warning("challenge probe failed", extra=log_extra(error=type(exc).__name__))
 
 
-async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> None:
+async def _run_download_inner(
+    task: DownloadTask,
+    *,
+    follow_hops: int = 0,
+    replaced_from_gid: int | None = None,
+) -> None:
     session_cm = app_state.session_factory
     if session_cm is None:
         return
@@ -783,7 +787,57 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
 
         clear_download_cancelled(task.id)
         if completed:
-            await notify_fn("ok", result.title or str(task.gid), str(result.pages))
+            old_gid: int | None = replaced_from_gid
+            if old_gid is None and session_cm is not None:
+                try:
+                    async with session_cm() as session:
+                        if hasattr(session, "scalars"):
+                            update_row = (
+                                await session.scalars(
+                                    select(GalleryUpdate).where(
+                                        GalleryUpdate.new_gid == task.gid
+                                    )
+                                )
+                            ).first()
+                            if update_row is not None:
+                                old_gid = update_row.old_gid
+                            else:
+                                prev = (
+                                    await session.scalars(
+                                        select(Gallery).where(
+                                            Gallery.gid == task.gid
+                                        )
+                                    )
+                                ).first()
+                                if prev is not None:
+                                    old_gid = task.gid
+                        elif hasattr(session, "scalar"):
+                            update_row = await session.scalar(
+                                select(GalleryUpdate).where(
+                                    GalleryUpdate.new_gid == task.gid
+                                )
+                            )
+                            if update_row is not None:
+                                old_gid = update_row.old_gid
+                            else:
+                                prev = await session.scalar(
+                                    select(Gallery).where(
+                                        Gallery.gid == task.gid
+                                    )
+                                )
+                                if prev is not None:
+                                    old_gid = task.gid
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "failed to check update status for download notification",
+                        extra=log_extra(gid=task.gid, error=type(exc).__name__),
+                    )
+
+            title = result.title or str(task.gid)
+            if old_gid is not None:
+                await notify_fn("updated", title, f"{old_gid}:{task.gid}")
+            else:
+                await notify_fn("ok", title, str(result.pages))
             maybe_scan_fn(result)
     except GalleryReplacedError as exc:
         from .download_prepare import MAX_FOLLOW_HOPS
@@ -807,7 +861,11 @@ async def _run_download_inner(task: DownloadTask, *, follow_hops: int = 0) -> No
         rewritten = await _apply_replacement(task, exc)
         if rewritten is None:
             return
-        await _run_download_inner(rewritten, follow_hops=follow_hops + 1)
+        await _run_download_inner(
+            rewritten,
+            follow_hops=follow_hops + 1,
+            replaced_from_gid=replaced_from_gid or exc.old_gid,
+        )
     except DownloadCancelledError:
         try:
             async with session_cm() as session, session.begin():
