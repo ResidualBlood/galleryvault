@@ -181,6 +181,19 @@ class FavoritesService:
                     await self.notifier.send_message(
                         favorites_enqueue_failed(favcat, cat_name, item.gid, lang)
                     )
+        if candidates and mode != "monitor_only":
+            logger.info(
+                "favorite downloads queued",
+                extra={
+                    "context": {
+                        "favcat": favcat,
+                        "queued": downloaded,
+                        "existing": max(0, len(unique) - len(candidates)),
+                        "total": len(unique),
+                        "failed": failed,
+                    }
+                },
+            )
         await repo.checked(favcat, failed == 0)
         log_check = getattr(repo, "log_check", None)
         if log_check:

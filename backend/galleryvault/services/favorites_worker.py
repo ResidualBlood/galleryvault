@@ -93,7 +93,7 @@ class FavoriteDownloadQueue:
             if task is None:
                 return False
             await GalleryUpdatesRepository(self.session).attach_download(item.gid, task.id)
-            logger.info("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
+            logger.debug("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
             return True
         if not app_state.session_factory:
             return False
@@ -109,7 +109,7 @@ class FavoriteDownloadQueue:
             if task is None:
                 return False
             await GalleryUpdatesRepository(session).attach_download(item.gid, task.id)
-        logger.info("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
+        logger.debug("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
         return True
 
 FAVORITES_SKIP_LIMIT = 5
