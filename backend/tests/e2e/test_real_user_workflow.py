@@ -25,10 +25,29 @@ E2E_BASE_URL = os.getenv("E2E_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
 E2E_PASSWORD = os.getenv("E2E_PASSWORD", os.getenv("LOGIN_PASSWORD", "password"))
 
 
+def check_e2e_prerequisites(base_url: str) -> None:
+    """前置探测机制：CI 环境跳过保护与测试后端连通性检查。"""
+    if (os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true") and os.getenv("RUN_E2E") != "1":
+        pytest.skip("Skipping E2E in CI environment without running test stack")
+
+    try:
+        with httpx.Client(base_url=base_url, timeout=1.0) as client:
+            client.get("/healthz")
+    except Exception:  # noqa: BLE001
+        pytest.skip("E2E test requires running backend test stack")
+
+
+@pytest.fixture(autouse=True)
+def _ensure_e2e_environment() -> None:
+    """在测试用例初始化前自动执行环境连通性探测。"""
+    check_e2e_prerequisites(E2E_BASE_URL)
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_real_user_workflow_e2e():
     """按真实用户使用生命周期串联测试 10 大业务阶段，并在 finally 中彻底自愈清理。"""
+    check_e2e_prerequisites(E2E_BASE_URL)
     target_gallery_id: int | None = None
     created_list_id: int | None = None
     created_list_ids: list[int] = []
