@@ -947,3 +947,21 @@ def test_update_runtime_settings_allows_global_paused() -> None:
     assert app_state.settings.global_paused is True
     update_runtime_settings({"global_paused": False})
     assert app_state.settings.global_paused is False
+
+
+@pytest.mark.asyncio
+async def test_downloader_rejects_truncated_jpeg_above_threshold(tmp_path: Path) -> None:
+    class TruncatedJpegClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+
+        async def download_image(self, url: str) -> bytes:
+            return b"\xff\xd8\xff\xe0" + b"\x00" * 600
+
+    client = TruncatedJpegClient()
+    downloader = Downloader(client, tmp_path)
+    with pytest.raises(RuntimeError) as exc_info:
+        await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert "image integrity check failed" in str(exc_info.value.__cause__)
+

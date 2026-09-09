@@ -12,8 +12,10 @@ import logging
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageFile
 from PIL.Image import DecompressionBombError
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from .storage_usage import storage_tracker
 
@@ -77,7 +79,12 @@ class ThumbnailService:
         path = self.cache_path(gallery_id, page_index)
         if path.is_file():
             return path
-        data = self._render(page_bytes)
+        try:
+            data = self._render(page_bytes)
+        except ThumbnailError:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            raise
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         storage_tracker.record_cache_delta(len(data))

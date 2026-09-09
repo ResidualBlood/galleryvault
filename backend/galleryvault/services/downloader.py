@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import re
@@ -10,6 +11,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+from PIL import Image as PILImage
 
 from ..logging import log_extra
 from ..scanners.ehviewer import natural_key, strip_gid_prefix
@@ -506,6 +509,17 @@ class Downloader:
                                 raise ValueError(
                                     f"image response is invalid: unrecognized magic prefix {data[:16].hex()} (url={url})"
                                 )
+                            if len(data) > 512:
+                                if data[:2] == b"\xff\xd8" and b"\xff\xd9" not in data[-1024:]:
+                                    raise ValueError(
+                                        "image integrity check failed: JPEG file is truncated (missing EOI)"
+                                    )
+                                try:
+                                    PILImage.open(io.BytesIO(data)).verify()
+                                except Exception as exc:
+                                    raise ValueError(
+                                        f"image integrity check failed: {exc}"
+                                    ) from exc
                             extension = {
                                 "image/jpeg": ".jpg",
                                 "image/png": ".png",
