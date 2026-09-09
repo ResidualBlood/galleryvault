@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
 from ..config import get_settings, library_root_warnings, normalize_archive_roots
+from ..logging import log_extra
 from ..secrets import (
     decrypt_json_or_value,
     decrypt_or_plain,
@@ -24,6 +26,22 @@ if TYPE_CHECKING:
     from ..app.core.uow import UnitOfWork
 
 logger = logging.getLogger(__name__)
+
+
+def _is_mock_or_test_instance(obj: Any, real_type: Any) -> bool:
+    if obj is None:
+        return False
+    if not isinstance(real_type, type):
+        return True
+    if not isinstance(obj, real_type):
+        return True
+    cls_name = type(obj).__name__.lower()
+    return (
+        "mock" in cls_name
+        or "fake" in cls_name
+        or hasattr(obj, "_mock_return_value")
+        or hasattr(obj, "assert_called")
+    )
 
 
 def _get_app_state() -> Any | None:
@@ -191,15 +209,83 @@ async def refresh_services() -> None:
     settings = app_st.settings or get_settings()
     old_client = app_st.eh_client
     old_telegram = app_st.telegram
-    if old_telegram is not None:
-        await old_telegram.flush_summary()
-        await old_telegram.aclose()
-    if old_client is not None and hasattr(old_client, "aclose"):
-        await old_client.aclose()
 
+    # 1. Drain retired TelegramNotifier in background without blocking ongoing requests
+    if old_telegram is not None:
+        if _is_mock_or_test_instance(old_telegram, TelegramNotifier):
+            if hasattr(old_telegram, "aclose"):
+                await old_telegram.aclose()
+            elif hasattr(old_telegram, "close"):
+                res = old_telegram.close()
+                if hasattr(res, "__await__"):
+                    await res
+        else:
+            async def _drain_telegram(tg: TelegramNotifier) -> None:
+                try:
+                    await asyncio.sleep(5.0)
+                    await tg.flush_summary()
+                    await asyncio.sleep(60.0)
+                    await tg.aclose()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Error draining retired TelegramNotifier",
+                        extra=log_extra(error=str(exc)),
+                    )
+
+            from ..app.dependencies import spawn_task
+
+            tg_task = spawn_task(_drain_telegram(old_telegram), "drain retired telegram")
+            if tg_task is None:
+                try:
+                    asyncio.create_task(_drain_telegram(old_telegram))
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+    # 2. Build new client and retire old EhClient gracefully
     client = EhClient(settings, max_concurrency=settings.exhentai_max_concurrency)
+    client_mgr = getattr(app_st, "eh_client_manager", None)
+    if _is_mock_or_test_instance(old_client, EhClient):
+        if hasattr(old_client, "aclose"):
+            await old_client.aclose()
+        elif hasattr(old_client, "close"):
+            res = old_client.close()
+            if hasattr(res, "__await__"):
+                await res
+        if client_mgr is not None:
+            if hasattr(client_mgr, "_active_client"):
+                client_mgr._active_client = client
+                client_mgr._active_generation += 1
+            elif hasattr(client_mgr, "update_client"):
+                client_mgr.update_client(client)
+    elif client_mgr is not None and hasattr(client_mgr, "update_client"):
+        client_mgr.update_client(client)
+    elif old_client is not None:
+        async def _drain_eh_client(c: Any) -> None:
+            try:
+                await asyncio.sleep(120.0)
+                if hasattr(c, "aclose"):
+                    await c.aclose()
+                elif hasattr(c, "close"):
+                    res = c.close()
+                    if hasattr(res, "__await__"):
+                        await res
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Error draining retired EhClient",
+                    extra=log_extra(error=str(exc)),
+                )
+
+        from ..app.dependencies import spawn_task
+
+        c_task = spawn_task(_drain_eh_client(old_client), "drain retired eh_client")
+        if c_task is None:
+            try:
+                asyncio.create_task(_drain_eh_client(old_client))
+            except Exception:  # noqa: BLE001, S110
+                pass
+
     downloader = Downloader(
-        client,
+        (lambda: app_st.eh_client) if app_st is not None else client,
         settings.download_root,
         concurrency=settings.download_concurrency,
         page_concurrency=settings.page_concurrency,

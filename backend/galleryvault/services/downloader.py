@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -222,13 +223,14 @@ def _existing_page_file(
 class Downloader:
     def __init__(
         self,
-        client: DownloadClient,
+        client: DownloadClient | Callable[[], DownloadClient],
         root: str | Path,
         *,
         concurrency: int = 2,
         page_concurrency: int = 8,
     ) -> None:
-        self.client, self.root = client, Path(root)
+        self._client_ref = client
+        self.root = Path(root)
         self.semaphore = asyncio.Semaphore(max(1, concurrency))
         self.page_concurrency = max(1, min(page_concurrency, 16))
         self._gids: set[int] = set()
@@ -238,6 +240,16 @@ class Downloader:
         # write and consumed by the downloads API (Downloader.speed_stats).
         self._stats: dict[int, dict[str, object]] = {}
         self._stats_lock = asyncio.Lock()
+
+    @property
+    def client(self) -> DownloadClient:
+        if callable(self._client_ref):
+            return self._client_ref()
+        return self._client_ref
+
+    @client.setter
+    def client(self, value: DownloadClient | Callable[[], DownloadClient]) -> None:
+        self._client_ref = value
 
     async def speed_stats(
         self, gid: int, *, current_page: int = 0, total_pages: int | None = None

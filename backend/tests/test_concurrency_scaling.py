@@ -38,10 +38,17 @@ async def test_adjust_download_concurrency_scaling():
 
     # Scale down to 1
     adjust_download_concurrency(1)
+    assert download_worker._target_download_concurrency == 1
+    # Cooperative drain: tasks are NOT forcibly cancelled immediately
+    assert not tasks_initial[1].cancelled()
+
+    # Yield loop so cooperatively draining tasks wake up, exit, and remove themselves
+    await asyncio.sleep(0.05)
     assert len(download_worker._worker_tasks) == 1
-    # Yield loop so cancelled tasks run and exit
-    await asyncio.sleep(0)
-    assert tasks_initial[1].cancelled()
+    # Drained task exited normally without being cancelled
+    assert tasks_initial[1].done()
+    assert not tasks_initial[1].cancelled()
+    assert tasks_initial[1].exception() is None
 
     # Cleanup
     for t in download_worker._worker_tasks:
@@ -66,9 +73,17 @@ async def test_adjust_tag_sync_concurrency_scaling():
 
     # Scale down to 1
     adjust_tag_sync_concurrency(1)
+    assert tag_sync_worker._target_tag_sync_concurrency == 1
+    # Cooperative drain: tasks are NOT forcibly cancelled immediately
+    assert not tasks_initial[1].cancelled()
+
+    # Yield loop so cooperatively draining tasks wake up, exit, and remove themselves
+    await asyncio.sleep(0.05)
     assert len(tag_sync_worker._worker_tasks) == 1
-    await asyncio.sleep(0)
-    assert tasks_initial[1].cancelled()
+    # Drained task exited normally without being cancelled
+    assert tasks_initial[1].done()
+    assert not tasks_initial[1].cancelled()
+    assert tasks_initial[1].exception() is None
 
     # Cleanup
     for t in tag_sync_worker._worker_tasks:

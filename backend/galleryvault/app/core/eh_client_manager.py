@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -25,8 +26,71 @@ class EhClientManager:
         self._client_getter = client_getter
         self._settings_getter = settings_getter
         self._client_factory = client_factory
+        self._active_client: Any | None = None
+        self._active_generation: int = 0
+        self._retiring_clients: set[Any] = set()
+
+    @property
+    def active_generation(self) -> int:
+        """Monotonically increasing counter incremented on every client update."""
+        return self._active_generation
+
+    @property
+    def retiring_clients(self) -> set[Any]:
+        """Currently retiring client instances waiting for delayed drain."""
+        return self._retiring_clients
+
+    def update_client(self, new_client: Any) -> None:
+        """Replace the active client and dispatch the previous client to delayed retirement."""
+        old_client = self._active_client
+        if old_client is None:
+            old_client = self._get_active_client()
+
+        self._active_client = new_client
+        self._active_generation += 1
+
+        if old_client is not None and old_client is not new_client:
+            self.retire_client(old_client)
+
+    def retire_client(self, client: Any, delay: float = 120.0) -> None:
+        """Schedule a retired client to be safely closed after delay."""
+        if client is None:
+            return
+        self._retiring_clients.add(client)
+
+        async def _drain_and_close() -> None:
+            try:
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                if hasattr(client, "aclose"):
+                    await client.aclose()
+                elif hasattr(client, "close"):
+                    res = client.close()
+                    if hasattr(res, "__await__"):
+                        await res
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Error closing retired EhClient",
+                    extra=log_extra(error=str(exc)),
+                )
+            finally:
+                self._retiring_clients.discard(client)
+
+        try:
+            from ..dependencies import spawn_task
+
+            task = spawn_task(_drain_and_close(), "retire eh_client")
+            if task is None:
+                asyncio.create_task(_drain_and_close())
+        except Exception:  # noqa: BLE001
+            try:
+                asyncio.create_task(_drain_and_close())
+            except Exception:  # noqa: BLE001, S110
+                pass
 
     def _get_active_client(self) -> Any | None:
+        if self._active_client is not None:
+            return self._active_client
         if self._client_getter is not None:
             return self._client_getter()
         try:

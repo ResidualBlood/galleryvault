@@ -31,6 +31,14 @@ _MAX_TAG_SYNC_HOLDS = 120
 _TAG_SYNC_IDLE_SECONDS = 5.0
 
 _worker_tasks: list[asyncio.Task] = []
+_target_tag_sync_concurrency: int = 4
+_sync_event: asyncio.Event | None = None
+
+
+def notify_tag_sync() -> None:
+    """Wake up tag sync workers when a new task is enqueued or concurrency adjusted."""
+    if _sync_event is not None:
+        _sync_event.set()
 _sync_context: dict[str, Any] = {
     "interval": 1.5,
     "success_streak": 0,
@@ -141,6 +149,7 @@ async def enqueue_tag_sync(gallery_ids: list[int]) -> int:
         current = int(tag_sync_state.get("total") or 0)
         tag_sync_state["total"] = current + added
         tag_sync_state["queued"] = await jobs_count(JOB_TAG_SYNC)
+        notify_tag_sync()
     return added
 
 
@@ -496,7 +505,21 @@ async def _sync_one(gallery_id: int, attempts: int) -> bool | None:
 
 
 async def _tag_sync_worker() -> None:
+    global _worker_tasks
     while True:
+        current_task = asyncio.current_task()
+        _worker_tasks = [t for t in _worker_tasks if not t.done()]
+        if current_task is not None and current_task not in _worker_tasks:
+            return
+        if len(_worker_tasks) > _target_tag_sync_concurrency:
+            if current_task in _worker_tasks:
+                _worker_tasks.remove(current_task)
+            logger.info(
+                "Tag sync worker exiting cooperatively for concurrency drain",
+                extra=log_extra(current=len(_worker_tasks), target=_target_tag_sync_concurrency),
+            )
+            return
+
         tm = app_state.task_manager
         if tm and tm.is_cancelled("tag-sync"):
             break
@@ -523,7 +546,14 @@ async def _tag_sync_worker() -> None:
                     from ..app.dependencies import spawn_task
 
                     spawn_task(tm.persist_history(), "persist task history")
-            await asyncio.sleep(1)
+            if _sync_event is not None:
+                try:
+                    await asyncio.wait_for(_sync_event.wait(), timeout=1.0)
+                except TimeoutError:
+                    pass
+                _sync_event.clear()
+            else:
+                await asyncio.sleep(1)
             continue
 
         _sync_context["last_activity"] = _time.monotonic()
@@ -544,11 +574,14 @@ async def _tag_sync_worker() -> None:
 
 
 def adjust_tag_sync_concurrency(new_concurrency: int | None = None) -> None:
-    global _worker_tasks
+    global _worker_tasks, _sync_event, _target_tag_sync_concurrency
+    if _sync_event is None:
+        _sync_event = asyncio.Event()
     settings = app_state.settings or get_settings()
     if new_concurrency is None:
         new_concurrency = getattr(settings, "tag_sync_concurrency", 4)
     target = max(1, min(int(new_concurrency), 8))
+    _target_tag_sync_concurrency = target
     _worker_tasks = [t for t in _worker_tasks if not t.done()]
     current = len(_worker_tasks)
     if target > current:
@@ -559,14 +592,11 @@ def adjust_tag_sync_concurrency(new_concurrency: int | None = None) -> None:
             extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
         )
     elif target < current:
-        to_cancel = current - target
-        for _ in range(to_cancel):
-            t = _worker_tasks.pop()
-            t.cancel()
         logger.info(
-            "Adjusted tag sync concurrency",
+            "Set target tag sync concurrency for cooperative drain",
             extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
         )
+        notify_tag_sync()
 
 
 async def tag_sync_worker_loop() -> None:
@@ -612,10 +642,11 @@ async def tag_sync_worker_loop() -> None:
     try:
         while True:
             await asyncio.sleep(10)
-            global _worker_tasks
+            global _worker_tasks, _target_tag_sync_concurrency
             _worker_tasks = [t for t in _worker_tasks if not t.done()]
             settings = app_state.settings or get_settings()
             target = max(1, min(int(settings.tag_sync_concurrency), 8))
+            _target_tag_sync_concurrency = target
             if len(_worker_tasks) < target:
                 for _ in range(target - len(_worker_tasks)):
                     _worker_tasks.append(asyncio.create_task(_tag_sync_worker()))

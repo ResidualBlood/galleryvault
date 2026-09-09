@@ -53,6 +53,7 @@ _TELEGRAM_FLUSH_INTERVAL = 60.0
 
 _task_event: asyncio.Event | None = None
 _worker_tasks: list[asyncio.Task] = []
+_target_download_concurrency: int = 2
 
 
 def notify_new_task() -> None:
@@ -982,8 +983,23 @@ def _effective_download_concurrency(concurrency: int | None = None) -> int:
 
 
 async def _download_worker() -> None:
+    global _worker_tasks
     while True:
         try:
+            # Cooperative drain: if target concurrency decreased, exit after completing current gallery
+            current_task = asyncio.current_task()
+            _worker_tasks = [t for t in _worker_tasks if not t.done()]
+            if current_task is not None and current_task not in _worker_tasks:
+                return
+            if len(_worker_tasks) > _target_download_concurrency:
+                if current_task in _worker_tasks:
+                    _worker_tasks.remove(current_task)
+                logger.info(
+                    "Download worker exiting cooperatively for concurrency drain",
+                    extra=log_extra(current=len(_worker_tasks), target=_target_download_concurrency),
+                )
+                return
+
             # Global pause: stop claiming new galleries (current page finishes)
             try:
                 _settings = app_state.settings or get_settings()
@@ -994,7 +1010,14 @@ async def _download_worker() -> None:
                 pass
             row = None
             if not app_state.session_factory:
-                await asyncio.sleep(1)
+                if _task_event is not None:
+                    try:
+                        await asyncio.wait_for(_task_event.wait(), timeout=1.0)
+                    except TimeoutError:
+                        pass
+                    _task_event.clear()
+                else:
+                    await asyncio.sleep(0.5)
                 continue
             async with app_state.session_factory() as session, session.begin():
                 row = await DownloadRepository(session).claim_pending()
@@ -1060,10 +1083,11 @@ async def _download_worker() -> None:
 
 
 def adjust_download_concurrency(new_concurrency: int | None = None) -> None:
-    global _worker_tasks, _task_event
+    global _worker_tasks, _task_event, _target_download_concurrency
     if _task_event is None:
         _task_event = asyncio.Event()
     target = _effective_download_concurrency(new_concurrency)
+    _target_download_concurrency = target
     _worker_tasks = [t for t in _worker_tasks if not t.done()]
     current = len(_worker_tasks)
     if target > current:
@@ -1074,14 +1098,11 @@ def adjust_download_concurrency(new_concurrency: int | None = None) -> None:
             extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
         )
     elif target < current:
-        to_cancel = current - target
-        for _ in range(to_cancel):
-            t = _worker_tasks.pop()
-            t.cancel()
         logger.info(
-            "Adjusted download concurrency",
+            "Set target download concurrency for cooperative drain",
             extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
         )
+        notify_new_task()
 
 
 async def download_worker_loop() -> None:
@@ -1108,10 +1129,11 @@ async def download_worker_loop() -> None:
     try:
         while True:
             await asyncio.sleep(10)
-            global _worker_tasks
+            global _worker_tasks, _target_download_concurrency
             _worker_tasks = [t for t in _worker_tasks if not t.done()]
             settings = app_state.settings or get_settings()
             target = _effective_download_concurrency(settings.download_concurrency)
+            _target_download_concurrency = target
             if len(_worker_tasks) < target:
                 for _ in range(target - len(_worker_tasks)):
                     _worker_tasks.append(asyncio.create_task(_download_worker()))
