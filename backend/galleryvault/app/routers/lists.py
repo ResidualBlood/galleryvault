@@ -69,6 +69,7 @@ async def create_local_list(
     dispatcher.spawn_record_task(
         "local-list-create",
         status="success",
+        message=f"list {list_id}",
         reason=f"list {list_id}",
         done=1,
         total=1,
@@ -114,6 +115,7 @@ async def delete_local_list(
     dispatcher.spawn_record_task(
         "local-list-delete",
         status="success",
+        message=f"list {list_id}",
         reason=f"list {list_id}",
         done=1,
         total=1,
@@ -162,6 +164,7 @@ async def add_local_list_items(
     dispatcher.spawn_record_task(
         "local-list-add",
         status="success",
+        message=f"list {list_id}",
         reason=f"list {list_id}",
         done=added,
         total=len(body.gallery_ids),
@@ -186,6 +189,7 @@ async def remove_local_list_items(
     dispatcher.spawn_record_task(
         "local-list-remove",
         status="success",
+        message=f"list {list_id}",
         reason=f"list {list_id}",
         done=removed,
         total=len(body.gallery_ids),

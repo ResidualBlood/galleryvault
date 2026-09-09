@@ -49,26 +49,47 @@ class BaseService:
 
     async def record_task_audit(
         self,
-        task_type: str,
+        task_type: str = "unknown",
         status: str = "completed",
         message: str = "",
         details: dict[str, Any] | None = None,
+        *,
+        action: str | None = None,
+        reason: str | None = None,
+        name: str | None = None,
+        **kwargs: Any,
     ) -> None:
         """Record task execution details to persistent history / audit store."""
+        resolved_task_type = (
+            action
+            or name
+            or (task_type if task_type != "unknown" else None)
+            or kwargs.pop("task", None)
+            or "unknown"
+        )
+        payload = dict(details or {})
+        for k, v in kwargs.items():
+            payload.setdefault(k, v)
+
+        effective_message = message or reason or ""
+        effective_reason = reason if reason is not None else (message or None)
+
         if self.task_dispatcher is not None:
             await self.task_dispatcher.record_task_and_persist(
-                task_type=task_type,
+                task_type=resolved_task_type,
                 status=status,
-                message=message,
-                details=details,
+                message=effective_message,
+                details=payload,
+                reason=effective_reason,
+                **kwargs,
             )
         else:
             self.logger.info(
                 "Task audit [%s] (%s): %s | %s",
-                task_type,
+                resolved_task_type,
                 status,
-                message,
-                details,
+                effective_message,
+                payload,
             )
 
     @asynccontextmanager

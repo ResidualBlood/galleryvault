@@ -9,6 +9,14 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ...db.repositories.downloads import DownloadRepository
+from ...db.repositories.favorites import FavoritesRepository
+from ...db.repositories.galleries import GalleryRepository
+from ...db.repositories.jobs import BackgroundJobsRepository
+from ...db.repositories.lists import LocalListRepository
+from ...db.repositories.series import SeriesRepository
+from ...db.repositories.settings import SettingsRepository
+from ...db.repositories.updates import GalleryUpdatesRepository
 from ..exceptions import DatabaseError
 
 
@@ -33,6 +41,54 @@ class AbstractUnitOfWork(abc.ABC):
     @abc.abstractmethod
     def session(self) -> AsyncSession:
         """Return the active database session."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def galleries(self) -> GalleryRepository:
+        """Return the GalleryRepository instance."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def downloads(self) -> DownloadRepository:
+        """Return the DownloadRepository instance."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def favorites(self) -> FavoritesRepository:
+        """Return the FavoritesRepository instance."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def settings(self) -> SettingsRepository:
+        """Return the SettingsRepository instance."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def jobs(self) -> BackgroundJobsRepository:
+        """Return the BackgroundJobsRepository instance."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def updates(self) -> GalleryUpdatesRepository:
+        """Return the GalleryUpdatesRepository instance."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def lists(self) -> LocalListRepository:
+        """Return the LocalListRepository instance."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def series(self) -> SeriesRepository:
+        """Return the SeriesRepository instance."""
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -60,6 +116,14 @@ class SqlAlchemyUnitOfWork(AbstractUnitOfWork):
         self._owns_session = False
         self._autocommit = autocommit
         self._committed = False
+        self._galleries: GalleryRepository | None = None
+        self._downloads: DownloadRepository | None = None
+        self._favorites: FavoritesRepository | None = None
+        self._settings: SettingsRepository | None = None
+        self._jobs: BackgroundJobsRepository | None = None
+        self._updates: GalleryUpdatesRepository | None = None
+        self._lists: LocalListRepository | None = None
+        self._series: SeriesRepository | None = None
 
         if isinstance(session_or_factory, AsyncSession):
             self._session = session_or_factory
@@ -71,6 +135,62 @@ class SqlAlchemyUnitOfWork(AbstractUnitOfWork):
         if self._session is None:
             raise DatabaseError("UnitOfWork session is not active. Use 'async with uow:' context.")
         return self._session
+
+    @property
+    def galleries(self) -> GalleryRepository:
+        """Return the GalleryRepository bound to current session."""
+        if self._galleries is None:
+            self._galleries = GalleryRepository(self.session)
+        return self._galleries
+
+    @property
+    def downloads(self) -> DownloadRepository:
+        """Return the DownloadRepository bound to current session."""
+        if self._downloads is None:
+            self._downloads = DownloadRepository(self.session)
+        return self._downloads
+
+    @property
+    def favorites(self) -> FavoritesRepository:
+        """Return the FavoritesRepository bound to current session."""
+        if self._favorites is None:
+            self._favorites = FavoritesRepository(self.session)
+        return self._favorites
+
+    @property
+    def settings(self) -> SettingsRepository:
+        """Return the SettingsRepository bound to current session."""
+        if self._settings is None:
+            self._settings = SettingsRepository(self.session)
+        return self._settings
+
+    @property
+    def jobs(self) -> BackgroundJobsRepository:
+        """Return the BackgroundJobsRepository bound to current session."""
+        if self._jobs is None:
+            self._jobs = BackgroundJobsRepository(self.session)
+        return self._jobs
+
+    @property
+    def updates(self) -> GalleryUpdatesRepository:
+        """Return the GalleryUpdatesRepository bound to current session."""
+        if self._updates is None:
+            self._updates = GalleryUpdatesRepository(self.session)
+        return self._updates
+
+    @property
+    def lists(self) -> LocalListRepository:
+        """Return the LocalListRepository bound to current session."""
+        if self._lists is None:
+            self._lists = LocalListRepository(self.session)
+        return self._lists
+
+    @property
+    def series(self) -> SeriesRepository:
+        """Return the SeriesRepository bound to current session."""
+        if self._series is None:
+            self._series = SeriesRepository(self.session)
+        return self._series
 
     async def __aenter__(self) -> Self:
         self._committed = False
@@ -124,6 +244,14 @@ class SqlAlchemyUnitOfWork(AbstractUnitOfWork):
                             await res
                 finally:
                     self._session = None
+                    self._galleries = None
+                    self._downloads = None
+                    self._favorites = None
+                    self._settings = None
+                    self._jobs = None
+                    self._updates = None
+                    self._lists = None
+                    self._series = None
 
 
 # Compatibility alias

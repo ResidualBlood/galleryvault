@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 from ...logging import log_extra
@@ -72,28 +74,71 @@ class TaskDispatcher:
 
     async def record_task_and_persist(
         self,
-        task_type: str,
-        status: str,
-        message: str,
+        task_type: str = "unknown",
+        status: str = "completed",
+        message: str = "",
         details: dict[str, Any] | None = None,
         *,
+        reason: str | None = None,
         entity_type: str | None = None,
         entity_id: Any | None = None,
+        **kwargs: Any,
     ) -> None:
         """Record an audit task and trigger history persistence."""
         tm = self.task_manager
         if tm is None:
             return
 
+        if task_type == "unknown" and "action" in kwargs:
+            task_type = str(kwargs.pop("action"))
+
         payload = dict(details or {})
         if entity_type is not None:
             payload["entity_type"] = entity_type
         if entity_id is not None:
             payload["entity_id"] = str(entity_id)
+        if reason is not None:
+            payload.setdefault("reason", reason)
+        for k, v in kwargs.items():
+            if k not in ("started_at", "completed_at"):
+                payload.setdefault(k, v)
+
+        effective_reason = reason if reason is not None else (message or "")
+        now = datetime.now(UTC).isoformat()
+        started_at = kwargs.get("started_at", now)
+        completed_at = kwargs.get("completed_at", now)
+        done = int(kwargs.get("done", 0) or 0)
+        total = int(kwargs.get("total", 0) or 0)
 
         try:
             if hasattr(tm, "record_task"):
-                tm.record_task(task_type, status, message, payload)
+                try:
+                    sig = inspect.signature(tm.record_task)
+                    if "started_at" in sig.parameters:
+                        tm.record_task(
+                            task=task_type,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                            status=status,
+                            reason=effective_reason,
+                            done=done,
+                            total=total,
+                        )
+                    else:
+                        tm.record_task(task_type, status, message, payload)
+                except (TypeError, ValueError):
+                    try:
+                        tm.record_task(
+                            task=task_type,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                            status=status,
+                            reason=effective_reason,
+                            done=done,
+                            total=total,
+                        )
+                    except TypeError:
+                        tm.record_task(task_type, status, message, payload)
             if hasattr(tm, "persist_history"):
                 res = tm.persist_history()
                 if hasattr(res, "__await__"):
@@ -106,23 +151,27 @@ class TaskDispatcher:
 
     def spawn_record_task(
         self,
-        task_type: str,
-        status: str,
-        message: str,
+        task_type: str = "unknown",
+        status: str = "completed",
+        message: str = "",
         details: dict[str, Any] | None = None,
         *,
+        reason: str | None = None,
         entity_type: str | None = None,
         entity_id: Any | None = None,
+        **kwargs: Any,
     ) -> asyncio.Task[Any] | None:
         """Spawn task recording and history persistence in the background non-blockingly."""
         return self.spawn(
             self.record_task_and_persist(
                 task_type,
-                status,
-                message,
+                status=status,
+                message=message,
                 details=details,
+                reason=reason,
                 entity_type=entity_type,
                 entity_id=entity_id,
+                **kwargs,
             ),
             operation=f"record_task:{task_type}",
         )

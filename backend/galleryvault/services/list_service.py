@@ -137,10 +137,11 @@ class ListService(BaseService):
             added_count = await self.uow.lists.add_items(list_id, gallery_ids)
 
         if self.task_dispatcher and added_count > 0:
-            self.record_task_audit(
+            await self.record_task_audit(
                 action="list_add_galleries",
                 target=f"list:{list_id}",
                 status="success",
+                message=f"Added {added_count} galleries to list {list_id}",
                 details={"added_count": added_count, "gallery_ids": gallery_ids},
             )
 
@@ -159,10 +160,11 @@ class ListService(BaseService):
             removed_count = await self.uow.lists.remove_items(list_id, gallery_ids)
 
         if self.task_dispatcher and removed_count > 0:
-            self.record_task_audit(
+            await self.record_task_audit(
                 action="list_remove_galleries",
                 target=f"list:{list_id}",
                 status="success",
+                message=f"Removed {removed_count} galleries from list {list_id}",
                 details={"removed_count": removed_count, "gallery_ids": gallery_ids},
             )
 
