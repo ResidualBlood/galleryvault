@@ -28,12 +28,12 @@ _BACKEND_DIR = _SCRIPT_DIR.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings, get_settings
-from galleryvault.db.models import Gallery
+from galleryvault.db.models import Gallery, GalleryPage
 from galleryvault.scanners.ehviewer import natural_key
 from galleryvault.services.cold_archive import resolve_archive_roots
 from galleryvault.services.downloader import _is_valid_image_magic
@@ -245,6 +245,21 @@ async def repair_cbz(
                     target_file.unlink(missing_ok=True)
                     new_target = target_file.with_suffix(new_ext)
                     new_target.write_bytes(new_data)
+                    if gallery_id is not None and app_state.session_factory is not None:
+                        new_member_name = new_target.relative_to(tmp_dir).as_posix()
+                        clean_ext = new_ext.lstrip(".").lower()
+                        async with app_state.session_factory() as session, session.begin():
+                            await session.execute(
+                                update(GalleryPage)
+                                .where(
+                                    GalleryPage.gallery_id == gallery_id,
+                                    GalleryPage.page_index == idx,
+                                )
+                                .values(
+                                    member_name=new_member_name,
+                                    media_type=clean_ext,
+                                )
+                            )
                 repaired_indexes.append(idx)
                 logger.info("Successfully repaired page %d", idx + 1)
             except Exception as exc:  # noqa: BLE001
@@ -360,6 +375,20 @@ async def repair_dir(
                 p.unlink(missing_ok=True)
                 new_final = p.with_suffix(new_ext)
                 os.replace(tmp_target, new_final)
+                if gallery_id is not None and app_state.session_factory is not None:
+                    clean_ext = new_ext.lstrip(".").lower()
+                    async with app_state.session_factory() as session, session.begin():
+                        await session.execute(
+                            update(GalleryPage)
+                            .where(
+                                GalleryPage.gallery_id == gallery_id,
+                                GalleryPage.page_index == idx,
+                            )
+                            .values(
+                                member_name=new_final.name,
+                                media_type=clean_ext,
+                            )
+                        )
             repaired_indexes.append(idx)
             logger.info("Successfully repaired page %d (%s)", idx + 1, p.name)
         except Exception as exc:  # noqa: BLE001

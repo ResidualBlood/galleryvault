@@ -280,10 +280,25 @@ class CbzZipScanner(ArchiveScanner):
             raise ValueError(f"unsafe page path: {page.name}")
         zf, file_lock = _get_cached_zip(gallery.path)
         with file_lock:
-            info = zf.getinfo(page.name)
+            try:
+                info = zf.getinfo(page.name)
+            except KeyError:
+                stem = Path(page.name).stem
+                matched_name = next(
+                    (
+                        name
+                        for name in zf.namelist()
+                        if Path(name).stem == stem
+                        and Path(name).suffix.casefold() in IMAGE_EXTENSIONS
+                    ),
+                    None,
+                )
+                if matched_name is None:
+                    raise
+                info = zf.getinfo(matched_name)
             if _is_symlink(info):
-                raise ValueError(f"unsafe symlink in archive: {page.name}")
-            data = zf.read(page.name)
+                raise ValueError(f"unsafe symlink in archive: {info.filename}")
+            data = zf.read(info.filename)
         return io.BytesIO(data)
 
 

@@ -68,6 +68,11 @@ def _meta(gallery: Gallery, pages: list[GalleryPage]) -> GalleryMeta:
     )
 
 
+def _touch_placeholder(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch(exist_ok=True)
+
+
 async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
     if not app_state.session_factory:
         return 0, 0
@@ -107,9 +112,15 @@ async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
             data = await run_in_threadpool(stream.read)
             await run_in_threadpool(service.get_or_create, gallery_id, page.page_index, data)
             generated += 1
-        except (ThumbnailError, OSError, EOFError) as exc:
+        except (ThumbnailError, OSError, EOFError, KeyError, ValueError) as exc:
             failed_pages += 1
             thumb_state["last_error"] = f"{type(exc).__name__}: {exc}"
+            try:
+                await run_in_threadpool(
+                    _touch_placeholder, service.cache_path(gallery_id, page.page_index)
+                )
+            except OSError:
+                pass
         finally:
             if stream is not None:
                 try:
