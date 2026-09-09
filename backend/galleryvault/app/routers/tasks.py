@@ -318,13 +318,25 @@ async def thumb_status() -> dict[str, object]:
 async def trigger_thumbnail_generation() -> dict[str, object]:
     """Queue every gallery missing thumbnails for background generation."""
     tm = get_task_manager()
-    await seed_thumbnails()
-    queued = await jobs_count("thumb")
-    tm.thumb_state["running"] = True
-    if queued == 0 and not tm.thumb_state.get("started_at"):
-        now = datetime.now(UTC).isoformat()
-        tm.record_task("thumbs", now, now, "success", reason="ok 0 / fail 0", done=0, total=0)
-    return {"status": "running" if queued else "started", "queued": queued}
+    if tm.thumb_state.get("seeding"):
+        return {"status": "running", "message": "Thumbnail seeding already in progress"}
+    tm.thumb_state["seeding"] = True
+
+    async def _run_seed() -> None:
+        try:
+            await seed_thumbnails()
+            queued = await jobs_count("thumb")
+            tm.thumb_state["running"] = bool(queued)
+            if queued == 0 and not tm.thumb_state.get("started_at"):
+                now = datetime.now(UTC).isoformat()
+                tm.record_task(
+                    "thumbs", now, now, "success", reason="ok 0 / fail 0", done=0, total=0
+                )
+        finally:
+            tm.thumb_state["seeding"] = False
+
+    spawn_task(_run_seed(), "thumbnail seeding")
+    return {"status": "started"}
 
 
 @router.post("/api/tag-sync/start", status_code=202)
