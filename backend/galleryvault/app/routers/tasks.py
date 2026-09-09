@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
 from ...db.repository import BackgroundJobsRepository, GalleryRepository, SettingsRepository
+from ...db.session import safe_transaction
 from ...services.cold_archive import run_cold_archive
 from ...services.scan_worker import run_scan
 from ...services.settings_service import update_runtime_settings
@@ -24,7 +25,7 @@ router = APIRouter()
 async def _clear_jobs(job_type: str) -> None:
     if not app_state.session_factory:
         return
-    async with app_state.session_factory() as session, session.begin():
+    async with app_state.session_factory() as session, safe_transaction(session):
         await BackgroundJobsRepository(session).clear(job_type)
 
 
@@ -53,7 +54,7 @@ async def set_pause(
     app_state.settings = new_settings
     update_runtime_settings({"global_paused": paused})
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             existing = await SettingsRepository(session).get()
             merged = {**existing, "global_paused": paused}
             await SettingsRepository(session).save(merged)

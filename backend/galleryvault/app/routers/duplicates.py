@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.params import Depends as DependsType
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from ...db.repository import FavoritesRepository, GalleryRepository
+from ...db.session import safe_transaction
 from ...scanners import registry
 from ...services.deletion import in_scan_roots
 from ...services.ingest import GalleryIngestService
@@ -112,7 +114,7 @@ async def resolve_duplicate(
         raise HTTPException(status_code=422, detail="path is not a copy in this group")
 
     meta = await _scan_copy(chosen)
-    async with session.begin():
+    async with safe_transaction(session):
         await GalleryIngestService(session).ingest([meta])
 
     if body.delete_others:
@@ -134,7 +136,7 @@ async def resolve_duplicate(
                     "duplicate copy deletion failed",
                     extra={"path": str(target), "error": str(exc)},
                 )
-        async with session.begin():
+        async with safe_transaction(session):
             await GalleryRepository(session).delete_duplicate(gid)
 
     refreshed = await GalleryRepository(session).list_duplicates()
@@ -147,7 +149,7 @@ async def dismiss_duplicate(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, str]:
     session = await resolve_session(session, fallback_dep=get_session)
-    async with session.begin():
+    async with safe_transaction(session):
         ok = await GalleryRepository(session).set_duplicate_status(gid, "dismissed")
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
@@ -160,7 +162,7 @@ async def restore_duplicate(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, str]:
     session = await resolve_session(session, fallback_dep=get_session)
-    async with session.begin():
+    async with safe_transaction(session):
         ok = await GalleryRepository(session).set_duplicate_status(gid, "open")
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
@@ -264,24 +266,31 @@ def _serialize_cross_gid_group(
 
 
 @router.get("/api/library/duplicates/cross-gid")
-async def get_cross_gid_duplicates() -> dict[str, object]:
+async def get_cross_gid_duplicates(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
     from ...services.duplicates import duplicate_group_is_ignored
 
     raw_groups = app_state.cross_gid_duplicates
     if raw_groups is None:
         return {"ready": False, "count": 0, "groups": []}
 
-    session_factory = app_state.session_factory
-    if session_factory:
-        async with session_factory() as session:
-            fav_repo = FavoritesRepository(session)
-            ignored_keys = await fav_repo.ignored_duplicate_keys()
-            ignored = await fav_repo.ignored_duplicates()
-            ignored_gid_sets = [
-                set(r.get("gids") or []) for r in ignored if r.get("gids")
-            ]
-    else:
-        ignored_keys, ignored_gid_sets = set(), []
+    ignored_keys: set[str] = set()
+    ignored_gid_sets: list[set[int]] = []
+
+    actual_session: AsyncSession | None = None
+    if not isinstance(session, DependsType) and session is not None:
+        actual_session = session
+    elif app_state.session_factory is not None:
+        actual_session = await resolve_session(session, fallback_dep=get_session)
+
+    if actual_session is not None:
+        fav_repo = FavoritesRepository(actual_session)
+        ignored_keys = await fav_repo.ignored_duplicate_keys()
+        ignored = await fav_repo.ignored_duplicates()
+        ignored_gid_sets = [
+            set(r.get("gids") or []) for r in ignored if r.get("gids")
+        ]
 
     filtered: list[dict[str, Any]] = []
     for g in raw_groups:
@@ -293,7 +302,10 @@ async def get_cross_gid_duplicates() -> dict[str, object]:
 
 
 @router.post("/api/library/duplicates/cross-gid/refresh")
-async def refresh_cross_gid_duplicates() -> dict[str, object]:
+async def refresh_cross_gid_duplicates(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     from ...services.duplicates import scan_library_cross_gid_duplicates
 
     session_factory = app_state.session_factory
@@ -305,5 +317,5 @@ async def refresh_cross_gid_duplicates() -> dict[str, object]:
 
     async with _cross_gid_lock:
         await scan_library_cross_gid_duplicates(session_factory)
-    return await get_cross_gid_duplicates()
+    return await get_cross_gid_duplicates(session=session)
 

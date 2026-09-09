@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.models import DownloadTask as DownloadTaskModel
 from ...db.repository import DownloadRepository, GalleryUpdatesRepository
+from ...db.session import safe_transaction
 from ...services.download_prepare import PreparedGallery, prepare_galleries
 from ...services.download_worker import (
     clear_download_cancelled,
@@ -73,7 +74,7 @@ async def _create_from_prepared(
                 session=s,
             )
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             task = await DownloadRepository(session).create(
                 prepared.gid,
                 prepared.token,
@@ -282,7 +283,7 @@ async def clear_success_downloads(
     session = await resolve_session(session, fallback_dep=get_session)
     deleted = 0
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             deleted = await DownloadRepository(session).delete_success()
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -308,7 +309,7 @@ async def retry_download(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await session.get(DownloadTaskModel, task_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="Download task not found")
@@ -337,7 +338,7 @@ async def cancel_download(
     session = await resolve_session(session, fallback_dep=get_session)
     was_active = False
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await session.get(DownloadTaskModel, task_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="Download task not found")
@@ -363,7 +364,7 @@ async def delete_download_task(
     gid: int | None = None
     was_downloading = False
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await session.get(DownloadTaskModel, task_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="Download task not found")

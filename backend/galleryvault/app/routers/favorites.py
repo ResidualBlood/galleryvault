@@ -21,6 +21,7 @@ from ...db.repository import (
     GalleryRepository,
     GalleryUpdatesRepository,
 )
+from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...scanners.base import CATEGORIES
 from ...services.deletion import delete_galleries_local
@@ -632,7 +633,7 @@ async def favorites_remove(
                     failed_deletions.extend(r.get("failed_paths", []))
 
         if successful_gids:
-            async with session.begin():
+            async with safe_transaction(session):
                 local_removed = await FavoritesRepository(session).remove_gids(
                     successful_gids
                 )
@@ -685,7 +686,7 @@ async def favorites_move(
     local_moved = 0
     if successful_gids:
         try:
-            async with session.begin():
+            async with safe_transaction(session):
                 local_moved = await FavoritesRepository(session).move_gids(
                     successful_gids, body.target_favcat
                 )
@@ -858,7 +859,7 @@ async def favorites_add(
                     )
             )
         try:
-            async with session.begin():
+            async with safe_transaction(session):
                 await FavoritesRepository(session).remember_many(
                     body.target_favcat, favorite_items_to_save
                 )
@@ -930,7 +931,7 @@ async def favorites_set_note(
     local_updated = 0
     if cloud_ok:
         try:
-            async with session.begin():
+            async with safe_transaction(session):
                 local_updated = await FavoritesRepository(session).update_note(
                     body.gid, body.note, favcat=int(favcat)
                 )
@@ -1047,7 +1048,7 @@ async def duplicates_ignore(
     if not body.key.strip():
         raise HTTPException(status_code=422, detail="invalid key")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             await FavoritesRepository(session).add_duplicate_ignore(
                 body.key.strip(), body.title, body.gids
             )
@@ -1066,7 +1067,7 @@ async def duplicates_unignore(
     if not key.strip():
         raise HTTPException(status_code=422, detail="invalid key")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             await FavoritesRepository(session).remove_duplicate_ignore(key.strip())
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -1228,7 +1229,7 @@ async def update_favorite_category(
     if not 0 <= favcat <= 9:
         raise HTTPException(status_code=422, detail="invalid favcat")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await FavoritesRepository(session).category(favcat)
             if row is None:
                 row = FavoritesMonitor(favcat=favcat)
@@ -1255,7 +1256,7 @@ async def sync_favorite_categories(
         raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
     try:
         names = await app_state.eh_client.fetch_favorite_categories()
-        async with session.begin():
+        async with safe_transaction(session):
             if isinstance(names, dict):
                 for favcat, name in names.items():
                     row = await FavoritesRepository(session).category(favcat)

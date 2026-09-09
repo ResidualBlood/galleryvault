@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.repository import LocalListRepository
+from ...db.session import safe_transaction
 from ..dependencies import db_error, get_session, get_task_manager, resolve_session, spawn_task
 from ..schemas import LocalListCreateRequest, LocalListItemsRequest
 
@@ -62,7 +63,7 @@ async def create_local_list(
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await LocalListRepository(session).create(name)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -81,7 +82,7 @@ async def rename_local_list(
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await LocalListRepository(session).rename(list_id, name)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -97,7 +98,7 @@ async def delete_local_list(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             ok = await LocalListRepository(session).delete_list(list_id)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -147,7 +148,7 @@ async def add_local_list_items(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             repo = LocalListRepository(session)
             row = await repo.get(list_id)
             if row is None:
@@ -169,7 +170,7 @@ async def remove_local_list_items(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             repo = LocalListRepository(session)
             row = await repo.get(list_id)
             if row is None:

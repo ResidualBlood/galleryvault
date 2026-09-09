@@ -649,3 +649,138 @@ def test_cross_gid_duplicate_item_category_and_pages():
     assert cloud_item["pages"] is None
 
 
+@pytest.mark.asyncio
+async def test_resolve_duplicate_delete_others_safe_transaction_success(tmp_path, monkeypatch):
+    """验证在 POST /api/scan/duplicates/{gid}/resolve 并带有 delete_others=True 场景下，
+    连续触发摄取与删除操作不会报 503 InvalidRequestError，能正常完成解决。
+    """
+    from pathlib import Path
+    from typing import Any
+
+    from sqlalchemy.exc import InvalidRequestError
+
+    from galleryvault.app.routers import duplicates as duplicates_router
+    from galleryvault.app.routers.duplicates import DuplicateResolveRequest, resolve_duplicate
+
+    # 1. 模拟真实 SQLAlchemy 2.0 AsyncSession 的事务状态机与 autobegin 行为
+    class StrictTransactionSession:
+        def __init__(self) -> None:
+            self._in_trans: bool = False
+            self.commit_count: int = 0
+            self.rollback_count: int = 0
+
+        def in_transaction(self) -> bool:
+            return self._in_trans
+
+        def trigger_select_autobegin(self) -> None:
+            """模拟 SELECT 查询导致的 autobegin。"""
+            self._in_trans = True
+
+        def begin(self):
+            if self._in_trans:
+                raise InvalidRequestError(
+                    "A transaction is already begun on this Session. "
+                    "Use subtransactions=True or nested transactions for nested begin() blocks."
+                )
+            self._in_trans = True
+
+            class _BeginCtx:
+                def __init__(self, parent: StrictTransactionSession) -> None:
+                    self.parent = parent
+
+                async def __aenter__(self):
+                    return self.parent
+
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    if exc_type is not None:
+                        self.parent.rollback_count += 1
+                        self.parent._in_trans = False
+                        return False
+                    self.parent.commit_count += 1
+                    self.parent._in_trans = False
+                    return False
+
+            return _BeginCtx(self)
+
+        async def commit(self) -> None:
+            self.commit_count += 1
+            self._in_trans = False
+
+        async def rollback(self) -> None:
+            self.rollback_count += 1
+            self._in_trans = False
+
+    session = StrictTransactionSession()
+
+    # 2. 准备文件路径：一个保留的 chosen 文件，一个应被删除的 other 文件
+    chosen_file = tmp_path / "chosen.cbz"
+    chosen_file.write_bytes(b"chosen-cbz-data")
+    other_file = tmp_path / "other.cbz"
+    other_file.write_bytes(b"other-cbz-data")
+
+    gid = 98765
+    initial_groups = [
+        {
+            "gid": gid,
+            "copies": [
+                {"path": str(chosen_file), "title": "Chosen Copy"},
+                {"path": str(other_file), "title": "Other Copy"},
+            ],
+        }
+    ]
+
+    deleted_gids: list[int] = []
+    ingested_metas: list[Any] = []
+
+    class FakeGalleryRepo:
+        def __init__(self, s: StrictTransactionSession) -> None:
+            self.session = s
+
+        async def list_duplicates(self) -> list[dict[str, Any]]:
+            # SELECT 查询触发 autobegin
+            self.session.trigger_select_autobegin()
+            if gid in deleted_gids:
+                return []
+            return initial_groups
+
+        async def delete_duplicate(self, target_gid: int) -> None:
+            deleted_gids.append(target_gid)
+
+    class FakeIngestService:
+        def __init__(self, s: StrictTransactionSession) -> None:
+            self.session = s
+
+        async def ingest(self, metas: list[Any]) -> None:
+            ingested_metas.extend(metas)
+
+    async def fake_scan_copy(path: Path) -> dict[str, Any]:
+        return {"gid": gid, "path": str(path), "title": "Scanned Title"}
+
+    monkeypatch.setattr(duplicates_router, "GalleryRepository", FakeGalleryRepo)
+    monkeypatch.setattr(duplicates_router, "GalleryIngestService", FakeIngestService)
+    monkeypatch.setattr(duplicates_router, "_scan_copy", fake_scan_copy)
+    monkeypatch.setattr(duplicates_router, "_in_roots", lambda p: True)
+
+    # 3. 发送 resolve 请求（delete_others=True 触发摄取与删除两次连续事务）
+    body = DuplicateResolveRequest(path=str(chosen_file), delete_others=True)
+
+    # 验证在调用端点时不会抛出 InvalidRequestError / 503
+    result = await resolve_duplicate(gid=gid, body=body, session=session)
+
+    # 4. 验证业务逻辑正常完成
+    assert result["count"] == 0
+    assert result["groups"] == []
+    assert gid in deleted_gids
+    assert len(ingested_metas) == 1
+    assert ingested_metas[0]["path"] == str(chosen_file)
+
+    # 5. 验证文件操作：chosen 保留，other 被物理删除
+    assert chosen_file.exists() is True
+    assert other_file.exists() is False
+
+    # 6. 验证两次事务均通过 safe_transaction 成功完成提交
+    assert session.commit_count >= 2
+    assert session.rollback_count == 0
+
+
+

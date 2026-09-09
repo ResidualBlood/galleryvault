@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...config import normalize_library_roots
 from ...db.models import FavoritesMonitor
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
+from ...db.session import safe_transaction
 from ...logging import (
     clear_recent_logs,
     get_log_file_path,
@@ -214,7 +215,7 @@ async def _save_settings(
         persisted_values["telegram_bot_token"] = encrypt(token)
 
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             await SettingsRepository(session).save(persisted_values)
             for item in favorites:
                 favcat = _favcat(item)
@@ -234,7 +235,7 @@ async def _save_settings(
     new_base = str(persisted_values.get("exhentai_base_url") or "")
     if is_public_site(old_base) and not is_public_site(new_base):
         try:
-            async with session.begin():
+            async with safe_transaction(session):
                 resumed = await GalleryRepository(session).resume_not_visible()
             if resumed:
                 logger.info(
@@ -336,17 +337,26 @@ async def system_logs_download() -> Response:
 _SAVED_SEARCH_MAX = 30
 
 
-async def _user_settings() -> dict:
+async def _user_settings(session: AsyncSession | None = None) -> dict:
+    if session is not None:
+        return await SettingsRepository(session).get()
     if app_state.session_factory:
-        async with app_state.session_factory() as session:
-            return await SettingsRepository(session).get()
+        async with app_state.session_factory() as s:
+            return await SettingsRepository(s).get()
     return {}
 
 
-async def _merge_user_settings(updates: dict) -> dict:
-    if app_state.session_factory:
-        async with app_state.session_factory() as session, session.begin():
+async def _merge_user_settings(updates: dict, session: AsyncSession | None = None) -> dict:
+    if session is not None:
+        async with safe_transaction(session):
             repo = SettingsRepository(session)
+            existing = await repo.get()
+            merged = {**existing, **updates}
+            await repo.save(merged)
+            return merged
+    if app_state.session_factory:
+        async with app_state.session_factory() as s, safe_transaction(s):
+            repo = SettingsRepository(s)
             existing = await repo.get()
             merged = {**existing, **updates}
             await repo.save(merged)
@@ -371,9 +381,12 @@ def _normalize_saved_searches(raw: object) -> list[dict]:
 
 
 @router.get("/api/saved-searches")
-async def saved_searches_list() -> dict[str, object]:
+async def saved_searches_list(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        stored = await _user_settings()
+        stored = await _user_settings(session=session)
     except Exception as exc:  # noqa: BLE001
         logger.warning("saved searches read failed", extra={"error": str(exc)})
         stored = {}
@@ -382,20 +395,24 @@ async def saved_searches_list() -> dict[str, object]:
 
 
 @router.post("/api/saved-searches")
-async def saved_searches_add(body: SavedSearchRequest) -> dict[str, object]:
+async def saved_searches_add(
+    body: SavedSearchRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     import uuid
 
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        stored = await _user_settings()
+        stored = await _user_settings(session=session)
         items = _normalize_saved_searches(stored.get("saved_searches"))
         if len(items) >= _SAVED_SEARCH_MAX:
             raise HTTPException(status_code=409, detail="saved search limit reached")
         entry = {"id": uuid.uuid4().hex, "name": name, "query": body.query or {}}
         items.append(entry)
-        await _merge_user_settings({"saved_searches": items})
+        await _merge_user_settings({"saved_searches": items}, session=session)
     except HTTPException:
         raise
     except Exception as exc:
@@ -404,19 +421,24 @@ async def saved_searches_add(body: SavedSearchRequest) -> dict[str, object]:
 
 
 @router.delete("/api/saved-searches/{search_id}")
-async def saved_searches_delete(search_id: str) -> dict[str, object]:
+async def saved_searches_delete(
+    search_id: str,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        stored = await _user_settings()
+        stored = await _user_settings(session=session)
         items = _normalize_saved_searches(stored.get("saved_searches"))
         next_items = [it for it in items if it.get("id") != search_id]
         if len(next_items) == len(items):
             raise HTTPException(status_code=404, detail="saved search not found")
-        await _merge_user_settings({"saved_searches": next_items})
+        await _merge_user_settings({"saved_searches": next_items}, session=session)
     except HTTPException:
         raise
     except Exception as exc:
         raise db_error(exc) from exc
     return {"deleted": True, "id": search_id}
+
 
 
 def _path_info(

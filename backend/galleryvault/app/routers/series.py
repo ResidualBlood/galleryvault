@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db.models import Gallery
 from ...db.repositories.galleries import GalleryRepository
 from ...db.repositories.series import SeriesRepository
+from ...db.session import safe_transaction
 from ...services.series import rebuild_series_groups
 from ...services.tag_translation import translated_tag
 from ..dependencies import (
@@ -246,7 +247,7 @@ async def create_series(
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await SeriesRepository(session).create(name, match_key=None, name_manual=True)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -272,7 +273,7 @@ async def rename_series(
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             row = await SeriesRepository(session).rename(series_id, name)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -288,7 +289,7 @@ async def delete_series(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             ok = await SeriesRepository(session).delete_series(series_id)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -305,7 +306,7 @@ async def add_series_items(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             repo = SeriesRepository(session)
             row = await repo.get(series_id)
             if row is None:
@@ -346,7 +347,7 @@ async def add_series_cloud_items(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             repo = SeriesRepository(session)
             row = await repo.get(series_id)
             if row is None:
@@ -367,7 +368,7 @@ async def remove_series_cloud_items(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             repo = SeriesRepository(session)
             row = await repo.get(series_id)
             if row is None:
@@ -388,7 +389,7 @@ async def remove_series_items(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             repo = SeriesRepository(session)
             row = await repo.get(series_id)
             if row is None:

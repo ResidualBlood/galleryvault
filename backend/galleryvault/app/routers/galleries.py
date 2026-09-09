@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import io
 import logging
 import os
@@ -28,6 +29,7 @@ from ...db.repository import (
     GalleryRepository,
     _chunked,
 )
+from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...scanners import registry
 from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
@@ -192,8 +194,35 @@ async def _gallery(identifier: int, session: AsyncSession | None = None) -> tupl
         return await _gallery_lookup(identifier)
 
 
-async def _gallery_tags(gallery_id: int) -> list[tuple[str, str]]:
-    return await _gallery_tags_lookup(gallery_id)
+async def _invoke_gallery(
+    identifier: int, session: AsyncSession | None = None
+) -> tuple[Gallery, list[GalleryPage]]:
+    target = _gallery
+    try:
+        sig = inspect.signature(target)
+        accepts_session = "session" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+    except (ValueError, TypeError):
+        accepts_session = True
+
+    if accepts_session:
+        try:
+            return await target(identifier, session=session)
+        except TypeError as exc:
+            if "unexpected keyword argument" in str(exc) and "session" in str(exc):
+                return await target(identifier)
+            raise
+    return await target(identifier)
+
+
+async def _gallery_tags(
+    gallery_id: int, session: AsyncSession | None = None
+) -> list[tuple[str, str]]:
+    try:
+        return await _gallery_tags_lookup(gallery_id, session=session)
+    except TypeError:
+        return await _gallery_tags_lookup(gallery_id)
 
 
 def _get_thumb_service() -> ThumbnailService:
@@ -732,7 +761,7 @@ async def restore_galleries(
     if not ids:
         raise HTTPException(status_code=422, detail="No gallery ids provided")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             restored = await GalleryRepository(session).restore_galleries(ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -815,9 +844,13 @@ async def gallery_next(
 
 
 @router.get("/api/galleries/{identifier}")
-async def get_gallery(identifier: int) -> dict[str, object]:
-    row, pages = await _gallery(identifier)
-    tags = await _gallery_tags(row.id)
+async def get_gallery(
+    identifier: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    row, pages = await _invoke_gallery(identifier, session=session)
+    tags = await _gallery_tags(row.id, session=session)
     settings = get_current_settings()
     source_meta = getattr(row, "source_meta", None) or {}
     spider_keys = (
@@ -903,11 +936,11 @@ async def patch_gallery_local(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    row, _ = await _gallery(identifier, session=session)
+    row, _ = await _invoke_gallery(identifier, session=session)
     if body.local_rating is not None and not (1 <= body.local_rating <= 5):
         raise HTTPException(status_code=422, detail="local_rating must be 1-5")
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             gallery = await session.get(Gallery, row.id)
             if gallery is None:
                 raise HTTPException(status_code=404, detail="Gallery not found")
@@ -947,7 +980,7 @@ async def download_gallery_original(
 ) -> dict[str, object]:
     """Enqueue an original-quality download for a local gallery."""
     session = await resolve_session(session, fallback_dep=get_session)
-    row, _ = await _gallery(identifier, session=session)
+    row, _ = await _invoke_gallery(identifier, session=session)
     if not row.gid or not row.token:
         raise HTTPException(status_code=422, detail="Gallery has no ExHentai gid/token")
     mode = "gallery_archive" if body.archive else "gallery"
@@ -970,7 +1003,7 @@ async def download_gallery_original(
                 status_code=422, detail="No original images available for this gallery"
             )
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             task = await DownloadRepository(session).create(
                 row.gid,
                 row.token,
@@ -998,7 +1031,7 @@ async def gallery_favorite_status(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        row, _ = await _gallery(identifier, session=session)
+        row, _ = await _invoke_gallery(identifier, session=session)
         fav_repo = FavoritesRepository(session)
         favcats = await fav_repo.favcats_for_gid(row.gid, gallery_id=row.id)
         names = await fav_repo.category_names(favcats)
@@ -1030,7 +1063,7 @@ async def toggle_gallery_favorite(
     if not 0 <= favcat <= 9:
         raise HTTPException(status_code=422, detail="favcat must be between 0 and 9")
     session = await resolve_session(session, fallback_dep=get_session)
-    row, _ = await _gallery(identifier, session=session)
+    row, _ = await _invoke_gallery(identifier, session=session)
     if not row.gid:
         raise HTTPException(
             status_code=400, detail="Gallery lacks gid for ExHentai favorites"
@@ -1080,7 +1113,7 @@ async def toggle_gallery_favorite(
             thumb=None,
         )
         try:
-            async with session.begin():
+            async with safe_transaction(session):
                 await FavoritesRepository(session).remember(favcat, fav_item)
         except SQLAlchemyError as exc:
             raise db_error(exc) from exc
@@ -1109,7 +1142,7 @@ async def toggle_gallery_favorite(
             ) from exc
 
         try:
-            async with session.begin():
+            async with safe_transaction(session):
                 await FavoritesRepository(session).remove_gids([row.gid])
         except SQLAlchemyError as exc:
             raise db_error(exc) from exc
@@ -1123,7 +1156,7 @@ async def gallery_progress(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _gallery(identifier, session=session)
+    row, pages = await _invoke_gallery(identifier, session=session)
     progress = await GalleryRepository(session).progress(row.id)
     return {
         "gallery_id": row.id,
@@ -1141,12 +1174,12 @@ async def save_gallery_progress(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _gallery(identifier, session=session)
+    row, pages = await _invoke_gallery(identifier, session=session)
     current = body.current_page if body.current_page is not None else (body.page or 0)
     total_pages = body.total_pages or len(pages)
     if current < 0 or (current > len(pages) and len(pages) > 0):
         raise HTTPException(status_code=422, detail="current_page is outside gallery")
-    async with session.begin():
+    async with safe_transaction(session):
         progress = await GalleryRepository(session).upsert_progress(
             row.id, current, total_pages
         )
@@ -1167,8 +1200,8 @@ async def mark_gallery_read(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _gallery(identifier, session=session)
-    async with session.begin():
+    row, pages = await _invoke_gallery(identifier, session=session)
+    async with safe_transaction(session):
         await GalleryRepository(session).upsert_progress(
             row.id, max(len(pages) - 1, 0), len(pages)
         )
@@ -1245,7 +1278,7 @@ async def clear_history(
             detail="confirm=true is required to clear all history",
         )
     session = await resolve_session(session, fallback_dep=get_session)
-    async with session.begin():
+    async with safe_transaction(session):
         await GalleryRepository(session).clear_history()
 
 
@@ -1260,7 +1293,7 @@ async def clear_all_gallery_progress(
             detail="confirm=true is required to clear all progress",
         )
     session = await resolve_session(session, fallback_dep=get_session)
-    async with session.begin():
+    async with safe_transaction(session):
         await GalleryRepository(session).clear_progress()
 
 
@@ -1270,8 +1303,8 @@ async def clear_gallery_progress(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> None:
     session = await resolve_session(session, fallback_dep=get_session)
-    row, _ = await _gallery(identifier, session=session)
-    async with session.begin():
+    row, _ = await _invoke_gallery(identifier, session=session)
+    async with safe_transaction(session):
         await GalleryRepository(session).delete_progress(row.id)
 
 
@@ -1285,7 +1318,7 @@ async def redownload_gallery(
     session = await resolve_session(session, fallback_dep=get_session)
     if quality is not None and quality not in {"original", "resample"}:
         raise HTTPException(status_code=422, detail="quality must be 'original' or 'resample'")
-    row, _ = await _gallery(identifier, session=session)
+    row, _ = await _invoke_gallery(identifier, session=session)
     if not row.gid or not row.token:
         raise HTTPException(status_code=422, detail="Gallery lacks ExHentai gid/token")
     if not quality:
@@ -1296,7 +1329,7 @@ async def redownload_gallery(
         )
     mode = "gallery_archive" if archive else "gallery"
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             task = await DownloadRepository(session).create(
                 row.gid,
                 row.token,
@@ -1553,11 +1586,11 @@ async def sync_gallery_tags(
         ):
             plan = await service.fetch_plan(identifier)
         else:
-            async with session.begin():
+            async with safe_transaction(session):
                 result = await service.sync(identifier)
 
         if plan is not None:
-            async with session.begin():
+            async with safe_transaction(session):
                 count = await TagSyncService(client, GalleryRepository(session)).apply_plan(
                     identifier, plan
                 )
@@ -1602,8 +1635,12 @@ def _unlink_export(path: str) -> None:
 
 
 @router.get("/api/galleries/{identifier}/export.cbz")
-async def export_gallery_cbz(identifier: int) -> FileResponse:
-    row, pages = await _gallery(identifier)
+async def export_gallery_cbz(
+    identifier: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> FileResponse:
+    session = await resolve_session(session, fallback_dep=get_session)
+    row, pages = await _invoke_gallery(identifier, session=session)
     path = Path(row.storage_path or "")
     now = datetime.now(UTC).isoformat()
     filename = cbz_filename(getattr(row, "title", None), getattr(row, "gid", None), row.id)
@@ -1663,8 +1700,13 @@ async def export_gallery_cbz(identifier: int) -> FileResponse:
 
 
 @router.get("/api/galleries/{identifier}/pages/{page_index}")
-async def get_page(identifier: int, page_index: int) -> StreamingResponse:
-    row, pages = await _gallery(identifier)
+async def get_page(
+    identifier: int,
+    page_index: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> StreamingResponse:
+    session = await resolve_session(session, fallback_dep=get_session)
+    row, pages = await _invoke_gallery(identifier, session=session)
     if not 0 <= page_index < len(pages):
         raise HTTPException(status_code=404, detail="Page not found")
     page = pages[page_index]
@@ -1785,8 +1827,13 @@ def _inspect_image_meta(stream: BinaryIO) -> dict[str, Any]:
 
 
 @router.get("/api/galleries/{identifier}/pages/{page_index}/meta")
-async def get_page_meta(identifier: int, page_index: int) -> dict[str, Any]:
-    row, pages = await _gallery(identifier)
+async def get_page_meta(
+    identifier: int,
+    page_index: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, Any]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    row, pages = await _invoke_gallery(identifier, session=session)
     if not 0 <= page_index < len(pages):
         raise HTTPException(status_code=404, detail="Page not found")
     page = pages[page_index]
@@ -1807,8 +1854,13 @@ async def get_page_meta(identifier: int, page_index: int) -> dict[str, Any]:
 
 
 @router.get("/api/galleries/{identifier}/thumb/{page_index}")
-async def get_thumbnail(identifier: int, page_index: int) -> FileResponse:
-    row, pages = await _gallery(identifier)
+async def get_thumbnail(
+    identifier: int,
+    page_index: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> FileResponse:
+    session = await resolve_session(session, fallback_dep=get_session)
+    row, pages = await _invoke_gallery(identifier, session=session)
     if not 0 <= page_index < len(pages):
         raise HTTPException(status_code=404, detail="Page not found")
     page = pages[page_index]

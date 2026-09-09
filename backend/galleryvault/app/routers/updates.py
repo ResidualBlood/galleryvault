@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.repository import FavoritesRepository, GalleryUpdatesRepository
+from ...db.session import safe_transaction
 from ...services.updates_worker import detect_gallery_updates, run_gallery_updates
 from ..dependencies import (
     db_error,
@@ -133,7 +134,7 @@ async def gallery_updates_ignore(
         raise HTTPException(status_code=422, detail="No update ids provided")
     session = await resolve_session(session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             ignored = await GalleryUpdatesRepository(session).mark_ignored(body.ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -158,7 +159,7 @@ async def gallery_updates_unignore(
         raise HTTPException(status_code=422, detail="No update ids provided")
     session = await resolve_session(session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             restored = await GalleryUpdatesRepository(session).unignore(body.ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -174,7 +175,7 @@ async def gallery_updates_delete(
         raise HTTPException(status_code=422, detail="No update ids provided")
     session = await resolve_session(session)
     try:
-        async with session.begin():
+        async with safe_transaction(session):
             deleted = await GalleryUpdatesRepository(session).delete_many(body.ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
