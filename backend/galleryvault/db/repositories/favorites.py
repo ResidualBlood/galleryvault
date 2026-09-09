@@ -17,12 +17,12 @@ from ..models import (
     Tag,
 )
 from ..tag_filters import build_tag_predicates
-from .base import _chunked, escape_like_wildcards
+from .base import BaseRepository, _chunked, escape_like_wildcards
 
 
-class FavoritesRepository:
+class FavoritesRepository(BaseRepository[FavoriteItem]):
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+        super().__init__(session, FavoriteItem)
 
     async def categories(self) -> list[FavoritesMonitor]:
         return list(
@@ -770,5 +770,92 @@ class FavoritesRepository:
                 .where(Gallery.gid.is_not(None), Gallery.gid == gid)
                 .values(posted_at=posted)
             )
+
+    async def list_categories(self) -> list[FavoritesMonitor]:
+        """Alias for categories() to maintain consistent service-level naming."""
+        return await self.categories()
+
+    async def get_category(self, favcat: int) -> FavoritesMonitor | None:
+        """Alias for category(favcat) to maintain consistent service-level naming."""
+        return await self.category(favcat)
+
+    async def upsert_category(
+        self,
+        favcat: int,
+        name: str | None = None,
+        enabled: bool | None = None,
+    ) -> FavoritesMonitor:
+        """Create or update a favorite folder monitor row."""
+        row = await self.category(favcat)
+        if row is None:
+            row = FavoritesMonitor(
+                favcat=favcat,
+                name=name,
+                enabled=enabled if enabled is not None else True,
+            )
+            self.session.add(row)
+        else:
+            if name is not None:
+                row.name = name
+            if enabled is not None:
+                row.enabled = enabled
+        await self.session.flush()
+        return row
+
+    async def delete_category(self, favcat: int, delete_items: bool = True) -> bool:
+        """Delete monitor configuration and optionally delete associated folder items."""
+        row = await self.category(favcat)
+        if row is not None:
+            await self.session.delete(row)
+        if delete_items:
+            await self.session.execute(
+                delete(FavoriteItem).where(FavoriteItem.favcat == favcat)
+            )
+        await self.session.flush()
+        return row is not None
+
+    async def get_items_by_gids(
+        self, gids: Sequence[int], favcat: int | None = None
+    ) -> list[FavoriteItem]:
+        """Fetch favorite items for gids, optionally scoped to a single favcat."""
+        valid_gids = [g for g in gids if g is not None]
+        if not valid_gids:
+            return []
+        results: list[FavoriteItem] = []
+        for chunk in _chunked(valid_gids):
+            stmt = select(FavoriteItem).where(FavoriteItem.gid.in_(chunk))
+            if favcat is not None:
+                stmt = stmt.where(FavoriteItem.favcat == favcat)
+            rows = await self.session.scalars(stmt)
+            results.extend(rows.all())
+        return results
+
+    async def clear_folder(self, favcat: int) -> int:
+        """Remove all favorite items in a given favcat."""
+        result = await self.session.execute(
+            delete(FavoriteItem).where(FavoriteItem.favcat == favcat)
+        )
+        await self.session.flush()
+        return int(result.rowcount or 0)
+
+    async def list_logs(
+        self, favcat: int | None = None, limit: int = 50
+    ) -> list[FavoritesCheckLog]:
+        """List favorite check logs in descending chronological order."""
+        stmt = select(FavoritesCheckLog).order_by(FavoritesCheckLog.id.desc())
+        if favcat is not None:
+            stmt = stmt.where(FavoritesCheckLog.favcat == favcat)
+        stmt = stmt.limit(limit)
+        rows = await self.session.scalars(stmt)
+        return list(rows.all())
+
+    async def get_item(self, favcat: int, gid: int) -> FavoriteItem | None:
+        """Fetch single favorite item by folder and gid."""
+        return await self.session.scalar(
+            select(FavoriteItem).where(
+                FavoriteItem.favcat == favcat, FavoriteItem.gid == gid
+            )
+        )
+
 
 

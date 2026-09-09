@@ -34,15 +34,24 @@ async function renderBrowse() {
   ]);
   if (dataResult.status === "fulfilled") {
     data = dataResult.value;
+    if (window.store && typeof window.store.setState === "function") {
+      window.store.setState({ browseData: data });
+    }
   } else {
     const el = document.getElementById("browse-grid");
     if (el) el.innerHTML = renderError(dataResult.reason?.message || "Failed to load");
   }
   if (tagDataResult.status === "fulfilled") {
     tagData = tagDataResult.value;
+    if (window.store && typeof window.store.setState === "function") {
+      window.store.setState({ browseTagData: tagData });
+    }
   }
   if (historyResult.status === "fulfilled") {
     historyData = historyResult.value;
+    if (window.store && typeof window.store.setState === "function") {
+      window.store.setState({ browseHistoryData: historyData });
+    }
   }
   try {
     const crEl = document.getElementById("browse-cr");
@@ -52,8 +61,21 @@ async function renderBrowse() {
     const totalEl = document.getElementById("browse-total");
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;
     if (data) {
-      gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
-      startInfinite("browse-grid", p => galleryGrid(null, p, { page_size: prefPageSize() }), galleryCard);
+      if (window.PaginationComponent) {
+        new window.PaginationComponent("browse-pager", {
+          total: data.total,
+          page: data.page || parseInt(app.query.page || "1", 10),
+          pageSize: data.page_size || prefPageSize(),
+          pageSizeSelectKey: "galleries",
+          onPageChange: (p) => {
+            location.hash = navHash("browse", {}, { ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() });
+          },
+        }).render();
+      } else {
+        gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
+      }
+      const cardRenderer = window.GalleryCardComponent ? window.GalleryCardComponent.renderGalleryCard : galleryCard;
+      startInfinite("browse-grid", p => galleryGrid(null, p, { page_size: prefPageSize() }), cardRenderer);
     }
     const strip = document.getElementById("browse-ns");
     if (strip && tagData) {
@@ -75,6 +97,9 @@ async function renderBrowse() {
 function renderContinueReadingHtml(items) {
   if (!items || !items.length) return "";
   const cards = items.map(h => {
+    if (window.GalleryCardComponent && typeof window.GalleryCardComponent.renderContinueReading === "function") {
+      return window.GalleryCardComponent.renderContinueReading(h);
+    }
     const cur = h.current_page || 0;
     const total = h.total_pages || 1;
     const pct = Math.min(100, Math.round(((cur + 1) / total) * 100));

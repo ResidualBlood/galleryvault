@@ -17,13 +17,16 @@ from ...db.repositories.series import SeriesRepository
 from ...db.session import safe_transaction
 from ...services.series import rebuild_series_groups
 from ...services.tag_translation import translated_tag
+from ..core.task_dispatcher import TaskDispatcher
+from ..core.uow import UnitOfWork
 from ..dependencies import (
     db_error,
     display_title,
     get_session,
+    get_task_dispatcher,
     get_task_manager,
+    get_unit_of_work,
     resolve_session,
-    spawn_task,
 )
 
 router = APIRouter()
@@ -143,20 +146,30 @@ def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[s
     }
 
 
+async def _resolve_repos(
+    session: AsyncSession | None,
+    uow: UnitOfWork | None,
+) -> tuple[SeriesRepository, GalleryRepository, Any]:
+    actual_session = await resolve_session(session, fallback_dep=get_session)
+    repo = SeriesRepository(actual_session)
+    gal_repo = GalleryRepository(actual_session)
+    return repo, gal_repo, actual_session
+
+
 @router.get("/api/series")
 async def list_series(
     page: int = 1,
     page_size: int = 25,
     show_all: int = 0,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     page = max(1, page)
     page_size = max(1, min(100, page_size))
     is_show_all = bool(show_all)
 
     try:
-        repo = SeriesRepository(session)
+        repo, gal_repo, _ = await _resolve_repos(session, uow)
         rows, total = await repo.list_paged(
             page=page, page_size=page_size, show_all=is_show_all
         )
@@ -170,7 +183,7 @@ async def list_series(
                 elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
                     local_gallery_ids.append(m.id)
         tag_map = (
-            await GalleryRepository(session).tags_for_galleries(local_gallery_ids)
+            await gal_repo.tags_for_galleries(local_gallery_ids)
             if local_gallery_ids
             else {}
         )
@@ -200,10 +213,10 @@ async def list_series(
 async def get_series(
     series_id: int,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        repo = SeriesRepository(session)
+        repo, gal_repo, _ = await _resolve_repos(session, uow)
         res = await repo.get_with_galleries(series_id)
         if res is None:
             raise HTTPException(status_code=404, detail="series not found")
@@ -217,7 +230,7 @@ async def get_series(
             elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
                 local_ids.append(m.id)
         tag_map = (
-            await GalleryRepository(session).tags_for_galleries(local_ids)
+            await gal_repo.tags_for_galleries(local_ids)
             if local_ids
             else {}
         )
@@ -241,14 +254,15 @@ async def get_series(
 async def create_series(
     body: SeriesCreateRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async with safe_transaction(session):
-            row = await SeriesRepository(session).create(name, match_key=None, name_manual=True)
+        repo, _, s = await _resolve_repos(session, uow)
+        async with safe_transaction(s):
+            row = await repo.create(name, match_key=None, name_manual=True)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {
@@ -267,14 +281,15 @@ async def rename_series(
     series_id: int,
     body: SeriesCreateRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        async with safe_transaction(session):
-            row = await SeriesRepository(session).rename(series_id, name)
+        repo, _, s = await _resolve_repos(session, uow)
+        async with safe_transaction(s):
+            row = await repo.rename(series_id, name)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     if row is None:
@@ -286,11 +301,12 @@ async def rename_series(
 async def delete_series(
     series_id: int,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with safe_transaction(session):
-            ok = await SeriesRepository(session).delete_series(series_id)
+        repo, _, s = await _resolve_repos(session, uow)
+        async with safe_transaction(s):
+            ok = await repo.delete_series(series_id)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     if not ok:
@@ -303,11 +319,11 @@ async def add_series_items(
     series_id: int,
     body: SeriesItemsRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with safe_transaction(session):
-            repo = SeriesRepository(session)
+        repo, _, s = await _resolve_repos(session, uow)
+        async with safe_transaction(s):
             row = await repo.get(series_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="series not found")
@@ -324,10 +340,10 @@ async def get_series_cloud_candidates(
     series_id: int,
     q: str | None = None,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        repo = SeriesRepository(session)
+        repo, _, _ = await _resolve_repos(session, uow)
         series = await repo.get(series_id)
         if series is None:
             raise HTTPException(status_code=404, detail="series not found")
@@ -344,11 +360,11 @@ async def add_series_cloud_items(
     series_id: int,
     body: SeriesCloudItemsRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with safe_transaction(session):
-            repo = SeriesRepository(session)
+        repo, _, s = await _resolve_repos(session, uow)
+        async with safe_transaction(s):
             row = await repo.get(series_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="series not found")
@@ -365,11 +381,11 @@ async def remove_series_cloud_items(
     series_id: int,
     body: SeriesCloudItemsRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with safe_transaction(session):
-            repo = SeriesRepository(session)
+        repo, _, s = await _resolve_repos(session, uow)
+        async with safe_transaction(s):
             row = await repo.get(series_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="series not found")
@@ -386,11 +402,11 @@ async def remove_series_items(
     series_id: int,
     body: SeriesItemsRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        async with safe_transaction(session):
-            repo = SeriesRepository(session)
+        repo, _, s = await _resolve_repos(session, uow)
+        async with safe_transaction(s):
             row = await repo.get(series_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="series not found")
@@ -398,7 +414,7 @@ async def remove_series_items(
             if body.gids:
                 extra_ids = list(
                     (
-                        await session.scalars(
+                        await s.scalars(
                             select(Gallery.id).where(
                                 Gallery.gid.in_(body.gids),
                                 Gallery.trashed.is_(False),
@@ -415,38 +431,49 @@ async def remove_series_items(
     return {"id": series_id, "removed": removed}
 
 
+def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
+    if isinstance(dispatcher, TaskDispatcher):
+        return dispatcher
+    return get_task_dispatcher()
+
+
 @router.post("/api/series/rebuild")
-async def rebuild_series() -> dict[str, object]:
+async def rebuild_series(
+    dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
+) -> dict[str, object]:
+    disp = _resolve_dispatcher(dispatcher)
+    tm = disp.task_manager if getattr(disp, "task_manager", None) is not None else get_task_manager()
     started_at = datetime.now(UTC).isoformat()
-    tm = get_task_manager()
     try:
         stats = await rebuild_series_groups()
     except Exception as exc:
         completed_at = datetime.now(UTC).isoformat()
-        tm.record_task(
-            "series-rebuild",
-            started_at,
-            completed_at,
-            "failed",
-            reason=str(exc),
-            done=0,
-            total=0,
-        )
-        spawn_task(tm.persist_history(), "persist task history")
+        if tm is not None:
+            tm.record_task(
+                "series-rebuild",
+                started_at,
+                completed_at,
+                "failed",
+                reason=str(exc),
+                done=0,
+                total=0,
+            )
+            disp.spawn(tm.persist_history(), "persist task history")
         raise
 
     completed_at = datetime.now(UTC).isoformat()
     created = int(stats.get("created", 0) or 0)
     merged = int(stats.get("merged", 0) or 0)
     reason = f"created {created} groups, merged {merged} galleries"
-    tm.record_task(
-        "series-rebuild",
-        started_at,
-        completed_at,
-        "success",
-        reason=reason,
-        done=merged,
-        total=merged,
-    )
-    spawn_task(tm.persist_history(), "persist task history")
+    if tm is not None:
+        tm.record_task(
+            "series-rebuild",
+            started_at,
+            completed_at,
+            "success",
+            reason=reason,
+            done=merged,
+            total=merged,
+        )
+        disp.spawn(tm.persist_history(), "persist task history")
     return {"rebuilt": True, **stats}

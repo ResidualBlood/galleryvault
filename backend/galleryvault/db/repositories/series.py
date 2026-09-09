@@ -18,14 +18,15 @@ from ..models import (
     SeriesItem,
     Tag,
 )
+from .base import BaseRepository
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class SeriesRepository:
+class SeriesRepository(BaseRepository[Series]):
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+        super().__init__(session, Series)
 
     async def list_all(self) -> list[tuple[Series, int, list[Any]]]:
         """List all series with their gallery count and member galleries."""

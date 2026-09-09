@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..app.state import app_state
-from ..config import get_settings, library_root_warnings
+from ..config import get_settings, library_root_warnings, normalize_archive_roots
 from ..secrets import (
     decrypt_json_or_value,
     decrypt_or_plain,
@@ -18,8 +17,23 @@ from ..services.favorites import FavoritesService
 from ..services.favorites_worker import FavoriteDownloadQueue, FavoritesRepositoryProxy
 from ..services.telegram import TelegramNotifier
 from ..services.telegram_bot import TelegramBotService
+from .base_service import BaseService
+
+if TYPE_CHECKING:
+    from ..app.core.task_dispatcher import TaskDispatcher
+    from ..app.core.uow import UnitOfWork
 
 logger = logging.getLogger(__name__)
+
+
+def _get_app_state() -> Any | None:
+    """Safely obtain global app_state if available, avoiding rigid module-level binding."""
+    try:
+        from ..app.state import app_state
+
+        return app_state
+    except (ImportError, AttributeError):
+        return None
 
 
 def is_public_site(url: str | None) -> bool:
@@ -115,8 +129,6 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
             c = {}
         filtered["exhentai_cookies"] = {str(k): str(v) for k, v in c.items()}
     if "archive_roots" in filtered:
-        from ..config import normalize_archive_roots
-
         filtered["archive_roots"] = normalize_archive_roots(filtered["archive_roots"])
         filtered["cold_storage_root"] = (
             filtered["archive_roots"][0] if filtered["archive_roots"] else ""
@@ -125,51 +137,60 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         cr = str(filtered["cold_storage_root"]).strip()
         filtered["cold_storage_root"] = cr
         filtered["archive_roots"] = [cr] if cr else []
-    current = app_state.settings or get_settings()
-    updated = current.model_copy(update=filtered)
-    app_state.settings = updated
-    from ..app.state import sync_state
 
-    sync_state()
+    app_st = _get_app_state()
+    current = (app_st.settings if app_st and getattr(app_st, "settings", None) else None) or get_settings()
+    updated = current.model_copy(update=filtered)
+    if app_st is not None:
+        app_st.settings = updated
+        from ..app.state import sync_state
+        sync_state()
 
 
 def start_telegram_bot() -> None:
-    task = app_state.extra.get("telegram_bot_task")
+    app_st = _get_app_state()
+    if app_st is None:
+        return
+
+    task = app_st.extra.get("telegram_bot_task")
     if task is not None and hasattr(task, "cancel"):
         try:
             task.cancel()
         except Exception:  # noqa: BLE001, S110
             pass
-        app_state.extra.get("spawned_tasks", set()).discard(task)
-        app_state.extra["telegram_bot_task"] = None
+        app_st.extra.get("spawned_tasks", set()).discard(task)
+        app_st.extra["telegram_bot_task"] = None
 
-    settings = app_state.settings or get_settings()
-    if settings.telegram_bot_token and app_state.telegram is not None:
+    settings = app_st.settings or get_settings()
+    if settings.telegram_bot_token and app_st.telegram is not None:
         from ..app.dependencies import spawn_task
 
         new_task = spawn_task(
             TelegramBotService(
                 settings,
-                client=app_state.telegram.client,
+                client=app_st.telegram.client,
                 queue=FavoriteDownloadQueue(),
-                notifier=app_state.telegram,
+                notifier=app_st.telegram,
             ).run(),
             "telegram bot",
         )
         if new_task is not None:
-            app_state.extra["telegram_bot_task"] = new_task
-            app_state.extra.setdefault("spawned_tasks", set()).add(new_task)
+            app_st.extra["telegram_bot_task"] = new_task
+            app_st.extra.setdefault("spawned_tasks", set()).add(new_task)
 
     from ..app.state import sync_state
-
     sync_state()
 
 
 async def refresh_services() -> None:
     """Rebuild network-bound services so changed proxy/cookies apply immediately."""
-    settings = app_state.settings or get_settings()
-    old_client = app_state.eh_client
-    old_telegram = app_state.telegram
+    app_st = _get_app_state()
+    if app_st is None:
+        return
+
+    settings = app_st.settings or get_settings()
+    old_client = app_st.eh_client
+    old_telegram = app_st.telegram
     if old_telegram is not None:
         await old_telegram.flush_summary()
         await old_telegram.aclose()
@@ -194,7 +215,7 @@ async def refresh_services() -> None:
         ("telegram", telegram),
         ("favorites_service", favorites_service),
     ):
-        setattr(app_state, key, obj)
+        setattr(app_st, key, obj)
 
     from ..app.state import sync_state
 
@@ -204,13 +225,13 @@ async def refresh_services() -> None:
 
     ensure_translation_updater()
 
-    dl_task = app_state.extra.get("download_worker_task")
+    dl_task = app_st.extra.get("download_worker_task")
     if dl_task is not None and not dl_task.done():
         from .download_worker import adjust_download_concurrency
 
         adjust_download_concurrency(settings.download_concurrency)
 
-    ts_task = app_state.extra.get("tag_sync_worker_task")
+    ts_task = app_st.extra.get("tag_sync_worker_task")
     if ts_task is not None and not ts_task.done():
         from .tag_sync_worker import adjust_tag_sync_concurrency
 
@@ -218,7 +239,8 @@ async def refresh_services() -> None:
 
 
 def settings_public() -> dict[str, Any]:
-    current = app_state.settings or get_settings()
+    app_st = _get_app_state()
+    current = (app_st.settings if app_st and getattr(app_st, "settings", None) else None) or get_settings()
     auth_hash_configured = bool(current.auth_password_hash or current.auth_password)
     must_change_password = bool(
         current.auth_required and (not auth_hash_configured or current.auth_password == "p1a2s3s4")
@@ -268,3 +290,62 @@ def settings_public() -> dict[str, Any]:
         "auth_hash_configured": auth_hash_configured,
         "must_change_password": must_change_password,
     }
+
+
+class SettingsService(BaseService):
+    """Service governing application configuration, hot-reload, and persistence."""
+
+    def __init__(
+        self,
+        uow: UnitOfWork | None = None,
+        task_dispatcher: TaskDispatcher | None = None,
+    ) -> None:
+        super().__init__(uow=uow, task_dispatcher=task_dispatcher)
+
+    def get_public_settings(self) -> dict[str, Any]:
+        """Return public/sanitized settings dict suitable for API and frontend display."""
+        return settings_public()
+
+    async def get_persisted_settings(self) -> dict[str, Any]:
+        """Fetch raw decrypted persisted user settings from database."""
+        async with self.transaction():
+            persisted = await self.uow.settings.get()
+            return decrypt_user_settings(persisted)
+
+    async def update_settings(
+        self,
+        values: dict[str, Any],
+        refresh: bool = True,
+    ) -> dict[str, Any]:
+        """Update user settings, persist to database, sync runtime state and reload services."""
+        # 1. Update runtime memory state
+        update_runtime_settings(values)
+
+        # 2. Persist to database
+        async with self.transaction():
+            current_persisted = await self.uow.settings.get()
+            updated_dict = dict(current_persisted)
+            for k, v in values.items():
+                if v is not None:
+                    updated_dict[k] = v
+            await self.uow.settings.save(updated_dict)
+
+        # 3. Optional reload of services
+        if refresh:
+            await self.reload_services()
+
+        return self.get_public_settings()
+
+    async def get_runtime_auth(self) -> dict[str, Any]:
+        """Fetch non-editable runtime auth settings."""
+        async with self.transaction():
+            return await self.uow.settings.get_extra()
+
+    async def save_runtime_auth(self, value: dict[str, Any]) -> None:
+        """Persist non-editable runtime settings (e.g. password hash)."""
+        async with self.transaction():
+            await self.uow.settings.save_extra(value)
+
+    async def reload_services(self) -> None:
+        """Trigger hot reload of network-bound services (EhClient, Downloader, Telegram, etc.)."""
+        await refresh_services()

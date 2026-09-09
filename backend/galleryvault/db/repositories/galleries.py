@@ -22,22 +22,23 @@ from ..models import (
     Tag,
 )
 from ..tag_filters import build_tag_predicates
-from .base import _chunked, escape_like_wildcards, path_hash
+from .base import BaseRepository, _chunked, escape_like_wildcards, path_hash
 
 # Cache title sort column per display mode (japanese/english/directory).
-# Lazily computed to avoid importing app_state at module load and to avoid
-# per-call recomputation when title_display hasn't changed.
+# Lazily computed to avoid per-call recomputation when title_display hasn't changed.
 _TITLE_SORT_COL_CACHE: dict[str, object] = {}
 
 
-def _title_sort_column() -> object:
+def _title_sort_column(title_display: str | None = None) -> object:
     """Return column/expression for title sorting per title_display setting."""
     try:
-        from ...app.state import app_state
-        from ...config import get_settings
+        if title_display:
+            mode = title_display.lower()
+        else:
+            from ...config import get_settings
 
-        settings = app_state.settings or get_settings()
-        mode = (getattr(settings, "title_display", "japanese") or "japanese").lower()
+            settings = get_settings()
+            mode = (getattr(settings, "title_display", "japanese") or "japanese").lower()
         if mode not in _TITLE_SORT_COL_CACHE:
             if mode in {"japanese", "directory"}:
                 _TITLE_SORT_COL_CACHE[mode] = func.coalesce(Gallery.title_jpn, Gallery.title)
@@ -60,9 +61,16 @@ def _is_valid_page_header(header: bytes) -> bool:
     return window.startswith(_IMAGE_MAGIC_PREFIXES)
 
 
-class GalleryRepository:
+class GalleryRepository(BaseRepository[Gallery]):
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+        super().__init__(session, Gallery)
+
+    async def get_by_id(self, gallery_id: Any) -> Gallery | None:
+        """Fetch gallery by primary key with mock-session fallback."""
+        get_fn = getattr(self.session, "get", None)
+        if callable(get_fn):
+            return await get_fn(Gallery, gallery_id)
+        return await self.session.scalar(select(Gallery).where(Gallery.id == gallery_id))
 
     async def upsert_many(self, galleries: Sequence[GalleryMeta]) -> None:
         """Ingest one scanner batch with one flush and set-based relation writes."""
@@ -575,6 +583,7 @@ class GalleryRepository:
         image_quality: str | None = None,
         min_local_rating: int | None = None,
         list_id: int | None = None,
+        title_display: str | None = None,
     ) -> tuple[int, list[Gallery]]:
         query = select(Gallery)
         if q and q.strip():
@@ -683,7 +692,7 @@ class GalleryRepository:
         total = int(
             await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         )
-        title_col = _title_sort_column()
+        title_col = _title_sort_column(title_display)
         order_map = {
             "id_desc": [Gallery.id.desc()],
             "id_asc": [Gallery.id.asc()],
@@ -1842,5 +1851,95 @@ class GalleryRepository:
         if changed:
             await self.session.flush()
         return changed
+
+    async def trash_galleries(self, ids: Sequence[int]) -> int:
+        """Mark galleries as trashed (soft delete)."""
+        valid_ids = [i for i in ids if i is not None]
+        if not valid_ids:
+            return 0
+        now = datetime.now(UTC)
+        count = 0
+        for chunk in _chunked(valid_ids):
+            result = await self.session.execute(
+                update(Gallery)
+                .where(Gallery.id.in_(chunk), Gallery.trashed.is_(False))
+                .values(trashed=True, trashed_at=now, updated_at=now)
+            )
+            count += int(result.rowcount or 0)
+        await self.session.flush()
+        return count
+
+    async def set_local_rating(self, gallery_id: int, rating: int | None) -> bool:
+        """Update local rating for a gallery."""
+        gallery = await self.get_by_id(gallery_id)
+        if gallery is None:
+            return False
+        gallery.local_rating = rating
+        gallery.updated_at = datetime.now(UTC)
+        await self.session.flush()
+        return True
+
+    async def get_gallery_with_pages(
+        self, gallery_id: int
+    ) -> tuple[Gallery, list[GalleryPage]] | None:
+        """Fetch gallery by id and its pages ordered by page_index."""
+        gallery = await self.get_by_id(gallery_id)
+        if gallery is None:
+            return None
+        pages = list(
+            (
+                await self.session.scalars(
+                    select(GalleryPage)
+                    .where(GalleryPage.gallery_id == gallery_id)
+                    .order_by(GalleryPage.page_index)
+                )
+            ).all()
+        )
+        return gallery, pages
+
+    async def get_pages(self, gallery_id: int) -> list[GalleryPage]:
+        """Fetch pages for gallery ordered by page_index."""
+        return list(
+            (
+                await self.session.scalars(
+                    select(GalleryPage)
+                    .where(GalleryPage.gallery_id == gallery_id)
+                    .order_by(GalleryPage.page_index)
+                )
+            ).all()
+        )
+
+    async def tags_for_gallery(self, gallery_id: int) -> list[tuple[str, str]]:
+        """Fetch all tags for a single gallery as (namespace, name) tuples."""
+        rows = await self.session.execute(
+            select(Tag.namespace, Tag.name)
+            .join(GalleryTag, GalleryTag.tag_id == Tag.id)
+            .where(GalleryTag.gallery_id == gallery_id)
+            .order_by(Tag.namespace, Tag.name)
+        )
+        return [(ns, name) for ns, name in rows]
+
+    async def find_by_gids(self, gids: Sequence[int]) -> list[Gallery]:
+        """Fetch galleries matching provided gids."""
+        return await self.get_by_ids(gids, id_attr="gid")
+
+    async def find_by_ids(self, ids: Sequence[int]) -> list[Gallery]:
+        """Fetch galleries matching provided primary key ids."""
+        return await self.get_by_ids(ids, id_attr="id")
+
+    async def update_gallery_fields(
+        self, gallery_id: int, **kwargs: Any
+    ) -> Gallery | None:
+        """Update arbitrary gallery attributes."""
+        gallery = await self.get_by_id(gallery_id)
+        if gallery is None:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(gallery, key):
+                setattr(gallery, key, value)
+        gallery.updated_at = datetime.now(UTC)
+        await self.session.flush()
+        return gallery
+
 
 

@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from ...db.models import FavoriteItem, FavoritesMonitor, Gallery, GalleryMetadata
+from ...db.models import FavoritesMonitor
 from ...db.repository import (
     FavoritesRepository,
     GalleryRepository,
@@ -26,7 +27,8 @@ from ...logging import log_extra
 from ...scanners.base import CATEGORIES
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
-from ...services.eh_client import EhClient, EhClientError, FavoriteData, GalleryGoneError
+from ...services.eh_client import EhClientError, FavoriteData, GalleryGoneError
+from ...services.favorite_service import FavoriteService
 from ...services.favorites_worker import (
     FavoriteDownloadQueue,
     _cover_cache_file,
@@ -39,10 +41,13 @@ from ...services.favorites_worker import (
 )
 from ...services.messages import GONE_DETAIL
 from ...services.tag_translation import translated_tag
+from ..core.eh_client_manager import EhClientManager
 from ..dependencies import (
     db_error,
     display_title,
     get_current_settings,
+    get_eh_client_manager,
+    get_favorite_service,
     get_session,
     get_task_manager,
     image_content_type,
@@ -71,6 +76,47 @@ from .galleries import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class _EhClientManagerWrapper:
+    def __init__(self, target: Any) -> None:
+        self._target = target
+
+    def get_client(self) -> Any:
+        try:
+            if hasattr(self._target, "get_client"):
+                return self._target.get_client()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return app_state.eh_client
+
+    @asynccontextmanager
+    async def client_context(self, settings: Any = None) -> AsyncIterator[Any]:
+        if hasattr(self._target, "client_context"):
+            try:
+                async with self._target.client_context() as client:
+                    yield client
+                    return
+            except TypeError:
+                async with self._target.client_context(settings=settings) as client:
+                    yield client
+                    return
+        active = getattr(self._target, "get_client", lambda: None)() or app_state.eh_client
+        if active is not None:
+            yield active
+        else:
+            raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
+
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._target, item)
+
+
+def _resolve_eh_client_manager(mgr: Any) -> Any:
+    from fastapi.params import Depends
+
+    if isinstance(mgr, Depends) or not hasattr(mgr, "client_context"):
+        mgr = get_eh_client_manager()
+    return _EhClientManagerWrapper(mgr)
 
 
 def _parse_gdata_tags(raw_tags: list[Any]) -> list[tuple[str | None, str]]:
@@ -377,11 +423,8 @@ async def archives_preview(
                     }
             still_missing = [g for g in missing if g not in detail]
             if still_missing:
-                for row in (
-                    await session.scalars(
-                        select(Gallery).where(Gallery.gid.in_(still_missing))
-                    )
-                ).all():
+                found_galleries = await GalleryRepository(session).find_by_gids(still_missing)
+                for row in found_galleries:
                     detail[int(row.gid)] = {
                         "token": row.token,
                         "title": row.title,
@@ -503,11 +546,8 @@ async def favorites_download_selected(
                     }
             still_missing = [g for g in missing if g not in detail]
             if still_missing:
-                for row in (
-                    await session.scalars(
-                        select(Gallery).where(Gallery.gid.in_(still_missing))
-                    )
-                ).all():
+                found_galleries = await GalleryRepository(session).find_by_gids(still_missing)
+                for row in found_galleries:
                     detail[int(row.gid)] = {
                         "token": row.token,
                         "title": row.title,
@@ -589,6 +629,8 @@ async def favorites_sync(
 async def favorites_remove(
     body: FavoritesRemoveRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    favorite_service: FavoriteService = Depends(get_favorite_service),  # noqa: B008
+    eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     if not body.gids:
@@ -599,12 +641,8 @@ async def favorites_remove(
     cloud_ok = True
     settings = get_current_settings()
     try:
-        client = app_state.eh_client
-        if client is not None:
+        async with eh_client_mgr.client_context(settings=settings) as client:
             cloud_failed = await client.remove_favorites(gids)
-        else:
-            async with EhClient(settings, max_concurrency=settings.exhentai_max_concurrency) as temp_client:
-                cloud_failed = await temp_client.remove_favorites(gids)
         cloud_removed = len(gids) - len(cloud_failed)
         cloud_ok = not cloud_failed
     except Exception as exc:  # noqa: BLE001
@@ -659,8 +697,11 @@ async def favorites_remove(
 async def favorites_move(
     body: FavoritesMoveRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    favorite_service: FavoriteService = Depends(get_favorite_service),  # noqa: B008
+    eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
+    eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     if not body.gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
     gids = list(dict.fromkeys(body.gids))
@@ -669,12 +710,8 @@ async def favorites_move(
     cloud_ok = True
     settings = get_current_settings()
     try:
-        client = app_state.eh_client
-        if client is not None:
+        async with eh_client_mgr.client_context(settings=settings) as client:
             cloud_failed = await client.move_favorites(gids, body.target_favcat)
-        else:
-            async with EhClient(settings, max_concurrency=settings.exhentai_max_concurrency) as temp_client:
-                cloud_failed = await temp_client.move_favorites(gids, body.target_favcat)
         cloud_moved = len(gids) - len(cloud_failed)
         cloud_ok = not cloud_failed
     except Exception as exc:  # noqa: BLE001
@@ -736,8 +773,11 @@ def _record_favorites_add_log(
 async def favorites_add(
     body: FavoritesAddRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    favorite_service: FavoriteService = Depends(get_favorite_service),  # noqa: B008
+    eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
+    eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     if not body.items:
         raise HTTPException(status_code=422, detail="no galleries selected")
 
@@ -766,22 +806,17 @@ async def favorites_add(
     missing_token_gids = [it["gid"] for it in items_to_add if not it.get("token")]
     if missing_token_gids:
         try:
-            galleries = (
-                await session.scalars(
-                    select(Gallery).where(Gallery.gid.in_(missing_token_gids))
-                )
-            ).all()
+            gallery_repo = GalleryRepository(session)
+            galleries = await gallery_repo.find_by_gids(missing_token_gids)
             g_map = {g.gid: g for g in galleries if g.gid is not None}
 
             remaining = [g for g in missing_token_gids if g not in g_map]
-            gm_map: dict[int, GalleryMetadata] = {}
+            gm_map: dict[int, Any] = {}
             if remaining:
-                gmetas = (
-                    await session.scalars(
-                        select(GalleryMetadata).where(GalleryMetadata.gid.in_(remaining))
-                    )
-                ).all()
-                gm_map = {gm.gid: gm for gm in gmetas if gm.gid is not None}
+                for rem_gid in remaining:
+                    meta_dict = await gallery_repo.metadata_for_gid(int(rem_gid))
+                    if meta_dict and meta_dict.get("gid"):
+                        gm_map[int(meta_dict["gid"])] = meta_dict
 
             for it in items_to_add:
                 gid = it["gid"]
@@ -794,9 +829,9 @@ async def favorites_add(
                 elif gid in gm_map:
                     gm = gm_map[gid]
                     if not it.get("token"):
-                        it["token"] = gm.token
+                        it["token"] = gm.get("token")
                     if not it.get("title"):
-                        it["title"] = gm.title
+                        it["title"] = gm.get("title")
         except SQLAlchemyError as exc:
             raise db_error(exc) from exc
 
@@ -816,16 +851,8 @@ async def favorites_add(
 
     if valid_pairs:
         try:
-            client = app_state.eh_client
-            if client is not None:
+            async with eh_client_mgr.client_context(settings=settings) as client:
                 cf = await client.add_favorites(valid_pairs, body.target_favcat, note=body.note)
-            else:
-                async with EhClient(
-                    settings, max_concurrency=settings.exhentai_max_concurrency
-                ) as temp_client:
-                    cf = await temp_client.add_favorites(
-                        valid_pairs, body.target_favcat, note=body.note
-                    )
             cloud_failed.extend(cf)
             cloud_added = len(valid_pairs) - len(cf)
             cloud_ok = not cloud_failed
@@ -892,6 +919,8 @@ async def favorites_add(
 async def favorites_set_note(
     body: FavoriteNoteRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    favorite_service: FavoriteService = Depends(get_favorite_service),  # noqa: B008
+    eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, object]:
     """Update a favorite note via ExHentai applyfav; write local only on success."""
     session = await resolve_session(session, fallback_dep=get_session)
@@ -905,7 +934,7 @@ async def favorites_set_note(
             if favcat is None:
                 favcat = item.favcat
         if not token:
-            gallery = await session.scalar(select(Gallery).where(Gallery.gid == body.gid))
+            gallery = await GalleryRepository(session).get_by_gid(body.gid)
             if gallery is not None:
                 token = gallery.token
     except SQLAlchemyError as exc:
@@ -916,14 +945,8 @@ async def favorites_set_note(
         raise HTTPException(status_code=422, detail="not in favorites")
     cloud_ok = False
     try:
-        client = app_state.eh_client
-        if client is not None:
+        async with eh_client_mgr.client_context(settings=settings) as client:
             await client.add_favorite(body.gid, str(token), int(favcat), note=body.note)
-        else:
-            async with EhClient(
-                settings, max_concurrency=settings.exhentai_max_concurrency
-            ) as tmp:
-                await tmp.add_favorite(body.gid, str(token), int(favcat), note=body.note)
         cloud_ok = True
     except Exception as exc:  # noqa: BLE001
         logger.warning("cloud favorite note failed", extra=log_extra(error=type(exc).__name__))
@@ -1079,8 +1102,10 @@ async def favorite_cover(
     gid: int,
     token: str,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> Response:
     session = await resolve_session(session, fallback_dep=get_session)
+    eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     settings = get_current_settings()
     if not settings.exhentai_cookies:
         raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
@@ -1094,17 +1119,14 @@ async def favorite_cover(
             gid,
             extra=log_extra(gid=int(gid), source="cover", event="miss"),
         )
-        client = app_state.eh_client
+        client = eh_client_mgr.get_client() or app_state.eh_client
         if client is None:
             raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
         thumb_url: str | None = None
         try:
-            thumb_url = await session.scalar(
-                select(FavoriteItem.thumb).where(
-                    FavoriteItem.gid == int(gid),
-                    FavoriteItem.thumb.is_not(None),
-                ).limit(1)
-            )
+            fav_item = await FavoritesRepository(session).item_for_gid(int(gid))
+            if fav_item and fav_item.thumb:
+                thumb_url = fav_item.thumb
             if not thumb_url:
                 meta = await GalleryRepository(session).metadata_for_gid(int(gid))
                 if meta:
@@ -1247,15 +1269,15 @@ async def update_favorite_category(
 @router.post("/api/favorites/fetch-categories")
 async def sync_favorite_categories(
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> list[dict[str, object]]:
     session = await resolve_session(session, fallback_dep=get_session)
     settings = get_current_settings()
     if not settings.exhentai_cookies:
         raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
-    if app_state.eh_client is None:
-        raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
     try:
-        names = await app_state.eh_client.fetch_favorite_categories()
+        async with eh_client_mgr.client_context(settings=settings) as client:
+            names = await client.fetch_favorite_categories()
         async with safe_transaction(session):
             if isinstance(names, dict):
                 for favcat, name in names.items():
@@ -1307,10 +1329,6 @@ async def check_all_favorites(
         categories = await FavoritesRepository(session).categories()
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    favcats = [int(c.favcat) for c in categories] or list(range(10))
-    for favcat in favcats:
-        spawn_task(run_favorites_check(favcat, service), f"favorites check {favcat}")
-    return {"status": "started", "favcats": favcats}
     favcats = [int(c.favcat) for c in categories] or list(range(10))
     for favcat in favcats:
         spawn_task(run_favorites_check(favcat, service), f"favorites check {favcat}")

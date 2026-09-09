@@ -17,12 +17,53 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import Settings, get_settings, normalize_library_roots
 from ..db.uow import UnitOfWork
 from ..logging import log_extra
+from .core.eh_client_manager import EhClientManager
+from .core.task_dispatcher import TaskDispatcher
+from .core.uow import AbstractUnitOfWork, SqlAlchemyUnitOfWork
 from .state import app_state
+
+try:
+    from . import schemas as _schemas_mod
+
+    _schemas_subpkg = Path(_schemas_mod.__file__).parent / "schemas"
+    if hasattr(_schemas_mod, "__path__"):
+        if str(_schemas_subpkg) not in _schemas_mod.__path__:
+            _schemas_mod.__path__.append(str(_schemas_subpkg))
+    else:
+        _schemas_mod.__path__ = [str(_schemas_subpkg)]
+
+    from .schemas.common import (
+        BatchOperationResult,
+        EntityIdResponse,
+        MessageResponse,
+        PageParams,
+        PageResponse,
+        SortDirection,
+        SortParams,
+        StatusResponse,
+    )
+
+    for _cls_name in (
+        "BatchOperationResult",
+        "EntityIdResponse",
+        "MessageResponse",
+        "PageParams",
+        "PageResponse",
+        "SortDirection",
+        "SortParams",
+        "StatusResponse",
+    ):
+        if not hasattr(_schemas_mod, _cls_name):
+            setattr(_schemas_mod, _cls_name, locals()[_cls_name])
+except Exception:  # noqa: BLE001, S110
+    pass
 
 if TYPE_CHECKING:
     from ..services.downloader import Downloader
     from ..services.eh_client import EhClient
+    from ..services.favorite_service import FavoriteService
     from ..services.favorites import FavoritesService
+    from ..services.gallery_service import GalleryService
     from ..services.library import LibraryService
     from ..services.tag_sync import TagSyncService
     from ..services.tasks import TaskManager
@@ -80,10 +121,43 @@ async def get_uow(
         yield uow
 
 
+async def get_unit_of_work(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> AsyncIterator[AbstractUnitOfWork]:
+    """Yield a SqlAlchemyUnitOfWork managing the request's active session."""
+    async with SqlAlchemyUnitOfWork(session) as uow:
+        yield uow
+
+
 def get_eh_client() -> EhClient:
     if app_state.eh_client is not None:
         return app_state.eh_client
     raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
+
+
+_default_eh_client_manager: EhClientManager | None = None
+
+
+def get_eh_client_manager() -> EhClientManager:
+    """Return the application's EhClientManager instance."""
+    global _default_eh_client_manager
+    mgr = app_state.extra.get("eh_client_manager")
+    if isinstance(mgr, EhClientManager):
+        return mgr
+    if _default_eh_client_manager is None:
+        _default_eh_client_manager = EhClientManager(
+            client_getter=lambda: app_state.eh_client,
+            settings_getter=get_current_settings,
+        )
+    return _default_eh_client_manager
+
+
+async def get_leased_eh_client(
+    manager: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
+) -> AsyncIterator[Any]:
+    """Dependency yielding an EhClient from the managed lease scope."""
+    async with manager.client_context() as client:
+        yield client
 
 
 def get_downloader() -> Downloader:
@@ -121,6 +195,56 @@ def get_task_manager() -> TaskManager:
         from ..services.tasks import default_task_manager
         return default_task_manager
     return app_state.task_manager
+
+
+_default_task_dispatcher: TaskDispatcher | None = None
+
+
+def get_task_dispatcher() -> TaskDispatcher:
+    """Return the application's TaskDispatcher instance."""
+    global _default_task_dispatcher
+    dispatcher = app_state.extra.get("task_dispatcher")
+    if isinstance(dispatcher, TaskDispatcher):
+        return dispatcher
+    if _default_task_dispatcher is None:
+        _default_task_dispatcher = TaskDispatcher(task_manager_getter=get_task_manager)
+    return _default_task_dispatcher
+
+
+def get_page_params(
+    page: int = 1,
+    page_size: int = 50,
+) -> PageParams:
+    """Dependency extracting pagination query parameters."""
+    return PageParams(page=page, page_size=page_size)
+
+
+def get_favorite_service(
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    task_dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
+    eh_client_manager: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
+) -> FavoriteService:
+    """Dependency providing a configured FavoriteService."""
+    from ..services.favorite_service import FavoriteService
+
+    return FavoriteService(
+        uow=uow,
+        task_dispatcher=task_dispatcher,
+        eh_client_manager=eh_client_manager,
+    )
+
+
+def get_gallery_service(
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    task_dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
+    eh_client_manager: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
+) -> GalleryService:
+    """Dependency providing a configured GalleryService."""
+    from ..services.gallery_service import GalleryService
+
+    svc = GalleryService(uow=uow, task_dispatcher=task_dispatcher)
+    svc.eh_client_manager = eh_client_manager
+    return svc
 
 
 def db_error(exc: Exception) -> HTTPException:
@@ -298,3 +422,45 @@ async def resolve_session(session: Any, fallback_dep: Any = None) -> AsyncSessio
     elif callable(gen):
         return gen()
     return session
+
+
+__all__ = [
+    "AbstractUnitOfWork",
+    "BatchOperationResult",
+    "EhClientManager",
+    "EntityIdResponse",
+    "MessageResponse",
+    "PageParams",
+    "PageResponse",
+    "SortDirection",
+    "SortParams",
+    "SqlAlchemyUnitOfWork",
+    "StatusResponse",
+    "TaskDispatcher",
+    "UnitOfWork",
+    "db_error",
+    "display_title",
+    "get_current_settings",
+    "get_downloader",
+    "get_eh_client",
+    "get_eh_client_manager",
+    "get_favorite_service",
+    "get_favorites_service",
+    "get_gallery_service",
+    "get_leased_eh_client",
+    "get_library_service",
+    "get_page_params",
+    "get_scan_roots",
+    "get_session",
+    "get_session_factory",
+    "get_tag_service",
+    "get_task_dispatcher",
+    "get_task_manager",
+    "get_thumbnail_service",
+    "get_unit_of_work",
+    "get_uow",
+    "image_content_type",
+    "resolve_display_title",
+    "resolve_session",
+    "spawn_task",
+]

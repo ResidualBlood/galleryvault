@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import normalize_library_roots
-from ...db.models import FavoritesMonitor
+from ...db.models import FavoritesMonitor, Gallery
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
 from ...logging import (
@@ -23,20 +27,25 @@ from ...logging import (
     set_log_level,
 )
 from ...secrets import encrypt, encrypt_json, encryption_enabled, is_encrypted
+from ...services.eh_client import probe_cookie_health
 from ...services.settings_service import (
-    decrypt_user_settings,
+    SettingsService,
     is_public_site,
     refresh_services,
     settings_public,
     update_runtime_settings,
 )
+from ..core.task_dispatcher import TaskDispatcher
+from ..core.uow import UnitOfWork
 from ..dependencies import (
     db_error,
     display_title,
     get_current_settings,
     get_eh_client,
     get_session,
+    get_task_dispatcher,
     get_task_manager,
+    get_unit_of_work,
     resolve_session,
     spawn_task,
 )
@@ -46,34 +55,50 @@ from ..state import app_state
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+__all__ = ["router", "spawn_task"]
+
+_SAVED_SEARCH_MAX = 30
+
+
+def get_settings_service(
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
+) -> SettingsService:
+    return SettingsService(uow=uow, task_dispatcher=dispatcher)
+
+
+def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
+    if isinstance(dispatcher, TaskDispatcher):
+        return dispatcher
+    return get_task_dispatcher()
+
 
 @router.get("/api/settings")
 async def settings_get(
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    service: SettingsService = Depends(get_settings_service),  # noqa: B008
 ) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
     try:
-        persisted = await SettingsRepository(session).get()
-        persisted = decrypt_user_settings(persisted)
+        persisted = await service.get_persisted_settings()
         update_runtime_settings(persisted)
     except Exception as exc:  # noqa: BLE001
         logger.warning("settings could not be re-read", extra={"error": str(exc)})
-    return settings_public()
+    return service.get_public_settings()
 
 
 @router.post("/api/settings")
 async def settings_save(
     body: SettingsRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    return await _save_settings(body, session=session)
+    disp = _resolve_dispatcher(dispatcher)
+    return await _save_settings(body, session=session, dispatcher=disp)
 
 
 @router.get("/api/settings/cookie-health")
 async def settings_cookie_health() -> dict[str, object]:
-    from ...services.eh_client import probe_cookie_health
-
     health = app_state.extra.get("cookie_health")
     stale = True
     if isinstance(health, dict) and health.get("checked_at"):
@@ -130,13 +155,16 @@ async def settings_test_exhentai() -> JSONResponse:
 
 
 async def _save_settings(
-    body: SettingsRequest, session: AsyncSession | None = None
+    body: SettingsRequest,
+    session: AsyncSession | None = None,
+    dispatcher: TaskDispatcher | None = None,
 ) -> dict[str, object]:
     if session is None:
         if not app_state.session_factory:
             raise HTTPException(status_code=503, detail="Database session factory not initialized")
         async with app_state.session_factory() as s:
-            return await _save_settings(body, session=s)
+            return await _save_settings(body, session=s, dispatcher=dispatcher)
+
     values = body.model_dump(exclude_none=True)
     if "cold_storage_root" in values and isinstance(values["cold_storage_root"], str):
         values["cold_storage_root"] = values["cold_storage_root"].strip()
@@ -244,9 +272,9 @@ async def _save_settings(
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not resume not-visible galleries", extra={"error": str(exc)})
     await refresh_services()
-    from ...services.eh_client import probe_cookie_health
 
-    spawn_task(probe_cookie_health(), "cookie health probe after settings save")
+    disp = dispatcher or _resolve_dispatcher(None)
+    disp.spawn(probe_cookie_health(), "cookie health probe after settings save")
     return settings_public()
 
 
@@ -334,9 +362,6 @@ async def system_logs_download() -> Response:
     )
 
 
-_SAVED_SEARCH_MAX = 30
-
-
 async def _user_settings(session: AsyncSession | None = None) -> dict:
     if session is not None:
         return await SettingsRepository(session).get()
@@ -400,8 +425,6 @@ async def saved_searches_add(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    import uuid
-
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
@@ -440,7 +463,6 @@ async def saved_searches_delete(
     return {"deleted": True, "id": search_id}
 
 
-
 def _path_info(
     path: object,
     bytes_value: int | None = None,
@@ -449,7 +471,6 @@ def _path_info(
     computing: bool = False,
 ) -> dict[str, object]:
     import shutil
-    from pathlib import Path
 
     root = Path(str(path)) if path else Path()
     exists = bool(path) and root.exists()
@@ -472,13 +493,62 @@ def _path_info(
     return info
 
 
+async def _query_storage_aggregates(
+    session: AsyncSession, cold_root: str
+) -> tuple[int, int, int, int, int]:
+    cold_galleries = 0
+    cold_images = 0
+    cold_bytes = 0
+    library_galleries = 0
+    library_images = 0
+
+    valid_cond = (Gallery.expunged.is_(False), Gallery.trashed.is_(False))
+    if cold_root:
+        size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+        cold_stmt = select(
+            func.count(Gallery.id),
+            func.coalesce(func.sum(Gallery.page_count), 0),
+            func.coalesce(func.sum(size_col), 0),
+        ).where(
+            *valid_cond,
+            Gallery.storage_path.startswith(cold_root),
+        )
+        cold_row = (await session.execute(cold_stmt)).first()
+        if cold_row:
+            cold_galleries = int(cold_row[0] or 0)
+            cold_images = int(cold_row[1] or 0)
+            cold_bytes = int(cold_row[2] or 0)
+
+        lib_stmt = select(
+            func.count(Gallery.id),
+            func.coalesce(func.sum(Gallery.page_count), 0),
+        ).where(
+            *valid_cond,
+            Gallery.storage_path.is_(None)
+            | not_(Gallery.storage_path.startswith(cold_root)),
+        )
+        lib_row = (await session.execute(lib_stmt)).first()
+        if lib_row:
+            library_galleries = int(lib_row[0] or 0)
+            library_images = int(lib_row[1] or 0)
+    else:
+        lib_stmt = select(
+            func.count(Gallery.id),
+            func.coalesce(func.sum(Gallery.page_count), 0),
+        ).where(*valid_cond)
+        lib_row = (await session.execute(lib_stmt)).first()
+        if lib_row:
+            library_galleries = int(lib_row[0] or 0)
+            library_images = int(lib_row[1] or 0)
+
+    return cold_galleries, cold_images, cold_bytes, library_galleries, library_images
+
+
 @router.get("/api/system/storage")
 async def system_storage(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    from pathlib import Path
-
     from ...services.storage_usage import storage_tracker
 
     settings = get_current_settings()
@@ -491,51 +561,17 @@ async def system_storage(
     cold_galleries = 0
     cold_images = 0
     largest: list[dict[str, object]] = []
+
     try:
-        from sqlalchemy import func, not_, select
-
-        from ...db.models import Gallery
-
         repo = GalleryRepository(session)
         library_bytes = await repo.library_storage_sum()
-        valid_cond = (Gallery.expunged.is_(False), Gallery.trashed.is_(False))
-        if cold_root:
-            size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
-            cold_stmt = select(
-                func.count(Gallery.id),
-                func.coalesce(func.sum(Gallery.page_count), 0),
-                func.coalesce(func.sum(size_col), 0),
-            ).where(
-                *valid_cond,
-                Gallery.storage_path.startswith(cold_root),
-            )
-            cold_row = (await session.execute(cold_stmt)).first()
-            if cold_row:
-                cold_galleries = int(cold_row[0] or 0)
-                cold_images = int(cold_row[1] or 0)
-                cold_bytes = int(cold_row[2] or 0)
-
-            lib_stmt = select(
-                func.count(Gallery.id),
-                func.coalesce(func.sum(Gallery.page_count), 0),
-            ).where(
-                *valid_cond,
-                Gallery.storage_path.is_(None)
-                | not_(Gallery.storage_path.startswith(cold_root)),
-            )
-            lib_row = (await session.execute(lib_stmt)).first()
-            if lib_row:
-                library_galleries = int(lib_row[0] or 0)
-                library_images = int(lib_row[1] or 0)
-        else:
-            lib_stmt = select(
-                func.count(Gallery.id),
-                func.coalesce(func.sum(Gallery.page_count), 0),
-            ).where(*valid_cond)
-            lib_row = (await session.execute(lib_stmt)).first()
-            if lib_row:
-                library_galleries = int(lib_row[0] or 0)
-                library_images = int(lib_row[1] or 0)
+        (
+            cold_galleries,
+            cold_images,
+            cold_bytes,
+            library_galleries,
+            library_images,
+        ) = await _query_storage_aggregates(session, cold_root)
 
         rows = await repo.largest_by_storage(10)
         largest = [
@@ -601,14 +637,17 @@ async def system_storage(
 
 
 @router.post("/api/system/purge-archived-sources", status_code=202)
-async def purge_archived_sources() -> dict[str, object]:
+async def purge_archived_sources(
+    dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
+) -> dict[str, object]:
     """Purge leftover source directories for galleries already archived to cold storage."""
     from ...services.cold_archive import run_purge_archived_sources
 
-    tm = get_task_manager()
+    disp = _resolve_dispatcher(dispatcher)
+    tm = disp.task_manager if getattr(disp, "task_manager", None) is not None else get_task_manager()
     state = tm._resolve_task_state("purge-archived-sources")
     if state.get("running"):
         return {"status": "running"}
 
-    spawn_task(run_purge_archived_sources(tm), "purge archived sources")
+    disp.spawn(run_purge_archived_sources(tm), "purge archived sources")
     return {"status": "started"}

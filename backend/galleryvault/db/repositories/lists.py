@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select
@@ -5,11 +7,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Gallery, LocalList, LocalListItem
+from .base import BaseRepository
 
 
-class LocalListRepository:
+class LocalListRepository(BaseRepository[LocalList]):
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+        super().__init__(session, LocalList)
 
     async def list_all(self) -> list[tuple[LocalList, int]]:
         rows = (
@@ -23,12 +26,16 @@ class LocalListRepository:
         return [(row[0], int(row[1] or 0)) for row in rows]
 
     async def get(self, list_id: int) -> LocalList | None:
-        return await self.session.get(LocalList, list_id)
+        return await self.get_by_id(list_id)
+
+    async def get_by_name(self, name: str) -> LocalList | None:
+        stmt = select(LocalList).where(LocalList.name == name.strip())
+        return (await self.session.scalars(stmt)).first()
 
     async def create(self, name: str) -> LocalList:
         row = LocalList(name=name.strip(), created_at=datetime.now(UTC))
         self.session.add(row)
-        await self.session.flush()
+        await self.flush()
         return row
 
     async def rename(self, list_id: int, name: str) -> LocalList | None:
@@ -36,7 +43,7 @@ class LocalListRepository:
         if row is None:
             return None
         row.name = name.strip()
-        await self.session.flush()
+        await self.flush()
         return row
 
     async def delete_list(self, list_id: int) -> bool:
@@ -44,7 +51,7 @@ class LocalListRepository:
         if row is None:
             return False
         await self.session.delete(row)
-        await self.session.flush()
+        await self.flush()
         return True
 
     async def add_items(self, list_id: int, gallery_ids: list[int]) -> int:
@@ -64,7 +71,7 @@ class LocalListRepository:
             .values(rows)
             .on_conflict_do_nothing(index_elements=["list_id", "gallery_id"])
         )
-        await self.session.flush()
+        await self.flush()
         return len(rows)
 
     async def remove_items(self, list_id: int, gallery_ids: list[int]) -> int:
@@ -76,8 +83,32 @@ class LocalListRepository:
                 LocalListItem.list_id == list_id, LocalListItem.gallery_id.in_(ids)
             )
         )
-        await self.session.flush()
+        await self.flush()
         return int(result.rowcount or 0)
+
+    async def clear_items(self, list_id: int) -> int:
+        result = await self.session.execute(
+            delete(LocalListItem).where(LocalListItem.list_id == list_id)
+        )
+        await self.flush()
+        return int(result.rowcount or 0)
+
+    async def get_items_with_galleries(self, list_id: int) -> list[Gallery]:
+        stmt = (
+            select(Gallery)
+            .join(LocalListItem, LocalListItem.gallery_id == Gallery.id)
+            .where(LocalListItem.list_id == list_id)
+            .order_by(Gallery.id.desc())
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def get_gallery_ids_for_list(self, list_id: int) -> list[int]:
+        stmt = (
+            select(LocalListItem.gallery_id)
+            .where(LocalListItem.list_id == list_id)
+            .order_by(LocalListItem.gallery_id.asc())
+        )
+        return list((await self.session.scalars(stmt)).all())
 
     async def lists_for_gallery(self, gallery_id: int) -> list[LocalList]:
         rows = (

@@ -12,8 +12,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.models import FavoriteItem, Gallery
-from ...services.eh_client import EhClient, EhClientError, EhSearchResult, SearchGallery
-from ..dependencies import db_error, get_current_settings, get_session, resolve_session
+from ...services.eh_client import EhClientError, EhSearchResult, SearchGallery
+from ..core.eh_client_manager import EhClientManager
+from ..core.uow import UnitOfWork
+from ..dependencies import (
+    db_error,
+    get_eh_client_manager,
+    get_session,
+    get_unit_of_work,
+    resolve_session,
+)
+from ..exceptions import EhClientUnavailableError
 from ..state import app_state
 
 router = APIRouter()
@@ -180,6 +189,12 @@ _EH_LISTS = frozenset({"search", "popular", "watched", "toplist"})
 _EH_TOPLIST_TL = frozenset({11, 12, 13, 15})
 
 
+def _resolve_client_manager(manager: Any) -> EhClientManager:
+    if isinstance(manager, EhClientManager):
+        return manager
+    return get_eh_client_manager()
+
+
 @router.get("/api/eh/search")
 async def eh_search(
     q: str = "",
@@ -189,8 +204,9 @@ async def eh_search(
     list_type: Annotated[str, Query(alias="list")] = "search",
     tl: int | None = None,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, Any]:
-    session = await resolve_session(session, fallback_dep=get_session)
     kind = (list_type or "search").strip().lower()
     if kind not in _EH_LISTS:
         raise HTTPException(status_code=422, detail="invalid list")
@@ -218,10 +234,9 @@ async def eh_search(
     )
     payload = _search_cache_get(key)
     if payload is None:
-        client = app_state.eh_client
-        settings = get_current_settings()
+        mgr = _resolve_client_manager(client_mgr)
         try:
-            if client is not None:
+            async with mgr.client_context() as client:
                 result = await client.search_galleries(
                     q=q,
                     f_cats=f_cats,
@@ -230,21 +245,9 @@ async def eh_search(
                     list_type=kind,
                     tl=tl,
                 )
-            else:
-                async with EhClient(
-                    settings, max_concurrency=settings.exhentai_max_concurrency
-                ) as tmp:
-                    result = await tmp.search_galleries(
-                        q=q,
-                        f_cats=f_cats,
-                        min_rating=min_rating,
-                        next_cursor=next_cursor,
-                        list_type=kind,
-                        tl=tl,
-                    )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except EhClientError as exc:
+        except (EhClientError, EhClientUnavailableError) as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         payload = {
             "state": result.state,
@@ -257,8 +260,9 @@ async def eh_search(
     items = [dict(it) for it in payload.get("items") or []]
     state = str(payload.get("state") or "ok")
     if items and state == "ok":
+        actual_session = await resolve_session(session, fallback_dep=get_session)
         try:
-            items = await attach_search_badges(session, items)
+            items = await attach_search_badges(actual_session, items)
         except SQLAlchemyError as exc:
             raise db_error(exc) from exc
     else:

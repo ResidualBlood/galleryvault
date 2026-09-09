@@ -1,25 +1,16 @@
 "use strict";
 
-// state.js — 按 FRONTEND_OPTIMIZATION_PLAN Phase 0 收敛
-// 所有 sel* / *Timer / dup* / reader* / infinite 等可变状态 + 常用配置
-// 加载顺序：core.js → state.js → ... → app.js
+/**
+ * state.js — 全局状态托管与向后兼容适配层
+ * 将原有散落无序的全局状态注册接入 Store 统一托管，
+ * 同时维持原有全局变量名与 window.state 访问能力，保证历史视图无缝过渡。
+ */
 
 const $view = () => document.getElementById("view");
 const $topbar = () => document.getElementById("topbar");
 
-const selGalleries = new Set();
-const selDiscover = new Set();
-let suggestTimer = null;
-
-let infiniteState = null;
-
-let readerKeyHandler = null;
-let readerFsActive = false;
-let readerFitBeforeFs = "";
-
+// 常量定义
 const PAGE_SIZES = [5, 30, 50, 100, 200, 500];
-
-let tagFacetCounts = null;
 
 const CATEGORY_LABELS = {
   doujinshi: "catDoujinshi", manga: "catManga", artistcg: "catArtistcg", gamecg: "catGamecg",
@@ -35,7 +26,6 @@ const TAG_NAMESPACES = [
 ];
 
 const DL_STATUSES = ["all", "pending", "downloading", "success", "failed", "cancelled"];
-let dlTimer = null;
 
 const EH_BASE_URLS = [
   { v: "https://exhentai.org", label: "ExHentai（里站）" },
@@ -45,44 +35,83 @@ const EH_CUSTOM = "__custom__";
 
 const FAV_MODES = ["incremental", "monitor_only", "force"];
 
-let favTimer = null;
-const selFav = new Set();
-
-const selDup = new Set();
-let dupFilter = "all";
-let dupPage = 1;
-const dupLocallyIgnored = new Set();
-const favCatNames = {};
-
-let logTimer = null;
-
-let lastDupStatus = null;
-
-let updatesTimer = null;
-const selUpdate = new Set();
-
 const UPD_STATUS_KEYS = {
   pending: "updPending", downloading: "updDownloading", failed: "updFailed", ignored: "updIgnored",
 };
 
-let dupGalFilter = "all";
-let dupGalCache = null;
 const DUPGAL_STATUSES = { open: "dupGalOpen", dismissed: "dupGalDismissed" };
 
-let dupXgidCache = null;
-let dupXgidReady = false;
-let dupXgidPage = 1;
-let dupXgidFilter = "all";
-const selXgid = new Set();
-const dupXgidLocallyIgnored = new Set();
+// 状态初始定义清单（统一注册接入 Store）
+const initialManagedState = {
+  selGalleries: new Set(),
+  selDiscover: new Set(),
+  suggestTimer: null,
+  infiniteState: null,
+  readerKeyHandler: null,
+  readerFsActive: false,
+  readerFitBeforeFs: "",
+  tagFacetCounts: null,
+  dlTimer: null,
+  favTimer: null,
+  selFav: new Set(),
+  selDup: new Set(),
+  dupFilter: "all",
+  dupPage: 1,
+  dupLocallyIgnored: new Set(),
+  favCatNames: {},
+  logTimer: null,
+  lastDupStatus: null,
+  updatesTimer: null,
+  selUpdate: new Set(),
+  dupGalFilter: "all",
+  dupGalCache: null,
+  dupXgidCache: null,
+  dupXgidReady: false,
+  dupXgidPage: 1,
+  dupXgidFilter: "all",
+  selXgid: new Set(),
+  dupXgidLocallyIgnored: new Set(),
+  selRecycle: new Set(),
+  selIntegrity: new Set(),
+  slideshowTimer: null,
+};
 
-const selRecycle = new Set();
-const selIntegrity = new Set();
-window.selRecycle = selRecycle;
-window.selIntegrity = selIntegrity;
-window.selXgid = selXgid;
+// 获取或初始化 Store 实例
+const globalScope = typeof window !== "undefined" ? window : globalThis;
+const storeInstance = globalScope.store || (typeof Store !== "undefined" ? new Store() : null);
 
-let slideshowTimer = null;
+if (storeInstance) {
+  for (const [key, val] of Object.entries(initialManagedState)) {
+    if (storeInstance.getState(key) === undefined) {
+      storeInstance.setState(key, val, { silent: true });
+    }
+  }
+}
 
-// 未来扩展 viewState
-// app.viewState = app.viewState || {};
+// 代理暴露 window.state
+globalScope.state = storeInstance ? storeInstance.state : initialManagedState;
+
+// 在全局作用域建立双向属性绑定，兼容历史脚本直接读写全局变量
+for (const key of Object.keys(initialManagedState)) {
+  if (!(key in globalScope)) {
+    Object.defineProperty(globalScope, key, {
+      get() {
+        return storeInstance ? storeInstance.getState(key) : initialManagedState[key];
+      },
+      set(val) {
+        if (storeInstance) {
+          storeInstance.setState(key, val);
+        } else {
+          initialManagedState[key] = val;
+        }
+      },
+      configurable: true,
+      enumerable: true,
+    });
+  }
+}
+
+// 显式挂载特定别名
+globalScope.selRecycle = globalScope.selRecycle || initialManagedState.selRecycle;
+globalScope.selIntegrity = globalScope.selIntegrity || initialManagedState.selIntegrity;
+globalScope.selXgid = globalScope.selXgid || initialManagedState.selXgid;

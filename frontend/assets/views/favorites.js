@@ -192,25 +192,34 @@ async function renderFavList() {
     };
     const params = new URLSearchParams(extra);
     const data = await api("GET", `/api/favorites/${favcat}/items?${params.toString()}`);
+    if (window.store && typeof window.store.setState === "function") {
+      window.store.setState({ favItems: data, favCat: favcat });
+    }
     const el = document.getElementById("fav-items");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
     else {
-      el.innerHTML = `<div class="grid gc-grid">` + data.items.map(favCard).join("") + `</div>`;
+      const cardFn = window.GalleryCardComponent ? window.GalleryCardComponent.renderFavCard : favCard;
+      el.innerHTML = `<div class="grid gc-grid">` + data.items.map(cardFn).join("") + `</div>`;
       document.querySelectorAll('#fav-items input[data-fav-gid]').forEach(cb => {
         cb.checked = selFav.has(parseInt(cb.dataset.favGid, 10));
+        cb.addEventListener("change", () => updateFavActionBar());
       });
       renderCardCheckboxes();
       startInfinite("fav-items", async (p) => {
         const pParams = new URLSearchParams({ ...extra, page: String(p) });
         return await api("GET", `/api/favorites/${favcat}/items?${pParams.toString()}`);
-      }, favCard);
+      }, cardFn);
     }
     bindTagSuggest();
     renderFavPager("favlist-pager", data, page);
+    updateFavActionBar();
   } catch (e) { document.getElementById("fav-items").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
 function favCard(it) {
+  if (window.GalleryCardComponent && typeof window.GalleryCardComponent.renderFavCard === "function") {
+    return window.GalleryCardComponent.renderFavCard(it);
+  }
   const cat = it.category ? esc(catLabel(it.category)) : "";
   const cover = it.cover_url || it.cover_data || null;
   const inner = cover
@@ -276,6 +285,18 @@ function renderFavPager(elId, data, page) {
     ...(image_quality ? { image_quality } : {}),
     ...(min_local_rating ? { min_local_rating } : {}),
   });
+
+  if (window.PaginationComponent) {
+    new window.PaginationComponent(el, {
+      total,
+      page: cur,
+      pageSize,
+      pageSizeSelectKey: "favlist",
+      onPageChange: (p) => { location.hash = qp(p); },
+    }).render();
+    return;
+  }
+
   const parts = [];
   if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);
   for (let p = Math.max(1, cur - 2); p <= Math.min(pages, cur + 2); p++) {
@@ -382,6 +403,7 @@ async function favListDownload(favcat) {
     toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
   } catch (e) { toast(e.message); }
   selFav.clear();
+  updateFavActionBar();
 }
 
 async function favListDownloadOrig(favcat) {
@@ -392,6 +414,7 @@ async function favListDownloadOrig(favcat) {
     toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
   } catch (e) { toast(e.message); }
   selFav.clear();
+  updateFavActionBar();
 }
 
 async function favListArchive(favcat) {
@@ -404,16 +427,22 @@ async function favListArchive(favcat) {
     toast(t("archiveQueued") + ": " + r.queued + (r.skipped ? " · " + t("archiveUnsupported") : ""));
   } catch (e) { toast(e.message); }
   selFav.clear();
+  updateFavActionBar();
 }
 
 async function favListUnfavorite(favcat) {
   const items = [...selFav];
   if (!items.length) { toast(t("select")); return; }
-  if (!window.confirm(t("confirmFavRemove") + " " + items.length)) return;
+  const confirmMsg = t("confirmFavRemove") + " " + items.length;
+  const ok = window.ModalComponent
+    ? await window.ModalComponent.confirm(confirmMsg, t("confirm"))
+    : window.confirm(confirmMsg);
+  if (!ok) return;
   try {
     const r = await api("POST", "/api/favorites/remove", { gids: items, delete_local: false });
     toast(t("unfavorited") + (r.cloud_ok ? "" : " · " + t("unfavoritedLocal")));
     selFav.clear();
+    updateFavActionBar();
     router();
   } catch (e) { toast(e.message); }
 }
@@ -432,8 +461,36 @@ async function favListMove(favcat) {
       toast(t("favMovedPartial").replace("{count}", r.local_moved).replace("{failed}", failedCount));
     }
     selFav.clear();
+    updateFavActionBar();
     router();
   } catch (e) { toast(e.message); }
+}
+
+function updateFavActionBar(count) {
+  const c = count != null ? count : (selFav ? selFav.size : 0);
+  if (window.ActionBarComponent && typeof window.ActionBarComponent.syncButtonCounts === "function") {
+    window.ActionBarComponent.syncButtonCounts(
+      '[data-action="favlist-download"], [data-action="favlist-download-orig"], [data-action="favlist-archive"], [data-action="favlist-move"], [data-action="favlist-unfav"]',
+      c,
+      {
+        "favlist-download": t("favDl"),
+        "favlist-download-orig": t("favDlOrig"),
+        "favlist-archive": t("favDlArchive"),
+        "favlist-move": t("favMove"),
+        "favlist-unfav": t("favRemove"),
+      }
+    );
+  } else {
+    document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-download-orig"], [data-action="favlist-archive"], [data-action="favlist-move"], [data-action="favlist-unfav"]').forEach(b => {
+      const act = b.getAttribute("data-action");
+      const base = act === "favlist-download" ? t("favDl")
+        : act === "favlist-download-orig" ? t("favDlOrig")
+        : act === "favlist-archive" ? t("favDlArchive")
+        : act === "favlist-move" ? t("favMove")
+        : t("favRemove");
+      b.textContent = base + (c ? ` (${c})` : "");
+    });
+  }
 }
 
 function favListSelectAll() {
@@ -445,13 +502,5 @@ function favListSelectAll() {
     }
   });
   renderCardCheckboxes();
-  document.querySelectorAll('[data-action="favlist-download"], [data-action="favlist-download-orig"], [data-action="favlist-archive"], [data-action="favlist-move"], [data-action="favlist-unfav"]').forEach(b => {
-    const act = b.getAttribute("data-action");
-    const base = act === "favlist-download" ? t("favDl")
-      : act === "favlist-download-orig" ? t("favDlOrig")
-      : act === "favlist-archive" ? t("favDlArchive")
-      : act === "favlist-move" ? t("favMove")
-      : t("favRemove");
-    b.textContent = base + (selFav.size ? ` (${selFav.size})` : "");
-  });
+  updateFavActionBar();
 }
