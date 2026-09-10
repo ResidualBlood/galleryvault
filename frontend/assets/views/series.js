@@ -221,7 +221,20 @@ function onSeriesClick(e) {
   }
 }
 
+function cleanupSeriesView() {
+  if (seriesListenersBound) {
+    document.removeEventListener("change", onSeriesChange);
+    document.removeEventListener("click", onSeriesClick);
+    seriesListenersBound = false;
+  }
+  selSeriesCloud.clear();
+}
+
 async function renderSeries() {
+  cleanupSeriesView();
+  if (typeof currentViewCleanup !== "undefined") {
+    currentViewCleanup = cleanupSeriesView;
+  }
   const showAll = app.query.show_all === "1";
   const showAllClass = showAll ? "btn btn-primary" : "btn btn-secondary";
   const showAllLabel = t("favStateAll") || "Show all";
@@ -231,14 +244,6 @@ async function renderSeries() {
     document.addEventListener("click", onSeriesClick);
     seriesListenersBound = true;
   }
-  currentViewCleanup = () => {
-    if (seriesListenersBound) {
-      document.removeEventListener("change", onSeriesChange);
-      document.removeEventListener("click", onSeriesClick);
-      seriesListenersBound = false;
-    }
-    selSeriesCloud.clear();
-  };
 
   selSeriesCloud.clear();
   selGalleries.clear();

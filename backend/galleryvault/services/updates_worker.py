@@ -180,32 +180,6 @@ async def finalize_gallery_update(row: Any) -> None:
                 dup_row = await uow.session.get(DuplicateRecord, old_gid)
                 if dup_row is not None:
                     await uow.session.delete(dup_row)
-
-        # 事务成功提交后，执行物理文件删除与日志记录
-        if old_storage_path:
-            p = Path(old_storage_path)
-            try:
-                from .deletion import delete_local_copy
-
-                delete_local_copy(p)
-            except Exception as io_err:  # noqa: BLE001
-                logger.warning(
-                    "failed to delete old gallery physical copy",
-                    extra=log_extra(
-                        gallery_id=gallery_id,
-                        path=old_storage_path,
-                        error=type(io_err).__name__,
-                    ),
-                )
-        record_gallery_update_log([
-            {
-                "gallery_id": gallery_id,
-                "gid": old_gid,
-                "db_removed": True,
-                "deleted_paths": [old_storage_path] if old_storage_path else [],
-                "failed_paths": [],
-            }
-        ])
     except Exception as exc:
         logger.warning(
             "gallery update finalize failed, rolled back to downloading",
@@ -225,6 +199,41 @@ async def finalize_gallery_update(row: Any) -> None:
                     extra=log_extra(update_id=update_id, error=type(exc2).__name__),
                 )
         raise
+
+    # 事务成功提交后，执行物理文件删除与日志记录
+    if old_storage_path:
+        p = Path(old_storage_path)
+        try:
+            from .deletion import delete_local_copy
+
+            delete_local_copy(p)
+        except Exception as io_err:  # noqa: BLE001
+            logger.warning(
+                "failed to delete old gallery physical copy",
+                extra=log_extra(
+                    gallery_id=gallery_id,
+                    path=old_storage_path,
+                    error=type(io_err).__name__,
+                ),
+            )
+    try:
+        record_gallery_update_log([
+            {
+                "gallery_id": gallery_id,
+                "gid": old_gid,
+                "db_removed": True,
+                "deleted_paths": [old_storage_path] if old_storage_path else [],
+                "failed_paths": [],
+            }
+        ])
+    except Exception as log_err:  # noqa: BLE001
+        logger.warning(
+            "failed to record gallery update log",
+            extra=log_extra(
+                gallery_id=gallery_id,
+                error=type(log_err).__name__,
+            ),
+        )
 
 
 async def finalize_updates_for_new_gid(new_gid: int) -> int:
