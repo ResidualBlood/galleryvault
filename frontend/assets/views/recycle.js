@@ -16,7 +16,7 @@ function updateRecycleButtons() {
   const redownloadBtn = document.querySelector('[data-action="recycle-redownload"]');
   const purgeBtn = document.querySelector('[data-action="recycle-purge"]');
   if (restoreBtn) restoreBtn.textContent = `${t("restore")}${suffix}`;
-  if (redownloadBtn) redownloadBtn.textContent = `${t("recycleRedownload") || "按 gid 重下"}${suffix}`;
+  if (redownloadBtn) redownloadBtn.textContent = `${t("recycleRedownload")}${suffix}`;
   if (purgeBtn) purgeBtn.textContent = `${t("purge")}${suffix}`;
 }
 
@@ -34,10 +34,10 @@ async function renderRecycle() {
     <p class="sub">${esc(t("recycleSub"))}</p></header>
     ${manageTabsHtml("recycle")}
     <div class="toolbar">
-      <a class="pill${tab === "trash" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "trash" })}">🗑 ${esc(t("trash")) || "Trash"} (${esc(t("userDeleted") || "User")})</a>
-      <a class="pill${tab === "expunged" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "expunged" })}">👻 ${esc(t("expunged") || "Missing")} (${esc(t("scanMissing") || "Scan")})</a>
+      <a class="pill${tab === "trash" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "trash" })}">🗑 ${esc(t("trash"))} (${esc(t("userDeleted"))})</a>
+      <a class="pill${tab === "expunged" ? " active" : ""}" href="${navHash("recycle", {}, { tab: "expunged" })}">👻 ${esc(t("expunged"))} (${esc(t("scanMissing"))})</a>
       <button class="btn btn-secondary" data-action="recycle-restore" type="button"${tab === "expunged" ? " hidden disabled" : ""}>${esc(t("restore"))}${suffix}</button>
-      <button class="btn btn-secondary" data-action="recycle-redownload" type="button"${tab !== "expunged" ? " hidden disabled" : ""}>${esc(t("recycleRedownload") || "按 gid 重下")}${suffix}</button>
+      <button class="btn btn-secondary" data-action="recycle-redownload" type="button"${tab !== "expunged" ? " hidden disabled" : ""}>${esc(t("recycleRedownload"))}${suffix}</button>
       <button class="btn btn-danger" data-action="recycle-purge" type="button">${esc(t("purge"))}${suffix}</button>
     </div>
     <div id="recycle-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
@@ -91,8 +91,8 @@ async function recycleRedownload() {
   try {
     const r = await api("POST", "/api/galleries/expunged/redownload", { ids });
     const skipped = (r.skipped_no_gid || 0) + (r.skipped_no_token || 0);
-    const skipText = skipped > 0 ? ` · ${esc(t("recycleRedownloadSkip") || "跳过")}: ${skipped}` : "";
-    toast(`${esc(t("recycleRedownload") || "按 gid 重下")}: ${r.queued}${skipText}`);
+    const skipText = skipped > 0 ? ` · ${t("recycleSkip")}: ${skipped}` : "";
+    toast(`${t("recycleRedownload")}: ${r.queued}${skipText}`);
     selRecycle.clear();
     router();
   } catch (e) { toast(e.message); }

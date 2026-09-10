@@ -102,7 +102,7 @@ async function renderSettings() {
     <header><p class="eyebrow">CONFIGURATION</p><h1>${esc(t("settings"))}</h1>
     <p class="sub">${esc(t("settingsSub"))}</p></header>
     <form data-action="settings-save">
-      <fieldset><legend>${app.lang === "zh" ? "账户" : "Account"}</legend>
+      <fieldset><legend>${esc(t("legendAccount"))}</legend>
         <label class="checkbox"><input type="checkbox" name="auth_required"${s.auth_required == null ? " checked" : (s.auth_required ? " checked" : "")}> ${esc(t("authRequired"))}</label>
         <p class="notice">${s.auth_hash_configured ? esc(t("pwConfigured")) : esc(t("pwDefault"))}</p>
         <div class="form-grid">
@@ -111,10 +111,10 @@ async function renderSettings() {
         </div>
         <div class="toolbar"><button class="btn btn-secondary" data-action="change-password" type="button">${esc(t("changePassword"))}</button></div>
       </fieldset>
-      <fieldset><legend>${app.lang === "zh" ? "界面" : "Interface"}</legend>
+      <fieldset><legend>${esc(t("legendInterface"))}</legend>
         ${field(t("titleDisplay"), `<select name="title_display">${["japanese", "english", "directory"].map(o => `<option value="${o}"${o === (s.title_display || "japanese") ? " selected" : ""}>${o}</option>`).join("")}</select>`)}
       </fieldset>
-      <fieldset><legend>${app.lang === "zh" ? "站点与代理" : "Site & Proxy"}</legend>
+      <fieldset><legend>${esc(t("legendSiteProxy"))}</legend>
         ${field(t("baseUrl"), ehBaseUrlControl(s.exhentai_base_url || "", ""))}
         ${/e-hentai\.org/i.test(s.exhentai_base_url || "") ? `<p class="notice">${esc(t("ehPublicNotice"))}</p>` : ""}
         <p class="notice">Cookie: <strong>${s.exhentai_cookie_configured ? esc(t("cookieSet")) : esc(t("cookieUnset"))}</strong> · ${esc(t("cookiesNote"))}</p>
@@ -129,7 +129,7 @@ async function renderSettings() {
           ${field(t("proxySocks5"), `<input name="socks5_proxy" value="${esc(s.socks5_proxy || "")}">`)}
         </div>
       </fieldset>
-      <fieldset><legend>${app.lang === "zh" ? "资料库" : "Library"}</legend>
+      <fieldset><legend>${esc(t("legendLibrary"))}</legend>
         <p class="notice">${esc(t("libraryRootsHint"))}</p>
         <textarea name="library_roots" rows="4">${esc((s.library_roots || []).join("\n"))}</textarea>
         ${warnings}
@@ -143,7 +143,7 @@ async function renderSettings() {
         </select>`)}
         <div class="toolbar"><a class="btn btn-secondary" href="#/duplicates" style="padding:8px 14px;border-radius:4px">${esc(t("dupGalTitle"))}</a></div>
       </fieldset>
-      <fieldset><legend>${app.lang === "zh" ? "下载" : "Downloads"}</legend>
+      <fieldset><legend>${esc(t("legendDownloads"))}</legend>
         <div class="form-grid">
           ${field(t("downloadRoot"), `<input name="download_root" value="${esc(s.download_root || "")}">`)}
           <p class="notice">${esc(t("downloadRootHint"))}</p>
@@ -161,7 +161,7 @@ async function renderSettings() {
       </fieldset>
       <fieldset>
         <details>
-          <summary>${app.lang === "zh" ? "下载高级" : "Download Advanced"}</summary>
+          <summary>${esc(t("legendDownloadAdvanced"))}</summary>
           <p class="notice" style="margin-top:10px">${esc(t("imageTimeoutHint"))}</p>
           <div class="form-grid">
             ${field(t("imageTimeout"), `<input name="image_download_timeout_seconds" type="number" min="1" value="${s.image_download_timeout_seconds != null ? s.image_download_timeout_seconds : 120}">`)}
@@ -186,7 +186,7 @@ async function renderSettings() {
           <p class="notice">${esc(t("archiveFallbackPagesHint"))}</p>
         </details>
       </fieldset>
-      <fieldset><legend>${app.lang === "zh" ? "标签" : "Tags"}</legend>
+      <fieldset><legend>${esc(t("legendTags"))}</legend>
         <label class="checkbox"><input type="checkbox" name="auto_sync_tags"${s.auto_sync_tags ? " checked" : ""}> ${esc(t("autoSyncTags"))}</label>
         <div class="form-grid">
           ${field(t("tagSyncInterval"), `<input name="tag_sync_interval_seconds" type="number" step="0.1" min="0.1" value="${s.tag_sync_interval_seconds != null ? s.tag_sync_interval_seconds : 1}">`)}
@@ -208,7 +208,7 @@ async function renderSettings() {
           <p class="notice">${esc(t("repair_categories_hint"))}</p>
         </div>
       </fieldset>
-      <fieldset><legend>${app.lang === "zh" ? "缩略图" : "Thumbnails"}</legend>
+      <fieldset><legend>${esc(t("legendThumbnails"))}</legend>
         <label class="checkbox"><input type="checkbox" name="generate_thumbnails"${s.generate_thumbnails ? " checked" : ""}> ${esc(t("generateThumbnails"))}</label>
         <div class="toolbar">
           <button class="btn btn-secondary" data-action="gen-thumbs" type="button">${esc(t("genThumbs"))}</button>
@@ -218,7 +218,7 @@ async function renderSettings() {
       </fieldset>
       <fieldset>
         <details>
-          <summary>${app.lang === "zh" ? "通知 Telegram" : "Notifications (Telegram)"}</summary>
+          <summary>${esc(t("legendNotifications"))}</summary>
           <div style="margin-top:10px">
             ${field(t("botToken"), `<input name="telegram_bot_token" type="password" autocomplete="new-password" placeholder="${s.telegram_bot_configured ? t("cookieSet") : t("cookieUnset")}">`)}
             <div class="form-grid">
@@ -260,7 +260,6 @@ async function fillStorageDash() {
   if (!el) return;
   try {
     const d = await api("GET", "/api/system/storage");
-    const isZh = app.lang === "zh";
 
     const rows = [
       { key: "library", label: t("storageLibrary") },
@@ -276,15 +275,16 @@ async function fillStorageDash() {
       let itemsStr = "-";
       if (key === "library" || key === "cold") {
         if (info.gallery_count != null) {
-          itemsStr = isZh
-            ? `${info.gallery_count} 画廊 / ${info.image_count || 0} 图片`
-            : `${info.gallery_count} galleries / ${info.image_count || 0} images`;
+          itemsStr = t("storageGalleryCount", {
+            galleries: info.gallery_count,
+            images: info.image_count || 0,
+          });
         }
       } else if (key === "cache") {
         if (info.thumbnail_count != null) {
-          itemsStr = isZh
-            ? `约 ${info.thumbnail_count} 缩略图`
-            : `~${info.thumbnail_count} thumbs`;
+          itemsStr = t("storageThumbsApprox", {
+            count: info.thumbnail_count,
+          });
         }
       }
 
@@ -321,12 +321,12 @@ async function fillStorageDash() {
       </tr>`;
     }).join("");
 
-    const thCategory = isZh ? "类别" : "Category";
-    const thPath = isZh ? "路径" : "Path";
-    const thItems = isZh ? "项目数" : "Items";
-    const thUsed = isZh ? "已用空间" : "Used Space";
-    const thFree = isZh ? "挂载盘可用" : "Free Space";
-    const thStatus = isZh ? "状态" : "Status";
+    const thCategory = t("thCategory");
+    const thPath = t("thPath");
+    const thItems = t("thItems");
+    const thUsed = t("thUsed");
+    const thFree = t("thFree");
+    const thStatus = t("thStatus");
 
     const tableHtml = `
       <div class="table-wrap">

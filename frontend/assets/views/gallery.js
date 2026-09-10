@@ -144,14 +144,14 @@ async function renderGallery() {
       updates: t("galleryUpdates"),
       duplicates: t("dupGalTitle"),
       integrity: t("missingPagesTitle"),
-      recycle: t("recycleTitle") || t("recycle") || "Recycle",
-      browse: t("browse") || "Browse",
-      settings: t("settings") || "Settings",
-      series: t("seriesTitle") || t("series") || "Series",
+      recycle: t("recycleTitle") || t("recycle"),
+      browse: t("browse"),
+      settings: t("settings"),
+      series: t("seriesTitle") || t("series"),
       library: t("library"),
-      downloads: t("downloads") || "Downloads",
-      logs: t("logs") || "Logs",
-      tags: t("tags") || "Tags",
+      downloads: t("downloads"),
+      logs: t("logs"),
+      tags: t("tags"),
     };
     let rawFrom = (app.query.from ? String(app.query.from) : "").trim();
     rawFrom = rawFrom.replace(/^#\/?/, "").replace(/^\//, "");
@@ -191,8 +191,8 @@ async function renderGallery() {
         <img class="lazy-thumb" data-src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
       </a>`;
     const thumbs = thumbsVisible.map(thumbCard).join("");
-    const txtMore = app.lang === "zh" ? "更多" : (t("navMore") || "More");
-    const txtCollapse = app.lang === "zh" ? "收起" : "Collapse";
+    const txtMore = t("more");
+    const txtCollapse = t("collapse");
     const isMoreExpanded = preserveMoreExpandedOnce;
     preserveMoreExpandedOnce = false;
     const ssSec = parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;

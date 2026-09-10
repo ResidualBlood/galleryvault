@@ -11,6 +11,8 @@
     throw new Error("PaginationComponent requires BaseComponent to be loaded first.");
   }
 
+  const t = (key, params) => (typeof global.t === "function" ? global.t(key, params) : key);
+
   const DEFAULT_PAGE_SIZES = [5, 30, 50, 100, 200, 500];
 
   class PaginationComponent extends BaseComponent {
@@ -107,12 +109,13 @@
       // 构建每页条数选择框
       let sizeSelectHtml = "";
       if (showPageSizes && Array.isArray(pageSizes) && pageSizes.length > 0) {
+        const perUnit = t("pagePerUnit");
         const optionsHtml = pageSizes
-          .map((size) => `<option value="${size}" ${size === pageSize ? "selected" : ""}>${size} / 页</option>`)
+          .map((size) => `<option value="${size}" ${size === pageSize ? "selected" : ""}>${size} ${perUnit}</option>`)
           .join("");
         sizeSelectHtml = `
           <div class="pagination-sizes">
-            <select class="form-select form-select-sm pagination-size-select" aria-label="每页条数">
+            <select class="form-select form-select-sm pagination-size-select" aria-label="${t("pageSizeAria")}">
               ${optionsHtml}
             </select>
           </div>
@@ -124,8 +127,8 @@
       if (showJump && totalPages > 1) {
         jumpHtml = `
           <div class="pagination-jump">
-            <input type="number" min="1" max="${totalPages}" class="form-control form-control-sm pagination-jump-input" placeholder="${current}" aria-label="跳转页码" />
-            <button type="button" class="btn btn-sm btn-outline-secondary pagination-jump-btn">跳转</button>
+            <input type="number" min="1" max="${totalPages}" class="form-control form-control-sm pagination-jump-input" placeholder="${current}" aria-label="${t("jumpPageAria")}" />
+            <button type="button" class="btn btn-sm btn-outline-secondary pagination-jump-btn">${t("jump")}</button>
           </div>
         `;
       }
@@ -133,10 +136,13 @@
       // 构建总计信息
       let totalHtml = "";
       if (showTotal) {
+        const totalItemsStr = t("pageTotalItems", {
+          total: `<strong class="pagination-total-items">${total}</strong>`,
+        });
         totalHtml = `
           <span class="pagination-info text-muted small">
-            第 <strong class="pagination-current-page">${current}</strong> / <strong class="pagination-total-pages">${totalPages}</strong> 页
-            (共 <strong class="pagination-total-items">${total}</strong> 项)
+            ${t("pageCurrentPrefix")}<strong class="pagination-current-page">${current}</strong> / <strong class="pagination-total-pages">${totalPages}</strong>${t("pageCurrentSuffix")}
+            ${totalItemsStr}
           </span>
         `;
       }
@@ -165,12 +171,12 @@
           .join("");
 
         pageButtonsHtml = `
-          <div class="pagination-nav-group btn-group btn-group-sm" role="group" aria-label="分页导航">
-            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="1" title="首页" ${prevDisabled}>«</button>
-            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="${current - 1}" title="上一页" ${prevDisabled}>‹</button>
+          <div class="pagination-nav-group btn-group btn-group-sm" role="group" aria-label="${t("pageNav")}">
+            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="1" title="${t("pageFirst")}" ${prevDisabled}>«</button>
+            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="${current - 1}" title="${t("pagePrev")}" ${prevDisabled}>‹</button>
             ${itemsHtml}
-            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="${current + 1}" title="下一页" ${nextDisabled}>›</button>
-            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="${totalPages}" title="尾页" ${nextDisabled}>»</button>
+            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="${current + 1}" title="${t("pageNext")}" ${nextDisabled}>›</button>
+            <button type="button" class="btn btn-outline-secondary pagination-page-btn" data-page="${totalPages}" title="${t("pageLast")}" ${nextDisabled}>»</button>
           </div>
         `;
       }

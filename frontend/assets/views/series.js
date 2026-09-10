@@ -407,28 +407,28 @@ function showSeriesAddModal(seriesId) {
     overlay.innerHTML = `
       <div class="gv-modal" role="dialog" aria-modal="true" style="max-width: 540px; width: 90%;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 14px;">
-          <h3 style="margin: 0; font-size: 1.15rem;">${esc(t("seriesAddItem") || "添加作品到系列")}</h3>
+          <h3 style="margin: 0; font-size: 1.15rem;">${esc(t("seriesAddItem"))}</h3>
           <button class="btn btn-secondary btn-sm" data-modal-close type="button" style="padding: 2px 8px;">✕</button>
         </div>
         <div class="gv-modal-body" style="display: flex; flex-direction: column; gap: 12px;">
           <div>
-            <label class="form-label" style="display: block; margin-bottom: 6px; font-weight: 500;">${esc(t("seriesInputGidsHint") || "输入 gid（多个用逗号或空格分隔）：")}</label>
+            <label class="form-label" style="display: block; margin-bottom: 6px; font-weight: 500;">${esc(t("seriesInputGidsHint"))}</label>
             <input type="text" class="form-input" id="series-manual-gids" placeholder="e.g. 123456, 789012" style="width: 100%; box-sizing: border-box;">
           </div>
           <div>
-            <label class="form-label" style="display: block; margin-bottom: 6px; font-weight: 500;">${esc(t("seriesCloudCandidates") || "勾选未入组收藏：")}</label>
+            <label class="form-label" style="display: block; margin-bottom: 6px; font-weight: 500;">${esc(t("seriesCloudCandidates"))}</label>
             <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-              <input type="text" id="series-cand-search" class="form-input" placeholder="${esc(t("searchFavorites") || "搜索收藏夹...")}" style="flex: 1;">
-              <button class="btn btn-secondary btn-sm" id="series-cand-search-btn" type="button">${esc(t("search") || "搜索")}</button>
+              <input type="text" id="series-cand-search" class="form-input" placeholder="${esc(t("searchFavorites"))}" style="flex: 1;">
+              <button class="btn btn-secondary btn-sm" id="series-cand-search-btn" type="button">${esc(t("search"))}</button>
             </div>
             <div id="series-cand-list" style="max-height: 220px; min-height: 80px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--bg-card, var(--panel));">
-              <div class="muted" style="font-size: 0.85rem; padding: 8px; text-align: center;">${esc(t("loading") || "Loading...")}</div>
+              <div class="muted" style="font-size: 0.85rem; padding: 8px; text-align: center;">${esc(t("loading"))}</div>
             </div>
           </div>
         </div>
         <div class="gv-modal-foot" style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 16px;">
           <button class="btn btn-secondary" data-modal-cancel type="button">${esc(t("cancel"))}</button>
-          <button class="btn btn-primary" data-modal-submit type="button">${esc(t("confirm") || "确定添加")}</button>
+          <button class="btn btn-primary" data-modal-submit type="button">${esc(t("confirm"))}</button>
         </div>
       </div>
     `;
@@ -453,13 +453,13 @@ function showSeriesAddModal(seriesId) {
 
     async function loadCandidates(q) {
       if (!listEl) return;
-      listEl.innerHTML = `<div class="muted" style="font-size: 0.85rem; padding: 8px; text-align: center;">${esc(t("loading") || "Loading...")}</div>`;
+      listEl.innerHTML = `<div class="muted" style="font-size: 0.85rem; padding: 8px; text-align: center;">${esc(t("loading"))}</div>`;
       try {
         const url = `/api/series/${seriesId}/cloud-candidates` + (q ? `?q=${encodeURIComponent(q)}` : "");
         const res = await api("GET", url);
         const candidates = (res && res.items) || [];
         if (!candidates.length) {
-          listEl.innerHTML = `<div class="muted" style="font-size: 0.85rem; padding: 8px; text-align: center;">${esc(t("noCandidates") || "无可选候选")}</div>`;
+          listEl.innerHTML = `<div class="muted" style="font-size: 0.85rem; padding: 8px; text-align: center;">${esc(t("noCandidates"))}</div>`;
           return;
         }
         listEl.innerHTML = candidates.map(c => `
@@ -499,7 +499,7 @@ function showSeriesAddModal(seriesId) {
 
       const allGids = [...new Set([...manualGids, ...checkedGids])];
       if (!allGids.length) {
-        toast(t("select") || "请至少输入或勾选一个作品");
+        toast(t("atLeastOneItem"));
         return;
       }
       try {
@@ -530,18 +530,18 @@ function showSeriesRemoveModal(seriesId, groupEl) {
     overlay.innerHTML = `
       <div class="gv-modal" role="dialog" aria-modal="true" style="max-width: 440px; width: 90%;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 14px;">
-          <h3 style="margin: 0; font-size: 1.15rem;">${esc(t("seriesRemoveItem") || "移出作品")}</h3>
+          <h3 style="margin: 0; font-size: 1.15rem;">${esc(t("seriesRemoveItem"))}</h3>
           <button class="btn btn-secondary btn-sm" data-modal-close type="button" style="padding: 2px 8px;">✕</button>
         </div>
         <div class="gv-modal-body" style="display: flex; flex-direction: column; gap: 12px;">
           <div>
-            <label class="form-label" style="display: block; margin-bottom: 6px; font-weight: 500;">${esc(t("seriesRemoveGidsHint") || "输入要移出的作品 gid（多个用逗号或空格分隔）：")}</label>
+            <label class="form-label" style="display: block; margin-bottom: 6px; font-weight: 500;">${esc(t("seriesRemoveGidsHint"))}</label>
             <input type="text" class="form-input" id="series-remove-gids" placeholder="e.g. 123456, 789012" style="width: 100%; box-sizing: border-box;">
           </div>
         </div>
         <div class="gv-modal-foot" style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 16px;">
           <button class="btn btn-secondary" data-modal-cancel type="button">${esc(t("cancel"))}</button>
-          <button class="btn btn-danger" data-modal-submit type="button">${esc(t("seriesRemoveItem") || "确定移出")}</button>
+          <button class="btn btn-danger" data-modal-submit type="button">${esc(t("confirmRemoveSeriesItem"))}</button>
         </div>
       </div>
     `;
@@ -567,7 +567,7 @@ function showSeriesRemoveModal(seriesId, groupEl) {
         .map(x => parseInt(x, 10))
         .filter(x => Number.isFinite(x) && x > 0);
       if (!gids.length) {
-        toast(t("select") || "请输入 gid");
+        toast(t("seriesRemoveGidsHint"));
         return;
       }
       try {
