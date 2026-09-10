@@ -29,7 +29,7 @@ async function loadLocale(lang) {
 }
 
 function t(key, params) {
-  const lang = (window.app && window.app.lang) ? window.app.lang : "zh";
+  const lang = (typeof app !== "undefined" && app.lang) ? app.lang : "zh";
   const cur = I18N[lang];
   let res = (cur && cur[key])
     || (I18N.en && I18N.en[key])

@@ -8,6 +8,7 @@ const app = {
   authenticated: false, settings: null, session: {}, view: "browse", params: {}, query: {},
   lang: (localStorage.getItem("gv_lang") === "en" ? "en" : "zh"),
 };
+window.app = app;
 async function scanLibrary() {
   try {
     const r = await api("POST", "/api/scan");
