@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-09-10
+
+### Fixed
+
+- 隔离画廊更新后的磁盘清理逻辑，避免在 DB 事务内执行文件 I/O 导致事务污染。
+- 规范 Series 视图销毁时的 DOM/清理逻辑，避免悬挂引用。
+
 ## [1.11.0] - 2026-09-10
 
 ### Added
@@ -1380,7 +1387,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.2...v1.10.0
