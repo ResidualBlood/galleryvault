@@ -18,7 +18,7 @@ dependencies = [
   "httpx>=0.28.1,<1",
   "Pillow>=12.3.0,<13",
   "cryptography>=50.0.1,<51",
-  "py7zr>=1.0,<2",
+  "py7zr>=1.1.3,<2",
   "pypdf>=6.17.0,<7",
 ]
 
