@@ -14,9 +14,9 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault"
     )
-    database_pool_size: int = 20
+    database_pool_size: int = 30
     database_max_overflow: int = 10
-    database_pool_timeout: int = 15
+    database_pool_timeout: int = 30
     library_roots: list[str] = Field(default_factory=lambda: ["/library", "/downloads"])
     download_root: str = "/downloads"
     cold_storage_root: str = ""

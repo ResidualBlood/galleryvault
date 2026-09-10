@@ -313,14 +313,25 @@ async def download_progress(
     current_page: int,
     total_pages: int,
     archive_fallback: bool | None = None,
+    gid: int | None = None,
 ) -> None:
     if task_id is None or not app_state.session_factory:
         return
     try:
-        async with app_state.session_factory() as session, session.begin():
-            await DownloadRepository(session).progress(
-                task_id, current_page, total_pages, archive_fallback=archive_fallback
-            )
+        async def _persist() -> None:
+            async with app_state.session_factory() as session, session.begin():
+                await DownloadRepository(session).progress(
+                    task_id, current_page, total_pages, archive_fallback=archive_fallback
+                )
+
+        await asyncio.wait_for(_persist(), timeout=2.0)
+    except TimeoutError:
+        logger.warning(
+            "download progress persistence timed out, skipping [task_id=%s gid=%s]",
+            task_id,
+            gid,
+            extra=log_extra(task_id=task_id, gid=gid),
+        )
     except SQLAlchemyError as exc:
         logger.warning(
             "download progress persistence failed",
@@ -723,7 +734,11 @@ async def _run_download_inner(
                 if task.id is not None:
                     is_fb = bool(getattr(exec_task, "archive_fallback", False))
                     await download_progress(
-                        task.id, current, total, archive_fallback=True if is_fb else None
+                        task.id,
+                        current,
+                        total,
+                        archive_fallback=True if is_fb else None,
+                        gid=getattr(task, "gid", None),
                     )
                 progress_state["last_persisted"] = current
                 progress_state["last_flush"] = now
