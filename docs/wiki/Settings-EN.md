@@ -14,13 +14,14 @@ This guide covers GalleryVault's system settings, client and OPDS integration, T
   - **Proxy**: HTTP or SOCKS5 (choose one).
 - **Library**:
   - **Library roots**: one filesystem path per line; new downloads are never written here. Deleting a gallery removes its files under these roots when the mount is writable; on a read-only mount the deletion fails and is reported in the toast and on the Logs page.
-- **Archive / Cold storage**: located right next to library roots; supports multiple archive roots (`archive_roots`, one path per line, e.g. `/archive`, `/archive2`), left blank to disable. Legacy single-path `cold_storage_root` is automatically upgraded to a list on read. When archiving, writes pick the root whose free space is ≥ estimated size × 1.2 and has the most remaining free space; library scans aggregate all archive roots. Auto-archiving downloads and deleting source are disabled by default. Archived CBZ files in cold storage are always named using the English title `gid-gallery.title.cbz` (English-only filename aids cross-system compatibility and cold backups) and do not follow the `download_title` setting. **Asynchronous reverse cleanup for archived sources (`purge-archived-sources`)**: once galleries have valid cold storage archives (CBZ/EPUB) generated, a single-click action in Settings triggers asynchronous background cleanup to reclaim hot download directory space. It features multi-source GID validation and mutual exclusion guards that intercept active `pending`/`downloading` tasks to prevent accidental deletion. Task execution is managed by `TaskManager` with live progress bars tracked in Logs, while `StorageUsageTracker` updates and decrements physical disk usage metrics in real time.
-- **Disk usage**: the Settings page shows library / downloads / cache usage and the 10 largest galleries. Library size is queried directly from DB `storage_size`, volume metrics from `disk_usage`, and downloads/cache use in-memory snapshots with live mutation deltas alongside periodic background `du` calibration, returning sub-second without synchronous disk traversal on page load. Missing directories report 0.
+- **Archive / Cold storage**: same Library fieldset as library roots. Multi-line `archive_roots` (e.g. `/archive`, `/archive2`); blank = off. Legacy `cold_storage_root` is upgraded to a one-item list. Writes pick the root with free space ≥ estimate × 1.2 and the most free space; scans include every archive root. Auto-archive and delete-source default off. CBZ names are always `gid-english-title.cbz`, ignoring `download_title`. Packing and purge live on **Manage → Cold archive** (`#/archive`); the Settings storage table has the same purge button and skips pending/downloading tasks.
+- **Disk usage**: four rows — **library / cold / downloads / cache** (path, item counts, used, disk free). Library/cold show gallery and image counts; cache shows an approximate thumbnail count. Opening Settings does not walk the whole disk. The 10 largest galleries are listed below.
 - **Downloads (Common)**: root directory, concurrent galleries, **pages in parallel per gallery** (default 4 — H@H nodes cap concurrent connections per source IP, so values much above 4-6 trip the cap and cause connection errors on lossy lines; keep it low for stability, raise it only on a clean line), image quality (normal/original), **archive quality** (default tier for archive downloads), **fall back to page-by-page if archive is unavailable** (on by default — a gallery the archive channel cannot serve downloads page-by-page, no GP cost); **Download title**: controls folder naming only for newly created folders in the **hot download directory** (`download_root`) — `japanese` (default, `gid-<Japanese title>`, falling back to English when no Japanese title exists) or `english` (`gid-<English title>`). Independent of the display *Title display* setting (cold storage CBZ files always use the English title regardless of this setting); existing download folders are reused as-is, switching never renames or re-downloads them.
-- **Downloads Advanced (Collapsed)**: H@H network, `max_pages`, **archive page threshold** (0 = all), and the **"archive large favorites on scheduled scan"** toggle. Slow-H@H-node watchdogs: **image max time** (seconds), **image slow warmup** (seconds) and **image min speed** (KB/s) — a single image is aborted once it exceeds the total wall-clock budget, or once it averages below the minimum throughput after the warm-up window, and is retried with backoff instead of holding the whole gallery hostage. Includes background lightweight challenge probe loop with periodic probe interval `GV_CHALLENGE_PROBE_INTERVAL` (default 600s) for auto-resume upon challenge clearance.
+- **Downloads Advanced (Collapsed)**: H@H toggle, archive quality, `favorites_archive_max_pages` (0 = all), archive large favorites on scheduled scan, fall back to page-by-page if archive is unavailable. Slow-H@H watchdogs: image max time, warmup window, min KB/s. 302 probe interval: `GV_CHALLENGE_PROBE_INTERVAL` (default 600s).
 - **Tags**:
-  - **Tag sync**: automatic sync after scans/startup, interval and concurrency, and a **Sync tags now** button.
-  - **Translation auto-update**: interval (minutes, 0 = off) and **Update now**.
+  - **Tag sync**: automatic sync after scans/startup, interval and concurrency, **Sync tags now**.
+  - **Translation auto-update**: interval (minutes, 0 = off) and **Update now** (this page, not Logs).
+  - **Local category repair**: no network; rewrites Misc/Other from local metadata / `.galleryvault.json`.
 - **Thumbnails**: auto-generation toggle, **Generate now**, and the **live thumbnail status**. The background engine includes automated maintenance tasks: **orphan thumbnail cleanup** (periodically sweeps the cache directory to remove orphaned files whose galleries no longer exist in the database, reclaiming storage) and a **periodic seeding mechanism** (regularly checks and seeds missing cover and page thumbnail generation jobs for newly ingested or incomplete galleries), ensuring cache completeness without accumulating stale files.
 - **Telegram (Collapsed)**: bot token, chat ID, allowed user IDs, **notification level** (summary / immediate / failures-only / off) and **notification language** (中文 / English) — download, scan, favorites-check, 302 challenge alerts (🚨 trigger/✅ clearance), and bot-reply notifications all use the selected language, formatted as Telegram HTML (bold titles, mono gids); gallery titles are never translated. A **Send test message** button verifies the bot can reach the chat.
 - **PWA**: add to home screen. The service worker caches only the html/css/js shell (js/css **network-first**, then update the cache; offline falls back to cache), **not gallery images or `/api/`**.
@@ -31,41 +32,9 @@ This guide covers GalleryVault's system settings, client and OPDS integration, T
 
 ## What Needs the Network
 
-| Class | Operation | Note |
-| --- | --- | --- |
-| Fetches from ExHentai | Discover page search | Fetches from ExHentai |
-| Fetches from ExHentai | Popular | Fetches from ExHentai |
-| Fetches from ExHentai | Watched | Fetches from ExHentai |
-| Fetches from ExHentai | Toplist | Fetches from ExHentai |
-| Fetches from ExHentai | Download execution (gdata / gallery page / showpage / H@H) | Fetches from ExHentai |
-| Fetches from ExHentai | Original images fullimg.php | Fetches from ExHentai |
-| Fetches from ExHentai | Archive archiver.php | Fetches from ExHentai |
-| Fetches from ExHentai | Archive preview & GP check | Fetches from ExHentai |
-| Fetches from ExHentai | Quota home.php / exchange.php | Fetches from ExHentai |
-| Fetches from ExHentai | Cookie test | Fetches from ExHentai |
-| Fetches from ExHentai | Favorites full sync favorites.php + gdata | Fetches from ExHentai |
-| Fetches from ExHentai | Sync category names | Fetches from ExHentai |
-| Fetches from ExHentai | Add / remove / move favorites & notes (writes DB after cloud success) | Writes local DB only after cloud success |
-| Fetches from ExHentai | Missing cover thumbnails | Fetches from ExHentai |
-| Fetches from ExHentai | Tag sync button & background worker | Fetches from ExHentai |
-| Fetches from ExHentai | Category "other" backfill | Fetches from ExHentai |
-| Fetches from ExHentai | Quality tier backfill | Fetches from ExHentai |
-| Fetches from GitHub (not EH) | EhTag translation updates | Accesses GitHub Releases, not ExHentai |
-| Local only | Library list & search | Does not contact EH |
-| Local only | Reader | Does not contact EH |
-| Local only | Thumbnails | Does not contact EH |
-| Local only | Reading progress & history | Does not contact EH |
-| Local only | Local ratings & private tags | Does not contact EH |
-| Local only | Export CBZ | Does not contact EH |
-| Local only | Recycle bin & delete | Does not contact EH |
-| Local only | Filesystem scan | Does not contact EH |
-| Local only | Gallery updates page (local comparison) | Local comparison, does not contact EH |
-| Local only | Deduplication | Does not contact EH |
-| Local only | Local lists | Does not contact EH |
-| Local only | Chinese tag completion | Does not contact EH |
-| Local only | System logs | Does not contact EH |
-| Local only | Disk usage | Does not contact EH |
-| Local only | OPDS | Does not contact EH |
-| Local first | Download enqueue (gdata only if metadata missing) | Remote gdata only when missing |
-| Local first | Gallery detail view | Reads local DB only |
-| Local first | Covers / category counts / quotas | Cached locally first |
+| Class | Operations |
+| --- | --- |
+| ExHentai | Discover (search / Popular / Watched / Toplist), downloads (gdata / gallery page / H@H / original / Archive / GP & quota), test login, favorites sync and add/remove/move, missing covers, tag sync, online category backfill, quality backfill |
+| GitHub | EhTag “Update now” (not EH) |
+| Local only | Library search, reader, thumbnails, progress/history, local stars and lists, CBZ export, recycle bin, disk scan, updates comparison, dedupe, logs, disk usage, OPDS, **local category repair** |
+| Local first | Enqueue hits gdata only if metadata is missing; detail reads DB; covers/quota use cache first |

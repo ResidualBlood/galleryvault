@@ -6,7 +6,7 @@
 
 GalleryVault is built as a single-page application (SPA) using hash routing (such as `#/library`, `#/gallery/7`), meaning page navigation, browser refresh, and history traversal require no extra server round-trips.
 
-Desktop top navigation includes Browse, Discover, Library, Tags, Downloads, Favorites, and "Management". History, Settings, and Logs are organized under the "More" dropdown. Clicking "Management" opens the Recycle Bin directly, with embedded tabs for Recycle Bin (`#/recycle`), Duplicate Copies (`#/duplicates`), and Missing Pages (`#/integrity`), while all legacy hash routes remain fully backward-compatible. Mobile layouts provide a clean, flat navigation menu.
+Desktop top nav: Browse, Discover, Library, **Series**, Tags, Downloads, Favorites, Manage. History / Settings / Logs live under More. Manage lands on the recycle bin (`#/recycle`) with tabs: Recycle, Duplicate copies (`#/duplicates`), Favorite duplicates (`#/duplicates/favorites`), Cross-GID (`#/duplicates/cross-gid`), Integrity (`#/integrity`), **Cold archive (`#/archive`)**. `#/favorites/manage` still opens favorite duplicates (legacy alias). Mobile uses a flat hamburger menu.
 
 The top banner stacks a yellow global-pause bar, a red Cookie-expired / no-access warning, and image quota alerts when necessary. The bell next to 🎲 serves as the **in-app notification center** (download completions/failures, library scan results, and cookie status polled every 15 seconds, visible even without Telegram configured; the Cookie red warning bar remains displayed; supports one-click "Clear"; timestamps follow the container local TZ rather than UTC truncation).
 
@@ -29,7 +29,7 @@ For optimal metadata accuracy and minimal network bandwidth consumption, follow 
 1. **Configure Account Cookies (Optional but Recommended)**: Connect your ExHentai account via the welcome wizard or Settings and verify login connectivity.
 2. **Cache Favorites Metadata First**: Navigate to [Favorites & Updates](Favorites-EN) (`#/favorites`) and click "Check all folders" (or configure periodic polling) to pre-warm remote metadata and cover images into local database storage.
 3. **Scan Local Library**: Place your local gallery archives into the `./library` directory and click "Scan library" in [Browsing & Library](Library-EN). Local archives will match against pre-cached cloud metadata with high fidelity.
-4. **Deduplication & Maintenance**: Open [Library Maintenance](Manage-EN) → Duplicate Copies (`#/duplicates`) to resolve cross-directory duplicates per policy; open [Favorites & Updates](Favorites-EN) → Manage Favorites (`#/favorites/manage`) to identify multi-version uploads.
+4. **Deduplication & Maintenance**: Open [Library Maintenance](Manage-EN) → Duplicate copies (`#/duplicates`) for same-GID extra copies; favorite-folder dupes are `#/duplicates/favorites` (legacy `#/favorites/manage` still works).
 5. **Incremental Tracking & Reading**: Enable desired favorite folders with "Incremental download" to track fresh uploads automatically; read locally in [Gallery Details & Reader](Reading-EN) with search context retention across multiple reading modes.
 
 ## Configuring ExHentai Cookies
@@ -78,16 +78,17 @@ The usage guide is divided into the following dedicated chapters:
 
 - **[Favorites & Updates (Favorites)](Favorites-EN)**:
   - [Favorites (#/favorites)](Favorites-EN#favorites-favorites) — Monitoring 10 favorite folders, automatic metadata application, skip heuristic, folder search, and batch moves.
-  - [Favorites Management & Deduplication (#/favorites/manage)](Favorites-EN#favorites-management--deduplication-favoritesmanage) — Multi-version deduplication across folders, batch removal, and physical file deletion.
+  - [Favorite duplicates (#/duplicates/favorites)](Manage-EN#duplicate-copies--deduplication-duplicates) — Multi-version dupes in favorite folders; legacy `#/favorites/manage` still works.
   - [Gallery Updates (#/updates)](Favorites-EN#gallery-updates-updates) — Intelligent re-upload detection (GID changes), background download, and automatic superseded local copy cleanup.
   - ["download favorites" vs. "enabled"](Favorites-EN#download-favorites-vs-enabled) — Logical matrix of global scheduled scanning versus per-folder enablement.
   - [The Three Modes](Favorites-EN#the-three-modes) — Incremental download, watch only, and force download mechanics.
 
 - **[Library Maintenance (Manage)](Manage-EN)**:
-  - [Duplicate Copies (#/duplicates)](Manage-EN#duplicate-copies-duplicates) — Cross-directory duplicate copy resolution policies (keep first / newest / largest / most pages or manual).
-  - [Recycle Bin (#/recycle)](Manage-EN#recycle-bin-recycle) — User deleted vs scan missing tabs, restorable rows, and permanent purging.
-  - [Missing Pages (#/integrity)](Manage-EN#missing-pages-integrity) — File page-count discrepancy audits and one-click page repair.
-  - [Logs (#/logs)](Manage-EN#logs-logs) — Live background task progress, runtime ring buffer logs, dynamic level adjustments, masking, and log export.
+  - [Duplicate copies (#/duplicates)](Manage-EN#duplicate-copies--deduplication-duplicates) — Same-GID extra copies, favorite dupes, cross-GID.
+  - [Recycle Bin (#/recycle)](Manage-EN#recycle-bin-recycle) — User deleted vs scan missing, restore, purge.
+  - [Integrity (#/integrity)](Manage-EN#missing-pages--integrity-integrity) — Missing/corrupt pages and incremental repair.
+  - [Cold archive (#/archive)](Manage-EN#cold-archive-archive) — Pack CBZ, cancel, purge archived sources.
+  - [Logs (#/logs)](Manage-EN#logs-logs) — Background tasks and runtime logs.
 
 - **[Settings (Settings)](Settings-EN)**:
   - [Settings (#/settings)](Settings-EN#settings-settings) — Storage directory paths, download watchdog thresholds, collapsible sections and disk usage snapshot, title preferences, Telegram bot controls, PWA, themes, and OPDS / third-party reader configuration.
@@ -117,7 +118,7 @@ If you have bookmarked specific section anchors from earlier versions of `Usage-
 | `#downloads-downloads` | [Download Management (Downloads)](Downloads-EN) | [Downloads (#/downloads)](Downloads-EN#downloads-downloads) |
 | `#logs-logs` | [Library Maintenance (Manage)](Manage-EN) | [Logs (#/logs)](Manage-EN#logs-logs) |
 | `#favorites-favorites` | [Favorites & Updates (Favorites)](Favorites-EN) | [Favorites (#/favorites)](Favorites-EN#favorites-favorites) |
-| `#manage-favorites-favoritesmanage` | [Favorites & Updates (Favorites)](Favorites-EN) | [Favorites Management & Deduplication (#/favorites/manage)](Favorites-EN#favorites-management--deduplication-favoritesmanage) |
+| `#manage-favorites-favoritesmanage` | [Library Maintenance (Manage)](Manage-EN) | [Favorite duplicates (#/duplicates/favorites)](Manage-EN#duplicate-copies--deduplication-duplicates) |
 | `#gallery-updates-updates` | [Favorites & Updates (Favorites)](Favorites-EN) | [Gallery Updates (#/updates)](Favorites-EN#gallery-updates-updates) |
 | `#archive-downloads-exhentai-official-zip-channel` | [Download Management (Downloads)](Downloads-EN) | [Archive Downloads (ExHentai archive)](Downloads-EN#archive-downloads-exhentai-archive) |
 | `#download-favorites-vs-enabled` | [Favorites & Updates (Favorites)](Favorites-EN) | ["download favorites" vs. "enabled"](Favorites-EN#download-favorites-vs-enabled) |

@@ -20,7 +20,3 @@
 - [备份与恢复](Backup) · [Backup](Backup-EN)
 - [静态加密](Encryption) · [Encryption](Encryption-EN)
 - [常见问题](FAQ) · [FAQ](FAQ-EN)
-
-**开发**
-- [API 参考](API)
-- [开发指南](Development)

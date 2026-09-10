@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>现代化私有画廊资产管理系统与云端同步中心</strong><br>
-  本地数字资产归档 · 深度元数据同步 · 智能生命周期追踪 · 原生静态加密 · 沉浸式阅读
+  <strong>自托管画廊库</strong><br>
+  扫描 Ehviewer 导出目录与 CBZ · 可选同步 E-Hentai / ExHentai 收藏 · 本机阅读
 </p>
 
 <p align="center">
@@ -18,70 +18,31 @@
 </p>
 
 <p align="center">
-  <strong>中文</strong> · <a href="README.en.md">English</a> · <a href="https://github.com/ResidualBlood/galleryvault/wiki">📖 在线完整文档</a>
+  <strong>中文</strong> · <a href="README.en.md">English</a> · <a href="https://github.com/ResidualBlood/galleryvault/wiki">Wiki</a>
 </p>
 
 ---
 
-GalleryVault 是专为个人数字收藏打造的**私有、自托管本地画廊资产库**。所有媒体文件、索引数据与收藏关系完全保存在您自己的机器或私有 NAS 上，无需依赖第三方云服务。
+文件、索引和收藏关系都在你自己的机器或 NAS 上。不配 Cookie 也能当本地库用；配了 Cookie 才能逛发现页、同步收藏夹、下载。
 
-系统原生支持直接扫描解析 Ehviewer 导出目录、CBZ/CBR 压缩包及普通图片文件夹，建立高保真全文检索索引；独家提供冷热分层存储架构（多挂载盘负载均衡冷归档与源目录安全反向清理）；支持系列作品智能聚类与管理、画廊缺页坏图体检与一键修复；提供云端元数据双向同步、收藏监控下载、版本重传追踪与智能跨 GID 查重治理；内置日漫、双页、条漫与动图自适应幻灯片阅读器，支持 OPDS 协议对接移动端；全栈提供 AES-256-GCM 数据库静态加密与多架构 Docker 一键部署。
+| 页面 | 路由 | 做什么 |
+| :--- | :--- | :--- |
+| 浏览 / 画廊库 / 标签 | `#/browse` `#/library` `#/tags` | 扫库、筛选、搜索、无限滚动 |
+| 系列 | `#/series` | 按标题聚类同人/漫画，可手工改组成员 |
+| 发现 | `#/discover` | 在线逛 Popular / Watched / Toplist（要 Cookie） |
+| 收藏 / 更新 | `#/favorites` `#/updates` | 十个收藏夹监控、增量下载、重传换 GID |
+| 下载 | `#/downloads` | 逐页或官方 Archive zip；失败指数退避 |
+| 管理 | `#/recycle` | 回收站、同 GID 副本、收藏夹重复、跨 GID、缺页体检、冷归档 |
+| 阅读器 | `#/reader/...` | RTL / 双页 / 条漫；GIF/WebP 幻灯片跟帧时长 |
+| 设置 / 日志 | `#/settings` `#/logs` | 路径、并发、加密会话、后台任务 |
 
-## 为什么选择 GalleryVault？
+也支持：本地列表与星级、OPDS（Tachiyomi / Mihon 等）、可选 AES-256-GCM 把 Cookie 等字段加密落库。
 
-不同于传统泛用型漫画服务或纯归档解压工具，GalleryVault 专注于画廊生态的完整生命周期治理与深度元数据联动：
-
-- ⚡ **Ehviewer 原生契合与零搬迁入库**：直接挂载 Ehviewer 导出的多层级目录结构即可识别索引，无缝读取 SpiderInfo（V1/V2）与 Sidecar 元数据，免除二次解压、重命名或重整归档的繁重开销。
-- 🧊 **冷热分层存储架构与空间治理**：热存储高速下载缓冲，冷存储多挂载卷按剩余空间自动均衡打包标准 CBZ 归档；提供已归档源目录安全反向清理（`purge-archived-sources`），具备活跃任务锁保护与空间即时释放。
-- 📚 **系列作品智能聚类与管理**：自动剥离同人展会与连载前缀，智能聚类同人本与漫画系列；支持手动新建系列、批量调整成员与扫库自动重构，全面打通本地与云端资产。
-- 🩺 **画廊缺页体检与一键差量修复**：深度体检落盘完整性，基于 magic header 校验坏图（防御 GIF/WebP 截断与空包），支持缺失/损坏单页一键差量重新下载与后台断点自愈。
-- 🎯 **画廊生命周期追踪与跨 GID 治理**：独家支持新旧版本重传识别（新旧 GID 变更追踪）一键原地替换；内置跨 GID 算法聚类（汉化/重传/无修对比）与收藏夹重复排查，彻底终结多版本冗余。
-- 🔄 **云端元数据深度联动与双向同步**：自动拉取分类、多语言标签与发布信息，支持本地与云端收藏夹双向映射、增量监控下载及分类秒级本地修复自愈（`repair-categories`）。
-- 🛡️ **细粒度并发调度与自愈看门狗**：具备任务级指数退避重试、分页并发流控、官方归档包断点续传（Range 复用不重扣配额）、H@H 慢速节点看门狗及 302 防爬挑战探针自动恢复。
-- 🔒 **全流程隐私安全与静态加密**：可选启用数据库字段级 AES-256-GCM 静态加密（`ENCRYPTION_KEY`），敏感凭证落库加密；支持 10 年免重登持久化签名会话与改密全局吊销。
-- 📖 **沉浸式全模式阅读与生态互联**：支持日漫（RTL）、韩漫瀑布流、双页并排阅读与动图（GIF/WebP）帧率自适应幻灯片轮播，原生开放 OPDS 协议兼容各大第三方阅读客户端。
-
----
-
-## 核心特性全景
-
-### 1. 本地资产归档与冷热分层架构
-- **冷热分层存储闭环**：
-  - **热存储工作区（Hot Storage）**：承载新下载与高频解压读取（`downloads/`），保证极速写入与即时入库。
-  - **冷存储归档卷（Cold Storage）**：支持多外部挂载根路径（`archive_roots`），按剩余磁盘空间自动负载均衡打包为标准化 CBZ 归档（`gid-gallery.title.cbz`）与 `.galleryvault.json` sidecar 索引。
-  - **已归档源目录安全清理**：冷归档完成后支持一键反向清理热存储原始解压目录，具备活跃下载任务锁定保护与物理存储容量实时扣减。
-- **画廊完整性体检与坏图修复**：全盘比对元数据与落盘页数差异，通过图片 magic header 严格校验坏图，支持一键全部或单页差量补拉重下。
-- **无缝目录解析**：扫描 `<gid>-<标题>/` 文件夹，自动读取 `.ehviewer`、JHenTai `metadata` JSON、CBZ/CBR 压缩包（ComicInfo.xml），完美恢复画廊元数据。
-- **格式弹性容错**：支持扫描 7z/PDF 压缩资源，仅解压图片流，不向宿主释放垃圾临时文件。
-
-### 2. 系列聚类与生命周期治理
-- **系列作品管理 (Series)**：自动识别同人展会（如 C100、COMIC1）与标题前缀剥离聚类；支持手动建系、成员加减、扫库自动重构，聚合本地与云端全量系列资产。
-- **跨 GID 智能查重治理**：算法聚类同作品不同 GID 的汉化版、图源重传版与无修正版，直观展示云端未入库对比，支持一键批量择优保留与清理冗余。
-- **版本更新自动追踪**：全天候比对云端重传与版本替换事件，智能识别更新版 GID，一键替换旧版画廊。
-- **分类秒级本地自愈**：内置本地分类自愈端点（`repair-categories`），秒级读取本地元数据修复被误归为 Misc/Other 的作品分类，无需消耗网络请求。
-
-### 3. 云端同步与收藏夹监控
-- **元数据批量回填**：利用自有凭据高效批量拉取分类、评分、详细标签，支持批量预热缩略图缓存。
-- **多收藏夹智能巡检**：支持 10 个收藏夹独立配置同步策略（增量下载、仅监控、定时同步），变动自动入队。
-- **收藏夹双向同步保护**：本地状态与云端收藏夹严格对齐，支持安全删除拦截与异常保护。
-
-### 4. 稳健的后台下载流水线
-- **分层下载引擎**：支持逐页并发流式下载与官方整包归档（Archive Zip）下载通道，断点续传绝不重复扣减 GP 配额。
-- **智能自愈与看门狗**：网络抖动自动触发指数退避重试（30s 至 6h，多达 10 次）；单图超时与低速 H@H 看门狗自动踢除卡死节点并重新轮换。
-- **反爬保护与全局流控**：遭遇 302 临时挑战时自动挂起所有调度并启动后台静默探针，限制全局并发，守护凭据安全。
-- **增量即时入库**：下载完成直接注入持久化索引，无需触发全量扫描。
-
-### 5. 极致阅读与跨端生态
-- **多阅读模式**：支持从右至左（RTL 日漫）、从左至右（LTR）、垂直瀑布流（条漫）、双页并排显示。
-- **动态图自适应幻灯片**：内置单页轻量级探针快速提取动图时长，智能解析 GIF/WebP 原生动画帧延迟，自动匹配轮播间隔，提供顺滑观赏体验。
-- **标签多维联想检索**：集成 EhTagTranslation 标签数据库，支持多标签 AND/OR 混合检索、反向中文联想与排除语法。
-- **开放客户端对接**：内置标准 OPDS 协议目录（`GET /api/opds`），可无缝对接 Tachiyomi、Mihon、Panels 等阅读客户端。
+截图见 [Wiki · 界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots)。
 
 ---
 
 ## 快速开始
-
-仅需 1 分钟即可通过 Docker Compose 启动全套服务：
 
 ```bash
 mkdir galleryvault && cd galleryvault
@@ -89,92 +50,62 @@ curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/doc
 docker compose up -d
 ```
 
-### 1. 访问与初始化
-- 打开浏览器访问 **`http://<主机IP>:8000`**（API 后端位于 `:8001`）。
-- 使用初始默认口令 **`p1a2s3s4`** 登录。
-- **安全建议**：登录后请第一时间进入「设置」修改管理员密码。
+1. 打开 `http://<主机IP>:8000`（API 只绑 `127.0.0.1:8001`，经前端反代）。
+2. 默认密码 **`p1a2s3s4`**。首次登录会进 `#/welcome`，必须改密。
+3. 把已有画廊放到 `./library`，在画廊库点 **扫描库**。下载会写入 `./downloads`，不会写进 library。
 
-### 2. 数据目录映射说明
+### 目录
 
-| 本地路径 | 容器内挂载点 | 说明 |
+| 本地路径 | 容器内 | 说明 |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql/data` | PostgreSQL 核心数据库（索引、设置、历史），持久化保存 |
-| `./library` | `/library` | 本地画廊库（已有 Ehviewer 目录、CBZ/CBR 等），下载不会写入此目录 |
-| `./downloads` | `/downloads` | 下载存储目录，新下载文件落盘于此并自动即时入库 |
-| `./cache` | `/gv-cache` | 缩略图与封面本地缓存目录，避免反复消耗外部流量 |
-| `./Archive` | `/archive` | （可选）冷数据归档目录，支持挂载多块外部硬盘或 NAS 共享卷 |
+| `./db-data` | `/var/lib/postgresql/data` | PostgreSQL（容器 UID 999，不要 chown 成自己） |
+| `./library` | `/library` | 已有库；下载不写这里。只读挂载时删文件会失败并记日志 |
+| `./downloads` | `/downloads` | 新下载落盘并即时入库 |
+| `./cache` | `/gv-cache` | 缩略图 / 封面缓存 |
+| `./Archive` | `/archive` | **可选**，compose 里默认注释。启用后在设置填 `archive_roots` |
 
-### 3. 核心环境变量速查
+冷归档要自己加卷，例如 `- ./Archive:/archive`，保存设置后再在 **管理 → 冷库归档**（`#/archive`）打包 CBZ。文件名固定 `gid-英文标题.cbz`，不跟界面标题语言走。
 
-在 `docker-compose.yml` 中可按需启用高级安全与环境配置：
+### 环境变量
 
-- `ENCRYPTION_KEY`：用于数据库字段级静态加密的 32 字节 Hex 密钥。配置后自动加密存储会话凭据、Cookie 与签名密钥。
-- `AUTH_SECRET`：Web 会话 Cookie 签名密钥。默认自适应随机生成并入库持久化；显式配置可用于多节点统一管理。
-- `PUID` / `PGID`：设置后端运行的用户与用户组 ID（如 `1000:1000`），避免在非 root NAS 环境中产生文件属主冲突。
-- `TRUSTED_PROXIES`：反向代理受信网段或 IP（如 `127.0.0.1,192.168.1.0/24`），确保真实客户端 IP 限速与防伪造校验生效。
+写在 `docker-compose.yml` 的 backend `environment`：
 
----
+- `ENCRYPTION_KEY`：任意足够长的随机串（不是 32 字节 Hex）。设置后 Cookie / bot token / 密码哈希以 AES-256-GCM 落库。丢失则密文无法解密，见 [加密](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)。
+- `AUTH_SECRET`：会话签名。不填则首次启动生成并写入数据库。
+- `PUID` / `PGID`：NAS 上避免下载文件属主变成 root。
+- `TRUSTED_PROXIES`：反代网段，例如 `127.0.0.1,192.168.1.0/24`。
+- `POSTGRES_PASSWORD`：数据库密码，默认 `galleryvault`。
 
-## 界面一览
-
-> 提示：文档与截图均已做安全合规化处理。
-
-| 模块 | 中文界面 | English UI |
-| :--- | :--- | :--- |
-| **画廊资产库** | <img src="docs/screenshots/library_zh.png" alt="画廊库界面" width="400"> | <img src="docs/screenshots/library_en.png" alt="Library UI" width="400"> |
-| **多维标签云** | <img src="docs/screenshots/tags_zh.png" alt="标签云页面" width="400"> | <img src="docs/screenshots/tags_en.png" alt="Tag Cloud UI" width="400"> |
-| **收藏夹智能查重** | <img src="docs/screenshots/fav_dedupe_zh.png" alt="收藏夹查重" width="400"> | <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorites Dedupe UI" width="400"> |
-| **双向监控与同步** | <img src="docs/screenshots/fav_monitor_zh.png" alt="双向监控" width="400"> | <img src="docs/screenshots/fav_monitor_en.png" alt="Favorites Monitor UI" width="400"> |
-| **下载任务调度** | <img src="docs/screenshots/downloads_zh.png" alt="下载管理" width="400"> | <img src="docs/screenshots/downloads_en.png" alt="Downloads Manager UI" width="400"> |
-| **版本更新追踪** | <img src="docs/screenshots/updates_zh.png" alt="更新追踪" width="400"> | <img src="docs/screenshots/updates_en.png" alt="Updates Tracker UI" width="400"> |
+路径类配置（库根、下载根、归档根）只在 Web 设置里改，不要用环境变量覆盖。
 
 ---
 
-## 客户端与生态支持
+## 文档
 
-| 生态分类 | 客户端 / 工具 | 兼容性与集成机制 |
-| :--- | :--- | :--- |
-| **Ehviewer 原生家族** | Ehviewer_CN_SXJ, FooIbar, Overhauled, NekoWhite, MHViewer, Apple, OHOS | 原生零改动读取 `<gid>-<标题>/` 目录与 SpiderInfo V1/V2 元数据 |
-| **跨平台客户端** | JHenTai (Flutter 全平台) | 原生自动识别 `metadata` JSON 文件并无损还原分类、标签与状态 |
-| **移动阅读客户端** | Tachiyomi, Mihon, Panels, Komikku | 通过内置 OPDS 协议规范（`GET /api/opds`）直接添加目录源 |
-| **标准归档文件** | CBZ, CBR, 7z, PDF | 支持包含 ComicInfo.xml 的压缩包与纯图片目录索引 |
+- [入门](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — 向导、Cookie、顶栏入口
+- [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — 挂载、Nginx/Caddy、冷热存储
+- [库维护](https://github.com/ResidualBlood/galleryvault/wiki/Manage) — 查重、缺页、冷归档、日志
+- [设置](https://github.com/ResidualBlood/galleryvault/wiki/Settings) — 并发、归档、OPDS
+- [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
 
----
-
-## 文档指引
-
-完整进阶指南与规范请参阅 **[GitHub Wiki 知识库](https://github.com/ResidualBlood/galleryvault/wiki)**：
-
-- **[使用指南 (Usage Guide)](https://github.com/ResidualBlood/galleryvault/wiki/Usage)** — 资产检索、阅读器手势、下载策略、收藏夹监控与查重深度教程
-- **[功能特性 (Features)](https://github.com/ResidualBlood/galleryvault/wiki/Features)** — 全量特性矩阵与底层系统架构说明
-- **[部署指南 (Deployment)](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)** — Nginx / Caddy 反向代理、TLS 证书加固、非 root 权限与冷热分层存储
-- **[数据加密 (Encryption)](https://github.com/ResidualBlood/galleryvault/wiki/Encryption)** — 静态加密原理、密钥迁移与容灾应急恢复
-- **[常见问题 (FAQ)](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)** — 安装排错、网络调度诊断、标签翻译与会话机制答疑
-
----
-
-## 运维诊断工具
-
-仓库在 `scripts/` 目录内置了开箱即用的自动化运维与性能分析工具：
-
-- **`scripts/monitor_prod_logs.sh`**：远程实时监听生产环境多容器日志流，自动归档本地临时镜像。
-- **`scripts/analyze_prod_logs.py`**：智能分析服务日志归档，统计异常调用、状态码分布、高频请求及慢耗时热点。
+兼容客户端（Ehviewer 家族、JHenTai、OPDS 阅读器）见 [Compatibility](https://github.com/ResidualBlood/galleryvault/wiki/Compatibility)。
 
 ---
 
 ## 致谢
 
-- **Ehviewer_CN_SXJ**：目录组织与多层元数据规范设计参考。
-- **EhTagTranslation**：提供高质量多语言标签元数据库与更新机制。
-- **ehsyringe**：标签翻译格式化与数据规范整理支持。
+- Ehviewer_CN_SXJ — 目录与 SpiderInfo 约定
+- EhTagTranslation — 标签词库
+- ehsyringe — 翻译数据整理
 
 ---
 
 ## 免责声明
 
-### 1. NSFW / 18+ Adult Content Warning（成年人使用与内容警示）
-GalleryVault 设计用于个人私有媒体归档与组织，其技术架构支持由用户自行管理与浏览包括但不限于成人（NSFW / 18+）向的数字图集。**本软件仅供达到法定成年年龄（如 18 周岁及以上）的成年人使用**。如果您未满法定年龄，或您所在地区禁止接触或存储成人向内容，请立即停止使用并卸载本软件。
+### 1. NSFW / 18+
 
-### 2. 第三方内容与版权中立声明
-GalleryVault 是一款纯本地自托管的技术工具，**系统本身不提供、不捆绑、不托管、亦不在公网分发任何受版权保护的媒体资源文件**。软件内涉及第三方云端服务（如 E-Hentai / ExHentai）的元数据解析与同步功能，均依赖用户自行提供和配置私有凭据。用户对其通过本软件检索、下载、存储与传播的所有数据承担完全且独立的法律责任。开发者不对用户的任何侵权行为、数据滥用或因违反第三方平台服务条款而产生的后果承担任何连带法律责任。
+本软件供个人在私有设备上整理媒体。可能被用来存放成人内容。**仅供达到法定成年年龄者使用**。未满法定年龄或当地法律禁止的，请停止使用。
 
+### 2. 第三方内容
+
+GalleryVault **不托管、不分发**任何媒体文件。连 E-Hentai / ExHentai 需要你自己的 Cookie。检索、下载、存储的法律责任由使用者自行承担。

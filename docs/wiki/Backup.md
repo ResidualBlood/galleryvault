@@ -4,10 +4,14 @@
 
 ## 备份
 
-`scripts/backup.sh` 在线 `pg_dump`，不停服务。在 `docker-compose.yml` 所在目录运行：
+完整仓库里的 `scripts/backup.sh` 做在线 `pg_dump`（不停服务）。**只 curl 了 `docker-compose.yml` 的目录没有这个脚本**，请用下面的 `pg_dump`，或先克隆仓库。
 
 ```bash
+# 有完整仓库时：
 ./scripts/backup.sh        # 生成 backups/galleryvault_<时间戳>.dump，保留最近 14 份
+
+# 等价：
+docker compose exec -T db pg_dump -U galleryvault -Fc galleryvault > backups/galleryvault_$(date +%Y%m%d).dump
 ```
 
 推荐通过 cron 每日执行，例如：
@@ -107,11 +111,4 @@ GalleryVault 支持通过分层冷存储降低热盘占用，并在备份与跨�
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
   ```
 
-  **在 Docker 容器内一行执行**：
-  ```bash
-  # 演练检查容器内冷库目录的超长文件名：
-  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive --dry-run
-
-  # 容器内批量对齐并重命名：
-  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive
-  ```
+  **不要在容器里跑 `/app/scripts/repair_cbz_filenames.py`**（镜像未拷贝仓库根 `scripts/`）。在宿主机对挂载目录执行上一节命令。容器内清洗用上面的 `repair_cold_archives.py`。

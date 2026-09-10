@@ -91,15 +91,13 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 - **现行规范与英文固定命名**：
   - 系统全面采用 **243 字节截断规范**（为 `.cbz.partial` 预留 12 字节后缀缓冲，确保总名 ≤ 255 字节），并将目录名上限设为 247 字节。
   - 冷归档 CBZ 强制采用英文/罗马音 canonical 规则（`gid-gallery.title.cbz`），不仅彻底消灭超长异常，还能跨 Linux/Windows/Mac 以及 NFS/SMB/WebDAV 协议与网盘备份工具无缝兼容，杜绝编码乱码。
-- **历史归档修复（Docker 一行命令）**：
-  若存有早期历史旧 CBZ 文件，可在容器内执行批量对齐工具：
-  ```bash
-  # 演练预览（注意将 /archive 替换为容器内挂载的冷库路径）：
-  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive --dry-run
-
-  # 正式对齐截断重命名：
-  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive
-  ```
+- **历史归档修复（宿主脚本）**：
+   该脚本在仓库根 `scripts/repair_cbz_filenames.py`，**没有打进 backend 镜像**。在克隆了完整仓库的宿主机上跑：
+   ```bash
+   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
+   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
+   ```
+   容器内清洗 sidecar / GID 用 `repair_cold_archives.py`（见下条）。
 
 ### 6. 本地画廊或冷库 CBZ 存在前导 GID 冗余污染（如 `[12345] 12345-标题`）如何批量清洗与修复？
 - **产生原因**：部分第三方移动端导出、外部爬虫或多次手动迁移命名时，可能在文件/目录名前端产生重复的前缀堆叠（如 `[12345] 12345-画廊名` 或 `12345-12345-画廊名`），导致扫库时识别出畸形标题或冷库索引混乱。
@@ -127,7 +125,7 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 ## 五、阅读器、标签与客户端生态
 
 ### 1. 为什么有些标签没有中文翻译？
-标签翻译数据直接来源于权威开源库 [EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)。未收录的新词、冷门创作者姓名或特定专有名词会保持原生显示。您可在「运行日志」页面随时点击「立即更新翻译」拉取最新数据。
+标签翻译来自 [EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)。未收录的词保持原文。在 **设置 → 标签** 点「立即更新」，进度在日志页看，按钮不在日志页。
 
 ### 2. 阅读器翻页后返回画廊库，此前的搜索条件还会保留吗？
 **完整保留**。阅读器具有完整的状态保持上下文，无论在阅读器内翻阅多少页，返回详情或列表时所有的多标签筛选、排序规则与页码均保持一致。

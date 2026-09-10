@@ -74,7 +74,7 @@ docker compose up -d
 | `./library` | `/library` | 读写 (`rw`) 或只读 (`ro`) | 主画廊库，存放已有归档，**下载任务绝不写入此目录** |
 | `./downloads` | `/downloads` | 读写 (`rw`) | 下载落盘目录，新下载文件在此生成并触发增量入库 |
 | `./cache` | `/gv-cache` | 读写 (`rw`) | 缩略图与封面缓存，避免高频请求重复拉取图片 |
-| `./Archive` | `/archive` | 读写 (`rw`) | （可选）分层冷存储归档目标卷，用于存放长期低频画廊 |
+| `./Archive` | `/archive` | 读写 (`rw`) | **可选**；compose 默认注释。启用后在设置填 `archive_roots` |
 
 ### 2. 冷热分层存储、多盘挂载与归档规则
 
@@ -279,11 +279,8 @@ Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，平�
   - `--target-dir`：待处理的旧 CBZ 文件目录；
   - `--max-bytes`：字节截断上限（默认 243 字节）；
   - `--dry-run`：仅演练输出拟截断列表。
-- **容器内一行命令**：
+- **宿主执行**（脚本在仓库根 `scripts/`，**未打进镜像**）：
   ```bash
-  # 演练检查：
-  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive1 --dry-run
-
-  # 正式执行重命名：
-  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive1
+  python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
+  python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
   ```

@@ -6,35 +6,65 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.10.1] - 2026-09-10
+## [1.11.0] - 2026-09-10
 
 ### Added
 
-- **Series management & automated clustering** (`backend/galleryvault/app/routers/series.py`, `frontend/assets/views/series.js`): 新增系列作品管理系统，支持漫画/同人展会前缀自动识别与标题剥离聚类；支持手动新建、编辑、重命名与删除系列，灵活关联本地与云端作品，支持资料库扫描后自动触发系列重构。
-- **Cross-GID duplicate clustering & governance** (`backend/galleryvault/app/routers/duplicates.py`, `backend/galleryvault/services/duplicates.py`, `frontend/assets/views/duplicates.js`): 重复管理新增跨 GID 重复治理视图，智能算法聚类同作品不同 GID（汉化版、重传版、无修版），展示云端未入库对比、分类与页数，提供一键批量保留与副本清理。
-- **Gallery integrity inspection & one-click page repair** (`backend/galleryvault/app/routers/galleries.py`, `backend/galleryvault/services/integrity_worker.py`, `frontend/assets/views/integrity.js`): 画廊完整性体检与修复系统，全盘校验落盘文件数与图片 magic header（支持 JPEG/PNG/WebP/GIF 魔数防截断），提供一键全量缺失/损坏单页差量补拉重下，支持任务进度实时回显与日志持久化。
-- **Purge archived sources endpoint** (`backend/galleryvault/app/routers/settings.py`, `frontend/assets/views/settings.js`): 新增冷归档源目录安全清理功能（`POST /api/system/purge-archived-sources`），画廊成功生成标准 CBZ 冷归档后，可一键安全清理热存储中的解压原始目录，具备活跃下载任务锁定保护与物理存储容量实时扣减。
-- **Instant local category backfill & repair** (`backend/galleryvault/app/routers/tasks.py`): 新增分类秒级本地自愈端点（`POST /api/tag-sync/repair-categories`），秒级读取本地已有元数据回填修复误归入 Misc/Other 的画廊大类，无需消耗网络配额。
-- **Reader slideshow auto-advance with animated duration adaptation** (`frontend/assets/views/reader.js`, `frontend/assets/views/gallery.js`): 阅读器新增自动幻灯片播放器，支持自定义秒数播放间隔与内联微调，智能解析 GIF/WebP 动图总播放时长与帧延迟自动延长时间，避免轮播抢切或残影。
-- **Page meta duration probe endpoint** (`backend/galleryvault/app/routers/galleries.py`): 新增单页轻量级二进制元数据探针端点（`GET /api/galleries/{identifier}/pages/{page_index}/meta`），无需解码整图即可快速提取单页动图动画属性（`animated`）与多帧总时长（`duration_ms`）。
-- **Multi-root cold storage archive balancing** (`backend/galleryvault/services/archiver.py`, `backend/galleryvault/app/routers/settings.py`): 冷归档支持配置多存储根目录（`archive_roots`），按可用剩余磁盘空间智能负载均衡写入，并规范采用英文标题安全命名规则（`gid-gallery.title.cbz`）。
-- **Offline maintenance & archive repair CLI tools** (`backend/galleryvault/scripts/repair_cold_archives.py`, `scripts/repair_cbz_filenames.py`): 提供宿主机与容器内开箱即用的离线自愈脚本，支持超长文件名规范化修复以及冷归档 `.galleryvault.json` sidecar 标题清洗与 GID 重建。
-- **Archive fallback flag database persistence** (`backend/alembic/versions/0037_add_archive_fallback_to_download_tasks.py`, `backend/galleryvault/db/models.py`, `backend/galleryvault/app/routers/downloads.py`): 下载任务新增 `archive_fallback` 字段入库持久化，彻底消除任务列表查询时对磁盘 `.archive.json` 临时文件的 N+1 频繁探测。
-- **Fast WebP animation duration stream parser** (`backend/galleryvault/app/routers/galleries.py`): 后端新增轻量级二进制流解析 WebP 动图时长方法，无需全量解码即可快速提取多帧总播放时长。
-- **Maintenance task translations in logs view** (`frontend/assets/locales/`): 日志页后台任务活动补全孤儿缩略图清理与周期播种等静默运维任务的中英文翻译与说明。
+- 前端中英 locale 键对齐，去掉设置/分页等硬编码文案。
 
 ### Changed
 
-- **Slideshow timing buffers and transition smoothing** (`frontend/assets/views/reader.js`): 幻灯片轮播为动图增加 100ms 缓冲并优化切换定时，避免动图循环截断与画面视觉残留。
-- **Download task title sanitization** (`backend/galleryvault/app/routers/downloads.py`): 下载任务列表标题统一去除 HTML 转义实体与冗余 GID 前缀，优化任务栏阅读视觉一致性。
+- README 中英精简为定位 + 页面表 + 可运行命令；`ENCRYPTION_KEY` 改为任意长随机串；`./Archive` 标明 compose 默认注释。
+- Wiki 按当前 SPA 路由重写：顶栏含 Series；管理 tab 为独立 hash（`#/duplicates`、`#/duplicates/favorites`、`#/duplicates/cross-gid`、`#/integrity`、`#/archive`）；Home 死链改到分册。
+- 缩略图端点 O(1) 旁路、SW cache v5、画廊无限滚动；worker 使用独立 DB 连接池。
 
 ### Fixed
 
-- **ExHentai 302 circuit breaker & auto-healing** (`backend/galleryvault/services/eh_client.py`): 引入 ExHentai 302 挑战熔断器与自愈探针机制，遭遇会话失效或临时重定向时立即挂起调度并启动退避探测，防止请求雪崩与凭据封禁。
-- **H@H bad node failover & timeout watchdog** (`backend/galleryvault/services/downloader.py`): 增强 H@H 节点下载看门狗，针对慢速节点卡死或网络超时自动请求官方重新分配可用节点，保障大图批量下载稳定性。
-- **Service Worker cache churn mitigation & thumbnail O(1) bypass** (`frontend/service-worker.js`, `frontend/assets/`): 优化前端 Service Worker 缓存策略，图片缩略图请求采用 O(1) 内存直通与旁路机制，彻底消除高频翻页时的 SW 缓存颠簸与内存膨胀。
-- **Backend router modularization & concurrency safety** (`backend/galleryvault/app/routers/`, `backend/galleryvault/services/`): 将后端庞大的路由层全面解耦拆分至独立的 `app/routers/` 模块，修复多处后台 Worker 与数据库事务的并发锁竞态，消除连接泄漏风险。
-- **Gitignore handoff and agent instructions** (`.gitignore`): 将 `HANDOFF.md` 与 `AGENTS.md` 明确追加至 gitignore，避免本地接手记录与调度规约意外提交。
+- `repair_cbz_filenames.py` 文档不再写成容器内 `/app/scripts/`（该脚本不在镜像里）。
+- CHANGELOG 补 `[1.10.0]`，打薄误记进 1.10.1 的 1.8/1.9 特性。
+
+## [1.10.1] - 2026-09-10
+
+系列、跨 GID、缺页体检、幻灯片、多根冷归档已在 1.8.x / 1.9.x 发布，不在此重复。
+
+### Changed
+
+- 下载进度查询扩大连接池，并在超时时回退。
+- 前端 Service Worker 升到 v4，静态资源加 `?v=` 避免旧缓存。
+- 前后端日志整理：系统日志最新在上。
+
+### Fixed
+
+- 下载写入校验 GIF / WebP，避免截断图落盘。
+- 停机时排空客户端连接，worker 协同缩容。
+- CI：series 脚本检查容忍 asset 版本 query；py7zr 升到 1.1.3。
+
+### Dependencies
+
+- ruff、pypdf、alembic、actions/cache 按 dependabot 更新。
+
+## [1.10.0] - 2026-09-09
+
+### Added
+
+- 已归档源目录清理：设置存储表与 `#/archive` 可删热目录解压源（跳过 pending/downloading）。
+- 本地分类修复：`POST /api/tag-sync/repair-categories`，不联网改 Misc/Other。
+- 设置页存储表增加画廊 / 图片 / 缩略图计数。
+- 离线脚本：`backend/galleryvault/scripts/repair_cold_archives.py`（容器内可用）、仓库根 `scripts/repair_cbz_filenames.py`（仅宿主）。
+- ExHentai 302 自动全局暂停、Telegram 告警、后台探针恢复。
+
+### Changed
+
+- 后端拆 service / UoW；后台 worker 缩短持有 DB 会话的时间。
+- `archive_fallback` 入库，任务列表不再 N+1 探 `.archive.json`。
+- 源目录清理改为后台任务。
+
+### Fixed
+
+- 分类误落入 Misc；CBZ 混合扩展名；慢 H@H 节点 `skip_hath` 轮换。
+- 截断图容忍与坏页修复；下载完成后才发「有更新」通知。
+- ComicInfo Writer 超长截断；扫库包含归档根；空的 download-retry-sweep 不写历史。
+- `.gitignore` 忽略 `HANDOFF.md` / `AGENTS.md`。
 
 ## [1.9.2] - 2026-09-07
 
@@ -1350,7 +1380,10 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.2...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.10.1...v1.11.0
+[1.10.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.10.0...v1.10.1
+[1.10.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.2...v1.10.0
 [1.9.2]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.8.3...v1.9.0

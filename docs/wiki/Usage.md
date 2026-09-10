@@ -6,7 +6,7 @@
 
 GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`、`#/gallery/7`），浏览器刷新与前进/后退均无需服务器往返。
 
-桌面端顶栏主入口包含 Browse（浏览）、Discover（发现）、Library（画廊库）、Tags（标签）、Downloads（下载）、Favorites（收藏夹）与「管理」；History（历史）、Settings（设置）、Logs（日志）收纳于「更多」下拉菜单中。点击「管理」直达回收站，并可通过页内标签自由切换回收站（`#/recycle`）、重复副本（`#/duplicates`）与缺页体检（`#/integrity`），旧 hash 路由完全向下兼容；移动端汉堡菜单保持扁平展示。
+桌面端顶栏：Browse（浏览）、Discover（发现）、Library（画廊库）、**Series（系列）**、Tags（标签）、Downloads（下载）、Favorites（收藏夹）、「管理」。History / Settings / Logs 在「更多」。点「管理」落到回收站（`#/recycle`），页内 tab 为：回收站、重复副本（`#/duplicates`）、收藏夹重复（`#/duplicates/favorites`）、跨 GID（`#/duplicates/cross-gid`）、缺页体检（`#/integrity`）、**冷库归档（`#/archive`）**。`#/favorites/manage` 仍指向收藏夹重复，仅作旧链兼容。移动端汉堡菜单扁平展示。
 
 顶栏可叠加黄条（全局暂停）、红条（Cookie 失效 / 无里站权限）与图片配额告警。🎲 旁的铃铛为**应用内通知中心**（下载完成/失败、扫库完成/失败、Cookie 失效/无权限；约 15 秒轮询，无需配置 Telegram 也可获知后台事件；Cookie 红条仍保留；面板支持一键「清空」；时间戳跟随容器 TZ 本地时区，非 UTC 截断）。
 
@@ -29,7 +29,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 1. **配置账户 Cookie（可选但推荐）**：在向导或设置页中配置 ExHentai Cookie 并通过连通性测试。
 2. **先缓存收藏夹元数据**：前往 [收藏与更新](Favorites)（`#/favorites`）点击「立即检查所有」，优先将云端收藏夹元数据与封面预热至本地缓存。
 3. **扫描本地画廊入库**：将本地归档存入 `./library` 挂载目录，在 [浏览与库](Library) 点击「扫描库」。本地文件将自动比对云端已缓存元数据，实现高精度入库识别。
-4. **查重与维护**：进入 [库维护](Manage) 的「重复副本（`#/duplicates`）」按策略清理多目录冗余文件；进入 [收藏与更新](Favorites) 的「收藏夹管理（`#/favorites/manage`）」标记并清理云端不同版本重复画廊。
+4. **查重与维护**：进入 [库维护](Manage) → 重复副本（`#/duplicates`）清理同 GID 多目录副本；收藏夹重复用 `#/duplicates/favorites`（旧链 `#/favorites/manage` 仍可用）。
 5. **增量监控与日常阅读**：在收藏夹中启用目标文件夹并设为「增量下载」以追踪最新画廊；日常可在 [画廊详情与阅读](Reading) 中享受多模式阅读与搜索上下文保护。
 
 ## 配置 ExHentai Cookie
@@ -78,16 +78,17 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 
 - **[收藏与更新 (Favorites)](Favorites)**：
   - [收藏夹（#/favorites）](Favorites#收藏夹favorites) — 10 个收藏夹全量/单夹检查、元数据自动应用、跳过启发式、文件夹内排序与批量移动
-  - [收藏夹管理与查重（#/favorites/manage）](Favorites#收藏夹管理与查重favoritesmanage) — 同作品多版本查重、批量取消收藏与物理删除
+  - [收藏夹查重（#/duplicates/favorites）](Manage#重复副本与查重duplicates) — 同作品多版本查重；旧路由 `#/favorites/manage` 仍可用
   - [更新画廊（#/updates）](Favorites#更新画廊updates) — 重传换 GID 智能检测、新版下载与旧版本地副本安全级联删除
   - [「download favorites」与「启用」的区别](Favorites#download-favorites与启用的区别) — 全局定时检查总开关与单文件夹启用逻辑矩阵
   - [三种模式的区别](Favorites#三种模式的区别) — 增量下载、仅监控、强制下载的行为机制
 
 - **[库维护 (Manage)](Manage)**：
-  - [重复副本（#/duplicates）](Manage#重复副本duplicates) — 跨扫描目录重复画廊（相同 GID）策略去重（保留已入库/新/大/多页或手动）
-  - [回收站（#/recycle）](Manage#回收站recycle) — 用户删除与扫描失踪双分页、安全恢复与彻底删除
-  - [缺页体检（#/integrity）](Manage#缺页体检integrity) — 记录页数与磁盘页数不一致扫描与一键补页
-  - [日志页（#/logs）](Manage#日志页logs) — 后台任务实时进度与取消、系统运行时内存环形日志、动态调级、脱敏与导出
+  - [重复副本（#/duplicates）](Manage#重复副本与查重duplicates) — 同 GID 多目录副本、收藏夹重复、跨 GID
+  - [回收站（#/recycle）](Manage#回收站recycle) — 用户删除与扫描失踪、恢复与彻底删除
+  - [缺页体检（#/integrity）](Manage#缺页体检integrity) — 缺页/坏图扫描与差量补页
+  - [冷库归档（#/archive）](Manage#冷库归档archive) — 打包 CBZ、取消任务、清理已归档源目录
+  - [日志页（#/logs）](Manage#日志页logs) — 后台任务与系统日志
 
 - **[系统设置 (Settings)](Settings)**：
   - [设置（#/settings）](Settings#设置settings) — 库根目录、下载看门狗与并发调优、分区折叠与磁盘用量快照、标题显示（日文/英文/目录名）、账户安全、Telegram Bot 控制命令、PWA、主题、OPDS 与第三方客户端接入（Basic 鉴权）
@@ -117,7 +118,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 | `#下载页downloads` | [下载管理 (Downloads)](Downloads) | [下载页（#/downloads）](Downloads#下载页downloads) |
 | `#日志页logs` | [库维护 (Manage)](Manage) | [日志页（#/logs）](Manage#日志页logs) |
 | `#收藏夹favorites` | [收藏与更新 (Favorites)](Favorites) | [收藏夹（#/favorites）](Favorites#收藏夹favorites) |
-| `#收藏夹管理` | [收藏与更新 (Favorites)](Favorites) | [收藏夹管理与查重（#/favorites/manage）](Favorites#收藏夹管理与查重favoritesmanage) |
+| `#收藏夹管理` | [库维护 (Manage)](Manage) | [收藏夹重复（#/duplicates/favorites）](Manage#重复副本与查重duplicates) |
 | `#更新画廊` | [收藏与更新 (Favorites)](Favorites) | [更新画廊（#/updates）](Favorites#更新画廊updates) |
 | `#归档下载exhentai-archive整包-zip` | [下载管理 (Downloads)](Downloads) | [归档下载（ExHentai archive）](Downloads#归档下载exhentai-archive) |
 | `#download-favorites与启用的区别` | [收藏与更新 (Favorites)](Favorites) | [「download favorites」与「启用」的区别](Favorites#download-favorites与启用的区别) |

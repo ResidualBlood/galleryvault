@@ -12,23 +12,18 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Web Frontend (Vanilla SPA)              │
-│  Library  ·  Tag Cloud  ·  Favorites Monitor  ·  Updates    │
+│  SPA  :8000                                                  │
+│  Browse · Discover · Library · Series · Tags · Downloads     │
+│  Favorites · Manage(recycle/dup/integrity/archive) · Reader  │
 └──────────────┬───────────────────────────────▲──────────────┘
-               │ HTTP / JSON API (:8000)       │
+               │ /api proxy                    │
 ┌──────────────▼───────────────────────────────┴──────────────┐
-│                    FastAPI Backend Core (:8001)             │
-│  ┌────────────────────────┐   ┌───────────────────────────┐ │
-│  │ Storage & Parsing      │   │ Concurrency & Downloads   │ │
-│  │ Ehviewer/Sidecar/CBZ   │   │ Rate Limiter / Watchdogs  │ │
-│  │ Cross-GID Deduplication│   │ Range Resume / 302 Probes │ │
-│  └───────────┬────────────┘   └─────────────┬─────────────┘ │
-│              │                              │               │
-│  ┌───────────▼──────────────────────────────▼─────────────┐ │
-│  │            State Engine & Persistent PostgreSQL          │ │
-│  │      AES-256-GCM Encryption at Rest · 10-yr Session     │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+│  FastAPI  127.0.0.1:8001                                     │
+│  Scan Ehviewer/CBZ  ·  Downloads/Archive  ·  Favorites      │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+         PostgreSQL (optional field encryption)
 ```
 
 ---
@@ -73,7 +68,7 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 - **Standard OPDS Catalog**: Exposes a standard OPDS endpoint (`GET /api/opds`) with HTTP Basic authentication for direct access in Tachiyomi, Mihon, and Panels.
 - **Recycle Bin & Audit Log**: Safely stages user-deleted or offline items in a restorable recycle bin with complete activity logs.
 
-### 6. Security Hardening & Production Reliability
+### 6. Security & deployment
 - **AES-256-GCM Database Encryption**: Encrypts sensitive credentials, cookies, and tokens at rest when `ENCRYPTION_KEY` is configured.
 - **10-Year Persistent Sessions**: Persists session cookie signing secrets in the database across container rebuilds and updates; immediate session invalidation on password updates.
 - **Unprivileged Runtime (PUID / PGID)**: Configurable runtime user and group mappings prevent host permission issues on private NAS environments; strict CSRF protection with trusted proxy whitelisting (`TRUSTED_PROXIES`).

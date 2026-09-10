@@ -25,9 +25,10 @@ This guide covers ExHentai favorites synchronization, monitoring policies, favor
 - Configuring **ExHentai cookies** (see [Usage Guide: Cookie Setup](Usage-EN#configuring-exhentai-cookies) or [Settings](Settings-EN) → ExHentai, stored encrypted in the database) is required — checks will fail and no favorites/covers are fetched without them.
 - **Archive Downloads & Updates**: Supports downloading or updating selected galleries via ExHentai's official zip channel (with a cost/balance preview popup); for details on execution, Range resumption, and fallback policies, see [Download Management → Archive Downloads](Downloads-EN#archive-downloads-exhentai-archive).
 
-## Favorites Management & Deduplication (`#/favorites/manage`)
+## Favorite duplicates (`#/duplicates/favorites`)
 
-- **Scan for duplicate galleries** groups different versions of the same work (DL / uncensored / language re-uploads) so you can bulk **unfavorite** or **unfavorite and delete the local copy** — this deletes every physical copy of the gid under the library roots; if a copy cannot be deleted (e.g. a read-only mount or permission problem) the toast and the Logs page report it, and the gallery row is kept so the next scan does not re-import it as a fresh gallery; false positives can be hidden with **Ignore selected**, and ignored items can be viewed and restored from the **Ignored items** page (`#/favorites/ignored`).
+- Primary entry: **Manage → Favorite duplicates**. Legacy `#/favorites/manage` opens the same page.
+- **Scan for duplicate galleries** groups versions of the same work (DL / uncensored / language re-uploads). Bulk **unfavorite** or **unfavorite and delete the local copy** (all physical copies of that gid under library roots; read-only failures toast + Logs, DB row kept so the next scan does not re-import). **Ignore selected** hides false positives; restore from `#/favorites/ignored`.
 
 ## Gallery Updates (`#/updates`)
 

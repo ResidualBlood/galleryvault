@@ -5,10 +5,14 @@ history; thumbnails and the gallery files themselves are rebuildable).
 
 ## Backup
 
-`scripts/backup.sh` runs `pg_dump` online; do not stop services. Run it from the directory containing `docker-compose.yml`:
+`scripts/backup.sh` in a full git clone runs `pg_dump` online (do not stop services). **A directory that only curled `docker-compose.yml` does not have this script** — use `pg_dump` below, or clone the repo.
 
 ```bash
+# Full clone:
 ./scripts/backup.sh        # writes backups/galleryvault_<timestamp>.dump, keeps the 14 most recent
+
+# Equivalent:
+docker compose exec -T db pg_dump -U galleryvault -Fc galleryvault > backups/galleryvault_$(date +%Y%m%d).dump
 ```
 
 Recommended via cron, for example:
@@ -70,8 +74,8 @@ Located at `scripts/repair_cbz_filenames.py`, this script aligns legacy CBZ file
   - **243-Byte Boundary Alignment**: Scans target archive directories and truncates legacy CBZ filenames to 243 UTF-8 bytes (leaving 12 bytes of headroom for `.cbz.partial` to stay strictly within the 255-byte limit).
   - **Eliminating Errno 36**: Completely eliminates `[Errno 36] File name too long` errors induced by multi-byte CJK titles during archiving or syncing.
 
-- **Usage**:
+- **Usage** (repo root `scripts/`; **not** inside the backend image):
   ```bash
-  # Scan and align legacy CBZ filenames in the target directory
+  python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
   ```

@@ -6,7 +6,7 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 
 ## Browse (`#/browse`)
 
-- The default landing page (an empty hash / unspecified route also lands here): a grid of the newest galleries, reverse-chronological, with numbered pagination.
+- The default landing page (empty hash / unspecified route lands here): newest galleries first. **Infinite scroll** loads the next page; the pager at the bottom is a fallback. Page size is remembered.
 - **Continue Reading Cards**: Top section automatically aggregates recently read galleries with cover thumbnails, reading progress bars, one-click resumption, and per-gallery "Mark as unread / ✕" (clears progress and removes the card from Continue Reading / History).
 - The **tag namespace strip** on top (Tag / Artist / Character / Parody / Group / Female / Male / Language) and a **random gallery** button (🎲, opens a random gallery's detail page).
 - The **global search box** in the top bar jumps to the library and runs the title search on Enter; pressing **`/`** anywhere focuses the search box.
