@@ -162,8 +162,11 @@ async def test_l9_existing_rows_prefilters_by_storage_path(
                     )
                     if "storage_path" in sql_str:
                         captured["sql"] = sql_str
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
+            return FakeResult()
+
+        async def scalars(self, *args, **kwargs):
             return FakeResult()
 
     service = repo.GalleryRepository(session=FakeSession())

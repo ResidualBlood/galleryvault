@@ -76,24 +76,33 @@ docker compose up -d
 | `./cache` | `/gv-cache` | 读写 (`rw`) | 缩略图与封面缓存，避免高频请求重复拉取图片 |
 | `./Archive` | `/archive` | 读写 (`rw`) | （可选）分层冷存储归档目标卷，用于存放长期低频画廊 |
 
-### 2. 冷热分层存储与多盘挂载
+### 2. 冷热分层存储、多盘挂载与归档规则
 
-如果您在 NAS 上拥有多块存储池或希望将既有下载目录作为**仅扫描不写入**的库，可按如下方式在 `docker-compose.yml` 中追加数据卷：
+如果您在 NAS 上拥有多块存储池或希望将既有下载目录作为**仅扫描不写入**的库，或希望利用多块硬盘作为冷归档池，可按如下方式在 `docker-compose.yml` 中追加数据卷：
 
 ```yaml
     volumes:
       - ./library:/library
       - ./downloads:/downloads
       - ./cache:/gv-cache
-      # 额外挂载多块外部硬盘或 NAS 共享路径：
+      # 额外挂载外部硬盘或多块 NAS 冷存储归档盘：
       - /mnt/storage_pool2/ehviewer_export:/mnt/pool2:ro
-      - /mnt/cold_archive/disk1:/archive1:rw
+      - /mnt/cold_disk1:/archive1:rw
+      - /mnt/cold_disk2:/archive2:rw
 ```
 
-**生效步骤**：
-1. 编辑 `docker-compose.yml` 中的 `backend.volumes` 并重启容器：`docker compose up -d backend`。
-2. 打开 Web 界面进入「系统设置 → 库根目录」，在多行文本框中填入容器内路径（如 `/mnt/pool2`，每行一个）并保存。
-3. 点击「扫描库」开始索引。系统会将这些目录统一汇聚至统一资产视图中。
+**生效与配置指引**：
+1. **更新数据卷**：编辑 `docker-compose.yml` 中的 `backend.volumes` 并重启容器：`docker compose up -d backend`。
+2. **多库扫描目录**：打开 Web 界面进入「系统设置 → 资料库 → 库根目录」，在多行文本框中填入只读或既有画廊路径（如 `/mnt/pool2`，每行一个）并保存，点击「扫描库」开始增量索引。
+3. **冷存储多根目录 (`archive_roots`) 与容量负载均衡**：
+   - 在「系统设置 → 资料库 → 冷归档目录」中填写多个冷存储挂载点（例如 `/archive1\n/archive2`）。
+   - **动态空间均衡**：当触发画廊冷归档任务时，归档服务（`ArchiverService`）自动通过 `statvfs` 实时检测所有配置路径的剩余磁盘可用空间，**智能优先写入空闲空间最大的存储盘**，实现真正的多盘自动化负载均衡。
+4. **英文固定命名规范 (`gid-gallery.title.cbz`)**：
+   - 为确保归档 CBZ 文件在跨平台、跨操作系统（Linux、Windows、macOS）及网络文件共享协议（SMB / NFS / WebDAV / rsync）与远程云备份同步时不发生字符集乱码或非法转义，冷归档统一强制采用官方英文/罗马音标题格式；
+   - 文件名应用严格的 **243 字节上限截断**（预留 12 字节临时后缀缓冲区），彻底规避 Linux ext4 文件系统的 `[Errno 36] File name too long` 错误。
+5. **安全反向清理已归档源目录 (`purge-archived-sources`)**：
+   - 当画廊在冷存储目录成功归档为 CBZ 后，可在「设置 → 存储面板」点击「清理已归档源目录」（`POST /api/system/purge-archived-sources`）。
+   - 该操作具备严格的防御保障：在冷热两端校验 GID 对应关系，**主动排除处于 pending / downloading 状态的活跃任务**，安全删除下载目录中的解压散图源文件夹并即时核减物理用量。
 
 ---
 
@@ -242,3 +251,39 @@ docker compose up -d
 ```
 
 Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，平滑升级无须手动介入。
+
+---
+
+## 运维工具与离线修复脚本速查
+
+针对多端迁移历史遗留的超长文件名或 GID 叠加污染，可在后端容器内直接调用内置的 Python 运维脚本：
+
+### 1. 冷库与本地目录全量修复 (`repair_cold_archives.py`)
+- **功能**：自动剥离前导重复 GID（如 `[12345] 12345-标题`），批量回查云端官方 GData API 清洗并重构 `.galleryvault.json` 索引。
+- **参数说明**：
+  - `--archive-dir`：容器内扫描修复的冷存储或画廊目录路径；
+  - `--dry-run`：安全演练模式，仅打印拟清洗重命名列表与元数据，不写入磁盘；
+  - `--batch-size`：批量请求 GData 接口的批大小（默认 25）。
+- **容器内一行命令**：
+  ```bash
+  # 演练预览：
+  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1 --dry-run
+
+  # 正式执行清洗：
+  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1
+  ```
+
+### 2. CBZ 超长文件名 243 字节对齐 (`repair_cbz_filenames.py`)
+- **功能**：将旧 CBZ 文件名按 Linux ext4 243 字节规范统一截断对齐，彻底根除 `[Errno 36] File name too long`。
+- **参数说明**：
+  - `--target-dir`：待处理的旧 CBZ 文件目录；
+  - `--max-bytes`：字节截断上限（默认 243 字节）；
+  - `--dry-run`：仅演练输出拟截断列表。
+- **容器内一行命令**：
+  ```bash
+  # 演练检查：
+  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive1 --dry-run
+
+  # 正式执行重命名：
+  docker compose exec backend python /app/scripts/repair_cbz_filenames.py --target-dir /archive1
+  ```

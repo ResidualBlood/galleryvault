@@ -177,7 +177,7 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
   const ssSec = parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5;
 
   return `
-    <div class="reader-bar toolbar">
+    <div class="reader-bar toolbar" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;justify-content:space-between;padding:4px 8px;">
       <a class="link-button" href="${navHash("gallery", { id }, readerContext())}">← ${esc(t("details"))}</a>
       <span class="reader-page-indicator" style="display:inline-flex;align-items:center;gap:4px;">
         <form data-action="reader-jump" style="display:inline-flex;align-items:center;margin:0;padding:0;">
@@ -185,9 +185,12 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
         </form>
         <span>${readerJumpSuffix(page, isDouble && page + 1 < total ? page + 1 : null, total, g.file_size || 0, isDouble)}</span>
       </span>
-      <span class="reader-actions">
-        ${esc(t("slideshowInterval"))} <input type="number" id="reader-slideshow-sec" class="form-control form-control-sm" style="min-width: 0 !important; width: 3.5rem; display: inline-block; margin-right: 0.5rem;" value="${ssSec}" min="1" title="${esc(t("slideshowInterval"))}">
-        <button class="btn btn-sm btn-icon" data-action="reader-slideshow" title="${esc(t("slideshow"))}">▶</button>
+      <span class="reader-actions" style="display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;">
+        <span class="reader-slideshow-box" style="display:inline-flex;align-items:center;gap:3px;background:var(--panel-2, rgba(0,0,0,0.05));padding:2px 6px;border-radius:4px;border:1px solid var(--line);">
+          <span class="reader-slideshow-lbl" style="font-size:12px;opacity:0.85;">${esc(t("slideshowInterval"))}</span>
+          <input type="number" id="reader-slideshow-sec" class="form-control form-control-sm" style="min-width:0!important;width:2.8rem;padding:2px 4px;text-align:center;font-size:12px;display:inline-block;" value="${ssSec}" min="1" title="${esc(t("slideshowInterval"))}">
+          <button class="btn btn-sm btn-icon" data-action="reader-slideshow" title="${esc(t("slideshow"))}" style="padding:2px 8px;font-size:12px;">▶</button>
+        </span>
         <button class="btn btn-secondary" data-action="reader-mode" type="button" title="${esc(t("readerMode"))}">${esc(t("readerMode"))}: ${esc(readerModeLabel(mode))}</button>
         <button class="btn btn-secondary" data-action="reader-fit" type="button">${esc(t("readerFit"))}</button>
         <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
@@ -741,7 +744,8 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
         return;
       }
       if (res && res.animated && typeof res.duration_ms === "number" && res.duration_ms > 0) {
-        delayMs = res.duration_ms;
+        // 动图自适应轮播：至少保证完整播放一个动画周期 + 150ms 缓冲防首尾帧撕裂，同时尊重用户设置的间隔
+        delayMs = Math.max(userIntervalMs, res.duration_ms + 150);
       }
     } catch (_) {
       // ignore network errors and fallback to userIntervalMs

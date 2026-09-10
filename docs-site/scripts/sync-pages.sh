@@ -13,6 +13,9 @@ BACKEND_DOCS="${BACKEND_DOCS:-$REPO_ROOT/backend/docs}"
 
 mkdir -p "$DST_DIR"
 
+# Clean up previously synced generated markdown pages to avoid stale files
+find "$DST_DIR" -maxdepth 1 -name '*.md' ! -name 'README.md' -exec rm -f {} +
+
 # wiki pages: every .md except the GitHub-wiki-only _Sidebar.md
 find "$SRC_DIR" -maxdepth 1 -name '*.md' ! -name '_Sidebar.md' -exec cp {} "$DST_DIR/" \;
 

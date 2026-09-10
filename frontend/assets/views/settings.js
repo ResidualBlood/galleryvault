@@ -201,6 +201,12 @@ async function renderSettings() {
           <div class="toolbar"><button class="btn btn-secondary" data-action="force-update" type="button">${esc(t("forceUpdate"))}</button></div>
           <p class="notice">${esc(t("translationStatus"))}: <span id="trans-status">${esc(s.translation ? s.translation : "")}</span></p>
         </div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);">
+          <div class="toolbar">
+            <button class="btn btn-secondary" id="btn-repair-categories" data-action="repair-categories" type="button" onclick="repairCategories(this)">${esc(t("repair_categories_btn"))}</button>
+          </div>
+          <p class="notice">${esc(t("repair_categories_hint"))}</p>
+        </div>
       </fieldset>
       <fieldset><legend>${app.lang === "zh" ? "缩略图" : "Thumbnails"}</legend>
         <label class="checkbox"><input type="checkbox" name="generate_thumbnails"${s.generate_thumbnails ? " checked" : ""}> ${esc(t("generateThumbnails"))}</label>
@@ -345,7 +351,15 @@ async function fillStorageDash() {
     const largest = (d.largest || []).map(it =>
       `<li><a href="${navHash("gallery", { id: it.id }, { from: currentFromPath() })}">${esc(it.title)}</a> · ${fmtSize(it.storage_size || 0)}</li>`
     ).join("");
-    const purgeBtnHtml = `<div style="margin:12px 0 16px"><button class="btn btn-secondary btn-sm" type="button" data-action="archive-purge-sources">${esc(t("purgeArchivedSourcesBtn"))}</button></div>`;
+    const purgeSafetyNote = t("purge_archived_sources_tip");
+    const purgeBtnHtml = `
+      <div style="margin:14px 0 16px;padding:12px;background:var(--panel-2, rgba(0,0,0,0.05));border-radius:6px;border:1px solid var(--line);">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" type="button" data-action="archive-purge-sources">${esc(t("purge_archived_sources_btn"))}</button>
+          <span class="badge" style="color:var(--success, #4caf50)">${esc(t("purge_safemode_active"))}</span>
+        </div>
+        <p class="notice" style="margin:8px 0 0;font-size:12px;line-height:1.5;">${esc(purgeSafetyNote)}</p>
+      </div>`;
     el.innerHTML = tableHtml +
       purgeBtnHtml +
       `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;
@@ -394,3 +408,33 @@ async function generateThumbnails() {
     pollLogs();
   } catch (e) { toast(e.message); }
 }
+
+async function repairCategories(btn) {
+  const origText = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = t("repair_categories_running");
+  }
+  try {
+    const r = await api("POST", "/api/tag-sync/repair-categories");
+    const rep = (r && r.repaired != null) ? r.repaired : 0;
+    const tot = (r && r.total != null) ? r.total : 0;
+    const msg = t("repair_categories_done", { repaired: rep, total: tot });
+    toast(msg);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+}
+window.repairCategories = repairCategories;
+
+document.addEventListener("click", e => {
+  const btn = e.target.closest && e.target.closest('[data-action="repair-categories"]');
+  if (btn && !btn.disabled) {
+    repairCategories(btn);
+  }
+});

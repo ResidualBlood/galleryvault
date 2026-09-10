@@ -45,8 +45,8 @@ export default defineConfig({
       {
         text: "开发",
         items: [
-          { text: "API 参考", link: "/API" },
-          { text: "开发指南", link: "/Development" },
+          { text: "API 参考 (API Reference)", link: "/API" },
+          { text: "开发指南 (Development)", link: "/Development" },
         ],
       },
       { text: "English", link: "/Home-EN" },
@@ -112,7 +112,9 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: "API 参考", link: "/API" },
+          { text: "API Reference (EN/ZH)", link: "/API" },
           { text: "开发指南", link: "/Development" },
+          { text: "Development Guide (EN/ZH)", link: "/Development" },
         ],
       },
     ],

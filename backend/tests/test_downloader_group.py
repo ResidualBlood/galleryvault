@@ -702,7 +702,12 @@ class _CancelSettings:
 
 
 def _patch_cancel_context(monkeypatch: pytest.MonkeyPatch, *, row_provider: Any, downloader: Any) -> list[Any]:
-    monkeypatch.setattr(app_state, "session_factory", lambda: _CancelSession(row_provider))
+    session_factory = lambda: _CancelSession(row_provider)
+    monkeypatch.setattr(app_state, "session_factory", session_factory)
+    monkeypatch.setattr(app_state, "worker_session_factory", None)
+    monkeypatch.setattr(app_state, "worker_engine", None)
+    monkeypatch.setattr(app_state, "_worker_bound_loop", None)
+    monkeypatch.setattr(download_worker, "_get_background_session_factory", lambda: session_factory)
     monkeypatch.setattr(app_state, "downloader", downloader)
     monkeypatch.setattr(app_state, "settings", _CancelSettings(Path("/tmp")))
     monkeypatch.setattr(download_worker, "maybe_scan_after_download", lambda result: None)

@@ -464,6 +464,20 @@ function applyCrossGidFilter(groups) {
 }
 
 async function renderCrossGidDuplicates() {
+  const isZh = app.lang === "zh";
+  const xgidInfoSummary = isZh ? "跨 GID 查重聚类打分机制与云端对比决策说明" : "Cross-GID Clustering Score & Cloud Comparison Guidelines";
+  const xgidInfoDetail = isZh
+    ? `<ul style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.6;color:var(--text-muted, #888);">
+        <li><strong>多维度相似度聚类打分</strong>：算法首先对标题进行规范化清洗（智能剥离 <code>[汉化组]</code>、<code>(展会/同人志)</code>、<code>[DL版/无修]</code> 等前缀后缀与语言标签），结合页数容差公差与画廊作者标签进行加权聚类打分，将同一作品的不同版本（原版、重传版、汉化版）归入同一组。</li>
+        <li><strong>云端未入库对比 (Cloud) vs 本地画廊 (Local)</strong>：列表清晰标明每条副本是已下载落盘的本地作品还是仅在 ExHentai 云端收藏夹中的条目。</li>
+        <li><strong>安全决策指引</strong>：对比各版本的画质、页数（P）与文件大小：可保留高质量或完整汉化版本，勾选冗余项后执行「取消收藏」或「取消收藏并删除本地画廊」；对误聚类的条目可点击「忽略」加入白名单。</li>
+      </ul>`
+    : `<ul style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.6;color:var(--text-muted, #888);">
+        <li><strong>Multi-Factor Clustering & Scoring</strong>: Normalizes gallery titles (stripping conventions, circle names, translator tags, and DL edition markers), weighted by page count tolerances and artist matching to group different revisions of the same work.</li>
+        <li><strong>Cloud Favorites vs Local Copies</strong>: Clearly indicates whether an item is already downloaded in local storage or solely exists in cloud favorites.</li>
+        <li><strong>Decision Strategy</strong>: Compare page count (P), file size, and translation tier to keep the best version. Select redundant entries to unfavorite or delete local files safely. Misgrouped items can be added to the ignored list.</li>
+      </ul>`;
+
   const filterBtn = (val, label) =>
     `<button class="secondary${dupXgidFilter === val ? " active-pill" : ""}" data-action="dupxgid-filter" data-value="${val}" type="button">${esc(label)}</button>`;
   $view().innerHTML = `
@@ -482,6 +496,10 @@ async function renderCrossGidDuplicates() {
       <button class="secondary" data-action="dupxgid-clear" type="button">${esc(t("clearSel"))}</button>
       <a class="secondary" href="#/favorites/ignored" style="padding:8px 14px;border-radius:4px;margin-left:auto">${esc(t("dupIgnoredPage"))}</a>
     </div>
+    <details class="panel" style="margin:12px 0 14px;padding:10px 14px;font-size:13px;border:1px solid var(--line);border-radius:6px;">
+      <summary style="cursor:pointer;font-weight:600;color:var(--text);">${esc(xgidInfoSummary)}</summary>
+      ${xgidInfoDetail}
+    </details>
     <div id="dupxgid-groups"><p class="muted">${esc(t("loading"))}</p></div>`;
   if (dupXgidCache === null || !dupXgidReady) {
     await loadCrossGidDuplicates();
@@ -573,7 +591,10 @@ function renderCrossGidList() {
           ${mainTitleHtml}
           ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
           ${hidden ? `<span class="badge dup-ignored-badge">${esc(t("dupIgnored"))}</span>` : ""}
-          <span class="dup-head-actions"><button class="secondary" data-action="dupxgid-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
+          <span class="dup-head-actions">
+            <button class="secondary" data-action="dupxgid-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button>
+            <button class="secondary" data-action="dupxgid-group-toggle" onclick="this.closest('.dup-group').querySelectorAll('.dup-row').forEach(r => r.style.display = r.style.display === 'none' ? '' : 'none')" type="button" title="${isZh ? '折叠/展开' : 'Collapse/Expand'}">⇕</button>
+          </span>
         </div>
         ${g.items.map((it, ii) => {
           const isLocal = it.gallery_id != null;

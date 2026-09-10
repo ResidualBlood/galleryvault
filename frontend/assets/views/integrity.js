@@ -4,6 +4,20 @@ async function renderIntegrity() {
   const page = app.query.page || "1";
   const n = window.selIntegrity ? window.selIntegrity.size : 0;
   const suffix = n ? ` (${n})` : "";
+  const isZh = app.lang === "zh";
+  const infoSummary = isZh ? "缺页坏图体检与魔数校验机制说明" : "Integrity Scan & Magic Header Verification Details";
+  const infoDetail = isZh
+    ? `<ul style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.6;color:var(--text-muted, #888);">
+        <li><strong>页数一致性校验</strong>：比对画廊元数据（<code>page_count</code>）与实际落盘文件数（<code>actual_pages</code>），精准定位中途断流缺失的页面。</li>
+        <li><strong>Magic Header 魔数校验与容错</strong>：校验落盘图片二进制文件头（JPEG、PNG、GIF、WebP 魔数），排查空文件与假文件；特别引入 <strong>WebP 截断容错校验</strong>（验证 RIFF/WEBP 头与数据块完整性），有效过滤因网络抖动产生的残缺坏图。</li>
+        <li><strong>一键差量修复</strong>：勾选画廊后点击「重试 / 修复」，系统会自动将缺失或损坏的单页重新推入下载队列进行补页，无需重新下载整本画廊。</li>
+      </ul>`
+    : `<ul style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.6;color:var(--text-muted, #888);">
+        <li><strong>Page Count Reconciliation</strong>: Compares gallery metadata (<code>page_count</code>) against actual files on disk (<code>actual_pages</code>) to identify missing pages.</li>
+        <li><strong>Magic Header & WebP Tolerance</strong>: Validates image file binary headers (JPEG, PNG, GIF, WebP) to catch corrupted or zero-byte files; includes robust <strong>WebP truncation tolerance</strong> to detect aborted transfers.</li>
+        <li><strong>Differential Repair</strong>: Select galleries and click "Retry / Repair" to re-queue only the missing or damaged pages without redownloading the entire gallery.</li>
+      </ul>`;
+
   renderView(`
     <header><p class="eyebrow">INTEGRITY</p><h1>${esc(t("missingPagesTitle"))}</h1>
     <p class="sub">${esc(t("missingPagesSub"))}</p></header>
@@ -14,6 +28,10 @@ async function renderIntegrity() {
       <button class="btn btn-secondary" data-action="integrity-clear" type="button">${esc(t("clearSel"))}</button>
       <button class="btn btn-secondary" data-action="integrity-repair" type="button">${esc(t("retry"))} / ${esc(t("repair") || "Repair")}${suffix}</button>
     </div>
+    <details class="panel" style="margin:12px 0 14px;padding:10px 14px;font-size:13px;border:1px solid var(--line);border-radius:6px;">
+      <summary style="cursor:pointer;font-weight:600;color:var(--text);">${esc(infoSummary)}</summary>
+      ${infoDetail}
+    </details>
     <div id="integrity-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="integrity-pager"></div>`);
   try {

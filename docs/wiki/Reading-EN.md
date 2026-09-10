@@ -26,10 +26,24 @@ This guide covers gallery detail views, tag and metadata synchronization, and we
 ## Reader (`#/reader/<id>/<page>`)
 
 - Streams one page at a time. Page with **←/→ arrows**, **space** or **click**.
+- **Keyboard Shortcuts**:
+  | Shortcut | Action | Notes |
+  |---|---|---|
+  | `←` / `→` | Previous / Next page | Automatically inverted in Manga (RTL) mode |
+  | `Space` | Next page | Continuous smooth reading |
+  | `G` | Focus page jump input / prompt | Opens quick jump prompt in fullscreen or when toolbar is hidden |
+  | `F` | Toggle image fullscreen | In-place image swapping without exiting fullscreen |
+  | `Esc` | Exit fullscreen | Restores fit mode and toolbar display |
+- **Mobile Touch Gestures**:
+  - **Left / Right Tap**: Previous / Next page (direction inverted in RTL mode).
+  - **Double-Tap**: Fast 2.2x zoom focused on the tapped position; double-tap again to reset.
+  - **Pinch-to-Zoom**: Continuous 1.0x to 3.5x smooth zoom; tap to reset boundaries.
 - **Page Jump Input & `G` Shortcut**: Direct page number input in the toolbar jumps immediately on Enter; pressing **`G`** anywhere focuses the page jump input or opens a quick jump prompt in fullscreen.
 - **Multi-mode reading (LTR / RTL Manga / Double-page / Webtoon)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, **Double RTL**, and **Webtoon** with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1). Webtoon is a vertical continuous strip (`loading="lazy"`); the visible page is written as reading progress. Click/arrow paging and double-page spreads are not used; the toolbar still supports `G` jump and back-to-details.
-- **Slideshow auto-play**: The reader toolbar provides a "▶" play/pause button and an inline interval input (default 5 seconds, persisted to `gv_slideshow_interval`). When active, pages automatically advance based on the timer. For animated images (animated WebP / GIF), the backend streams and parses the native total animation duration, and the reader automatically extends the delay to let the full animation loop complete before flipping to the next page. Manual navigation or adjusting the interval seamlessly pauses or reschedules the timer.
-- **Mobile Touch Gestures**: Supports double-tap zoom (2.2x) and two-finger pinch-to-zoom.
+- **Adaptive Slideshow (GIF/WebP Frame Detection)**:
+  - The reader toolbar provides a "▶" play/pause button and an inline interval input (default 5 seconds, persisted to `gv_slideshow_interval`).
+  - **Native Duration Probe & Anti-Ghosting Delay**: For animated images (GIF or animated WebP), the reader queries the metadata probe (`GET /api/galleries/{id}/pages/{page}/meta`) to retrieve the exact frame rate and total animation loop duration (`duration_ms`). The scheduler enforces `max(user_interval, duration_ms + 150ms)`, ensuring full loop playback before advancing to the next slide. Combined with browser-level pre-decoding (`img.decode()` and swap locks), this prevents tearing and frame ghosting.
+  - Manual paging, image click, or adjusting the interval seamlessly pauses or reschedules the timer.
 - **Advances to the next gallery after the last page**.
 - Preloads the next three pages (four pages in double-spread mode), so paging is instant.
 - **Page images are browser-cached for an hour**: going back a page or re-reading a gallery reuses the browser cache instead of downloading again; thumbnails are cached for 24 h.
