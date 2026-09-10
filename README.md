@@ -1,7 +1,7 @@
 # GalleryVault
 
 <p align="center">
-  <img src="frontend/favicon.svg" alt="GalleryVault Logo" width="96" height="96">
+  <img src="frontend/assets/icon.svg" alt="GalleryVault Logo" width="96" height="96">
 </p>
 
 <p align="center">
@@ -172,4 +172,9 @@ docker compose up -d
 
 ## 免责声明
 
-GalleryVault 是一款开源的本地画廊资产管理与元数据组织工具。涉及第三方云端服务同步的功能均需用户自行配置私有凭据。请使用者务必遵守当地法律法规及所访问网络平台的服务条款，合理配置并发限制，严禁用于任何非法或违规用途。
+### 1. NSFW / 18+ Adult Content Warning（成年人使用与内容警示）
+GalleryVault 设计用于个人私有媒体归档与组织，其技术架构支持由用户自行管理与浏览包括但不限于成人（NSFW / 18+）向的数字图集。**本软件仅供达到法定成年年龄（如 18 周岁及以上）的成年人使用**。如果您未满法定年龄，或您所在地区禁止接触或存储成人向内容，请立即停止使用并卸载本软件。
+
+### 2. 第三方内容与版权中立声明
+GalleryVault 是一款纯本地自托管的技术工具，**系统本身不提供、不捆绑、不托管、亦不在公网分发任何受版权保护的媒体资源文件**。软件内涉及第三方云端服务（如 E-Hentai / ExHentai）的元数据解析与同步功能，均依赖用户自行提供和配置私有凭据。用户对其通过本软件检索、下载、存储与传播的所有数据承担完全且独立的法律责任。开发者不对用户的任何侵权行为、数据滥用或因违反第三方平台服务条款而产生的后果承担任何连带法律责任。
+

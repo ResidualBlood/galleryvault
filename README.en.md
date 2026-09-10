@@ -1,7 +1,7 @@
 # GalleryVault
 
 <p align="center">
-  <img src="frontend/favicon.svg" alt="GalleryVault Logo" width="96" height="96">
+  <img src="frontend/assets/icon.svg" alt="GalleryVault Logo" width="96" height="96">
 </p>
 
 <p align="center">
@@ -160,4 +160,9 @@ The `scripts/` directory includes built-in operational utilities:
 
 ## Disclaimer
 
-GalleryVault is an open-source local media asset management and metadata organization utility. Features involving synchronization with third-party cloud services require user-provided credentials. Users are responsible for complying with applicable local laws and the terms of service of third-party platforms.
+### 1. NSFW / 18+ Adult Content Warning
+GalleryVault is designed as a personal self-hosted media archiving utility whose architecture supports user management and viewing of content that may include Not-Safe-For-Work (NSFW / 18+) material. **This software is strictly intended for individuals of legal adult age (18 years of age or older in most jurisdictions)**. If you are a minor or if viewing/possessing such materials is prohibited by the laws of your jurisdiction, you must cease using this software immediately.
+
+### 2. Third-Party Content & Copyright Neutrality Statement
+GalleryVault is a purely local, neutral self-hosted software tool. **The software does not host, bundle, distribute, or index any copyrighted media files or assets on external servers**. All synchronization, scraping, or download capabilities interfacing with third-party platforms (e.g. E-Hentai / ExHentai) require user-supplied credentials and authentication cookies. Users bear sole and exclusive legal responsibility for the media and metadata they acquire, store, or organize with this tool. The authors and contributors assume no liability for copyright infringement, unauthorized scraping, or violations of third-party terms of service committed by end users.
+

@@ -3,7 +3,7 @@
 # scripts/monitor_prod_logs.sh
 #
 # Remotely collects logs from GalleryVault production containers (backend, frontend, db)
-# on 192.168.1.123 for a specified duration (default: 30 minutes).
+# on your_server_ip for a specified duration (default: 30 minutes).
 # Monitors collector PID and directory size every 5 minutes (or adaptive interval for tests).
 # Fetches archive back to local /tmp/galleryvault-prod-logs-<timestamp>/, cleans up remote,
 # and triggers scripts/analyze_prod_logs.py for automated log analysis.
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROD_HOST="${PROD_HOST:-root@192.168.1.123}"
+PROD_HOST="${PROD_HOST:-user@your_server_ip}"
 DURATION="${1:-${DURATION:-30m}}"
 
 parse_duration_seconds() {

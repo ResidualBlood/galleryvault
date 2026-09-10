@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-09-10
+
 ### Added
 
 - **Series management & automated clustering** (`backend/galleryvault/app/routers/series.py`, `frontend/assets/views/series.js`): 新增系列作品管理系统，支持漫画/同人展会前缀自动识别与标题剥离聚类；支持手动新建、编辑、重命名与删除系列，灵活关联本地与云端作品，支持资料库扫描后自动触发系列重构。
