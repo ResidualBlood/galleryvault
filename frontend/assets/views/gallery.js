@@ -138,13 +138,17 @@ async function renderGallery() {
     const perPage = prefPageSize(30);
     const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
     const explicitPage = parseInt(app.query.page || "", 10);
-    let thumbPage;
+    let targetPage = 1;
+    let scrollToIndex = -1;
+
     if (explicitPage > 0) {
-      thumbPage = Math.min(explicitPage, totalPages);
+      targetPage = Math.min(explicitPage, totalPages);
+      if (targetPage > 1) {
+        scrollToIndex = (targetPage - 1) * perPage;
+      }
     } else if (progress.current_page > 0) {
-      thumbPage = Math.min(Math.floor(progress.current_page / perPage) + 1, totalPages);
-    } else {
-      thumbPage = 1;
+      targetPage = Math.min(Math.floor(progress.current_page / perPage) + 1, totalPages);
+      scrollToIndex = progress.current_page;
     }
     const FROM_LABELS = {
       favorites: t("favorites"),
@@ -191,10 +195,13 @@ async function renderGallery() {
     const galleryCtx = { ...libraryContext(), ...(!isInvalidFrom ? { from: rawFrom } : {}) };
     currentGalleryProgressPage = progress.current_page || 0;
     currentGalleryCtx = galleryCtx;
-    const pageStart = (thumbPage - 1) * perPage;
-    const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
+    const pageStart = 0;
+    const thumbsVisible = thumbsAll.slice(pageStart, targetPage * perPage);
     const thumbCard = p => `
-      <a class="thumb" href="${navHash("reader", { id, page: p.index }, galleryCtx)}">
+      <a class="thumb" 
+         id="thumb-${p.index}"
+         ${p.index === progress.current_page ? 'style="box-shadow: 0 0 0 3px var(--accent) inset; border-radius: 4px;"' : ''}
+         href="${navHash("reader", { id, page: p.index }, galleryCtx)}">
         <img class="lazy-thumb" data-src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
       </a>`;
     const thumbs = thumbsVisible.map(thumbCard).join("");
@@ -256,7 +263,7 @@ async function renderGallery() {
         <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
         <section id="gallery-thumbs-section"><h2>${esc(t("pagesSection"))}</h2>
           <div class="thumbs">${thumbs}</div>
-          <div class="pages pager">${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
+          <div class="pages pager">${pagerJump(targetPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
         </section>
       </div>`;
 
@@ -331,7 +338,14 @@ async function renderGallery() {
         page_size: perPage,
         total: thumbsAll.length,
       };
-    }, thumbCard, thumbPage);
+    }, thumbCard, targetPage);
+
+    if (scrollToIndex >= 0) {
+      setTimeout(() => {
+        const el = document.getElementById(`thumb-${scrollToIndex}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 150);
+    }
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
