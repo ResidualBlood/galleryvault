@@ -565,7 +565,12 @@ def test_series_acceptance_constraints() -> None:
         index_html = (frontend_dir / "index.html").read_text(encoding="utf-8")
         assert 'href="#/series"' in index_html
         assert 'data-i18n="series"' in index_html
-        assert '<script src="/assets/views/series.js"></script>' in index_html
+        import re
+
+        assert re.search(
+            r'<script\s+src=["\']/assets/views/series\.js(?:\?[^"\']*)?["\']></script>',
+            index_html,
+        )
 
         # 3. Check core.js routes
         core_js = (frontend_dir / "assets" / "core.js").read_text(encoding="utf-8")
