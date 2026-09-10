@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import shutil
+import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -526,6 +527,17 @@ class Downloader:
                                     raise ValueError(
                                         "image integrity check failed: JPEG file is truncated (missing EOI)"
                                     )
+                                if data.startswith(b"GIF"):
+                                    if not data.rstrip(b"\x00").endswith(b";"):
+                                        raise ValueError(
+                                            "image integrity check failed: GIF file is truncated (missing trailer)"
+                                        )
+                                elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+                                    expected_len = struct.unpack("<I", data[4:8])[0] + 8
+                                    if len(data) < expected_len:
+                                        raise ValueError(
+                                            "image integrity check failed: WebP file is truncated (payload size mismatch)"
+                                        )
                                 try:
                                     PILImage.open(io.BytesIO(data)).verify()
                                 except Exception as exc:

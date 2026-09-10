@@ -16,6 +16,7 @@ import asyncio
 import io
 import logging
 import os
+import struct
 import sys
 import tempfile
 import zipfile
@@ -66,6 +67,14 @@ def check_image_integrity(data: bytes) -> tuple[bool, str]:
         return False, f"unrecognized magic prefix: {data[:16].hex()}"
     if data[:2] == b"\xff\xd8" and b"\xff\xd9" not in data[-1024:]:
         return False, "JPEG file is truncated (missing EOI)"
+    if len(data) > 512:
+        if data.startswith(b"GIF"):
+            if not data.rstrip(b"\x00").endswith(b";"):
+                return False, "GIF file is truncated (missing trailer)"
+        elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+            expected_len = struct.unpack("<I", data[4:8])[0] + 8
+            if len(data) < expected_len:
+                return False, "WebP file is truncated (payload size mismatch)"
     try:
         from PIL import Image
 

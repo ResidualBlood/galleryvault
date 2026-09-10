@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -964,4 +965,42 @@ async def test_downloader_rejects_truncated_jpeg_above_threshold(tmp_path: Path)
     with pytest.raises(RuntimeError) as exc_info:
         await downloader.execute(DownloadTask(1, "tok", "title"))
     assert "image integrity check failed" in str(exc_info.value.__cause__)
+
+
+@pytest.mark.asyncio
+async def test_downloader_rejects_truncated_gif_above_threshold(tmp_path: Path) -> None:
+    class TruncatedGifClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+
+        async def download_image(self, url: str) -> bytes:
+            return b"GIF89a" + b"\x00" * 600
+
+    client = TruncatedGifClient()
+    downloader = Downloader(client, tmp_path)
+    with pytest.raises(RuntimeError) as exc_info:
+        await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert "image integrity check failed: GIF file is truncated (missing trailer)" in str(
+        exc_info.value.__cause__
+    )
+
+
+@pytest.mark.asyncio
+async def test_downloader_rejects_truncated_webp_above_threshold(tmp_path: Path) -> None:
+    class TruncatedWebpClient(FakeDownloadClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 3
+
+        async def download_image(self, url: str) -> bytes:
+            return b"RIFF" + struct.pack("<I", 2000) + b"WEBPVP8 " + b"\x00" * 600
+
+    client = TruncatedWebpClient()
+    downloader = Downloader(client, tmp_path)
+    with pytest.raises(RuntimeError) as exc_info:
+        await downloader.execute(DownloadTask(1, "tok", "title"))
+    assert "image integrity check failed: WebP file is truncated (payload size mismatch)" in str(
+        exc_info.value.__cause__
+    )
 
