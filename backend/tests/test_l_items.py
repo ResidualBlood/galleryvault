@@ -139,9 +139,32 @@ async def test_l9_existing_rows_prefilters_by_storage_path(
             except StopIteration:
                 raise StopAsyncIteration
 
+    class FakeResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
     class FakeSession:
         async def stream(self, statement):
             return FakeStream(statement)
+
+        async def execute(self, *args, **kwargs):
+            if args:
+                statement = args[0]
+                try:
+                    sql_str = str(
+                        statement.compile(
+                            dialect=postgresql.dialect(),
+                            compile_kwargs={"literal_binds": True},
+                        )
+                    )
+                    if "storage_path" in sql_str:
+                        captured["sql"] = sql_str
+                except Exception:
+                    pass
+            return FakeResult()
 
     service = repo.GalleryRepository(session=FakeSession())
     await service.existing_rows(["/mnt/library"])

@@ -361,7 +361,10 @@ async def rebuild_series_groups(
     if session_factory is None:
         from ..app.state import app_state
 
-        session_factory = app_state.session_factory
+        session_factory = (
+            getattr(app_state, "background_session_factory", None)
+            or app_state.session_factory
+        )
     if not session_factory:
         return {"created": 0, "merged": 0}
 

@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import and_, case, delete, false, func, null, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from ...scanners.base import ExistingGallery, GalleryMeta, normalize_category
 from ..models import (
@@ -282,37 +283,13 @@ class GalleryRepository(BaseRepository[Gallery]):
     ) -> list[dict[str, Any]]:
         """Fetch raw mappings for existing galleries under roots.
 
-        Performs only the SQL query and returns raw dicts, without holding
-        the session for path resolution or object instantiation.
+        Performs only the fast indexed SQL query and returns raw dicts,
+        without holding the session for heavy exists subqueries, path
+        resolution or object instantiation.
         """
         if not roots:
             return []
         normalized = [str(Path(root).resolve()) for root in roots]
-        custom_tag_exists = (
-            select(1)
-            .select_from(GalleryTag)
-            .join(Tag, GalleryTag.tag_id == Tag.id)
-            .where(
-                GalleryTag.gallery_id == Gallery.id,
-                func.lower(Tag.namespace).in_(["local", "custom", "my", "user"]),
-            )
-            .exists()
-        )
-        fav_exists = (
-            select(1)
-            .select_from(FavoriteItem)
-            .where(
-                Gallery.gid.is_not(None),
-                FavoriteItem.gid == Gallery.gid,
-            )
-            .exists()
-        )
-        local_list_exists = (
-            select(1)
-            .select_from(LocalListItem)
-            .where(LocalListItem.gallery_id == Gallery.id)
-            .exists()
-        )
         stmt = select(
             Gallery.path_hash,
             Gallery.storage_signature,
@@ -326,9 +303,6 @@ class GalleryRepository(BaseRepository[Gallery]):
             Gallery.file_size,
             Gallery.posted_at,
             Gallery.local_rating,
-            custom_tag_exists.label("has_custom_tags"),
-            fav_exists.label("is_favorited"),
-            local_list_exists.label("in_local_list"),
         ).where(
             and_(
                 Gallery.expunged.is_(False),
@@ -351,9 +325,53 @@ class GalleryRepository(BaseRepository[Gallery]):
                 for row in raw
             ]
 
+    async def fetch_starred_and_custom_tag_metadata(
+        self,
+    ) -> tuple[set[int], set[int], set[int]]:
+        """Fetch metadata sets for custom tags, favorites, and local lists.
+
+        Returns:
+            (custom_tag_gallery_ids, fav_gids, local_list_gallery_ids)
+        """
+        # 1. Custom tag gallery ids: tags in custom/local namespaces
+        custom_tag_stmt = (
+            select(GalleryTag.gallery_id)
+            .join(Tag, GalleryTag.tag_id == Tag.id)
+            .where(func.lower(Tag.namespace).in_(["local", "custom", "my", "user"]))
+            .distinct()
+        )
+        if hasattr(self.session, "scalars"):
+            custom_tag_ids = {int(gid) for gid in (await self.session.scalars(custom_tag_stmt)).all() if gid is not None}
+        else:
+            res = await self.session.execute(custom_tag_stmt)
+            custom_tag_ids = {int(row[0]) for row in (res.all() if hasattr(res, "all") else res) if row[0] is not None}
+
+        # 2. Favorite item gids
+        fav_stmt = select(FavoriteItem.gid).where(FavoriteItem.gid.is_not(None)).distinct()
+        if hasattr(self.session, "scalars"):
+            fav_gids = {int(gid) for gid in (await self.session.scalars(fav_stmt)).all() if gid is not None}
+        else:
+            res = await self.session.execute(fav_stmt)
+            fav_gids = {int(row[0]) for row in (res.all() if hasattr(res, "all") else res) if row[0] is not None}
+
+        # 3. Local list item gallery ids
+        local_list_stmt = select(LocalListItem.gallery_id).where(LocalListItem.gallery_id.is_not(None)).distinct()
+        if hasattr(self.session, "scalars"):
+            local_list_ids = {int(gid) for gid in (await self.session.scalars(local_list_stmt)).all() if gid is not None}
+        else:
+            res = await self.session.execute(local_list_stmt)
+            local_list_ids = {int(row[0]) for row in (res.all() if hasattr(res, "all") else res) if row[0] is not None}
+
+        return custom_tag_ids, fav_gids, local_list_ids
+
     @staticmethod
     def parse_existing_rows(
-        raw_rows: Sequence[Mapping[str, Any] | Any], roots: Sequence[str | Path]
+        raw_rows: Sequence[Mapping[str, Any] | Any],
+        roots: Sequence[str | Path],
+        *,
+        custom_tag_ids: set[int] | None = None,
+        fav_gids: set[int] | None = None,
+        local_list_ids: set[int] | None = None,
     ) -> dict[str, ExistingGallery]:
         """Convert raw db rows to ExistingGallery dict in memory (outside session)."""
         if not roots or not raw_rows:
@@ -364,18 +382,44 @@ class GalleryRepository(BaseRepository[Gallery]):
             m = row._mapping if hasattr(row, "_mapping") else row
             path = m["storage_path"]
             if any(Path(path).resolve().is_relative_to(root) for root in normalized):
+                gid = m.get("gid")
+                gallery_id = m.get("id")
                 local_rating = m.get("local_rating")
+
+                gid_int = int(gid) if gid is not None else None
+                id_int = int(gallery_id) if gallery_id is not None else None
+
+                if "has_custom_tags" in m and m["has_custom_tags"] is not None:
+                    has_custom_tags = bool(m["has_custom_tags"])
+                elif custom_tag_ids is not None and id_int is not None:
+                    has_custom_tags = id_int in custom_tag_ids
+                else:
+                    has_custom_tags = False
+
+                if "is_favorited" in m and m["is_favorited"] is not None:
+                    is_fav = bool(m["is_favorited"])
+                elif fav_gids is not None and gid_int is not None:
+                    is_fav = gid_int in fav_gids
+                else:
+                    is_fav = False
+
+                if "in_local_list" in m and m["in_local_list"] is not None:
+                    in_list = bool(m["in_local_list"])
+                elif local_list_ids is not None and id_int is not None:
+                    in_list = id_int in local_list_ids
+                else:
+                    in_list = False
+
                 is_starred = bool(
                     (local_rating is not None and local_rating == 5)
-                    or m.get("is_favorited")
-                    or m.get("in_local_list")
+                    or is_fav
+                    or in_list
                 )
-                has_custom_tags = bool(m.get("has_custom_tags"))
                 out[m["path_hash"]] = ExistingGallery(
                     path=path,
                     signature=m["storage_signature"],
-                    gid=m["gid"],
-                    gallery_id=m["id"],
+                    gid=gid,
+                    gallery_id=gallery_id,
                     storage_type=m["storage_type"],
                     title=m["title"],
                     title_jpn=m["title_jpn"],
@@ -394,7 +438,15 @@ class GalleryRepository(BaseRepository[Gallery]):
         if not roots:
             return {}
         raw_rows = await self.fetch_existing_rows_raw(roots)
-        return self.parse_existing_rows(raw_rows, roots)
+        custom_tag_ids, fav_gids, local_list_ids = await self.fetch_starred_and_custom_tag_metadata()
+        return await run_in_threadpool(
+            self.parse_existing_rows,
+            raw_rows,
+            roots,
+            custom_tag_ids=custom_tag_ids,
+            fav_gids=fav_gids,
+            local_list_ids=local_list_ids,
+        )
 
     async def sync_duplicates(self, groups) -> int:
         """Persist the duplicate groups a scan just produced.
@@ -546,7 +598,7 @@ class GalleryRepository(BaseRepository[Gallery]):
 
     async def expunge_missing(self, roots: Sequence[str | Path], seen: set[str]) -> int:
         candidates = await self.fetch_expunge_candidates()
-        missing_ids = self.find_missing_ids(candidates, roots, seen)
+        missing_ids = await run_in_threadpool(self.find_missing_ids, candidates, roots, seen)
         if missing_ids:
             await self.mark_expunged(missing_ids)
         return len(missing_ids)

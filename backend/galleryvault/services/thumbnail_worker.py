@@ -8,6 +8,7 @@ import shutil
 import time as _time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 JOB_THUMB = BackgroundJobsRepository.JOB_THUMB
 _THUMB_POLL_INTERVAL = 1.0
 _THUMB_IDLE_SECONDS = 5.0
+
+
+def _get_background_session_factory() -> Any:
+    return getattr(app_state, "background_session_factory", None) or app_state.session_factory
 
 
 def _thumb_service() -> ThumbnailService:
@@ -74,14 +79,15 @@ def _touch_placeholder(path: Path) -> None:
 
 
 async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return 0, 0
     generated = 0
     failed_pages = 0
     tm = app_state.task_manager
     thumb_state = tm.thumb_state if tm else {}
 
-    async with app_state.session_factory() as session:
+    async with session_factory() as session:
         row = await session.get(Gallery, gallery_id)
         if row is None or not row.page_count:
             return 0, 0
@@ -132,10 +138,11 @@ async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
 
 
 async def seed_thumbnails() -> None:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     with bind_log_context(worker="thumbnails"):
-        async with app_state.session_factory() as session:
+        async with session_factory() as session:
             rows = await session.execute(
                 select(Gallery.id, Gallery.page_count).where(
                     Gallery.page_count.is_not(None), Gallery.expunged.is_(False)
@@ -156,7 +163,7 @@ async def seed_thumbnails() -> None:
         missing_total = len(missing)
         added = 0
         for start in range(0, len(missing), 500):
-            async with app_state.session_factory() as session, session.begin():
+            async with session_factory() as session, session.begin():
                 added += await BackgroundJobsRepository(session).enqueue_many(
                     JOB_THUMB, missing[start : start + 500]
                 )
@@ -171,7 +178,8 @@ async def seed_thumbnails() -> None:
 
 
 async def thumbnail_worker_loop() -> None:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     settings = app_state.settings or get_settings()
     concurrency = settings.thumbnail_workers
@@ -181,7 +189,7 @@ async def thumbnail_worker_loop() -> None:
     last_activity = [_time.monotonic()]
 
     try:
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             await BackgroundJobsRepository(session).mark_stale()
     except Exception as exc:  # noqa: BLE001
         logger.warning("thumbnail stale-recovery failed", extra=log_extra(error=type(exc).__name__))
@@ -264,7 +272,8 @@ async def orphan_thumbnail_cleanup_loop() -> None:
     while True:
         try:
             await asyncio.sleep(86400)
-            if not app_state.session_factory:
+            session_factory = _get_background_session_factory()
+            if not session_factory:
                 continue
             settings = app_state.settings or get_settings()
             cache_dir = Path(settings.thumbnail_cache_dir)
@@ -279,7 +288,7 @@ async def orphan_thumbnail_cleanup_loop() -> None:
 
             tm = get_task_manager()
             async with tm.track_task("orphan-thumbnail-cleanup") as tracker:
-                async with app_state.session_factory() as session:
+                async with session_factory() as session:
                     rows = await session.scalars(select(Gallery.id))
                     db_ids = set(rows)
                 orphan_ids = disk_ids - db_ids

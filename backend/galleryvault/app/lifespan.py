@@ -18,6 +18,7 @@ from ..config import get_settings
 from ..db.models import AppConfig
 from ..db.models import DownloadTask as DownloadTaskModel
 from ..db.repository import SettingsRepository
+from ..db.session import create_worker_database
 from ..logging import log_extra
 from ..secrets import (
     decrypt_or_plain,
@@ -230,8 +231,18 @@ async def startup() -> None:
 
     enable_workers = app_state.extra.get("enable_workers", True)
 
+    # Ensure worker database pool is initialized for background tasks
+    if app_state.worker_engine is None and app_state.settings is not None:
+        app_state.worker_engine, app_state.worker_session_factory = create_worker_database(
+            app_state.settings
+        )
+    if app_state.background_session_factory is not None:
+        app_state.task_manager.session_factory = app_state.background_session_factory
+
     # Warm up database pool
     await warmup_database_pool(app_state.session_factory)
+    if app_state.worker_session_factory is not None:
+        await warmup_database_pool(app_state.worker_session_factory)
 
     if not enable_workers:
         sync_state()
@@ -414,11 +425,20 @@ async def shutdown() -> None:
     app_state.thumbnail_service = None
     if isinstance(app_state.extra.get("spawned_tasks"), set):
         app_state.extra["spawned_tasks"].clear()
+    if app_state.worker_engine is not None:
+        try:
+            await app_state.worker_engine.dispose()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        app_state.worker_engine = None
+        app_state.worker_session_factory = None
     if app_state.engine is not None:
         try:
             await app_state.engine.dispose()
         except Exception:  # noqa: BLE001, S110
             pass
+        app_state.engine = None
+        app_state.session_factory = None
     sync_state()
 
 

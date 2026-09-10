@@ -99,6 +99,9 @@ curl -H "Authorization: Basic <base64(galleryvault:password)>" http://localhost:
   "telegram_notify_level": "summary",
   "telegram_notify_lang": "zh",
   "duplicate_policy": "keep_first",
+  "archive_roots": ["/archive1", "/archive2"],
+  "auto_archive_downloads": false,
+  "archive_delete_source": false,
   "auth_required": true,
   "tag_translation_update_interval_minutes": 720,
   "trusted_proxies": ["192.168.1.0/24"],
@@ -127,6 +130,12 @@ copy wins), `prefer_more_pages`, `prefer_newer`, `prefer_larger`,
 `prefer_smaller`, or `manual` (never auto-resolve — everything is reported for
 manual cleanup on the *Duplicate copies* page). All duplicates are recorded in
 `duplicate_records` regardless of policy.
+
+`archive_roots` specifies multiple cold storage directories (multi-line string in Settings UI).
+When cold archiving is triggered, the archiver queries remaining free disk space across all
+configured roots via `statvfs` and automatically balances archives onto the mount point with the
+most available space. Cold CBZ archives strictly enforce English/ASCII canonical filenames
+(`gid-gallery.title.cbz`) to guarantee cross-filesystem and network backup compatibility.
 
 ## ExHentai search (discover)
 
@@ -241,6 +250,7 @@ tier, the rest download page-by-page.
 | POST | `/api/galleries/purge` | Body `{ids: [...]}`. Permanently purge soft-deleted galleries and disk files. (200 JSON, 422). |
 | GET | `/api/galleries/{identifier}/export.cbz` | Download the gallery as a CBZ (requires session cookie authentication). An on-disk `.cbz` is streamed with `FileResponse`; a directory gallery is packed in page order (`ZIP_STORED`) to a tempfile. Member paths must resolve inside the gallery directory (zip-slip → `400`); missing files → `404`. Records an `export-cbz` task log. |
 | GET | `/api/galleries/{identifier}/pages/{page_index}` | Stream one page image (`image/jpeg`/`image/png`/…). |
+| GET | `/api/galleries/{identifier}/pages/{page_index}/meta` | Probe page image metadata and animation properties (`{animated: bool, duration_ms: int, width: int, height: int, mime_type: str}`). Inspects raw binary header streams directly from filesystem or CBZ archive to extract dimensions and intrinsic frame durations for GIF/WebP without loading the full bitmap (used by adaptive reader slideshow). |
 | GET | `/api/galleries/{identifier}/thumb/{page_index}` | Serve a cached static JPEG thumbnail for a page (generated on first access into `/gv-cache/thumbs`, `Cache-Control` + `ETag`). |
 | GET | `/api/galleries/{identifier}/progress` | Reading progress (`current_page`, `total_pages`). |
 | PUT | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – records progress and history. |
@@ -250,6 +260,8 @@ tier, the rest download page-by-page.
 | POST | `/api/galleries/{identifier}/sync-tags` | Sync tags from ExHentai. |
 | GET | `/api/galleries/integrity` | Paged list of galleries with integrity issues (`page`, `page_size` ≤ 500). Does not trigger a scan. Returns `{total, page, page_size, magic_scan, items: [{id, gid, title, page_count, actual_pages, file_count, cover_url, storage_path, tags}]}` where `magic_scan` contains `{running, started_at, completed_at, scanned, total, corrupt}`. |
 | POST | `/api/galleries/integrity/scan` | `202` – trigger background file integrity magic header scan (JPEG/PNG/WebP/GIF magic header and 4/8-digit zero padding). If globally paused, returns `200 {"status": "paused", "detail": "Global paused: integrity scan is disabled"}` without spawning. If already running, avoids duplicate spawn. Returns current `magic_scan` summary (`running`, `started_at`, `completed_at`, `scanned`, `total`, `corrupt`). |
+
+Galleries with integrity anomalies (missing pages or corrupted magic headers) can be incrementally repaired via `POST /api/galleries/{identifier}/redownload`. The downloader re-fetches only the corrupt or missing pages while preserving valid images and existing metadata, saving upstream bandwidth and IP quota.
 
 Example:
 
@@ -298,6 +310,7 @@ refresh is available via the button in Settings. Markdown icon syntax
 | POST | `/api/pause` | Set or toggle global pause status. Body: `{paused: bool}`. (200 JSON, 422). |
 | GET | `/api/archive` | Get cold archive status and statistics. (200 JSON). |
 | POST | `/api/archive` | Trigger cold archive packaging/migration run. (202 JSON, 422). |
+| POST | `/api/system/purge-archived-sources` | `200` — Safe background purge of unpacked source directories in the downloads directory when a corresponding CBZ archive already exists in cold storage (`archive_roots`). Actively skips galleries with pending or downloading tasks, verifies matching GIDs across cold and hot locations, safely deletes the source folder on disk, decrements physical disk usage, and records a task in `#/logs`. Returns `{deleted_dirs: int, reclaimed_bytes: int, active_skipped: int}`. |
 
 ## Library scan, tag-sync & thumbnails
 
@@ -310,11 +323,12 @@ refresh is available via the button in Settings. Markdown icon syntax
 | POST | `/api/scan/duplicates/{gid}/dismiss` | Hide a duplicate group (survives rescans until the copies actually change). |
 | POST | `/api/scan/duplicates/{gid}/restore` | Bring a dismissed group back. |
 | GET | `/api/scan/duplicates/thumb/{key}` | Lazily-generated JPEG cover thumbnail for one copy (cached under `/gv-cache/thumbs/dup/{key}/0.jpg`). Invalid keys (`..`, slashes, or absolute paths) return `404`. |
-| GET | `/api/library/duplicates/cross-gid` | Cached cross-GID duplicate clusters grouped by normalized title and artist. Returns `{ready: bool, count: int, groups: [{key, artist, items: [{gid, token, title, title_jpn, display_title, gallery_id, storage_path, cover_url, ...}]}]}`. Groups combine both local galleries and cloud-only favorite entries with tags, category, and page count. |
+| GET | `/api/library/duplicates/cross-gid` | Cached cross-GID duplicate clusters grouped by normalized title and artist. Returns `{ready: bool, count: int, groups: [{key, artist, items: [{gid, token, title, title_jpn, display_title, gallery_id, storage_path, cover_url, cloud, ...}]}]}`. Groups combine both local galleries and cloud-only favorite entries with tags, category, and page count. Clustering strips convention/group prefixes (e.g. `(C100)`, `[Group]`) and matches artist namespaces and normalized title strings with multi-tier scoring. |
 | POST | `/api/library/duplicates/cross-gid/refresh` | Trigger an immediate background re-clustering of cross-GID duplicate candidates and return refreshed results. (Note: ignoring a cross-GID group reuses `POST /api/favorites/duplicates/ignore`). |
 | GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
 | POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. |
 | POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |
+| POST | `/api/tag-sync/repair-categories` | `200` — Fast local category self-healing: synchronizes category fields in the local database directly from existing `.galleryvault.json` or cached metadata, instantly repairing galleries mistakenly lumped into `Misc` or `Other` without external network requests to ExHentai. Returns `{repaired: int, total: int}`. |
 | GET | `/api/thumbs/status` | Thumbnail generation worker status (`running`, `queued`, `processed`, `succeeded`, `failed`, `total`, `last_error`). |
 | POST | `/api/thumbs/generate` | `202` – queue every gallery missing a cover thumbnail for background generation. |
 | GET | `/api/notifications` | In-app notification ring (maxlen 100): `{items, unread_count}`. Loaded from `cache/notifications.json` on startup and rewritten on change; write failures are logged only. |

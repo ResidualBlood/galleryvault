@@ -557,7 +557,10 @@ async def scan_library_cross_gid_duplicates(
     if session_factory is None:
         from ..app.state import app_state
 
-        session_factory = app_state.session_factory
+        if not app_state.session_factory:
+            session_factory = None
+        else:
+            session_factory = app_state.background_session_factory or app_state.session_factory
     if not session_factory:
         return []
 

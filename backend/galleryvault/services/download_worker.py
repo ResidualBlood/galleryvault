@@ -56,6 +56,10 @@ _worker_tasks: list[asyncio.Task] = []
 _target_download_concurrency: int = 2
 
 
+def _get_background_session_factory() -> Any:
+    return getattr(app_state, "background_session_factory", None) or app_state.session_factory
+
+
 def notify_new_task() -> None:
     """Wake up download workers when a new task is enqueued or retried."""
     if _task_event is not None:
@@ -170,7 +174,7 @@ async def ingest_downloaded_gallery(result: Any) -> None:
 
         ingest_cls = GalleryIngestService
         remove_fn = remove_superseded_copy
-        session_cm = app_state.session_factory
+        session_cm = _get_background_session_factory()
         old_copy: tuple[Path, int] | None = None
 
         if session_cm is not None:
@@ -235,7 +239,7 @@ async def ingest_downloaded_gallery(result: Any) -> None:
 
 async def _archive_downloaded_gallery(gid: int) -> None:
     """Background task to archive a freshly ingested gallery into cold storage."""
-    session_cm = app_state.session_factory
+    session_cm = _get_background_session_factory()
     if session_cm is None:
         return
 
@@ -315,11 +319,12 @@ async def download_progress(
     archive_fallback: bool | None = None,
     gid: int | None = None,
 ) -> None:
-    if task_id is None or not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if task_id is None or not session_factory:
         return
     try:
         async def _persist() -> None:
-            async with app_state.session_factory() as session, session.begin():
+            async with session_factory() as session, session.begin():
                 await DownloadRepository(session).progress(
                     task_id, current_page, total_pages, archive_fallback=archive_fallback
                 )
@@ -349,10 +354,11 @@ async def record_download_notification(
     settings = app_state.settings or get_settings()
     if settings.telegram_notify_level != "summary" or not notifier.pending_events:
         return
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     try:
-        async with app_state.session_factory() as session:
+        async with session_factory() as session:
             active = await DownloadRepository(session).count_active()
         if active == 0:
             await notifier.flush_summary()
@@ -378,10 +384,11 @@ async def record_archive_notification(
         or not notifier.pending_archive_events
     ):
         return
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     try:
-        async with app_state.session_factory() as session:
+        async with session_factory() as session:
             active = await DownloadRepository(session).count_active()
         tm = app_state.task_manager
         archive_running = bool(tm.archive_state.get("running")) if tm else False
@@ -445,7 +452,7 @@ async def run_download(task: DownloadTask) -> None:
 
 
 async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> DownloadTask | None:
-    session_cm = app_state.session_factory
+    session_cm = _get_background_session_factory()
     if session_cm is None or task.id is None:
         return None
     from .download_prepare import _local_gids
@@ -565,11 +572,12 @@ async def _trigger_challenge_pause(
 
         update_runtime_settings({"global_paused": True})
 
-        if app_state.session_factory:
+        session_factory = _get_background_session_factory()
+        if session_factory:
             try:
                 from ..db.repository import SettingsRepository
 
-                async with app_state.session_factory() as session, session.begin():
+                async with session_factory() as session, session.begin():
                     existing = await SettingsRepository(session).get()
                     merged = {**existing, "global_paused": True}
                     await SettingsRepository(session).save(merged)
@@ -620,11 +628,12 @@ async def _resume_challenge_pause() -> None:
 
         update_runtime_settings({"global_paused": False})
 
-        if app_state.session_factory:
+        session_factory = _get_background_session_factory()
+        if session_factory:
             try:
                 from ..db.repository import SettingsRepository
 
-                async with app_state.session_factory() as session, session.begin():
+                async with session_factory() as session, session.begin():
                     existing = await SettingsRepository(session).get()
                     merged = {**existing, "global_paused": False}
                     await SettingsRepository(session).save(merged)
@@ -680,7 +689,7 @@ async def _run_download_inner(
     follow_hops: int = 0,
     replaced_from_gid: int | None = None,
 ) -> None:
-    session_cm = app_state.session_factory
+    session_cm = _get_background_session_factory()
     if session_cm is None:
         return
     downloader = app_state.downloader
@@ -1087,7 +1096,8 @@ async def _download_worker() -> None:
             except Exception:  # noqa: BLE001, S110
                 pass
             row = None
-            if not app_state.session_factory:
+            session_factory = _get_background_session_factory()
+            if not session_factory:
                 if _task_event is not None:
                     try:
                         await asyncio.wait_for(_task_event.wait(), timeout=1.0)
@@ -1097,7 +1107,7 @@ async def _download_worker() -> None:
                 else:
                     await asyncio.sleep(0.5)
                 continue
-            async with app_state.session_factory() as session, session.begin():
+            async with session_factory() as session, session.begin():
                 row = await DownloadRepository(session).claim_pending()
                 if row is not None:
                     task = DownloadTask(
@@ -1123,9 +1133,9 @@ async def _download_worker() -> None:
                         "run_download unhandled exception",
                         extra=log_extra(task_id=task.id, gid=task.gid, error=str(exc) or type(exc).__name__),
                     )
-                    if app_state.session_factory and task.id:
+                    if session_factory and task.id:
                         try:
-                            async with app_state.session_factory() as session, session.begin():
+                            async with session_factory() as session, session.begin():
                                 r = await session.get(DownloadTaskModel, task.id)
                                 if r and r.status not in ("cancelled", "failed"):
                                     now = datetime.now(UTC)
@@ -1185,10 +1195,11 @@ def adjust_download_concurrency(new_concurrency: int | None = None) -> None:
 
 async def download_worker_loop() -> None:
     """Recover and claim persisted jobs continuously."""
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     try:
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             await DownloadRepository(session).recover_orphans()
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -1230,7 +1241,8 @@ async def download_retry_sweep_loop() -> None:
     """Auto-requeue failed downloads that still have retry budget left."""
     while True:
         await asyncio.sleep(_DOWNLOAD_RETRY_SWEEP_INTERVAL)
-        if not app_state.session_factory:
+        session_factory = _get_background_session_factory()
+        if not session_factory:
             continue
         from ..app.dependencies import get_task_manager
 
@@ -1238,7 +1250,7 @@ async def download_retry_sweep_loop() -> None:
         try:
             async with (
                 tm.track_task("download-retry-sweep", record_if_empty=False) as tracker,
-                app_state.session_factory() as session,
+                session_factory() as session,
                 session.begin(),
             ):
                 requeued = await DownloadRepository(session).sweep_auto_retry()

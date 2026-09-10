@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
     from ..config import Settings
     from ..services.downloader import Downloader
@@ -31,6 +33,9 @@ class AppState:
     settings: Settings | None = None
     engine: AsyncEngine | None = None
     session_factory: Callable[[], AsyncSession] | None = None
+    worker_engine: AsyncEngine | None = None
+    worker_session_factory: Callable[[], AsyncSession] | None = None
+    _worker_bound_loop: Any = None
     downloader: Downloader | None = None
     favorites_service: FavoritesService | None = None
     eh_client: EhClient | None = None
@@ -41,6 +46,51 @@ class AppState:
     task_manager: TaskManager = default_task_manager
     cross_gid_duplicates: list[dict[str, Any]] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def background_session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """Return the background session factory, falling back to session_factory if absent."""
+        if self.worker_session_factory is not None:
+            if self.worker_engine is not None:
+                try:
+                    current_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    current_loop = None
+
+                if current_loop is not None:
+                    engine_loop = self._worker_bound_loop
+                    if engine_loop is not None and (engine_loop is not current_loop or engine_loop.is_closed()):
+                        with contextlib.suppress(Exception):
+                            self.worker_engine.sync_engine.dispose()
+                        return self.session_factory  # type: ignore[return-value]
+                    if engine_loop is None:
+                        self._worker_bound_loop = current_loop
+            return self.worker_session_factory  # type: ignore[return-value]
+        return self.session_factory  # type: ignore[return-value]
+
+    def reset(self) -> None:
+        """Reset internal state containers and dispose engine pools if open."""
+        if self.worker_engine is not None:
+            with contextlib.suppress(Exception):
+                self.worker_engine.sync_engine.dispose()
+        self.worker_engine = None
+        self.worker_session_factory = None
+        self._worker_bound_loop = None
+        if self.engine is not None:
+            with contextlib.suppress(Exception):
+                self.engine.sync_engine.dispose()
+        self.engine = None
+        self.session_factory = None
+        self.settings = None
+        self.downloader = None
+        self.favorites_service = None
+        self.eh_client = None
+        self.telegram = None
+        self.library_service = None
+        self.tag_service = None
+        self.thumbnail_service = None
+        self.cross_gid_duplicates = None
+        self.extra.clear()
 
 
 # Global singleton app state reference
@@ -61,6 +111,8 @@ def sync_state(app: Any = None) -> None:
         "settings",
         "engine",
         "session_factory",
+        "worker_engine",
+        "worker_session_factory",
         "eh_client",
         "downloader",
         "telegram",

@@ -444,23 +444,26 @@ class SeriesRepository(BaseRepository[Series]):
     async def get_rebuild_candidate_galleries(self) -> list[Gallery]:
         """Fetch candidates for series rebuild: unassigned or in auto series,
 
-        excluding manual series members and exclusions.
+        excluding manual series members and exclusions via left anti-joins.
         """
         manual_subq = (
-            select(SeriesItem.gallery_id)
+            select(SeriesItem.gallery_id.label("gallery_id"))
             .join(Series, Series.id == SeriesItem.series_id)
             .where(Series.match_key.is_(None))
+            .distinct()
+            .subquery()
         )
-        excl_subq = select(SeriesExclusion.gallery_id)
 
         stmt = (
             select(Gallery)
+            .outerjoin(manual_subq, manual_subq.c.gallery_id == Gallery.id)
+            .outerjoin(SeriesExclusion, SeriesExclusion.gallery_id == Gallery.id)
             .outerjoin(SeriesItem, SeriesItem.gallery_id == Gallery.id)
             .outerjoin(Series, Series.id == SeriesItem.series_id)
             .where(
                 Gallery.trashed.is_(False),
-                Gallery.id.not_in(excl_subq),
-                Gallery.id.not_in(manual_subq),
+                manual_subq.c.gallery_id.is_(None),
+                SeriesExclusion.gallery_id.is_(None),
                 or_(
                     SeriesItem.gallery_id.is_(None),
                     Series.match_key.is_not(None),
@@ -512,14 +515,21 @@ class SeriesRepository(BaseRepository[Series]):
         )
         existing_gids_subq = local_gids_stmt.union(cloud_gids_stmt).subquery()
 
-        stmt = select(
-            FavoriteItem.gid,
-            FavoriteItem.title,
-            FavoriteItem.favcat,
-            FavoriteItem.thumb,
-            FavoriteItem.token,
-            FavoriteItem.url,
-        ).where(FavoriteItem.gid.not_in(select(existing_gids_subq.c.gid)))
+        stmt = (
+            select(
+                FavoriteItem.gid,
+                FavoriteItem.title,
+                FavoriteItem.favcat,
+                FavoriteItem.thumb,
+                FavoriteItem.token,
+                FavoriteItem.url,
+            )
+            .outerjoin(
+                existing_gids_subq,
+                existing_gids_subq.c.gid == FavoriteItem.gid,
+            )
+            .where(existing_gids_subq.c.gid.is_(None))
+        )
 
         if q and q.strip():
             search_str = f"%{q.strip()}%"
@@ -690,8 +700,11 @@ class SeriesRepository(BaseRepository[Series]):
         return int(res.rowcount or 0)
 
     async def get_rebuild_candidate_cloud_items(self) -> list[dict[str, Any]]:
-        local_gids_subq = select(Gallery.gid).where(
-            Gallery.gid.is_not(None), Gallery.trashed.is_(False)
+        local_gids_subq = (
+            select(Gallery.gid.label("gid"))
+            .where(Gallery.gid.is_not(None), Gallery.trashed.is_(False))
+            .distinct()
+            .subquery()
         )
         stmt = (
             select(
@@ -701,7 +714,8 @@ class SeriesRepository(BaseRepository[Series]):
                 GalleryMetadata.tags,
             )
             .outerjoin(GalleryMetadata, GalleryMetadata.gid == FavoriteItem.gid)
-            .where(FavoriteItem.gid.not_in(local_gids_subq))
+            .outerjoin(local_gids_subq, local_gids_subq.c.gid == FavoriteItem.gid)
+            .where(local_gids_subq.c.gid.is_(None))
             .order_by(FavoriteItem.gid.asc())
         )
         rows = (await self.session.execute(stmt)).all()
@@ -745,22 +759,25 @@ class SeriesRepository(BaseRepository[Series]):
         ).first()
 
     async def get_tags_for_galleries(
-        self, gallery_ids: list[int]
+        self, gallery_ids: list[int], chunk_size: int = 1000
     ) -> dict[int, list[tuple[str, str]]]:
         """Fetch tags for candidate galleries, filtered to artist/group/parody/other."""
         if not gallery_ids:
             return {}
-        stmt = (
-            select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
-            .join(Tag, Tag.id == GalleryTag.tag_id)
-            .where(
-                GalleryTag.gallery_id.in_(list(gallery_ids)),
-                Tag.namespace.in_(["artist", "group", "parody", "other"]),
-            )
-            .order_by(GalleryTag.gallery_id.asc(), Tag.namespace.asc(), Tag.name.asc())
-        )
-        rows = (await self.session.execute(stmt)).all()
+        unique_ids = sorted(set(gallery_ids))
         result: dict[int, list[tuple[str, str]]] = {}
-        for gid, ns, name in rows:
-            result.setdefault(gid, []).append((ns, name))
+        for i in range(0, len(unique_ids), chunk_size):
+            chunk = unique_ids[i : i + chunk_size]
+            stmt = (
+                select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
+                .join(Tag, Tag.id == GalleryTag.tag_id)
+                .where(
+                    GalleryTag.gallery_id.in_(chunk),
+                    Tag.namespace.in_(["artist", "group", "parody", "other"]),
+                )
+                .order_by(GalleryTag.gallery_id.asc(), Tag.namespace.asc(), Tag.name.asc())
+            )
+            rows = (await self.session.execute(stmt)).all()
+            for gid, ns, name in rows:
+                result.setdefault(gid, []).append((ns, name))
         return result

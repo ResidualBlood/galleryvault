@@ -252,7 +252,14 @@ async def cancel_background_task(task: str) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="Unknown task")
     tm = get_task_manager()
     tm.request_cancel(task_key)
-    if task_key == "tag-sync":
+    if task_key == "scan":
+        if isinstance(getattr(app_state, "scan_state", None), dict):
+            app_state.scan_state["status"] = "cancelling"
+            app_state.scan_state["running"] = False
+        if hasattr(tm, "scan_state") and isinstance(tm.scan_state, dict):
+            tm.scan_state["status"] = "cancelling"
+            tm.scan_state["running"] = False
+    elif task_key == "tag-sync":
         await _clear_jobs("tag-sync")
     elif task_key == "thumbs":
         await _clear_jobs("thumbs")

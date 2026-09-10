@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from ..config import Settings, get_settings
-from ..db.session import create_database
+from ..db.session import create_database, create_worker_database
 from ..logging import configure_logging, log_extra
 from ..observability import request_id_middleware
 from ..services.tasks import default_task_manager
@@ -74,7 +74,8 @@ def create_app(*, enable_workers: bool | None = None, settings: Settings | None 
     app_state.settings = settings
     app_state.task_manager = default_task_manager
     app_state.engine, app_state.session_factory = create_database(settings)
-    default_task_manager.session_factory = app_state.session_factory
+    app_state.worker_engine, app_state.worker_session_factory = create_worker_database(settings)
+    default_task_manager.session_factory = app_state.background_session_factory
     app_state.extra["enable_workers"] = enable_workers
     app_state.extra["spawned_tasks"] = set()
 

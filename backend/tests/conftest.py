@@ -32,6 +32,7 @@ hashlib.pbkdf2_hmac = _fast_pbkdf2_hmac
 
 import pytest
 
+from galleryvault.app.main import app  # noqa: F401
 from galleryvault.app.state import app_state
 
 
@@ -60,7 +61,19 @@ def _isolate_app_state():
     orig_eh_client = app_state.eh_client
     orig_telegram = app_state.telegram
     orig_extra = dict(app_state.extra)
+
+    # 单元测试默认隔离 worker 连接池，避免跨 loop 污染及打到真实 DB
+    if app_state.worker_engine is not None:
+        try:
+            app_state.worker_engine.sync_engine.dispose()
+        except Exception:
+            pass
+    app_state.worker_engine = None
+    app_state.worker_session_factory = None
+
     yield
+
+    app_state.reset()
     app_state.settings = orig_settings
     app_state.session_factory = orig_session_factory
     app_state.eh_client = orig_eh_client
@@ -70,6 +83,8 @@ def _isolate_app_state():
         from galleryvault.app.main import app
 
         app.state.settings = orig_settings
+        app.state.worker_engine = None
+        app.state.worker_session_factory = None
     except (ImportError, AttributeError):
         pass
 

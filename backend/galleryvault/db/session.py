@@ -55,6 +55,47 @@ def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker
     return engine, session_factory
 
 
+def create_worker_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker]:
+    """Create a dedicated database engine and session factory for background workers.
+
+    Uses a separate smaller connection pool (pool_size=5, max_overflow=5) to ensure
+    background jobs and scans cannot exhaust the Web API connection pool.
+    """
+    pool_size = getattr(settings, "worker_database_pool_size", 5)
+    max_overflow = getattr(settings, "worker_database_max_overflow", 5)
+    pool_timeout = getattr(settings, "worker_database_pool_timeout", 30)
+
+    engine = create_async_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_recycle=3600,
+        pool_timeout=pool_timeout,
+    )
+
+    raw_pool = getattr(engine.sync_engine, "pool", None)
+    if raw_pool is not None:
+
+        @event.listens_for(raw_pool, "checkout")
+        def _on_worker_checkout(dbapi_con, con_record, con_proxy):
+            con_record.info["worker_checkout_time"] = time.monotonic()
+
+        @event.listens_for(raw_pool, "checkin")
+        def _on_worker_checkin(dbapi_con, con_record):
+            start = con_record.info.pop("worker_checkout_time", None)
+            if start is not None:
+                duration = time.monotonic() - start
+                if duration > 15.0:
+                    logger.warning(
+                        "Worker DB connection held longer than expected: %.2fs (risk of worker pool exhaustion)",
+                        duration,
+                    )
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    return engine, session_factory
+
+
 @asynccontextmanager
 async def safe_transaction(session: AsyncSession) -> AsyncIterator[AsyncSession]:
     """Safely enter a transaction block without nested begin() errors.
@@ -135,6 +176,7 @@ async def brief_session(
 __all__ = [
     "brief_session",
     "create_database",
+    "create_worker_database",
     "safe_transaction",
 ]
 

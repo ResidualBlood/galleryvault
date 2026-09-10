@@ -280,7 +280,7 @@ async def _save_settings(
 
 
 @router.get("/api/system/logs")
-async def system_logs_get(
+def system_logs_get(
     min_level: str = "INFO", limit: int = 100, search: str | None = None
 ) -> dict[str, object]:
     """Retrieve recent system logs from the in-memory ring buffer."""
@@ -310,7 +310,7 @@ async def system_logs_clear() -> dict[str, str]:
 
 
 @router.get("/api/system/logs/download")
-async def system_logs_download() -> Response:
+def system_logs_download() -> Response:
     """Download the current on-disk system log file or serialize memory ring buffer."""
     log_path = get_log_file_path()
     timestamp_str = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")

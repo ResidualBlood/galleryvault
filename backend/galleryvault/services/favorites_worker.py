@@ -32,6 +32,10 @@ from .storage_usage import storage_tracker
 logger = logging.getLogger(__name__)
 
 
+def _get_background_session_factory() -> Any:
+    return getattr(app_state, "background_session_factory", None) or app_state.session_factory
+
+
 class FavoritesRepositoryProxy:
     def __init__(self, session: Any = None) -> None:
         self.session = session
@@ -42,9 +46,10 @@ class FavoritesRepositoryProxy:
     async def _call(self, method: str, *args: Any) -> Any:
         if self.session is not None:
             return await getattr(FavoritesRepository(self.session), method)(*args)
-        if not app_state.session_factory:
+        session_factory = _get_background_session_factory()
+        if not session_factory:
             return None
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             return await getattr(FavoritesRepository(session), method)(*args)
 
     async def known_gids(self, favcat: int) -> set[int]:
@@ -95,9 +100,10 @@ class FavoriteDownloadQueue:
             await GalleryUpdatesRepository(self.session).attach_download(item.gid, task.id)
             logger.debug("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
             return True
-        if not app_state.session_factory:
+        session_factory = _get_background_session_factory()
+        if not session_factory:
             return False
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             task = await DownloadRepository(session).create(
                 item.gid,
                 item.token,
@@ -220,9 +226,10 @@ async def ensure_remote_cover(
         return None
 
     thumb_url: str | None = None
-    if app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if session_factory:
         try:
-            async with app_state.session_factory() as session:
+            async with session_factory() as session:
                 thumb_url = await session.scalar(
                     select(FavoriteItem.thumb).where(
                         FavoriteItem.gid == int(gid),
@@ -241,9 +248,9 @@ async def ensure_remote_cover(
         except Exception:  # noqa: BLE001
             thumb_url = None
 
-    if not token and app_state.session_factory:
+    if not token and session_factory:
         try:
-            async with app_state.session_factory() as session:
+            async with session_factory() as session:
                 token = await session.scalar(
                     select(Gallery.token).where(
                         Gallery.gid == int(gid),
@@ -315,10 +322,11 @@ def _img_data_uri(raw: bytes) -> str | None:
 async def favorites_metadata(
     pairs: list[tuple[int, str]], batch_size: int = EXHENTAI_API_CHUNK_SIZE
 ) -> dict[int, dict[str, Any]]:
-    if not pairs or not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not pairs or not session_factory:
         return {}
     gids = [gid for gid, _ in pairs]
-    async with app_state.session_factory() as session:
+    async with session_factory() as session:
         cached = await GalleryRepository(session).metadata_map(gids)
 
     missing = [(gid, token) for gid, token in pairs if gid not in cached and token]
@@ -336,7 +344,7 @@ async def favorites_metadata(
                 )
         if fetched:
             try:
-                async with app_state.session_factory() as session, session.begin():
+                async with session_factory() as session, session.begin():
                     await GalleryRepository(session).upsert_metadata(
                         [{"gid": gid, **meta} for gid, meta in fetched.items()]
                     )
@@ -477,7 +485,8 @@ def estimate_cloud_size(cloud_count: int, local_count: int, local_size: int) -> 
 
 
 async def favorite_size_sync(favcat: int) -> None:
-    if not app_state.session_factory or not app_state.eh_client:
+    session_factory = _get_background_session_factory()
+    if not session_factory or not app_state.eh_client:
         return
     if favcat in _size_sync_inflight:
         return
@@ -490,14 +499,14 @@ async def favorite_size_sync(favcat: int) -> None:
         async with tm.track_task("metadata", cancellable=True) as tracker:
             tracker.update(stage="listing")
             try:
-                async with app_state.session_factory() as session, session.begin():
+                async with session_factory() as session, session.begin():
                     await GalleryRepository(session).seed_metadata_from_galleries(favcat)
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
                     "favorite metadata seed skipped", extra=log_extra(favcat=favcat, error=type(exc).__name__)
                 )
 
-            async with app_state.session_factory() as session:
+            async with session_factory() as session:
                 folder_items = await FavoritesRepository(session).all_gids_for_favcat(favcat)
                 folder_gids = [gid for gid, _, _ in folder_items]
                 gal_read = GalleryRepository(session)
@@ -536,7 +545,7 @@ async def favorite_size_sync(favcat: int) -> None:
                         extra=log_extra(error=type(exc).__name__, count=len(chunk)),
                     )
                 tracker.update(done=min(len(missing), start + batch_size))
-            async with app_state.session_factory() as session, session.begin():
+            async with session_factory() as session, session.begin():
                 gal = GalleryRepository(session)
                 if fetched:
                     await gal.upsert_metadata(
@@ -602,7 +611,7 @@ async def favorite_size_sync(favcat: int) -> None:
             for _ in range(100):
                 if tm.is_cancelled("metadata"):
                     break
-                async with app_state.session_factory() as session, session.begin():
+                async with session_factory() as session, session.begin():
                     applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
                         favcat, 200
                     )
@@ -635,7 +644,7 @@ async def _run_favorites_check_inner(
     tm = get_task_manager()
     skip_decision_fn = favorites_skip_decision
     counts_cached_fn = favorite_counts_cached
-    session_cm = app_state.session_factory
+    session_cm = _get_background_session_factory()
     if session_cm is None:
         return
 
@@ -753,13 +762,14 @@ async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
         await asyncio.sleep(interval)
         if not settings.exhentai_cookies:
             continue
-        if not app_state.session_factory:
+        session_factory = _get_background_session_factory()
+        if not session_factory:
             continue
         active_service = service or app_state.favorites_service
         if active_service is None:
             continue
         try:
-            async with app_state.session_factory() as session:
+            async with session_factory() as session:
                 categories = await FavoritesRepository(session).categories()
             for cat in categories:
                 if cat.enabled:
@@ -772,7 +782,8 @@ async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
 
 
 async def run_duplicates_scan() -> None:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     from ..app.dependencies import get_task_manager, resolve_display_title
 
@@ -780,7 +791,7 @@ async def run_duplicates_scan() -> None:
     async with tm.track_task("duplicates") as tracker:
         tracker.update(stage="reading", done=0, total=0, last_error=None, groups=[])
         try:
-            async with app_state.session_factory() as session:
+            async with session_factory() as session:
                 repo = FavoritesRepository(session)
                 items = await repo.all_items()
                 gids = list({item[1] for item in items})
@@ -859,10 +870,10 @@ async def run_duplicates_scan() -> None:
                     if it["gallery_id"] is not None:
                         local_write[it["gid"]] = datetime.fromisoformat(posted)
                 if local_write:
-                    async with app_state.session_factory() as session, session.begin():
+                    async with session_factory() as session, session.begin():
                         await FavoritesRepository(session).update_posted_at(local_write)
 
-            async with app_state.session_factory() as session:
+            async with session_factory() as session:
                 repo = FavoritesRepository(session)
                 ignored_keys = await repo.ignored_duplicate_keys()
                 ignored = await repo.ignored_duplicates()
