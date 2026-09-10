@@ -7,16 +7,16 @@ let systemLogSearch = "";
 let systemLogMinLevel = "INFO";
 let systemLogLevel = "INFO";
 let systemLogAutoScroll = true;
-let isUserScrolledUp = false;
+let isUserScrolled = false;
 let lastRenderedLogId = null;
 let lastSearchQuery = "";
 let lastMinLevel = "INFO";
 const MAX_SYSLOG_DOM_NODES = 1000;
 
-function scrollSyslogToBottom() {
+function scrollSyslogToTop() {
   const container = document.getElementById("syslog-container");
   if (!container) return;
-  container.scrollTop = container.scrollHeight;
+  container.scrollTop = 0;
 }
 
 function bindSyslogEvents() {
@@ -24,8 +24,8 @@ function bindSyslogEvents() {
   if (container && !container.__gvScrollBound) {
     container.__gvScrollBound = true;
     container.addEventListener("scroll", () => {
-      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
-      isUserScrolledUp = !atBottom;
+      const atTop = container.scrollTop <= 20;
+      isUserScrolled = !atTop;
     });
   }
 
@@ -35,8 +35,8 @@ function bindSyslogEvents() {
     autoScrollToggle.addEventListener("change", (e) => {
       systemLogAutoScroll = Boolean(e.target.checked);
       if (systemLogAutoScroll) {
-        isUserScrolledUp = false;
-        scrollSyslogToBottom();
+        isUserScrolled = false;
+        scrollSyslogToTop();
       }
     });
   }
@@ -46,7 +46,7 @@ async function renderLogs() {
   const tab = app.query.tab || currentLogsTab;
   currentLogsTab = tab;
   lastRenderedLogId = null;
-  isUserScrolledUp = false;
+  isUserScrolled = false;
   lastSearchQuery = systemLogSearch;
   lastMinLevel = systemLogMinLevel;
 
@@ -247,26 +247,32 @@ async function fetchSystemLogs() {
     );
 
     if (needsFullRender) {
-      const chronological = logs.slice().reverse();
-      container.innerHTML = `<div class="syslog-rows">${chronological.map(renderSystemLogRow).join("")}</div>`;
+      const sortedDesc = logs.slice().sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
+      container.innerHTML = `<div class="syslog-rows">${sortedDesc.map(renderSystemLogRow).join("")}</div>`;
       lastRenderedLogId = maxIncomingId;
-      if (systemLogAutoScroll && !isUserScrolledUp) {
-        scrollSyslogToBottom();
+      if (systemLogAutoScroll && !isUserScrolled) {
+        scrollSyslogToTop();
       }
     } else {
       const newLogs = logs.filter(l => (Number(l.id) || 0) > lastRenderedLogId);
       if (newLogs.length > 0) {
-        newLogs.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+        newLogs.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
         const html = newLogs.map(renderSystemLogRow).join("");
-        rowsEl.insertAdjacentHTML("beforeend", html);
+        const prevScrollHeight = container.scrollHeight;
+        const prevScrollTop = container.scrollTop;
+
+        rowsEl.insertAdjacentHTML("afterbegin", html);
         lastRenderedLogId = Math.max(lastRenderedLogId, ...newLogs.map(l => Number(l.id) || 0));
 
         while (rowsEl.children.length > MAX_SYSLOG_DOM_NODES) {
-          rowsEl.removeChild(rowsEl.firstElementChild);
+          rowsEl.removeChild(rowsEl.lastElementChild);
         }
 
-        if (systemLogAutoScroll && !isUserScrolledUp) {
-          scrollSyslogToBottom();
+        if (systemLogAutoScroll && !isUserScrolled) {
+          scrollSyslogToTop();
+        } else if (isUserScrolled) {
+          const addedHeight = container.scrollHeight - prevScrollHeight;
+          container.scrollTop = prevScrollTop + addedHeight;
         }
       }
     }
