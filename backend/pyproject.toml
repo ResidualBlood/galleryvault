@@ -19,7 +19,7 @@ dependencies = [
   "Pillow>=12.3.0,<13",
   "cryptography>=50.0.1,<51",
   "py7zr>=1.0,<2",
-  "pypdf>=5.0,<7",
+  "pypdf>=6.17.0,<7",
 ]
 
 [project.optional-dependencies]
