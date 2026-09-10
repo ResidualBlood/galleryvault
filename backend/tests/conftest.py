@@ -32,7 +32,7 @@ hashlib.pbkdf2_hmac = _fast_pbkdf2_hmac
 
 import pytest
 
-from galleryvault.app.main import app  # noqa: F401
+from galleryvault.app.main import app
 from galleryvault.app.state import app_state
 
 
@@ -66,7 +66,7 @@ def _isolate_app_state():
     if app_state.worker_engine is not None:
         try:
             app_state.worker_engine.sync_engine.dispose()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
     app_state.worker_engine = None
     app_state.worker_session_factory = None
@@ -93,7 +93,6 @@ def bind_runtime(**kwargs):
     """测试唯一入口：写入 app_state，并镜像到 app.state（若已创建）。"""
     for k, v in kwargs.items():
         setattr(app_state, k, v)
-    from galleryvault.app.main import app
     from galleryvault.app.state import sync_state
 
     sync_state(app)
