@@ -7,7 +7,105 @@ let preserveMoreExpandedOnce = false;
 let currentGalleryProgressPage = 0;
 let currentGalleryCtx = {};
 
+let galleryThumbObserver = null;
+let galleryThumbMutationObserver = null;
+let galleryThumbQueue = [];
+let galleryThumbActive = 0;
+const MAX_CONCURRENT_THUMBS = 6;
+
+function cleanupGalleryThumbs() {
+  if (galleryThumbObserver) {
+    try { galleryThumbObserver.disconnect(); } catch (_) {}
+    galleryThumbObserver = null;
+  }
+  if (galleryThumbMutationObserver) {
+    try { galleryThumbMutationObserver.disconnect(); } catch (_) {}
+    galleryThumbMutationObserver = null;
+  }
+  galleryThumbQueue = [];
+  galleryThumbActive = 0;
+}
+
+function processGalleryThumbQueue() {
+  while (galleryThumbActive < MAX_CONCURRENT_THUMBS && galleryThumbQueue.length > 0) {
+    const img = galleryThumbQueue.shift();
+    if (!img) continue;
+    if (!document.contains(img)) continue;
+    const src = img.getAttribute("data-src");
+    if (!src || img.src) continue;
+
+    galleryThumbActive++;
+    let settled = false;
+    const onDone = () => {
+      if (settled) return;
+      settled = true;
+      img.removeEventListener("load", onDone);
+      img.removeEventListener("error", onDone);
+      galleryThumbActive = Math.max(0, galleryThumbActive - 1);
+      processGalleryThumbQueue();
+    };
+    img.addEventListener("load", onDone);
+    img.addEventListener("error", onDone);
+    img.src = src;
+    img.removeAttribute("data-src");
+  }
+}
+
+function observeGalleryThumbs(container) {
+  if (!container) return;
+  if (!("IntersectionObserver" in window)) {
+    const imgs = container.querySelectorAll("img.lazy-thumb[data-src]");
+    imgs.forEach(img => {
+      const src = img.getAttribute("data-src");
+      if (src) {
+        img.src = src;
+        img.removeAttribute("data-src");
+      }
+    });
+    return;
+  }
+  if (!galleryThumbObserver) {
+    galleryThumbObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const img = entry.target;
+          try { galleryThumbObserver.unobserve(img); } catch (_) {}
+          if (img.getAttribute("data-src") && !galleryThumbQueue.includes(img)) {
+            galleryThumbQueue.push(img);
+            processGalleryThumbQueue();
+          }
+        }
+      }
+    }, { rootMargin: "200px 0px" });
+  }
+  const imgs = container.querySelectorAll("img.lazy-thumb[data-src]");
+  imgs.forEach(img => {
+    galleryThumbObserver.observe(img);
+  });
+
+  if ("MutationObserver" in window && !galleryThumbMutationObserver) {
+    galleryThumbMutationObserver = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.matches && node.matches("img.lazy-thumb[data-src]")) {
+            galleryThumbObserver.observe(node);
+          } else if (node.querySelectorAll) {
+            const addedImgs = node.querySelectorAll("img.lazy-thumb[data-src]");
+            addedImgs.forEach(img => galleryThumbObserver.observe(img));
+          }
+        }
+      }
+    });
+    galleryThumbMutationObserver.observe(container, { childList: true, subtree: true });
+  }
+}
+
 async function renderGallery() {
+  cleanupGalleryThumbs();
+  if (typeof currentViewCleanup !== "undefined") {
+    currentViewCleanup = cleanupGalleryThumbs;
+  }
   const id = app.params.id;
   $view().innerHTML = `<p>${esc(t("loading"))}</p>`;
   try {
@@ -97,7 +195,7 @@ async function renderGallery() {
     const thumbsVisible = thumbsAll.slice(pageStart, pageStart + perPage);
     const thumbCard = p => `
       <a class="thumb" href="${navHash("reader", { id, page: p.index }, galleryCtx)}">
-        <img loading="lazy" src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
+        <img class="lazy-thumb" data-src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
       </a>`;
     const thumbs = thumbsVisible.map(thumbCard).join("");
     const txtMore = app.lang === "zh" ? "更多" : (t("navMore") || "More");
@@ -161,6 +259,11 @@ async function renderGallery() {
           <div class="pages pager">${pagerJump(thumbPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
         </section>
       </div>`;
+
+    const thumbsSection = document.getElementById("gallery-thumbs-section");
+    if (thumbsSection) {
+      observeGalleryThumbs(thumbsSection);
+    }
 
     const moreBtn = document.getElementById("gallery-more-btn");
     const moreSection = document.getElementById("gallery-more-section");

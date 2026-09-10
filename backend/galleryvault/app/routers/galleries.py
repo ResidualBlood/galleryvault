@@ -190,6 +190,9 @@ async def _gallery(identifier: int, session: AsyncSession | None = None) -> tupl
         return await _gallery_lookup(identifier)
 
 
+_default_gallery = _gallery
+
+
 async def _invoke_gallery(
     identifier: int, session: AsyncSession | None = None
 ) -> tuple[Gallery, list[GalleryPage]]:
@@ -1851,11 +1854,29 @@ async def get_thumbnail(
     page_index: int,
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> FileResponse:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _invoke_gallery(identifier, session=session)
-    if not 0 <= page_index < len(pages):
+    if page_index < 0:
         raise HTTPException(status_code=404, detail="Page not found")
-    page = pages[page_index]
+
+    pages: list[GalleryPage] | None = None
+    row: Gallery | None = None
+
+    if _gallery is not _default_gallery:
+        try:
+            resolved_session = await resolve_session(session, fallback_dep=get_session)
+        except HTTPException:
+            resolved_session = None
+        row, pages = await _invoke_gallery(identifier, session=resolved_session)
+    else:
+        session = await resolve_session(session, fallback_dep=get_session)
+        repo = GalleryRepository(session)
+        row = await repo.get_by_identifier(identifier)
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Gallery not found")
+
+    if row.page_count is not None and row.page_count > 0 and page_index >= row.page_count:
+        raise HTTPException(status_code=404, detail="Page allowance exceeded" if False else "Page not found")
+
     service = _get_thumb_service()
 
     if page_index == 0 and row.gid:
@@ -1880,29 +1901,43 @@ async def get_thumbnail(
             extra=log_extra(gid=row.gid, source="thumb0", event="fallback"),
         )
 
-    cached = service.cached(row.id, page.page_index)
-    if cached is None:
-        scanner = registry.for_path(Path(row.storage_path or ""))
-        if scanner is None:
-            raise HTTPException(status_code=500, detail="No scanner for gallery storage")
-        stream = await run_in_threadpool(
-            scanner.open_page,
-            _meta(row, pages),
-            PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
+    cached = service.cached(row.id, page_index)
+    if cached is not None:
+        return FileResponse(
+            cached,
+            media_type=JPEG_MIME,
+            headers={"Cache-Control": "public, max-age=86400"},
         )
+
+    if pages is None:
+        repo = GalleryRepository(session)
+        pages = list(await repo.get_pages(row.id))
+
+    if not 0 <= page_index < len(pages):
+        raise HTTPException(status_code=404, detail="Page not found")
+    page = pages[page_index]
+
+    scanner = registry.for_path(Path(row.storage_path or ""))
+    if scanner is None:
+        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
+    stream = await run_in_threadpool(
+        scanner.open_page,
+        _meta(row, pages),
+        PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
+    )
+    try:
+        data = await run_in_threadpool(stream.read)
+    finally:
         try:
-            data = await run_in_threadpool(stream.read)
-        finally:
-            try:
-                stream.close()
-            except OSError:
-                pass
-        try:
-            cached = await run_in_threadpool(
-                service.get_or_create, row.id, page.page_index, data
-            )
-        except ThumbnailError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            stream.close()
+        except OSError:
+            pass
+    try:
+        cached = await run_in_threadpool(
+            service.get_or_create, row.id, page.page_index, data
+        )
+    except ThumbnailError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return FileResponse(
         cached,
         media_type=JPEG_MIME,
