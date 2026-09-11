@@ -57,105 +57,120 @@ function startInfinite(containerId, fetchNext, buildItem, initialCursor = null) 
     try { if (sentinel.parentNode) sentinel.remove(); } catch (_) {}
   };
 
+  const ROOT_MARGIN_PX = 900;
+
+  const sentinelInRange = () => {
+    if (finished || controller.signal.aborted) return false;
+    if (!document.contains(sentinel)) return false;
+    const rect = sentinel.getBoundingClientRect();
+    return rect.top < ((window.innerHeight || 0) + ROOT_MARGIN_PX) && rect.bottom > -ROOT_MARGIN_PX;
+  };
+
   const loadNext = async () => {
     if (finished || loading) return;
     if (controller.signal.aborted) return;
-    if (isCursorMode && !cursor) {
-      finished = true;
-      cleanup();
-      return;
-    }
     loading = true;
     try {
-      let data;
-      if (isCursorMode) {
-        data = await fetchNext(cursor);
-      } else {
-        data = await fetchNext(page + 1);
-      }
-      if (controller.signal.aborted) return;
-      if (!document.contains(grid) || !document.contains(sentinel)) {
-        finished = true;
-        return;
-      }
-
-      if (data && data.state && data.state !== "ok") {
-        finished = true;
-        if (typeof toast === "function" && typeof t === "function") {
-          toast(t(data.state === "rate_limited" ? "discoverRateLimited"
-            : data.state === "challenge" ? "discoverChallenge"
-            : data.state === "no_exhentai_access" ? "discoverSadPanda"
-            : data.state === "not_logged_in" ? "cookieExpiredNotice"
-            : "discoverError"));
-        }
-        if (typeof refreshCookieHealth === "function" && (data.state === "not_logged_in" || data.state === "no_exhentai_access")) {
-          refreshCookieHealth();
-        }
-        cleanup();
-        return;
-      }
-
-      const items = (data && data.items) || [];
-      if (!items.length) {
-        finished = true;
-        cleanup();
-        return;
-      }
-
-      errorCount = 0;
-      sentinel.innerHTML = "";
-      sentinel.style.padding = "0";
-
-      if (isCursorMode) {
-        cursor = (data && data.next) || null;
-      } else {
-        page = (data && data.page) || (page + 1);
-      }
-
-      const temp = document.createElement("div");
-      temp.innerHTML = items.map(buildItem).join("");
-      const newCards = Array.from(temp.children);
-      for (const card of newCards) {
-        sentinel.parentNode.insertBefore(card, sentinel);
-      }
-
-      if (typeof renderCardCheckboxes === "function" && ["lib-grid", "fav-items", "browse-grid", "disc-grid"].includes(containerId)) {
-        renderCardCheckboxes();
-      }
-
-      if (isCursorMode) {
-        if (!cursor) {
+      while (!finished && !controller.signal.aborted) {
+        if (isCursorMode && !cursor) {
           finished = true;
           cleanup();
-          return;
+          break;
         }
-      } else {
-        const pageSize = data && (data.page_size || data.pageSize);
-        const total = data && data.total;
-        if (pageSize && total != null && total > 0) {
-          if ((page * pageSize) >= total) {
+        try {
+          let data;
+          if (isCursorMode) {
+            data = await fetchNext(cursor);
+          } else {
+            data = await fetchNext(page + 1);
+          }
+          if (controller.signal.aborted) break;
+          if (!document.contains(grid) || !document.contains(sentinel)) {
+            finished = true;
+            break;
+          }
+
+          if (data && data.state && data.state !== "ok") {
+            finished = true;
+            if (typeof toast === "function" && typeof t === "function") {
+              toast(t(data.state === "rate_limited" ? "discoverRateLimited"
+                : data.state === "challenge" ? "discoverChallenge"
+                : data.state === "no_exhentai_access" ? "discoverSadPanda"
+                : data.state === "not_logged_in" ? "cookieExpiredNotice"
+                : "discoverError"));
+            }
+            if (typeof refreshCookieHealth === "function" && (data.state === "not_logged_in" || data.state === "no_exhentai_access")) {
+              refreshCookieHealth();
+            }
+            cleanup();
+            break;
+          }
+
+          const items = (data && data.items) || [];
+          if (!items.length) {
             finished = true;
             cleanup();
-            return;
+            break;
           }
+
+          errorCount = 0;
+          sentinel.innerHTML = "";
+          sentinel.style.padding = "0";
+
+          if (isCursorMode) {
+            cursor = (data && data.next) || null;
+          } else {
+            page = (data && data.page) || (page + 1);
+          }
+
+          const temp = document.createElement("div");
+          temp.innerHTML = items.map(buildItem).join("");
+          const newCards = Array.from(temp.children);
+          for (const card of newCards) {
+            sentinel.parentNode.insertBefore(card, sentinel);
+          }
+
+          if (typeof renderCardCheckboxes === "function" && ["lib-grid", "fav-items", "browse-grid", "disc-grid"].includes(containerId)) {
+            renderCardCheckboxes();
+          }
+
+          if (isCursorMode) {
+            if (!cursor) {
+              finished = true;
+              cleanup();
+              break;
+            }
+          } else {
+            const pageSize = data && (data.page_size || data.pageSize);
+            const total = data && data.total;
+            if (pageSize && total != null && total > 0) {
+              if ((page * pageSize) >= total) {
+                finished = true;
+                cleanup();
+                break;
+              }
+            }
+          }
+        } catch (err) {
+          if (controller.signal.aborted) break;
+          errorCount++;
+          if (errorCount > maxErrors) {
+            finished = true;
+            cleanup();
+            break;
+          }
+          sentinel.style.padding = "8px 0";
+          sentinel.innerHTML = `<button type="button" class="btn btn-secondary inf-retry-btn" style="margin:4px auto;cursor:pointer;font-size:13px">↻ Click to retry (${typeof t === "function" ? t("retry") : "Retry"})</button>`;
+          const btn = sentinel.querySelector(".inf-retry-btn");
+          if (btn) {
+            btn.onclick = (e) => {
+              e.stopPropagation();
+              if (!loading && !finished) loadNext();
+            };
+          }
+          break;
         }
-      }
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      errorCount++;
-      if (errorCount > maxErrors) {
-        finished = true;
-        cleanup();
-        return;
-      }
-      sentinel.style.padding = "8px 0";
-      sentinel.innerHTML = `<button type="button" class="btn btn-secondary inf-retry-btn" style="margin:4px auto;cursor:pointer;font-size:13px">↻ Click to retry (${typeof t === "function" ? t("retry") : "Retry"})</button>`;
-      const btn = sentinel.querySelector(".inf-retry-btn");
-      if (btn) {
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          if (!loading && !finished) loadNext();
-        };
+        if (finished || !sentinelInRange()) break;
       }
     } finally {
       loading = false;
@@ -173,7 +188,7 @@ function startInfinite(containerId, fetchNext, buildItem, initialCursor = null) 
     if (entries[0] && entries[0].isIntersecting) {
       await loadNext();
     }
-  }, { rootMargin: "900px" });
+  }, { rootMargin: ROOT_MARGIN_PX + "px" });
 
   observer.observe(sentinel);
   infiniteState = { observer, controller, sentinel };

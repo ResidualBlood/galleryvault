@@ -137,6 +137,16 @@ async function renderGallery() {
     const thumbsAll = g.pages || [];
     const perPage = prefPageSize(30);
     const totalPages = Math.max(1, Math.ceil(thumbsAll.length / perPage));
+    const explicitPage = parseInt(app.query.page || "", 10);
+    let targetPage = 1;
+    let scrollToIndex = -1;
+    if (explicitPage > 0) {
+      targetPage = Math.min(explicitPage, totalPages);
+      if (targetPage > 1) scrollToIndex = (targetPage - 1) * perPage;
+    } else if ((progress.current_page || 0) > 0) {
+      targetPage = Math.min(Math.floor(progress.current_page / perPage) + 1, totalPages);
+      scrollToIndex = progress.current_page;
+    }
     const FROM_LABELS = {
       favorites: t("favorites"),
       discover: t("discover"),
@@ -182,7 +192,7 @@ async function renderGallery() {
     const galleryCtx = { ...libraryContext(), ...(!isInvalidFrom ? { from: rawFrom } : {}) };
     currentGalleryProgressPage = progress.current_page || 0;
     currentGalleryCtx = galleryCtx;
-    const thumbsVisible = thumbsAll.slice(0, perPage);
+    const thumbsVisible = thumbsAll.slice(0, targetPage * perPage);
     const thumbCard = p => `
       <a class="thumb" 
          id="thumb-${p.index}"
@@ -249,7 +259,7 @@ async function renderGallery() {
         <section><h2>${esc(t("tagSection"))}</h2><div class="tag-groups">${tagHtml || `<span class="muted">${esc(t("noTags"))}</span>`}</div></section>
         <section id="gallery-thumbs-section"><h2>${esc(t("pagesSection"))}</h2>
           <div class="thumbs">${thumbs}</div>
-          <div class="pages pager">${pagerJump(1, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
+          <div class="pages pager">${pagerJump(targetPage, totalPages)} · ${esc(t("perPage"))} ${pageSizeSelect(perPage, "gallery")}</div>
         </section>
       </div>`;
 
@@ -315,16 +325,24 @@ async function renderGallery() {
       } catch (_) {}
     }
     fillGalleryLists(id);
-    startInfinite("gallery-thumbs-section", async (nextPage) => {
-      const start = (nextPage - 1) * perPage;
-      const items = thumbsAll.slice(start, start + perPage);
-      return {
-        items,
-        page: nextPage,
-        page_size: perPage,
-        total: thumbsAll.length,
-      };
-    }, thumbCard);
+    if (targetPage < totalPages) {
+      startInfinite("gallery-thumbs-section", async (nextPage) => {
+        const start = (nextPage - 1) * perPage;
+        const items = thumbsAll.slice(start, start + perPage);
+        return {
+          items,
+          page: nextPage,
+          page_size: perPage,
+          total: thumbsAll.length,
+        };
+      }, thumbCard, targetPage);
+    }
+    if (scrollToIndex >= 0) {
+      setTimeout(() => {
+        const el = document.getElementById(`thumb-${scrollToIndex}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 150);
+    }
   } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 

@@ -120,7 +120,7 @@ function galleryCard(it) {
   const cat = esc(catLabel(it.category));
   const from = currentFromPath();
   const ctx = app.view === "library"
-    ? { ...libraryContext(), ...(app.query.page ? { page: app.query.page } : {}), from }
+    ? { ...libraryContext(), from }
     : { from };
   return `<div class="gc-wrap" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}">
     <a class="gc" href="${navHash("gallery", { id: it.id }, ctx)}" role="link" aria-label="${esc(it.title)} (${cat}, ${it.page_count} pages)">
