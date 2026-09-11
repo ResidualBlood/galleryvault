@@ -552,5 +552,38 @@ class TelegramNotifier:
             if not shared and client is not None:
                 await client.aclose()
 
+    async def set_my_commands(self, commands: list[dict[str, str]]) -> bool:
+        """Register bot commands via Telegram Bot API ``/setMyCommands``."""
+        token = self.settings.telegram_bot_token
+        if not token:
+            logger.debug("Telegram set_my_commands skipped: not configured")
+            return False
+        call_timeout = httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0)
+        client, shared = self._get_client(call_timeout)
+        try:
+            response = await client.post(
+                f"https://api.telegram.org/bot{token}/setMyCommands",
+                json={"commands": commands},
+                timeout=call_timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return bool(data.get("ok", True))
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            logger.warning(
+                "Telegram set_my_commands failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram set_my_commands unexpected error",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        finally:
+            if not shared and client is not None:
+                await client.aclose()
+
 
 TelegramService = TelegramNotifier

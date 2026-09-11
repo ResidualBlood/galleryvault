@@ -7,9 +7,9 @@ import logging
 import math
 import re
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any
 
-import anyio
 from sqlalchemy import func, or_, select
 
 from galleryvault.app.dependencies import resolve_display_title
@@ -25,6 +25,7 @@ from galleryvault.services.tgbot.keyboards import (
     inline_keyboard,
 )
 from galleryvault.services.tgbot.router import CommandRouter
+from galleryvault.services.thumbnails import ThumbnailService
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,9 @@ def _format_gallery_info(
     lang: str = "zh",
 ) -> tuple[str, dict[str, Any]]:
     """Format full gallery detail caption and inline buttons."""
-    title = resolve_display_title(gallery.title, gallery.title_jpn) or gallery.title or str(gallery.gid)
+    title = (
+        resolve_display_title(gallery.title, gallery.title_jpn) or gallery.title or str(gallery.gid)
+    )
     lines: list[str] = [f"📖 <b>{esc(title)}</b>"]
     if gallery.title_jpn and gallery.title_jpn != title:
         lines.append(f"<code>{esc(gallery.title_jpn)}</code>")
@@ -194,27 +197,73 @@ async def _send_gallery_card(
     """Send gallery info card, attempting photo first with fallback to text."""
     caption, kb = _format_gallery_info(gallery, tags=tags, lang=ctx.lang)
     if extra_buttons:
-        kb = {
-            "inline_keyboard": [*kb.get("inline_keyboard", []), list(extra_buttons)]
-        }
+        kb = {"inline_keyboard": [*kb.get("inline_keyboard", []), list(extra_buttons)]}
+
+    photo_path: Path | None = None
+    thumb_svc = getattr(app_state, "thumbnail_service", None)
+    if thumb_svc is None:
+        try:
+            cache_dir = getattr(
+                getattr(app_state, "settings", None),
+                "thumbnail_cache_dir",
+                "./data/thumbnails",
+            )
+            thumb_svc = ThumbnailService(cache_dir)
+        except Exception:  # noqa: BLE001
+            thumb_svc = None
+
+    # Check ThumbnailService.cached_remote_cover(gallery.gid)
+    try:
+        remote_cover = None
+        if thumb_svc is not None:
+            try:
+                remote_cover = thumb_svc.cached_remote_cover(gallery.gid)
+            except TypeError:
+                remote_cover = ThumbnailService.cached_remote_cover(gallery.gid)  # type: ignore[call-arg]
+        else:
+            remote_cover = ThumbnailService.cached_remote_cover(gallery.gid)  # type: ignore[call-arg]
+        if remote_cover:
+            p = Path(remote_cover)
+            if p.is_file():
+                photo_path = p
+    except Exception:  # noqa: BLE001
+        photo_path = None
+
+    # If not found, try ThumbnailService.cached(gallery.id, 0)
+    if photo_path is None:
+        try:
+            local_cover = None
+            if thumb_svc is not None:
+                try:
+                    local_cover = thumb_svc.cached(gallery.id, 0)
+                except TypeError:
+                    local_cover = ThumbnailService.cached(gallery.id, 0)  # type: ignore[call-arg]
+            else:
+                local_cover = ThumbnailService.cached(gallery.id, 0)  # type: ignore[call-arg]
+            if local_cover:
+                p = Path(local_cover)
+                if p.is_file():
+                    photo_path = p
+        except Exception:  # noqa: BLE001
+            photo_path = None
 
     cover_sent = False
-    cover_path = getattr(gallery, "cover_path", None)
-    if cover_path and await anyio.Path(cover_path).is_file():
+    if photo_path is not None:
         try:
-            photo_bytes = await anyio.Path(cover_path).read_bytes()
-            if photo_bytes:
-                cover_sent = await ctx.reply_photo(
-                    photo=photo_bytes,
-                    caption=_fit_html_caption(caption),
-                    reply_markup=kb,
-                )
+            cover_sent = await ctx.reply_photo(
+                photo_path,
+                caption=_fit_html_caption(caption),
+                reply_markup=kb,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.debug("Failed sending cover photo", extra=log_extra(error=str(exc)))
             cover_sent = False
 
     if not cover_sent:
-        return await ctx.reply_text(caption, reply_markup=kb)
+        reply_fn = getattr(ctx, "reply", getattr(ctx, "reply_text", None))
+        if reply_fn is not None:
+            return await reply_fn(caption, reply_markup=kb)
+        return False
     return True
 
 
@@ -265,6 +314,14 @@ async def _execute_search(
             else:
                 await ctx.reply_text(text)
             return
+
+        if total_count == 1:
+            single_stmt = select(Gallery).where(*base_where, match_cond).limit(1)
+            single_gallery = await session.scalar(single_stmt)
+            if single_gallery is not None:
+                tags = await _fetch_gallery_tags(session, single_gallery.id)
+                await _send_gallery_card(ctx, single_gallery, tags=tags)
+                return
 
         total_pages = max(1, math.ceil(total_count / PAGE_SIZE))
         page = min(page, total_pages)
@@ -392,7 +449,9 @@ async def cmd_redownload(ctx: BotContext) -> None:
         gallery = await session.scalar(select(Gallery).where(Gallery.gid == gid).limit(1))
         if gallery and gallery.token:
             token = gallery.token
-            title = resolve_display_title(gallery.title, gallery.title_jpn) or gallery.title or str(gid)
+            title = (
+                resolve_display_title(gallery.title, gallery.title_jpn) or gallery.title or str(gid)
+            )
             title_jpn = gallery.title_jpn
         else:
             task = await session.scalar(
@@ -418,9 +477,7 @@ async def cmd_redownload(ctx: BotContext) -> None:
     except TypeError:
         await ctx.queue.enqueue(item)
 
-    await ctx.reply_text(
-        bot_text(ctx.lang, "bot_redownload_queued", title=esc(title), gid=gid)
-    )
+    await ctx.reply_text(bot_text(ctx.lang, "bot_redownload_queued", title=esc(title), gid=gid))
 
 
 # --- Callback query handlers ---

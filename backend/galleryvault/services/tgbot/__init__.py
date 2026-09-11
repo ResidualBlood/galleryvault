@@ -15,7 +15,7 @@ from galleryvault.services.tgbot.router import CommandRouter
 HELP_TEXT_ZH = (
     "🤖 <b>GalleryVault 机器人指令清单</b>\n\n"
     "⚙️ <b>系统与运维</b>\n"
-    "• <code>/status</code> 查询系统运行状态与运行时间\n"
+    "• <code>/status</code> 查询系统运行状态与队列概况\n"
     "• <code>/ping</code> 测试机器人响应延迟\n"
     "• <code>/cookie</code> 检查 E-Hentai Cookie 有效性\n"
     "• <code>/quota</code> 查询 EH 图像配额与 GP 余额\n"
@@ -48,7 +48,7 @@ HELP_TEXT_ZH = (
 HELP_TEXT_EN = (
     "🤖 <b>GalleryVault Bot Commands</b>\n\n"
     "⚙️ <b>System & Maintenance</b>\n"
-    "• <code>/status</code> Check system status & uptime\n"
+    "• <code>/status</code> Query system status and download queue overview\n"
     "• <code>/ping</code> Test bot response latency\n"
     "• <code>/cookie</code> Check E-Hentai cookie health\n"
     "• <code>/quota</code> Check EH image quota and GP\n"

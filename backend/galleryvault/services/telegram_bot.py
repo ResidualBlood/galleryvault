@@ -187,6 +187,23 @@ class TelegramBotService:
         await self.router.dispatch(ctx)
 
     async def run(self) -> None:
+        try:
+            commands: list[dict[str, str]] = []
+            seen: set[str] = set()
+            for name, (_func, desc) in getattr(self.router, "_commands", {}).items():
+                cmd_name = name.lstrip("/").strip().lower()
+                clean_desc = (desc or "").strip()
+                if cmd_name and clean_desc and cmd_name not in seen:
+                    seen.add(cmd_name)
+                    commands.append({"command": cmd_name, "description": clean_desc})
+            if commands and hasattr(self.notifier, "set_my_commands"):
+                await self.notifier.set_my_commands(commands)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram bot command registration failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+
         while True:
             try:
                 await self.poll_once()

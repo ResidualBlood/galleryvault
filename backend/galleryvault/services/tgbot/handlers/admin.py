@@ -34,7 +34,7 @@ async def cmd_ping(ctx: BotContext) -> None:
     await ctx.reply_text(bot_pong(latency_ms, lang=ctx.lang))
 
 
-@router.command(["status"], description="Show system status and uptime")
+@router.command(["status"], description="Query system status and download queue overview")
 async def cmd_status(ctx: BotContext) -> None:
     """Show system and download status."""
     paused = bool(
@@ -49,8 +49,31 @@ async def cmd_status(ctx: BotContext) -> None:
     except (TypeError, ValueError, AttributeError):
         uptime_seconds = None
 
+    queue_counts: dict[str, int] | None = None
+    try:
+        dq = getattr(getattr(ctx, "state", None), "download_queue", None)
+        if dq is not None and hasattr(dq, "list_queue_snapshot"):
+            res = dq.list_queue_snapshot()
+            if hasattr(res, "__await__"):
+                res = await res
+            if isinstance(res, tuple) and len(res) == 2 and isinstance(res[1], dict):
+                queue_counts = res[1]
+            elif isinstance(res, dict):
+                queue_counts = res
+        if queue_counts is None:
+            from galleryvault.services.telegram_bot import list_queue_snapshot
+
+            _items, queue_counts = await list_queue_snapshot()
+    except Exception:  # noqa: BLE001
+        queue_counts = None
+
     await ctx.reply_text(
-        bot_status(paused, uptime_seconds=uptime_seconds, lang=ctx.lang)
+        bot_status(
+            paused,
+            uptime_seconds=uptime_seconds,
+            queue_counts=queue_counts,
+            lang=ctx.lang,
+        )
     )
 
 
@@ -131,6 +154,10 @@ async def cmd_storage(ctx: BotContext) -> None:
             or cold.get("disk_free")
         )
 
+        gallery_count = data.get("library", {}).get("gallery_count") if isinstance(data.get("library"), dict) else None
+        file_count = data.get("downloads", {}).get("image_count") if isinstance(data.get("downloads"), dict) else None
+        thumb_count = data.get("cache", {}).get("thumbnail_count") if isinstance(data.get("cache"), dict) else None
+
         await ctx.reply_text(
             bot_storage(
                 library_bytes=lib.get("bytes"),  # type: ignore[arg-type]
@@ -140,6 +167,9 @@ async def cmd_storage(ctx: BotContext) -> None:
                 disk_total=disk_total,  # type: ignore[arg-type]
                 disk_used=disk_used,  # type: ignore[arg-type]
                 disk_free=disk_free,  # type: ignore[arg-type]
+                gallery_count=gallery_count,
+                file_count=file_count,
+                thumb_count=thumb_count,
                 lang=ctx.lang,
             )
         )

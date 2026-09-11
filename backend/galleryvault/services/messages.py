@@ -53,8 +53,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_queued": "📥 已入队 gid <code>{gid}</code>",
         "bot_queued_title": "📥 已入队 <b>{title}</b>（gid <code>{gid}</code>）",
         "bot_queued_updated": (
-            "📥 原 gid <code>{old}</code> 已更新为 gid <code>{new}</code>，"
-            "已入队 <b>{title}</b>"
+            "📥 原 gid <code>{old}</code> 已更新为 gid <code>{new}</code>，已入队 <b>{title}</b>"
         ),
         "bot_gone": "❌ <b>{title}</b>已删除或不存在（404），未入队",
         "bot_already_local": "✅ 新版已在库中：<b>{title}</b>（gid <code>{gid}</code>）",
@@ -99,16 +98,16 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_quota_fail": "❌ 无法获取 E-Hentai 配额：{detail}",
         "bot_storage": (
             "💾 <b>存储空间使用情况</b>\n"
-            "• 图库目录：<b>{library}</b>\n"
+            "• 图库目录：<b>{library}</b>{lib_extra}\n"
             "• 下载缓存：<b>{downloads}</b>\n"
-            "• 临时缓存：<b>{cache}</b>\n"
-            "• 磁盘总览：已用 <b>{disk_used}</b> / <b>{disk_total}</b>（可用 <b>{disk_free}</b>，<b>{disk_pct}%</b>）"
+            "• 临时缓存：<b>{cache}</b>{cache_extra}\n"
+            "• 磁盘总览：已用 <b>{disk_used}</b> / <b>{disk_total}</b>（可用 <b>{disk_free}</b>，[{bar}] <b>{disk_pct}%</b>）"
         ),
         "bot_storage_nodisk": (
             "💾 <b>存储空间使用情况</b>\n"
-            "• 图库目录：<b>{library}</b>\n"
+            "• 图库目录：<b>{library}</b>{lib_extra}\n"
             "• 下载缓存：<b>{downloads}</b>\n"
-            "• 临时缓存：<b>{cache}</b>"
+            "• 临时缓存：<b>{cache}</b>{cache_extra}"
         ),
         "bot_scan_started": "🔎 图库扫描已启动，正在后台扫描文件…",
         "bot_scan_running": "⏳ 图库扫描正在进行中…（已扫描：<b>{scanned}</b>）",
@@ -187,8 +186,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         ),
         "download_gone": "❌ <b>{title}</b>已删除或不存在（404）",
         "download_updated": (
-            "🔄 原 gid <code>{old}</code> → 新版 gid <code>{new}</code>，"
-            "更新 <b>{title}</b>"
+            "🔄 原 gid <code>{old}</code> → 新版 gid <code>{new}</code>，更新 <b>{title}</b>"
         ),
         "archive_start": "📦 批量归档开始：共 <b>{total}</b> 本",
         "archive_ok": "📦 归档完成 <b>{title}</b>",
@@ -271,16 +269,16 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_quota_fail": "❌ Failed to fetch E-Hentai quota: {detail}",
         "bot_storage": (
             "💾 <b>Storage Usage</b>\n"
-            "• Library: <b>{library}</b>\n"
+            "• Library: <b>{library}</b>{lib_extra}\n"
             "• Downloads: <b>{downloads}</b>\n"
-            "• Cache: <b>{cache}</b>\n"
-            "• Disk total: Used <b>{disk_used}</b> / <b>{disk_total}</b> (Free <b>{disk_free}</b>, <b>{disk_pct}%</b>)"
+            "• Cache: <b>{cache}</b>{cache_extra}\n"
+            "• Disk total: Used <b>{disk_used}</b> / <b>{disk_total}</b> (Free <b>{disk_free}</b>, [{bar}] <b>{disk_pct}%</b>)"
         ),
         "bot_storage_nodisk": (
             "💾 <b>Storage Usage</b>\n"
-            "• Library: <b>{library}</b>\n"
+            "• Library: <b>{library}</b>{lib_extra}\n"
             "• Downloads: <b>{downloads}</b>\n"
-            "• Cache: <b>{cache}</b>"
+            "• Cache: <b>{cache}</b>{cache_extra}"
         ),
         "bot_scan_started": "🔎 Library scan triggered, scanning files in background…",
         "bot_scan_running": "⏳ Library scan is already in progress… (scanned: <b>{scanned}</b>)",
@@ -313,7 +311,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_btn_random_again": "🎲 Another",
         "bot_cb_redownloading": "Requesting redownload…",
         "bot_search_usage": "🔍 Usage: <code>/search &lt;keyword or GID&gt;</code>",
-        "bot_search_empty": "🔍 No local galleries matching \"<b>{query}</b>\"",
+        "bot_search_empty": '🔍 No local galleries matching "<b>{query}</b>"',
         "bot_search_head": (
             "🔍 <b>Local gallery search</b> (page {page}/{total_pages}, {total} total):"
         ),
@@ -390,9 +388,7 @@ def normalize_lang(lang: object) -> str:
 def esc(value: object) -> str:
     """HTML-escape a value for Telegram ``parse_mode="HTML"`` messages."""
     text = str(value)
-    return (
-        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _t(lang: str, key: str) -> str:
@@ -411,6 +407,7 @@ def _plain_len(text: str) -> int:
 
 
 # --- downloads --------------------------------------------------------------
+
 
 def _entry_ok(title: str, pages: str | None, lang: str) -> str:
     text = _t(lang, "download_ok_title").format(title=esc(title))
@@ -449,12 +446,8 @@ def download_fail(title: str, detail: str | None = None, lang: str = "zh") -> st
     return "❌ " + _t(lang, "download_fail_verb") + _entry_fail(title, detail, lang)
 
 
-def download_updated(
-    old_gid: object, new_gid: object, title: str, lang: str = "zh"
-) -> str:
-    return _t(lang, "download_updated").format(
-        old=esc(old_gid), new=esc(new_gid), title=esc(title)
-    )
+def download_updated(old_gid: object, new_gid: object, title: str, lang: str = "zh") -> str:
+    return _t(lang, "download_updated").format(old=esc(old_gid), new=esc(new_gid), title=esc(title))
 
 
 def download_summary(
@@ -477,15 +470,15 @@ def download_summary(
         lines: list[str] = []
         for title, detail in fail_entries:
             if is_gone_detail(detail):
-                entry = _t(lang, "download_gone").format(title=esc(title)).removeprefix("❌ ").strip()
+                entry = (
+                    _t(lang, "download_gone").format(title=esc(title)).removeprefix("❌ ").strip()
+                )
             else:
                 entry = _entry_fail(title, detail, lang)
             candidate = "\n❌ " + "\n".join(lines + [entry])
             if _plain_len(text) + _plain_len(candidate) > MAX_MESSAGE_CHARS - 100:
                 lines.append(
-                    _t(lang, "download_more_failures").format(
-                        n=len(fail_entries) - len(lines)
-                    )
+                    _t(lang, "download_more_failures").format(n=len(fail_entries) - len(lines))
                 )
                 break
             lines.append(entry)
@@ -494,6 +487,7 @@ def download_summary(
 
 
 # --- library scan -----------------------------------------------------------
+
 
 def scan_summary(
     persisted: int, expunged: int, duplicates: int, duplicate_gids: list[int], lang: str = "zh"
@@ -514,18 +508,15 @@ def scan_failed(error: object, lang: str = "zh") -> str:
 
 # --- favorites --------------------------------------------------------------
 
+
 def category_label(favcat: int, name: object = None, lang: str = "zh") -> str:
     if name:
         return _t(lang, "fav_category").format(favcat=favcat, name=esc(name))
     return _t(lang, "fav_category_noname").format(favcat=favcat)
 
 
-def favorites_check_failed(
-    favcat: int, name: object, attempts: int, lang: str = "zh"
-) -> str:
-    return _t(lang, "fav_check_failed").format(
-        cat=category_label(favcat, name, lang), n=attempts
-    )
+def favorites_check_failed(favcat: int, name: object, attempts: int, lang: str = "zh") -> str:
+    return _t(lang, "fav_check_failed").format(cat=category_label(favcat, name, lang), n=attempts)
 
 
 def favorites_enqueue_failed(favcat: int, name: object, gid: object, lang: str = "zh") -> str:
@@ -534,15 +525,14 @@ def favorites_enqueue_failed(favcat: int, name: object, gid: object, lang: str =
     )
 
 
-def favorites_summary(
-    favcat: int, name: object, new: int, queued: int, lang: str = "zh"
-) -> str:
+def favorites_summary(favcat: int, name: object, new: int, queued: int, lang: str = "zh") -> str:
     return _t(lang, "fav_summary").format(
         cat=category_label(favcat, name, lang), new=new, queued=queued
     )
 
 
 # --- Telegram bot replies ---------------------------------------------------
+
 
 def format_bytes(size: float | None) -> str:
     """Format bytes into a human readable string."""
@@ -568,9 +558,14 @@ def bot_resumed(lang: str = "zh") -> str:
 
 
 def bot_status(
-    paused: bool, lang: str = "zh", uptime_seconds: float | None = None
+    paused: bool,
+    lang: str = "zh",
+    uptime_seconds: float | None = None,
+    queue_counts: dict | None = None,
 ) -> str:
-    if isinstance(lang, (int, float)) and (uptime_seconds is None or isinstance(uptime_seconds, str)):
+    if isinstance(lang, (int, float)) and (
+        uptime_seconds is None or isinstance(uptime_seconds, str)
+    ):
         uptime_seconds, lang = float(lang), uptime_seconds or "zh"
     status_text = _t(lang, "bot_status_paused" if paused else "bot_status_running")
     if uptime_seconds is not None:
@@ -583,10 +578,25 @@ def bot_status(
             uptime_str = f"{hours}h {mins}m {secs}s"
         else:
             uptime_str = f"{mins}m {secs}s"
-        return _t(lang, "bot_status_detail").format(
-            status=status_text, uptime=uptime_str
-        )
-    return status_text
+        text = _t(lang, "bot_status_detail").format(status=status_text, uptime=uptime_str)
+    else:
+        text = status_text
+    if queue_counts:
+        pending = int(queue_counts.get("pending") or 0)
+        downloading = int(queue_counts.get("downloading") or queue_counts.get("running") or 0)
+        failed = int(queue_counts.get("failed") or 0)
+        if lang == "zh":
+            if failed > 0:
+                q_line = f"📥 队列：等待中 {pending}，下载中 {downloading}，失败 {failed}"
+            else:
+                q_line = f"📥 队列：等待中 {pending}，下载中 {downloading}"
+        else:
+            if failed > 0:
+                q_line = f"📥 Queue: {pending} pending, {downloading} downloading, {failed} failed"
+            else:
+                q_line = f"📥 Queue: {pending} pending, {downloading} downloading"
+        text = f"{text}\n{q_line}"
+    return text
 
 
 def bot_queued(gid: object, lang: str = "zh", title: object | None = None) -> str:
@@ -595,9 +605,7 @@ def bot_queued(gid: object, lang: str = "zh", title: object | None = None) -> st
     return _t(lang, "bot_queued").format(gid=esc(gid))
 
 
-def bot_queued_updated(
-    old_gid: object, new_gid: object, title: object, lang: str = "zh"
-) -> str:
+def bot_queued_updated(old_gid: object, new_gid: object, title: object, lang: str = "zh") -> str:
     return _t(lang, "bot_queued_updated").format(
         old=esc(old_gid), new=esc(new_gid), title=esc(title)
     )
@@ -716,9 +724,7 @@ def bot_quota(
         return _t(lang, "bot_quota_ok").format(
             current=current, limit=limit, remaining=remaining, gp=esc(gp)
         )
-    return _t(lang, "bot_quota_no_gp").format(
-        current=current, limit=limit, remaining=remaining
-    )
+    return _t(lang, "bot_quota_no_gp").format(current=current, limit=limit, remaining=remaining)
 
 
 def bot_storage(
@@ -730,29 +736,76 @@ def bot_storage(
     disk_free: int | None = None,
     cold_bytes: int | None = 0,
     lang: str = "zh",
+    gallery_count: int | None = None,
+    file_count: int | None = None,
+    thumb_count: int | None = None,
 ) -> str:
     lib_s = format_bytes(library_bytes)
     dl_s = format_bytes(downloads_bytes)
     cache_s = format_bytes(cache_bytes)
     cold_s = format_bytes(cold_bytes) if (cold_bytes and cold_bytes > 0) else None
-    if disk_total and disk_total > 0 and disk_used is not None and disk_free is not None:
-        pct = round((disk_free / disk_total) * 100, 1)
+
+    lib_extra = ""
+    if gallery_count is not None:
+        if file_count is not None:
+            lib_extra = (
+                f" ({gallery_count} 本 / {file_count} 图)"
+                if lang == "zh"
+                else f" ({gallery_count} galleries / {file_count} images)"
+            )
+        else:
+            lib_extra = (
+                f" ({gallery_count} 本)" if lang == "zh" else f" ({gallery_count} galleries)"
+            )
+
+    cache_extra = ""
+    if thumb_count is not None:
+        cache_extra = (
+            f" (约 {thumb_count} 张缩略图)" if lang == "zh" else f" (~{thumb_count} thumbs)"
+        )
+
+    if disk_total and disk_total > 0 and (disk_used is not None or disk_free is not None):
+        if disk_used is not None:
+            used_val = disk_used
+            free_val = disk_free if disk_free is not None else max(0, disk_total - disk_used)
+        else:
+            free_val = disk_free  # type: ignore[assignment]
+            used_val = max(0, disk_total - free_val)
+        pct = round((used_val / disk_total) * 100, 1)
+        pct_clamped = max(0.0, min(100.0, pct))
+        filled = round(pct_clamped / 10.0)
+        bar = "█" * filled + "░" * (10 - filled)
         text = _t(lang, "bot_storage").format(
             library=lib_s,
+            lib_extra=lib_extra,
             downloads=dl_s,
             cache=cache_s,
-            disk_used=format_bytes(disk_used),
+            cache_extra=cache_extra,
+            disk_used=format_bytes(used_val),
             disk_total=format_bytes(disk_total),
-            disk_free=format_bytes(disk_free),
+            disk_free=format_bytes(free_val),
             disk_pct=pct,
+            bar=bar,
         )
     else:
         text = _t(lang, "bot_storage_nodisk").format(
-            library=lib_s, downloads=dl_s, cache=cache_s
+            library=lib_s,
+            lib_extra=lib_extra,
+            downloads=dl_s,
+            cache=cache_s,
+            cache_extra=cache_extra,
         )
     if cold_s:
-        target = f"• 图库目录：<b>{lib_s}</b>\n" if lang == "zh" else f"• Library: <b>{lib_s}</b>\n"
-        cold_insert = f"• 冷归档库：<b>{cold_s}</b>\n" if lang == "zh" else f"• Cold storage: <b>{cold_s}</b>\n"
+        target = (
+            f"• 图库目录：<b>{lib_s}</b>{lib_extra}\n"
+            if lang == "zh"
+            else f"• Library: <b>{lib_s}</b>{lib_extra}\n"
+        )
+        cold_insert = (
+            f"• 冷归档库：<b>{cold_s}</b>\n"
+            if lang == "zh"
+            else f"• Cold storage: <b>{cold_s}</b>\n"
+        )
         if target in text:
             text = text.replace(target, target + cold_insert, 1)
         else:
@@ -839,11 +892,13 @@ def bot_kill_result(
 
 # --- misc -------------------------------------------------------------------
 
+
 def test_message(lang: str = "zh") -> str:
     return _t(lang, "test")
 
 
 # --- cold archive -----------------------------------------------------------
+
 
 def archive_start(total: int, lang: str = "zh") -> str:
     return _t(lang, "archive_start").format(total=int(total))
@@ -859,16 +914,12 @@ def archive_fail(title: str, detail: str | None = None, lang: str = "zh") -> str
     return _t(lang, "archive_fail_nodetail").format(title=esc(title))
 
 
-def archive_batch_result(
-    done: int, skipped: int, failed: int, lang: str = "zh"
-) -> str:
+def archive_batch_result(done: int, skipped: int, failed: int, lang: str = "zh") -> str:
     if failed > 0:
         return _t(lang, "archive_batch_fail").format(
             done=int(done), skipped=int(skipped), failed=int(failed)
         )
-    return _t(lang, "archive_batch_ok").format(
-        done=int(done), skipped=int(skipped)
-    )
+    return _t(lang, "archive_batch_ok").format(done=int(done), skipped=int(skipped))
 
 
 def archive_summary(
@@ -893,9 +944,7 @@ def archive_summary(
             candidate = "\n❌ " + "\n".join(lines + [entry])
             if _plain_len(text) + _plain_len(candidate) > MAX_MESSAGE_CHARS - 100:
                 lines.append(
-                    _t(lang, "download_more_failures").format(
-                        n=len(fail_entries) - len(lines)
-                    )
+                    _t(lang, "download_more_failures").format(n=len(fail_entries) - len(lines))
                 )
                 break
             lines.append(entry)
