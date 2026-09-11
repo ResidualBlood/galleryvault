@@ -19,39 +19,17 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:${POSTGRES_PASSWORD:-galleryvault}@db:5432/galleryvault
       TZ: Asia/Shanghai
-      # Optional: User/Group ID for backend process execution (e.g. NAS/Linux user).
-      # Defaults to root (0:0) if unset. On NAS / shared storage, setting PUID/PGID
-      # (e.g. 1000) avoids creating root-owned download and log files on the host.
       # PUID: 1000
       # PGID: 1000
-      # Optional at-rest encryption for ExHentai cookies / Telegram bot token /
-      # auth secrets. Set it ONCE to a long random string to enable; on an
-      # existing install, plaintext values are encrypted automatically at
-      # startup. Keep it OUT of the database backup and store it safely —
-      # losing it makes the encrypted values unrecoverable. Leave unset to
-      # keep storing them as plaintext.
       # ENCRYPTION_KEY: change-me-to-a-long-random-string
-      # Optional: Web session cookie signature secret (HMAC-SHA256).
-      # If unset, a secure secret is automatically generated and safely stored in DB
-      # (encrypted if ENCRYPTION_KEY is configured), so user sessions survive container restarts.
       # AUTH_SECRET: change-me-to-a-random-secret
-    # The JSON API is only reachable through the frontend proxy; bind it to the
-    # loopback interface so it is never exposed straight to the public network.
+      # TRUSTED_PROXIES: 127.0.0.1,192.168.1.0/24
     ports: ["127.0.0.1:8001:8001"]
     volumes:
-      # Library: put your existing archives (Ehviewer exports, CBZ…) here.
-      # New downloads never land in this directory; deleting a gallery removes
-      # its files here when the mount is writable (a read-only mount reports
-      # the failure on the Logs page instead of silently succeeding).
       - ./library:/library
-      # Download directory: galleries downloaded from ExHentai are stored here
-      # and scanned automatically.
       - ./downloads:/downloads
-      # Optional Archive volumes for cold storage. You can mount multiple disks/volumes
-      # and configure them in Settings (e.g. /archive, /archive2).
       # - ./Archive:/archive
       # - ./Archive2:/archive2
-      # Thumbnail cache (generated, never written into the galleries above).
       - ./cache:/gv-cache
     depends_on:
       db:
@@ -88,5 +66,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-

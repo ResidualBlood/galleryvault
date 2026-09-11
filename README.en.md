@@ -36,7 +36,7 @@ Files, the index, and favorite mappings stay on your machine or NAS. Without coo
 | Reader | `#/reader/...` | RTL / dual-page / webtoon; GIF/WebP slideshow follows frame duration |
 | Settings / Logs | `#/settings` `#/logs` | Paths, concurrency, encrypted sessions, background tasks |
 
-Also: local lists and star ratings, OPDS (Tachiyomi / Mihon, …), optional AES-256-GCM for cookies and secrets at rest.
+Also: local lists and star ratings, OPDS (Tachiyomi / Mihon, …), optional AES-256-GCM for cookies and secrets at rest, optional Telegram bot (paste URLs to enqueue, InlineKeyboard queue, scan / quota / local search).
 
 Screenshots: [Wiki · Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots-EN).
 
@@ -58,7 +58,7 @@ docker compose up -d
 
 | Host path | Container | Purpose |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | PostgreSQL (UID 999 — do not chown to yourself) |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18 (UID 999 — do not chown to yourself) |
 | `./library` | `/library` | Existing library; downloads never write here. Read-only mounts fail deletes and log it |
 | `./downloads` | `/downloads` | New downloads, ingested immediately |
 | `./cache` | `/gv-cache` | Thumbnail / cover cache |

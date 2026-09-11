@@ -36,7 +36,7 @@
 | 阅读器 | `#/reader/...` | RTL / 双页 / 条漫；GIF/WebP 幻灯片跟帧时长 |
 | 设置 / 日志 | `#/settings` `#/logs` | 路径、并发、加密会话、后台任务 |
 
-也支持：本地列表与星级、OPDS（Tachiyomi / Mihon 等）、可选 AES-256-GCM 把 Cookie 等字段加密落库。
+也支持：本地列表与星级、OPDS（Tachiyomi / Mihon 等）、可选 AES-256-GCM 把 Cookie 等字段加密落库、可选 Telegram Bot（粘贴 URL 入队、队列 InlineKeyboard、扫库/配额/本地检索）。
 
 截图见 [Wiki · 界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots)。
 
@@ -58,7 +58,7 @@ docker compose up -d
 
 | 本地路径 | 容器内 | 说明 |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | PostgreSQL（容器 UID 999，不要 chown 成自己） |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18（容器 UID 999，不要 chown 成自己） |
 | `./library` | `/library` | 已有库；下载不写这里。只读挂载时删文件会失败并记日志 |
 | `./downloads` | `/downloads` | 新下载落盘并即时入库 |
 | `./cache` | `/gv-cache` | 缩略图 / 封面缓存 |

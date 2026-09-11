@@ -24,8 +24,6 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault
       TZ: Asia/Shanghai
-      # Optional: Web session cookie signature secret (HMAC-SHA256).
-      # If unset, automatically persisted into DB.
       # AUTH_SECRET: dev-secret-change-me-if-needed
     ports: ["${DEV_BACKEND_PORT:-8201}:8001"]
     volumes:
@@ -33,8 +31,6 @@ services:
       - ./backend/tests:/app/tests
       - ./library:/library
       - ./downloads:/downloads
-      # Optional Archive volumes for cold storage. You can mount multiple disks/volumes
-      # and configure them in Settings (e.g. /archive, /archive2).
       # - ./Archive:/archive
       # - ./Archive2:/archive2
       - ./cache:/gv-cache

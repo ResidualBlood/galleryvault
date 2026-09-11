@@ -72,4 +72,10 @@ GalleryVault 并非通用型电子书工具，而是专门针对画廊数字资�
 - **AES-256-GCM 数据库静态加密**：支持配置 `ENCRYPTION_KEY` 环境变量，自动将数据库中的 Cookie、令牌与密码哈希进行高强度字段级静态加密存储。
 - **10 年持久化免登会话**：Web 会话 Cookie 签名密钥自动持久化落库，容器重启或系统升级后无感维持登录态；修改管理员密码可瞬间吊销所有已登录设备凭据。
 - **安全隔离与非 root 降权**：支持配置 `PUID` / `PGID` 环境变量实现 NAS 环境安全降权运行；内置严格的 CSRF 防护与反向代理受信网段（`TRUSTED_PROXIES`）白名单校验。
-- **开箱即用容器化栈**：多架构 Docker 镜像（AMD64 / ARM64），内置数据库自动化迁移机制（Alembic），单命令部署即用。
+- **开箱即用容器化栈**：多架构 Docker 镜像（AMD64 / ARM64），内置 PostgreSQL 18 与 Alembic 自动迁移，单命令部署即用。
+
+### 7. Telegram Bot 运维图库
+- **指令菜单自动注册**：配置 bot token 后启动即向 Telegram 注册客户端 `/` 菜单，中英文案跟随通知语言。
+- **下载与队列**：聊天中直接粘贴画廊 URL（首尾多余斜杠也可）立即入队；`/queue` 带 InlineKeyboard 暂停、重试、取消；`/pause` `/resume` 与 Web 下载页同一全局暂停开关。
+- **系统探活**：`/status` 队列概括、`/storage` 磁盘用量、`/quota` 图像配额与 GP、`/cookie` Cookie 有效性，展示对齐 Web 端。
+- **本地图库**：`/search` 检索翻页、`/info` `/random` 发送详情与封面（与 Web 相同的 5 级封面降级链）、`/scan` 触发扫库、`/fav_sync` `/fav_download` `/fav_check` 收藏夹自动化。

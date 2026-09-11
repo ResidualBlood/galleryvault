@@ -70,7 +70,7 @@ Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd6
 
 | Local Host Path | Container Path | Access Mode | Purpose |
 | :--- | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | Read-Write (`rw`) | PostgreSQL data (UID 999); stores primary index and credentials |
+| `./db-data` | `/var/lib/postgresql` | Read-Write (`rw`) | PostgreSQL 18 data (UID 999); stores primary index and credentials |
 | `./library` | `/library` | `rw` or `ro` | Primary library root for existing archives; **downloads never land here** |
 | `./downloads` | `/downloads` | Read-Write (`rw`) | Target directory for active downloads; automatically indexed |
 | `./cache` | `/gv-cache` | Read-Write (`rw`) | Thumbnail and cover image cache; saves external bandwidth |
@@ -181,6 +181,8 @@ By default, the backend container operates as `root (0:0)`. On dedicated NAS sys
       - PUID=1000
       - PGID=1000
 ```
+
+The shipped `docker-compose.yml` already comments these backend env vars: `PUID` / `PGID`, `ENCRYPTION_KEY`, `AUTH_SECRET`, `TRUSTED_PROXIES`. Uncomment as needed. Library / download / archive paths stay in the Web UI.
 
 ### Permission Troubleshooting
 - **Files Locked by Root**: If previously run under root, reassign ownership on the host:

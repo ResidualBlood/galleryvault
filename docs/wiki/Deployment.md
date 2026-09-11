@@ -70,7 +70,7 @@ docker compose up -d
 
 | 本地路径 | 容器内挂载点 | 读写属性 | 功能说明 |
 | :--- | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | 读写 (`rw`) | PostgreSQL 核心数据（UID 999），保存全量索引与配置 |
+| `./db-data` | `/var/lib/postgresql` | 读写 (`rw`) | PostgreSQL 18 核心数据（UID 999），保存全量索引与配置 |
 | `./library` | `/library` | 读写 (`rw`) 或只读 (`ro`) | 主画廊库，存放已有归档，**下载任务绝不写入此目录** |
 | `./downloads` | `/downloads` | 读写 (`rw`) | 下载落盘目录，新下载文件在此生成并触发增量入库 |
 | `./cache` | `/gv-cache` | 读写 (`rw`) | 缩略图与封面缓存，避免高频请求重复拉取图片 |
@@ -196,6 +196,8 @@ vault.example.com {
       - PUID=1000
       - PGID=1000
 ```
+
+仓库 `docker-compose.yml` 的 backend `environment` 已预留注释项：`PUID` / `PGID`、`ENCRYPTION_KEY`、`AUTH_SECRET`、`TRUSTED_PROXIES`。按需取消注释即可；路径类配置仍只在 Web 设置里改。
 
 ### 权限排错指南
 - **数据目录被 root 锁定**：若此前曾以 root 启动，请在宿主机执行修复属主：

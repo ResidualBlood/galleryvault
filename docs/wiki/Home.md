@@ -11,7 +11,7 @@
 - 直接挂载 Ehviewer `<gid>-标题/` 与 CBZ，读 SpiderInfo / sidecar，不必先解压改名。
 - 配 Cookie 后：发现页、十个收藏夹监控、逐页或官方 Archive 下载、重传换 GID。
 - 管理页：同 GID 副本、收藏夹重复、跨 GID、缺页坏图、冷库 CBZ（可选多盘）。
-- 阅读器：RTL / 双页 / 条漫；幻灯片跟 GIF/WebP 帧时长。可选 OPDS、库字段加密。
+- 阅读器：RTL / 双页 / 条漫；幻灯片跟 GIF/WebP 帧时长。可选 OPDS、库字段加密、Telegram Bot（粘贴 URL 入队、队列操作、扫库/配额/本地检索与封面）。
 
 下载写 `downloads/`；冷归档写你配置的 `archive_roots`（compose 默认不挂 Archive）。细节见 [功能特性](Features)。
 

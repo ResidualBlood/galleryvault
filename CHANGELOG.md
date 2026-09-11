@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Telegram Bot 重构为模块化指令路由：全量运维/图库命令、InlineKeyboard 队列操作、启动时自动注册客户端指令菜单。
+- Bot `/status` 队列概括、存储展示对齐 Web 端；`/info` `/random` 发送画廊封面（与 Web 相同的 5 级封面降级链）。
+
+### Changed
+
+- 数据库镜像升级为 `postgres:18-alpine`；数据卷挂载 `/var/lib/postgresql`，不再自定义 `PGDATA`。
+- 画廊 URL 解析容忍首尾多余斜杠。
+- `docker-compose.yml` / `docker-compose.dev.yml` 去掉说明性长注释，保留可启用的环境变量与可选归档卷。
+
+### Fixed
+
+- 生产环境 Telegram 路由注入；中英指令文案统一。
+- Cookie 状态判定、存储与配额展示、画廊标签本地化、队列重试。
+- 封面 Path 序列化导致 Telegram 发图失败。
+- H@H 无节点 key 时回退 HTML 解析换节点，并同步任务状态。
+- 画廊全屏时工具条未隐藏。
+- 缩略图突发加载 503、空缓存忽略、画廊缩略图无限滚动恢复。
+
 ## [1.11.1] - 2026-09-10
 
 ### Fixed

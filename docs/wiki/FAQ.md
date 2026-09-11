@@ -29,6 +29,9 @@ PostgreSQL 官方容器固定运行在容器内 `postgres` 用户（UID 999）�
 ### 4. 扫描 7z 压缩包是否会将全部图片解压到磁盘？
 **不会**。扫描器仅在内存流中解压并校验图片文件，绝不会在磁盘上释放冗余临时文件。
 
+### 5. 升级到 PostgreSQL 18 后数据库容器起不来？
+官方 `postgres:18-alpine` 把数据放在 `/var/lib/postgresql` 下的版本子目录。仓库 `docker-compose.yml` 已把宿主 `./db-data` 挂到 `/var/lib/postgresql`，**不要再设置 `PGDATA`**，也不要继续挂旧路径 `/var/lib/postgresql/data`（目录非空检查会让容器退出）。新安装直接 `docker compose up -d` 即可。详见 **[部署指南 → 存储拓扑](Deployment#存储拓扑与数据卷挂载)**。
+
 ---
 
 ## 二、凭据、Cookie 与安全
@@ -62,7 +65,7 @@ PostgreSQL 官方容器固定运行在容器内 `postgres` 用户（UID 999）�
 ```bash
 docker logs galleryvault-backend --since 6h | grep -E "download task failed|page download failed"
 ```
-- `ReadTimeout`：个别 H@H 节点传输过慢，慢速看门狗会自动将其跳过并重试。
+- `ReadTimeout`：个别 H@H 节点传输过慢，慢速看门狗会自动跳过；无节点 key 时会解析页面 HTML 换节点。
 - `ConnectTimeout` / `RemoteProtocolError`：代理链路不稳定。建议检查代理节点，或在设置中适度下调 `page_concurrency`（并发页数）。
 
 ### 4. 点击了暂停按钮，为什么当前任务还在继续？
@@ -135,3 +138,6 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ### 4. 将应用「添加到主屏幕」（PWA）是否会将画廊离线下载到本地？
 **不会**。PWA 模式仅将前端界面外壳与静态样式缓存在设备端，以提供宛如原生 App 的流畅体验。画廊图片与元数据均按需在线流式加载，不会大量吞噬手机存储空间。
+
+### 5. Telegram Bot 能做什么？命令在哪看？
+在「设置 → Telegram」填 token / chat ID / 允许的 user ID 后，启动会自动注册客户端指令菜单。聊天中粘贴画廊 URL 即可入队；`/queue` 用 InlineKeyboard 操作队列；`/status` `/storage` `/quota` `/cookie` 探活；`/search` `/info` `/random` 查本地库（含封面）。完整命令表见 **[系统设置 → Telegram bot 控制命令](Settings#设置settings)**。

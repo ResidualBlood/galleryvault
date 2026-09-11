@@ -72,4 +72,10 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 - **AES-256-GCM Database Encryption**: Encrypts sensitive credentials, cookies, and tokens at rest when `ENCRYPTION_KEY` is configured.
 - **10-Year Persistent Sessions**: Persists session cookie signing secrets in the database across container rebuilds and updates; immediate session invalidation on password updates.
 - **Unprivileged Runtime (PUID / PGID)**: Configurable runtime user and group mappings prevent host permission issues on private NAS environments; strict CSRF protection with trusted proxy whitelisting (`TRUSTED_PROXIES`).
-- **Turnkey Containerization**: Multi-architecture Docker Hub images (AMD64 / ARM64) with built-in Alembic migrations for single-command deployments.
+- **Turnkey Containerization**: Multi-architecture Docker Hub images (AMD64 / ARM64) with PostgreSQL 18 and built-in Alembic migrations for single-command deployments.
+
+### 7. Telegram Bot operations
+- **Auto-registered command menu**: after a bot token is configured, startup registers the Telegram `/` menu; copy follows the notification language.
+- **Downloads & queue**: paste a gallery URL in chat (trailing/surrounding slashes are fine) to enqueue immediately; `/queue` uses InlineKeyboard for pause / retry / cancel; `/pause` `/resume` share the Web downloads global-pause switch.
+- **Health probes**: `/status` queue overview, `/storage` disk usage, `/quota` image quota and GP, `/cookie` cookie health — aligned with the Web UI.
+- **Local library**: `/search` with pagination, `/info` `/random` send details and a cover (same 5-step cover fallback as the Web UI), `/scan` triggers a library scan, `/fav_sync` `/fav_download` `/fav_check` automate favorites.

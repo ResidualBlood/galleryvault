@@ -29,6 +29,9 @@ The official PostgreSQL image relies strictly on container UID 999 (`postgres`).
 ### 4. Does scanning a 7z archive extract all files to disk?
 **No.** The scanner extracts and validates image byte streams in memory, without creating temporary residual files on host storage.
 
+### 5. PostgreSQL 18 container fails to start after an upgrade?
+Official `postgres:18-alpine` stores data under a versioned subdirectory of `/var/lib/postgresql`. The shipped `docker-compose.yml` bind-mounts host `./db-data` to `/var/lib/postgresql`. **Do not set `PGDATA`**, and do not keep the old mount `/var/lib/postgresql/data` (a non-empty data directory check will exit the container). Fresh installs just need `docker compose up -d`. See **[Deployment → Storage topology](Deployment-EN#storage-topology--volume-mounts)**.
+
 ---
 
 ## 2. Credentials, Cookies & Security
@@ -62,7 +65,7 @@ This indicates transient upstream connectivity issues, slow H@H nodes, or proxy 
 ```bash
 docker logs galleryvault-backend --since 6h | grep -E "download task failed|page download failed"
 ```
-- `ReadTimeout`: An upstream H@H node stalled; the watchdog will drop it and retry.
+- `ReadTimeout`: An upstream H@H node stalled; the watchdog drops it. If the page has no node key, HTML is parsed for a replacement node.
 - `ConnectTimeout` / `RemoteProtocolError`: Proxy link instability. Check proxy node quality or lower `page_concurrency` in Settings.
 
 ### 4. Why does an in-flight page keep downloading after clicking Pause?
@@ -114,3 +117,6 @@ GalleryVault provides a standard OPDS catalog endpoint at `GET /api/opds`. Add t
 
 ### 4. Does "Add to Home Screen" (PWA) download galleries for offline use?
 **No.** The PWA caches the web interface shell and static assets only to deliver app-like responsiveness. Galleries and images stream on demand to avoid filling mobile storage.
+
+### 5. What can the Telegram bot do, and where are the commands listed?
+Fill in the token / chat ID / allowed user IDs under **Settings → Telegram**. Startup then registers the client command menu. Paste a gallery URL in chat to enqueue; `/queue` uses InlineKeyboard; `/status` `/storage` `/quota` `/cookie` probe the system; `/search` `/info` `/random` query the local library (covers included). Full command table: **[Settings → Telegram bot control commands](Settings-EN#settings-settings)**.
