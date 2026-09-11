@@ -11,7 +11,11 @@ let galleryThumbObserver = null;
 let galleryThumbMutationObserver = null;
 let galleryThumbQueue = [];
 let galleryThumbActive = 0;
-const MAX_CONCURRENT_THUMBS = 6;
+let galleryThumbTimer = null;
+let galleryThumbLastStart = 0;
+const MAX_CONCURRENT_THUMBS = 4;
+const THUMB_START_GAP_MS = 60;
+const THUMB_MAX_RETRIES = 5;
 
 function cleanupGalleryThumbs() {
   if (galleryThumbObserver) {
@@ -22,17 +26,40 @@ function cleanupGalleryThumbs() {
     try { galleryThumbMutationObserver.disconnect(); } catch (_) {}
     galleryThumbMutationObserver = null;
   }
+  if (galleryThumbTimer) {
+    clearTimeout(galleryThumbTimer);
+    galleryThumbTimer = null;
+  }
   galleryThumbQueue = [];
   galleryThumbActive = 0;
+}
+
+function enqueueGalleryThumb(img) {
+  if (!img || galleryThumbQueue.includes(img)) return;
+  if (!img.getAttribute("data-src")) return;
+  galleryThumbQueue.push(img);
+  processGalleryThumbQueue();
 }
 
 function processGalleryThumbQueue() {
   while (galleryThumbActive < MAX_CONCURRENT_THUMBS && galleryThumbQueue.length > 0) {
     const img = galleryThumbQueue.shift();
-    if (!img) continue;
-    if (!document.contains(img)) continue;
+    if (!img || !document.contains(img)) continue;
     const src = img.getAttribute("data-src");
     if (!src || img.getAttribute("src")) continue;
+
+    const wait = galleryThumbLastStart + THUMB_START_GAP_MS - Date.now();
+    if (wait > 0) {
+      galleryThumbQueue.unshift(img);
+      if (!galleryThumbTimer) {
+        galleryThumbTimer = setTimeout(() => {
+          galleryThumbTimer = null;
+          processGalleryThumbQueue();
+        }, wait);
+      }
+      return;
+    }
+    galleryThumbLastStart = Date.now();
 
     galleryThumbActive++;
     let settled = false;
@@ -42,18 +69,18 @@ function processGalleryThumbQueue() {
       settled = true;
       img.removeEventListener("load", onDone);
       img.removeEventListener("error", onDone);
-      if (ev && ev.type === "error" && retries < 2) {
+      if (ev && ev.type === "error" && retries < THUMB_MAX_RETRIES) {
         img.removeAttribute("src");
         img.setAttribute("data-src", src);
         img.setAttribute("data-retries", String(retries + 1));
         galleryThumbActive = Math.max(0, galleryThumbActive - 1);
         setTimeout(() => {
-          if (document.contains(img) && img.getAttribute("data-src") && !galleryThumbQueue.includes(img)) {
-            galleryThumbQueue.push(img);
-            processGalleryThumbQueue();
-          }
-        }, 400 * (retries + 1));
+          if (document.contains(img)) enqueueGalleryThumb(img);
+        }, 500 * (retries + 1));
         return;
+      }
+      if (!ev || ev.type !== "error") {
+        try { galleryThumbObserver && galleryThumbObserver.unobserve(img); } catch (_) {}
       }
       galleryThumbActive = Math.max(0, galleryThumbActive - 1);
       processGalleryThumbQueue();
@@ -81,16 +108,9 @@ function observeGalleryThumbs(container) {
   if (!galleryThumbObserver) {
     galleryThumbObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          const img = entry.target;
-          try { galleryThumbObserver.unobserve(img); } catch (_) {}
-          if (img.getAttribute("data-src") && !galleryThumbQueue.includes(img)) {
-            galleryThumbQueue.push(img);
-            processGalleryThumbQueue();
-          }
-        }
+        if (entry.isIntersecting) enqueueGalleryThumb(entry.target);
       }
-    }, { rootMargin: "200px 0px" });
+    }, { rootMargin: "400px 0px" });
   }
   const imgs = container.querySelectorAll("img.lazy-thumb[data-src]");
   imgs.forEach(img => {
@@ -105,8 +125,7 @@ function observeGalleryThumbs(container) {
           if (node.matches && node.matches("img.lazy-thumb[data-src]")) {
             galleryThumbObserver.observe(node);
           } else if (node.querySelectorAll) {
-            const addedImgs = node.querySelectorAll("img.lazy-thumb[data-src]");
-            addedImgs.forEach(img => galleryThumbObserver.observe(img));
+            node.querySelectorAll("img.lazy-thumb[data-src]").forEach(img => galleryThumbObserver.observe(img));
           }
         }
       }
