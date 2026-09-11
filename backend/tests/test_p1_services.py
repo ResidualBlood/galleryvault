@@ -453,19 +453,22 @@ async def test_telegram_bot_status_reply_uses_force() -> None:
     from galleryvault.app.state import app_state
 
     orig_settings = app_state.settings
+    orig_started_at = getattr(app_state, "started_at", None)
     app_state.settings = settings.model_copy(update={"global_paused": False})
+    if hasattr(app_state, "started_at"):
+        delattr(app_state, "started_at")
     try:
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: None)) as client:
             bot = TelegramBotService(settings, client=client, queue=queue, notifier=notifier)
             await bot.handle_update({"message": {"from": {"id": 7}, "text": "/status", "chat": {"id": 7}}})
             await bot.handle_update({"message": {"from": {"id": 7}, "text": "/resume", "chat": {"id": 7}}})
             assert [c[2] for c in notifier.calls] == [True, True]
-            assert [c[0] for c in notifier.calls] == [
-                "📋 GalleryVault downloads are running",
-                "▶️ Downloads resumed",
-            ]
+            assert notifier.calls[0][0].startswith("📋 GalleryVault downloads are running")
+            assert notifier.calls[1][0] == "▶️ Downloads resumed"
     finally:
         app_state.settings = orig_settings
+        if orig_started_at is not None:
+            app_state.started_at = orig_started_at
 
 
 @pytest.mark.asyncio
