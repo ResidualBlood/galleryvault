@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image, ImageSequence
 from pydantic import BaseModel, Field
@@ -1848,12 +1848,40 @@ async def get_page_meta(
     return await run_in_threadpool(_inspect_image_meta, stream)
 
 
+def _thumb_file_response(
+    file_path: Path,
+    media_type: str,
+    cache_control: str,
+    gallery_id: int,
+    page_index: int,
+    request: Request | None,
+) -> Response:
+    try:
+        stat = file_path.stat()
+        etag = f'"{gallery_id}-{page_index}-{int(stat.st_mtime)}-{stat.st_size}"'
+    except OSError:
+        etag = None
+
+    headers: dict[str, str] = {"Cache-Control": cache_control}
+    if etag:
+        headers["ETag"] = etag
+        if request is not None:
+            if_none_match = request.headers.get("if-none-match")
+            if if_none_match:
+                tokens = [t.strip() for t in if_none_match.split(",")]
+                if "*" in tokens or etag in tokens or f"W/{etag}" in tokens:
+                    return Response(status_code=304, headers=headers)
+
+    return FileResponse(file_path, media_type=media_type, headers=headers)
+
+
 @router.get("/api/galleries/{identifier}/thumb/{page_index}")
 async def get_thumbnail(
     identifier: int,
     page_index: int,
+    request: Request = None,  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> FileResponse:
+) -> Response:
     if page_index < 0:
         raise HTTPException(status_code=404, detail="Page not found")
 
@@ -1879,6 +1907,7 @@ async def get_thumbnail(
 
     service = _get_thumb_service()
 
+    is_fallback = False
     if page_index == 0 and row.gid:
         remote_cover = service.cached_remote_cover(row.gid)
         if remote_cover is not None:
@@ -1886,10 +1915,13 @@ async def get_thumbnail(
             media_type = image_content_type(head)
             if media_type == "application/octet-stream":
                 media_type = JPEG_MIME
-            return FileResponse(
+            return _thumb_file_response(
                 remote_cover,
                 media_type=media_type,
-                headers={"Cache-Control": "public, max-age=86400"},
+                cache_control="public, max-age=86400",
+                gallery_id=row.id,
+                page_index=page_index,
+                request=request,
             )
         spawn_task(
             ensure_remote_cover(row.gid, row.token, cache_dir=service.remote_cover_dir()),
@@ -1900,13 +1932,23 @@ async def get_thumbnail(
             row.gid,
             extra=log_extra(gid=row.gid, source="thumb0", event="fallback"),
         )
+        is_fallback = True
+
+    cache_control = (
+        "no-cache"
+        if is_fallback
+        else ("public, max-age=31536000, immutable" if page_index > 0 else "public, max-age=86400")
+    )
 
     cached = service.cached(row.id, page_index)
     if cached is not None:
-        return FileResponse(
+        return _thumb_file_response(
             cached,
             media_type=JPEG_MIME,
-            headers={"Cache-Control": "public, max-age=86400"},
+            cache_control=cache_control,
+            gallery_id=row.id,
+            page_index=page_index,
+            request=request,
         )
 
     if pages is None:
@@ -1938,10 +1980,13 @@ async def get_thumbnail(
         )
     except ThumbnailError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return FileResponse(
+    return _thumb_file_response(
         cached,
         media_type=JPEG_MIME,
-        headers={"Cache-Control": "public, max-age=86400"},
+        cache_control=cache_control,
+        gallery_id=row.id,
+        page_index=page_index,
+        request=request,
     )
 
 

@@ -37,6 +37,7 @@ const SHELL = [
   "/assets/views/archive.js?v=v5"
 ];
 
+// Direct gallery media and thumbnails bypass SW CacheStorage to rely on browser HTTP cache (immutable / ETag)
 function isGalleryMedia(url) {
   const path = url.pathname || "";
   if (path.includes("/pages/") || path.includes("/thumb/")) return true;
