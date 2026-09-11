@@ -62,9 +62,9 @@ docker compose up -d
 | `./library` | `/library` | Existing library; downloads never write here. Read-only mounts fail deletes and log it |
 | `./downloads` | `/downloads` | New downloads, ingested immediately |
 | `./cache` | `/gv-cache` | Thumbnail / cover cache |
-| `./Archive` | `/archive` | **Optional**; commented out in compose. Set `archive_roots` in Settings after mounting |
+| `./archive` | `/archive` | **Optional**; commented out in compose. Set `archive_roots` in Settings after mounting |
 
-To enable cold archive, add e.g. `- ./Archive:/archive`, save Settings, then use **Manage → Cold archive** (`#/archive`). CBZ names are always `gid-english-title.cbz`, independent of the UI title language.
+To enable cold archive, add e.g. `- ./archive:/archive`, save Settings, then use **Manage → Cold archive** (`#/archive`). CBZ names are always `gid-english-title.cbz`, independent of the UI title language.
 
 ### Environment
 

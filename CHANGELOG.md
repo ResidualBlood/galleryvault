@@ -15,7 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - 数据库镜像升级为 `postgres:18-alpine`；数据卷挂载 `/var/lib/postgresql`，不再自定义 `PGDATA`。
 - 画廊 URL 解析容忍首尾多余斜杠。
-- `docker-compose.yml` / `docker-compose.dev.yml` 去掉说明性长注释，保留可启用的环境变量与可选归档卷。
+- `docker-compose.yml` / `docker-compose.dev.yml` 去掉说明性长注释，保留可启用的环境变量与可选归档卷；宿主归档目录示例改为 `./archive` / `./archive2`。
 
 ### Fixed
 

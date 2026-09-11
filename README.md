@@ -62,9 +62,9 @@ docker compose up -d
 | `./library` | `/library` | 已有库；下载不写这里。只读挂载时删文件会失败并记日志 |
 | `./downloads` | `/downloads` | 新下载落盘并即时入库 |
 | `./cache` | `/gv-cache` | 缩略图 / 封面缓存 |
-| `./Archive` | `/archive` | **可选**，compose 里默认注释。启用后在设置填 `archive_roots` |
+| `./archive` | `/archive` | **可选**，compose 里默认注释。启用后在设置填 `archive_roots` |
 
-冷归档要自己加卷，例如 `- ./Archive:/archive`，保存设置后再在 **管理 → 冷库归档**（`#/archive`）打包 CBZ。文件名固定 `gid-英文标题.cbz`，不跟界面标题语言走。
+冷归档要自己加卷，例如 `- ./archive:/archive`，保存设置后再在 **管理 → 冷库归档**（`#/archive`）打包 CBZ。文件名固定 `gid-英文标题.cbz`，不跟界面标题语言走。
 
 ### 环境变量
 

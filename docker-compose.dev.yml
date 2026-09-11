@@ -31,8 +31,8 @@ services:
       - ./backend/tests:/app/tests
       - ./library:/library
       - ./downloads:/downloads
-      # - ./Archive:/archive
-      # - ./Archive2:/archive2
+      # - ./archive:/archive
+      # - ./archive2:/archive2
       - ./cache:/gv-cache
     depends_on:
       db:

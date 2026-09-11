@@ -74,7 +74,7 @@ docker compose up -d
 | `./library` | `/library` | 读写 (`rw`) 或只读 (`ro`) | 主画廊库，存放已有归档，**下载任务绝不写入此目录** |
 | `./downloads` | `/downloads` | 读写 (`rw`) | 下载落盘目录，新下载文件在此生成并触发增量入库 |
 | `./cache` | `/gv-cache` | 读写 (`rw`) | 缩略图与封面缓存，避免高频请求重复拉取图片 |
-| `./Archive` | `/archive` | 读写 (`rw`) | **可选**；compose 默认注释。启用后在设置填 `archive_roots` |
+| `./archive` | `/archive` | 读写 (`rw`) | **可选**；compose 默认注释。启用后在设置填 `archive_roots` |
 
 ### 2. 冷热分层存储、多盘挂载与归档规则
 

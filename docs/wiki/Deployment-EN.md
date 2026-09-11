@@ -74,7 +74,7 @@ Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd6
 | `./library` | `/library` | `rw` or `ro` | Primary library root for existing archives; **downloads never land here** |
 | `./downloads` | `/downloads` | Read-Write (`rw`) | Target directory for active downloads; automatically indexed |
 | `./cache` | `/gv-cache` | Read-Write (`rw`) | Thumbnail and cover image cache; saves external bandwidth |
-| `./Archive` | `/archive` | Read-Write (`rw`) | **Optional**; commented out in compose. Set `archive_roots` in Settings after mounting |
+| `./archive` | `/archive` | Read-Write (`rw`) | **Optional**; commented out in compose. Set `archive_roots` in Settings after mounting |
 
 ### 2. Tiered Storage & Multi-Disk Mounting
 

@@ -22,7 +22,7 @@ Manage in the top bar lands on `#/recycle`. In-page tabs: **Recycle**, **Duplica
 
 ## Cold archive (`#/archive`)
 
-- Last Manage tab (`#/archive`). First set `archive_roots` under Settings → Library (one container path per line) and mount the volumes in compose (default `./Archive:/archive` is commented out).
+- Last Manage tab (`#/archive`). First set `archive_roots` under Settings → Library (one container path per line) and mount the volumes in compose (default `./archive:/archive` is commented out).
 - **Start archive**: pack ingested galleries into single-volume CBZ, picking the root with the most free space. Names are always `gid-english-title.cbz` plus a `.galleryvault.json` sidecar. **Cancel archive** stops a run in progress.
 - **Purge archived sources**: after a valid CBZ exists on the cold side, delete the matching unpacked folder in the hot download root. Skips `pending` / `downloading` tasks. The same button is on the Settings storage table. Progress shows on `#/logs`.
 - Nothing is packed or deleted until you configure roots and start a run.
