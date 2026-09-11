@@ -17,6 +17,7 @@ from galleryvault.app.state import app_state
 from galleryvault.db.models import DownloadTask, Gallery, GalleryTag, Tag
 from galleryvault.logging import log_extra
 from galleryvault.services.messages import bot_text, esc, format_bytes
+from galleryvault.services.tag_translation import translated_tag
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.keyboards import (
     build_pagination_row,
@@ -70,7 +71,7 @@ def _fit_html_caption(caption: str, limit: int = 1024) -> str:
         closes = cut.count(f"</{tag}>")
         if opens > closes:
             cut += f"</{tag}>" * (opens - closes)
-    return cut[:limit]
+    return cut
 
 
 def _extract_gid(raw: str) -> int | None:
@@ -135,7 +136,31 @@ def _format_gallery_info(
         lines.append(bot_text(lang, "bot_info_uploader", uploader=esc(gallery.uploader)))
 
     if tags:
-        tag_str = " ".join(f"#{esc(t)}" for t in tags[:15])
+        if lang == "zh":
+            formatted_tags: list[str] = []
+            for t in tags[:15]:
+                try:
+                    if ":" in t:
+                        ns, name = t.split(":", 1)
+                    else:
+                        ns, name = None, t
+                    try:
+                        res = translated_tag(t)  # type: ignore[call-arg]
+                    except TypeError:
+                        res = translated_tag(ns, name)
+                    if isinstance(res, (tuple, list)) and len(res) >= 2:
+                        tag_disp = res[1] or name
+                    elif isinstance(res, str):
+                        tag_disp = res
+                    else:
+                        tag_disp = str(res)
+                except Exception:  # noqa: BLE001
+                    tag_disp = t
+                formatted_tags.append(tag_disp)
+        else:
+            formatted_tags = tags[:15]
+
+        tag_str = " ".join(f"#{esc(t)}" for t in formatted_tags)
         if len(tags) > 15:
             tag_str += " …"
         lines.append(bot_text(lang, "bot_info_tags", tags=tag_str))

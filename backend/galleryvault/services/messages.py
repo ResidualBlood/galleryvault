@@ -682,7 +682,7 @@ def bot_cookie_health(
 ) -> str:
     if state == "not_configured":
         return _t(lang, "bot_cookie_not_configured")
-    if state == "valid":
+    if state in ("valid", "ok"):
         return _t(lang, "bot_cookie_valid").format(checked_at=esc(checked_at or "N/A"))
     if state in ("not_logged_in", "expired"):
         return _t(lang, "bot_cookie_invalid").format(detail=esc(detail or state))
@@ -700,10 +700,19 @@ def bot_quota(
 ) -> str:
     if detail:
         return _t(lang, "bot_quota_fail").format(detail=esc(detail))
-    if current is None or limit is None:
+    has_limits = current is not None and limit is not None
+    has_gp = gp is not None and str(gp).strip() != ""
+    if not has_limits and not has_gp:
         return _t(lang, "bot_quota_fail").format(detail="Quota unavailable")
+    if not has_limits:
+        msg = (
+            "📊 <b>E-Hentai 配额状态</b>\n• GP 余额：<b>{gp}</b>"
+            if lang == "zh"
+            else "📊 <b>E-Hentai Quota Status</b>\n• GP balance: <b>{gp}</b>"
+        )
+        return msg.format(gp=esc(gp))
     remaining = max(0, limit - current)
-    if gp is not None and str(gp).strip() != "":
+    if has_gp:
         return _t(lang, "bot_quota_ok").format(
             current=current, limit=limit, remaining=remaining, gp=esc(gp)
         )
@@ -719,14 +728,16 @@ def bot_storage(
     disk_total: int | None = None,
     disk_used: int | None = None,
     disk_free: int | None = None,
+    cold_bytes: int | None = 0,
     lang: str = "zh",
 ) -> str:
     lib_s = format_bytes(library_bytes)
     dl_s = format_bytes(downloads_bytes)
     cache_s = format_bytes(cache_bytes)
+    cold_s = format_bytes(cold_bytes) if (cold_bytes and cold_bytes > 0) else None
     if disk_total and disk_total > 0 and disk_used is not None and disk_free is not None:
         pct = round((disk_free / disk_total) * 100, 1)
-        return _t(lang, "bot_storage").format(
+        text = _t(lang, "bot_storage").format(
             library=lib_s,
             downloads=dl_s,
             cache=cache_s,
@@ -735,9 +746,18 @@ def bot_storage(
             disk_free=format_bytes(disk_free),
             disk_pct=pct,
         )
-    return _t(lang, "bot_storage_nodisk").format(
-        library=lib_s, downloads=dl_s, cache=cache_s
-    )
+    else:
+        text = _t(lang, "bot_storage_nodisk").format(
+            library=lib_s, downloads=dl_s, cache=cache_s
+        )
+    if cold_s:
+        target = f"• 图库目录：<b>{lib_s}</b>\n" if lang == "zh" else f"• Library: <b>{lib_s}</b>\n"
+        cold_insert = f"• 冷归档库：<b>{cold_s}</b>\n" if lang == "zh" else f"• Cold storage: <b>{cold_s}</b>\n"
+        if target in text:
+            text = text.replace(target, target + cold_insert, 1)
+        else:
+            text += f"\n{cold_insert.strip()}"
+    return text
 
 
 def bot_scan_triggered(

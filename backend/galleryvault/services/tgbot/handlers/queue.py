@@ -47,7 +47,7 @@ def _reset_task_for_retry(task: DownloadTaskModel) -> None:
     task.retry_at = None
     task.error_message = None
     task.finished_at = None
-    task.max_retries = _MANUAL_RETRY_MAX
+    task.max_retries = 10
     clear_download_cancelled(task.id)
 
 

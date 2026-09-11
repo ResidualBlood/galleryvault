@@ -6,10 +6,8 @@ import logging
 
 from galleryvault.app.dependencies import spawn_task
 from galleryvault.app.state import app_state
-from galleryvault.db.repositories.favorites import FavoritesRepository
 from galleryvault.logging import log_extra
 from galleryvault.services.favorites_worker import (
-    FavoriteDownloadQueue,
     favorite_size_sync,
     run_favorites_check,
 )
@@ -74,61 +72,7 @@ async def cmd_fav_download(ctx: BotContext) -> None:
         await ctx.reply_text(f"{usage}\n{extra}".rstrip())
         return
 
-    enqueued_count = 0
     triggered_cats: list[int] = []
-
-    if app_state.session_factory:
-        try:
-            from galleryvault.db.models import Gallery
-
-            async with app_state.session_factory() as session:
-                repo = FavoritesRepository(session)
-                # Query local known galleries to identify missing items
-                from sqlalchemy import select
-
-                from galleryvault.db.repository import GalleryRepository
-
-                local_gids_res = await session.scalars(
-                    select(Gallery.gid).where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
-                )
-                local_gids = set(local_gids_res.all())
-
-                queue = FavoriteDownloadQueue(session=session)
-                default_quality = getattr(ctx.settings, "download_quality", None) or "resample"
-
-                from types import SimpleNamespace
-
-                pending: list[tuple[int, str]] = []
-                for c in cats:
-                    items = await repo.all_gids_for_favcat(c)
-                    for gid, token, _thumb in items:
-                        if gid not in local_gids and token:
-                            pending.append((gid, token))
-
-                meta_map = (
-                    await GalleryRepository(session).metadata_map([gid for gid, _token in pending])
-                    if pending
-                    else {}
-                )
-
-                for gid, token in pending:
-                    info = meta_map.get(gid) or {}
-                    title = str(info.get("title") or "").strip() or f"Favorite {gid}"
-                    title_jpn = info.get("title_jpn")
-                    fav_item = SimpleNamespace(
-                        gid=gid,
-                        token=token,
-                        title=title,
-                        title_jpn=title_jpn,
-                    )
-                    try:
-                        if await queue.enqueue(fav_item, mode="favorite", quality=default_quality):
-                            enqueued_count += 1
-                    except Exception:  # noqa: BLE001, S110
-                        pass
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed enqueuing missing favorite items directly", extra=log_extra(error=str(exc)))
-
     for c in cats:
         spawn_task(favorite_size_sync(c), f"favorite metadata sync {c}")
         triggered_cats.append(c)
@@ -138,12 +82,7 @@ async def cmd_fav_download(ctx: BotContext) -> None:
     else:
         cat_desc = bot_text(ctx.lang, "bot_fav_cat_all", count=len(triggered_cats))
 
-    if enqueued_count > 0:
-        await ctx.reply_text(
-            bot_text(ctx.lang, "bot_fav_download_queued", cat=cat_desc, count=enqueued_count)
-        )
-    else:
-        await ctx.reply_text(bot_text(ctx.lang, "bot_fav_download_started", cat=cat_desc))
+    await ctx.reply_text(bot_text(ctx.lang, "bot_fav_download_started", cat=cat_desc))
 
 
 @router.command(["fav_check"], description="Check all favorites for updates")

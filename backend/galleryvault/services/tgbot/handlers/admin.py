@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import shutil
 import time
-from pathlib import Path
 
 from galleryvault.app.state import app_state
 from galleryvault.services.messages import (
@@ -82,9 +80,9 @@ async def cmd_quota(ctx: BotContext) -> None:
         res = await get_quota()
         img_limit = res.get("image_limit") or res.get("image_limits")
         gp = res.get("gp")
-        if isinstance(img_limit, dict):
-            current = img_limit.get("current")
-            limit = img_limit.get("limit")
+        if isinstance(img_limit, dict) or gp is not None:
+            current = img_limit.get("current") if isinstance(img_limit, dict) else None
+            limit = img_limit.get("limit") if isinstance(img_limit, dict) else None
             await ctx.reply_text(
                 bot_quota(current=current, limit=limit, gp=gp, lang=ctx.lang)
             )
@@ -99,26 +97,49 @@ async def cmd_quota(ctx: BotContext) -> None:
 async def cmd_storage(ctx: BotContext) -> None:
     """Query storage usage for library, downloads, cache and underlying disk."""
     try:
-        from galleryvault.services.storage_usage import storage_tracker
+        from galleryvault.app.routers.settings import system_storage
 
-        l_snap = storage_tracker.get_library_snapshot()
-        d_snap = storage_tracker.get_downloads_snapshot()
-        c_snap = storage_tracker.get_cache_snapshot()
+        if app_state.session_factory is not None:
+            try:
+                data = await system_storage()
+            except Exception:  # noqa: BLE001
+                data = await system_storage(session=object())  # type: ignore[arg-type]
+        else:
+            data = await system_storage(session=object())  # type: ignore[arg-type]
 
-        disk_total, disk_used, disk_free = None, None, None
-        lib_path = getattr(ctx.settings, "library_path", None)
-        if lib_path and Path(lib_path).exists():
-            du = shutil.disk_usage(lib_path)
-            disk_total, disk_used, disk_free = du.total, du.used, du.free
+        lib = data.get("library") if isinstance(data.get("library"), dict) else {}
+        cold = data.get("cold") if isinstance(data.get("cold"), dict) else {}
+        dl = data.get("downloads") if isinstance(data.get("downloads"), dict) else {}
+        cache = data.get("cache") if isinstance(data.get("cache"), dict) else {}
+
+        disk_total = (
+            lib.get("disk_total")
+            or dl.get("disk_total")
+            or cache.get("disk_total")
+            or cold.get("disk_total")
+        )
+        disk_used = (
+            lib.get("disk_used")
+            or dl.get("disk_used")
+            or cache.get("disk_used")
+            or cold.get("disk_used")
+        )
+        disk_free = (
+            lib.get("disk_free")
+            or dl.get("disk_free")
+            or cache.get("disk_free")
+            or cold.get("disk_free")
+        )
 
         await ctx.reply_text(
             bot_storage(
-                library_bytes=l_snap.bytes,
-                downloads_bytes=d_snap.bytes,
-                cache_bytes=c_snap.bytes,
-                disk_total=disk_total,
-                disk_used=disk_used,
-                disk_free=disk_free,
+                library_bytes=lib.get("bytes"),  # type: ignore[arg-type]
+                downloads_bytes=dl.get("bytes"),  # type: ignore[arg-type]
+                cache_bytes=cache.get("bytes"),  # type: ignore[arg-type]
+                cold_bytes=cold.get("bytes") or 0,  # type: ignore[arg-type]
+                disk_total=disk_total,  # type: ignore[arg-type]
+                disk_used=disk_used,  # type: ignore[arg-type]
+                disk_free=disk_free,  # type: ignore[arg-type]
                 lang=ctx.lang,
             )
         )
