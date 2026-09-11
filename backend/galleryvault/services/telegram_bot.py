@@ -28,6 +28,8 @@ from ..services.messages import (
     bot_stats,
     bot_status,
 )
+from .tgbot.context import BotContext
+from .tgbot.router import CommandRouter
 
 logger = logging.getLogger(__name__)
 
@@ -142,16 +144,198 @@ class TelegramGalleryItem:
 
 
 class TelegramBotService:
-    def __init__(self, settings: Settings, *, client: Any, queue: Any, notifier: Any) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        client: Any,
+        queue: Any,
+        notifier: Any,
+        router: CommandRouter | None = None,
+    ) -> None:
         self.settings, self.client, self.queue, self.notifier = settings, client, queue, notifier
         self.offset = 0
         self.paused = False
+        self.router = router or self._build_default_router()
 
     def _allowed(self, update: dict) -> bool:
-        user = update.get("message", {}).get("from", {}).get("id")
-        return bool(self.settings.telegram_allowed_user_ids) and int(user or 0) in {
+        user_id = None
+        if msg := update.get("message"):
+            user_id = msg.get("from", {}).get("id")
+        elif cb := update.get("callback_query"):
+            user_id = cb.get("from", {}).get("id")
+        return bool(self.settings.telegram_allowed_user_ids) and int(user_id or 0) in {
             int(item) for item in self.settings.telegram_allowed_user_ids
         }
+
+    def _build_default_router(self) -> CommandRouter:
+        router = CommandRouter()
+        from ..app.state import app_state
+        from ..config import get_settings
+        from ..db.repository import SettingsRepository
+        from ..services.settings_service import update_runtime_settings
+
+        def _is_global_paused() -> bool:
+            s = app_state.settings
+            return bool(s and getattr(s, "global_paused", False))
+
+        async def _set_global_paused(value: bool) -> None:
+            s = self.settings or app_state.settings or get_settings()
+            new_s = s.model_copy(update={"global_paused": value})
+            app_state.settings = new_s
+            self.settings = new_s
+            self.paused = value
+            update_runtime_settings({"global_paused": value})
+            try:
+                if app_state.session_factory:
+                    async with app_state.session_factory() as session, session.begin():
+                        existing = await SettingsRepository(session).get()
+                        merged = {**existing, "global_paused": value}
+                        await SettingsRepository(session).save(merged)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "global pause persist failed", extra=log_extra(error=type(exc).__name__)
+                )
+
+        @router.command("/pause")
+        async def handle_pause(ctx: BotContext) -> None:
+            await _set_global_paused(True)
+            await ctx.reply_text(bot_paused(ctx.lang))
+
+        @router.command("/resume")
+        async def handle_resume(ctx: BotContext) -> None:
+            await _set_global_paused(False)
+            await ctx.reply_text(bot_resumed(ctx.lang))
+
+        @router.command("/status")
+        async def handle_status(ctx: BotContext) -> None:
+            paused = _is_global_paused()
+            self.paused = paused
+            await ctx.reply_text(bot_status(paused, ctx.lang))
+
+        @router.command("/help")
+        async def handle_help(ctx: BotContext) -> None:
+            await ctx.reply_text(bot_help(ctx.lang))
+
+        @router.command("/queue")
+        async def handle_queue(ctx: BotContext) -> None:
+            items, counts = await list_queue_snapshot()
+            await ctx.reply_text(bot_queue(items, counts, ctx.lang))
+
+        @router.command("/stats")
+        async def handle_stats(ctx: BotContext) -> None:
+            _items, counts = await list_queue_snapshot()
+            galleries = await library_count()
+            await ctx.reply_text(
+                bot_stats(
+                    galleries,
+                    counts.get("pending", 0),
+                    counts.get("downloading", 0),
+                    counts.get("failed", 0),
+                    ctx.lang,
+                )
+            )
+
+        @router.command("/cancel")
+        async def handle_cancel(ctx: BotContext) -> None:
+            if not ctx.args:
+                await ctx.reply_text(bot_cancel_usage(ctx.lang))
+                return
+            try:
+                ident = int(ctx.args)
+            except ValueError:
+                await ctx.reply_text(bot_cancel_not_found(ctx.args, ctx.lang))
+                return
+            status, task_id, gid = await cancel_download_ident(ident)
+            if status != "cancelled" or task_id is None:
+                await ctx.reply_text(bot_cancel_not_found(ident, ctx.lang))
+            else:
+                await ctx.reply_text(
+                    bot_cancel_ok(task_id, gid if gid is not None else ident, ctx.lang)
+                )
+
+        @router.default_message
+        async def handle_message(ctx: BotContext) -> None:
+            text = ctx.text
+            try:
+                gid, token = parse_gallery_url(text, self.settings.exhentai_base_url)
+            except (ValueError, TypeError):
+                await ctx.reply_text(bot_help(ctx.lang))
+                return
+            self.paused = _is_global_paused()
+            if not self.paused:
+                from ..app.dependencies import resolve_display_title
+                from ..services.download_prepare import prepare_galleries
+
+                try:
+                    prepared = (await prepare_galleries([(gid, token)]))[0]
+                except Exception:  # noqa: BLE001
+                    prepared = None
+                if prepared is not None and prepared.gone:
+                    label = (
+                        resolve_display_title(prepared.title, prepared.title_jpn)
+                        or prepared.title
+                        or str(gid)
+                    )
+                    await ctx.reply_text(bot_gone(label, ctx.lang))
+                    return
+                if prepared is not None and prepared.already_local:
+                    label = (
+                        resolve_display_title(prepared.title, prepared.title_jpn)
+                        or prepared.title
+                        or str(prepared.gid)
+                    )
+                    await ctx.reply_text(bot_already_local(prepared.gid, label, ctx.lang))
+                    return
+                item_gid, item_token, item_title, item_jpn, old_gid = (
+                    gid,
+                    token,
+                    text,
+                    None,
+                    None,
+                )
+                if prepared is not None:
+                    item_gid = prepared.gid
+                    item_token = prepared.token
+                    item_jpn = prepared.title_jpn
+                    old_gid = prepared.old_gid
+                    item_title = (
+                        resolve_display_title(prepared.title, prepared.title_jpn)
+                        or prepared.title
+                        or str(prepared.gid)
+                    )
+                default_quality = getattr(self.settings, "download_quality", None) or "resample"
+                try:
+                    await self.queue.enqueue(
+                        TelegramGalleryItem(
+                            gid=item_gid,
+                            token=item_token,
+                            title=item_title,
+                            title_jpn=item_jpn,
+                        ),
+                        quality=default_quality,
+                    )
+                except TypeError:
+                    await self.queue.enqueue(
+                        TelegramGalleryItem(
+                            gid=item_gid,
+                            token=item_token,
+                            title=item_title,
+                            title_jpn=item_jpn,
+                        )
+                    )
+                if old_gid:
+                    await ctx.reply_text(
+                        bot_queued_updated(old_gid, item_gid, item_title, ctx.lang)
+                    )
+                else:
+                    await ctx.reply_text(bot_queued(item_gid, ctx.lang, title=item_title))
+
+        @router.default_command
+        async def handle_unknown_command(ctx: BotContext) -> None:
+            await ctx.reply_text(bot_help(ctx.lang))
+
+        return router
 
     async def poll_once(self) -> int:
         if not self.settings.telegram_bot_token:
@@ -170,159 +354,15 @@ class TelegramBotService:
     async def handle_update(self, update: dict) -> None:
         if not self._allowed(update):
             return
-        message = update.get("message", {})
-        text = str(message.get("text", "")).strip()
-        chat_id = message.get("chat", {}).get("id")
-        lang = self.settings.telegram_notify_lang
-        if not text:
+        ctx = BotContext.from_update(
+            update=update,
+            notifier=self.notifier,
+            settings=self.settings,
+            queue=self.queue,
+        )
+        if not ctx.text and not ctx.is_callback_query:
             return
-        # Global pause is the SSOT (persisted in settings); self.paused mirrors it for compat
-        from ..app.state import app_state
-        from ..config import get_settings
-        from ..db.repository import SettingsRepository
-        from ..services.settings_service import update_runtime_settings
-
-        def _is_global_paused() -> bool:
-            s = app_state.settings
-            return bool(s and getattr(s, "global_paused", False))
-
-        async def _set_global_paused(value: bool) -> None:
-            s = self.settings or app_state.settings or get_settings()
-            new_s = s.model_copy(update={"global_paused": value})
-            # Update both global and instance settings for consistency
-            app_state.settings = new_s
-            self.settings = new_s
-            self.paused = value
-            update_runtime_settings({"global_paused": value})
-            try:
-                if app_state.session_factory:
-                    async with app_state.session_factory() as session, session.begin():
-                        existing = await SettingsRepository(session).get()
-                        merged = {**existing, "global_paused": value}
-                        await SettingsRepository(session).save(merged)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("global pause persist failed", extra=log_extra(error=type(exc).__name__))
-
-        if text == "/pause":
-            await _set_global_paused(True)
-            await self.notifier.send_message(bot_paused(lang), chat_id, force=True)
-        elif text == "/resume":
-            await _set_global_paused(False)
-            await self.notifier.send_message(bot_resumed(lang), chat_id, force=True)
-        elif text == "/status":
-            paused = _is_global_paused()
-            self.paused = paused
-            await self.notifier.send_message(bot_status(paused, lang), chat_id, force=True)
-        elif text == "/help" or text.startswith("/help "):
-            await self.notifier.send_message(bot_help(lang), chat_id, force=True)
-        elif text == "/queue" or text.startswith("/queue "):
-            items, counts = await list_queue_snapshot()
-            await self.notifier.send_message(bot_queue(items, counts, lang), chat_id, force=True)
-        elif text == "/stats" or text.startswith("/stats "):
-            _items, counts = await list_queue_snapshot()
-            galleries = await library_count()
-            await self.notifier.send_message(
-                bot_stats(
-                    galleries,
-                    counts.get("pending", 0),
-                    counts.get("downloading", 0),
-                    counts.get("failed", 0),
-                    lang,
-                ),
-                chat_id,
-                force=True,
-            )
-        elif text == "/cancel" or text.startswith("/cancel "):
-            parts = text.split(None, 1)
-            if len(parts) < 2:
-                await self.notifier.send_message(bot_cancel_usage(lang), chat_id, force=True)
-                return
-            try:
-                ident = int(parts[1].strip())
-            except ValueError:
-                await self.notifier.send_message(
-                    bot_cancel_not_found(parts[1].strip(), lang), chat_id, force=True
-                )
-                return
-            status, task_id, gid = await cancel_download_ident(ident)
-            if status != "cancelled" or task_id is None:
-                await self.notifier.send_message(
-                    bot_cancel_not_found(ident, lang), chat_id, force=True
-                )
-            else:
-                await self.notifier.send_message(
-                    bot_cancel_ok(task_id, gid if gid is not None else ident, lang),
-                    chat_id,
-                    force=True,
-                )
-        else:
-            try:
-                gid, token = parse_gallery_url(text, self.settings.exhentai_base_url)
-            except (ValueError, TypeError):
-                await self.notifier.send_message(bot_help(lang), chat_id, force=True)
-                return
-            self.paused = _is_global_paused()
-            if not self.paused:
-                from ..app.dependencies import resolve_display_title
-                from ..services.download_prepare import prepare_galleries
-
-                try:
-                    prepared = (await prepare_galleries([(gid, token)]))[0]
-                except Exception:  # noqa: BLE001
-                    prepared = None
-                if prepared is not None and prepared.gone:
-                    label = (
-                        resolve_display_title(prepared.title, prepared.title_jpn)
-                        or prepared.title
-                        or str(gid)
-                    )
-                    await self.notifier.send_message(bot_gone(label, lang), chat_id, force=True)
-                    return
-                if prepared is not None and prepared.already_local:
-                    label = (
-                        resolve_display_title(prepared.title, prepared.title_jpn)
-                        or prepared.title
-                        or str(prepared.gid)
-                    )
-                    await self.notifier.send_message(
-                        bot_already_local(prepared.gid, label, lang), chat_id, force=True
-                    )
-                    return
-                item_gid, item_token, item_title, item_jpn, old_gid = gid, token, text, None, None
-                if prepared is not None:
-                    item_gid = prepared.gid
-                    item_token = prepared.token
-                    item_jpn = prepared.title_jpn
-                    old_gid = prepared.old_gid
-                    item_title = (
-                        resolve_display_title(prepared.title, prepared.title_jpn)
-                        or prepared.title
-                        or str(prepared.gid)
-                    )
-                default_quality = getattr(self.settings, "download_quality", None) or "resample"
-                try:
-                    await self.queue.enqueue(
-                        TelegramGalleryItem(
-                            gid=item_gid, token=item_token, title=item_title, title_jpn=item_jpn
-                        ),
-                        quality=default_quality,
-                    )
-                except TypeError:
-                    await self.queue.enqueue(
-                        TelegramGalleryItem(
-                            gid=item_gid, token=item_token, title=item_title, title_jpn=item_jpn
-                        )
-                    )
-                if old_gid:
-                    await self.notifier.send_message(
-                        bot_queued_updated(old_gid, item_gid, item_title, lang),
-                        chat_id,
-                        force=True,
-                    )
-                else:
-                    await self.notifier.send_message(
-                        bot_queued(item_gid, lang, title=item_title), chat_id, force=True
-                    )
+        await self.router.dispatch(ctx)
 
     async def run(self) -> None:
         while True:

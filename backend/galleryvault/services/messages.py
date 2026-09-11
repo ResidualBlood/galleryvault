@@ -62,13 +62,71 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "🤖 命令：\n"
             "<code>/pause</code> 暂停下载\n"
             "<code>/resume</code> 恢复下载\n"
-            "<code>/status</code> 查看状态\n"
-            "<code>/help</code> 本帮助\n"
-            "<code>/queue</code> 下载队列\n"
+            "<code>/status</code> 系统运行状态\n"
+            "<code>/queue</code> 下载队列管理\n"
+            "<code>/retry</code> &lt;id|all&gt; 重试失败任务\n"
             "<code>/cancel</code> &lt;id|gid&gt; 取消任务\n"
+            "<code>/clear</code> 清理已完成任务\n"
             "<code>/stats</code> 库本数与队列摘要\n"
+            "<code>/scan</code> 触发图库扫描\n"
+            "<code>/storage</code> 磁盘与存储空间\n"
+            "<code>/quota</code> EH 配额查询\n"
+            "<code>/cookie</code> Cookie 健康检查\n"
+            "<code>/tasks</code> 后台长任务列表\n"
+            "<code>/kill</code> &lt;task&gt; 中断后台任务\n"
+            "<code>/ping</code> 连通性测试\n"
+            "<code>/help</code> 显示帮助\n"
             "直接粘贴画廊 URL 即可入队。"
         ),
+        "bot_pong": "🏓 Pong！响应耗时 <b>{latency:.0f}</b> ms",
+        "bot_pong_simple": "🏓 Pong！",
+        "bot_status_detail": "📋 系统运行正常\n下载状态：{status}\n系统运行时间：<b>{uptime}</b>",
+        "bot_cookie_valid": "🍪 E-Hentai Cookie 状态正常（有效）\n检测时间：<code>{checked_at}</code>",
+        "bot_cookie_warning": "⚠️ E-Hentai Cookie 状态异常：{detail}\n检测时间：<code>{checked_at}</code>",
+        "bot_cookie_invalid": "❌ E-Hentai Cookie 已失效或未登录：{detail}",
+        "bot_cookie_not_configured": "⚙️ 尚未配置 E-Hentai Cookie",
+        "bot_quota_ok": (
+            "📊 <b>E-Hentai 配额状态</b>\n"
+            "• 图像配额：<b>{current}</b> / <b>{limit}</b>\n"
+            "• 剩余额度：<b>{remaining}</b>\n"
+            "• GP 余额：<b>{gp}</b>"
+        ),
+        "bot_quota_no_gp": (
+            "📊 <b>E-Hentai 配额状态</b>\n"
+            "• 图像配额：<b>{current}</b> / <b>{limit}</b>\n"
+            "• 剩余额度：<b>{remaining}</b>"
+        ),
+        "bot_quota_fail": "❌ 无法获取 E-Hentai 配额：{detail}",
+        "bot_storage": (
+            "💾 <b>存储空间使用情况</b>\n"
+            "• 图库目录：<b>{library}</b>\n"
+            "• 下载缓存：<b>{downloads}</b>\n"
+            "• 临时缓存：<b>{cache}</b>\n"
+            "• 磁盘总览：已用 <b>{disk_used}</b> / <b>{disk_total}</b>（可用 <b>{disk_free}</b>，<b>{disk_pct}%</b>）"
+        ),
+        "bot_storage_nodisk": (
+            "💾 <b>存储空间使用情况</b>\n"
+            "• 图库目录：<b>{library}</b>\n"
+            "• 下载缓存：<b>{downloads}</b>\n"
+            "• 临时缓存：<b>{cache}</b>"
+        ),
+        "bot_scan_started": "🔎 图库扫描已启动，正在后台扫描文件…",
+        "bot_scan_running": "⏳ 图库扫描正在进行中…（已扫描：<b>{scanned}</b>）",
+        "bot_scan_paused": "⏸ 全局下载已暂停，无法启动图库扫描",
+        "bot_scan_failed": "❌ 启动图库扫描失败：{detail}",
+        "bot_clear_ok": "🧹 已清理 <b>{count}</b> 条已完成的下载历史记录",
+        "bot_clear_empty": "📭 没有已完成的任务需要清理",
+        "bot_retry_ok": "🔄 已重新入队任务 <code>{id}</code>（gid <code>{gid}</code>）",
+        "bot_retry_all_ok": "🔄 已重新入队 <b>{count}</b> 个失败的任务",
+        "bot_retry_none": "📭 没有失败的任务需要重试",
+        "bot_retry_not_found": "❌ 找不到任务 <code>{ident}</code> 或该任务不可重试",
+        "bot_retry_usage": "用法：<code>/retry &lt;id|all&gt;</code>",
+        "bot_tasks_empty": "📋 当前没有正在运行的后台长任务",
+        "bot_tasks_head": "📋 <b>后台运行中的长任务</b>（共 {count} 个）：",
+        "bot_tasks_line": "• <code>{task}</code>：{progress}（启动于 {started_at}）",
+        "bot_kill_usage": "用法：<code>/kill &lt;task_name&gt;</code>",
+        "bot_kill_ok": "🛑 已向任务 <code>{task}</code> 发送中断请求（状态：{status}）",
+        "bot_kill_not_found": "❌ 找不到运行中的任务 <code>{task}</code>",
         "bot_queue_empty": "📭 队列为空（无等待 / 进行中 / 失败）",
         "bot_queue_head": "📋 下载队列：等待 <b>{pending}</b>，进行中 <b>{running}</b>，失败 <b>{failed}</b>",
         "bot_queue_line": "{status} <code>{id}</code> gid <code>{gid}</code> {title}",
@@ -129,13 +187,71 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "🤖 Commands:\n"
             "<code>/pause</code> pause downloads\n"
             "<code>/resume</code> resume downloads\n"
-            "<code>/status</code> show status\n"
-            "<code>/help</code> this help\n"
+            "<code>/status</code> show system status\n"
             "<code>/queue</code> download queue\n"
+            "<code>/retry</code> &lt;id|all&gt; retry failed tasks\n"
             "<code>/cancel</code> &lt;id|gid&gt; cancel a task\n"
+            "<code>/clear</code> clear completed tasks\n"
             "<code>/stats</code> library count and queue summary\n"
+            "<code>/scan</code> trigger library scan\n"
+            "<code>/storage</code> storage and disk usage\n"
+            "<code>/quota</code> EH image quota\n"
+            "<code>/cookie</code> cookie health check\n"
+            "<code>/tasks</code> running background tasks\n"
+            "<code>/kill</code> &lt;task&gt; cancel background task\n"
+            "<code>/ping</code> connectivity test\n"
+            "<code>/help</code> this help\n"
             "Paste a gallery URL to enqueue."
         ),
+        "bot_pong": "🏓 Pong! Latency: <b>{latency:.0f}</b> ms",
+        "bot_pong_simple": "🏓 Pong!",
+        "bot_status_detail": "📋 System is running\nDownload status: {status}\nSystem uptime: <b>{uptime}</b>",
+        "bot_cookie_valid": "🍪 E-Hentai cookies are healthy (valid)\nChecked: <code>{checked_at}</code>",
+        "bot_cookie_warning": "⚠️ E-Hentai cookies warning: {detail}\nChecked: <code>{checked_at}</code>",
+        "bot_cookie_invalid": "❌ E-Hentai cookies invalid or not logged in: {detail}",
+        "bot_cookie_not_configured": "⚙️ E-Hentai cookies not configured",
+        "bot_quota_ok": (
+            "📊 <b>E-Hentai Quota Status</b>\n"
+            "• Image quota: <b>{current}</b> / <b>{limit}</b>\n"
+            "• Remaining: <b>{remaining}</b>\n"
+            "• GP balance: <b>{gp}</b>"
+        ),
+        "bot_quota_no_gp": (
+            "📊 <b>E-Hentai Quota Status</b>\n"
+            "• Image quota: <b>{current}</b> / <b>{limit}</b>\n"
+            "• Remaining: <b>{remaining}</b>"
+        ),
+        "bot_quota_fail": "❌ Failed to fetch E-Hentai quota: {detail}",
+        "bot_storage": (
+            "💾 <b>Storage Usage</b>\n"
+            "• Library: <b>{library}</b>\n"
+            "• Downloads: <b>{downloads}</b>\n"
+            "• Cache: <b>{cache}</b>\n"
+            "• Disk total: Used <b>{disk_used}</b> / <b>{disk_total}</b> (Free <b>{disk_free}</b>, <b>{disk_pct}%</b>)"
+        ),
+        "bot_storage_nodisk": (
+            "💾 <b>Storage Usage</b>\n"
+            "• Library: <b>{library}</b>\n"
+            "• Downloads: <b>{downloads}</b>\n"
+            "• Cache: <b>{cache}</b>"
+        ),
+        "bot_scan_started": "🔎 Library scan triggered, scanning files in background…",
+        "bot_scan_running": "⏳ Library scan is already in progress… (scanned: <b>{scanned}</b>)",
+        "bot_scan_paused": "⏸ Downloads are paused, cannot start scan",
+        "bot_scan_failed": "❌ Failed to trigger library scan: {detail}",
+        "bot_clear_ok": "🧹 Cleared <b>{count}</b> completed download task(s)",
+        "bot_clear_empty": "📭 No completed tasks to clear",
+        "bot_retry_ok": "🔄 Re-enqueued task <code>{id}</code> (gid <code>{gid}</code>)",
+        "bot_retry_all_ok": "🔄 Re-enqueued <b>{count}</b> failed task(s)",
+        "bot_retry_none": "📭 No failed tasks to retry",
+        "bot_retry_not_found": "❌ Task <code>{ident}</code> not found or not in retryable status",
+        "bot_retry_usage": "Usage: <code>/retry &lt;id|all&gt;</code>",
+        "bot_tasks_empty": "📋 No background tasks currently running",
+        "bot_tasks_head": "📋 <b>Running Background Tasks</b> ({count} total):",
+        "bot_tasks_line": "• <code>{task}</code>: {progress} (started at {started_at})",
+        "bot_kill_usage": "Usage: <code>/kill &lt;task_name&gt;</code>",
+        "bot_kill_ok": "🛑 Cancellation requested for task <code>{task}</code> (status: {status})",
+        "bot_kill_not_found": "❌ Running task <code>{task}</code> not found",
         "bot_queue_empty": "📭 Queue is empty (no pending / running / failed)",
         "bot_queue_head": (
             "📋 Download queue: <b>{pending}</b> pending, "
@@ -324,6 +440,21 @@ def favorites_summary(
 
 # --- Telegram bot replies ---------------------------------------------------
 
+def format_bytes(size: float | None) -> str:
+    """Format bytes into a human readable string."""
+    if size is None:
+        return "N/A"
+    try:
+        val = float(size)
+    except (TypeError, ValueError):
+        return "N/A"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(val) < 1024.0 or unit == "TB":
+            return f"{val:.1f} {unit}" if unit != "B" else f"{int(val)} B"
+        val /= 1024.0
+    return f"{val:.1f} TB"
+
+
 def bot_paused(lang: str = "zh") -> str:
     return _t(lang, "bot_paused")
 
@@ -332,8 +463,26 @@ def bot_resumed(lang: str = "zh") -> str:
     return _t(lang, "bot_resumed")
 
 
-def bot_status(paused: bool, lang: str = "zh") -> str:
-    return _t(lang, "bot_status_paused" if paused else "bot_status_running")
+def bot_status(
+    paused: bool, lang: str = "zh", uptime_seconds: float | None = None
+) -> str:
+    if isinstance(lang, (int, float)) and (uptime_seconds is None or isinstance(uptime_seconds, str)):
+        uptime_seconds, lang = float(lang), uptime_seconds or "zh"
+    status_text = _t(lang, "bot_status_paused" if paused else "bot_status_running")
+    if uptime_seconds is not None:
+        days, rem = divmod(int(uptime_seconds), 86400)
+        hours, rem = divmod(rem, 3600)
+        mins, secs = divmod(rem, 60)
+        if days > 0:
+            uptime_str = f"{days}d {hours}h {mins}m"
+        elif hours > 0:
+            uptime_str = f"{hours}h {mins}m {secs}s"
+        else:
+            uptime_str = f"{mins}m {secs}s"
+        return _t(lang, "bot_status_detail").format(
+            status=status_text, uptime=uptime_str
+        )
+    return status_text
 
 
 def bot_queued(gid: object, lang: str = "zh", title: object | None = None) -> str:
@@ -413,6 +562,155 @@ def bot_cancel_not_found(ident: object, lang: str = "zh") -> str:
 
 def bot_cancel_usage(lang: str = "zh") -> str:
     return _t(lang, "bot_cancel_usage")
+
+
+def bot_pong(latency_ms: float | None = None, lang: str = "zh") -> str:
+    if latency_ms is not None:
+        return _t(lang, "bot_pong").format(latency=latency_ms)
+    return _t(lang, "bot_pong_simple")
+
+
+def bot_cookie_health(
+    state: str,
+    detail: str | None = None,
+    checked_at: str | None = None,
+    lang: str = "zh",
+) -> str:
+    if state == "not_configured":
+        return _t(lang, "bot_cookie_not_configured")
+    if state == "valid":
+        return _t(lang, "bot_cookie_valid").format(checked_at=esc(checked_at or "N/A"))
+    if state in ("not_logged_in", "expired"):
+        return _t(lang, "bot_cookie_invalid").format(detail=esc(detail or state))
+    return _t(lang, "bot_cookie_warning").format(
+        detail=esc(detail or state), checked_at=esc(checked_at or "N/A")
+    )
+
+
+def bot_quota(
+    current: int | None = None,
+    limit: int | None = None,
+    gp: int | str | None = None,
+    detail: str | None = None,
+    lang: str = "zh",
+) -> str:
+    if detail:
+        return _t(lang, "bot_quota_fail").format(detail=esc(detail))
+    if current is None or limit is None:
+        return _t(lang, "bot_quota_fail").format(detail="Quota unavailable")
+    remaining = max(0, limit - current)
+    if gp is not None and str(gp).strip() != "":
+        return _t(lang, "bot_quota_ok").format(
+            current=current, limit=limit, remaining=remaining, gp=esc(gp)
+        )
+    return _t(lang, "bot_quota_no_gp").format(
+        current=current, limit=limit, remaining=remaining
+    )
+
+
+def bot_storage(
+    library_bytes: int | None = None,
+    downloads_bytes: int | None = None,
+    cache_bytes: int | None = None,
+    disk_total: int | None = None,
+    disk_used: int | None = None,
+    disk_free: int | None = None,
+    lang: str = "zh",
+) -> str:
+    lib_s = format_bytes(library_bytes)
+    dl_s = format_bytes(downloads_bytes)
+    cache_s = format_bytes(cache_bytes)
+    if disk_total and disk_total > 0 and disk_used is not None and disk_free is not None:
+        pct = round((disk_free / disk_total) * 100, 1)
+        return _t(lang, "bot_storage").format(
+            library=lib_s,
+            downloads=dl_s,
+            cache=cache_s,
+            disk_used=format_bytes(disk_used),
+            disk_total=format_bytes(disk_total),
+            disk_free=format_bytes(disk_free),
+            disk_pct=pct,
+        )
+    return _t(lang, "bot_storage_nodisk").format(
+        library=lib_s, downloads=dl_s, cache=cache_s
+    )
+
+
+def bot_scan_triggered(
+    status: str,
+    scanned: int | None = None,
+    detail: str | None = None,
+    lang: str = "zh",
+) -> str:
+    if status == "started":
+        return _t(lang, "bot_scan_started")
+    if status == "running":
+        return _t(lang, "bot_scan_running").format(scanned=scanned or 0)
+    if status == "paused":
+        return _t(lang, "bot_scan_paused")
+    return _t(lang, "bot_scan_failed").format(detail=esc(detail or status))
+
+
+def bot_clear_success(count: int, lang: str = "zh") -> str:
+    if count <= 0:
+        return _t(lang, "bot_clear_empty")
+    return _t(lang, "bot_clear_ok").format(count=count)
+
+
+def bot_retry_ok(task_id: object, gid: object, lang: str = "zh") -> str:
+    return _t(lang, "bot_retry_ok").format(id=esc(task_id), gid=esc(gid))
+
+
+def bot_retry_all_ok(count: int, lang: str = "zh") -> str:
+    if count <= 0:
+        return _t(lang, "bot_retry_none")
+    return _t(lang, "bot_retry_all_ok").format(count=count)
+
+
+def bot_retry_none(lang: str = "zh") -> str:
+    return _t(lang, "bot_retry_none")
+
+
+def bot_retry_not_found(ident: object, lang: str = "zh") -> str:
+    return _t(lang, "bot_retry_not_found").format(ident=esc(ident))
+
+
+def bot_retry_usage(lang: str = "zh") -> str:
+    return _t(lang, "bot_retry_usage")
+
+
+def bot_tasks_list(tasks: list[dict[str, object]], lang: str = "zh") -> str:
+    if not tasks:
+        return _t(lang, "bot_tasks_empty")
+    text = _t(lang, "bot_tasks_head").format(count=len(tasks))
+    for item in tasks:
+        task_name = esc(item.get("task") or "unknown")
+        done = item.get("done")
+        total = item.get("total")
+        if done is not None and total is not None:
+            progress = f"{done}/{total}"
+        elif done is not None:
+            progress = f"{done}"
+        else:
+            progress = esc(item.get("status") or "running")
+        started = esc(item.get("started_at") or "unknown")
+        line = "\n" + _t(lang, "bot_tasks_line").format(
+            task=task_name, progress=progress, started_at=started
+        )
+        text += line
+    return text
+
+
+def bot_kill_usage(lang: str = "zh") -> str:
+    return _t(lang, "bot_kill_usage")
+
+
+def bot_kill_result(
+    task: object, status: str = "cancelling", not_found: bool = False, lang: str = "zh"
+) -> str:
+    if not_found:
+        return _t(lang, "bot_kill_not_found").format(task=esc(task))
+    return _t(lang, "bot_kill_ok").format(task=esc(task), status=esc(status))
 
 
 # --- misc -------------------------------------------------------------------

@@ -1,5 +1,7 @@
+import json
 import logging
 import time
+from typing import Any
 
 import httpx
 
@@ -227,44 +229,59 @@ class TelegramNotifier:
         text = archive_batch_result(done, skipped, failed, self.message_lang)
         await self.send_message(text)
 
+    def _resolve_targets(
+        self, chat_id: str | int | None = None, force: bool = False
+    ) -> list[str]:
+        allowed = {str(x) for x in self.settings.telegram_chat_ids}
+        if chat_id is None:
+            return sorted(allowed)
+        target = str(chat_id)
+        if not force and target not in allowed:
+            logger.warning("Telegram notification skipped: chat is not allowed")
+            return []
+        return [target]
+
+    def _get_client(self, call_timeout: httpx.Timeout) -> tuple[httpx.AsyncClient, bool]:
+        if self.client is not None:
+            return self.client, True
+        return (
+            httpx.AsyncClient(
+                timeout=call_timeout,
+                proxy=self.settings.socks5_proxy or self.settings.http_proxy,
+            ),
+            False,
+        )
+
     async def send_message(
-        self, text: str, chat_id: str | int | None = None, force: bool = False
+        self,
+        text: str,
+        chat_id: str | int | None = None,
+        force: bool = False,
+        reply_markup: dict[str, Any] | None = None,
     ) -> bool:
         token = self.settings.telegram_bot_token
         if not token:
             logger.debug("Telegram notification skipped: not configured")
             return False
-        allowed = {str(x) for x in self.settings.telegram_chat_ids}
-        if chat_id is None:
-            # Automatic notifications (download success/failure, scan done)
-            # fan out to every configured chat instead of being dropped.
-            targets = sorted(allowed)
-        else:
-            target = str(chat_id)
-            if not force and target not in allowed:
-                logger.warning("Telegram notification skipped: chat is not allowed")
-                return False
-            targets = [target]
+        targets = self._resolve_targets(chat_id=chat_id, force=force)
         if not targets:
             logger.warning("Telegram notification skipped: no chat IDs configured")
             return False
-        # Reuse the shared client when present (the Telegram bot polls through
-        # the same one), otherwise open a short-lived client for this call.
-        shared = self.client is not None
         call_timeout = httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0)
-        client = self.client or httpx.AsyncClient(
-            timeout=call_timeout, proxy=self.settings.socks5_proxy or self.settings.http_proxy
-        )
+        client, shared = self._get_client(call_timeout)
         try:
             sent = False
             for target in targets:
+                payload: dict[str, Any] = {
+                    "chat_id": target,
+                    "text": text,
+                    "parse_mode": "HTML",
+                }
+                if reply_markup is not None:
+                    payload["reply_markup"] = reply_markup
                 response = await client.post(
                     f"https://api.telegram.org/bot{token}/sendMessage",
-                    json={
-                        "chat_id": target,
-                        "text": text,
-                        "parse_mode": "HTML",
-                    },
+                    json=payload,
                     timeout=call_timeout,
                 )
                 response.raise_for_status()
@@ -283,8 +300,255 @@ class TelegramNotifier:
             )
             return False
         finally:
-            # Never close the shared client (owned by this notifier and shared
-            # with the polling bot); only tear down the per-call client.
+            if not shared and client is not None:
+                await client.aclose()
+
+    async def send_photo(
+        self,
+        photo: str | bytes,
+        caption: str | None = None,
+        chat_id: str | int | None = None,
+        force: bool = False,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> bool:
+        token = self.settings.telegram_bot_token
+        if not token:
+            logger.debug("Telegram notification skipped: not configured")
+            return False
+        targets = self._resolve_targets(chat_id=chat_id, force=force)
+        if not targets:
+            logger.warning("Telegram notification skipped: no chat IDs configured")
+            return False
+        call_timeout = httpx.Timeout(connect=3.0, read=15.0, write=15.0, pool=3.0)
+        client, shared = self._get_client(call_timeout)
+        try:
+            sent = False
+            for target in targets:
+                if isinstance(photo, bytes):
+                    data: dict[str, Any] = {
+                        "chat_id": str(target),
+                    }
+                    if caption:
+                        data["caption"] = caption
+                        data["parse_mode"] = "HTML"
+                    if reply_markup is not None:
+                        data["reply_markup"] = json.dumps(reply_markup)
+                    files = {"photo": ("photo.jpg", photo, "image/jpeg")}
+                    response = await client.post(
+                        f"https://api.telegram.org/bot{token}/sendPhoto",
+                        data=data,
+                        files=files,
+                        timeout=call_timeout,
+                    )
+                else:
+                    payload: dict[str, Any] = {
+                        "chat_id": target,
+                        "photo": photo,
+                    }
+                    if caption:
+                        payload["caption"] = caption
+                        payload["parse_mode"] = "HTML"
+                    if reply_markup is not None:
+                        payload["reply_markup"] = reply_markup
+                    response = await client.post(
+                        f"https://api.telegram.org/bot{token}/sendPhoto",
+                        json=payload,
+                        timeout=call_timeout,
+                    )
+                response.raise_for_status()
+                sent = True
+            return sent
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            logger.warning(
+                "Telegram send_photo failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram send_photo unexpected error",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        finally:
+            if not shared and client is not None:
+                await client.aclose()
+
+    async def edit_message_text(
+        self,
+        text: str,
+        chat_id: str | int | None = None,
+        message_id: int | None = None,
+        inline_message_id: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        force: bool = False,
+    ) -> bool:
+        token = self.settings.telegram_bot_token
+        if not token:
+            return False
+        call_timeout = httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0)
+        client, shared = self._get_client(call_timeout)
+        try:
+            if inline_message_id:
+                payload: dict[str, Any] = {
+                    "inline_message_id": inline_message_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                }
+                if reply_markup is not None:
+                    payload["reply_markup"] = reply_markup
+                response = await client.post(
+                    f"https://api.telegram.org/bot{token}/editMessageText",
+                    json=payload,
+                    timeout=call_timeout,
+                )
+                response.raise_for_status()
+                return True
+
+            targets = self._resolve_targets(chat_id=chat_id, force=force)
+            if not targets or message_id is None:
+                return False
+            sent = False
+            for target in targets:
+                payload = {
+                    "chat_id": target,
+                    "message_id": message_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                }
+                if reply_markup is not None:
+                    payload["reply_markup"] = reply_markup
+                response = await client.post(
+                    f"https://api.telegram.org/bot{token}/editMessageText",
+                    json=payload,
+                    timeout=call_timeout,
+                )
+                response.raise_for_status()
+                sent = True
+            return sent
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            logger.warning(
+                "Telegram edit_message_text failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram edit_message_text unexpected error",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        finally:
+            if not shared and client is not None:
+                await client.aclose()
+
+    async def edit_message_reply_markup(
+        self,
+        chat_id: str | int | None = None,
+        message_id: int | None = None,
+        inline_message_id: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        force: bool = False,
+    ) -> bool:
+        token = self.settings.telegram_bot_token
+        if not token:
+            return False
+        call_timeout = httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0)
+        client, shared = self._get_client(call_timeout)
+        try:
+            if inline_message_id:
+                payload: dict[str, Any] = {
+                    "inline_message_id": inline_message_id,
+                }
+                if reply_markup is not None:
+                    payload["reply_markup"] = reply_markup
+                response = await client.post(
+                    f"https://api.telegram.org/bot{token}/editMessageReplyMarkup",
+                    json=payload,
+                    timeout=call_timeout,
+                )
+                response.raise_for_status()
+                return True
+
+            targets = self._resolve_targets(chat_id=chat_id, force=force)
+            if not targets or message_id is None:
+                return False
+            sent = False
+            for target in targets:
+                payload = {
+                    "chat_id": target,
+                    "message_id": message_id,
+                }
+                if reply_markup is not None:
+                    payload["reply_markup"] = reply_markup
+                response = await client.post(
+                    f"https://api.telegram.org/bot{token}/editMessageReplyMarkup",
+                    json=payload,
+                    timeout=call_timeout,
+                )
+                response.raise_for_status()
+                sent = True
+            return sent
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            logger.warning(
+                "Telegram edit_message_reply_markup failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram edit_message_reply_markup unexpected error",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        finally:
+            if not shared and client is not None:
+                await client.aclose()
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool = False,
+        url: str | None = None,
+        cache_time: int | None = None,
+    ) -> bool:
+        token = self.settings.telegram_bot_token
+        if not token or not callback_query_id:
+            return False
+        call_timeout = httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0)
+        client, shared = self._get_client(call_timeout)
+        try:
+            payload: dict[str, Any] = {
+                "callback_query_id": str(callback_query_id),
+                "show_alert": show_alert,
+            }
+            if text:
+                payload["text"] = text
+            if url:
+                payload["url"] = url
+            if cache_time is not None:
+                payload["cache_time"] = cache_time
+            response = await client.post(
+                f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+                json=payload,
+                timeout=call_timeout,
+            )
+            response.raise_for_status()
+            return True
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            logger.warning(
+                "Telegram answer_callback_query failed",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram answer_callback_query unexpected error",
+                extra=log_extra(error=type(exc).__name__, message=str(exc)),
+            )
+            return False
+        finally:
             if not shared and client is not None:
                 await client.aclose()
 
