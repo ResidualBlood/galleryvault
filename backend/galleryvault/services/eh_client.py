@@ -174,19 +174,23 @@ class EhChallengeError(EhClientError):
     """ExHentai 302 temporary anti-abuse / remoteapi.php challenge."""
 
 
+def _is_ip_banned_page(body: str) -> bool:
+    """Detect the ExHentai IP-banned page."""
+    return (
+        "Your IP address has been banned" in body
+        or "Your IP address is temporarily banned" in body
+    )
+
+
 def _is_auth_failure_page(body: str) -> bool:
-    """Detect the ExHentai sadpanda login / IP-banned page.
+    """Detect the ExHentai sadpanda login page.
 
     These pages answer HTTP 200 with no gallery content, which callers would
     otherwise misread as "gallery deleted". Matching them here keeps auth
     expiry separate from genuine 404s so a dead session cannot mass-mark
     galleries as deleted.
     """
-    return (
-        "Sad Panda" in body
-        or "Your IP address has been banned" in body
-        or "Your IP address is temporarily banned" in body
-    )
+    return "Sad Panda" in body
 
 
 def _is_exhentai_org_host(host: str | None) -> bool:
@@ -211,18 +215,22 @@ def parse_login_state(
     signal (measured against production cookies):
     - a valid session returns the full page (tens of KB)
     - an expired/invalid session returns exactly ``expired login session``
-    - a Sad-Panda / IP-banned page has no content at all
+    - an IP-banned page indicates the IP address is banned
+    - a Sad-Panda page has no content at all
     - an empty or blank HTTP 200 on exhentai.org (*.exhentai.org) indicates
       the account lacks ExHentai access (no igneous / no exhentai permission)
     - an empty body on other hosts (e.g. e-hentai.org, unknown) is an anti-bot
       challenge or transient glitch, classified as ``failed``
 
     Returns one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
-    ``failed``.  An empty body on exhentai.org is classified ``no_exhentai_access``;
-    on other hosts or host=None it is classified ``failed`` (a retry, not a cookie
-    reset).  ``member_id`` / ``has_cookies`` are kept for signature
-    compatibility but are no longer part of the classification.
+    ``ip_banned`` / ``failed``.  An empty body on exhentai.org is classified
+    ``no_exhentai_access``; on other hosts or host=None it is classified
+    ``failed`` (a retry, not a cookie reset).  ``member_id`` / ``has_cookies``
+    are kept for signature compatibility but are no longer part of the
+    classification.
     """
+    if _is_ip_banned_page(body):
+        return "ip_banned"
     if _is_auth_failure_page(body):
         return "no_exhentai_access"
     if not body or not body.strip():
@@ -857,6 +865,8 @@ def classify_search_response(response: httpx.Response) -> str:
 
 
 def classify_search_body(body: str) -> str:
+    if _is_ip_banned_page(body):
+        return "ip_banned"
     if _is_auth_failure_page(body):
         return "no_exhentai_access"
     if not body or not str(body).strip():
@@ -1033,6 +1043,7 @@ class EhClient:
                 response.status_code in (401, 403)
                 or "login" in str(response.url).lower()
                 or _is_auth_failure_page(response.text)
+                or _is_ip_banned_page(response.text)
             ):
                 raise EhClientError("ExHentai authentication is required or expired")
             response.raise_for_status()
@@ -1066,7 +1077,7 @@ class EhClient:
         """Probe ExHentai and return ``(state, detail)``.
 
         ``state`` is one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
-        ``failed``; ``detail`` carries the HTTP status or exception type for the
+        ``ip_banned`` / ``failed``; ``detail`` carries the HTTP status or exception type for the
         failure message. Probes ``/uconfig.php`` (a member-only settings page):
         every session state answers HTTP 200, but the body distinguishes them —
         a full page for a valid session, ``expired login session`` for a dead
@@ -1086,6 +1097,8 @@ class EhClient:
             if response.status_code in (401, 403) or "login" in str(response.url).lower():
                 return "not_logged_in", f"HTTP {response.status_code}"
             body = response.text
+            if _is_ip_banned_page(body):
+                return "ip_banned", f"HTTP {response.status_code}"
             if _is_auth_failure_page(body):
                 return "no_exhentai_access", f"HTTP {response.status_code}"
             if not body or not body.strip():
@@ -1127,7 +1140,7 @@ class EhClient:
         if not str(response.url.path).startswith("/g/"):
             raise EhChallengeError("ExHentai is challenging this client (temporary anti-abuse)")
         body = response.text
-        if _is_auth_failure_page(body):
+        if _is_auth_failure_page(body) or _is_ip_banned_page(body):
             raise EhClientError("ExHentai authentication is required or expired")
         if not body or not body.strip():
             raise EhClientError("ExHentai returned empty gallery page (temporary anti-abuse)")
@@ -1942,6 +1955,7 @@ class EhClient:
             response.status_code in (401, 403)
             or "login" in str(response.url).lower()
             or _is_auth_failure_page(response.text)
+            or _is_ip_banned_page(response.text)
         ):
             raise EhClientError("ExHentai authentication is required or expired")
         response.raise_for_status()
@@ -2138,7 +2152,7 @@ class EhClient:
             except EhClientError:
                 continue
             body = response.text
-            if _is_auth_failure_page(body):
+            if _is_auth_failure_page(body) or _is_ip_banned_page(body):
                 return None
             parsed = self._parse_image_limits(body)
             if parsed:
@@ -2176,7 +2190,7 @@ class EhClient:
             return urljoin(str(response.url), direct)
         location = ARCHIVER_LOCATION_RE.search(body)
         if not location:
-            if _is_auth_failure_page(body):
+            if _is_auth_failure_page(body) or _is_ip_banned_page(body):
                 raise EhClientError("ExHentai authentication is required or expired")
             raise EhClientError("ExHentai archiver request returned no download link")
         continue_url = html.unescape(location.group(1))

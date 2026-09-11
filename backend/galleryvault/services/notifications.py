@@ -12,7 +12,7 @@ from ..app.state import app_state
 logger = logging.getLogger(__name__)
 
 RING_MAX = 100
-_COOKIE_STATES = frozenset({"not_logged_in", "no_exhentai_access"})
+_COOKIE_STATES = frozenset({"not_logged_in", "no_exhentai_access", "ip_banned"})
 
 
 def notifications_path() -> Path | None:
@@ -168,7 +168,10 @@ def notify_cookie_health(state: str | None, detail: str | None = None) -> None:
         return
     extra["notifications_cookie_state"] = state
     zh = _notify_lang() != "en"
-    if state == "no_exhentai_access":
+    if state == "ip_banned":
+        kind = "cookie_ip_banned"
+        title = "ExHentai IP 被封禁" if zh else "ExHentai IP banned"
+    elif state == "no_exhentai_access":
         kind = "cookie_no_access"
         title = "ExHentai 无里站访问权限" if zh else "No ExHentai access"
     else:

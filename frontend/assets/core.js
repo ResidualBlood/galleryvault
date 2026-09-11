@@ -45,6 +45,8 @@ function updateBanner() {
     parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${esc(t("cookieExpiredNotice"))}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
   } else if (app.authenticated && ch && ch.state === "no_exhentai_access") {
     parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${esc(t("cookieNoAccessNotice"))}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
+  } else if (app.authenticated && ch && ch.state === "ip_banned") {
+    parts.push(`<span style="color:var(--danger, #e53935);font-weight:600;">⚠️ ${esc(t("cookieIpBannedNotice"))}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
   } else if (app.authenticated && ch && ch.state === "failed") {
     parts.push(`<span style="color:var(--warning, #ff9800);font-weight:600;">⚠️ ${esc(t("cookieHealthFailed"))}${ch.detail ? ` (${esc(ch.detail)})` : ""}</span> <a class="btn btn-secondary" href="#/settings" style="margin-left:8px;padding:2px 10px;font-size:12px;">${esc(t("goToSettings"))}</a>`);
   }
@@ -131,6 +133,7 @@ function notifKindLabel(kind) {
   if (kind === "scan_fail") return t("notifScanFail");
   if (kind === "cookie") return t("notifCookie");
   if (kind === "cookie_no_access") return t("notifCookieNoAccess");
+  if (kind === "cookie_ip_banned") return t("notifCookieIpBanned");
   if (kind === "archive_start") return t("notifArchiveStart");
   if (kind === "archive_ok") return t("notifArchiveOk");
   if (kind === "archive_fail") return t("notifArchiveFail");

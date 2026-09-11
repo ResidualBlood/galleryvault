@@ -139,6 +139,11 @@ async def settings_test_exhentai() -> JSONResponse:
     app_state.extra["cookie_health"] = health
     if state == "ok":
         return JSONResponse({"status": "ok", "message": "登录成功"}, status_code=200)
+    if state == "ip_banned":
+        return JSONResponse(
+            {"status": "failed", "message": f"IP 被封禁或暂时封禁（{detail}）"},
+            status_code=403,
+        )
     if state == "no_exhentai_access":
         return JSONResponse(
             {"status": "failed", "message": f"无法访问里站：缺少有效的 igneous cookie（{detail}）"},
