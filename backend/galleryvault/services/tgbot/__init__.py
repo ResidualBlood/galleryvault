@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from galleryvault.services.messages import (
     bot_already_local,
     bot_gone,
@@ -13,8 +11,6 @@ from galleryvault.services.messages import (
 )
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.router import CommandRouter
-
-logger = logging.getLogger(__name__)
 
 HELP_TEXT_ZH = (
     "🤖 <b>GalleryVault 机器人指令清单</b>\n\n"
@@ -129,10 +125,8 @@ def get_root_router() -> CommandRouter:
     # Message handler: parse gallery URLs and enqueue
     @root.default_message
     async def handle_message(ctx: BotContext) -> None:
-        from galleryvault.services.telegram_bot import (
-            TelegramGalleryItem,
-            parse_gallery_url,
-        )
+        from galleryvault.services.eh_client import parse_gallery_url
+        from galleryvault.services.telegram_bot import TelegramGalleryItem
 
         text = ctx.text
         base_url = getattr(ctx.settings, "exhentai_base_url", "https://exhentai.org")
@@ -218,17 +212,3 @@ def get_root_router() -> CommandRouter:
         await ctx.reply_text(get_help_message(ctx.lang))
 
     return root
-
-
-def inject_into_bot_service() -> None:
-    """Inject get_root_router into TelegramBotService as the default router factory."""
-    try:
-        from galleryvault.services.telegram_bot import TelegramBotService
-
-        TelegramBotService._build_default_router = lambda self: get_root_router()  # type: ignore[method-assign]
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Could not inject router into TelegramBotService", extra={"error": str(exc)})
-
-
-# Trigger injection safely
-inject_into_bot_service()

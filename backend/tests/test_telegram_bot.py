@@ -156,6 +156,9 @@ async def test_queue_uses_snapshot(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(bot_mod, "list_queue_snapshot", fake_snapshot)
+    monkeypatch.setattr(
+        "galleryvault.services.tgbot.handlers.queue.list_queue_snapshot", fake_snapshot
+    )
     bot, notifier, _queue, orig = _bot()
     try:
         await _update(bot, "/queue")
@@ -178,6 +181,9 @@ async def test_cancel_by_id_and_missing(monkeypatch) -> None:
         return "not_found", None, None
 
     monkeypatch.setattr(bot_mod, "cancel_download_ident", fake_cancel)
+    monkeypatch.setattr(
+        "galleryvault.services.tgbot.handlers.queue.cancel_download_ident", fake_cancel
+    )
     bot, notifier, _queue, orig = _bot()
     try:
         await _update(bot, "/cancel")
@@ -189,7 +195,7 @@ async def test_cancel_by_id_and_missing(monkeypatch) -> None:
         await _update(bot, "/cancel 9")
         assert "not found" in notifier.calls[-1][0].lower()
         await _update(bot, "/cancel nope")
-        assert "not found" in notifier.calls[-1][0].lower()
+        assert "Usage" in notifier.calls[-1][0]
     finally:
         app_state.settings = orig
 
@@ -493,7 +499,7 @@ async def test_library_commands_and_callbacks(monkeypatch) -> None:
 
         # /search with query (db not configured fallback)
         await _update(bot, "/search touhou")
-        assert any("数据库" in c[0] or "未就绪" in c[0] for c in notifier.calls)
+        assert any("数据库" in c[0] or "Database" in c[0] or "未就绪" in c[0] for c in notifier.calls)
 
         # /info without gid
         await _update(bot, "/info")
@@ -501,11 +507,11 @@ async def test_library_commands_and_callbacks(monkeypatch) -> None:
 
         # /info with gid
         await _update(bot, "/info 123456")
-        assert any("数据库" in c[0] or "未就绪" in c[0] for c in notifier.calls)
+        assert any("数据库" in c[0] or "Database" in c[0] or "未就绪" in c[0] for c in notifier.calls)
 
         # /random
         await _update(bot, "/random")
-        assert any("数据库" in c[0] or "未就绪" in c[0] for c in notifier.calls)
+        assert any("数据库" in c[0] or "Database" in c[0] or "未就绪" in c[0] for c in notifier.calls)
 
         # /redownload without gid
         await _update(bot, "/redownload")
@@ -513,7 +519,7 @@ async def test_library_commands_and_callbacks(monkeypatch) -> None:
 
         # /redownload with gid
         await _update(bot, "/redownload 999999")
-        assert any("数据库" in c[0] or "未就绪" in c[0] for c in notifier.calls)
+        assert any("数据库" in c[0] or "Database" in c[0] or "未就绪" in c[0] for c in notifier.calls)
 
         # callback lib:p:test:p:2
         await _callback_update(bot, "lib:p:test:p:2")
@@ -548,23 +554,32 @@ async def test_favorites_commands(monkeypatch) -> None:
     try:
         # /fav_sync without cookies
         await _update(bot, "/fav_sync")
-        assert any("Cookie" in c[0] for c in notifier.calls)
+        assert any("Cookie" in c[0] or "cookie" in c[0] for c in notifier.calls)
 
         # /fav_download with invalid arg
         await _update(bot, "/fav_download abc")
-        assert any("用法" in c[0] or "0 到 9" in c[0] for c in notifier.calls)
+        assert any("用法" in c[0] or "Usage" in c[0] for c in notifier.calls)
 
         # /fav_download valid
         await _update(bot, "/fav_download 2")
-        assert any("触发" in c[0] or "分类 2" in c[0] for c in notifier.calls)
+        assert any(
+            "触发" in c[0] or "分类 2" in c[0] or "category 2" in c[0] or "Started" in c[0]
+            for c in notifier.calls
+        )
 
         # /fav_download all
         await _update(bot, "/fav_download")
-        assert any("触发" in c[0] or "全部分类" in c[0] for c in notifier.calls)
+        assert any(
+            "触发" in c[0] or "全部分类" in c[0] or "all categories" in c[0] or "Started" in c[0]
+            for c in notifier.calls
+        )
 
         # /fav_check
         await _update(bot, "/fav_check")
-        assert any("收藏夹" in c[0] or "检查" in c[0] for c in notifier.calls)
+        assert any(
+            "收藏夹" in c[0] or "检查" in c[0] or "Favorites" in c[0] or "favorites" in c[0]
+            for c in notifier.calls
+        )
     finally:
         app_state.settings = orig
 
@@ -590,3 +605,76 @@ async def test_comprehensive_help_coverage() -> None:
             assert cmd in text
     finally:
         app_state.settings = orig
+
+
+@pytest.mark.asyncio
+async def test_default_router_registers_extended_commands() -> None:
+    bot, _notifier, _queue, orig = _bot()
+    try:
+        cmds = set(bot.router._commands)
+        for cmd in ("/search", "/ping", "/retry", "/fav_download"):
+            assert cmd in cmds
+    finally:
+        app_state.settings = orig
+
+
+@pytest.mark.asyncio
+async def test_retry_resets_error_finished_and_max_retries() -> None:
+    class Row:
+        def __init__(self) -> None:
+            self.id = 42
+            self.gid = 99
+            self.status = "failed"
+            self.retry_count = 10
+            self.max_retries = 0
+            self.retry_at = "soon"
+            self.error_message = "boom"
+            self.finished_at = "done"
+
+    row = Row()
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_a):
+            return False
+
+        def begin(self):
+            return self
+
+        async def get(self, _model, pk):
+            return row if pk == 42 else None
+
+    bot, notifier, _queue, orig = _bot()
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: FakeSession()
+    try:
+        await _update(bot, "/retry 42")
+        assert row.status == "pending"
+        assert row.retry_count == 0
+        assert row.retry_at is None
+        assert row.error_message is None
+        assert row.finished_at is None
+        assert row.max_retries == 10
+        assert any("42" in c[0] for c in notifier.calls)
+    finally:
+        app_state.session_factory = orig_factory
+        app_state.settings = orig
+
+
+def test_search_token_roundtrip_keeps_long_query() -> None:
+    from galleryvault.services.tgbot.handlers import library as lib
+
+    query = "abcdefghijklmnopqrstuvwxyz-long-query"
+    token = lib._search_token(query)
+    assert len(token) == 12
+    assert lib._search_query_from_token(token) == query
+
+
+def test_fit_html_caption_closes_truncated_tags() -> None:
+    from galleryvault.services.tgbot.handlers.library import _fit_html_caption
+
+    fitted = _fit_html_caption("<b>" + ("x" * 2000) + "</b>", limit=1024)
+    assert len(fitted) <= 1024
+    assert fitted.count("<b>") == fitted.count("</b>")

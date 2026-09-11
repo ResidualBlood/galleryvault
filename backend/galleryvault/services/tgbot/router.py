@@ -102,7 +102,11 @@ class CommandRouter:
                 exc_info=True,
             )
             if ctx.is_callback_query:
-                await ctx.answer_callback("Error executing action", show_alert=True)
+                from galleryvault.services.messages import bot_text
+
+                await ctx.answer_callback(
+                    bot_text(ctx.lang, "bot_dispatch_error"), show_alert=True
+                )
             return False
 
     async def _dispatch_callback(self, ctx: BotContext) -> bool:

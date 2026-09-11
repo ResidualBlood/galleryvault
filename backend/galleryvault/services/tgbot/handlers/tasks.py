@@ -10,6 +10,8 @@ from galleryvault.services.messages import (
     bot_kill_result,
     bot_kill_usage,
     bot_tasks_list,
+    bot_text,
+    esc,
 )
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.keyboards import inline_button, inline_keyboard
@@ -18,14 +20,19 @@ from galleryvault.services.tgbot.router import CommandRouter
 router = CommandRouter()
 
 
-def _build_tasks_keyboard(tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _build_tasks_keyboard(tasks: list[dict[str, Any]], lang: str) -> dict[str, Any] | None:
     """Build inline buttons to allow quick cancellation of running tasks."""
-    buttons = [inline_button("🔄 刷新任务", callback_data="tasks:refresh")]
+    buttons = [
+        inline_button(bot_text(lang, "bot_btn_refresh_tasks"), callback_data="tasks:refresh")
+    ]
     for item in tasks[:4]:
         task_name = str(item.get("task") or "")
         if task_name:
             buttons.append(
-                inline_button(f"🛑 中断 {task_name}", callback_data=f"tasks:kill:{task_name}")
+                inline_button(
+                    bot_text(lang, "bot_btn_kill_task", task=task_name),
+                    callback_data=f"tasks:kill:{task_name}",
+                )
             )
     return inline_keyboard([buttons[i : i + 2] for i in range(0, len(buttons), 2)])
 
@@ -36,7 +43,7 @@ async def cmd_tasks(ctx: BotContext) -> None:
     tm = get_task_manager()
     running = tm.get_running_summary()
     text = bot_tasks_list(running, lang=ctx.lang)
-    kb = _build_tasks_keyboard(running)
+    kb = _build_tasks_keyboard(running, ctx.lang)
     await ctx.reply_text(text, reply_markup=kb)
 
 
@@ -58,7 +65,7 @@ async def cmd_kill(ctx: BotContext) -> None:
             )
         )
     except Exception as exc:  # noqa: BLE001
-        await ctx.reply_text(f"❌ Cancel task failed: {exc}")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_kill_failed", detail=esc(exc)))
 
 
 @router.callback(r"^tasks:(.*)$")
@@ -72,7 +79,7 @@ async def cb_tasks(ctx: BotContext) -> None:
         tm = get_task_manager()
         running = tm.get_running_summary()
         text = bot_tasks_list(running, lang=ctx.lang)
-        kb = _build_tasks_keyboard(running)
+        kb = _build_tasks_keyboard(running, ctx.lang)
         await ctx.edit_text(text, reply_markup=kb)
 
     elif action.startswith("kill:"):
@@ -84,5 +91,5 @@ async def cb_tasks(ctx: BotContext) -> None:
         tm = get_task_manager()
         running = tm.get_running_summary()
         text = bot_tasks_list(running, lang=ctx.lang)
-        kb = _build_tasks_keyboard(running)
+        kb = _build_tasks_keyboard(running, ctx.lang)
         await ctx.edit_text(text, reply_markup=kb)

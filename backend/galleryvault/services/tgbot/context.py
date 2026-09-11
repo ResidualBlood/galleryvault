@@ -100,10 +100,13 @@ class BotContext:
 
     @property
     def lang(self) -> str:
-        """Telegram notification language normalized."""
+        """Telegram notification language normalized to zh/en."""
+        raw = None
         if self.settings and getattr(self.settings, "telegram_notify_lang", None):
-            return str(self.settings.telegram_notify_lang)
-        return getattr(self.notifier, "message_lang", "zh")
+            raw = str(self.settings.telegram_notify_lang)
+        else:
+            raw = getattr(self.notifier, "message_lang", None)
+        return raw if raw in ("zh", "en") else "zh"
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:

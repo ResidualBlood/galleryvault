@@ -182,6 +182,7 @@ def start_telegram_bot() -> None:
     settings = app_st.settings or get_settings()
     if settings.telegram_bot_token and app_st.telegram is not None:
         from ..app.dependencies import spawn_task
+        from ..services.tgbot import get_root_router
 
         new_task = spawn_task(
             TelegramBotService(
@@ -189,6 +190,7 @@ def start_telegram_bot() -> None:
                 client=app_st.telegram.client,
                 queue=FavoriteDownloadQueue(),
                 notifier=app_st.telegram,
+                router=get_root_router(),
             ).run(),
             "telegram bot",
         )

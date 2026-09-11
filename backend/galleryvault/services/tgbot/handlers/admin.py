@@ -14,6 +14,8 @@ from galleryvault.services.messages import (
     bot_scan_triggered,
     bot_status,
     bot_storage,
+    bot_text,
+    esc,
 )
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.router import CommandRouter
@@ -121,7 +123,7 @@ async def cmd_storage(ctx: BotContext) -> None:
             )
         )
     except Exception as exc:  # noqa: BLE001
-        await ctx.reply_text(f"❌ Storage check failed: {exc}")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_storage_fail", detail=esc(exc)))
 
 
 @router.command(["scan"], description="Trigger library scan")

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import re
+from collections import OrderedDict
 from typing import Any
 
 import anyio
@@ -14,7 +16,7 @@ from galleryvault.app.dependencies import resolve_display_title
 from galleryvault.app.state import app_state
 from galleryvault.db.models import DownloadTask, Gallery, GalleryTag, Tag
 from galleryvault.logging import log_extra
-from galleryvault.services.messages import esc, format_bytes
+from galleryvault.services.messages import bot_text, esc, format_bytes
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.keyboards import (
     build_pagination_row,
@@ -28,6 +30,47 @@ logger = logging.getLogger(__name__)
 router = CommandRouter()
 
 PAGE_SIZE = 5
+_SEARCH_QUERY_CACHE_MAX = 256
+_search_query_cache: OrderedDict[str, str] = OrderedDict()
+
+
+def _search_token(query: str) -> str:
+    """Store the full search query and return a short callback token."""
+    token = hashlib.sha256(query.encode("utf-8")).hexdigest()[:12]
+    if token in _search_query_cache:
+        _search_query_cache.move_to_end(token)
+    else:
+        _search_query_cache[token] = query
+        while len(_search_query_cache) > _SEARCH_QUERY_CACHE_MAX:
+            _search_query_cache.popitem(last=False)
+    return token
+
+
+def _search_query_from_token(token: str) -> str | None:
+    query = _search_query_cache.get(token)
+    if query is not None:
+        _search_query_cache.move_to_end(token)
+    return query
+
+
+def _fit_html_caption(caption: str, limit: int = 1024) -> str:
+    """Truncate HTML caption without slicing through tags."""
+    if len(caption) <= limit:
+        return caption
+    cut = caption[: max(0, limit - 32)]
+    last_nl = cut.rfind("\n")
+    if last_nl > 64:
+        cut = cut[:last_nl]
+    last_lt = cut.rfind("<")
+    last_gt = cut.rfind(">")
+    if last_lt > last_gt:
+        cut = cut[:last_lt].rstrip()
+    for tag in ("b", "code", "i"):
+        opens = cut.count(f"<{tag}>")
+        closes = cut.count(f"</{tag}>")
+        if opens > closes:
+            cut += f"</{tag}>" * (opens - closes)
+    return cut[:limit]
 
 
 def _extract_gid(raw: str) -> int | None:
@@ -77,34 +120,40 @@ def _format_gallery_info(
         lines.append(f"<code>{esc(gallery.title_jpn)}</code>")
 
     lines.append("")
-    lines.append(f"• <b>GID</b>：<code>{gallery.gid}</code>")
+    lines.append(bot_text(lang, "bot_info_gid", gid=gallery.gid))
     if gallery.category:
-        lines.append(f"• <b>分类</b>：{esc(gallery.category)}")
+        lines.append(bot_text(lang, "bot_info_category", category=esc(gallery.category)))
     pages = gallery.page_count or gallery.file_count or 0
     if pages:
-        lines.append(f"• <b>页数</b>：{pages} 页")
+        lines.append(bot_text(lang, "bot_info_pages", pages=pages))
     size = gallery.storage_size or gallery.file_size
     if size:
-        lines.append(f"• <b>大小</b>：{format_bytes(size)}")
+        lines.append(bot_text(lang, "bot_info_size", size=format_bytes(size)))
     if gallery.rating is not None:
-        lines.append(f"• <b>评分</b>：⭐ {gallery.rating:.1f}")
+        lines.append(bot_text(lang, "bot_info_rating", rating=f"{gallery.rating:.1f}"))
     if gallery.uploader:
-        lines.append(f"• <b>上传者</b>：{esc(gallery.uploader)}")
+        lines.append(bot_text(lang, "bot_info_uploader", uploader=esc(gallery.uploader)))
 
     if tags:
         tag_str = " ".join(f"#{esc(t)}" for t in tags[:15])
         if len(tags) > 15:
             tag_str += " …"
-        lines.append(f"• <b>标签</b>：{tag_str}")
+        lines.append(bot_text(lang, "bot_info_tags", tags=tag_str))
 
     caption = "\n".join(lines)
 
     buttons: list[dict[str, Any]] = [
-        inline_button("🔄 重新下载", callback_data=f"lib:redownload:{gallery.gid}")
+        inline_button(
+            bot_text(lang, "bot_btn_redownload"),
+            callback_data=f"lib:redownload:{gallery.gid}",
+        )
     ]
     if gallery.token:
         buttons.append(
-            inline_button("🌐 EH 链接", url=f"https://e-hentai.org/g/{gallery.gid}/{gallery.token}/")
+            inline_button(
+                bot_text(lang, "bot_btn_eh_link"),
+                url=f"https://e-hentai.org/g/{gallery.gid}/{gallery.token}/",
+            )
         )
 
     kb = inline_keyboard([buttons])
@@ -120,7 +169,9 @@ async def _send_gallery_card(
     """Send gallery info card, attempting photo first with fallback to text."""
     caption, kb = _format_gallery_info(gallery, tags=tags, lang=ctx.lang)
     if extra_buttons:
-        kb["inline_keyboard"].append(extra_buttons)
+        kb = {
+            "inline_keyboard": [*kb.get("inline_keyboard", []), list(extra_buttons)]
+        }
 
     cover_sent = False
     cover_path = getattr(gallery, "cover_path", None)
@@ -130,7 +181,7 @@ async def _send_gallery_card(
             if photo_bytes:
                 cover_sent = await ctx.reply_photo(
                     photo=photo_bytes,
-                    caption=caption[:1024],
+                    caption=_fit_html_caption(caption),
                     reply_markup=kb,
                 )
         except Exception as exc:  # noqa: BLE001
@@ -148,11 +199,11 @@ async def _execute_search(
     """Query galleries matching keyword and reply or edit message with paginated list."""
     clean_query = query.strip()
     if not clean_query:
-        await ctx.reply_text("🔍 用法：<code>/search &lt;关键词或GID&gt;</code>")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_search_usage"))
         return
 
     if not app_state.session_factory:
-        msg = "❌ 数据库未就绪"
+        msg = bot_text(ctx.lang, "bot_db_not_ready")
         if is_edit:
             await ctx.edit_text(msg)
         else:
@@ -183,7 +234,7 @@ async def _execute_search(
         total_count = int(await session.scalar(total_stmt) or 0)
 
         if total_count == 0:
-            text = f"🔍 未找到匹配「<b>{esc(clean_query)}</b>」的本地画廊"
+            text = bot_text(ctx.lang, "bot_search_empty", query=esc(clean_query))
             if is_edit:
                 await ctx.edit_text(text)
             else:
@@ -203,7 +254,13 @@ async def _execute_search(
         rows = list((await session.scalars(stmt)).all())
 
     lines: list[str] = [
-        f"🔍 <b>本地画廊搜索</b>（第 {page}/{total_pages} 页，共 {total_count} 本）：",
+        bot_text(
+            ctx.lang,
+            "bot_search_head",
+            page=page,
+            total_pages=total_pages,
+            total=total_count,
+        ),
         "",
     ]
     info_buttons: list[dict[str, Any]] = []
@@ -217,10 +274,8 @@ async def _execute_search(
         lines.append(f"   <i>{g.uploader or 'unknown'}{pages_str}{rating_str}</i>")
         info_buttons.append(inline_button(f"📖 {g.gid}", callback_data=f"lib:info:{g.gid}"))
 
-    # Pagination buttons row
-    short_query = clean_query[:16]
     page_row = build_pagination_row(
-        page, total_pages, callback_prefix=f"lib:p:{short_query}"
+        page, total_pages, callback_prefix=f"lib:p:{_search_token(clean_query)}"
     )
 
     rows_kb: list[list[dict[str, Any]]] = []
@@ -249,17 +304,17 @@ async def cmd_info(ctx: BotContext) -> None:
     """Display gallery details and cover photo."""
     gid = _extract_gid(ctx.args)
     if gid is None:
-        await ctx.reply_text("ℹ️ 用法：<code>/info &lt;gid&gt;</code>")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_info_usage"))
         return
 
     if not app_state.session_factory:
-        await ctx.reply_text("❌ 数据库未就绪")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_db_not_ready"))
         return
 
     async with app_state.session_factory() as session:
         gallery = await session.scalar(select(Gallery).where(Gallery.gid == gid).limit(1))
         if gallery is None:
-            await ctx.reply_text(f"❌ 本地未找到 GID <code>{gid}</code> 的画廊记录")
+            await ctx.reply_text(bot_text(ctx.lang, "bot_gallery_not_found", gid=gid))
             return
         tags = await _fetch_gallery_tags(session, gallery.id)
 
@@ -270,7 +325,7 @@ async def cmd_info(ctx: BotContext) -> None:
 async def cmd_random(ctx: BotContext) -> None:
     """Randomly pick a gallery from local library."""
     if not app_state.session_factory:
-        await ctx.reply_text("❌ 数据库未就绪")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_db_not_ready"))
         return
 
     async with app_state.session_factory() as session:
@@ -282,11 +337,13 @@ async def cmd_random(ctx: BotContext) -> None:
         )
         gallery = await session.scalar(stmt)
         if gallery is None:
-            await ctx.reply_text("📭 本地图库暂无可推荐的画廊")
+            await ctx.reply_text(bot_text(ctx.lang, "bot_random_empty"))
             return
         tags = await _fetch_gallery_tags(session, gallery.id)
 
-    next_btn = [inline_button("🎲 换一本", callback_data="lib:random")]
+    next_btn = [
+        inline_button(bot_text(ctx.lang, "bot_btn_random_again"), callback_data="lib:random")
+    ]
     await _send_gallery_card(ctx, gallery, tags=tags, extra_buttons=next_btn)
 
 
@@ -295,11 +352,11 @@ async def cmd_redownload(ctx: BotContext) -> None:
     """Queue redownload of a gallery by gid."""
     gid = _extract_gid(ctx.args)
     if gid is None:
-        await ctx.reply_text("🔄 用法：<code>/redownload &lt;gid&gt;</code>")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_redownload_usage"))
         return
 
     if not app_state.session_factory:
-        await ctx.reply_text("❌ 数据库未就绪")
+        await ctx.reply_text(bot_text(ctx.lang, "bot_db_not_ready"))
         return
 
     token: str | None = None
@@ -324,9 +381,7 @@ async def cmd_redownload(ctx: BotContext) -> None:
                 title = task.title or str(gid)
 
     if not token:
-        await ctx.reply_text(
-            f"❌ 找不到画廊 <code>{gid}</code> 的访问 Token，请在聊天中直接发送该画廊的完整 URL 进行下载。"
-        )
+        await ctx.reply_text(bot_text(ctx.lang, "bot_redownload_no_token", gid=gid))
         return
 
     quality = getattr(ctx.settings, "download_quality", None) or "resample"
@@ -339,7 +394,7 @@ async def cmd_redownload(ctx: BotContext) -> None:
         await ctx.queue.enqueue(item)
 
     await ctx.reply_text(
-        f"🔄 已将画廊 <b>{esc(title)}</b> (GID: <code>{gid}</code>) 加入下载队列"
+        bot_text(ctx.lang, "bot_redownload_queued", title=esc(title), gid=gid)
     )
 
 
@@ -353,9 +408,13 @@ async def cb_search_page(ctx: BotContext) -> None:
     if not match:
         await ctx.answer_callback()
         return
-    query = match.group(1)
+    token = match.group(1)
     page = int(match.group(2))
     await ctx.answer_callback()
+    query = _search_query_from_token(token)
+    if query is None:
+        await ctx.edit_text(bot_text(ctx.lang, "bot_search_expired"))
+        return
     await _execute_search(ctx, query=query, page=page, is_edit=True)
 
 
@@ -371,7 +430,7 @@ async def cb_gallery_info(ctx: BotContext) -> None:
     async with app_state.session_factory() as session:
         gallery = await session.scalar(select(Gallery).where(Gallery.gid == gid).limit(1))
         if gallery is None:
-            await ctx.reply_text(f"❌ 未找到 GID <code>{gid}</code> 的画廊")
+            await ctx.reply_text(bot_text(ctx.lang, "bot_gallery_not_found", gid=gid))
             return
         tags = await _fetch_gallery_tags(session, gallery.id)
 
@@ -390,7 +449,7 @@ async def cb_redownload(ctx: BotContext) -> None:
     """Handle inline redownload button click."""
     match = ctx.extra.get("match")
     gid = int(match.group(1)) if match else None
-    await ctx.answer_callback("正在请求重新下载…")
+    await ctx.answer_callback(bot_text(ctx.lang, "bot_cb_redownloading"))
     if gid is None:
         return
     ctx.args = str(gid)

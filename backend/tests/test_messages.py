@@ -181,3 +181,13 @@ def test_bot_replies_custom() -> None:
 )
 def test_normalize_lang(input_lang, expected) -> None:
     assert messages.normalize_lang(input_lang) == expected
+
+
+def test_bot_template_keys_match() -> None:
+    assert set(messages._TEMPLATES["zh"]) == set(messages._TEMPLATES["en"])
+
+
+def test_bot_text_follows_notify_lang() -> None:
+    assert "数据库" in messages.bot_text("zh", "bot_db_not_ready")
+    assert "Database" in messages.bot_text("en", "bot_db_not_ready")
+    assert messages.bot_text("zh", "bot_btn_refresh") != messages.bot_text("en", "bot_btn_refresh")

@@ -127,6 +127,53 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_kill_usage": "用法：<code>/kill &lt;task_name&gt;</code>",
         "bot_kill_ok": "🛑 已向任务 <code>{task}</code> 发送中断请求（状态：{status}）",
         "bot_kill_not_found": "❌ 找不到运行中的任务 <code>{task}</code>",
+        "bot_db_not_ready": "❌ 数据库未就绪",
+        "bot_dispatch_error": "执行操作时出错",
+        "bot_storage_fail": "❌ 存储检查失败：{detail}",
+        "bot_kill_failed": "❌ 中断任务失败：{detail}",
+        "bot_btn_refresh": "🔄 刷新",
+        "bot_btn_clear_done": "🧹 清理完成",
+        "bot_btn_retry_all": "🔁 重试全部",
+        "bot_btn_refresh_tasks": "🔄 刷新任务",
+        "bot_btn_kill_task": "🛑 中断 {task}",
+        "bot_btn_redownload": "🔄 重新下载",
+        "bot_btn_eh_link": "🌐 EH 链接",
+        "bot_btn_random_again": "🎲 换一本",
+        "bot_cb_redownloading": "正在请求重新下载…",
+        "bot_search_usage": "🔍 用法：<code>/search &lt;关键词或GID&gt;</code>",
+        "bot_search_empty": "🔍 未找到匹配「<b>{query}</b>」的本地画廊",
+        "bot_search_head": "🔍 <b>本地画廊搜索</b>（第 {page}/{total_pages} 页，共 {total} 本）：",
+        "bot_search_expired": "🔍 搜索已过期，请重新发送 /search",
+        "bot_info_usage": "ℹ️ 用法：<code>/info &lt;gid&gt;</code>",
+        "bot_info_gid": "• <b>GID</b>：<code>{gid}</code>",
+        "bot_info_category": "• <b>分类</b>：{category}",
+        "bot_info_pages": "• <b>页数</b>：{pages} 页",
+        "bot_info_size": "• <b>大小</b>：{size}",
+        "bot_info_rating": "• <b>评分</b>：⭐ {rating}",
+        "bot_info_uploader": "• <b>上传者</b>：{uploader}",
+        "bot_info_tags": "• <b>标签</b>：{tags}",
+        "bot_gallery_not_found": "❌ 本地未找到 GID <code>{gid}</code> 的画廊记录",
+        "bot_random_empty": "📭 本地图库暂无可推荐的画廊",
+        "bot_redownload_usage": "🔄 用法：<code>/redownload &lt;gid&gt;</code>",
+        "bot_redownload_no_token": (
+            "❌ 找不到画廊 <code>{gid}</code> 的访问 Token，"
+            "请在聊天中直接发送该画廊的完整 URL 进行下载。"
+        ),
+        "bot_redownload_queued": "🔄 已将画廊 <b>{title}</b>（GID: <code>{gid}</code>）加入下载队列",
+        "bot_fav_no_cookie": "⚠️ 尚未配置 ExHentai Cookie，无法同步云端收藏夹。",
+        "bot_fav_sync_ok": "✅ 收藏夹分类同步成功，共获取到 <b>{count}</b> 个云端分类。",
+        "bot_fav_sync_fail": "❌ 收藏夹同步失败：{detail}",
+        "bot_fav_download_usage": "📥 用法：<code>/fav_download [favcat (0-9)]</code>",
+        "bot_fav_cat_range": "分类编号必须在 0 到 9 之间",
+        "bot_fav_cat_number": "分类编号必须为数字 (0-9)",
+        "bot_fav_cat_one": "分类 {favcat}",
+        "bot_fav_cat_all": "全部分类（{count} 个）",
+        "bot_fav_download_queued": (
+            "📥 已触发 <b>{cat}</b> 缺本下载任务，共将 <b>{count}</b> 本未入库画廊加入下载队列。"
+        ),
+        "bot_fav_download_started": "📥 已触发 <b>{cat}</b> 缺本下载与元数据补全长任务。",
+        "bot_fav_check_no_service": "❌ 收藏夹服务未初始化，无法启动检查。",
+        "bot_fav_check_started": "⏳ 已启动全量收藏夹检查长任务（共 <b>{count}</b> 个分类）。",
         "bot_queue_empty": "📭 队列为空（无等待 / 进行中 / 失败）",
         "bot_queue_head": "📋 下载队列：等待 <b>{pending}</b>，进行中 <b>{running}</b>，失败 <b>{failed}</b>",
         "bot_queue_line": "{status} <code>{id}</code> gid <code>{gid}</code> {title}",
@@ -252,6 +299,57 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_kill_usage": "Usage: <code>/kill &lt;task_name&gt;</code>",
         "bot_kill_ok": "🛑 Cancellation requested for task <code>{task}</code> (status: {status})",
         "bot_kill_not_found": "❌ Running task <code>{task}</code> not found",
+        "bot_db_not_ready": "❌ Database is not ready",
+        "bot_dispatch_error": "Error executing action",
+        "bot_storage_fail": "❌ Storage check failed: {detail}",
+        "bot_kill_failed": "❌ Failed to cancel task: {detail}",
+        "bot_btn_refresh": "🔄 Refresh",
+        "bot_btn_clear_done": "🧹 Clear done",
+        "bot_btn_retry_all": "🔁 Retry all",
+        "bot_btn_refresh_tasks": "🔄 Refresh tasks",
+        "bot_btn_kill_task": "🛑 Cancel {task}",
+        "bot_btn_redownload": "🔄 Redownload",
+        "bot_btn_eh_link": "🌐 EH link",
+        "bot_btn_random_again": "🎲 Another",
+        "bot_cb_redownloading": "Requesting redownload…",
+        "bot_search_usage": "🔍 Usage: <code>/search &lt;keyword or GID&gt;</code>",
+        "bot_search_empty": "🔍 No local galleries matching \"<b>{query}</b>\"",
+        "bot_search_head": (
+            "🔍 <b>Local gallery search</b> (page {page}/{total_pages}, {total} total):"
+        ),
+        "bot_search_expired": "🔍 Search expired, please send /search again",
+        "bot_info_usage": "ℹ️ Usage: <code>/info &lt;gid&gt;</code>",
+        "bot_info_gid": "• <b>GID</b>: <code>{gid}</code>",
+        "bot_info_category": "• <b>Category</b>: {category}",
+        "bot_info_pages": "• <b>Pages</b>: {pages}",
+        "bot_info_size": "• <b>Size</b>: {size}",
+        "bot_info_rating": "• <b>Rating</b>: ⭐ {rating}",
+        "bot_info_uploader": "• <b>Uploader</b>: {uploader}",
+        "bot_info_tags": "• <b>Tags</b>: {tags}",
+        "bot_gallery_not_found": "❌ No local gallery with GID <code>{gid}</code>",
+        "bot_random_empty": "📭 No galleries available in the local library",
+        "bot_redownload_usage": "🔄 Usage: <code>/redownload &lt;gid&gt;</code>",
+        "bot_redownload_no_token": (
+            "❌ No access token for gallery <code>{gid}</code>. "
+            "Paste the full gallery URL in chat to download."
+        ),
+        "bot_redownload_queued": "🔄 Queued gallery <b>{title}</b> (GID: <code>{gid}</code>)",
+        "bot_fav_no_cookie": "⚠️ ExHentai cookies are not configured; cannot sync favorites.",
+        "bot_fav_sync_ok": "✅ Favorite categories synced, <b>{count}</b> remote categories found.",
+        "bot_fav_sync_fail": "❌ Favorite sync failed: {detail}",
+        "bot_fav_download_usage": "📥 Usage: <code>/fav_download [favcat (0-9)]</code>",
+        "bot_fav_cat_range": "Category number must be between 0 and 9",
+        "bot_fav_cat_number": "Category number must be a digit (0-9)",
+        "bot_fav_cat_one": "category {favcat}",
+        "bot_fav_cat_all": "all categories ({count})",
+        "bot_fav_download_queued": (
+            "📥 Started missing-gallery download for <b>{cat}</b>; queued <b>{count}</b> galleries."
+        ),
+        "bot_fav_download_started": (
+            "📥 Started missing-gallery download and metadata sync for <b>{cat}</b>."
+        ),
+        "bot_fav_check_no_service": "❌ Favorites service is not initialized.",
+        "bot_fav_check_started": "⏳ Started a full favorites check (<b>{count}</b> categories).",
         "bot_queue_empty": "📭 Queue is empty (no pending / running / failed)",
         "bot_queue_head": (
             "📋 Download queue: <b>{pending}</b> pending, "
@@ -299,6 +397,12 @@ def esc(value: object) -> str:
 
 def _t(lang: str, key: str) -> str:
     return _TEMPLATES[normalize_lang(lang)][key]
+
+
+def bot_text(lang: str, key: str, **kwargs: object) -> str:
+    """Look up a bot UI string and optionally interpolate HTML-safe values."""
+    text = _t(lang, key)
+    return text.format(**kwargs) if kwargs else text
 
 
 def _plain_len(text: str) -> int:

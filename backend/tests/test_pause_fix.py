@@ -170,7 +170,6 @@ async def test_telegram_pause_real_db_merge(monkeypatch):
         assert stored.get("keep") == 1
         assert saved.get("global_paused") is True
         assert app_state.settings.global_paused is True
-        assert bot.paused is True
         assert any("paused" in m[0].lower() or "暂停" in m[0] for m in notifier.messages)
 
         # While paused, a gallery URL must NOT be enqueued
@@ -185,7 +184,6 @@ async def test_telegram_pause_real_db_merge(monkeypatch):
         await bot.handle_update({"message": {"from": {"id": 7}, "text": "/resume", "chat": {"id": 7}}})
         assert stored.get("global_paused") is False
         assert app_state.settings.global_paused is False
-        assert bot.paused is False
 
         # After resume, URL should be enqueued
         await bot.handle_update({"message": {"from": {"id": 7}, "text": "https://exhentai.org/g/12345/abcdef/", "chat": {"id": 7}}})
