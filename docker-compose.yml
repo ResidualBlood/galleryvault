@@ -68,13 +68,14 @@ services:
         max-file: "3"
 
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: galleryvault-db
     restart: always
     environment:
       POSTGRES_USER: galleryvault
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-galleryvault}
       POSTGRES_DB: galleryvault
+      PGDATA: /var/lib/postgresql/data
       TZ: Asia/Shanghai
     volumes:
       - ./db-data:/var/lib/postgresql/data
