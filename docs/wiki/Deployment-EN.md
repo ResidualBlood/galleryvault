@@ -50,7 +50,7 @@ The repository's `docker-compose.yml` provisions three integrated services:
 | :--- | :--- | :--- | :--- |
 | Frontend Gateway | `galleryvault-frontend` | `0.0.0.0:8000 -> 80` | Static SPA hosting, internal API proxy, and request rate limiting |
 | Backend Core | `galleryvault-backend` | `127.0.0.1:8001 -> 8001` | FastAPI core service, bound only to host loopback interface |
-| Relational DB | `galleryvault-db` | Internal port only | PostgreSQL 16 database storing indexes, histories, and settings |
+| Relational DB | `galleryvault-db` | Internal port only | PostgreSQL 18 database storing indexes, histories, and settings |
 
 ```bash
 mkdir -p galleryvault && cd galleryvault
@@ -70,7 +70,7 @@ Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd6
 
 | Local Host Path | Container Path | Access Mode | Purpose |
 | :--- | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql/data` | Read-Write (`rw`) | PostgreSQL data (UID 999); stores primary index and credentials |
+| `./db-data` | `/var/lib/postgresql` | Read-Write (`rw`) | PostgreSQL data (UID 999); stores primary index and credentials |
 | `./library` | `/library` | `rw` or `ro` | Primary library root for existing archives; **downloads never land here** |
 | `./downloads` | `/downloads` | Read-Write (`rw`) | Target directory for active downloads; automatically indexed |
 | `./cache` | `/gv-cache` | Read-Write (`rw`) | Thumbnail and cover image cache; saves external bandwidth |

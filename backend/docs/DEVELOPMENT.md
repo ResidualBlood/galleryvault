@@ -20,7 +20,7 @@ Browser ── :8001 ──▶ FastAPI app (backend/galleryvault/app/main.py + r
   service (`http://backend:8001`).
 - **Backend** (`backend/`) is a **pure JSON API** on port 8001 (container
   port 8001): no HTML pages, no static files.
-- **Database**: PostgreSQL 16 runs alongside the backend in the root
+- **Database**: PostgreSQL 18 runs alongside the backend in the root
   `docker-compose.yml`; its data persists in `./db-data` (next to the compose
   file).
 

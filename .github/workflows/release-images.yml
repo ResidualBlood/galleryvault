@@ -28,11 +28,10 @@ jobs:
         run: |
           docker run -d \
             --name postgres \
-            --tmpfs /var/lib/postgresql/data \
+            --tmpfs /var/lib/postgresql \
             -e POSTGRES_USER=galleryvault \
             -e POSTGRES_PASSWORD=galleryvault \
             -e POSTGRES_DB=galleryvault \
-            -e PGDATA=/var/lib/postgresql/data \
             -p 5432:5432 \
             postgres:18-alpine \
             -c fsync=off -c synchronous_commit=off -c full_page_writes=off

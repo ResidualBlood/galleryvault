@@ -58,7 +58,7 @@ docker compose up -d
 
 | Host path | Container | Purpose |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql/data` | PostgreSQL (UID 999 — do not chown to yourself) |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL (UID 999 — do not chown to yourself) |
 | `./library` | `/library` | Existing library; downloads never write here. Read-only mounts fail deletes and log it |
 | `./downloads` | `/downloads` | New downloads, ingested immediately |
 | `./cache` | `/gv-cache` | Thumbnail / cover cache |

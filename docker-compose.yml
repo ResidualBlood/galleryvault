@@ -75,10 +75,9 @@ services:
       POSTGRES_USER: galleryvault
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-galleryvault}
       POSTGRES_DB: galleryvault
-      PGDATA: /var/lib/postgresql/data
       TZ: Asia/Shanghai
     volumes:
-      - ./db-data:/var/lib/postgresql/data
+      - ./db-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U galleryvault -d galleryvault"]
       interval: 5s

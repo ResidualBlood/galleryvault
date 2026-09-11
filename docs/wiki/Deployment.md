@@ -50,7 +50,7 @@ GalleryVault 采用模块化容器架构设计。本文档提供从基础 Docker
 | :--- | :--- | :--- | :--- |
 | 前端网关 | `galleryvault-frontend` | `0.0.0.0:8000 -> 80` | 提供前端 SPA 静态托管，反代 API 并处理请求流控 |
 | 后端核心 | `galleryvault-backend` | `127.0.0.1:8001 -> 8001` | FastAPI 业务服务，默认仅监听宿主环回接口 |
-| 关系数据库 | `galleryvault-db` | 容器内部网络端口 | PostgreSQL 16 数据库，存储索引与系统状态 |
+| 关系数据库 | `galleryvault-db` | 容器内部网络端口 | PostgreSQL 18 数据库，存储索引与系统状态 |
 
 ```bash
 mkdir -p galleryvault && cd galleryvault
@@ -70,7 +70,7 @@ docker compose up -d
 
 | 本地路径 | 容器内挂载点 | 读写属性 | 功能说明 |
 | :--- | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql/data` | 读写 (`rw`) | PostgreSQL 核心数据（UID 999），保存全量索引与配置 |
+| `./db-data` | `/var/lib/postgresql` | 读写 (`rw`) | PostgreSQL 核心数据（UID 999），保存全量索引与配置 |
 | `./library` | `/library` | 读写 (`rw`) 或只读 (`ro`) | 主画廊库，存放已有归档，**下载任务绝不写入此目录** |
 | `./downloads` | `/downloads` | 读写 (`rw`) | 下载落盘目录，新下载文件在此生成并触发增量入库 |
 | `./cache` | `/gv-cache` | 读写 (`rw`) | 缩略图与封面缓存，避免高频请求重复拉取图片 |
@@ -202,7 +202,7 @@ vault.example.com {
   ```bash
   chown -R 1000:1000 ./downloads ./library ./cache
   ```
-- **数据库容器启动报错 `chown: changing ownership of '/var/lib/postgresql/data': Operation not permitted`**：
+- **数据库容器启动报错 `chown: changing ownership of '/var/lib/postgresql': Operation not permitted`**：
   - **严重警告**：PostgreSQL 官方镜像固定依赖容器内 `postgres` 用户（UID 999）。**切勿对宿主 `./db-data` 目录执行批量 `chown -R 1000:1000`**。若已误改，请将其属主改回 999：
     ```bash
     chown -R 999:999 ./db-data

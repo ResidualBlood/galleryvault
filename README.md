@@ -58,7 +58,7 @@ docker compose up -d
 
 | 本地路径 | 容器内 | 说明 |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql/data` | PostgreSQL（容器 UID 999，不要 chown 成自己） |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL（容器 UID 999，不要 chown 成自己） |
 | `./library` | `/library` | 已有库；下载不写这里。只读挂载时删文件会失败并记日志 |
 | `./downloads` | `/downloads` | 新下载落盘并即时入库 |
 | `./cache` | `/gv-cache` | 缩略图 / 封面缓存 |
