@@ -560,6 +560,8 @@ class Downloader:
                                 extension = ".jpg"
                             (temp / f"{index + 1:08d}{extension}").write_bytes(data)
                             downloaded.add(index)
+                            pages[index] = current
+                            gallery.pages[index] = current
                             storage_tracker.record_download_delta(len(data))
                             await self._record_bytes(gallery.gid, len(data), 1)
                             last_error = None

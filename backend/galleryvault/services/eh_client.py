@@ -58,7 +58,7 @@ TAG_ANCHOR_RE = re.compile(
 SHOWKEY_RE = re.compile(r'var\s+showkey\s*=\s*"([0-9a-z]+)"', re.IGNORECASE)
 # ``showpage`` API response fragments (i3 / i6 / i7) carry the resolved image HTML.
 SHOWPAGE_IMAGE_RE = re.compile(r'<img[^>]*src="([^"]+)" style', re.IGNORECASE)
-SHOWPAGE_SKIP_KEY_RE = re.compile(r"onclick=\"return nl\('([^\)]+)'\)")
+SHOWPAGE_SKIP_KEY_RE = re.compile(r"nl\(\s*['\"](.*?)['\"]\s*\)")
 SHOWPAGE_ORIGIN_PROMPT_RE = re.compile(
     r'<a href="#" onclick="prompt\(\'Copy the URL below\.\', \'([^\']+)\'\)'
 )
@@ -1332,7 +1332,7 @@ class EhClient:
             origin_match = re.search(
                 r'<a[^>]+href=["\']([^"\']+)fullimg([^"\']+)["\']', body, re.IGNORECASE
             )
-            nl_match = re.search(r"nl\(\s*['\"]([^'\")]+)['\"]\s*\)", body)
+            nl_match = re.search(r"nl\(\s*['\"](.*?)['\"]\s*\)", body)
             showkey_match = SHOWKEY_RE.search(body)
             if showkey_match:
                 # Always refresh from the latest viewer page: a showkey expires
@@ -1353,7 +1353,7 @@ class EhClient:
                 p_token or "",
                 image_url,
                 origin_url,
-                nl_match.group(1) if nl_match else None,
+                html.unescape(nl_match.group(1)) if nl_match else None,
             )
 
         async def _resolve_page_api(href: str) -> GalleryPageData:
@@ -1422,26 +1422,29 @@ class EhClient:
         """
         if showkey is None:
             showkey = ShowkeyState()
-        if skip_hath and page.skip_hath_key:
-            parsed = urlparse(page.url)
-            query_pairs = [
-                (k, v)
-                for k, v in parse_qsl(parsed.query, keep_blank_values=True)
-                if k != "nl"
-            ]
-            query_pairs.append(("nl", page.skip_hath_key))
-            target_url = urlunparse(
-                (
-                    parsed.scheme,
-                    parsed.netloc,
-                    parsed.path,
-                    parsed.params,
-                    urlencode(query_pairs),
-                    parsed.fragment,
+        if skip_hath:
+            if not page.skip_hath_key:
+                page = await self._resolve_page_from_html(gid, page, showkey)
+            if page.skip_hath_key:
+                parsed = urlparse(page.url)
+                query_pairs = [
+                    (k, v)
+                    for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+                    if k != "nl"
+                ]
+                query_pairs.append(("nl", page.skip_hath_key))
+                target_url = urlunparse(
+                    (
+                        parsed.scheme,
+                        parsed.netloc,
+                        parsed.path,
+                        parsed.params,
+                        urlencode(query_pairs),
+                        parsed.fragment,
+                    )
                 )
-            )
-            target_page = replace(page, url=target_url)
-            return await self._resolve_page_from_html(gid, target_page, showkey)
+                target_page = replace(page, url=target_url)
+                return await self._resolve_page_from_html(gid, target_page, showkey)
         absolute = page.url
         viewer = VIEWER_HREF_RE.search(absolute)
         p_token = viewer.group("ptoken") if viewer else (page.token or "")
@@ -1491,7 +1494,7 @@ class EhClient:
         origin_match = re.search(
             r'<a[^>]+href=["\']([^"\']+)fullimg([^"\']+)["\']', body, re.IGNORECASE
         )
-        nl_match = re.search(r"nl\(\s*['\"]([^'\")]+)['\"]\s*\)", body)
+        nl_match = re.search(r"nl\(\s*['\"](.*?)['\"]\s*\)", body)
         showkey_match = SHOWKEY_RE.search(body)
         if showkey_match and showkey is not None:
             showkey.value = showkey_match.group(1)
@@ -1508,7 +1511,7 @@ class EhClient:
             p_token or "",
             image_url,
             origin_url,
-            nl_match.group(1) if nl_match else None,
+            html.unescape(nl_match.group(1)) if nl_match else None,
         )
 
     async def _showpage(
