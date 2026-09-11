@@ -32,15 +32,29 @@ function processGalleryThumbQueue() {
     if (!img) continue;
     if (!document.contains(img)) continue;
     const src = img.getAttribute("data-src");
-    if (!src || img.src) continue;
+    if (!src || img.getAttribute("src")) continue;
 
     galleryThumbActive++;
     let settled = false;
-    const onDone = () => {
+    const retries = parseInt(img.getAttribute("data-retries") || "0", 10);
+    const onDone = (ev) => {
       if (settled) return;
       settled = true;
       img.removeEventListener("load", onDone);
       img.removeEventListener("error", onDone);
+      if (ev && ev.type === "error" && retries < 2) {
+        img.removeAttribute("src");
+        img.setAttribute("data-src", src);
+        img.setAttribute("data-retries", String(retries + 1));
+        galleryThumbActive = Math.max(0, galleryThumbActive - 1);
+        setTimeout(() => {
+          if (document.contains(img) && img.getAttribute("data-src") && !galleryThumbQueue.includes(img)) {
+            galleryThumbQueue.push(img);
+            processGalleryThumbQueue();
+          }
+        }, 400 * (retries + 1));
+        return;
+      }
       galleryThumbActive = Math.max(0, galleryThumbActive - 1);
       processGalleryThumbQueue();
     };
@@ -142,9 +156,7 @@ async function renderGallery() {
     let scrollToIndex = -1;
     if (explicitPage > 0) {
       targetPage = Math.min(explicitPage, totalPages);
-      if (targetPage > 1) scrollToIndex = (targetPage - 1) * perPage;
-    } else if ((progress.current_page || 0) > 0) {
-      targetPage = Math.min(Math.floor(progress.current_page / perPage) + 1, totalPages);
+    } else if ((progress.current_page || 0) > 0 && progress.current_page < perPage) {
       scrollToIndex = progress.current_page;
     }
     const FROM_LABELS = {

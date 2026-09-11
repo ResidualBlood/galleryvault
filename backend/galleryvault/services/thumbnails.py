@@ -46,7 +46,12 @@ class ThumbnailService:
 
     def cached(self, gallery_id: int, page_index: int) -> Path | None:
         path = self.cache_path(gallery_id, page_index)
-        return path if path.is_file() else None
+        try:
+            if path.is_file() and path.stat().st_size > 0:
+                return path
+        except OSError:
+            return None
+        return None
 
     def remote_cover_dir(self) -> Path:
         d = self.root.parent / "remote-covers"
@@ -77,14 +82,12 @@ class ThumbnailService:
     ) -> Path:
         """Return a cached thumbnail path, generating it from raw page bytes."""
         path = self.cache_path(gallery_id, page_index)
-        if path.is_file():
-            return path
         try:
-            data = self._render(page_bytes)
-        except ThumbnailError:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch()
-            raise
+            if path.is_file() and path.stat().st_size > 0:
+                return path
+        except OSError:
+            pass
+        data = self._render(page_bytes)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         storage_tracker.record_cache_delta(len(data))
@@ -92,11 +95,7 @@ class ThumbnailService:
 
     def missing_pages(self, gallery_id: int, page_count: int) -> list[int]:
         """Page indexes that have no cached thumbnail yet."""
-        root = self.root / str(gallery_id)
-        return [
-            i for i in range(page_count)
-            if not (root / f"{i}.jpg").is_file()
-        ]
+        return [i for i in range(page_count) if self.cached(gallery_id, i) is None]
 
     def has_missing_pages(self, gallery_id: int, page_count: int) -> bool:
         root = self.root / str(gallery_id)

@@ -1148,6 +1148,22 @@ def test_thumbnail_service_renders_static_jpeg(tmp_path: Path) -> None:
     assert path2 == path
 
 
+def test_thumbnail_service_ignores_empty_cache(tmp_path: Path) -> None:
+    from galleryvault.services.thumbnails import ThumbnailService
+
+    service = ThumbnailService(tmp_path / "thumbs")
+    empty = service.cache_path(7, 1)
+    empty.parent.mkdir(parents=True, exist_ok=True)
+    empty.touch()
+    assert empty.stat().st_size == 0
+    assert service.cached(7, 1) is None
+    buf = _make_jpeg_bytes(64, 80)
+    path = service.get_or_create(7, 1, buf)
+    assert path.is_file()
+    assert path.stat().st_size > 0
+    assert service.cached(7, 1) == path
+
+
 def _make_jpeg_bytes(width: int, height: int) -> bytes:
     from io import BytesIO
 

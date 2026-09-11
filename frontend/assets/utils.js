@@ -134,6 +134,18 @@ function startInfinite(containerId, fetchNext, buildItem, initialCursor = null) 
             renderCardCheckboxes();
           }
 
+          await new Promise((resolve) => {
+            if (typeof requestAnimationFrame === "function") {
+              requestAnimationFrame(() => requestAnimationFrame(resolve));
+            } else {
+              setTimeout(resolve, 16);
+            }
+          });
+          if (controller.signal.aborted || !document.contains(sentinel)) {
+            finished = true;
+            break;
+          }
+
           if (isCursorMode) {
             if (!cursor) {
               finished = true;
