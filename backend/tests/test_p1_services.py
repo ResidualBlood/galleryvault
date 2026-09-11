@@ -27,7 +27,11 @@ from galleryvault.services.telegram_bot import TelegramBotService
 
 def test_gallery_url_forms() -> None:
     assert parse_gallery_url("https://exhentai.org/g/123/abcdef/") == (123, "abcdef")
+    assert parse_gallery_url("https://exhentai.org/g/123/abcdef") == (123, "abcdef")
     assert parse_gallery_url("123/abcdef") == (123, "abcdef")
+    assert parse_gallery_url("/123/abcdef/") == (123, "abcdef")
+    assert parse_gallery_url("123/abcdef/") == (123, "abcdef")
+    assert parse_gallery_url("/123/abcdef") == (123, "abcdef")
 
 
 def test_exhentai_tag_link_markup_is_parsed() -> None:

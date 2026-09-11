@@ -40,7 +40,7 @@ EHVIEWER_ACCEPT_LANGUAGE = "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
 # ExHentai API caps batch operations (gdata, favorites modifygids) at 25 items per request.
 EXHENTAI_API_CHUNK_SIZE: int = 25
 
-GALLERY_RE = re.compile(r"/(?:g|gallery)/(?P<gid>\d+)/(?P<token>[A-Za-z0-9]+)/")
+GALLERY_RE = re.compile(r"/(?:g|gallery)/(?P<gid>\d+)/(?P<token>[A-Za-z0-9]+)/?")
 # Legacy 3-segment viewer URL: /s/<gid>/<ptoken>/<page-token>/
 PAGE_RE = re.compile(r"/s/\d+/[A-Za-z0-9]+/(?P<page>[A-Za-z0-9]+)/")
 # Current ExHentai viewer URL: /s/<pToken>/<gid>-<page>  (mirrors Ehviewer_CN_SXJ's
@@ -447,7 +447,7 @@ def parse_gallery_url(value: str, base_url: str = "https://exhentai.org") -> tup
         pass
     match = GALLERY_RE.search(value)
     if not match:
-        compact = re.fullmatch(r"\s*(\d+)\s*/\s*([0-9a-fA-F]+)\s*", value)
+        compact = re.fullmatch(r"\s*/*\s*(\d+)\s*/\s*([0-9a-fA-F]+)\s*/*\s*", value)
         if compact:
             return int(compact.group(1)), compact.group(2)
     if not match:

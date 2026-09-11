@@ -167,6 +167,12 @@ async def test_paste_url_enqueues(monkeypatch) -> None:
         assert queue.items[0].gid == 12345
         assert notifier.calls[-1][2] is True
         assert "12345" in notifier.calls[-1][0]
+
+        await _update(bot, "https://exhentai.org/g/67890/fedcba")
+        assert len(queue.items) == 2
+        assert queue.items[1].gid == 67890
+        assert notifier.calls[-1][2] is True
+        assert "67890" in notifier.calls[-1][0]
     finally:
         app_state.settings = orig
 
