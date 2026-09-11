@@ -16,6 +16,8 @@ from galleryvault.app.dependencies import resolve_display_title
 from galleryvault.app.state import app_state
 from galleryvault.db.models import DownloadTask, Gallery, GalleryTag, Tag
 from galleryvault.logging import log_extra
+from galleryvault.scanners import registry
+from galleryvault.scanners.base import ScannerRegistry
 from galleryvault.services.messages import bot_text, esc, format_bytes
 from galleryvault.services.tag_translation import translated_tag
 from galleryvault.services.tgbot.context import BotContext
@@ -188,18 +190,8 @@ def _format_gallery_info(
     return caption, kb
 
 
-async def _send_gallery_card(
-    ctx: BotContext,
-    gallery: Gallery,
-    tags: list[str] | None = None,
-    extra_buttons: list[dict[str, Any]] | None = None,
-) -> bool:
-    """Send gallery info card, attempting photo first with fallback to text."""
-    caption, kb = _format_gallery_info(gallery, tags=tags, lang=ctx.lang)
-    if extra_buttons:
-        kb = {"inline_keyboard": [*kb.get("inline_keyboard", []), list(extra_buttons)]}
-
-    photo_path: Path | None = None
+async def _get_gallery_cover_bytes(gallery: Gallery) -> bytes | None:
+    """Retrieve gallery cover bytes with 5-stage Web parity fallback."""
     thumb_svc = getattr(app_state, "thumbnail_service", None)
     if thumb_svc is None:
         try:
@@ -212,46 +204,131 @@ async def _send_gallery_card(
         except Exception:  # noqa: BLE001
             thumb_svc = None
 
-    # Check ThumbnailService.cached_remote_cover(gallery.gid)
-    try:
-        remote_cover = None
-        if thumb_svc is not None:
-            try:
-                remote_cover = thumb_svc.cached_remote_cover(gallery.gid)
-            except TypeError:
-                remote_cover = ThumbnailService.cached_remote_cover(gallery.gid)  # type: ignore[call-arg]
-        else:
-            remote_cover = ThumbnailService.cached_remote_cover(gallery.gid)  # type: ignore[call-arg]
-        if remote_cover:
-            p = Path(remote_cover)
-            if p.is_file():
-                photo_path = p
-    except Exception:  # noqa: BLE001
-        photo_path = None
-
-    # If not found, try ThumbnailService.cached(gallery.id, 0)
-    if photo_path is None:
+    # 1) Check ThumbnailService.cached_remote_cover(gallery.gid)
+    if gallery.gid:
         try:
-            local_cover = None
+            cached_remote = None
             if thumb_svc is not None:
                 try:
-                    local_cover = thumb_svc.cached(gallery.id, 0)
+                    cached_remote = thumb_svc.cached_remote_cover(gallery.gid)
                 except TypeError:
-                    local_cover = ThumbnailService.cached(gallery.id, 0)  # type: ignore[call-arg]
+                    cached_remote = ThumbnailService.cached_remote_cover(gallery.gid)  # type: ignore[call-arg]
             else:
-                local_cover = ThumbnailService.cached(gallery.id, 0)  # type: ignore[call-arg]
-            if local_cover:
-                p = Path(local_cover)
-                if p.is_file():
-                    photo_path = p
-        except Exception:  # noqa: BLE001
-            photo_path = None
+                cached_remote = ThumbnailService.cached_remote_cover(gallery.gid)  # type: ignore[call-arg]
+            if cached_remote:
+                p = Path(cached_remote)
+                if p.is_file() and p.stat().st_size > 0:
+                    return p.read_bytes()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed reading cached remote cover: %s", exc)
 
+    # 2) If no cache and gid + token exist, try await ThumbnailService.get_remote_cover(gallery.gid, gallery.token)
+    if gallery.gid and gallery.token:
+        try:
+            remote_cover = None
+            if thumb_svc is not None:
+                try:
+                    remote_cover = await thumb_svc.get_remote_cover(gallery.gid, gallery.token)
+                except TypeError:
+                    remote_cover = await ThumbnailService.get_remote_cover(gallery.gid, gallery.token)  # type: ignore[call-arg]
+            else:
+                remote_cover = await ThumbnailService.get_remote_cover(gallery.gid, gallery.token)  # type: ignore[call-arg]
+            if remote_cover:
+                p = Path(remote_cover)
+                if p.is_file() and p.stat().st_size > 0:
+                    return p.read_bytes()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed getting remote cover: %s", exc)
+
+    # 3) Fallback to local cached thumbnail ThumbnailService.cached(gallery.id, 0)
+    try:
+        local_cover = None
+        if thumb_svc is not None:
+            try:
+                local_cover = thumb_svc.cached(gallery.id, 0)
+            except TypeError:
+                local_cover = ThumbnailService.cached(gallery.id, 0)  # type: ignore[call-arg]
+        else:
+            local_cover = ThumbnailService.cached(gallery.id, 0)  # type: ignore[call-arg]
+        if local_cover:
+            p = Path(local_cover)
+            if p.is_file() and p.stat().st_size > 0:
+                return p.read_bytes()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed reading local cached thumbnail: %s", exc)
+
+    # 4) If still none and gallery.storage_path exists and is valid
+    if gallery.storage_path:
+        try:
+            storage_path = Path(gallery.storage_path)
+            if storage_path.exists():
+                scanner = None
+                try:
+                    scanner = ScannerRegistry.for_path(gallery.storage_path)  # type: ignore[call-arg]
+                except (TypeError, AttributeError):
+                    scanner = registry.for_path(storage_path)
+                if scanner is None:
+                    scanner = registry.for_path(storage_path)
+
+                if scanner is not None:
+                    data: bytes | None = None
+                    try:
+                        stream = scanner.open_page(gallery.storage_path, 0)
+                        if hasattr(stream, "read"):
+                            data = stream.read()
+                            if hasattr(stream, "close"):
+                                stream.close()
+                        elif isinstance(stream, bytes):
+                            data = stream
+                    except Exception:  # noqa: BLE001
+                        try:
+                            meta = scanner.scan(storage_path)
+                            if meta and meta.pages:
+                                s = scanner.open_page(meta, meta.pages[0])
+                                try:
+                                    data = s.read()
+                                finally:
+                                    s.close()
+                        except Exception:  # noqa: BLE001
+                            data = None
+
+                    if data:
+                        created_path = None
+                        if thumb_svc is not None:
+                            try:
+                                created_path = thumb_svc.get_or_create(gallery.id, 0, data)
+                            except TypeError:
+                                created_path = ThumbnailService.get_or_create(gallery.id, 0, data)  # type: ignore[call-arg]
+                        else:
+                            created_path = ThumbnailService.get_or_create(gallery.id, 0, data)  # type: ignore[call-arg]
+                        if created_path:
+                            p = Path(created_path)
+                            if p.is_file() and p.stat().st_size > 0:
+                                return p.read_bytes()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed generating thumbnail from storage_path: %s", exc)
+
+    # 5) If all failed, return None
+    return None
+
+
+async def _send_gallery_card(
+    ctx: BotContext,
+    gallery: Gallery,
+    tags: list[str] | None = None,
+    extra_buttons: list[dict[str, Any]] | None = None,
+) -> bool:
+    """Send gallery info card, attempting photo first with fallback to text."""
+    caption, kb = _format_gallery_info(gallery, tags=tags, lang=ctx.lang)
+    if extra_buttons:
+        kb = {"inline_keyboard": [*kb.get("inline_keyboard", []), list(extra_buttons)]}
+
+    photo_bytes = await _get_gallery_cover_bytes(gallery)
     cover_sent = False
-    if photo_path is not None:
+    if photo_bytes:
         try:
             cover_sent = await ctx.reply_photo(
-                photo_path,
+                photo_bytes,
                 caption=_fit_html_caption(caption),
                 reply_markup=kb,
             )

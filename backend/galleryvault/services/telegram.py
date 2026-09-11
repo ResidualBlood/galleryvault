@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -305,7 +306,7 @@ class TelegramNotifier:
 
     async def send_photo(
         self,
-        photo: str | bytes,
+        photo: str | bytes | Path,
         caption: str | None = None,
         chat_id: str | int | None = None,
         force: bool = False,
@@ -322,6 +323,10 @@ class TelegramNotifier:
         call_timeout = httpx.Timeout(connect=3.0, read=15.0, write=15.0, pool=3.0)
         client, shared = self._get_client(call_timeout)
         try:
+            filename = "photo.jpg"
+            if isinstance(photo, Path):
+                filename = photo.name or "photo.jpg"
+                photo = photo.read_bytes()
             sent = False
             for target in targets:
                 if isinstance(photo, bytes):
@@ -333,7 +338,7 @@ class TelegramNotifier:
                         data["parse_mode"] = "HTML"
                     if reply_markup is not None:
                         data["reply_markup"] = json.dumps(reply_markup)
-                    files = {"photo": ("photo.jpg", photo, "image/jpeg")}
+                    files = {"photo": (filename, photo, "image/jpeg")}
                     response = await client.post(
                         f"https://api.telegram.org/bot{token}/sendPhoto",
                         data=data,
