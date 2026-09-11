@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-09-11
+
 ### Added
 
 - Telegram Bot 重构为模块化指令路由：全量运维/图库命令、InlineKeyboard 队列操作、启动时自动注册客户端指令菜单。
@@ -1407,7 +1409,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.10.0...v1.10.1
