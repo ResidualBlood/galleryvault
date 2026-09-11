@@ -48,14 +48,20 @@ async function renderHistory() {
 }
 
 async function clearHistory() {
-  try { await api("DELETE", "/api/history"); renderHistory(); }
-  catch (e) { toast(e.message); }
+  if (!window.confirm(t("confirmClearHistory"))) return;
+  try {
+    await api("DELETE", "/api/history?confirm=true");
+    toast(t("historyCleared"));
+    renderHistory();
+  } catch (e) {
+    toast(e.message);
+  }
 }
 
 async function clearProgress() {
   if (!window.confirm(t("confirmClearProgress"))) return;
   try {
-    await api("DELETE", "/api/galleries/progress");
+    await api("DELETE", "/api/galleries/progress?confirm=true");
     toast(t("progressCleared"));
     renderHistory();
   } catch (e) {
