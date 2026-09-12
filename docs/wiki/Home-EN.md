@@ -2,7 +2,9 @@
 
 > [中文](Home) · **English**
 
-Welcome to the official **GalleryVault** documentation. GalleryVault is a **private, self-hosted local gallery asset management system and cloud synchronization hub** designed to keep your media files, index databases, and collection relationships entirely on your own hardware or private NAS.
+Welcome to the official **GalleryVault** documentation. It is a self-hosted gallery library for **Ehviewer export folders**: files, the index, and favorite mappings stay on your machine or NAS. Without cookies it is a local library; cookies unlock E-Hentai / ExHentai sync.
+
+Komga / LANraragi usually want archives first; in-browser EH fronts do not manage a local library. GalleryVault scans `<gid>-title/` trees and SpiderInfo as-is. Comparison: [Features](Features-EN#how-it-differs).
 
 ---
 
@@ -75,7 +77,7 @@ docker compose up -d
 ```
 
 - Web Access: `http://<host-ip>:8000`
-- Default Password: `p1a2s3s4` (please update in Settings immediately after login)
+- Default Password: `p1a2s3s4` (login opens `#/welcome`; you must change it)
 - Persistent Data: Stored locally in `./library`, `./downloads`, `./db-data`, and `./cache`.
 
 ---

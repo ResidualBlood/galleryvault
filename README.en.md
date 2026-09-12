@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>Self-hosted gallery library</strong><br>
-  Index Ehviewer export folders and CBZ · optional E-Hentai / ExHentai favorites sync · local reader
+  <strong>Self-hosted gallery library · built for Ehviewer export trees</strong><br>
+  Index <code>&lt;gid&gt;-title/</code> folders and CBZ as-is · optional E-Hentai / ExHentai favorites sync · files stay on your machine
 </p>
 
 <p align="center">
@@ -21,26 +21,29 @@
   <a href="README.md">中文</a> · <strong>English</strong> · <a href="https://github.com/ResidualBlood/galleryvault/wiki/Home-EN">Wiki</a>
 </p>
 
----
+Komga and LANraragi want archives first; in-browser EH fronts do not manage a local library. GalleryVault mounts Ehviewer export folders and reads SpiderInfo. **No cookies → local library.** Cookies unlock Discover, ten favorite folders, and downloads.
 
-Files, the index, and favorite mappings stay on your machine or NAS. Without cookies it is a local library. Cookies are required for Discover, favorites sync, and downloads.
+## Highlights
 
-| Page | Route | What it does |
-| :--- | :--- | :--- |
-| Browse / Library / Tags | `#/browse` `#/library` `#/tags` | Scan, filter, search, infinite scroll |
-| Series | `#/series` | Cluster doujin/manga by title; edit membership |
-| Discover | `#/discover` | Popular / Watched / Toplist (needs cookies) |
-| Favorites / Updates | `#/favorites` `#/updates` | Watch 10 folders, incremental download, GID replacements |
-| Downloads | `#/downloads` | Page-by-page or official Archive zip; exponential backoff |
-| Manage | `#/recycle` | Recycle bin, same-GID copies, favorite dupes, cross-GID (duplicates series `#/duplicates`), missing page integrity (`#/integrity`), cold archive (`#/archive`) |
-| Reader | `#/reader/...` | RTL / dual-page / webtoon; GIF/WebP slideshow follows frame duration |
-| Settings / Logs | `#/settings` `#/logs` | Paths, concurrency, encrypted sessions, background tasks |
+- **Ingest without renaming** — native `<gid>-title/` trees, `.ehviewer` (SpiderInfo V1/V2), JHenTai `metadata`, CBZ/CBR, 7z (images only), PDF. Downloads land in `downloads/`, never in library.
+- **Favorites as a private cloud** — watch ten folders (incremental download or watch-only); Discover Popular / Watched / Toplist; GID replacements in one click.
+- **Library hygiene** — same-GID copies, favorite dupes, cross-GID clusters (alt translations / quality), series grouping, missing-page integrity, multi-disk cold CBZ.
+- **Reader for doujin / manga** — RTL / dual-page / webtoon; slideshow follows GIF/WebP frame duration. OPDS for Tachiyomi / Mihon; optional Telegram bot (paste a URL to enqueue).
+- **Secrets at rest** — with `ENCRYPTION_KEY`, cookies / bot token / password hashes use AES-256-GCM. Changing the password revokes every session.
 
-Also: local lists and star ratings, OPDS (Tachiyomi / Mihon, …), optional AES-256-GCM for cookies and secrets at rest, optional Telegram bot (paste URLs to enqueue, InlineKeyboard queue, scan / quota / local search).
+| | GalleryVault | LANraragi | e-hentai-view | Komga |
+| :--- | :--- | :--- | :--- | :--- |
+| Role | Ehviewer library + optional EH sync | CBZ archive manager | Online browse front | Generic comics server |
+| Ingest | Scan export folders as-is | Pack into archives first | No local library | Canonical folders / archives |
+| EH depth | Favorite watch, dual download, GID replace | Tag scraping | Live mirror | Plugins |
 
-Screenshots: [Wiki · Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots-EN).
+<p align="center">
+  <img src="docs/screenshots/library_en.png" alt="Library" width="270">
+  <img src="docs/screenshots/reader_en.png" alt="Reader" width="270">
+  <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorite duplicates" width="270">
+</p>
 
----
+More shots: [Wiki · Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots-EN). Routes: [Usage](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN).
 
 ## Quick start
 
@@ -52,19 +55,19 @@ docker compose up -d
 
 1. Open `http://<host-ip>:8000` (API binds `127.0.0.1:8001` only, proxied by the frontend).
 2. Default password **`p1a2s3s4`**. First login goes to `#/welcome`; you must change it.
-3. Put existing galleries in `./library`, then **Scan library** on the Library page. Downloads land in `./downloads`, never in library.
+3. Put existing galleries in `./library`, then **Scan library**. Downloads land in `./downloads`, never in library.
 
 ### Volumes
 
 | Host path | Container | Purpose |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18 (UID 999 — do not chown to yourself. **Do NOT use the old path `/var/lib/postgresql/data`, and do NOT set the `PGDATA` environment variable**) |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18 (UID 999 — do not chown to yourself. **Do not use `/var/lib/postgresql/data`, do not set `PGDATA`**) |
 | `./library` | `/library` | Existing library; downloads never write here. Read-only mounts fail deletes and log it |
 | `./downloads` | `/downloads` | New downloads, ingested immediately |
 | `./cache` | `/gv-cache` | Thumbnail / cover cache |
-| `./archive` | `/archive` | **Optional**; commented out in compose. Set `archive_roots` in Settings after mounting |
+| `./archive` | `/archive` | **Optional**; commented out in compose. Set `archive_roots` in Settings (one container path per line) |
 
-To enable cold archive, add e.g. `- ./archive:/archive`, save Settings, then use **Manage → Cold archive** (`#/archive`). When configuring `archive_roots` in Settings, note that it is a multi-line input box; enter one independent directory per line (avoiding `\n` backslash escapes). The backend will automatically balance the load across volumes. CBZ names are always `gid-english-title.cbz`, independent of the UI title language.
+Cold archive: uncomment `- ./archive:/archive`, save `archive_roots` in Settings, then **Manage → Cold archive** (`#/archive`). CBZ names are always `gid-english-title.cbz`. Multi-disk balancing and source purge: [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN).
 
 ### Environment
 
@@ -75,32 +78,24 @@ Set these on the backend service in `docker-compose.yml`:
 - `PUID` / `PGID`: avoid root-owned files on NAS.
 - `TRUSTED_PROXIES`: proxy CIDRs, e.g. `127.0.0.1,192.168.1.0/24`.
 - `POSTGRES_PASSWORD`: DB password, default `galleryvault`.
-- `database_pool_size`: Database persistent connection pool size, default `30`.
-- `database_pool_timeout`: Database connection timeout, default `30` seconds. Tune these if you encounter errors during high concurrency.
 
-Library / download / archive paths are configured in the Web UI, not via env vars.
-
----
+Library / download / archive paths and concurrency live in the Web UI. Connection-pool tuning: [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN).
 
 ## Docs
 
 - [Usage](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN) — wizard, cookies, nav
+- [Features](https://github.com/ResidualBlood/galleryvault/wiki/Features-EN) — capability matrix
 - [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN) — mounts, Nginx/Caddy, tiered storage
-- [Manage](https://github.com/ResidualBlood/galleryvault/wiki/Manage-EN) — dedupe, integrity, cold archive, logs
-- [Settings](https://github.com/ResidualBlood/galleryvault/wiki/Settings-EN) — concurrency, archive, OPDS
+- [Manage](https://github.com/ResidualBlood/galleryvault/wiki/Manage-EN) — dedupe, integrity, cold archive
 - [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ-EN)
 
-Client compatibility (Ehviewer family, JHenTai, OPDS readers): [Compatibility](https://github.com/ResidualBlood/galleryvault/wiki/Compatibility-EN).
-
----
+Ehviewer family, JHenTai, OPDS: [Compatibility](https://github.com/ResidualBlood/galleryvault/wiki/Compatibility-EN).
 
 ## Acknowledgements
 
 - Ehviewer_CN_SXJ — directory and SpiderInfo conventions
 - EhTagTranslation — tag database
 - ehsyringe — translation packaging
-
----
 
 ## Disclaimer
 

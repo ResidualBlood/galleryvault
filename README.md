@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>自托管画廊库</strong><br>
-  扫描 Ehviewer 导出目录与 CBZ · 可选同步 E-Hentai / ExHentai 收藏 · 本机阅读
+  <strong>自托管画廊库 · 为 Ehviewer 导出目录而生</strong><br>
+  直接扫 <code>&lt;gid&gt;-标题/</code> 与 CBZ · 可选同步 E-Hentai / ExHentai 收藏 · 文件只留在你自己的机器上
 </p>
 
 <p align="center">
@@ -21,26 +21,29 @@
   <strong>中文</strong> · <a href="README.en.md">English</a> · <a href="https://github.com/ResidualBlood/galleryvault/wiki">Wiki</a>
 </p>
 
----
+Komga / LANraragi 要你先打成压缩包；在线前端不帮你管本地资产。GalleryVault 挂上 Ehviewer 导出目录就能索引 SpiderInfo，**不配 Cookie 也能当本地库**；配了 Cookie 才逛发现页、同步十个收藏夹、下载。
 
-文件、索引和收藏关系都在你自己的机器或 NAS 上。不配 Cookie 也能当本地库用；配了 Cookie 才能逛发现页、同步收藏夹、下载。
+## 特色
 
-| 页面 | 路由 | 做什么 |
-| :--- | :--- | :--- |
-| 浏览 / 画廊库 / 标签 | `#/browse` `#/library` `#/tags` | 扫库、筛选、搜索、无限滚动 |
-| 系列 | `#/series` | 按标题聚类同人/漫画，可手工改组成员 |
-| 发现 | `#/discover` | 在线逛 Popular / Watched / Toplist（要 Cookie） |
-| 收藏 / 更新 | `#/favorites` `#/updates` | 十个收藏夹监控、增量下载、重传换 GID |
-| 下载 | `#/downloads` | 逐页或官方 Archive zip；失败指数退避 |
-| 管理 | `#/recycle` | 回收站、同 GID 副本、收藏夹重复、跨 GID（查重系列 `#/duplicates`）、缺页体检（`#/integrity`）、冷归档（`#/archive`） |
-| 阅读器 | `#/reader/...` | RTL / 双页 / 条漫；GIF/WebP 幻灯片跟帧时长 |
-| 设置 / 日志 | `#/settings` `#/logs` | 路径、并发、加密会话、后台任务 |
+- **零改名入库** — 原生 `<gid>-标题/`、`.ehviewer`（SpiderInfo V1/V2）、JHenTai `metadata`、CBZ/CBR、7z（只抽图片）、PDF。下载写 `downloads/`，不污染 library。
+- **收藏当私有云** — 十个收藏夹可增量下载或只监控；发现页 Popular / Watched / Toplist；重传换 GID 一键更新旧本。
+- **库会自己收拾** — 同 GID 多副本、收藏夹重复、跨 GID（不同汉化/画质）聚类、系列成组、缺页坏图体检、多盘冷归档 CBZ。
+- **阅读器按同人/漫画来** — RTL / 双页 / 条漫；幻灯片跟 GIF/WebP 帧时长。OPDS 给 Tachiyomi / Mihon；可选 Telegram Bot 粘贴 URL 入队。
+- **凭证可加密落库** — `ENCRYPTION_KEY` 后 Cookie / bot token / 密码哈希走 AES-256-GCM。改密立刻吊销全部会话。
 
-也支持：本地列表与星级、OPDS（Tachiyomi / Mihon 等）、可选 AES-256-GCM 把 Cookie 等字段加密落库、可选 Telegram Bot（粘贴 URL 入队、队列 InlineKeyboard、扫库/配额/本地检索）。
+| | GalleryVault | LANraragi | e-hentai-view | Komga |
+| :--- | :--- | :--- | :--- | :--- |
+| 定位 | Ehviewer 资产库 + 可选 EH 同步 | CBZ 仓库 | 在线浏览前端 | 通用漫画服务器 |
+| 入库 | 直接扫导出目录 | 先打成压缩包 | 不落本地库 | 规范文件夹 / 压缩包 |
+| EH 深度 | 收藏监控、双通道下载、换 GID | 刮削标签 | 在线镜像 | 基本靠插件 |
 
-截图见 [Wiki · 界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots)。
+<p align="center">
+  <img src="docs/screenshots/library_zh.png" alt="画廊库" width="270">
+  <img src="docs/screenshots/reader_zh.png" alt="阅读器" width="270">
+  <img src="docs/screenshots/fav_dedupe_zh.png" alt="收藏夹查重" width="270">
+</p>
 
----
+更多截图：[Wiki · 界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots)。页面路由见 [入门](https://github.com/ResidualBlood/galleryvault/wiki/Usage)。
 
 ## 快速开始
 
@@ -51,20 +54,20 @@ docker compose up -d
 ```
 
 1. 打开 `http://<主机IP>:8000`（API 只绑 `127.0.0.1:8001`，经前端反代）。
-2. 默认密码 **`p1a2s3s4`**。首次登录会进 `#/welcome`，必须改密。
-3. 把已有画廊放到 `./library`，在画廊库点 **扫描库**。下载会写入 `./downloads`，不会写进 library。
+2. 默认密码 **`p1a2s3s4`**。登录会进 `#/welcome`，必须改密。
+3. 已有画廊放到 `./library`，画廊库点 **扫描库**。新下载进 `./downloads`，不会写进 library。
 
 ### 目录
 
 | 本地路径 | 容器内 | 说明 |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18（容器 UID 999，不要 chown 成自己。**切勿配置旧路径 `/var/lib/postgresql/data`，切勿设置 PGDATA 环境变量**） |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18（UID 999，不要 chown 成自己。**不要用旧路径 `/var/lib/postgresql/data`，不要设 `PGDATA`**） |
 | `./library` | `/library` | 已有库；下载不写这里。只读挂载时删文件会失败并记日志 |
 | `./downloads` | `/downloads` | 新下载落盘并即时入库 |
 | `./cache` | `/gv-cache` | 缩略图 / 封面缓存 |
-| `./archive` | `/archive` | **可选**，compose 里默认注释。启用后在设置填 `archive_roots` |
+| `./archive` | `/archive` | **可选**，compose 默认注释。启用后在设置填 `archive_roots`（每行一个容器路径） |
 
-冷归档要自己加卷，例如 `- ./archive:/archive`，保存设置后再在 **管理 → 冷库归档**（`#/archive`）打包 CBZ。在设置中配置 `archive_roots` 时需注意，它是一个多行输入框，每行填写一个独立目录（消除反斜杠 `\n`），后台会自动进行跨卷负载均衡。文件名固定 `gid-英文标题.cbz`，不跟界面标题语言走。
+冷归档：取消注释 `- ./archive:/archive`，设置里保存 `archive_roots`，再到 **管理 → 冷库归档**（`#/archive`）打包。CBZ 名固定 `gid-英文标题.cbz`。多盘负载与清理源目录见 [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
 
 ### 环境变量
 
@@ -75,32 +78,24 @@ docker compose up -d
 - `PUID` / `PGID`：NAS 上避免下载文件属主变成 root。
 - `TRUSTED_PROXIES`：反代网段，例如 `127.0.0.1,192.168.1.0/24`。
 - `POSTGRES_PASSWORD`：数据库密码，默认 `galleryvault`。
-- `database_pool_size`：数据库常驻连接池大小，默认 `30`。
-- `database_pool_timeout`：数据库连接超时时间，默认 `30` 秒。如有大量并发查重等导致报错，可适当调优。
 
-路径类配置（库根、下载根、归档根）只在 Web 设置里改，不要用环境变量覆盖。
-
----
+路径（库根、下载根、归档根）和并发只在 Web 设置里改。连接池等调优见 [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment)。
 
 ## 文档
 
-- [入门](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — 向导、Cookie、顶栏入口
+- [入门](https://github.com/ResidualBlood/galleryvault/wiki/Usage) — 向导、Cookie、顶栏
+- [功能](https://github.com/ResidualBlood/galleryvault/wiki/Features) — 能力矩阵
 - [部署](https://github.com/ResidualBlood/galleryvault/wiki/Deployment) — 挂载、Nginx/Caddy、冷热存储
-- [库维护](https://github.com/ResidualBlood/galleryvault/wiki/Manage) — 查重、缺页、冷归档、日志
-- [设置](https://github.com/ResidualBlood/galleryvault/wiki/Settings) — 并发、归档、OPDS
+- [库维护](https://github.com/ResidualBlood/galleryvault/wiki/Manage) — 查重、缺页、冷归档
 - [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ)
 
-兼容客户端（Ehviewer 家族、JHenTai、OPDS 阅读器）见 [Compatibility](https://github.com/ResidualBlood/galleryvault/wiki/Compatibility)。
-
----
+Ehviewer 家族、JHenTai、OPDS：[Compatibility](https://github.com/ResidualBlood/galleryvault/wiki/Compatibility)。
 
 ## 致谢
 
 - Ehviewer_CN_SXJ — 目录与 SpiderInfo 约定
 - EhTagTranslation — 标签词库
 - ehsyringe — 翻译数据整理
-
----
 
 ## 免责声明
 

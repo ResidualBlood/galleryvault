@@ -60,7 +60,7 @@ docker compose up -d
 
 Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd64` and `linux/arm64`), which automatically pull the architecture matching your host.
 
-> Initial web login is accessible at `http://<host-ip>:8000` using the default password **`p1a2s3s4`**. Change this password immediately in *Settings*.
+> Open `http://<host-ip>:8000` with the default password **`p1a2s3s4`**. Login goes to the `#/welcome` wizard; you must change the password before the main UI.
 
 ---
 

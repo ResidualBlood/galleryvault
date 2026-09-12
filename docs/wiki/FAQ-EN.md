@@ -27,7 +27,7 @@ Adjust the external port mapping for `galleryvault-frontend` in `docker-compose.
 The official PostgreSQL image relies strictly on container UID 999 (`postgres`). **Never run a blanket `chown` on `./db-data`** for normal host users. If accidentally modified, restore ownership on the host: `chown -R 999:999 ./db-data`.
 
 ### 4. Does scanning a 7z archive extract all files to disk?
-**No.** The scanner extracts and validates image byte streams in memory, without creating temporary residual files on host storage.
+**It does not unpack the whole archive into the library.** Scans read image members only. Opening a page extracts that one file into a temp directory and deletes it afterwards. Non-image files stay packed.
 
 ### 5. PostgreSQL 18 container fails to start after an upgrade?
 Official `postgres:18-alpine` stores data under a versioned subdirectory of `/var/lib/postgresql`. The shipped `docker-compose.yml` bind-mounts host `./db-data` to `/var/lib/postgresql`. **Do not set `PGDATA`**, and do not keep the old mount `/var/lib/postgresql/data` (a non-empty data directory check will exit the container). Fresh installs just need `docker compose up -d`. See **[Deployment → Storage topology](Deployment-EN#storage-topology--volume-mounts)**.
@@ -104,12 +104,12 @@ Different translation groups or quality variants of the same artwork often carry
 
 ### 7. How does multi-root cold storage (`archive_roots`) balance capacity across multiple disks?
 - **Configuration**: In **Settings → Library → Cold archive roots**, enter multiple mount paths (one path per line, e.g., `/archive1` and `/archive2`).
-- **Dynamic Load Balancing**: When cold archiving is triggered, the archive service (`ArchiverService`) monitors available disk space in real time across all configured paths via `statvfs`. New CBZ archives are automatically directed to the drive with the largest available free space, achieving fully automated multi-disk load balancing.
+- **Dynamic Load Balancing**: When cold archiving is triggered, the backend checks free space on every configured root via `statvfs` and writes the new CBZ to the volume with the most free space (and enough headroom).
 
 ### 8. How do I detect missing pages or corrupted image archives in the library?
-- **Integrity Check**: Trigger a health scan via the Web UI or by calling `POST /api/galleries/integrity/check`.
-- **In-Memory Validation**: The background task scans galleries and verifies image stream headers and decodability in memory without extracting full archives to disk.
-- **Review Results**: Query `GET /api/galleries/integrity/results` to view identified corrupted or incomplete galleries, allowing you to selectively re-download missing pages or purge damaged files.
+- Open **Manage → Integrity** (`#/integrity`) and click **Scan missing pages & corrupt images**.
+- The scan checks image magic headers (JPEG / PNG / GIF / WebP) and 4/8-digit zero-padded names; it does not unpack whole archives into the library.
+- Review the red list, then **Repair** or **Select all and repair**. Only missing or corrupt pages are re-downloaded, keeping the original quality tier.
 
 ---
 

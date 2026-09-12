@@ -23,8 +23,21 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 └──────────────┬──────────────────────────────────────────────┘
                │
                ▼
-         PostgreSQL (optional field encryption)
+          PostgreSQL (optional field encryption)
 ```
+
+---
+
+## How it differs
+
+| | GalleryVault | LANraragi | e-hentai-view | Komga |
+| :--- | :--- | :--- | :--- | :--- |
+| Role | Ehviewer library + optional EH sync | CBZ archive manager | Online browse front | Generic comics server |
+| Ingest | Scan `<gid>-title/` + SpiderInfo | Pack into archives first | No local library | Canonical folders / archives |
+| EH | Favorite watch, page/Archive download, GID replace | Tag scraping | Live mirror | Plugins |
+| Hygiene | Same-GID / favorite dupes / cross-GID / series / integrity / cold archive | Archive-centric | No local library ops | Generic comics library |
+
+Built for Ehviewer / ExHentai workflows, not a general e-book server.
 
 ---
 
@@ -33,7 +46,7 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 ### 1. Local Asset Archiving & High-Fidelity Parsing
 - **Zero-Friction Ehviewer Ingestion**: Directly scans standard `<gid>-<title>/` directory trees, parsing `.ehviewer` metadata files (SpiderInfo V1 & V2) to restore gid, token, category, and page indexes without file moves or extraction.
 - **Multi-Format Ingestion**: Full compatibility with CBZ and CBR archives (with embedded `ComicInfo.xml`), JHenTai `metadata` JSON files, and standardized `.galleryvault.json` sidecar files in tiered cold storage.
-- **Clean Image Streaming**: Gracefully inspects `.7z` archives to extract image streams on demand without littering temporary files on the host disk; provides browsing, rating, and listing support for gid-less local galleries.
+- **7z / PDF and gid-less folders**: `.7z` scans image members only (non-images stay packed); `.pdf` extracts embedded images. Gid-less image folders still browse and rate.
 - **Tiered Cold/Hot Storage**: Decouples the active download workspace (hot tier) from read-only archival pools (cold storage), allowing seamless archive migrations on demand.
 - **Custom Local Taxonomy**: Organizes media collections using local star ratings, custom reading lists, and private notes completely independent of external providers.
 

@@ -2,7 +2,9 @@
 
 > **中文** · [English](Home-EN)
 
-欢迎查阅 **GalleryVault** 官方文档。GalleryVault 是专为个人数字收藏打造的**私有、自托管本地画廊资产库与云端同步中心**，让所有媒体文件、索引数据与收藏关系完全留存在您掌控的本地设备或 NAS 之中。
+欢迎查阅 **GalleryVault** 官方文档。这是给 **Ehviewer 导出目录** 用的自托管画廊库：文件、索引和收藏关系都在你自己的机器或 NAS 上。不配 Cookie 也能当本地库；配了才能同步 E-Hentai / ExHentai。
+
+Komga / LANraragi 通常要先打成压缩包；在线前端不帮你管本地资产。GalleryVault 直接扫 `<gid>-标题/` 和 SpiderInfo。和其它工具的对照见 [功能特性](Features#和其他工具差在哪)。
 
 ---
 
@@ -75,7 +77,7 @@ docker compose up -d
 ```
 
 - 默认访问入口：`http://<主机IP>:8000`
-- 默认管理员密码：`p1a2s3s4`（首次登录后请立即进入「设置」修改）
+- 默认管理员密码：`p1a2s3s4`（登录后进入 `#/welcome`，必须改密）
 - 数据落盘：默认存储在当前目录的 `./library`、`./downloads`、`./db-data` 与 `./cache`。
 
 ---

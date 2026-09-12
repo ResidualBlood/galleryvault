@@ -27,7 +27,7 @@
 PostgreSQL 官方容器固定运行在容器内 `postgres` 用户（UID 999）。请确保不要将宿主机的 `./db-data` 目录整体 `chown` 给其他普通用户。若已误改属主，请在宿主机执行 `chown -R 999:999 ./db-data` 恢复。
 
 ### 4. 扫描 7z 压缩包是否会将全部图片解压到磁盘？
-**不会**。扫描器仅在内存流中解压并校验图片文件，绝不会在磁盘上释放冗余临时文件。
+**不会把整包解到库目录。** 扫描默认只读图片成员；阅读单页时用临时目录抽出那一张，用完即删。非图片文件留在压缩包里。
 
 ### 5. 升级到 PostgreSQL 18 后数据库容器起不来？
 官方 `postgres:18-alpine` 把数据放在 `/var/lib/postgresql` 下的版本子目录。仓库 `docker-compose.yml` 已把宿主 `./db-data` 挂到 `/var/lib/postgresql`，**不要再设置 `PGDATA`**，也不要继续挂旧路径 `/var/lib/postgresql/data`（目录非空检查会让容器退出）。新安装直接 `docker compose up -d` 即可。详见 **[部署指南 → 存储拓扑](Deployment#存储拓扑与数据卷挂载)**。
