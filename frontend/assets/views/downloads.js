@@ -43,6 +43,7 @@ async function renderDownloads() {
       </div>
       <button class="secondary" data-action="dl-select-all" type="button">${esc(t("selectAll"))}</button>
       <button class="primary" data-action="dl-retry-selected" type="button">${esc(t("retrySelected"))}</button>
+      <button class="secondary" data-action="dl-retry-all" type="button">${esc(t("retryAll"))}</button>
       <button class="secondary danger" data-action="dl-delete-selected" type="button">${esc(t("deleteSel"))}</button>
       <button class="secondary danger" data-action="dl-clear-success" type="button">${esc(t("clearSuccessDl"))}</button>
     </div>
@@ -289,6 +290,24 @@ async function retrySelectedDownloads() {
   }
   toast(`${ok} queued${fail ? `, ${fail} failed` : ""}`);
   loadDownloads(app.query.filter || "all", app.query.page || "1");
+}
+
+async function retryAllDownloads() {
+  const confirmed = window.ModalComponent?.confirm
+    ? await window.ModalComponent.confirm(t("retryAllConfirm"), t("retryAll"))
+    : window.confirm(t("retryAllConfirm"));
+  if (!confirmed) return;
+  try {
+    const res = await api("POST", "/api/downloads/retry-all");
+    const count = (res && (res.retried != null ? res.retried : (res.count != null ? res.count : (Array.isArray(res) ? res.length : (res.ids ? res.ids.length : 0))))) ?? 0;
+    toast(t("retryAllSuccess").replace("{count}", String(count)));
+    loadDownloads(app.query.filter || "all", app.query.page || "1");
+  } catch (e) {
+    toast(e.message || t("error"));
+  }
+}
+if (typeof window !== "undefined") {
+  window.retryAllDownloads = retryAllDownloads;
 }
 
 async function addDownloadsFromInput(form) {

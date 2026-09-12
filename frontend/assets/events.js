@@ -49,6 +49,7 @@ async function onClick(e) {
   if (action === "delete-download") { deleteDownload(el.getAttribute("data-id")); return; }
   if (action === "dl-select-all") { selectAllDownloads(); return; }
   if (action === "dl-retry-selected") { retrySelectedDownloads(); return; }
+  if (action === "dl-retry-all") { retryAllDownloads(); return; }
   if (action === "dl-delete-selected") { deleteSelectedDownloads(); return; }
   if (action === "dl-clear-success") { clearSuccessDownloads(); return; }
   if (action === "dl-add-archive") { addArchiveFromInput(); return; }

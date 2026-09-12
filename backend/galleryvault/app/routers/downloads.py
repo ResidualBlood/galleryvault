@@ -303,6 +303,29 @@ async def clear_success_downloads(
     return {"deleted": deleted}
 
 
+@router.post("/api/downloads/retry-all")
+async def retry_all_downloads(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        async with safe_transaction(session):
+            retried_ids = await DownloadRepository(session).retry_all()
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+
+    for task_id in retried_ids:
+        clear_download_cancelled(task_id)
+    if retried_ids:
+        notify_new_task()
+
+    return {
+        "retried_count": len(retried_ids),
+        "count": len(retried_ids),
+        "task_ids": retried_ids,
+    }
+
+
 @router.post("/api/downloads/{task_id}/retry")
 async def retry_download(
     task_id: int,

@@ -331,5 +331,58 @@ class DownloadRepository:
         await self.session.flush()
         return True
 
+    async def retry_all(self) -> list[int]:
+        """Reset pending, failed, and cancelled download tasks to healthy pending status.
+
+        De-duplicates by gid to respect the unique active constraint.
+        """
+        now = datetime.now(UTC)
+        downloading_subquery = select(DownloadTask.gid).where(DownloadTask.status == "downloading")
+        stmt = (
+            select(DownloadTask.id, DownloadTask.gid, DownloadTask.status)
+            .where(
+                DownloadTask.status.in_(["pending", "failed", "cancelled"]),
+                DownloadTask.gid.not_in(downloading_subquery),
+            )
+            .order_by(DownloadTask.id.desc())
+        )
+        res = await self.session.execute(stmt)
+        candidates = res.all()
+        if not candidates:
+            return []
+
+        by_gid: dict[int, list[tuple[int, str]]] = {}
+        for tid, gid, status in candidates:
+            by_gid.setdefault(int(gid), []).append((int(tid), str(status)))
+
+        target_ids: list[int] = []
+        for items in by_gid.values():
+            pending_item = next((tid for tid, st in items if st == "pending"), None)
+            if pending_item is not None:
+                target_ids.append(pending_item)
+            else:
+                target_ids.append(items[0][0])
+
+        if not target_ids:
+            return []
+
+        target_ids.sort()
+        update_stmt = (
+            update(DownloadTask)
+            .where(DownloadTask.id.in_(target_ids))
+            .values(
+                status="pending",
+                retry_at=None,
+                retry_count=0,
+                max_retries=10,
+                error_message=None,
+                finished_at=None,
+                updated_at=now,
+            )
+        )
+        await self.session.execute(update_stmt)
+        return target_ids
+
+
 
 
