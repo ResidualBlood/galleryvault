@@ -1,12 +1,12 @@
 "use strict";
 
-const CACHE = "gv-shell-v5";
+const CACHE = "gv-shell-v6";
 const SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest?v=v5",
   "/assets/styles.css?v=v5",
-  "/assets/icon.svg?v=v5",
+  "/assets/icon.svg?v=v6",
   "/assets/i18n.js?v=v5",
   "/assets/locales/zh.js?v=v5",
   "/assets/locales/en.js?v=v5",
