@@ -18,6 +18,7 @@ from ...services.download_prepare import PreparedGallery, prepare_galleries
 from ...services.download_worker import (
     clear_download_cancelled,
     mark_download_cancelled,
+    notify_new_task,
 )
 from ...services.messages import GONE_DETAIL
 from ..dependencies import (
@@ -327,6 +328,7 @@ async def retry_download(
         raise db_error(exc) from exc
 
     clear_download_cancelled(task_id)
+    notify_new_task()
     return {"id": task_id, "status": "pending"}
 
 
