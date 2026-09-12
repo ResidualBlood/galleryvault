@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.12.5] - 2026-09-12
+
+### Changed
+
+- README / Wiki 去掉与其它项目的对照表，只讲自身能力。
+- 文档改为**推荐配置 Cookie**；不配也能先当本地库用。
+
 ## [1.12.4] - 2026-09-12
 
 ### Changed
@@ -1438,7 +1445,8 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.4...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.5...HEAD
+[1.12.5]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.4...v1.12.5
 [1.12.4]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.3...v1.12.4
 [1.12.3]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.2...v1.12.3
 [1.12.2]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.1...v1.12.2
