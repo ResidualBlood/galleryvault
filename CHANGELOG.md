@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.12.4] - 2026-09-12
+
+### Changed
+
+- README 中英改为 Ehviewer 原生定位、对照表与截图；Wiki 纠正欢迎向导、7z 解压、缺页接口与不存在的 `ArchiverService` 名称。
+- Docker Hub Overview 上传前把 README 相对图片改写成 `raw.githubusercontent.com` 绝对地址；`main` 上改 README / 图标 / 截图即可同步描述，不必发版重建镜像。
+
+### Fixed
+
+- 恢复原来的金色相框图标（保险库拨盘稿撤回）。
+
+## [1.12.3] - 2026-09-12
+
+### Added
+
+- 下载页「全部重试」按钮，以及 pending/failed 任务的批量 retry 端点。
+
+## [1.12.2] - 2026-09-11
+
+### Changed
+
+- 缩略图缓存与高并发加载路径整理。
+
+## [1.12.1] - 2026-09-11
+
+### Fixed
+
+- 下载 worker 事件唤醒丢失；Cookie 状态区分 IP banned。
+
 ## [1.12.0] - 2026-09-11
 
 ### Added
@@ -1409,7 +1438,11 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.4...HEAD
+[1.12.4]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.3...v1.12.4
+[1.12.3]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.2...v1.12.3
+[1.12.2]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.1...v1.12.2
+[1.12.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.10.1...v1.11.0
