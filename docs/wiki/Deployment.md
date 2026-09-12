@@ -95,7 +95,7 @@ docker compose up -d
 1. **更新数据卷**：编辑 `docker-compose.yml` 中的 `backend.volumes` 并重启容器：`docker compose up -d backend`。
 2. **多库扫描目录**：打开 Web 界面进入「系统设置 → 资料库 → 库根目录」，在多行文本框中填入只读或既有画廊路径（如 `/mnt/pool2`，每行一个）并保存，点击「扫描库」开始增量索引。
 3. **冷存储多根目录 (`archive_roots`) 与容量负载均衡**：
-   - 在「系统设置 → 资料库 → 冷归档目录」中填写多个冷存储挂载点（例如 `/archive1\n/archive2`）。
+   - 在「系统设置 → 资料库 → 冷归档目录」中填写多个冷存储挂载点（每行一个路径，例如 `/archive1` 与 `/archive2`）。
    - **动态空间均衡**：当触发画廊冷归档任务时，归档服务（`ArchiverService`）自动通过 `statvfs` 实时检测所有配置路径的剩余磁盘可用空间，**智能优先写入空闲空间最大的存储盘**，实现真正的多盘自动化负载均衡。
 4. **英文固定命名规范 (`gid-gallery.title.cbz`)**：
    - 为确保归档 CBZ 文件在跨平台、跨操作系统（Linux、Windows、macOS）及网络文件共享协议（SMB / NFS / WebDAV / rsync）与远程云备份同步时不发生字符集乱码或非法转义，冷归档统一强制采用官方英文/罗马音标题格式；

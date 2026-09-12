@@ -49,7 +49,7 @@ lost, see [Encryption at Rest → Recovering from a lost key](Encryption-EN#reco
 
 GalleryVault supports distributing cold CBZ archives across multiple disks or NAS shares:
 
-- **Configuration**: Specify multiple cold storage mount points under **Settings → Library → Cold archive roots** (e.g. `/archive1\n/archive2`, one path per line).
+- **Configuration**: Specify multiple cold storage mount points under **Settings → Library → Cold archive roots** (one path per line, e.g., `/archive1` and `/archive2`).
 - **Dynamic Space Balancing**: When a cold archive task is triggered, the archive service (`ArchiverService`) checks available storage space across all configured root paths in real time using `statvfs`.
 - **Intelligent Routing**: New CBZ archives are automatically routed to the storage volume with the largest available free space, achieving automated load balancing across heterogeneous drives without manual intervention.
 

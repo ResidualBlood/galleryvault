@@ -103,7 +103,7 @@ Different translation groups or quality variants of the same artwork often carry
 - **Remediation**: The repository provides an offline batch repair tool `backend/galleryvault/scripts/repair_cold_archives.py`. Supporting a `--dry-run` safety flag, it strips redundant leading GIDs from directory and CBZ names, cleans up nested GID patterns, and queries the upstream GData API in batch chunks to re-verify and sanitize metadata (see **[Backup & Restore → Offline Full Repair & Metadata Sanitization Tools](Backup-EN#offline-full-repair--metadata-sanitization-tools)**).
 
 ### 7. How does multi-root cold storage (`archive_roots`) balance capacity across multiple disks?
-- **Configuration**: In **Settings → Library → Cold archive roots**, enter multiple mount paths (e.g., `/archive1\n/archive2`, one path per line).
+- **Configuration**: In **Settings → Library → Cold archive roots**, enter multiple mount paths (one path per line, e.g., `/archive1` and `/archive2`).
 - **Dynamic Load Balancing**: When cold archiving is triggered, the archive service (`ArchiverService`) monitors available disk space in real time across all configured paths via `statvfs`. New CBZ archives are automatically directed to the drive with the largest available free space, achieving fully automated multi-disk load balancing.
 
 ### 8. How do I detect missing pages or corrupted image archives in the library?
