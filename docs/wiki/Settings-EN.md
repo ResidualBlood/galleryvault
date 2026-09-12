@@ -33,7 +33,7 @@ This guide covers GalleryVault's system settings, client and OPDS integration, T
   | Group | Commands |
   | :--- | :--- |
   | System | `/status` runtime + queue overview; `/ping` latency; `/cookie` cookie health; `/quota` image quota and GP; `/storage` disk usage; `/scan` trigger library scan |
-  | Queue | `/queue` + InlineKeyboard; `/pause` `/resume` global pause; `/retry <id\|all>`; `/cancel <id\|gid>` (replies when not found); `/clear` completed history; `/stats` library count + queue snapshot |
+  | Queue | `/queue` + InlineKeyboard; `/pause` `/resume` global pause; `/retry <id/all>`; `/cancel <id/gid>` (replies when not found); `/clear` completed history; `/stats` library count + queue snapshot |
   | Tasks | `/tasks` running jobs; `/kill <name>` interrupt |
   | Library | `/search <query>` paginated local search; `/info <gid>` details + cover (5-step fallback); `/random`; `/redownload <gid>` |
   | Favorites | `/fav_sync` categories; `/fav_download [0-9]` missing items; `/fav_check` full update check |

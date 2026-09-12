@@ -70,7 +70,7 @@ docker compose up -d
 
 | 本地路径 | 容器内挂载点 | 读写属性 | 功能说明 |
 | :--- | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | 读写 (`rw`) | PostgreSQL 18 核心数据（UID 999），保存全量索引与配置 |
+| `./db-data` | `/var/lib/postgresql` | 读写 (`rw`) | PostgreSQL 18 核心数据（UID 999），保存全量索引与配置（勿设旧路径 `/var/lib/postgresql/data`，官方 PG18 挂载 `/var/lib/postgresql` 即可） |
 | `./library` | `/library` | 读写 (`rw`) 或只读 (`ro`) | 主画廊库，存放已有归档，**下载任务绝不写入此目录** |
 | `./downloads` | `/downloads` | 读写 (`rw`) | 下载落盘目录，新下载文件在此生成并触发增量入库 |
 | `./cache` | `/gv-cache` | 读写 (`rw`) | 缩略图与封面缓存，避免高频请求重复拉取图片 |
@@ -237,9 +237,9 @@ vault.example.com {
 
 | 环境变量 / 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `database_pool_size` | `20` | SQLAlchemy 连接池基础常驻连接数。 |
+| `database_pool_size` | `30` | SQLAlchemy 连接池基础常驻连接数。 |
 | `database_max_overflow` | `10` | 突发高并发允许超出的临时连接数。超出部分在连接释放后自动销毁。 |
-| `database_pool_timeout` | `15` | 从连接池获取可用连接的超时等待秒数。 |
+| `database_pool_timeout` | `30` | 从连接池获取可用连接的超时等待秒数。 |
 
 配合系统的依赖注入生命周期管理与 Unit of Work（UoW）/ 事务与网络 I/O 隔离机制，连接仅在执行具体数据库操作时借出并立即归还，有效防止大规模批量任务和高并发网络 I/O 挂起并耗尽连接池。
 

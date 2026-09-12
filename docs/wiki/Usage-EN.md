@@ -109,7 +109,7 @@ If you have bookmarked specific section anchors from earlier versions of `Usage-
 | `#first-run-wizard-welcome` | [Usage Guide (Usage)](Usage-EN) | [First-Run Wizard (#/welcome)](Usage-EN#first-run-wizard-welcome) |
 | `#library-library` | [Browsing & Library (Library)](Library-EN) | [Library (#/library)](Library-EN#library-library) |
 | `#local-lists-library` | [Browsing & Library (Library)](Library-EN) | [Local Lists (#/library)](Library-EN#local-lists-library) |
-| `#duplicate-copies-duplicates` | [Library Maintenance (Manage)](Manage-EN) | [Duplicate Copies (#/duplicates)](Manage-EN#duplicate-copies-duplicates) |
+| `#duplicate-copies-duplicates` | [Library Maintenance (Manage)](Manage-EN) | [Duplicate Copies (#/duplicates)](Manage-EN#duplicate-copies--deduplication-duplicates) |
 | `#recycle-bin-recycle` | [Library Maintenance (Manage)](Manage-EN) | [Recycle Bin (#/recycle)](Manage-EN#recycle-bin-recycle) |
 | `#missing-pages-integrity` | [Library Maintenance (Manage)](Manage-EN) | [Missing Pages (#/integrity)](Manage-EN#missing-pages-integrity) |
 | `#gallery-detail-galleryid` | [Gallery Details & Reader (Reading)](Reading-EN) | [Gallery Detail (#/gallery/<id>)](Reading-EN#gallery-detail-galleryid) |

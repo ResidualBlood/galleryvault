@@ -43,6 +43,24 @@ lost, see [Encryption at Rest → Recovering from a lost key](Encryption-EN#reco
 
 ---
 
+## Cold Storage Multi-Root Directories & Naming Conventions (`archive_roots`)
+
+### 1. Multi-Root Storage & Dynamic Capacity Balancing (`statvfs`)
+
+GalleryVault supports distributing cold CBZ archives across multiple disks or NAS shares:
+
+- **Configuration**: Specify multiple cold storage mount points under **Settings → Library → Cold archive roots** (e.g. `/archive1\n/archive2`, one path per line).
+- **Dynamic Space Balancing**: When a cold archive task is triggered, the archive service (`ArchiverService`) checks available storage space across all configured root paths in real time using `statvfs`.
+- **Intelligent Routing**: New CBZ archives are automatically routed to the storage volume with the largest available free space, achieving automated load balancing across heterogeneous drives without manual intervention.
+
+### 2. Canonical English Naming & 243-Byte Boundary (`gid-gallery.title.cbz`)
+
+- **Cross-Platform Compatibility**: Cold archives strictly adhere to official English/Romanized titles (`gid-gallery.title.cbz`) to avoid character set corruption, illegal escapes, or filesystem incompatibilities across Linux, Windows, macOS, and network protocols (SMB, NFS, WebDAV, rsync).
+- **243-Byte Truncation Limit**: Base filenames are strictly truncated to an upper limit of **243 UTF-8 bytes**, reserving 12 bytes of headroom for the temporary `.cbz.partial` staging suffix. This prevents filenames from exceeding the 255-byte boundary and completely eliminates Linux ext4 `[Errno 36] File name too long` errors.
+- **Safe Source Purge (`purge-archived-sources`)**: Once a gallery is successfully archived as CBZ in cold storage, administrators can execute "Purge archived sources" from **Settings → Storage** (`POST /api/system/purge-archived-sources`). This operation validates GID consistency across hot and cold storage, actively skips tasks in pending/downloading states, and safely purges loose image directories to reclaim disk space.
+
+---
+
 ## Offline Full Repair & Metadata Sanitization Tools
 
 When external migrations, third-party exporters, or historical operations introduce dirty state (such as overlong filenames, stacked leading GID prefixes, or corrupted metadata sidecars), offline maintenance scripts are available in the repository.

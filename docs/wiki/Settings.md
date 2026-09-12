@@ -33,7 +33,7 @@
   | 分类 | 命令 |
   | :--- | :--- |
   | 系统与运维 | `/status` 运行状态与队列概况；`/ping` 延迟；`/cookie` Cookie 有效性；`/quota` 图像配额与 GP；`/storage` 磁盘用量；`/scan` 触发扫库 |
-  | 下载与队列 | `/queue` 队列 + InlineKeyboard；`/pause` `/resume` 全局暂停；`/retry <id\|all>`；`/cancel <id\|gid>`（找不到会回复）；`/clear` 清成功记录；`/stats` 库本数与队列快照 |
+  | 下载与队列 | `/queue` 队列 + InlineKeyboard；`/pause` `/resume` 全局暂停；`/retry <id/all>`；`/cancel <id/gid>`（找不到会回复）；`/clear` 清成功记录；`/stats` 库本数与队列快照 |
   | 后台任务 | `/tasks` 长任务列表；`/kill <name>` 中断 |
   | 图库 | `/search <关键词>` 本地检索翻页；`/info <gid>` 详情与封面（5 级降级）；`/random`；`/redownload <gid>` |
   | 收藏夹 | `/fav_sync` 同步分类；`/fav_download [0-9]` 下未入库；`/fav_check` 全量检查更新 |

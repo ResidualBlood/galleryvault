@@ -109,7 +109,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 | `#首次运行向导welcome` | [使用指南 (Usage)](Usage) | [首次运行向导（#/welcome）](Usage#首次运行向导welcome) |
 | `#画廊库library` | [浏览与库 (Library)](Library) | [画廊库（#/library）](Library#画廊库library) |
 | `#本地列表library` | [浏览与库 (Library)](Library) | [本地列表（#/library）](Library#本地列表library) |
-| `#重复副本duplicates` | [库维护 (Manage)](Manage) | [重复副本（#/duplicates）](Manage#重复副本duplicates) |
+| `#重复副本duplicates` | [库维护 (Manage)](Manage) | [重复副本（#/duplicates）](Manage#重复副本与查重duplicates) |
 | `#回收站recycle` | [库维护 (Manage)](Manage) | [回收站（#/recycle）](Manage#回收站recycle) |
 | `#缺页体检integrity` | [库维护 (Manage)](Manage) | [缺页体检（#/integrity）](Manage#缺页体检integrity) |
 | `#画廊详情galleryid` | [画廊详情与阅读 (Reading)](Reading) | [画廊详情（#/gallery/<id>）](Reading#画廊详情galleryid) |

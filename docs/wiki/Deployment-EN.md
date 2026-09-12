@@ -70,7 +70,7 @@ Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd6
 
 | Local Host Path | Container Path | Access Mode | Purpose |
 | :--- | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | Read-Write (`rw`) | PostgreSQL 18 data (UID 999); stores primary index and credentials |
+| `./db-data` | `/var/lib/postgresql` | Read-Write (`rw`) | PostgreSQL 18 data (UID 999); stores primary index and credentials (mount to `/var/lib/postgresql`; do not use legacy `/var/lib/postgresql/data`) |
 | `./library` | `/library` | `rw` or `ro` | Primary library root for existing archives; **downloads never land here** |
 | `./downloads` | `/downloads` | Read-Write (`rw`) | Target directory for active downloads; automatically indexed |
 | `./cache` | `/gv-cache` | Read-Write (`rw`) | Thumbnail and cover image cache; saves external bandwidth |
@@ -222,9 +222,9 @@ For high-concurrency background workers, mass gallery imports, and batch fetchin
 
 | Environment Variable / Key | Default | Description |
 | --- | --- | --- |
-| `database_pool_size` | `20` | SQLAlchemy connection pool base permanent connection capacity. |
+| `database_pool_size` | `30` | SQLAlchemy connection pool base permanent connection capacity. |
 | `database_max_overflow` | `10` | Maximum temporary overflow connections allowed during concurrency bursts, automatically closed once returned. |
-| `database_pool_timeout` | `15` | Timeout (in seconds) to wait when acquiring an available connection from the pool. |
+| `database_pool_timeout` | `30` | Timeout (in seconds) to wait when acquiring an available connection from the pool. |
 
 Working in tandem with dependency injection lifecycle management and Unit of Work (UoW) / transaction and network I/O isolation, database sessions are acquired only during active DB operations and released immediately, preventing large-scale batch tasks and slow network I/O from exhausting the pool.
 
@@ -238,3 +238,36 @@ docker compose up -d
 ```
 
 Alembic schema migrations run automatically during backend container initialization.
+
+---
+
+## Offline Maintenance & Repair Utilities
+
+To clean up legacy issues from multi-device migrations (such as overlong filenames or stacked GID contamination), built-in Python maintenance scripts can be executed directly inside the backend container or on the host:
+
+### 1. Cold Archive & Local Directory Repair (`repair_cold_archives.py`)
+- **Function**: Automatically strips redundant leading GIDs (e.g. `[12345] 12345-Title`), queries the upstream official GData API in batches to clean up and rebuild `.galleryvault.json` sidecar indexes.
+- **Parameters**:
+  - `--archive-dir`: Container path of the cold archive or gallery directory to scan and repair;
+  - `--dry-run`: Dry-run simulation mode; prints planned renames and metadata updates without modifying disk;
+  - `--batch-size`: Batch size for querying the upstream GData API (default 25).
+- **Single-line command in container**:
+  ```bash
+  # Dry-run preview:
+  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1 --dry-run
+
+  # Execute cleanup:
+  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1
+  ```
+
+### 2. CBZ Filename 243-Byte Boundary Alignment (`repair_cbz_filenames.py`)
+- **Function**: Scans and aligns legacy CBZ filenames to the Linux ext4 243-byte boundary standard, completely eliminating `[Errno 36] File name too long`.
+- **Parameters**:
+  - `--target-dir`: Target directory containing legacy CBZ archives;
+  - `--max-bytes`: Maximum filename length in bytes (default 243 bytes);
+  - `--dry-run`: Dry-run simulation mode; prints planned truncations only.
+- **Host Execution** (script is located at repository root `scripts/`, **not packaged into container image**):
+  ```bash
+  python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
+  python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
+  ```

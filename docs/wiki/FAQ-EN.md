@@ -102,6 +102,15 @@ Different translation groups or quality variants of the same artwork often carry
 - **Cause**: Exports from third-party tools or repeated multi-hop migrations can introduce redundant leading GID prefixes into directory names or cold archive CBZ files (e.g. `[12345] 12345-Title` or `12345-12345-Title`), causing malformed title indexing or polluted archive indices.
 - **Remediation**: The repository provides an offline batch repair tool `backend/galleryvault/scripts/repair_cold_archives.py`. Supporting a `--dry-run` safety flag, it strips redundant leading GIDs from directory and CBZ names, cleans up nested GID patterns, and queries the upstream GData API in batch chunks to re-verify and sanitize metadata (see **[Backup & Restore → Offline Full Repair & Metadata Sanitization Tools](Backup-EN#offline-full-repair--metadata-sanitization-tools)**).
 
+### 7. How does multi-root cold storage (`archive_roots`) balance capacity across multiple disks?
+- **Configuration**: In **Settings → Library → Cold archive roots**, enter multiple mount paths (e.g., `/archive1\n/archive2`, one path per line).
+- **Dynamic Load Balancing**: When cold archiving is triggered, the archive service (`ArchiverService`) monitors available disk space in real time across all configured paths via `statvfs`. New CBZ archives are automatically directed to the drive with the largest available free space, achieving fully automated multi-disk load balancing.
+
+### 8. How do I detect missing pages or corrupted image archives in the library?
+- **Integrity Check**: Trigger a health scan via the Web UI or by calling `POST /api/galleries/integrity/check`.
+- **In-Memory Validation**: The background task scans galleries and verifies image stream headers and decodability in memory without extracting full archives to disk.
+- **Review Results**: Query `GET /api/galleries/integrity/results` to view identified corrupted or incomplete galleries, allowing you to selectively re-download missing pages or purge damaged files.
+
 ---
 
 ## 5. Reader, Tags & Client Ecosystem
