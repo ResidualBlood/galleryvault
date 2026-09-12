@@ -28,19 +28,6 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 
 ---
 
-## How it differs
-
-| | GalleryVault | LANraragi | e-hentai-view | Komga |
-| :--- | :--- | :--- | :--- | :--- |
-| Role | Ehviewer library + optional EH sync | CBZ archive manager | Online browse front | Generic comics server |
-| Ingest | Scan `<gid>-title/` + SpiderInfo | Pack into archives first | No local library | Canonical folders / archives |
-| EH | Favorite watch, page/Archive download, GID replace | Tag scraping | Live mirror | Plugins |
-| Hygiene | Same-GID / favorite dupes / cross-GID / series / integrity / cold archive | Archive-centric | No local library ops | Generic comics library |
-
-Built for Ehviewer / ExHentai workflows, not a general e-book server.
-
----
-
 ## Detailed Feature Matrix
 
 ### 1. Local Asset Archiving & High-Fidelity Parsing

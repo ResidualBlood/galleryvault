@@ -2,9 +2,7 @@
 
 > **中文** · [English](Home-EN)
 
-欢迎查阅 **GalleryVault** 官方文档。这是给 **Ehviewer 导出目录** 用的自托管画廊库：文件、索引和收藏关系都在你自己的机器或 NAS 上。不配 Cookie 也能当本地库；配了才能同步 E-Hentai / ExHentai。
-
-Komga / LANraragi 通常要先打成压缩包；在线前端不帮你管本地资产。GalleryVault 直接扫 `<gid>-标题/` 和 SpiderInfo。和其它工具的对照见 [功能特性](Features#和其他工具差在哪)。
+欢迎查阅 **GalleryVault** 官方文档。这是给 **Ehviewer 导出目录** 用的自托管画廊库：文件、索引和收藏关系都在你自己的机器或 NAS 上。不配 Cookie 也能当本地库；配了才能同步 E-Hentai / ExHentai。直接扫 `<gid>-标题/` 和 SpiderInfo。能力一览见 [功能特性](Features)。
 
 ---
 

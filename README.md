@@ -21,7 +21,7 @@
   <strong>中文</strong> · <a href="README.en.md">English</a> · <a href="https://github.com/ResidualBlood/galleryvault/wiki">Wiki</a>
 </p>
 
-Komga / LANraragi 要你先打成压缩包；在线前端不帮你管本地资产。GalleryVault 挂上 Ehviewer 导出目录就能索引 SpiderInfo，**不配 Cookie 也能当本地库**；配了 Cookie 才逛发现页、同步十个收藏夹、下载。
+挂上 Ehviewer 导出目录就能索引 SpiderInfo，**不配 Cookie 也能当本地库**；配了 Cookie 才逛发现页、同步十个收藏夹、下载。
 
 ## 特色
 
@@ -30,12 +30,6 @@ Komga / LANraragi 要你先打成压缩包；在线前端不帮你管本地资�
 - **库会自己收拾** — 同 GID 多副本、收藏夹重复、跨 GID（不同汉化/画质）聚类、系列成组、缺页坏图体检、多盘冷归档 CBZ。
 - **阅读器按同人/漫画来** — RTL / 双页 / 条漫；幻灯片跟 GIF/WebP 帧时长。OPDS 给 Tachiyomi / Mihon；可选 Telegram Bot 粘贴 URL 入队。
 - **凭证可加密落库** — `ENCRYPTION_KEY` 后 Cookie / bot token / 密码哈希走 AES-256-GCM。改密立刻吊销全部会话。
-
-| | GalleryVault | LANraragi | e-hentai-view | Komga |
-| :--- | :--- | :--- | :--- | :--- |
-| 定位 | Ehviewer 资产库 + 可选 EH 同步 | CBZ 仓库 | 在线浏览前端 | 通用漫画服务器 |
-| 入库 | 直接扫导出目录 | 先打成压缩包 | 不落本地库 | 规范文件夹 / 压缩包 |
-| EH 深度 | 收藏监控、双通道下载、换 GID | 刮削标签 | 在线镜像 | 基本靠插件 |
 
 <p align="center">
   <img src="docs/screenshots/library_zh.png" alt="画廊库" width="270">

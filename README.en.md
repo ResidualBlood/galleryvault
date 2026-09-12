@@ -21,7 +21,7 @@
   <a href="README.md">中文</a> · <strong>English</strong> · <a href="https://github.com/ResidualBlood/galleryvault/wiki/Home-EN">Wiki</a>
 </p>
 
-Komga and LANraragi want archives first; in-browser EH fronts do not manage a local library. GalleryVault mounts Ehviewer export folders and reads SpiderInfo. **No cookies → local library.** Cookies unlock Discover, ten favorite folders, and downloads.
+Mount Ehviewer export folders and read SpiderInfo as-is. **No cookies → local library.** Cookies unlock Discover, ten favorite folders, and downloads.
 
 ## Highlights
 
@@ -30,12 +30,6 @@ Komga and LANraragi want archives first; in-browser EH fronts do not manage a lo
 - **Library hygiene** — same-GID copies, favorite dupes, cross-GID clusters (alt translations / quality), series grouping, missing-page integrity, multi-disk cold CBZ.
 - **Reader for doujin / manga** — RTL / dual-page / webtoon; slideshow follows GIF/WebP frame duration. OPDS for Tachiyomi / Mihon; optional Telegram bot (paste a URL to enqueue).
 - **Secrets at rest** — with `ENCRYPTION_KEY`, cookies / bot token / password hashes use AES-256-GCM. Changing the password revokes every session.
-
-| | GalleryVault | LANraragi | e-hentai-view | Komga |
-| :--- | :--- | :--- | :--- | :--- |
-| Role | Ehviewer library + optional EH sync | CBZ archive manager | Online browse front | Generic comics server |
-| Ingest | Scan export folders as-is | Pack into archives first | No local library | Canonical folders / archives |
-| EH depth | Favorite watch, dual download, GID replace | Tag scraping | Live mirror | Plugins |
 
 <p align="center">
   <img src="docs/screenshots/library_en.png" alt="Library" width="270">

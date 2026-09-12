@@ -2,9 +2,7 @@
 
 > [中文](Home) · **English**
 
-Welcome to the official **GalleryVault** documentation. It is a self-hosted gallery library for **Ehviewer export folders**: files, the index, and favorite mappings stay on your machine or NAS. Without cookies it is a local library; cookies unlock E-Hentai / ExHentai sync.
-
-Komga / LANraragi usually want archives first; in-browser EH fronts do not manage a local library. GalleryVault scans `<gid>-title/` trees and SpiderInfo as-is. Comparison: [Features](Features-EN#how-it-differs).
+Welcome to the official **GalleryVault** documentation. It is a self-hosted gallery library for **Ehviewer export folders**: files, the index, and favorite mappings stay on your machine or NAS. Without cookies it is a local library; cookies unlock E-Hentai / ExHentai sync. It scans `<gid>-title/` trees and SpiderInfo as-is. See [Features](Features-EN).
 
 ---
 
