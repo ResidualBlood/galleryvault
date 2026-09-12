@@ -32,7 +32,7 @@ Files, the index, and favorite mappings stay on your machine or NAS. Without coo
 | Discover | `#/discover` | Popular / Watched / Toplist (needs cookies) |
 | Favorites / Updates | `#/favorites` `#/updates` | Watch 10 folders, incremental download, GID replacements |
 | Downloads | `#/downloads` | Page-by-page or official Archive zip; exponential backoff |
-| Manage | `#/recycle` | Recycle bin, same-GID copies, favorite dupes, cross-GID, integrity, cold archive |
+| Manage | `#/recycle` | Recycle bin, same-GID copies, favorite dupes, cross-GID (duplicates series `#/duplicates`), missing page integrity (`#/integrity`), cold archive (`#/archive`) |
 | Reader | `#/reader/...` | RTL / dual-page / webtoon; GIF/WebP slideshow follows frame duration |
 | Settings / Logs | `#/settings` `#/logs` | Paths, concurrency, encrypted sessions, background tasks |
 
@@ -58,13 +58,13 @@ docker compose up -d
 
 | Host path | Container | Purpose |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18 (UID 999 — do not chown to yourself) |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18 (UID 999 — do not chown to yourself. **Do NOT use the old path `/var/lib/postgresql/data`, and do NOT set the `PGDATA` environment variable**) |
 | `./library` | `/library` | Existing library; downloads never write here. Read-only mounts fail deletes and log it |
 | `./downloads` | `/downloads` | New downloads, ingested immediately |
 | `./cache` | `/gv-cache` | Thumbnail / cover cache |
 | `./archive` | `/archive` | **Optional**; commented out in compose. Set `archive_roots` in Settings after mounting |
 
-To enable cold archive, add e.g. `- ./archive:/archive`, save Settings, then use **Manage → Cold archive** (`#/archive`). CBZ names are always `gid-english-title.cbz`, independent of the UI title language.
+To enable cold archive, add e.g. `- ./archive:/archive`, save Settings, then use **Manage → Cold archive** (`#/archive`). When configuring `archive_roots` in Settings, note that it is a multi-line input box; enter one independent directory per line (avoiding `\n` backslash escapes). The backend will automatically balance the load across volumes. CBZ names are always `gid-english-title.cbz`, independent of the UI title language.
 
 ### Environment
 
@@ -75,6 +75,8 @@ Set these on the backend service in `docker-compose.yml`:
 - `PUID` / `PGID`: avoid root-owned files on NAS.
 - `TRUSTED_PROXIES`: proxy CIDRs, e.g. `127.0.0.1,192.168.1.0/24`.
 - `POSTGRES_PASSWORD`: DB password, default `galleryvault`.
+- `database_pool_size`: Database persistent connection pool size, default `30`.
+- `database_pool_timeout`: Database connection timeout, default `30` seconds. Tune these if you encounter errors during high concurrency.
 
 Library / download / archive paths are configured in the Web UI, not via env vars.
 

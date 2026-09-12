@@ -32,7 +32,7 @@
 | 发现 | `#/discover` | 在线逛 Popular / Watched / Toplist（要 Cookie） |
 | 收藏 / 更新 | `#/favorites` `#/updates` | 十个收藏夹监控、增量下载、重传换 GID |
 | 下载 | `#/downloads` | 逐页或官方 Archive zip；失败指数退避 |
-| 管理 | `#/recycle` | 回收站、同 GID 副本、收藏夹重复、跨 GID、缺页体检、冷归档 |
+| 管理 | `#/recycle` | 回收站、同 GID 副本、收藏夹重复、跨 GID（查重系列 `#/duplicates`）、缺页体检（`#/integrity`）、冷归档（`#/archive`） |
 | 阅读器 | `#/reader/...` | RTL / 双页 / 条漫；GIF/WebP 幻灯片跟帧时长 |
 | 设置 / 日志 | `#/settings` `#/logs` | 路径、并发、加密会话、后台任务 |
 
@@ -58,13 +58,13 @@ docker compose up -d
 
 | 本地路径 | 容器内 | 说明 |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18（容器 UID 999，不要 chown 成自己） |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18（容器 UID 999，不要 chown 成自己。**切勿配置旧路径 `/var/lib/postgresql/data`，切勿设置 PGDATA 环境变量**） |
 | `./library` | `/library` | 已有库；下载不写这里。只读挂载时删文件会失败并记日志 |
 | `./downloads` | `/downloads` | 新下载落盘并即时入库 |
 | `./cache` | `/gv-cache` | 缩略图 / 封面缓存 |
 | `./archive` | `/archive` | **可选**，compose 里默认注释。启用后在设置填 `archive_roots` |
 
-冷归档要自己加卷，例如 `- ./archive:/archive`，保存设置后再在 **管理 → 冷库归档**（`#/archive`）打包 CBZ。文件名固定 `gid-英文标题.cbz`，不跟界面标题语言走。
+冷归档要自己加卷，例如 `- ./archive:/archive`，保存设置后再在 **管理 → 冷库归档**（`#/archive`）打包 CBZ。在设置中配置 `archive_roots` 时需注意，它是一个多行输入框，每行填写一个独立目录（消除反斜杠 `\n`），后台会自动进行跨卷负载均衡。文件名固定 `gid-英文标题.cbz`，不跟界面标题语言走。
 
 ### 环境变量
 
@@ -75,6 +75,8 @@ docker compose up -d
 - `PUID` / `PGID`：NAS 上避免下载文件属主变成 root。
 - `TRUSTED_PROXIES`：反代网段，例如 `127.0.0.1,192.168.1.0/24`。
 - `POSTGRES_PASSWORD`：数据库密码，默认 `galleryvault`。
+- `database_pool_size`：数据库常驻连接池大小，默认 `30`。
+- `database_pool_timeout`：数据库连接超时时间，默认 `30` 秒。如有大量并发查重等导致报错，可适当调优。
 
 路径类配置（库根、下载根、归档根）只在 Web 设置里改，不要用环境变量覆盖。
 
