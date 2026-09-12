@@ -1,5 +1,9 @@
 name: ci-backend
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main, dev]
@@ -80,6 +84,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          cache-dependency-glob: "backend/pyproject.toml"
 
       - name: Install
         working-directory: backend

@@ -14,7 +14,8 @@ RUN useradd --uid 10001 --create-home app
 # so code-only edits rebuild in seconds instead of re-installing everything.
 COPY requirements.txt ./
 RUN --mount=from=ghcr.io/astral-sh/uv:latest,source=/uv,target=/bin/uv \
-    uv pip install --system --no-cache -r requirements.txt
+    --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -r requirements.txt
 
 COPY pyproject.toml README.md ./
 COPY galleryvault ./galleryvault
