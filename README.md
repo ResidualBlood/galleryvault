@@ -21,7 +21,7 @@
   <strong>中文</strong> · <a href="README.en.md">English</a> · <a href="https://github.com/ResidualBlood/galleryvault/wiki">Wiki</a>
 </p>
 
-挂上 Ehviewer 导出目录就能索引 SpiderInfo，**不配 Cookie 也能当本地库**；配了 Cookie 才逛发现页、同步十个收藏夹、下载。
+挂上 Ehviewer 导出目录就能索引 SpiderInfo。**推荐配置 Cookie**，以便逛发现页、同步十个收藏夹、下载；不配也能先当本地库用。
 
 ## 特色
 

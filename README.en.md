@@ -21,7 +21,7 @@
   <a href="README.md">中文</a> · <strong>English</strong> · <a href="https://github.com/ResidualBlood/galleryvault/wiki/Home-EN">Wiki</a>
 </p>
 
-Mount Ehviewer export folders and read SpiderInfo as-is. **No cookies → local library.** Cookies unlock Discover, ten favorite folders, and downloads.
+Mount Ehviewer export folders and read SpiderInfo as-is. **Cookies are recommended** for Discover, favorite-folder sync, and downloads; without them it still works as a local library.
 
 ## Highlights
 
