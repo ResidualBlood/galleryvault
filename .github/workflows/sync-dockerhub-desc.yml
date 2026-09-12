@@ -1,0 +1,44 @@
+name: sync-dockerhub-desc
+
+# Hub cannot resolve relative README images. This job rewrites them to
+# raw.githubusercontent.com URLs, then updates both image Overviews.
+# Image builds stay on ci-* / release-images; this does not push images.
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - frontend/assets/icon.svg
+      - docs/screenshots/**
+      - scripts/readme-for-dockerhub.py
+      - .github/workflows/sync-dockerhub-desc.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rewrite README images for Docker Hub
+        run: |
+          python3 scripts/readme-for-dockerhub.py README.md > /tmp/README.dockerhub.md
+
+      - name: Update Docker Hub Description (backend)
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend
+          readme-filepath: /tmp/README.dockerhub.md
+
+      - name: Update Docker Hub Description (frontend)
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend
+          readme-filepath: /tmp/README.dockerhub.md

@@ -230,13 +230,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Rewrite README images for Docker Hub
+        run: |
+          python3 scripts/readme-for-dockerhub.py README.md > /tmp/README.dockerhub.md
+
       - name: Update Docker Hub Description (backend)
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-backend
-          readme-filepath: ./README.md
+          readme-filepath: /tmp/README.dockerhub.md
 
       - name: Update Docker Hub Description (frontend)
         uses: peter-evans/dockerhub-description@v4
@@ -244,5 +248,5 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_USERNAME }}/galleryvault-frontend
-          readme-filepath: ./README.md
+          readme-filepath: /tmp/README.dockerhub.md
 
