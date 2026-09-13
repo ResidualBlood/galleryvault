@@ -32,19 +32,39 @@ def in_scan_roots(path: Path, roots: list[str]) -> bool:
 
 def _is_in_download_root(path: Path) -> bool:
     try:
+        resolved = path.resolve()
+    except (ValueError, TypeError, OSError):
+        return False
+
+    # 1. 首选通过 get_settings().download_root 判定
+    try:
+        from ..config import get_settings
+
+        settings = get_settings()
+        dl_root_raw = getattr(settings, "download_root", None)
+        if dl_root_raw:
+            dl_root = Path(dl_root_raw).resolve()
+            if resolved.is_relative_to(dl_root):
+                return True
+    except (AttributeError, ValueError, TypeError, OSError):
+        pass
+
+    # 2. 优雅动态兜底回退：安全尝试检查 app_state.downloader.root
+    # 兼容测试用例注入与动态配置场景，绝不反向硬依赖抛错
+    try:
         from ..app.state import app_state
 
-        dl_root = None
-        downloader_root = getattr(app_state.downloader, "root", None)
-        if downloader_root is not None:
-            dl_root = Path(downloader_root).resolve()
-        elif app_state.settings is not None and getattr(app_state.settings, "download_root", None):
-            dl_root = Path(app_state.settings.download_root).resolve()
-        if dl_root is None:
-            return False
-        return path.resolve().is_relative_to(dl_root)
-    except (AttributeError, ValueError, TypeError, OSError):
-        return False
+        downloader = getattr(app_state, "downloader", None)
+        if downloader is not None:
+            downloader_root = getattr(downloader, "root", None)
+            if downloader_root:
+                dl_root = Path(downloader_root).resolve()
+                if resolved.is_relative_to(dl_root):
+                    return True
+    except (ImportError, AttributeError, ValueError, TypeError, OSError):
+        pass
+
+    return False
 
 
 def delete_local_copy(path: Path, roots: list[str] | None = None) -> bool:

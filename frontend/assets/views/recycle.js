@@ -6,11 +6,11 @@ function recycleSelectedIds() {
       .map(cb => parseInt(cb.getAttribute("data-recycle-id"), 10))
       .filter(Number.isFinite)
   );
-  return (window.selRecycle ? [...selRecycle] : []).filter(id => listed.has(id));
+  return (window.selRecycle ? [...window.selRecycle] : []).filter(id => listed.has(id));
 }
 
 function updateRecycleButtons() {
-  const n = window.selRecycle ? selRecycle.size : 0;
+  const n = window.selRecycle ? window.selRecycle.size : 0;
   const suffix = n ? ` (${n})` : "";
   const restoreBtn = document.querySelector('[data-action="recycle-restore"]');
   const redownloadBtn = document.querySelector('[data-action="recycle-redownload"]');
@@ -24,10 +24,10 @@ async function renderRecycle() {
   const tab = app.query.tab || "trash";
   const page = app.query.page || "1";
   if (window._recycleLastTab && window._recycleLastTab !== tab) {
-    if (window.selRecycle) selRecycle.clear();
+    if (window.selRecycle) window.selRecycle.clear();
   }
   window._recycleLastTab = tab;
-  const n = window.selRecycle ? selRecycle.size : 0;
+  const n = window.selRecycle ? window.selRecycle.size : 0;
   const suffix = n ? ` (${n})` : "";
   renderView(`
     <header><p class="eyebrow">RECYCLE BIN</p><h1>${esc(t("recycleTitle"))}</h1>
@@ -56,7 +56,7 @@ async function renderRecycle() {
             <div class="gc-title">${esc(title)}</div>
             <div class="muted" style="font-size:12px;">${esc(g.trashed_at || g.updated_at || "")} · ${esc(g.storage_path || "")}</div>
           </a>
-          <label class="gc-check"><input type="checkbox" data-recycle-id="${g.id}"${selRecycle && selRecycle.has(g.id) ? " checked" : ""}></label>
+          <label class="gc-check"><input type="checkbox" data-recycle-id="${g.id}"${window.selRecycle && window.selRecycle.has(g.id) ? " checked" : ""}></label>
         </div>`;
       }).join("") + `</div>`;
       document.querySelectorAll('#recycle-grid input[data-recycle-id]').forEach(cb => {
@@ -64,8 +64,8 @@ async function renderRecycle() {
         cb.dataset.bound = "1";
         cb.addEventListener("change", () => {
           const id = parseInt(cb.getAttribute("data-recycle-id"), 10);
-          if (!selRecycle) window.selRecycle = new Set();
-          if (cb.checked) selRecycle.add(id); else selRecycle.delete(id);
+          if (!window.selRecycle) window.selRecycle = new Set();
+          if (cb.checked) window.selRecycle.add(id); else window.selRecycle.delete(id);
           updateRecycleButtons();
         });
       });
@@ -80,7 +80,7 @@ async function recycleRestore() {
   try {
     const r = await api("POST", "/api/galleries/restore", { ids });
     toast(`${esc(t("restore"))}: ${r.restored}`);
-    selRecycle.clear();
+    window.selRecycle && window.selRecycle.clear();
     router();
   } catch (e) { toast(e.message); }
 }
@@ -93,7 +93,7 @@ async function recycleRedownload() {
     const skipped = (r.skipped_no_gid || 0) + (r.skipped_no_token || 0);
     const skipText = skipped > 0 ? ` · ${t("recycleSkip")}: ${skipped}` : "";
     toast(`${t("recycleRedownload")}: ${r.queued}${skipText}`);
-    selRecycle.clear();
+    window.selRecycle && window.selRecycle.clear();
     router();
   } catch (e) { toast(e.message); }
 }
@@ -108,7 +108,7 @@ async function recyclePurge() {
     const ok = r.purged != null ? r.purged : (r.deleted != null ? r.deleted : ids.length);
     const failed = (r.failed_deletions || []).length;
     toast(`${esc(t("purge"))}: ${ok}` + (failed ? ` · ${esc(t("dupDeleteFail"))}${failed}` : ""));
-    selRecycle.clear();
+    window.selRecycle && window.selRecycle.clear();
     router();
   } catch (e) { toast(e.message); }
 }

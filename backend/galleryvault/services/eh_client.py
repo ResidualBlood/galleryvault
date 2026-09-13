@@ -1222,22 +1222,6 @@ class EhClient:
             gdata = await self.fetch_gmetadata([(int(gid), token)])
             info = gdata.get(int(gid)) or {}
             estimate = int(info.get("file_count") or 0)
-            if info:
-                try:
-                    from ..app.state import app_state
-                    from ..db.repository import GalleryRepository
-
-                    session_factory = app_state.session_factory
-                    if session_factory is not None:
-                        async with session_factory() as session, session.begin():
-                            await GalleryRepository(session).upsert_metadata(
-                                [{"gid": int(gid), **info}]
-                            )
-                except Exception as db_exc:  # noqa: BLE001
-                    logger.debug(
-                        "fetch_gallery: failed to persist gdata into metadata cache",
-                        extra=log_extra(gid=int(gid), error=type(db_exc).__name__),
-                    )
         except Exception:  # noqa: BLE001 - fall back to sequential enumeration
             estimate = 0
         gallery_pages = max(1, (estimate + 19) // 20) if estimate > 0 else 0
