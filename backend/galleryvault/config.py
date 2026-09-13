@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     telegram_allowed_user_ids: list[int] = Field(default_factory=list)
     telegram_notify_level: str = "summary"
     telegram_notify_lang: str = "zh"
-    favorites_categories: list[int] = Field(default_factory=lambda: list(range(8)))
+    favorites_categories: list[int] = Field(default_factory=lambda: list(range(10)))
     download_favorites_enabled: bool = False
     duplicate_policy: str = "keep_first"
     global_paused: bool = False
