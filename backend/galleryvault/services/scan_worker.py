@@ -207,6 +207,7 @@ async def run_scan() -> None:
                             await GalleryIngestService(session).ingest(batch)
                         persisted += len(batch)
                         success += len(batch)
+                        await run_in_threadpool(GalleryIngestService.sync_directory_sidecars, batch)
                     except Exception as exc:
                         errors += len(batch)
                         logger.exception(

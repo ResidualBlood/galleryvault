@@ -307,21 +307,17 @@ class EhviewerDirScanner(GalleryScanner):
 
     def storage_signature(self, path: Path) -> str:
         digest = hashlib.sha256()
-        files = sorted(
-            (
-                item
-                for item in path.iterdir()
-                if item.is_file()
-                and not item.name.startswith(".")
-                and item.suffix.casefold() in IMAGE_EXTENSIONS
-            ),
-            key=lambda item: natural_key(item.name),
-        )
-        metadata_stat = (path / ".ehviewer").stat()
-        digest.update(f".ehviewer\0{metadata_stat.st_size}\0{metadata_stat.st_mtime_ns}".encode())
-        for item in files:
-            stat = item.stat()
-            digest.update(f"{item.name}\0{stat.st_size}\0{stat.st_mtime_ns}".encode())
+        try:
+            st = path.stat()
+            digest.update(f"{path.name}\0{st.st_size}\0{st.st_mtime_ns}".encode())
+        except OSError:
+            pass
+        for name in (".ehviewer", SIDECAR_FILENAME):
+            try:
+                st = (path / name).stat()
+                digest.update(f"{name}\0{st.st_size}\0{st.st_mtime_ns}".encode())
+            except OSError:
+                continue
         return digest.hexdigest()
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
@@ -433,23 +429,17 @@ class JhentaiDirScanner(GalleryScanner):
 
     def storage_signature(self, path: Path) -> str:
         digest = hashlib.sha256()
-        files = sorted(
-            (
-                item
-                for item in path.iterdir()
-                if item.is_file()
-                and not item.name.startswith(".")
-                and item.suffix.casefold() in IMAGE_EXTENSIONS
-            ),
-            key=lambda item: natural_key(item.name),
-        )
-        metadata_stat = (path / self._METADATA_NAME).stat()
-        digest.update(
-            f"{self._METADATA_NAME}\0{metadata_stat.st_size}\0{metadata_stat.st_mtime_ns}".encode()
-        )
-        for item in files:
-            stat = item.stat()
-            digest.update(f"{item.name}\0{stat.st_size}\0{stat.st_mtime_ns}".encode())
+        try:
+            st = path.stat()
+            digest.update(f"{path.name}\0{st.st_size}\0{st.st_mtime_ns}".encode())
+        except OSError:
+            pass
+        for name in (self._METADATA_NAME, SIDECAR_FILENAME):
+            try:
+                st = (path / name).stat()
+                digest.update(f"{name}\0{st.st_size}\0{st.st_mtime_ns}".encode())
+            except OSError:
+                continue
         return digest.hexdigest()
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
@@ -618,19 +608,17 @@ class BareImageDirScanner(GalleryScanner):
 
     def storage_signature(self, path: Path) -> str:
         digest = hashlib.sha256()
-        files = sorted(
-            (
-                item
-                for item in path.iterdir()
-                if item.is_file()
-                and not item.name.startswith(".")
-                and item.suffix.casefold() in IMAGE_EXTENSIONS
-            ),
-            key=lambda item: natural_key(item.name),
-        )
-        for item in files:
-            stat = item.stat()
-            digest.update(f"{item.name}\0{stat.st_size}\0{stat.st_mtime_ns}".encode())
+        try:
+            st = path.stat()
+            digest.update(f"{path.name}\0{st.st_size}\0{st.st_mtime_ns}".encode())
+        except OSError:
+            pass
+        for name in ("ComicInfo.xml", SIDECAR_FILENAME):
+            try:
+                st = (path / name).stat()
+                digest.update(f"{name}\0{st.st_size}\0{st.st_mtime_ns}".encode())
+            except OSError:
+                continue
         return digest.hexdigest()
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:

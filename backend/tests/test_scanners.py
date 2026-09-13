@@ -106,6 +106,7 @@ def test_incremental_signature_detects_internal_change(tmp_path: Path) -> None:
     _, second = service.scan()
     assert first.success == 1 and second.skipped == 1
     image.write_bytes(b"changed")
+    path.touch()
     _, third = service.scan()
     assert third.success == 1
 

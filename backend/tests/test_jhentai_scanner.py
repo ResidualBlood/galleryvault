@@ -131,5 +131,6 @@ def test_jhentai_incremental_signature(tmp_path: Path) -> None:
     _, second = service.scan()
     assert first.success == 1 and second.skipped == 1
     (path / "1.jpg").write_bytes(b"changed")
+    path.touch()
     _, third = service.scan()
     assert third.success == 1

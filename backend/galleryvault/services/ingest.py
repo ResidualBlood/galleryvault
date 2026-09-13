@@ -47,9 +47,9 @@ class GalleryIngestService:
             apply_cached_metadata_to_meta(gallery, cached[gallery.gid])
         for start in range(0, len(galleries), self.batch_size):
             await self.repository.upsert_many(galleries[start : start + self.batch_size])
-        self._sync_directory_sidecars(galleries)
 
-    def _sync_directory_sidecars(self, galleries: Sequence[GalleryMeta]) -> None:
+    @staticmethod
+    def sync_directory_sidecars(galleries: Sequence[GalleryMeta]) -> None:
         """Backfill full v1 .galleryvault.json for directory-based galleries missing critical keys."""
         for gallery in galleries:
             # Strictly directories only; archives (cbz, cbr, pdf, etc.) must NEVER be modified
@@ -76,9 +76,12 @@ class GalleryIngestService:
                 continue
 
             try:
-                self._write_directory_sidecar(gallery, raw)
+                GalleryIngestService._write_directory_sidecar(gallery, raw)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to sync sidecar for %s: %s", gallery.path, exc)
+
+    # Backward compatibility alias
+    _sync_directory_sidecars = sync_directory_sidecars
 
     @staticmethod
     def _write_directory_sidecar(gallery: GalleryMeta, raw: dict[str, Any] | None) -> None:
