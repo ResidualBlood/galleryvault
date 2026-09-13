@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Wiki 阅读器 / 幻灯片说明对齐实现：启动即全屏、退出全屏停止、动图 `duration_ms + 150ms`、缓存头与条漫例外（`docs/wiki/Reading.md`、`Reading-EN.md`、`Features.md`、`Features-EN.md`）。
+
 ## [1.12.5] - 2026-09-12
 
 ### Changed

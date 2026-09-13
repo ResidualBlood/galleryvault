@@ -62,8 +62,8 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 ### 5. Immersive Reading & Open Interoperability
 - **Versatile Reader**:
   - **Layout Modes**: Right-to-Left (Japanese manga), Left-to-Right, vertical continuous cascade (webtoon mode), and dual-page split viewing.
-  - **Controls & Navigation**: Keyboard shortcuts, mouse wheel scrolling, touch tap zones, `G` key jump navigation, multi-page prefetching, and seamless navigation to subsequent galleries.
-- **Frame-Rate Adaptive Slideshow**: Inspects GIF and WebP image metadata to time slideshow intervals to the asset's native animation duration and frame delays.
+  - **Controls & Navigation**: Keyboard shortcuts, touch tap zones, `G` key jump navigation, multi-page prefetching, and auto-advance to the next gallery after the last page. In Webtoon, wheel/touch vertical scroll is used (arrow keys and left/right tap zones do not page).
+- **Adaptive Slideshow**: Probes GIF/WebP `duration_ms` (sum of per-frame delays) and uses `max(user interval, duration + 150ms)`. Starting slideshow enters fullscreen; exiting fullscreen stops it.
 - **Advanced Tag Search**: Powered by the EhTagTranslation multi-language database; supports tag autocomplete, AND/OR logic combinations, exclusion filters (`-tag`), and multi-language reverse-lookup (e.g. typing Chinese suggests English equivalents).
 - **Standard OPDS Catalog**: Exposes a standard OPDS endpoint (`GET /api/opds`) with HTTP Basic authentication for direct access in Tachiyomi, Mihon, and Panels.
 - **Recycle Bin & Audit Log**: Safely stages user-deleted or offline items in a restorable recycle bin with complete activity logs.
