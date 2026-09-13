@@ -7,6 +7,7 @@ from typing import Any, Protocol
 from ..app.dependencies import get_current_settings
 from ..logging import log_extra
 from .eh_client import FavoriteData
+from .eh_metadata import refresh_gdata
 from .messages import (
     favorites_check_failed,
     favorites_enqueue_failed,
@@ -132,7 +133,17 @@ class FavoritesService:
         if archive_enabled and candidates:
             pairs = [(item.gid, item.token) for item in candidates if item.token]
             try:
-                gmeta = await self.fetcher.fetch_gmetadata(pairs)
+                if session is not None:
+                    gmeta = await refresh_gdata(session, pairs, client=self.fetcher)
+                else:
+                    from ..app.state import app_state
+
+                    sf = getattr(app_state, "background_session_factory", None) or app_state.session_factory
+                    if sf is not None:
+                        async with sf() as sess, sess.begin():
+                            gmeta = await refresh_gdata(sess, pairs, client=self.fetcher)
+                    else:
+                        gmeta = await self.fetcher.fetch_gmetadata(pairs)
                 archive_sizes = {
                     int(gid): int(meta.get("file_count") or 0)
                     for gid, meta in gmeta.items()

@@ -256,6 +256,7 @@ class GalleryMetadata(Base):
     newer_gid: Mapped[int | None] = mapped_column(BigInteger)
     is_replaced: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[list[Any] | None] = mapped_column(JSONB)
+    thumb: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

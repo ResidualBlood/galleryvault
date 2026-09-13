@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..app.state import app_state
 from ..config import get_settings
@@ -26,6 +27,7 @@ from ..services.tag_translation import translated_tag
 from .download_worker import infer_image_quality
 from .duplicates import duplicate_group_is_ignored, find_duplicate_groups
 from .eh_client import EXHENTAI_API_CHUNK_SIZE
+from .eh_metadata import refresh_gdata
 from .favorites import FavoritesService
 from .storage_usage import storage_tracker
 
@@ -208,6 +210,8 @@ async def ensure_remote_cover(
     token: str | None = None,
     cache_dir: Path | None = None,
     source: str = "thumb0",
+    *,
+    cached_meta: dict[str, Any] | None = None,
 ) -> Path | None:
     cache_dir = cache_dir or _remote_cover_cache_dir()
     cached = _cover_cache_file(cache_dir, gid)
@@ -226,58 +230,90 @@ async def ensure_remote_cover(
         return None
 
     thumb_url: str | None = None
+    has_cached_meta = False
+    if cached_meta is not None:
+        thumb_url = cached_meta.get("thumb") or None
+        has_cached_meta = True
+
     session_factory = _get_background_session_factory()
-    if session_factory:
+    if not thumb_url and not has_cached_meta and session_factory:
         try:
             async with session_factory() as session:
-                thumb_url = await session.scalar(
-                    select(FavoriteItem.thumb).where(
-                        FavoriteItem.gid == int(gid),
-                        FavoriteItem.thumb.is_not(None),
-                    ).limit(1)
-                )
-                if not thumb_url:
-                    source_meta = await session.scalar(
-                        select(Gallery.source_meta).where(
-                            Gallery.gid == int(gid),
-                            Gallery.source_meta.is_not(None),
+                if hasattr(session, "scalar"):
+                    thumb_url = await session.scalar(
+                        select(FavoriteItem.thumb).where(
+                            FavoriteItem.gid == int(gid),
+                            FavoriteItem.thumb.is_not(None),
                         ).limit(1)
                     )
-                    if isinstance(source_meta, dict) and source_meta.get("thumb"):
-                        thumb_url = str(source_meta["thumb"])
-        except Exception:  # noqa: BLE001
+                    if not thumb_url:
+                        thumb_url = await session.scalar(
+                            select(GalleryMetadata.thumb).where(
+                                GalleryMetadata.gid == int(gid),
+                                GalleryMetadata.thumb.is_not(None),
+                            ).limit(1)
+                        )
+                    if not thumb_url:
+                        source_meta = await session.scalar(
+                            select(Gallery.source_meta).where(
+                                Gallery.gid == int(gid),
+                                Gallery.source_meta.is_not(None),
+                            ).limit(1)
+                        )
+                        if isinstance(source_meta, dict) and source_meta.get("thumb"):
+                            thumb_url = str(source_meta["thumb"])
+                    if not thumb_url:
+                        has_cached_meta = bool(
+                            await session.scalar(
+                                select(GalleryMetadata.gid).where(
+                                    GalleryMetadata.gid == int(gid),
+                                ).limit(1)
+                            )
+                        )
+        except (SQLAlchemyError, Exception):  # noqa: BLE001
             thumb_url = None
 
     if not token and session_factory:
         try:
             async with session_factory() as session:
-                token = await session.scalar(
-                    select(Gallery.token).where(
-                        Gallery.gid == int(gid),
-                        Gallery.token.is_not(None),
-                    ).limit(1)
-                )
-                if not token:
+                if hasattr(session, "scalar"):
                     token = await session.scalar(
-                        select(FavoriteItem.token).where(
-                            FavoriteItem.gid == int(gid),
-                            FavoriteItem.token.is_not(None),
+                        select(Gallery.token).where(
+                            Gallery.gid == int(gid),
+                            Gallery.token.is_not(None),
                         ).limit(1)
                     )
-                if not token:
-                    token = await session.scalar(
-                        select(GalleryMetadata.token).where(
-                            GalleryMetadata.gid == int(gid),
-                            GalleryMetadata.token.is_not(None),
-                        ).limit(1)
-                    )
-        except Exception:  # noqa: BLE001, S110
+                    if not token:
+                        token = await session.scalar(
+                            select(FavoriteItem.token).where(
+                                FavoriteItem.gid == int(gid),
+                                FavoriteItem.token.is_not(None),
+                            ).limit(1)
+                        )
+                    if not token:
+                        token = await session.scalar(
+                            select(GalleryMetadata.token).where(
+                                GalleryMetadata.gid == int(gid),
+                                GalleryMetadata.token.is_not(None),
+                            ).limit(1)
+                        )
+        except (SQLAlchemyError, Exception):  # noqa: BLE001, S110
             pass
 
-    if not thumb_url and token:
+    if not thumb_url and not has_cached_meta and token and hasattr(client, "fetch_gmetadata"):
         try:
-            chunk_meta = await client.fetch_gmetadata([(int(gid), token)])
-            meta = chunk_meta.get(int(gid)) or {}
+            chunk_meta = None
+            if session_factory:
+                try:
+                    async with session_factory() as session:
+                        if hasattr(session, "scalars"):
+                            async with session.begin():
+                                chunk_meta = await refresh_gdata(
+                                    session, [(int(gid), token)], client=client
+                                )
+                except (SQLAlchemyError, Exception):  # noqa: BLE001
+                    chunk_meta = None
+            meta = (chunk_meta or {}).get(int(gid)) or {}
             thumb_url = meta.get("thumb") or None
         except Exception:  # noqa: BLE001
             thumb_url = None
@@ -291,7 +327,11 @@ async def ensure_remote_cover(
 
     if data is None and token:
         try:
-            data, _ = await client.fetch_gallery_cover(int(gid), token)
+            res = await client.fetch_gallery_cover(int(gid), token)
+            if isinstance(res, tuple) and res:
+                data = res[0]
+            elif isinstance(res, (bytes, bytearray)):
+                data = bytes(res)
         except Exception:  # noqa: BLE001
             data = None
 
@@ -322,39 +362,17 @@ def _img_data_uri(raw: bytes) -> str | None:
 async def favorites_metadata(
     pairs: list[tuple[int, str]], batch_size: int = EXHENTAI_API_CHUNK_SIZE
 ) -> dict[int, dict[str, Any]]:
-    session_factory = _get_background_session_factory()
-    if not pairs or not session_factory:
+    if not pairs:
         return {}
-    gids = [gid for gid, _ in pairs]
-    async with session_factory() as session:
-        cached = await GalleryRepository(session).metadata_map(gids)
-
-    missing = [(gid, token) for gid, token in pairs if gid not in cached and token]
-    if missing and app_state.eh_client is not None:
-        fetched: dict[int, dict[str, Any]] = {}
-        for start in range(0, len(missing), batch_size):
-            chunk = missing[start : start + batch_size]
-            try:
-                chunk_meta = await app_state.eh_client.fetch_gmetadata(chunk)
-                fetched.update(chunk_meta)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "gdata batch failed during metadata resolution",
-                    extra=log_extra(error=type(exc).__name__, count=len(chunk)),
-                )
-        if fetched:
-            try:
-                async with session_factory() as session, session.begin():
-                    await GalleryRepository(session).upsert_metadata(
-                        [{"gid": gid, **meta} for gid, meta in fetched.items()]
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "failed to persist fetched gdata metadata",
-                    extra=log_extra(error=type(exc).__name__),
-                )
-            cached.update(fetched)
-    return cached
+    session_factory = _get_background_session_factory()
+    if session_factory:
+        async with session_factory() as session, session.begin():
+            return await refresh_gdata(
+                session, pairs, client=app_state.eh_client, batch_size=batch_size
+            )
+    if app_state.eh_client:
+        return await app_state.eh_client.fetch_gmetadata(pairs)
+    return {}
 
 
 async def remote_cover_data_batch(
@@ -513,50 +531,44 @@ async def favorite_size_sync(favcat: int) -> None:
                 cached_meta = await gal_read.metadata_map(folder_gids)
                 null_quality = await gal_read.null_image_quality_gids(folder_gids)
 
-            def _positive_eh_size(meta: dict | None) -> bool:
-                size = (meta or {}).get("file_size")
-                try:
-                    return int(size) > 0
-                except (TypeError, ValueError):
-                    return False
+            pairs = [(gid, token) for gid, token, _thumb in folder_items if token]
+            tracker.update(total=len(pairs), done=0, stage="fetching")
+            fetched: dict[int, dict[str, Any]] = {}
+            if pairs:
+                async with session_factory() as session, session.begin():
+                    if hasattr(session, "scalars"):
+                        fetched = await refresh_gdata(
+                            session,
+                            pairs,
+                            client=app_state.eh_client,
+                            batch_size=EXHENTAI_API_CHUNK_SIZE,
+                        )
+                    elif app_state.eh_client:
+                        gal = GalleryRepository(session)
+                        missing = [
+                            (gid, token)
+                            for gid, token in pairs
+                            if gid not in cached_meta
+                            or (gid in null_quality and not (cached_meta.get(gid) or {}).get("file_size"))
+                        ]
+                        for start in range(0, len(missing), EXHENTAI_API_CHUNK_SIZE):
+                            chunk = missing[start : start + EXHENTAI_API_CHUNK_SIZE]
+                            chunk_meta = await app_state.eh_client.fetch_gmetadata(chunk)
+                            fetched.update(chunk_meta)
+                        if fetched:
+                            await gal.upsert_metadata([{"gid": g, **m} for g, m in fetched.items()])
+                            refreshed = await gal.metadata_map(list(fetched.keys()))
+                            cached_meta.update(refreshed)
+            tracker.update(done=len(pairs))
 
-            missing: list[tuple[int, str]] = []
-            seen_need: set[int] = set()
-            for gid, token, _thumb in folder_items:
-                if not token or gid in seen_need:
-                    continue
-                seen_need.add(gid)
-                if gid not in cached_meta or (
-                    gid in null_quality and not _positive_eh_size(cached_meta.get(gid))
-                ):
-                    missing.append((gid, token))
-            tracker.update(total=len(missing), done=0, stage="fetching")
-            batch_size = EXHENTAI_API_CHUNK_SIZE
-            for start in range(0, len(missing), batch_size):
-                if tm.is_cancelled("metadata"):
-                    break
-                chunk = missing[start : start + batch_size]
-                try:
-                    chunk_meta = await app_state.eh_client.fetch_gmetadata(chunk)
-                    fetched.update(chunk_meta)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "gdata batch failed during size sync",
-                        extra=log_extra(error=type(exc).__name__, count=len(chunk)),
-                    )
-                tracker.update(done=min(len(missing), start + batch_size))
             async with session_factory() as session, session.begin():
                 gal = GalleryRepository(session)
-                if fetched:
-                    await gal.upsert_metadata(
-                        [{"gid": gid, **meta} for gid, meta in fetched.items()]
-                    )
-                    repo = FavoritesRepository(session)
-                    for gid, meta in fetched.items():
-                        size = meta.get("file_size")
-                        if size:
-                            await repo.set_file_size(favcat, gid, int(size))
-                    cached_meta.update(fetched)
+                repo = FavoritesRepository(session)
+                for gid, meta in fetched.items():
+                    size = meta.get("file_size")
+                    if size:
+                        await repo.set_file_size(favcat, gid, int(size))
+                cached_meta.update(fetched)
                 combined = dict(cached_meta)
                 meta_map = await gal.metadata_map(folder_gids)
                 for gid, meta in meta_map.items():
@@ -584,10 +596,12 @@ async def favorite_size_sync(favcat: int) -> None:
             for gid, token, listing_thumb in folder_items:
                 if _cover_cache_file(cache_dir, gid) is not None:
                     continue
-                thumb = listing_thumb or (cached_meta.get(gid) or {}).get("thumb")
+                thumb = listing_thumb or (combined.get(gid) or {}).get("thumb")
                 if thumb:
                     coverless.append((gid, token))
                     thumb_meta[gid] = {"thumb": thumb}
+                elif token:
+                    coverless.append((gid, token))
             tracker.update(total=len(coverless), done=0)
             for start in range(0, len(coverless), _COVER_HEAL_CHUNK):
                 if tm.is_cancelled("metadata"):
@@ -595,10 +609,15 @@ async def favorite_size_sync(favcat: int) -> None:
                 chunk = coverless[start : start + _COVER_HEAL_CHUNK]
                 await remote_cover_data_batch(
                     chunk,
-                    {gid: thumb_meta[gid] for gid, _token in chunk},
+                    {gid: thumb_meta[gid] for gid, _token in chunk if gid in thumb_meta},
                     download=True,
                     encode=False,
                 )
+                for gid, token in chunk:
+                    if _cover_cache_file(cache_dir, gid) is None:
+                        await ensure_remote_cover(
+                            gid, token, cache_dir=cache_dir, cached_meta=combined.get(gid)
+                        )
                 tracker.update(done=min(len(coverless), start + _COVER_HEAL_CHUNK))
             if coverless:
                 logger.info(
@@ -612,9 +631,15 @@ async def favorite_size_sync(favcat: int) -> None:
                 if tm.is_cancelled("metadata"):
                     break
                 async with session_factory() as session, session.begin():
-                    applied_round = await GalleryRepository(session).apply_metadata_to_galleries(
-                        favcat, 200
-                    )
+                    gal = GalleryRepository(session)
+                    if hasattr(gal, "apply_cached_metadata"):
+                        applied_round = await gal.apply_cached_metadata(
+                            favcat=favcat, batch_size=200
+                        )
+                    else:
+                        applied_round = await gal.apply_metadata_to_galleries(
+                            favcat, 200
+                        )
                 if not applied_round:
                     break
                 applied += applied_round
@@ -852,7 +877,13 @@ async def run_duplicates_scan() -> None:
             ]
             if missing_posted and app_state.eh_client is not None:
                 try:
-                    posted_meta = await app_state.eh_client.fetch_gmetadata(missing_posted)
+                    if session_factory:
+                        async with session_factory() as session, session.begin():
+                            posted_meta = await refresh_gdata(
+                                session, missing_posted, client=app_state.eh_client
+                            )
+                    else:
+                        posted_meta = await app_state.eh_client.fetch_gmetadata(missing_posted)
                 except Exception as exc:  # noqa: BLE001
                     posted_meta = {}
                     logger.warning(

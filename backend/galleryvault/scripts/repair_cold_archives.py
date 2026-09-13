@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import html
 import logging
 import os
 import re
@@ -41,6 +40,8 @@ from galleryvault.services.cold_archive import (
     safe_title,
 )
 from galleryvault.services.downloader import gallery_dirname
+from galleryvault.services.eh_client import EhClient
+from galleryvault.services.eh_metadata import refresh_gdata
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,81 +101,37 @@ async def fetch_gdata_batch(
     client: httpx.AsyncClient | None = None,
     semaphore: asyncio.Semaphore | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Batch-fetch gallery metadata via the ExHentai ``gdata`` API.
-
-    Chunks into batches of 25 items and protects concurrency with asyncio.Semaphore(6).
-    """
+    """Batch-fetch gallery metadata via the unified EhClient fetch_gmetadata."""
     if not pairs:
         return {}
+    settings = get_settings()
+    if base_url:
+        settings.exhentai_base_url = base_url
 
-    sem = semaphore if semaphore is not None else asyncio.Semaphore(6)
-    results: dict[int, dict[str, Any]] = {}
+    if client is not None and not str(client.base_url):
+        client.base_url = httpx.URL(base_url)
 
-    async def _fetch_chunk(
-        http_client: httpx.AsyncClient, chunk_pairs: list[tuple[int, str]]
-    ) -> list[dict[str, Any]]:
-        async with sem:
-            payload = {
-                "method": "gdata",
-                "gidlist": [[int(gid), token] for gid, token in chunk_pairs],
-                "namespace": 1,
-            }
-            try:
-                resp = await http_client.post(
-                    f"{base_url.rstrip('/')}/api.php",
-                    json=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GalleryVault/1.0",
-                    },
-                    timeout=30.0,
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return data.get("gmetadata", []) or []
-                logger.warning(
-                    "GData API batch request failed with HTTP %s", resp.status_code
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("GData API batch request failed: %s", exc)
-            return []
+    eh_client = EhClient(settings=settings, client=client)
+    if semaphore is not None:
+        eh_client._semaphore = semaphore
 
     chunks = [
         pairs[i : i + EXHENTAI_API_CHUNK_SIZE]
         for i in range(0, len(pairs), EXHENTAI_API_CHUNK_SIZE)
     ]
 
-    async def _run_all(http_client: httpx.AsyncClient) -> None:
-        tasks = [_fetch_chunk(http_client, chunk) for chunk in chunks]
-        chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
-        for chunk_res in chunk_results:
-            if isinstance(chunk_res, list):
-                for item in chunk_res:
-                    if not item or item.get("error") or item.get("gid") is None:
-                        continue
-                    gid = int(item["gid"])
-                    results[gid] = {
-                        "token": item.get("token") or "",
-                        "title": html.unescape(item.get("title", "") or "").strip(),
-                        "title_jpn": (
-                            html.unescape(item["title_jpn"]).strip()
-                            if item.get("title_jpn")
-                            else None
-                        ),
-                        "category": item.get("category") or None,
-                        "file_count": int(item.get("filecount") or 0),
-                        "file_size": int(item.get("filesize") or 0) or None,
-                        "tags": item.get("tags", []) or [],
-                        "uploader": item.get("uploader") or None,
-                        "rating": float(item.get("rating") or 0) or None,
-                    }
+    async def _fetch_chunk(chunk: list[tuple[int, str]]) -> dict[int, dict[str, Any]]:
+        try:
+            return await eh_client.fetch_gmetadata(chunk)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("GData API batch request failed: %s", exc)
+            return {}
 
-    if client is not None:
-        await _run_all(client)
-    else:
-        async with httpx.AsyncClient(timeout=30.0) as http_client:
-            await _run_all(http_client)
-
+    tasks = [_fetch_chunk(chunk) for chunk in chunks]
+    results_list = await asyncio.gather(*tasks)
+    results: dict[int, dict[str, Any]] = {}
+    for res in results_list:
+        results.update(res)
     return results
 
 
@@ -364,12 +321,30 @@ async def repair_cold_archives(
                         if hasattr(settings, "exhentai_base_url")
                         else "https://api.e-hentai.org"
                     )
-                    gdata_results = await fetch_gdata_batch(
-                        need_gdata_pairs,
-                        base_url=base_url,
-                        client=http_client,
-                        semaphore=semaphore,
-                    )
+                    gdata_results = {}
+                    if hasattr(session, "scalars"):
+                        eh_client = EhClient(settings=settings, client=http_client)
+                        if semaphore is not None:
+                            eh_client._semaphore = semaphore
+                        try:
+                            gdata_results = await refresh_gdata(
+                                session,
+                                need_gdata_pairs,
+                                client=eh_client,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "refresh_gdata failed, falling back to fetch_gdata_batch: %s",
+                                exc,
+                            )
+                            gdata_results = {}
+                    if not gdata_results:
+                        gdata_results = await fetch_gdata_batch(
+                            need_gdata_pairs,
+                            base_url=base_url,
+                            client=http_client,
+                            semaphore=semaphore,
+                        )
                 else:
                     gdata_results = {}
 

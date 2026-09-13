@@ -15,6 +15,7 @@ from ..db.repository import GalleryRepository
 from ..logging import bind_log_context, log_extra
 from . import messages
 from .download_worker import infer_image_quality
+from .eh_metadata import refresh_gdata
 from .ingest import GalleryIngestService
 from .library import LibraryService
 
@@ -84,25 +85,22 @@ async def backfill_image_quality(should_stop: Callable[[], bool] | None = None) 
         cold = [
             (int(row.gid), row.token)
             for row in rows
-            if int(row.gid) not in have or not have[int(row.gid)].get("file_size")
+            if row.token and (int(row.gid) not in have or not have[int(row.gid)].get("file_size"))
         ]
         if cold:
             try:
-                fetched = await client.fetch_gmetadata(cold)
+                async with session_factory() as session:
+                    refreshed = await refresh_gdata(session, cold, client=client, force=True)
                 if should_stop is not None and should_stop():
                     break
-                async with session_factory() as session, session.begin():
-                    await GalleryRepository(session).upsert_metadata(
-                        [{"gid": gid, **meta} for gid, meta in fetched.items()]
-                    )
+                for gid, meta in refreshed.items():
+                    have.setdefault(int(gid), {}).update(meta)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "image quality backfill gdata round failed",
                     extra=log_extra(error=type(exc).__name__),
                 )
                 continue
-            for gid, meta in fetched.items():
-                have.setdefault(int(gid), {})["file_size"] = meta.get("file_size")
 
         if should_stop is not None and should_stop():
             break

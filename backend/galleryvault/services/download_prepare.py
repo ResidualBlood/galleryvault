@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from sqlalchemy import select
 
@@ -11,7 +11,8 @@ from ..app.state import app_state
 from ..db.models import Gallery
 from ..db.repository import GalleryRepository
 from ..logging import log_extra
-from .eh_client import EhClientError, GalleryGoneError
+from .eh_client import GalleryGoneError
+from .eh_metadata import enrich_html_newer, refresh_gdata
 from .messages import GONE_DETAIL
 
 logger = logging.getLogger(__name__)
@@ -79,95 +80,6 @@ async def _local_gids(gids: list[int]) -> set[int]:
     return {int(gid) for gid in rows}
 
 
-async def _html_resolve(
-    client: object, gid: int, token: str
-) -> PreparedGallery | None:
-    fetch_meta = getattr(client, "fetch_gallery_metadata", None)
-    if fetch_meta is None:
-        return None
-    try:
-        data = await fetch_meta(gid, token)
-    except GalleryGoneError:
-        return PreparedGallery(gid=gid, token=token, gone=True)
-    except EhClientError as exc:
-        logger.info(
-            "download prepare html fetch failed",
-            extra=log_extra(gid=gid, error=type(exc).__name__),
-        )
-        return None
-    replaced = getattr(data, "replaced_by", None)
-    title = getattr(data, "title", None) or None
-    title_jpn = getattr(data, "title_jpn", None)
-    new_token = getattr(data, "token", None) or token
-    if replaced:
-        new_gid, new_tok = replaced
-        return PreparedGallery(
-            gid=int(new_gid),
-            token=str(new_tok),
-            title=title,
-            title_jpn=title_jpn,
-            old_gid=gid,
-        )
-    if not title and not title_jpn:
-        return PreparedGallery(gid=gid, token=token, gone=True)
-    return PreparedGallery(
-        gid=gid, token=new_token, title=title, title_jpn=title_jpn
-    )
-
-
-async def _resolve_one(
-    client: object | None,
-    gid: int,
-    token: str,
-    *,
-    cache: dict[int, dict],
-    gdata: dict[int, dict],
-    hops: int,
-    html_cache: dict[int, PreparedGallery | None] | None = None,
-    html_tokens: dict[int, str] | None = None,
-) -> PreparedGallery:
-    if html_cache is None:
-        html_cache = {}
-    if hops >= MAX_FOLLOW_HOPS:
-        title, title_jpn = _titles_of(gdata.get(gid) or cache.get(gid))
-        return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
-
-    title, title_jpn = _titles_of(gdata.get(gid) or cache.get(gid))
-    if client is None:
-        return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
-    if gid not in html_cache:
-        if html_tokens is not None:
-            html_tokens[gid] = token
-        html_cache[gid] = await _html_resolve(client, gid, token)
-    raw = html_cache[gid]
-    if raw is None:
-        return PreparedGallery(gid=gid, token=token, title=title, title_jpn=title_jpn)
-    html = replace(raw)
-    if html.gone:
-        html.title = html.title or title
-        html.title_jpn = html.title_jpn or title_jpn
-        return html
-    if html.old_gid or html.gid != gid:
-        nested = await _resolve_one(
-            client,
-            html.gid,
-            html.token,
-            cache=cache,
-            gdata=gdata,
-            hops=hops + 1,
-            html_cache=html_cache,
-            html_tokens=html_tokens,
-        )
-        nested.old_gid = nested.old_gid or gid
-        if not nested.title and not nested.title_jpn:
-            nested.title = html.title or title
-            nested.title_jpn = html.title_jpn or title_jpn
-        return nested
-    html.title = html.title or title
-    html.title_jpn = html.title_jpn or title_jpn
-    return html
-
-
 async def prepare_galleries(pairs: list[tuple[int, str]]) -> list[PreparedGallery]:
     """Resolve titles and follow replacement chains. Never raises on EH errors."""
     if not pairs:
@@ -175,55 +87,158 @@ async def prepare_galleries(pairs: list[tuple[int, str]]) -> list[PreparedGaller
     gids = [int(gid) for gid, _ in pairs]
     cache = await _cached_map(gids)
     client = app_state.eh_client
-    gdata: dict[int, dict] = {}
-    html_cache: dict[int, PreparedGallery | None] = {}
-    html_tokens: dict[int, str] = {}
+    session_cm = app_state.session_factory
 
-    async def _resolve_all() -> list[PreparedGallery]:
-        out: list[PreparedGallery] = []
-        for gid, token in pairs:
-            out.append(
-                await _resolve_one(
-                    client,
-                    int(gid),
-                    token,
-                    cache=cache,
-                    gdata=gdata,
-                    hops=0,
-                    html_cache=html_cache,
-                    html_tokens=html_tokens,
-                )
+    # 1. Batch refresh missing or cold gdata into cache and persist to DB
+    if session_cm is not None:
+        try:
+            async with session_cm() as session:
+                refreshed = await refresh_gdata(session, pairs, client=client)
+                cache.update(refreshed)
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "download prepare refresh_gdata failed",
+                extra=log_extra(error=type(exc).__name__),
             )
-        return out
+    elif client is not None and hasattr(client, "fetch_gmetadata"):
+        try:
+            fetched = await client.fetch_gmetadata(pairs)
+            cache.update(fetched)
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "download prepare gmetadata fallback failed",
+                extra=log_extra(error=type(exc).__name__),
+            )
 
-    results = await _resolve_all()
-    if client is not None:
-        need: list[tuple[int, str]] = []
-        seen: set[int] = set()
-        for gid, raw in html_cache.items():
-            if raw is None and gid not in seen:
-                tok = html_tokens.get(gid)
-                if tok:
-                    need.append((gid, tok))
-                    seen.add(gid)
-        if need:
-            for start in range(0, len(need), 25):
-                batch = need[start : start + 25]
+    # 2. Resolve each gallery individually
+    async def _resolve_one(
+        gid: int,
+        token: str,
+        hops: int = 0,
+        old_gid: int | None = None,
+    ) -> PreparedGallery:
+        meta = cache.get(gid) or {}
+        title, title_jpn = _titles_of(meta)
+        if hops >= MAX_FOLLOW_HOPS:
+            return PreparedGallery(
+                gid=gid, token=token, title=title, title_jpn=title_jpn, old_gid=old_gid
+            )
+
+        is_expunged = bool(meta.get("expunged", False))
+        has_newer = meta.get("newer_gid") is not None
+        is_replaced = bool(meta.get("is_replaced", False))
+
+        # Normal, non-expunged gallery with no replacement flag:
+        # use gdata title directly without requesting HTML /g/.
+        if (
+            not is_expunged
+            and not has_newer
+            and not is_replaced
+            and (title or title_jpn or client is None)
+        ):
+            return PreparedGallery(
+                gid=gid,
+                token=token,
+                title=title,
+                title_jpn=title_jpn,
+                old_gid=old_gid,
+                gone=False,
+            )
+
+        # HTML probe only for expunged, known newer banner, or missing title
+        newer_pair: tuple[int, str] | None = None
+        html_gone = False
+        html_title: str | None = None
+        html_title_jpn: str | None = None
+
+        if client is not None:
+            if session_cm is not None:
                 try:
-                    fetched = await client.fetch_gmetadata(batch)
-                    if fetched:
-                        gdata.update(fetched)
-                except EhClientError as exc:
-                    logger.info(
-                        "download prepare gdata failed",
-                        extra=log_extra(error=type(exc).__name__, count=len(batch)),
-                    )
+                    async with session_cm() as session:
+                        newer_pair = await enrich_html_newer(session, gid, token, client=client)
+                except GalleryGoneError:
+                    html_gone = True
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "download prepare gdata unexpected error",
-                        extra=log_extra(error=type(exc).__name__, count=len(batch)),
+                    logger.info(
+                        "download prepare enrich_html_newer failed",
+                        extra=log_extra(gid=gid, error=type(exc).__name__),
                     )
-            results = await _resolve_all()
+            else:
+                fetch_meta = getattr(client, "fetch_gallery_metadata", None) or getattr(
+                    client, "fetch_gallery", None
+                )
+                if fetch_meta is not None:
+                    try:
+                        data = await fetch_meta(gid, token)
+                        replaced = getattr(data, "replaced_by", None)
+                        if replaced:
+                            newer_pair = (int(replaced[0]), str(replaced[1]))
+                        html_title = getattr(data, "title", None) or None
+                        html_title_jpn = getattr(data, "title_jpn", None) or None
+                    except GalleryGoneError:
+                        html_gone = True
+                    except Exception as exc:  # noqa: BLE001
+                        logger.info(
+                            "download prepare html fetch failed",
+                            extra=log_extra(gid=gid, error=type(exc).__name__),
+                        )
+
+        title = title or html_title
+        title_jpn = title_jpn or html_title_jpn
+
+        # If replaced by newer gallery: follow chain
+        if newer_pair is not None:
+            new_gid, new_token = newer_pair
+            if new_gid not in cache:
+                if session_cm is not None:
+                    try:
+                        async with session_cm() as session:
+                            new_refreshed = await refresh_gdata(
+                                session, [(new_gid, new_token)], client=client
+                            )
+                            cache.update(new_refreshed)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("download prepare chain refresh failed: %s", exc)
+                elif client and hasattr(client, "fetch_gmetadata"):
+                    try:
+                        fetched = await client.fetch_gmetadata([(new_gid, new_token)])
+                        cache.update(fetched)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("download prepare chain fetch failed: %s", exc)
+
+            nested = await _resolve_one(
+                new_gid,
+                new_token,
+                hops=hops + 1,
+                old_gid=old_gid or gid,
+            )
+            nested.title = nested.title or title
+            nested.title_jpn = nested.title_jpn or title_jpn
+            return nested
+
+        if is_expunged or html_gone or (not title and not title_jpn and client is not None):
+            return PreparedGallery(
+                gid=gid,
+                token=token,
+                title=title,
+                title_jpn=title_jpn,
+                old_gid=old_gid,
+                gone=True,
+            )
+
+        return PreparedGallery(
+            gid=gid,
+            token=token,
+            title=title,
+            title_jpn=title_jpn,
+            old_gid=old_gid,
+            gone=False,
+        )
+
+    results: list[PreparedGallery] = []
+    for gid, token in pairs:
+        results.append(await _resolve_one(int(gid), token, hops=0))
+
     follow_gids = [p.gid for p in results if p.old_gid and not p.gone]
     local = await _local_gids(follow_gids)
     for prepared in results:

@@ -11,6 +11,7 @@ from ..db.repository import GalleryRepository
 from ..metadata.sidecar import SIDECAR_FILENAME, write_galleryvault_json
 from ..scanners.base import GalleryMeta
 from ..scanners.ehviewer import parse_spider_info
+from .eh_metadata import apply_cached_metadata_to_meta
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +26,25 @@ class GalleryIngestService:
 
     async def ingest(self, galleries: Sequence[GalleryMeta]) -> None:
         # Reuse cached gdata metadata: galleries the favorites monitor already
-        # saw (gid known) get tags/title/category/posted filled in here, so no
+        # saw (gid known) get tags/title/category/posted/uploader/file_count filled in here, so no
         # per-gallery ExHentai fetch is needed after ingest.
-        cached = await self.repository.metadata_map(
-            [g.gid for g in galleries if g.gid is not None and (not g.tags or not g.category)]
-        )
+        cand_gids = [
+            g.gid
+            for g in galleries
+            if g.gid is not None
+            and (
+                not g.tags
+                or not g.category
+                or not g.uploader
+                or g.file_count is None
+                or not g.posted_at
+            )
+        ]
+        cached = await self.repository.metadata_map(cand_gids) if cand_gids else {}
         for gallery in galleries:
             if gallery.gid is None or gallery.gid not in cached:
                 continue
-            meta = cached[gallery.gid]
-            if not gallery.tags:
-                gallery.tags = [{"namespace": t["namespace"], "name": t["name"]} for t in meta["tags"]]
-            gallery.category = gallery.category or meta["category"]
-            gallery.title_jpn = gallery.title_jpn or meta["title_jpn"]
-            gallery.rating = gallery.rating or meta["rating"]
-            gallery.posted_at = gallery.posted_at or meta["posted_at"]
+            apply_cached_metadata_to_meta(gallery, cached[gallery.gid])
         for start in range(0, len(galleries), self.batch_size):
             await self.repository.upsert_many(galleries[start : start + self.batch_size])
         self._sync_directory_sidecars(galleries)

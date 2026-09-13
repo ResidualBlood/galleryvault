@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -109,7 +108,9 @@ async def test_tag_sync_apply_plan_updates_titles() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tag_sync_sync_updates_titles_from_cache_and_network() -> None:
+async def test_tag_sync_sync_updates_titles_from_cache_and_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     gallery = Gallery(
         id=10,
         gid=12345,
@@ -118,9 +119,20 @@ async def test_tag_sync_sync_updates_titles_from_cache_and_network() -> None:
         title_jpn=None,
     )
 
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
     class FakeSyncRepo:
         def __init__(self, target_gallery: Gallery):
             self.gallery = target_gallery
+            self.session = FakeSession()
             self.cached_meta: dict[str, object] | None = None
             self.updated_titles: tuple[int, str | None, str | None] | None = None
 
@@ -160,23 +172,141 @@ async def test_tag_sync_sync_updates_titles_from_cache_and_network() -> None:
     assert res_cache.source == "cache"
     assert fake_repo.updated_titles == (10, "Cached Title", "キャッシュタイトル")
 
-    # 2. Test network fetch path
+    # 2. Test network fetch path via gdata (HTML must not be called)
     fake_repo.cached_meta = None
     fake_repo.updated_titles = None
 
-    mock_gallery_meta = SimpleNamespace(
-        gid=12345,
-        title="Network Title",
-        title_jpn="ネットワークタイトル",
-        category="Artist CG",
-        file_size=1000,
-        tags=[{"namespace": "male", "name": "sole male"}],
-    )
-    fake_client.fetch_gallery = AsyncMock(return_value=mock_gallery_meta)
+    html_called = False
 
-    res_net = await service.sync(10)
+    async def fake_fetch_gallery_meta(*args, **kwargs):
+        nonlocal html_called
+        html_called = True
+        raise AssertionError("HTML fetch should not be called when gdata succeeds")
+
+    fake_client = MagicMock()
+    fake_client.fetch_gallery_metadata = fake_fetch_gallery_meta
+
+    refresh_calls: list[list[tuple[int, str]]] = []
+
+    async def fake_refresh(session, pairs, client=None, force=False):
+        refresh_calls.append(list(pairs))
+        return {
+            12345: {
+                "title": "Gdata Network Title",
+                "title_jpn": "gdataタイトル",
+                "category": "Artist CG",
+                "file_size": 1000,
+                "file_count": 25,
+                "uploader": "test_uploader",
+                "parent_gid": 9999,
+                "thumb": "https://thumb.url",
+                "tags": [("male", "sole male")],
+            }
+        }
+
+    monkeypatch.setattr("galleryvault.services.tag_sync.refresh_gdata", fake_refresh)
+
+    service_gdata = TagSyncService(fake_client, fake_repo)  # type: ignore[arg-type]
+    res_net = await service_gdata.sync(10)
     assert res_net.source == "network"
-    assert fake_repo.updated_titles == (10, "Network Title", "ネットワークタイトル")
+    assert fake_repo.updated_titles == (10, "Gdata Network Title", "gdataタイトル")
+    assert html_called is False
+    assert refresh_calls == [[(12345, "tok10")]]
+
+
+@pytest.mark.asyncio
+async def test_tag_sync_fetch_plan_prefers_gdata_and_extracts_all_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gallery = Gallery(
+        id=7,
+        gid=777,
+        token="tok777",
+        title="Gallery 777",
+    )
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+    class FakeRepo:
+        def __init__(self):
+            self.session = FakeSession()
+            self.cached = None
+
+        async def get_for_tag_sync(self, ident: int):
+            return gallery
+
+        async def metadata_for_gid(self, gid: int):
+            return self.cached
+
+    repo = FakeRepo()
+    client = MagicMock()
+    client.fetch_gallery_metadata = AsyncMock()
+
+    refresh_gdata_calls: list[dict[str, object]] = []
+
+    async def fake_refresh(session, pairs, client=None, force=False):
+        refresh_gdata_calls.append({"pairs": list(pairs), "force": force})
+        return {
+            777: {
+                "title": "Gdata Title",
+                "title_jpn": "日本語",
+                "category": "Manga",
+                "file_size": 123456,
+                "file_count": 42,
+                "uploader": "author_bob",
+                "parent_gid": 111,
+                "thumb": "https://img.eh/777.jpg",
+                "tags": [("artist", "bob"), ("female", "schoolgirl")],
+                "rating": 4.8,
+                "expunged": False,
+            }
+        }
+
+    monkeypatch.setattr("galleryvault.services.tag_sync.refresh_gdata", fake_refresh)
+
+    service = TagSyncService(client, repo)  # type: ignore[arg-type]
+
+    # 1. Cache miss: calls gdata, NOT HTML
+    plan_net = await service.fetch_plan(7)
+    assert plan_net["source"] == "network"
+    assert plan_net["uploader"] == "author_bob"
+    assert plan_net["parent_gid"] == 111
+    assert plan_net["thumb"] == "https://img.eh/777.jpg"
+    assert plan_net["file_count"] == 42
+    assert client.fetch_gallery_metadata.call_count == 0
+    assert len(refresh_gdata_calls) == 1
+    assert refresh_gdata_calls[0]["force"] is False
+
+    # 2. Cache hit: no network call at all
+    refresh_gdata_calls.clear()
+    repo.cached = {
+        "title": "Cached Title",
+        "title_jpn": "Cached 日本語",
+        "category": "Manga",
+        "uploader": "cached_uploader",
+        "tags": [("artist", "bob")],
+    }
+    plan_cache = await service.fetch_plan(7)
+    assert plan_cache["source"] == "cache"
+    assert plan_cache["uploader"] == "cached_uploader"
+    assert len(refresh_gdata_calls) == 0
+    assert client.fetch_gallery_metadata.call_count == 0
+
+    # 3. Force refresh: bypasses cache and calls gdata with force=True
+    plan_forced = await service.fetch_plan(7, force=True)
+    assert plan_forced["source"] == "network"
+    assert plan_forced["uploader"] == "author_bob"
+    assert len(refresh_gdata_calls) == 1
+    assert refresh_gdata_calls[0]["force"] is True
+    assert client.fetch_gallery_metadata.call_count == 0
 
 
 @pytest.mark.asyncio

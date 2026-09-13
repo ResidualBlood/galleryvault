@@ -1359,17 +1359,42 @@ class GalleryRepository(BaseRepository[Gallery]):
         rows = []
         for e in entries:
             posted = e.get("posted")
-            tags = [
-                (parts if len(parts := value.split(":", 1)) == 2 else ["misc", value])
-                for value in (e.get("tags") or [])
-                if value
-            ]
             posted_at = None
             if posted:
                 try:
                     posted_at = datetime.fromtimestamp(int(posted), tz=UTC)
                 except (ValueError, OSError, OverflowError, TypeError):
                     posted_at = None
+            elif isinstance(e.get("posted_at"), datetime):
+                posted_at = e["posted_at"]
+
+            raw_tags = e.get("tags") or []
+            tags = []
+            for item in raw_tags:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    tags.append([str(item[0] or "misc"), str(item[1])])
+                elif isinstance(item, dict):
+                    tags.append([str(item.get("namespace") or "misc"), str(item.get("name") or "")])
+                elif isinstance(item, str) and item:
+                    parts = item.split(":", 1)
+                    tags.append(parts if len(parts) == 2 else ["misc", item])
+
+            parent_gid = None
+            if e.get("parent_gid") is not None:
+                try:
+                    parent_gid = int(e["parent_gid"])
+                except (ValueError, TypeError):
+                    parent_gid = None
+            elif e.get("parent") is not None:
+                try:
+                    parent_gid = int(e["parent"])
+                except (ValueError, TypeError):
+                    parent_gid = None
+
+            thumb = e.get("thumb") or None
+            if thumb is not None:
+                thumb = str(thumb).strip() or None
+
             rows.append(
                 {
                     "gid": int(e["gid"]),
@@ -1388,6 +1413,8 @@ class GalleryRepository(BaseRepository[Gallery]):
                     "posted_at": posted_at,
                     "expunged": bool(e.get("expunged")),
                     "tags": tags,
+                    "parent_gid": parent_gid,
+                    "thumb": thumb,
                     "updated_at": now,
                 }
             )
@@ -1409,20 +1436,27 @@ class GalleryRepository(BaseRepository[Gallery]):
                     "posted_at": statement.excluded.posted_at,
                     "expunged": statement.excluded.expunged,
                     "tags": statement.excluded.tags,
+                    "parent_gid": statement.excluded.parent_gid,
+                    "thumb": statement.excluded.thumb,
                     "updated_at": statement.excluded.updated_at,
                 },
                 # Only advance updated_at when the content actually changed, so a
                 # later metadata-apply pass can tell "fresh" from "same as last
                 # time" without rewriting local galleries every check.
                 where=or_(
+                    GalleryMetadata.token.is_distinct_from(statement.excluded.token),
                     GalleryMetadata.tags.is_distinct_from(statement.excluded.tags),
                     GalleryMetadata.category.is_distinct_from(statement.excluded.category),
                     GalleryMetadata.title.is_distinct_from(statement.excluded.title),
                     GalleryMetadata.title_jpn.is_distinct_from(statement.excluded.title_jpn),
+                    GalleryMetadata.uploader.is_distinct_from(statement.excluded.uploader),
                     GalleryMetadata.posted_at.is_distinct_from(statement.excluded.posted_at),
                     GalleryMetadata.file_size.is_distinct_from(statement.excluded.file_size),
                     GalleryMetadata.file_count.is_distinct_from(statement.excluded.file_count),
                     GalleryMetadata.rating.is_distinct_from(statement.excluded.rating),
+                    GalleryMetadata.expunged.is_distinct_from(statement.excluded.expunged),
+                    GalleryMetadata.parent_gid.is_distinct_from(statement.excluded.parent_gid),
+                    GalleryMetadata.thumb.is_distinct_from(statement.excluded.thumb),
                 ),
             )
             result = await self.session.execute(statement)
@@ -1445,6 +1479,7 @@ class GalleryRepository(BaseRepository[Gallery]):
                     if len(pair) == 2 and str(pair[1]).strip()
                 ]
                 result[int(row.gid)] = {
+                    "gid": int(row.gid),
                     "token": row.token,
                     "title": row.title,
                     "title_jpn": row.title_jpn,
@@ -1456,6 +1491,11 @@ class GalleryRepository(BaseRepository[Gallery]):
                     "posted_at": row.posted_at,
                     "expunged": row.expunged,
                     "tags": tags,
+                    "parent_gid": row.parent_gid,
+                    "newer_gid": row.newer_gid,
+                    "is_replaced": row.is_replaced,
+                    "thumb": row.thumb,
+                    "updated_at": row.updated_at,
                 }
         return result
 
@@ -1610,37 +1650,68 @@ class GalleryRepository(BaseRepository[Gallery]):
         result = await self.session.execute(stmt)
         return int(result.rowcount or 0)
 
-    async def apply_metadata_to_galleries(self, favcat: int, limit: int = 200) -> int:
-        """Apply fresh cached metadata to local galleries of a favorite folder.
+    async def apply_cached_metadata(
+        self,
+        galleries: Sequence[Gallery] | None = None,
+        *,
+        favcat: int | None = None,
+        limit: int = 200,
+    ) -> int:
+        """Apply fresh cached metadata to local galleries.
 
-        For every on-disk gallery in the folder whose metadata cache is newer
-        than its last tag sync, updates tags (replacing ``gallery_tags``),
-        category, title, title_jpn, posted_at, file_size, file_count, rating,
-        uploader and stamps ``tags_synced_at``.  Returns the number processed.
+        Can target an explicit sequence of local ``Gallery`` objects, a
+        favorite folder (``favcat``), or all pending on-disk galleries.
+        For every gallery whose metadata cache is newer than its last tag
+        sync (or explicitly provided), updates tags (replacing ``gallery_tags``),
+        category, title, title_jpn, uploader, posted_at, file_count, rating,
+        expunged (if explicitly expunged in cache), parent relation, and stamps
+        ``tags_synced_at``. Returns the number of galleries updated.
         """
-        rows = await self.session.execute(
-            select(Gallery, GalleryMetadata)
-            .select_from(FavoriteItem)
-            .join(Gallery, Gallery.gid == FavoriteItem.gid)
-            .join(GalleryMetadata, GalleryMetadata.gid == Gallery.gid)
-            .where(
-                FavoriteItem.favcat == favcat,
-                Gallery.expunged.is_(False),
-                or_(
-                    Gallery.tags_synced_at.is_(None),
-                    GalleryMetadata.updated_at > Gallery.tags_synced_at,
-                ),
+        if galleries is not None:
+            gids = [g.gid for g in galleries if g.gid is not None]
+            if not gids:
+                return 0
+            meta_rows = await self.session.scalars(
+                select(GalleryMetadata).where(GalleryMetadata.gid.in_(gids))
             )
-            .limit(limit)
-        )
-        pairs = [(gallery, meta) for gallery, meta in rows]
+            meta_by_gid = {m.gid: m for m in meta_rows}
+            pairs = [(g, meta_by_gid[g.gid]) for g in galleries if g.gid in meta_by_gid]
+        elif favcat is not None:
+            rows = await self.session.execute(
+                select(Gallery, GalleryMetadata)
+                .select_from(FavoriteItem)
+                .join(Gallery, Gallery.gid == FavoriteItem.gid)
+                .join(GalleryMetadata, GalleryMetadata.gid == Gallery.gid)
+                .where(
+                    FavoriteItem.favcat == favcat,
+                    Gallery.expunged.is_(False),
+                    or_(
+                        Gallery.tags_synced_at.is_(None),
+                        GalleryMetadata.updated_at > Gallery.tags_synced_at,
+                    ),
+                )
+                .limit(limit)
+            )
+            pairs = [(gallery, meta) for gallery, meta in rows]
+        else:
+            rows = await self.session.execute(
+                select(Gallery, GalleryMetadata)
+                .join(GalleryMetadata, GalleryMetadata.gid == Gallery.gid)
+                .where(
+                    Gallery.expunged.is_(False),
+                    or_(
+                        Gallery.tags_synced_at.is_(None),
+                        GalleryMetadata.updated_at > Gallery.tags_synced_at,
+                    ),
+                )
+                .limit(limit)
+            )
+            pairs = [(gallery, meta) for gallery, meta in rows]
+
         if not pairs:
             return 0
         now = datetime.now(UTC)
         tag_keys: set[tuple[str, str]] = set()
-        # Only galleries whose cached metadata actually carries tags get their
-        # tags replaced; an empty tags list (stale/partial gdata response)
-        # must not wipe out the already-synced local tags.
         tag_gallery_ids: list[int] = []
         for gallery, meta in pairs:
             gallery.category = meta.category or gallery.category
@@ -1648,15 +1719,33 @@ class GalleryRepository(BaseRepository[Gallery]):
             gallery.title_jpn = meta.title_jpn or gallery.title_jpn
             gallery.uploader = meta.uploader or gallery.uploader
             gallery.file_count = meta.file_count or gallery.file_count
-            gallery.rating = meta.rating or gallery.rating
+            if getattr(meta, "rating", None) is not None:
+                gallery.rating = meta.rating
             gallery.posted_at = meta.posted_at or gallery.posted_at
+            if getattr(meta, "expunged", False):
+                gallery.expunged = True
+            parent_gid = getattr(meta, "parent_gid", None)
+            if parent_gid is not None and hasattr(gallery, "source_meta"):
+                source_meta = dict(gallery.source_meta or {})
+                source_meta["parent_gid"] = parent_gid
+                gallery.source_meta = source_meta
             gallery.tags_synced_at = now
             meta_tags = meta.tags or []
             if meta_tags:
                 tag_gallery_ids.append(gallery.id)
                 for tag in meta_tags:
-                    namespace = str(tag[0] or "misc").strip() or "misc"
-                    name = str(tag[1] or "").strip()
+                    if isinstance(tag, dict):
+                        namespace = str(tag.get("namespace") or "misc").strip() or "misc"
+                        name = str(tag.get("name") or "").strip()
+                    elif isinstance(tag, (list, tuple)) and len(tag) == 2:
+                        namespace = str(tag[0] or "misc").strip() or "misc"
+                        name = str(tag[1] or "").strip()
+                    elif isinstance(tag, str):
+                        parts = tag.split(":", 1)
+                        namespace = parts[0].strip() or "misc" if len(parts) == 2 else "misc"
+                        name = parts[1].strip() if len(parts) == 2 else parts[0].strip()
+                    else:
+                        continue
                     if name:
                         tag_keys.add((namespace, name))
         await self.session.flush()
@@ -1690,22 +1779,30 @@ class GalleryRepository(BaseRepository[Gallery]):
                     ).all()
                 )
                 tag_map = {(tag.namespace, tag.name): tag for tag in tag_rows}
-            gallery_tag_rows = [
-                {
-                    "gallery_id": gallery.id,
-                    "tag_id": tag_map[key].id,
-                }
-                for gallery, meta in pairs
-                for key in {
-                    (
-                        str(tag[0] or "misc").strip() or "misc",
-                        str(tag[1] or "").strip(),
-                    )
-                    for tag in meta.tags or []
-                    if str(tag[1] or "").strip()
-                }
-                if key in tag_map
-            ]
+            gallery_tag_rows = []
+            for gallery, meta in pairs:
+                meta_tags = meta.tags or []
+                for tag in meta_tags:
+                    if isinstance(tag, dict):
+                        namespace = str(tag.get("namespace") or "misc").strip() or "misc"
+                        name = str(tag.get("name") or "").strip()
+                    elif isinstance(tag, (list, tuple)) and len(tag) == 2:
+                        namespace = str(tag[0] or "misc").strip() or "misc"
+                        name = str(tag[1] or "").strip()
+                    elif isinstance(tag, str):
+                        parts = tag.split(":", 1)
+                        namespace = parts[0].strip() or "misc" if len(parts) == 2 else "misc"
+                        name = parts[1].strip() if len(parts) == 2 else parts[0].strip()
+                    else:
+                        continue
+                    key = (namespace, name)
+                    if key in tag_map:
+                        gallery_tag_rows.append(
+                            {
+                                "gallery_id": gallery.id,
+                                "tag_id": tag_map[key].id,
+                            }
+                        )
             if gallery_tag_rows:
                 await self.session.execute(
                     pg_insert(GalleryTag)
@@ -1713,6 +1810,10 @@ class GalleryRepository(BaseRepository[Gallery]):
                     .on_conflict_do_nothing(index_elements=["gallery_id", "tag_id"])
                 )
         return len(pairs)
+
+    async def apply_metadata_to_galleries(self, favcat: int, limit: int = 200) -> int:
+        """Backward-compatible alias for apply_cached_metadata(favcat=favcat, limit=limit)."""
+        return await self.apply_cached_metadata(favcat=favcat, limit=limit)
 
     async def replace_tags(
         self,

@@ -75,16 +75,12 @@ async def test_backfill_image_quality_no_client_or_session():
 
 
 @pytest.mark.asyncio
-async def test_backfill_image_quality_processes_batches():
+async def test_backfill_image_quality_processes_batches(monkeypatch):
     orig_client = app_state.eh_client
     orig_session = app_state.session_factory
     orig_settings = app_state.settings
     try:
-        fake_client = MagicMock()
-        fake_client.fetch_gmetadata = AsyncMock(return_value={
-            123: {"file_size": 1000000},
-        })
-        app_state.eh_client = fake_client
+        app_state.eh_client = object()
 
         row = SimpleNamespace(
             id=1,
@@ -124,10 +120,18 @@ async def test_backfill_image_quality_processes_batches():
 
         app_state.session_factory = lambda: FakeSession()
 
+        refresh_calls: list[list[tuple[int, str]]] = []
+
+        async def fake_refresh_gdata(session, cold, client=None, force=False):
+            refresh_calls.append(list(cold))
+            return {123: {"file_size": 1000000}}
+
+        monkeypatch.setattr("galleryvault.services.scan_worker.refresh_gdata", fake_refresh_gdata)
+
         with patch("galleryvault.services.scan_worker.GalleryRepository", FakeRepo):
             count = await backfill_image_quality()
             assert count == 1
-            fake_client.fetch_gmetadata.assert_called_once_with([(123, "abc")])
+            assert refresh_calls == [[(123, "abc")]]
     finally:
         app_state.eh_client = orig_client
         app_state.session_factory = orig_session
@@ -346,3 +350,58 @@ async def test_run_scan_duplicate_sync_not_module_not_found(caplog, monkeypatch)
         app_state.task_manager = orig_tm
         app_state.session_factory = orig_session
         app_state.settings = orig_settings
+
+
+@pytest.mark.asyncio
+async def test_gallery_ingest_applies_cached_uploader_and_file_count():
+    from galleryvault.services.ingest import GalleryIngestService
+    from galleryvault.services.library import GalleryMeta
+
+    upserted_batches: list[list[GalleryMeta]] = []
+
+    class FakeIngestRepo:
+        def __init__(self, session):
+            pass
+
+        async def metadata_map(self, gids):
+            return {
+                555: {
+                    "category": "Artist CG",
+                    "title_jpn": "テストタイトル",
+                    "uploader": "test_artist",
+                    "file_count": 30,
+                    "parent_gid": 1234,
+                    "tags": [{"namespace": "artist", "name": "alice"}],
+                    "rating": 4.6,
+                }
+            }
+
+        async def upsert_many(self, batch):
+            upserted_batches.append(list(batch))
+
+    ingest_svc = GalleryIngestService(None)
+    ingest_svc.repository = FakeIngestRepo(None)
+    ingest_svc._sync_directory_sidecars = lambda g: None
+
+    from pathlib import Path
+
+    incoming = GalleryMeta(
+        title="Incoming Gallery",
+        path=Path("/lib/555"),
+        storage_type="folder",
+        pages=[],
+        gid=555,
+        token="tok555",
+    )
+
+    await ingest_svc.ingest([incoming])
+
+    assert len(upserted_batches) == 1
+    applied = upserted_batches[0][0]
+    assert applied.uploader == "test_artist"
+    assert applied.file_count == 30
+    assert applied.category == "Artist CG"
+    assert applied.title_jpn == "テストタイトル"
+    assert applied.source_meta.get("parent_gid") == 1234
+    assert applied.tags == [{"namespace": "artist", "name": "alice"}]
+

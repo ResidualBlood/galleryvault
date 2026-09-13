@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from galleryvault.db.repositories.favorites import FavoritesRepository
 from galleryvault.db.repositories.galleries import GalleryRepository
 from galleryvault.db.repositories.updates import GalleryUpdatesRepository
-from galleryvault.services.download_prepare import MAX_FOLLOW_HOPS, _resolve_one
+from galleryvault.services.download_prepare import prepare_galleries
 from galleryvault.services.downloader import DownloadTask, raise_if_replaced
 from galleryvault.services.eh_client import GalleryData, GalleryGoneError, GalleryReplacedError
 
@@ -93,87 +93,41 @@ async def test_gallery_mode_replaced_empty_pages_fails() -> None:
         pass
 
 
-async def test_resolve_one_stops_at_max_follow_hops() -> None:
-    prepared = await _resolve_one(None, 1, "tok", cache={}, gdata={}, hops=MAX_FOLLOW_HOPS)
-    assert prepared.gid == 1
-    assert prepared.old_gid is None
-
-
-async def test_resolve_one_html_banner_despite_gdata_and_cache_titles() -> None:
-    from galleryvault.services.eh_client import GalleryData
-
-    html_gids: list[int] = []
-
-    class Client:
-        async def fetch_gallery_metadata(self, gid, token):
-            html_gids.append(gid)
-            if gid == 1:
-                return GalleryData(1, token, "Old", [], replaced_by=(2, "newtok"))
-            return GalleryData(2, "newtok", "New Title", [])
-
-    prepared = await _resolve_one(
-        Client(),
-        1,
-        "tok",
-        cache={1: {"title": "cached-old"}},
-        gdata={1: {"title": "gdata-old"}},
-        hops=0,
-    )
-    assert prepared.gid == 2
-    assert prepared.old_gid == 1
-    assert prepared.title == "New Title"
-    assert html_gids == [1, 2]
-
-
-async def test_prepare_html_banner_cached_per_gid(monkeypatch) -> None:
+async def test_prepare_stops_at_max_follow_hops(monkeypatch) -> None:
     from galleryvault.app.state import app_state
-    from galleryvault.services.download_prepare import prepare_galleries
     from galleryvault.services.eh_client import GalleryData
 
-    html_gids: list[int] = []
-    gdata_calls: list[list[tuple[int, str]]] = []
-
-    class Client:
+    class CycleClient:
         async def fetch_gmetadata(self, pairs):
-            gdata_calls.append(list(pairs))
-            return {int(gid): {"title": f"gdata-{gid}"} for gid, _tok in pairs}
+            return {int(gid): {"title": f"Title {gid}", "expunged": True} for gid, _ in pairs}
 
         async def fetch_gallery_metadata(self, gid, token):
-            html_gids.append(gid)
-            if gid == 10:
-                return GalleryData(10, token, "Old", [], replaced_by=(20, "newtok"))
-            return GalleryData(20, "newtok", "New Title", [])
+            next_gid = 2 if gid == 1 else 1
+            return GalleryData(gid, token, f"Title {gid}", [], replaced_by=(next_gid, "tok"))
 
     async def fake_cache(gids):
-        return {10: {"title": "cached-10", "token": "tok"}}
+        return {1: {"title": "Title 1", "expunged": True}}
 
     async def fake_local(gids):
         return set()
 
-    monkeypatch.setattr(
-        "galleryvault.services.download_prepare._cached_map", fake_cache
-    )
-    monkeypatch.setattr(
-        "galleryvault.services.download_prepare._local_gids", fake_local
-    )
     orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    app_state.session_factory = None
     try:
-        app_state.eh_client = Client()
-        results = await prepare_galleries([(10, "tok"), (10, "tok")])
-        assert len(results) == 2
-        assert results[0].gid == 20
-        assert results[0].old_gid == 10
-        assert html_gids.count(10) == 1
-        assert html_gids.count(20) == 1
-        assert gdata_calls == []
+        app_state.eh_client = CycleClient()
+        monkeypatch.setattr("galleryvault.services.download_prepare._cached_map", fake_cache)
+        monkeypatch.setattr("galleryvault.services.download_prepare._local_gids", fake_local)
+        results = await prepare_galleries([(1, "tok")])
+        assert len(results) == 1
+        assert results[0].old_gid == 1
     finally:
         app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
 
 
-async def test_prepare_gdata_only_when_html_fails(monkeypatch) -> None:
+async def test_prepare_gdata_first_no_html_when_normal(monkeypatch) -> None:
     from galleryvault.app.state import app_state
-    from galleryvault.services.download_prepare import prepare_galleries
-    from galleryvault.services.eh_client import EhClientError
 
     html_gids: list[int] = []
     gdata_calls: list[list[tuple[int, str]]] = []
@@ -181,11 +135,18 @@ async def test_prepare_gdata_only_when_html_fails(monkeypatch) -> None:
     class Client:
         async def fetch_gmetadata(self, pairs):
             gdata_calls.append(list(pairs))
-            return {int(gid): {"title": f"gdata-{gid}"} for gid, _tok in pairs}
+            return {
+                int(gid): {
+                    "title": f"gdata-title-{gid}",
+                    "title_jpn": None,
+                    "expunged": False,
+                }
+                for gid, _ in pairs
+            }
 
         async def fetch_gallery_metadata(self, gid, token):
             html_gids.append(gid)
-            raise EhClientError("html down")
+            raise AssertionError("HTML fetch must NOT be called for normal non-expunged galleries")
 
     async def fake_cache(gids):
         return {}
@@ -193,22 +154,116 @@ async def test_prepare_gdata_only_when_html_fails(monkeypatch) -> None:
     async def fake_local(gids):
         return set()
 
-    monkeypatch.setattr(
-        "galleryvault.services.download_prepare._cached_map", fake_cache
-    )
-    monkeypatch.setattr(
-        "galleryvault.services.download_prepare._local_gids", fake_local
-    )
     orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    app_state.session_factory = None
     try:
         app_state.eh_client = Client()
-        results = await prepare_galleries([(10, "tok"), (11, "tok2")])
-        assert html_gids == [10, 11]
-        assert gdata_calls == [[(10, "tok"), (11, "tok2")]]
-        assert results[0].title == "gdata-10"
-        assert results[1].title == "gdata-11"
+        monkeypatch.setattr("galleryvault.services.download_prepare._cached_map", fake_cache)
+        monkeypatch.setattr("galleryvault.services.download_prepare._local_gids", fake_local)
+        results = await prepare_galleries([(100, "tok1"), (200, "tok2")])
+        assert len(results) == 2
+        assert results[0].title == "gdata-title-100"
+        assert results[1].title == "gdata-title-200"
+        assert results[0].gone is False
+        assert results[1].gone is False
+        assert len(gdata_calls) == 1
+        assert html_gids == []
     finally:
         app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
+
+
+async def test_prepare_follows_html_banner_when_expunged(monkeypatch) -> None:
+    from galleryvault.app.state import app_state
+    from galleryvault.services.eh_client import GalleryData
+
+    html_gids: list[int] = []
+    gdata_calls: list[list[tuple[int, str]]] = []
+
+    class Client:
+        async def fetch_gmetadata(self, pairs):
+            gdata_calls.append(list(pairs))
+            return {
+                int(gid): {
+                    "title": f"gdata-title-{gid}",
+                    "expunged": (gid == 1),
+                }
+                for gid, _ in pairs
+            }
+
+        async def fetch_gallery_metadata(self, gid, token):
+            html_gids.append(gid)
+            if gid == 1:
+                return GalleryData(1, token, "Old Title", [], replaced_by=(2, "newtok"))
+            return GalleryData(2, "newtok", "New Title", [])
+
+    async def fake_cache(gids):
+        return {1: {"title": "Old Cached", "expunged": True}}
+
+    async def fake_local(gids):
+        return set()
+
+    orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    app_state.session_factory = None
+    try:
+        app_state.eh_client = Client()
+        monkeypatch.setattr("galleryvault.services.download_prepare._cached_map", fake_cache)
+        monkeypatch.setattr("galleryvault.services.download_prepare._local_gids", fake_local)
+        results = await prepare_galleries([(1, "tok")])
+        assert len(results) == 1
+        assert results[0].gid == 2
+        assert results[0].old_gid == 1
+        assert results[0].title == "gdata-title-2"
+        # Only expunged gid=1 triggers HTML check; normal gid=2 does not trigger HTML
+        assert html_gids == [1]
+    finally:
+        app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
+
+
+async def test_prepare_html_banner_cached_per_gid(monkeypatch) -> None:
+    from galleryvault.app.state import app_state
+
+    html_gids: list[int] = []
+    enriched: dict[int, tuple[int, str] | None] = {}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    async def fake_enrich(session, gid, token, client=None):
+        if gid not in enriched:
+            html_gids.append(gid)
+            enriched[gid] = (20, "newtok") if gid == 10 else None
+        return enriched[gid]
+
+    async def fake_cache(gids):
+        return {10: {"title": "cached-10", "expunged": True}}
+
+    async def fake_local(gids):
+        return set()
+
+    orig_client = app_state.eh_client
+    orig_factory = app_state.session_factory
+    try:
+        app_state.session_factory = lambda: FakeSession()
+        app_state.eh_client = object()
+        monkeypatch.setattr("galleryvault.services.download_prepare.enrich_html_newer", fake_enrich)
+        monkeypatch.setattr("galleryvault.services.download_prepare._cached_map", fake_cache)
+        monkeypatch.setattr("galleryvault.services.download_prepare._local_gids", fake_local)
+        results = await prepare_galleries([(10, "tok"), (10, "tok")])
+        assert len(results) == 2
+        assert results[0].gid == 20
+        assert results[0].old_gid == 10
+        assert html_gids.count(10) == 1
+    finally:
+        app_state.eh_client = orig_client
+        app_state.session_factory = orig_factory
 
 
 async def test_read_status_completed_requires_progress() -> None:

@@ -9,12 +9,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 
 from ..app.state import app_state
 from ..config import get_settings
+from ..db.models import Gallery
 from ..db.repository import BackgroundJobsRepository, GalleryRepository
 from ..logging import bind_log_context, log_extra
 from .eh_client import EhClientError, GalleryGoneError
+from .eh_metadata import refresh_gdata
 from .tag_sync import TagSyncService
 from .tag_translation import load_translations, merge_translation_data
 
@@ -255,7 +258,7 @@ async def _confirm_gone(gid: int, token: str | None) -> bool | None:
 
 
 async def category_refresh_once() -> int:
-    """Backfill the 大分类 for galleries stuck in ``other``."""
+    """Backfill the 大分类 for galleries stuck in ``other`` via batch gdata."""
     tm = app_state.task_manager
     state = tm.tag_sync_state if tm else {}
     if state.get("category_refresh_running"):
@@ -274,73 +277,64 @@ async def category_refresh_once() -> int:
                 break
             ids.extend(batch)
             last_id = batch[-1]
-        for gallery_id in ids:
+        if not ids:
+            return 0
+
+        gal_rows: list[tuple[int, int | None, str | None]] = []
+        async with app_state.session_factory() as session:
+            stmt = select(Gallery.id, Gallery.gid, Gallery.token).where(Gallery.id.in_(ids))
+            res = await session.execute(stmt)
+            gal_rows = [(r[0], r[1], r[2]) for r in res.all()]
+
+        pairs = [(gid, token) for _, gid, token in gal_rows if gid is not None and token]
+        gmeta: dict[int, dict[str, Any]] = {}
+        if pairs:
             try:
-                async with app_state.session_factory() as session, session.begin():
-                    await TagSyncService(
-                        app_state.eh_client, GalleryRepository(session)
-                    ).refresh_category(gallery_id)
-                refreshed += 1
-            except GalleryGoneError:
-                # Confirm via gdata before reclassifying — an empty/challenge
-                # HTML page must not mass-mark live galleries as deleted.
-                gid_token: tuple[int | None, str | None] = (None, None)
-                try:
-                    async with app_state.session_factory() as session:
-                        g = await GalleryRepository(session).get_for_tag_sync(gallery_id)
-                        if g is not None:
-                            gid_token = (g.gid, g.token)
-                except Exception:  # noqa: BLE001
-                    gid_token = (None, None)
-                confirmed = None
-                if gid_token[0] is not None:
-                    confirmed = await _confirm_gone(int(gid_token[0]), gid_token[1])
-                if confirmed is False:
-                    # gdata says still present — transient HTML gone, requeue
-                    logger.warning(
-                        "category refresh gone not confirmed by gdata, requeueing",
-                        extra=log_extra(gallery_id=gallery_id, gid=gid_token[0]),
-                    )
-                    continue
-                if confirmed is None:
-                    # gdata check failed or inconclusive — do not mark deleted,
-                    # let the next backfill attempt handle it
-                    logger.warning(
-                        "category refresh gdata check inconclusive, skipping deleted mark",
-                        extra=log_extra(gallery_id=gallery_id, gid=gid_token[0]),
-                    )
-                    continue
-                settings = app_state.settings or get_settings()
-                if _is_public_site(settings.exhentai_base_url):
-                    try:
-                        async with app_state.session_factory() as session, session.begin():
-                            await GalleryRepository(session).mark_tag_not_visible(gallery_id)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning(
-                            "could not mark gallery not-visible during category refresh",
-                            extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
-                        )
-                else:
-                    try:
-                        async with app_state.session_factory() as session, session.begin():
-                            await GalleryRepository(session).mark_tag_synced(gallery_id, category="deleted")
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning(
-                            "could not mark deleted gallery during category refresh",
-                            extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
-                        )
-            except EhClientError:
-                logger.warning(
-                    "category refresh failed",
-                    extra=log_extra(gallery_id=gallery_id, error="EhClientError"),
-                )
+                gmeta = await refresh_gdata(pairs, client=app_state.eh_client)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "category refresh error",
-                    extra=log_extra(gallery_id=gallery_id, error=type(exc).__name__),
+                    "category refresh gdata batch failed", extra=log_extra(error=type(exc).__name__)
                 )
-            if ids and gallery_id != ids[-1]:
-                await asyncio.sleep(0.3)
+
+        settings = app_state.settings or get_settings()
+        is_public = _is_public_site(settings.exhentai_base_url)
+
+        for gal_id, gid, _token in gal_rows:
+            if gid is None:
+                continue
+            meta = gmeta.get(gid)
+            if not meta:
+                async with app_state.session_factory() as session:
+                    meta = await GalleryRepository(session).metadata_for_gid(gid)
+            if not meta:
+                continue
+
+            if meta.get("expunged"):
+                try:
+                    async with app_state.session_factory() as session, session.begin():
+                        repo = GalleryRepository(session)
+                        if is_public:
+                            await repo.mark_tag_not_visible(gal_id)
+                        else:
+                            await repo.mark_tag_synced(gal_id, category="deleted")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "could not mark expunged gallery in category refresh",
+                        extra=log_extra(gallery_id=gal_id, gid=gid, error=type(exc).__name__),
+                    )
+                continue
+
+            category = meta.get("category")
+            if category and str(category).lower() != "other":
+                try:
+                    async with app_state.session_factory() as session, session.begin():
+                        await GalleryRepository(session).refresh_category(gal_id, str(category))
+                    refreshed += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "category refresh update failed",
+                        extra=log_extra(gallery_id=gal_id, gid=gid, error=type(exc).__name__),
+                    )
         state["category_refreshed"] = int(state.get("category_refreshed", 0)) + refreshed
     finally:
         state["category_refresh_running"] = False
@@ -382,6 +376,35 @@ async def _sync_one(gallery_id: int, attempts: int) -> bool | None:
                 plan = await TagSyncService(
                     app_state.eh_client, GalleryRepository(session)
                 ).fetch_plan(gallery_id)
+
+            if plan.get("expunged"):
+                if _is_public_site(settings.exhentai_base_url):
+                    try:
+                        async with app_state.session_factory() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_not_visible(gallery_id)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "could not mark gallery not-visible on public mirror",
+                            extra=log_extra(gallery_id=gallery_id),
+                        )
+                else:
+                    try:
+                        async with app_state.session_factory() as session, session.begin():
+                            await GalleryRepository(session).mark_tag_synced(
+                                gallery_id, category="deleted"
+                            )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "could not mark deleted gallery synced",
+                            extra=log_extra(gallery_id=gallery_id),
+                        )
+                await complete_job(JOB_TAG_SYNC, gallery_id)
+                tag_sync_state["failed"] = int(tag_sync_state.get("failed", 0)) + 1
+                logger.warning(
+                    "tag sync skipped (gallery confirmed expunged by gdata)",
+                    extra=log_extra(gallery_id=gallery_id, gid=plan.get("gid")),
+                )
+                return None
 
             async with app_state.session_factory() as session, session.begin():
                 await TagSyncService(

@@ -1413,3 +1413,92 @@ async def test_favorite_note_cloud_failure_does_not_write_local(monkeypatch: pyt
         assert result["note"] is None
     finally:
         app_state.eh_client = orig
+
+
+# ==============================================================================
+# 8. Archive Sizing & Unified Metadata Pipeline
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+async def test_check_category_archive_sizing_uses_refresh_gdata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archive sizing in check_category must use refresh_gdata pipeline, not throwaway gdata."""
+    from galleryvault.services.favorites import FavoritesService
+
+    refresh_calls: list[list[tuple[int, str]]] = []
+
+    async def fake_refresh_gdata(session, pairs, *, client=None, force=False):
+        refresh_calls.append(list(pairs))
+        return {
+            int(gid): {"file_count": 50, "title": f"Title {gid}"}
+            for gid, _ in pairs
+        }
+
+    monkeypatch.setattr("galleryvault.services.favorites.refresh_gdata", fake_refresh_gdata)
+
+    class MockFetcher:
+        async def fetch_favorites(self, favcat: int, progress=None):
+            return [
+                SimpleNamespace(gid=101, token="tok101", title="G101"),
+                SimpleNamespace(gid=102, token="tok102", title="G102"),
+            ]
+
+    class MockRepo:
+        async def category(self, favcat: int):
+            return SimpleNamespace(name="Fav 0")
+
+        async def known_gids(self, favcat: int):
+            return set()
+
+        async def existing_gallery_gids(self, gids):
+            return set()
+
+        async def remember_many(self, favcat, items):
+            return len(items)
+
+        async def prune(self, favcat, current):
+            return 0
+
+        async def checked(self, favcat, success):
+            pass
+
+    enqueued_modes: list[str] = []
+
+    class MockQueue:
+        async def enqueue(self, item, mode=None, quality=None):
+            enqueued_modes.append(mode or "gallery")
+            return True
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def begin(self):
+            return self
+
+    service = FavoritesService(
+        fetcher=MockFetcher(),
+        repository=MockRepo(),
+        queue=MockQueue(),
+        notifier=None,
+    )
+
+    res = await service.check_category(
+        0,
+        archive_enabled=True,
+        archive_max_pages=20,  # 50 > 20 -> should trigger favorite_archive mode
+        session=FakeSession(),
+    )
+
+    assert res.found == 2
+    assert res.new == 2
+    assert res.downloaded == 2
+    assert len(refresh_calls) == 1
+    assert sorted(refresh_calls[0]) == [(101, "tok101"), (102, "tok102")]
+    assert enqueued_modes == ["favorite_archive", "favorite_archive"]
+
