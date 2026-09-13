@@ -96,41 +96,57 @@ JHenTai **逐页下载**把元数据写在 `{gid} - {title}/metadata`（无扩�
 
 ### 3. `.galleryvault.json` Sidecar 规范
 
-本项目有两处写出，字段不完全相同。`tags` 一律是 `{namespace, name}` 对象列表（扫描器读端也接受 `"namespace:name"` 字符串）。没有 `version` / `posted` / `rating` / `archived_at`。
+`.galleryvault.json` 是 GalleryVault 的**离线单一真实数据源（SSOT）**。无论是下载落盘、冷归档打包，还是扫描对目录元数据的自动补齐，系统均统一写出相同结构且包含 15 个固定键的完整 JSON 文件（`version: 1`）。即使脱离数据库、在无网络连接或缺少 `.ehviewer` 时，扫描器仅凭 sidecar 即可完整还原画廊核心身份（gid / token）、标题、分类、画质、标签与逐页 pToken。
 
-**下载完成**（逐页与归档 zip 解压后同一套）写在热目录里，与 `.ehviewer` 并列。gid / token / pToken 在 `.ehviewer`，sidecar 只补分类、标题、标签、画质：
+存储位置：
+- **目录画廊**（逐页下载热目录、未打包的冷归档目录）：置于画廊根目录下（与图片或 `.ehviewer` 并列）。
+- **CBZ 归档包**：置于压缩包**内部根目录**（与 `ComicInfo.xml` 并列），**严禁**放在外部 `.cbz` 文件同级。
 
-```json
-{
-  "category": "Doujinshi",
-  "title": "Downloaded Gallery Title",
-  "title_jpn": "ダウンロード画廊タイトル",
-  "tags": [
-    {"namespace": "artist", "name": "sample_artist"},
-    {"namespace": "female", "name": "long hair"}
-  ],
-  "quality": "resample"
-}
-```
-
-**冷归档**写在 CBZ **包内**或冷目录内（不是放在 `.cbz` 文件旁边）。含 gid / token / p_tokens，可选 `category`，**不写** `quality`：
+统一 Schema 完整示例（15 键）：
 
 ```json
 {
+  "version": 1,
   "gid": 345678,
   "token": "b9c8d7e6f5",
-  "title": "Archived Gallery Title",
-  "title_jpn": "アーカイブ画廊タイトル",
+  "title": "English Title",
+  "title_jpn": "日本語タイトル",
   "category": "doujinshi",
+  "quality": "resample",
   "tags": [
     {"namespace": "artist", "name": "sample_artist"},
     {"namespace": "female", "name": "long hair"}
   ],
-  "p_tokens": ["abcdef01", "abcdef02"]
+  "p_tokens": ["abcdef01", "abcdef02"],
+  "uploader": null,
+  "posted": null,
+  "rating": null,
+  "file_count": 2,
+  "file_size": null,
+  "site": null
 }
 ```
 
-入库：热目录、冷目录、CBZ 扫描器都合并 sidecar 的 title / tags / category / quality。CBZ 还读包内 gid / token。没有 `category` 时回落 misc，除非文件名或父目录能推断。
+约定规则：
+
+- `version`：版本号，固定为整型 `1`。
+- `gid` / `token`：画廊唯一标识与访问令牌。整型 `gid`（未知时 `null`），小写十六进制字符串 `token`（未知时 `""`）。
+- `title` / `title_jpn`：主标题与日文标题。若 `title_jpn` 为纯数字，系统规整为 `""`。
+- `category`：统一小写（如 `"doujinshi"`, `"manga"`，非首字母大写）。
+- `quality`：严格受限枚举 `"original"` | `"resample"` | `null`。未知必须写 `null`，禁止省略键（防止重扫冲掉库内已有画质标记）。
+- `tags`：规范写出形如 `{"namespace": "artist", "name": "sample"}` 的对象数组。读端保持兼容，亦可解析 `"namespace:name"` 纯字符串。
+- `p_tokens`：按页码下标对齐的稠密字符串数组，缺页填充 `""`（非稀疏数组）。
+- `uploader` / `posted` / `rating` / `file_count` / `file_size` / `site`：元数据补充项。已知时写入，未知时填 `null`（下载流程不为此额外打网络 GData 请求；冷归档与入库从 DB 或已有元数据继承）。
+- **键完整性**：始终写出全部 15 个键，未知项填充 `null` / `[]` / `""`，**禁止省略键**。
+- **排除私有状态**：不持久化 `local_rating`、`local_note`、本地路径、文件签名或 `archived_at` 等易变或私有运行状态。
+- **编码**：UTF-8 编码、`indent=2`、`ensure_ascii=False`、末尾换行。
+
+读端兼容与扫描回写：
+
+- **后向兼容**：读端无缝兼容历史两套旧格式（早期下载款无 gid/token/p_tokens 但有 quality；冷归档款有 gid 但无 quality 且 category 可缺；tags 为纯字符串列表等）。
+- **优先级**：字段合并遵循 `sidecar > ComicInfo.xml > .ehviewer / 目录推断`（包内 sidecar 的标题与标签优先于 ComicInfo）。但文件名提取的 `gid`（形如 `123456-xxx`）依然具有最高优先级。
+- **目录回写**：扫描入库成功后，仅针对目录型存储（热目录、冷目录）检查 sidecar。若缺失 sidecar 或缺少任意核心键，将结合本次元数据自动补写完整 v1 sidecar；若已是完整 v1 则跳过以避免刷新 mtime。
+- **压缩包只读**：对 CBZ / CBR / PDF 等压缩归档包严格保持只读，扫描入库绝不修改或重打包压缩文件。
 
 ---
 

@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import BinaryIO
 from xml.etree import ElementTree
 
+from ..metadata.sidecar import (
+    SIDECAR_FILENAME,
+    read_galleryvault_json,
+)
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}
@@ -252,7 +256,7 @@ class EhviewerDirScanner(GalleryScanner):
             spider = parse_spider_info((path / ".ehviewer").read_text(encoding="utf-8"))
         except ValueError as exc:
             raise ValueError(f"{path}: {exc}") from exc
-        gid, token, declared = spider.gid, spider.token, spider.pages
+        declared = spider.pages
         files = sorted(
             (
                 item
@@ -278,18 +282,45 @@ class EhviewerDirScanner(GalleryScanner):
         ]
         signature = self.storage_signature(path)
         source_meta = spider.source_meta()
-        metadata_path = path / ".galleryvault.json"
+
+        metadata_path = path / SIDECAR_FILENAME
+        gv_data = None
         if metadata_path.is_file():
-            try:
-                extra = json.loads(metadata_path.read_text(encoding="utf-8"))
-                if isinstance(extra, dict):
-                    source_meta.update(extra)
-            except (OSError, json.JSONDecodeError):
+            gv_data = read_galleryvault_json(metadata_path)
+            if gv_data is not None:
+                source_meta.update(gv_data)
+            else:
                 warnings.append("invalid .galleryvault.json")
+
+        # Filename regex gid has priority over sidecar gid; sidecar gid has priority over spider
+        gid_match = _GID.match(path.name)
+        if gid_match:
+            gid = int(gid_match.group(1))
+        elif gv_data and gv_data.get("gid") is not None:
+            gid = gv_data["gid"]
+        else:
+            gid = spider.gid
+
+        # token and p_tokens: sidecar priority, fallback to spider
+        token = (gv_data.get("token") if gv_data else None) or spider.token
+        if gv_data and gv_data.get("p_tokens"):
+            source_meta["p_tokens"] = gv_data["p_tokens"]
+
         fallback_title = strip_gid_prefix(path.name, gid) or path.name
-        title = source_meta.get("title") or fallback_title
-        title_jpn = source_meta.get("title_jpn")
-        tags = source_meta.get("tags") or []
+        title = (gv_data.get("title") if gv_data and gv_data.get("title") else None) or fallback_title
+        title_jpn = (gv_data.get("title_jpn") if gv_data and gv_data.get("title_jpn") else None) or source_meta.get("title_jpn")
+        tags = gv_data.get("tags") if (gv_data and gv_data.get("tags")) else (source_meta.get("tags") or [])
+        category = (gv_data.get("category") if gv_data and gv_data.get("category") else None) or infer_category(path, source_meta)
+        image_quality = gv_data.get("quality") if gv_data else source_meta.get("quality")
+        uploader = gv_data.get("uploader") if gv_data else None
+        rating = gv_data.get("rating") if gv_data else None
+        posted_at = None
+        if gv_data and gv_data.get("posted"):
+            try:
+                posted_at = datetime.fromisoformat(str(gv_data["posted"]))
+            except (ValueError, TypeError):
+                pass
+
         return GalleryMeta(
             title=title,
             title_jpn=title_jpn,
@@ -298,12 +329,15 @@ class EhviewerDirScanner(GalleryScanner):
             pages=pages,
             gid=gid,
             token=token,
+            uploader=uploader,
+            rating=rating,
+            posted_at=posted_at,
             file_count=len(pages),
             file_size=sum(p.size or 0 for p in pages),
             warnings=warnings,
-            category=infer_category(path, source_meta),
+            category=category,
             tags=tags,
-            image_quality=source_meta.get("quality"),
+            image_quality=image_quality,
             source_meta=source_meta,
             storage_signature=signature,
             storage_mtime_ns=path.stat().st_mtime_ns,
@@ -480,7 +514,7 @@ class BareImageDirScanner(GalleryScanner):
     def matches(self, path: Path) -> bool:
         if not path.is_dir() or (path / ".ehviewer").is_file():
             return False
-        has_gv_json = (path / ".galleryvault.json").is_file()
+        has_gv_json = (path / SIDECAR_FILENAME).is_file()
         if not has_gv_json and not _DIR_NAME.match(path.name):
             return False
         return any(
@@ -492,11 +526,11 @@ class BareImageDirScanner(GalleryScanner):
 
     def scan(self, path: Path) -> GalleryMeta:
         match = _DIR_NAME.match(path.name)
-        gid = int(match.group(1)) if match else None
+        filename_gid = int(match.group(1)) if match else None
         rest = match.group(2) if match else path.name
-        if gid is None and path.name.isdigit():
-            gid = int(path.name)
-        rest = strip_gid_prefix(rest, gid) or rest
+        if filename_gid is None and path.name.isdigit():
+            filename_gid = int(path.name)
+
         files = sorted(
             (
                 item
@@ -511,61 +545,89 @@ class BareImageDirScanner(GalleryScanner):
         if not files:
             warnings.append("no image files found")
         source_meta: dict[str, object] = {}
-        title = rest
-        title_jpn = None
-        tags: list[dict[str, str]] = []
-        token: str | None = None
-        uploader: str | None = None
 
-        metadata_path = path / ".galleryvault.json"
+        metadata_path = path / SIDECAR_FILENAME
+        gv_data = None
         if metadata_path.is_file():
-            try:
-                extra = json.loads(metadata_path.read_text(encoding="utf-8"))
-                if isinstance(extra, dict):
-                    source_meta.update(extra)
-                    if gid is None and extra.get("gid") is not None:
-                        try:
-                            gid = int(extra["gid"])
-                        except (TypeError, ValueError):
-                            pass
-                    if extra.get("token"):
-                        token = str(extra["token"])
-                    title = extra.get("title") or rest
-                    tj = extra.get("title_jpn")
-                    if tj and not str(tj).strip().isdigit():
-                        title_jpn = str(tj)
-                    else:
-                        title_jpn = None
-                    gv_tags = _normalize_tags(extra.get("tags"))
-                    if gv_tags:
-                        tags = gv_tags
-            except (OSError, json.JSONDecodeError):
+            gv_data = read_galleryvault_json(metadata_path)
+            if gv_data is not None:
+                source_meta.update(gv_data)
+            else:
                 warnings.append("invalid .galleryvault.json")
 
+        comic_title = None
+        comic_tags: list[dict[str, str]] = []
+        comic_uploader = None
         comic_path = path / "ComicInfo.xml"
         if comic_path.is_file():
             try:
                 root = ElementTree.fromstring(comic_path.read_bytes())
                 values = {child.tag.split("}")[-1]: (child.text or "").strip() for child in root}
                 source_meta["comic_info"] = values
-                if values.get("Title") and (not title or title == path.name):
-                    title = values["Title"]
-                if not tags and values.get("Genre"):
-                    tags = [
+                if values.get("Title"):
+                    comic_title = values["Title"]
+                if values.get("Genre"):
+                    comic_tags = [
                         {"namespace": "misc", "name": t.strip()}
                         for t in values["Genre"].split(",")
                         if t.strip()
                     ]
                 if values.get("Writer"):
-                    uploader = values["Writer"][:128]
+                    comic_uploader = values["Writer"][:128]
             except (ElementTree.ParseError, OSError):
                 warnings.append("invalid ComicInfo.xml")
 
-        if not title_jpn:
-            if rest and not rest.strip().isdigit():
-                title_jpn = rest
-            else:
-                title_jpn = None
+        # Filename regex gid has priority over sidecar gid
+        if filename_gid is not None:
+            gid = filename_gid
+        elif gv_data and gv_data.get("gid") is not None:
+            gid = gv_data["gid"]
+        else:
+            gid = None
+
+        rest = strip_gid_prefix(rest, gid) or rest
+
+        # Priority: sidecar > ComicInfo > folder name
+        if gv_data and gv_data.get("title"):
+            title = gv_data["title"]
+        elif comic_title:
+            title = comic_title
+        else:
+            title = rest
+
+        if gv_data and gv_data.get("title_jpn"):
+            title_jpn = gv_data["title_jpn"]
+        elif rest and not rest.strip().isdigit():
+            title_jpn = rest
+        else:
+            title_jpn = None
+
+        if gv_data and gv_data.get("tags"):
+            tags = gv_data["tags"]
+        elif comic_tags:
+            tags = comic_tags
+        else:
+            tags = []
+
+        if gv_data and gv_data.get("category"):
+            category = gv_data["category"]
+        else:
+            category = infer_category(path, source_meta)
+
+        image_quality = gv_data.get("quality") if gv_data else source_meta.get("quality")
+        token = gv_data.get("token") if gv_data else None
+        uploader = (gv_data.get("uploader") if gv_data and gv_data.get("uploader") else None) or comic_uploader
+        rating = gv_data.get("rating") if gv_data else None
+        posted_at = None
+        if gv_data and gv_data.get("posted"):
+            try:
+                posted_at = datetime.fromisoformat(str(gv_data["posted"]))
+            except (ValueError, TypeError):
+                pass
+
+        if gv_data and gv_data.get("p_tokens"):
+            source_meta["p_tokens"] = gv_data["p_tokens"]
+
         pages = [
             PageInfo(
                 i,
@@ -585,12 +647,14 @@ class BareImageDirScanner(GalleryScanner):
             gid=gid,
             token=token,
             uploader=uploader,
+            rating=rating,
+            posted_at=posted_at,
             file_count=len(pages),
             file_size=sum(p.size or 0 for p in pages),
             warnings=warnings,
-            category=infer_category(path, source_meta),
+            category=category,
             tags=tags,
-            image_quality=source_meta.get("quality"),
+            image_quality=image_quality,
             source_meta=source_meta,
             storage_signature=self.storage_signature(path),
             storage_mtime_ns=path.stat().st_mtime_ns,

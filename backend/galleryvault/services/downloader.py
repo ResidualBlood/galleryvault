@@ -17,6 +17,7 @@ from typing import Protocol
 from PIL import Image as PILImage
 
 from ..logging import log_extra
+from ..metadata.sidecar import write_galleryvault_json
 from ..scanners.ehviewer import natural_key, strip_gid_prefix
 from .eh_client import (
     ArchiveExpiredError,
@@ -664,22 +665,19 @@ class Downloader:
         ]
         lines.extend(f"{i} {page.token}" for i, page in enumerate(pages) if page.token)
         (temp / ".ehviewer").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        (temp / ".galleryvault.json").write_text(
-            json.dumps(
-                {
-                    "category": gallery.category,
-                    "title": gallery.title,
-                    "title_jpn": gallery.title_jpn,
-                    "tags": [
-                        {"namespace": tag.get("namespace", "misc"), "name": tag.get("name", "")}
-                        for tag in gallery.tags
-                        if tag.get("name")
-                    ],
-                    "quality": quality,
-                },
-                ensure_ascii=True,
-            ),
-            encoding="utf-8",
+        p_tokens = [page.token or "" for page in pages]
+        write_galleryvault_json(
+            temp,
+            gid=gallery.gid,
+            token=gallery.token,
+            title=gallery.title,
+            title_jpn=gallery.title_jpn,
+            category=gallery.category,
+            quality=quality,
+            tags=gallery.tags,
+            p_tokens=p_tokens,
+            file_count=page_count,
+            file_size=getattr(gallery, "file_size", None),
         )
 
     async def _finalize_target(

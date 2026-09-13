@@ -7,6 +7,7 @@ flow, the GP funds gate, and the idempotent resume (persisted zip URL).
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -220,6 +221,19 @@ async def test_archive_downloader_writes_renamed_gallery(tmp_path: Path) -> None
     assert not (result.path / ".archive.json").exists()
     assert not (result.path / "archive.zip").exists()
 
+    # Unified .galleryvault.json sidecar written with all offline SSOT fields
+    assert (result.path / ".galleryvault.json").exists()
+    gv_data = json.loads((result.path / ".galleryvault.json").read_text(encoding="utf-8"))
+    assert gv_data["version"] == 1
+    assert gv_data["gid"] == 1
+    assert gv_data["token"] == "t"
+    assert gv_data["quality"] == "resample"
+    assert gv_data["category"] == "manga"
+    assert gv_data["title"] == "Arc Title"
+    assert gv_data["title_jpn"] == "アーカイブ"
+    assert gv_data["p_tokens"] == ["tok0", "tok1", "tok2"]
+    assert gv_data["file_count"] == 3
+
 
 @pytest.mark.asyncio
 async def test_archive_downloader_records_speed_stats(tmp_path: Path) -> None:
@@ -244,10 +258,12 @@ async def test_archive_downloader_records_speed_stats(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_archive_original_tier_passes_org_dltype(tmp_path: Path) -> None:
     client = FakeArchiveClient()
-    await Downloader(client, tmp_path).execute(
+    result = await Downloader(client, tmp_path).execute(
         DownloadTask(1, "t", "title", mode="archive", quality="original")
     )
     assert client.requests[0][1] == "org"
+    gv_data = json.loads((result.path / ".galleryvault.json").read_text(encoding="utf-8"))
+    assert gv_data["quality"] == "original"
 
 
 @pytest.mark.asyncio

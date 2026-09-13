@@ -96,41 +96,57 @@ The scanner reads `gallery.gid` / `token` / `title` / `category` / `uploader` / 
 
 ### 3. `.galleryvault.json` Sidecar Specification
 
-Two writers, slightly different fields. `tags` is always a list of `{namespace, name}` objects (readers also accept `"namespace:name"` strings). No `version` / `posted` / `rating` / `archived_at`.
+`.galleryvault.json` serves as GalleryVault's **offline Single Source of Truth (SSOT)**. Whether during download persistence, cold archive packaging, or automatic metadata backfilling during library scans, the system uniformly writes a consistent JSON document containing 15 fixed keys (`version: 1`). Even in an offline environment without database access, active network connections, or `.ehviewer` files, scanners can completely reconstruct the gallery identity (`gid` / `token`), titles, category, image quality, tags, and page-level `p_tokens` solely from the sidecar.
 
-**After a download** (page-by-page and archive-zip share this path) the sidecar sits next to `.ehviewer` in the hot folder. gid / token / pTokens live in `.ehviewer`; the sidecar only adds category, titles, tags, and quality:
+Storage Locations:
+- **Directory Galleries** (page-by-page download hot folders, unpackaged cold archive directories): Located at the gallery root folder (alongside image files or `.ehviewer`).
+- **CBZ Archives**: Located **inside the root** of the archive package (alongside `ComicInfo.xml`). **Never** placed outside next to the `.cbz` file.
 
-```json
-{
-  "category": "Doujinshi",
-  "title": "Downloaded Gallery Title",
-  "title_jpn": "ダウンロード画廊タイトル",
-  "tags": [
-    {"namespace": "artist", "name": "sample_artist"},
-    {"namespace": "female", "name": "long hair"}
-  ],
-  "quality": "resample"
-}
-```
-
-**Cold archive** writes the sidecar **inside** the CBZ or cold directory (not beside the `.cbz` file). It includes gid / token / p_tokens and optional `category`; it does **not** write `quality`:
+Unified Schema Full Example (15 keys):
 
 ```json
 {
+  "version": 1,
   "gid": 345678,
   "token": "b9c8d7e6f5",
-  "title": "Archived Gallery Title",
-  "title_jpn": "アーカイブ画廊タイトル",
+  "title": "English Title",
+  "title_jpn": "日本語タイトル",
   "category": "doujinshi",
+  "quality": "resample",
   "tags": [
     {"namespace": "artist", "name": "sample_artist"},
     {"namespace": "female", "name": "long hair"}
   ],
-  "p_tokens": ["abcdef01", "abcdef02"]
+  "p_tokens": ["abcdef01", "abcdef02"],
+  "uploader": null,
+  "posted": null,
+  "rating": null,
+  "file_count": 2,
+  "file_size": null,
+  "site": null
 }
 ```
 
-Ingest: hot-dir, cold-dir, and CBZ scanners all merge sidecar title / tags / category / quality. The CBZ scanner also reads gid / token from the embedded sidecar. Missing `category` falls back to misc unless the filename or parent folder infers one.
+Conventions & Rules:
+
+- `version`: Schema version, fixed integer `1`.
+- `gid` / `token`: Unique gallery identifier and access token. Integer `gid` (`null` if unknown), lowercase hex string `token` (`""` if unknown).
+- `title` / `title_jpn`: Primary title and Japanese title. Pure numeric `title_jpn` values are automatically normalized to `""`.
+- `category`: Strictly lowercase (e.g. `"doujinshi"`, `"manga"`, not capitalized).
+- `quality`: Strict enumeration `"original"` | `"resample"` | `null`. Unknown values must be explicitly written as `null` and never omitted (preventing rescans from clearing existing `image_quality` records in the database).
+- `tags`: Formatted as an array of `{"namespace": "artist", "name": "sample"}` objects. The reader remains backward-compatible with legacy `"namespace:name"` strings.
+- `p_tokens`: Index-aligned dense array of page tokens, with gaps filled by `""` (not a sparse array).
+- `uploader` / `posted` / `rating` / `file_count` / `file_size` / `site`: Supplementary metadata. Written if available, filled with `null` if unknown (downloads do not issue extra GData network requests just to populate these; cold archive and scanner inherit from the database or existing sidecar metadata).
+- **Key Completeness**: Always writes all 15 keys, filling missing items with `null` / `[]` / `""`, **never omitting keys**.
+- **No Local Ephemeral State**: Does not persist `local_rating`, `local_note`, local file paths, file signatures, or `archived_at`.
+- **Encoding**: UTF-8 encoding, `indent=2`, `ensure_ascii=False`, trailing newline.
+
+Reader Compatibility & Scanner Backfill:
+
+- **Backward Compatibility**: Readers seamlessly parse both legacy formats (early download version without `gid`/`token`/`p_tokens` but with `quality`; cold archive version with `gid` but without `quality` and optional `category`; tags as string lists).
+- **Precedence**: Field precedence follows `sidecar > ComicInfo.xml > .ehviewer / directory inference` (sidecar title and tags override ComicInfo). However, a `gid` extracted from the filename prefix (e.g., `123456-xxx`) retains highest priority for gallery identification.
+- **Directory Backfill**: After successful ingestion, only directory storages (hot and cold directories) are checked. If the sidecar is missing or lacks any critical key, a full v1 sidecar is automatically generated from current metadata; complete v1 sidecars are skipped to avoid altering filesystem `mtime`.
+- **Read-Only Archives**: Compressed archive packages (CBZ, CBR, PDF) are strictly treated as read-only and are never modified or repacked during library scans.
 
 ---
 

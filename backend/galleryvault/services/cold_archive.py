@@ -22,6 +22,13 @@ from ..config import get_settings
 from ..db.models import DownloadTask, Gallery, GalleryPage, GalleryTag, Tag
 from ..db.repositories.base import path_hash
 from ..logging import log_extra
+from ..metadata.sidecar import (
+    build_galleryvault_json as _build_galleryvault_json,
+)
+from ..metadata.sidecar import (
+    normalize_tags,
+    read_galleryvault_json,
+)
 from ..scanners.ehviewer import IMAGE_EXTENSIONS, natural_key, parse_spider_info, strip_gid_prefix
 from .downloader import _truncate_utf8
 from .export_cbz import ZIP_STORED, page_archive_name
@@ -164,54 +171,44 @@ def compute_cold_path(
     return root / "ungid" / hh / ii / filename
 
 
-def normalize_tags(raw_tags: Sequence[dict[str, Any] | str] | None) -> list[dict[str, str]]:
-    """Normalize tags into a list of dicts with namespace and name."""
-    if not raw_tags:
-        return []
-    tags: list[dict[str, str]] = []
-    for item in raw_tags:
-        if isinstance(item, dict):
-            ns = str(item.get("namespace") or "misc").strip()
-            name = str(item.get("name") or "").strip()
-            if name:
-                tags.append({"namespace": ns, "name": name})
-        elif isinstance(item, str):
-            val = item.strip()
-            if not val:
-                continue
-            if ":" in val:
-                ns, name = val.split(":", 1)
-                tags.append({"namespace": ns.strip(), "name": name.strip()})
-            else:
-                tags.append({"namespace": "misc", "name": val})
-    return tags
-
-
 def build_galleryvault_json(
-    gid: int | None,
-    token: str | None,
-    tags: Sequence[dict[str, Any] | str] | None,
-    p_tokens: Sequence[str] | None,
+    gid: int | None = None,
+    token: str | None = None,
+    tags: Sequence[dict[str, Any] | str] | None = None,
+    p_tokens: Sequence[str | None] | None = None,
     title: str | None = None,
     title_jpn: str | None = None,
     category: str | None = None,
+    quality: str | None = None,
+    *,
+    uploader: str | None = None,
+    posted: Any | None = None,
+    rating: float | None = None,
+    file_count: int | None = None,
+    file_size: int | None = None,
+    site: str | None = None,
+    extra: dict[str, Any] | None = None,
+    **kwargs: Any,
 ) -> bytes:
-    """Generate .galleryvault.json content."""
-    clean_title = title or ""
-    clean_title_jpn = title_jpn or ""
-    if clean_title_jpn.strip().isdigit():
-        clean_title_jpn = ""
-    data: dict[str, Any] = {
-        "gid": gid,
-        "token": token or None,
-        "title": clean_title,
-        "title_jpn": clean_title_jpn,
-        "tags": normalize_tags(tags),
-        "p_tokens": list(p_tokens or []),
-    }
-    if category is not None:
-        data["category"] = category
-    return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    """Generate .galleryvault.json content using the unified sidecar builder."""
+    return _build_galleryvault_json(
+        gid=gid,
+        token=token,
+        tags=tags,
+        p_tokens=p_tokens,
+        title=title,
+        title_jpn=title_jpn,
+        category=category,
+        quality=quality,
+        uploader=uploader,
+        posted=posted,
+        rating=rating,
+        file_count=file_count,
+        file_size=file_size,
+        site=site,
+        extra=extra,
+        **kwargs,
+    )
 
 
 def build_comic_info_xml(
@@ -471,7 +468,8 @@ def _extract_source_meta(
     stable: str | None = None,
     site: str | None = None,
     category: str | None = None,
-) -> tuple[int | None, str | None, str, str, list[dict[str, str]], list[str], str, str | None, str | None]:
+    quality: str | None = None,
+) -> tuple[int | None, str | None, str, str, list[dict[str, str]], list[str], str, str | None, str | None, str | None]:
     """Fill missing metadata from source filesystem artifacts if available."""
     current_gid = gid
     current_token = token
@@ -484,35 +482,30 @@ def _extract_source_meta(
     current_stable = stable
     current_site = site
     current_category = category
+    current_quality = quality
+
+    gv_data = read_galleryvault_json(source)
+    if gv_data:
+        if current_gid is None and gv_data.get("gid") is not None:
+            current_gid = gv_data["gid"]
+        if not current_token and gv_data.get("token"):
+            current_token = gv_data["token"]
+        if not current_title and gv_data.get("title"):
+            current_title = gv_data["title"]
+        if not current_title_jpn and gv_data.get("title_jpn"):
+            current_title_jpn = gv_data["title_jpn"]
+        if not current_tags and gv_data.get("tags"):
+            current_tags = gv_data["tags"]
+        if not current_p_tokens and gv_data.get("p_tokens"):
+            current_p_tokens = gv_data["p_tokens"]
+        if not current_site and gv_data.get("site"):
+            current_site = gv_data["site"]
+        if not current_category and gv_data.get("category"):
+            current_category = gv_data["category"]
+        if not current_quality and gv_data.get("quality"):
+            current_quality = gv_data["quality"]
 
     if source.is_dir():
-        # Check .galleryvault.json
-        gv_path = source / ".galleryvault.json"
-        if gv_path.is_file():
-            try:
-                data = json.loads(gv_path.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    if current_gid is None and data.get("gid") is not None:
-                        current_gid = int(data["gid"])
-                    if not current_token and data.get("token"):
-                        current_token = str(data["token"])
-                    if not current_title and data.get("title"):
-                        current_title = str(data["title"])
-                    if not current_title_jpn and data.get("title_jpn"):
-                        tj = str(data["title_jpn"]).strip()
-                        if not tj.isdigit():
-                            current_title_jpn = str(data["title_jpn"])
-                    if not current_tags and data.get("tags"):
-                        current_tags = normalize_tags(data["tags"])
-                    if not current_p_tokens and data.get("p_tokens"):
-                        current_p_tokens = [str(x) for x in data["p_tokens"]]
-                    if not current_site and data.get("site"):
-                        current_site = str(data["site"])
-                    if data.get("category"):
-                        current_category = str(data["category"])
-            except (json.JSONDecodeError, OSError, ValueError):
-                logger.debug("Failed reading .galleryvault.json from %s", source)
-
         # Check .ehviewer
         eh_path = source / ".ehviewer"
         if eh_path.is_file() and (current_gid is None or not current_token or not current_p_tokens):
@@ -526,33 +519,6 @@ def _extract_source_meta(
                     current_p_tokens = spider.p_tokens
             except (OSError, ValueError):
                 logger.debug("Failed reading .ehviewer from %s", source)
-
-    elif source.is_file() and source.suffix.lower() in {".cbz", ".zip"}:
-        try:
-            with zipfile.ZipFile(source, "r") as zf:
-                if ".galleryvault.json" in zf.namelist():
-                    data = json.loads(zf.read(".galleryvault.json").decode("utf-8"))
-                    if isinstance(data, dict):
-                        if current_gid is None and data.get("gid") is not None:
-                            current_gid = int(data["gid"])
-                        if not current_token and data.get("token"):
-                            current_token = str(data["token"])
-                        if not current_title and data.get("title"):
-                            current_title = str(data["title"])
-                        if not current_title_jpn and data.get("title_jpn"):
-                            tj = str(data["title_jpn"]).strip()
-                            if not tj.isdigit():
-                                current_title_jpn = str(data["title_jpn"])
-                        if not current_tags and data.get("tags"):
-                            current_tags = normalize_tags(data["tags"])
-                        if not current_p_tokens and data.get("p_tokens"):
-                            current_p_tokens = [str(x) for x in data["p_tokens"]]
-                        if not current_site and data.get("site"):
-                            current_site = str(data["site"])
-                        if data.get("category"):
-                            current_category = str(data["category"])
-        except (zipfile.BadZipFile, json.JSONDecodeError, OSError, ValueError):
-            logger.debug("Failed reading zip metadata from %s", source)
 
     # Infer gid and title from folder/file name pattern if still missing
     stem = source.stem
@@ -587,6 +553,7 @@ def _extract_source_meta(
         current_stable or "",
         current_site,
         current_category,
+        current_quality,
     )
 
 
@@ -604,6 +571,12 @@ def cold_pack_gallery(
     writer: str | None = None,
     site: str | None = None,
     category: str | None = None,
+    quality: str | None = None,
+    uploader: str | None = None,
+    posted_at: Any | None = None,
+    rating: float | None = None,
+    file_count: int | None = None,
+    file_size: int | None = None,
     max_cbz_bytes: int = COLD_ARCHIVE_MAX_CBZ_BYTES,
     max_cbz_pages: int = COLD_ARCHIVE_MAX_CBZ_PAGES,
     delete_source: bool = False,
@@ -638,6 +611,7 @@ def cold_pack_gallery(
         res_stable,
         res_site,
         res_category,
+        res_quality,
     ) = _extract_source_meta(
         src,
         gid=gid,
@@ -649,6 +623,7 @@ def cold_pack_gallery(
         stable=stable,
         site=site,
         category=category,
+        quality=quality,
     )
 
     if res_gid is not None and res_title:
@@ -725,6 +700,13 @@ def cold_pack_gallery(
         title=res_title,
         title_jpn=res_title_jpn,
         category=res_category,
+        quality=res_quality,
+        uploader=uploader,
+        posted=posted_at,
+        rating=rating,
+        file_count=file_count if file_count is not None else page_count,
+        file_size=file_size if file_size is not None else total_page_bytes,
+        site=res_site,
     )
 
     try:
@@ -852,6 +834,11 @@ async def _do_archive_locked(
         gallery_title = gallery.title
         gallery_title_jpn = getattr(gallery, "title_jpn", None)
         gallery_category = getattr(gallery, "category", None)
+        gallery_quality = getattr(gallery, "image_quality", None)
+        gallery_uploader = getattr(gallery, "uploader", None)
+        gallery_posted_at = getattr(gallery, "posted_at", None)
+        gallery_rating = getattr(gallery, "rating", None)
+        gallery_file_count = getattr(gallery, "file_count", None)
         gallery_path_hash = gallery.path_hash
         gallery_storage_path = gallery.storage_path
         gallery_storage_size = gallery.storage_size
@@ -908,6 +895,12 @@ async def _do_archive_locked(
             stable=gallery_path_hash,
             site=gallery_site,
             category=gallery_category,
+            quality=gallery_quality,
+            uploader=gallery_uploader,
+            posted_at=gallery_posted_at,
+            rating=gallery_rating,
+            file_count=gallery_file_count,
+            file_size=gallery_file_size or gallery_storage_size,
             delete_source=False,
         )
     except ColdAlreadyArchivedError as exc:

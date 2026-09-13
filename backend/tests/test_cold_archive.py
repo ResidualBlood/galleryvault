@@ -133,10 +133,12 @@ def test_small_dir_packs_to_cbz_triplet_and_filters_forbidden(tmp_path: Path) ->
 
         # Verify .galleryvault.json
         gv_data = json.loads(zf.read(".galleryvault.json").decode("utf-8"))
+        assert gv_data["version"] == 1
         assert gv_data["gid"] == 12345
         assert gv_data["token"] == "tok123"
         assert gv_data["title"] == "Test Gallery"
         assert gv_data["title_jpn"] == ""
+        assert gv_data["quality"] is None
         assert gv_data["p_tokens"] == ["ptok1", "ptok2"]
         assert gv_data["tags"] == [
             {"namespace": "artist", "name": "alice"},
@@ -2011,9 +2013,11 @@ def test_build_galleryvault_json_with_category() -> None:
         category="doujinshi",
     )
     data = json.loads(content.decode("utf-8"))
+    assert data["version"] == 1
     assert data["category"] == "doujinshi"
     assert data["gid"] == 123
     assert data["title"] == "Sample"
+    assert data["quality"] is None
 
     # When category is None
     content_none = build_galleryvault_json(
@@ -2025,7 +2029,9 @@ def test_build_galleryvault_json_with_category() -> None:
         category=None,
     )
     data_none = json.loads(content_none.decode("utf-8"))
-    assert "category" not in data_none
+    assert data_none["version"] == 1
+    assert data_none["category"] is None
+    assert data_none["quality"] is None
 
 
 def test_extract_source_meta_extracts_category(tmp_path: Path) -> None:
@@ -2052,4 +2058,56 @@ def test_extract_source_meta_extracts_category(tmp_path: Path) -> None:
     empty_dir.mkdir()
     meta_fallback = _extract_source_meta(empty_dir, category="cosplay")
     assert meta_fallback[8] == "cosplay"
+
+
+def test_cold_pack_gallery_propagates_quality(tmp_path: Path) -> None:
+    """cold_pack_gallery writes quality and version: 1 into .galleryvault.json."""
+    source = tmp_path / "quality-source"
+    source.mkdir()
+    (source / "01.jpg").write_bytes(b"page1")
+
+    cold_root = tmp_path / "cold"
+    dest = cold_pack_gallery(
+        source=source,
+        cold_root=cold_root,
+        gid=54321,
+        token="tok543",
+        title="Quality Gallery",
+        quality="original",
+    )
+    assert dest.suffix == ".cbz"
+    with zipfile.ZipFile(dest, "r") as zf:
+        gv_data = json.loads(zf.read(".galleryvault.json").decode("utf-8"))
+        assert gv_data["version"] == 1
+        assert gv_data["quality"] == "original"
+        assert gv_data["gid"] == 54321
+        assert gv_data["token"] == "tok543"
+
+
+def test_extract_source_meta_extracts_quality(tmp_path: Path) -> None:
+    """_extract_source_meta extracts quality from directory or CBZ sidecar."""
+    from galleryvault.services.cold_archive import _extract_source_meta
+
+    # 1. Directory source with quality
+    dir_path = tmp_path / "quality_dir"
+    dir_path.mkdir()
+    (dir_path / ".galleryvault.json").write_text(
+        json.dumps({"gid": 111, "quality": "resample"}), encoding="utf-8"
+    )
+    meta_dir = _extract_source_meta(dir_path)
+    assert meta_dir[9] == "resample"
+
+    # 2. CBZ archive source with quality
+    cbz_path = tmp_path / "quality.cbz"
+    with zipfile.ZipFile(cbz_path, "w") as zf:
+        zf.writestr(".galleryvault.json", json.dumps({"quality": "original"}).encode("utf-8"))
+        zf.writestr("01.jpg", b"img")
+    meta_cbz = _extract_source_meta(cbz_path)
+    assert meta_cbz[9] == "original"
+
+    # 3. Source without quality falls back to passed parameter
+    empty_dir = tmp_path / "empty_dir_quality"
+    empty_dir.mkdir()
+    meta_fallback = _extract_source_meta(empty_dir, quality="resample")
+    assert meta_fallback[9] == "resample"
 

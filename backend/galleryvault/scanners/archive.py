@@ -7,10 +7,15 @@ import threading
 import time
 import zipfile
 from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 from xml.etree import ElementTree
 
+from ..metadata.sidecar import (
+    SIDECAR_FILENAME,
+    parse_galleryvault_json,
+)
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 from .ehviewer import IMAGE_EXTENSIONS, natural_key, strip_gid_prefix
 
@@ -247,33 +252,42 @@ class CbzZipScanner(ArchiveScanner):
             pages = self._pages(list(sizes), sizes)
             raw, metadata = self._comic_info(archive, list(sizes))
             gv_name = next(
-                (name for name in sizes if Path(name).name.casefold() == ".galleryvault.json"),
+                (
+                    name
+                    for name in sizes
+                    if Path(name).name.casefold() == SIDECAR_FILENAME.casefold()
+                ),
                 None,
             )
             if gv_name:
                 try:
-                    gv_data = json.loads(archive.read(gv_name).decode("utf-8"))
-                    if isinstance(gv_data, dict):
-                        raw[".galleryvault.json"] = gv_data
-                        if gv_data.get("gid") is not None:
-                            try:
-                                metadata["gid"] = int(gv_data["gid"])
-                            except (TypeError, ValueError):
-                                pass
-                        if gv_data.get("token"):
-                            metadata["token"] = str(gv_data["token"])
-                        gv_tags = _normalize_tags(gv_data.get("tags"))
-                        if gv_tags:
-                            metadata["tags"] = gv_tags
-                        if gv_data.get("title") and not metadata.get("title"):
-                            metadata["title"] = str(gv_data["title"])
-                        if gv_data.get("title_jpn"):
-                            metadata["title_jpn"] = str(gv_data["title_jpn"])
-                        if gv_data.get("quality"):
-                            metadata["image_quality"] = str(gv_data["quality"])
-                        if gv_data.get("category"):
-                            metadata["category"] = str(gv_data["category"])
-                except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                    gv_data = parse_galleryvault_json(archive.read(gv_name))
+                    raw[SIDECAR_FILENAME] = gv_data
+                    if gv_data.get("gid") is not None:
+                        metadata["gid"] = gv_data["gid"]
+                    if gv_data.get("token"):
+                        metadata["token"] = gv_data["token"]
+                    if gv_data.get("tags"):
+                        metadata["tags"] = gv_data["tags"]
+                    # Fix inverted title priority: sidecar title overrides ComicInfo Title
+                    if gv_data.get("title"):
+                        metadata["title"] = gv_data["title"]
+                    if gv_data.get("title_jpn"):
+                        metadata["title_jpn"] = gv_data["title_jpn"]
+                    if gv_data.get("quality"):
+                        metadata["image_quality"] = gv_data["quality"]
+                    if gv_data.get("category"):
+                        metadata["category"] = gv_data["category"]
+                    if gv_data.get("uploader"):
+                        metadata["uploader"] = gv_data["uploader"]
+                    if gv_data.get("rating") is not None:
+                        metadata["rating"] = gv_data["rating"]
+                    if gv_data.get("posted"):
+                        try:
+                            metadata["posted_at"] = datetime.fromisoformat(str(gv_data["posted"]))
+                        except (ValueError, TypeError):
+                            pass
+                except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError, TypeError):
                     pass
             return self._meta(path, pages, raw, **metadata)
 

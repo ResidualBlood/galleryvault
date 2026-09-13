@@ -526,3 +526,111 @@ def test_infer_category_metadata_and_parent_fallback(tmp_path: Path) -> None:
     unknown_dir = tmp_path / "UnknownParent" / "Subdir" / "789-title"
     assert infer_category(unknown_dir, {}) == "misc"
 
+
+def test_cbz_scanner_sidecar_title_overrides_comicinfo_title(tmp_path: Path) -> None:
+    """Sidecar title must override ComicInfo Title (fixing priority inversion)."""
+    cbz_path = tmp_path / "456-archive.cbz"
+    gv_payload = {
+        "version": 1,
+        "gid": 456,
+        "title": "Sidecar Preferred Title",
+        "quality": "original",
+    }
+    with zipfile.ZipFile(cbz_path, "w") as z:
+        z.writestr("0001.jpg", b"first page")
+        z.writestr(".galleryvault.json", json.dumps(gv_payload))
+        z.writestr("ComicInfo.xml", "<ComicInfo><Title>ComicInfo Ignored Title</Title></ComicInfo>")
+
+    scanner = registry.for_path(cbz_path)
+    assert isinstance(scanner, CbzZipScanner)
+    meta = scanner.scan(cbz_path)
+    assert meta.title == "Sidecar Preferred Title"
+    assert meta.image_quality == "original"
+
+
+def test_directory_ingest_sync_sidecar_backfills_incomplete_and_skips_complete(tmp_path: Path) -> None:
+    """GalleryIngestService._sync_directory_sidecars backfills incomplete sidecars and skips complete v1."""
+    import time
+
+    from galleryvault.scanners.base import GalleryMeta, PageInfo
+    from galleryvault.services.ingest import GalleryIngestService
+
+    # 1. Directory missing sidecar -> backfills complete v1 sidecar
+    gallery_dir = tmp_path / "100-BackfillDir"
+    gallery_dir.mkdir()
+    (gallery_dir / "0001.jpg").write_bytes(b"page1")
+    meta = GalleryMeta(
+        path=gallery_dir,
+        gid=100,
+        token="tok100",
+        title="Backfill Dir",
+        storage_type="folder",
+        pages=[PageInfo("0001.jpg", 5, 0, "hash1")],
+        category="doujinshi",
+        image_quality="resample",
+        source_meta={"p_tokens": ["ptok0"]},
+    )
+
+    svc = GalleryIngestService(None)  # type: ignore[arg-type]
+    svc._sync_directory_sidecars([meta])
+
+    sidecar_path = gallery_dir / ".galleryvault.json"
+    assert sidecar_path.is_file()
+    data = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    assert data["version"] == 1
+    assert data["gid"] == 100
+    assert data["token"] == "tok100"
+    assert data["title"] == "Backfill Dir"
+    assert data["p_tokens"] == ["ptok0"]
+    assert data["quality"] == "resample"
+    assert data["category"] == "doujinshi"
+
+    # 2. Already complete v1 sidecar -> skip write (mtime remains unchanged)
+    initial_mtime = sidecar_path.stat().st_mtime_ns
+    time.sleep(0.05)
+    svc._sync_directory_sidecars([meta])
+    assert sidecar_path.stat().st_mtime_ns == initial_mtime
+
+    # 3. Incomplete legacy sidecar (missing version / quality / category) -> backfilled
+    incomplete_dir = tmp_path / "200-IncompleteDir"
+    incomplete_dir.mkdir()
+    (incomplete_dir / "0001.jpg").write_bytes(b"page1")
+    inc_sidecar = incomplete_dir / ".galleryvault.json"
+    inc_sidecar.write_text(json.dumps({"gid": 200, "title": "Old Style"}), encoding="utf-8")
+    old_inc_mtime = inc_sidecar.stat().st_mtime_ns
+
+    meta_incomplete = GalleryMeta(
+        path=incomplete_dir,
+        gid=200,
+        token="tok200",
+        title="Old Style",
+        storage_type="folder",
+        pages=[PageInfo("0001.jpg", 5, 0, "hash1")],
+        image_quality="original",
+        source_meta={},
+    )
+    time.sleep(0.05)
+    svc._sync_directory_sidecars([meta_incomplete])
+    assert inc_sidecar.stat().st_mtime_ns > old_inc_mtime
+    updated_data = json.loads(inc_sidecar.read_text(encoding="utf-8"))
+    assert updated_data["version"] == 1
+    assert updated_data["quality"] == "original"
+    assert updated_data["token"] == "tok200"
+
+    # 4. CBZ archives are strictly never modified by _sync_directory_sidecars
+    archive_cbz = tmp_path / "300-archive.cbz"
+    with zipfile.ZipFile(archive_cbz, "w") as z:
+        z.writestr("0001.jpg", b"data")
+    meta_archive = GalleryMeta(
+        path=archive_cbz,
+        gid=300,
+        token="tok300",
+        title="Archive",
+        storage_type="cbz",
+        pages=[PageInfo("0001.jpg", 4, 0, "hash1")],
+    )
+    svc._sync_directory_sidecars([meta_archive])
+    with zipfile.ZipFile(archive_cbz, "r") as z:
+        assert ".galleryvault.json" not in z.namelist()
+
+
