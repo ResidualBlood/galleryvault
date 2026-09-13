@@ -634,7 +634,7 @@ async def favorite_size_sync(favcat: int) -> None:
                     gal = GalleryRepository(session)
                     if hasattr(gal, "apply_cached_metadata"):
                         applied_round = await gal.apply_cached_metadata(
-                            favcat=favcat, batch_size=200
+                            favcat=favcat, limit=200
                         )
                     else:
                         applied_round = await gal.apply_metadata_to_galleries(
