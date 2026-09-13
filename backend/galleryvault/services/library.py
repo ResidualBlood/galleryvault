@@ -77,7 +77,7 @@ class LibraryService:
     def candidates(self) -> Iterable[tuple[Path, int]]:
         import os
 
-        archive_exts = {".cbz", ".zip", ".cbr", ".rar"}
+        archive_exts = {".cbz", ".zip", ".cbr", ".rar", ".7z", ".pdf"}
         for priority, root in enumerate(self.roots):
             if not root.exists():
                 logger.warning("library root missing", extra=log_extra(root=str(root)))

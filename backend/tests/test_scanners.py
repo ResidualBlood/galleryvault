@@ -219,8 +219,8 @@ def test_bare_image_dir_scanner_title_jpn_handling(tmp_path: Path) -> None:
 
 def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path: Path) -> None:
     """CbzZipScanner reads .galleryvault.json to supplement gid/token/tags; filename gid has priority."""
-    # Case 1: Filename has gid=999, but .galleryvault.json has gid=888 -> filename gid (999) wins
-    cbz_with_gid = tmp_path / "999-my_safe_title.cbz"
+    # Case 1: Filename has gid=99999, but .galleryvault.json has gid=888 -> filename gid (99999) wins
+    cbz_with_gid = tmp_path / "99999-my_safe_title.cbz"
     gv_payload = {
         "gid": 888,
         "token": "tok999",
@@ -235,7 +235,7 @@ def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path
     scanner = registry.for_path(cbz_with_gid)
     assert isinstance(scanner, CbzZipScanner)
     meta = scanner.scan(cbz_with_gid)
-    assert meta.gid == 999  # Filename gid has priority
+    assert meta.gid == 99999  # Filename gid has priority
     assert meta.token == "tok999"
     assert meta.tags == [{"namespace": "artist", "name": "ArtistA"}]
     assert meta.title == "Zip Title"
@@ -264,6 +264,19 @@ def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path
         assert stream.read() == b"ungid first page"
     finally:
         stream.close()
+
+
+def test_cbz_scanner_short_volume_prefix_not_extracted_as_gid(tmp_path: Path) -> None:
+    """Archives with short volume prefixes (e.g. 01-Chapter 1.cbz) keep gid as None and preserve title."""
+    cbz_file = tmp_path / "01-Chapter 1.cbz"
+    with zipfile.ZipFile(cbz_file, "w") as z:
+        z.writestr("0001.jpg", b"chapter page 1")
+
+    scanner = registry.for_path(cbz_file)
+    assert isinstance(scanner, CbzZipScanner)
+    meta = scanner.scan(cbz_file)
+    assert meta.gid is None
+    assert meta.title == "01-Chapter 1"
 
 
 def test_library_candidates_includes_cold_directory_and_cbz(tmp_path: Path) -> None:

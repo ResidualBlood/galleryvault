@@ -60,12 +60,18 @@ class ArchiveScanner(GalleryScanner):
             (
                 name
                 for name in names
-                if not name.startswith(".") and Path(name).suffix.casefold() in IMAGE_EXTENSIONS
+                if not Path(name.replace("\\", "/")).name.startswith(".")
+                and Path(name.replace("\\", "/")).suffix.casefold() in IMAGE_EXTENSIONS
             ),
-            key=natural_key,
+            key=lambda n: natural_key(n.replace("\\", "/")),
         )
         return [
-            PageInfo(i, name, Path(name).suffix.casefold().lstrip("."), sizes.get(name))
+            PageInfo(
+                i,
+                name,
+                Path(name.replace("\\", "/")).suffix.casefold().lstrip("."),
+                sizes.get(name),
+            )
             for i, name in enumerate(images)
         ]
 
@@ -74,7 +80,7 @@ class ArchiveScanner(GalleryScanner):
     ) -> GalleryMeta:
         stat = path.stat()
         digest = self.storage_signature(path)
-        gid_match = re.match(r"^(\d+)-", path.stem)
+        gid_match = re.match(r"^(\d{5,})-", path.stem)
         gid = int(gid_match.group(1)) if gid_match else None
         if gid is None and metadata.get("gid") is not None:
             try:
@@ -84,7 +90,7 @@ class ArchiveScanner(GalleryScanner):
         token = str(metadata["token"]) if metadata.get("token") else None
         tags = normalize_tags(metadata.get("tags"))
         image_quality = str(metadata["image_quality"]) if metadata.get("image_quality") else None
-        fallback_title = strip_gid_prefix(path.stem, gid) or path.stem
+        fallback_title = strip_gid_prefix(path.stem, gid) if gid is not None else path.stem
         return GalleryMeta(
             title=str(metadata.get("title") or fallback_title),
             path=path,
@@ -108,7 +114,14 @@ class ArchiveScanner(GalleryScanner):
 
     @staticmethod
     def _comic_info(archive: object, names: list[str]) -> tuple[dict, dict[str, object]]:
-        comic = next((name for name in names if name.casefold() == "comicinfo.xml"), None)
+        comic = next(
+            (
+                name
+                for name in names
+                if Path(name.replace("\\", "/")).name.casefold() == "comicinfo.xml"
+            ),
+            None,
+        )
         if not comic:
             return {}, {}
         try:
@@ -234,7 +247,7 @@ class CbzZipScanner(ArchiveScanner):
                 (
                     name
                     for name in sizes
-                    if Path(name).name.casefold() == SIDECAR_FILENAME.casefold()
+                    if Path(name.replace("\\", "/")).name.casefold() == SIDECAR_FILENAME.casefold()
                 ),
                 None,
             )
@@ -278,13 +291,13 @@ class CbzZipScanner(ArchiveScanner):
             try:
                 info = zf.getinfo(page.name)
             except KeyError:
-                stem = Path(page.name).stem
+                stem = Path(page.name.replace("\\", "/")).stem
                 matched_name = next(
                     (
                         name
                         for name in zf.namelist()
-                        if Path(name).stem == stem
-                        and Path(name).suffix.casefold() in IMAGE_EXTENSIONS
+                        if Path(name.replace("\\", "/")).stem == stem
+                        and Path(name.replace("\\", "/")).suffix.casefold() in IMAGE_EXTENSIONS
                     ),
                     None,
                 )
