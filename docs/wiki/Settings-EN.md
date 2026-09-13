@@ -42,9 +42,19 @@ This guide covers GalleryVault's system settings, client and OPDS integration, T
 
 ## What Needs the Network
 
-| Class | Operations |
-| --- | --- |
-| ExHentai | Discover (search / Popular / Watched / Toplist), downloads (gdata / gallery page / H@H / original / Archive / GP & quota), test login, favorites sync and add/remove/move, missing covers, tag sync, online category backfill, quality backfill |
-| GitHub | EhTag “Update now” (not EH) |
-| Local only | Library search, reader, thumbnails, progress/history, local stars and lists, CBZ export, recycle bin, disk scan, updates comparison, dedupe, logs, disk usage, OPDS, **local category repair** |
-| Local first | Enqueue hits gdata only if metadata is missing; detail reads DB; covers/quota use cache first |
+| Access Level | Scenario | Included Operations & Mechanisms |
+| --- | --- | --- |
+| **Must access ExHentai<br>/ E-Hentai original site** | **Discover & Search** | Supports standard search, Popular, Watched, Toplist; features cursor pagination and backend short-term cache (60s/120s). |
+| | **Gallery Download (Two Modes)** | 1. **Standard page-by-page**: concurrency capped, standard/original requests separated from H@H control.<br>2. **Archive download**: deducts GP or quota to pull pre-packed cbz/zip directly from the origin. |
+| | **Tag & Metadata Sync** | Includes metadata API (gdata) batch fetches, online category backfill, and automatic quality detection. |
+| | **Favorites Two-Way Management** | Periodic sync of cloud categories/counts/lists; modifications (add/remove, move category, edit note). |
+| | **Health Probe & Quota** | Background 30-min Cookie keepalive, test login; automatic probe recovery on Challenge/509 blocks; GP and quota checks. |
+| | **New Version Fetch** | Triggers full network download flow when one-click update starts a new task for a new GID. |
+| **Third-Party Network** | **EhTag Translation** | Hits GitHub API (`api.github.com`) to check and download the translation database. |
+| | **Telegram Notifications** | Hits Telegram Bot API (`api.telegram.org`) for pushing alerts and polling bot interactions (if configured). |
+| **Pure Local / Offline** | **Detail & Reading** | Detail page reads only local DB; Reader loads only local resources; no requests to the origin. |
+| | **Archive & Maintenance** | Cold storage archiving (CBZ) & source cleanup; local disk scan; OPDS feeds and CBZ exports; recycle bin. |
+| | **Update Preliminary Screening** | Normalizes and compares local favorites/downloaded titles entirely offline without network requests. |
+| | **Local Category Repair** | Repairs misclassified galleries using existing `.galleryvault.json` tags without accessing the internet. |
+| **Local First** | **Detail & Enqueue** | Details read DB; download prep prioritizes local DB/cache metadata, hitting gdata only when missing. |
+| | **Cover & Quota Cache** | Remote covers check local cache first; GP and quota reuse cached values before expiration. |
