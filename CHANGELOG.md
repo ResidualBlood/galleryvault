@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Wiki 对照代码修正：SpiderInfo / JHenTai / sidecar 样例、收藏夹三种模式与跳过启发式、Toplist 翻页、Cookie 红/橙条与 IP 封禁、冷库 500 页+2GiB、下载「全部重试」、OPDS 50 条、CBR 依赖 unrar（`docs/wiki/` 中英）。
 - Wiki 阅读器 / 幻灯片说明对齐实现：启动即全屏、退出全屏停止、动图 `duration_ms + 150ms`、缓存头与条漫例外（`docs/wiki/Reading.md`、`Reading-EN.md`、`Features.md`、`Features-EN.md`）。
 - Wiki 库页注明每页条数保存在 `localStorage` 键 `gv_page_size`（`Library.md` / `Library-EN.md`）。
 

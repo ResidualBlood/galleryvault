@@ -52,74 +52,65 @@ GalleryVault 支持多层级挂载与灵活的资产组织。典型的目录拓�
 
 ### 1. `.ehviewer` 规范 (SpiderInfo)
 
-源自 Hippo Seven 的 EhViewer 架构规范（`com.hippo.ehviewer.spider.SpiderInfo`），采用多行结构化文本定义：
+源自 Hippo Seven 的 EhViewer 架构规范（`com.hippo.ehviewer.spider.SpiderInfo`），采用多行结构化文本。扫描器识别第一行为 `VERSION1` 或 `VERSION2`（**不要**写成 `SpiderInfo VERSION2`）：
 
 ```text
-SpiderInfo VERSION2
+VERSION2
+0
 123456
 a1b2c3d4e5
-Category Name
-Gallery Title (English / Romaji)
-Gallery Japanese Title
-2026-09-08 12:00:00
-uploader_username
-4.5
-48
-tag_namespace:tag_name,group:group_name,artist:artist_name
+0
+0
+0
+3
+0 abcdef01
+1 abcdef02
+2 abcdef03
 ```
 
-- **第一行**：版本标识（`SpiderInfo VERSION1` 或 `SpiderInfo VERSION2`）。
-- **第二行**：全局画廊唯一标识（`gid`）。
-- **第三行**：云端访问凭据令牌（`token`）。
-- **后续各行**：画廊分类、主标题、日文标题、发布时间、上传者、评分、总页数与逗号分隔的标签集。
+- **第一行**：`VERSION1` 或 `VERSION2`。
+- **随后 7 个字段**（均为纯文本行）：起始页（十六进制）、`gid`、`token`、`mode`、预览页数、每页预览数（VERSION1 读入后忽略）、总页数。
+- **再往后**：每行 `页索引 pToken`（空格分隔）。标题、分类、标签不在 `.ehviewer` 里，由目录名 / sidecar / gdata 补全。
 
 ### 2. JHenTai `metadata` JSON 规范
 
-JHenTai 导出的画廊元数据以标准 JSON 格式持久化存储在画廊根目录下：
+JHenTai 把元数据写在画廊根目录的 `metadata` 文件里，外层包 `gallery` 对象，`tags` 是逗号分隔字符串（不是 dict）：
 
 ```json
 {
-  "gid": 234567,
-  "token": "f6e5d4c3b2",
-  "title": "Sample Gallery Title",
-  "japaneseTitle": "サンプルギャラリータイトル",
-  "category": "Manga",
-  "uploader": "SampleUploader",
-  "publishTime": "2026-09-08 12:00:00",
-  "rating": 4.8,
-  "filecount": 32,
-  "tags": {
-    "artist": ["artist_name"],
-    "female": ["long hair", "glasses"],
-    "language": ["chinese", "translated"]
-  }
+  "gallery": {
+    "gid": 234567,
+    "token": "f6e5d4c3b2",
+    "title": "Sample Gallery Title",
+    "category": "Manga",
+    "uploader": "SampleUploader",
+    "publishTime": "2026-09-08 12:00:00",
+    "pageCount": 32,
+    "tags": "artist:artist_name,female:long hair,language:chinese"
+  },
+  "images": "[]"
 }
 ```
 
-GalleryVault 扫描器能够自动解析上述字段并建立索引，将其与云端信息无缝对齐。
+扫描器读 `gallery.gid` / `token` / `title` / `category` / `uploader` / `publishTime` / `pageCount` / `tags`。
 
 ### 3. `.galleryvault.json` Sidecar 规范
 
-在分层冷存储或本地归档重构时，系统会在画廊目录或同名路径旁生成 `.galleryvault.json` 索引文件，确保在无网络或离线环境下依然保留完整的双语元数据：
+冷归档或本地重构时，系统在画廊旁写入 `.galleryvault.json`。当前写入字段是 `gid` / `token` / `title` / `title_jpn` / `tags` / `p_tokens`，以及可选 `category`（没有 `version`、`posted`、`rating`、`archived_at`）：
 
 ```json
 {
-  "version": 1,
   "gid": 345678,
   "token": "b9c8d7e6f5",
   "title": "Archived Gallery Title",
   "title_jpn": "アーカイブ画廊タイトル",
   "category": "Doujinshi",
-  "uploader": "archive_manager",
-  "posted": "2026-09-08T12:00:00Z",
-  "rating": 4.75,
-  "pages": 64,
   "tags": [
     "artist:sample_artist",
     "female:long hair",
     "language:chinese"
   ],
-  "archived_at": "2026-09-08T18:30:00Z"
+  "p_tokens": ["abcdef01", "abcdef02"]
 }
 ```
 
@@ -130,8 +121,8 @@ GalleryVault 扫描器能够自动解析上述字段并建立索引，将其与�
 1. **无 `.ehviewer` 的纯数字/标题目录**（例如 `123456-标题/`）：
    - 系统自动提取前置数字识别为 `gid`。
    - 若配置了云端凭证，可在后续后台任务中通过 GData API 自动补全封面、标签与分类元数据。
-2. **CBZ / CBR 归档包与规范**：
-   - 文件名推荐形如 `123456-标题.cbz`。
+  2. **CBZ / CBR 归档包与规范**：
+    - 文件名推荐形如 `123456-标题.cbz`。`.cbr` / `.rar` 需要 Python `rarfile` **以及**宿主机的 `unrar` 或 libarchive；缺原生解压工具时扫描会失败，不是开箱即用。
    - **ComicInfo.xml 兼容与截断防护**：若压缩包内包含 `ComicInfo.xml`，系统将优先解析内部标题、作者与标签元数据。入库解析时，若发现超长 `Writer`（作者）标签，系统将自动按 128 字符截断入库，防止数据库底层字段溢出阻断入库流程。
    - **243 字节文件名截断规范**：生成或重命名 CBZ 归档包时，系统废除了旧版不考虑多字节编码的硬编码截断限制，全面采用 Linux ext4 等现代文件系统的 UTF-8 字节级截断规则。CBZ 基础文件名上限为 243 字节，为打包时追加的临时后缀 `.cbz.partial`（12 字节）预留充足空间，确保最终总文件名始终 ≤ 255 字节上限；中间目录名上限为 247 字节。此机制彻底杜绝了中日韩多字节字符及超长标题在底层文件系统中触发 `[Errno 36] File name too long` 的致命异常。
 3. **无 GID 的本地画廊**：

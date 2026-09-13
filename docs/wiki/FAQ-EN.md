@@ -27,7 +27,7 @@ Adjust the external port mapping for `galleryvault-frontend` in `docker-compose.
 The official PostgreSQL image relies strictly on container UID 999 (`postgres`). **Never run a blanket `chown` on `./db-data`** for normal host users. If accidentally modified, restore ownership on the host: `chown -R 999:999 ./db-data`.
 
 ### 4. Does scanning a 7z archive extract all files to disk?
-**It does not unpack the whole archive into the library.** Scans read image members only. Opening a page extracts that one file into a temp directory and deletes it afterwards. Non-image files stay packed.
+**It does not unpack the whole archive into the library.** Scans read image members only. Opening a page extracts that one file into a temp directory and deletes it afterwards. Non-image files stay packed. `.cbr` / `.rar` also need host `unrar` or libarchive, or the scan fails.
 
 ### 5. PostgreSQL 18 container fails to start after an upgrade?
 Official `postgres:18-alpine` stores data under a versioned subdirectory of `/var/lib/postgresql`. The shipped `docker-compose.yml` bind-mounts host `./db-data` to `/var/lib/postgresql`. **Do not set `PGDATA`**, and do not keep the old mount `/var/lib/postgresql/data` (a non-empty data directory check will exit the container). Fresh installs just need `docker compose up -d`. See **[Deployment → Storage topology](Deployment-EN#storage-topology--volume-mounts)**.
@@ -42,10 +42,13 @@ Official `postgres:18-alpine` stores data under a versioned subdirectory of `/va
 ### 2. What happens if I lose my `ENCRYPTION_KEY`?
 Database encryption uses mathematically irreversible AES-256-GCM. **A lost key cannot be recovered**. Refer to **[Encryption at Rest → Recovering from a Lost Key](Encryption-EN#recovering-from-a-lost-key)** for emergency reset procedures.
 
-### 3. Top banner shows "Cookie expired" or "No ExHentai access"?
-System probes run periodically in the background:
-- **Cookie expired**: The session has ended. Go to *Settings → ExHentai*, supply fresh cookies, and click *Test login*.
-- **No ExHentai access**: Account lacks required tier privileges or `igneous` is missing. You can switch to the public domain `e-hentai.org`. During these alerts, background sync pauses safely to prevent data corruption.
+### 3. Top banner shows a Cookie / probe alert?
+System probes run at startup and every 30 minutes:
+- **Cookie expired** (red): The session has ended. Go to *Settings → ExHentai*, supply fresh cookies, and click *Test login*.
+- **No ExHentai access** (red): Account lacks required privileges or `igneous` is missing. You can switch to `e-hentai.org`.
+- **IP banned** (red): The site reported an IP ban or temporary block — not a missing `igneous`. Change egress or wait.
+- **Probe failed** (orange): Network or site error; the Cookie may still be valid.
+Red-banner states pause cloud sync to prevent local data corruption.
 
 ### 4. Why shouldn't credentials be configured via environment variables?
 The PostgreSQL database serves as the single source of truth (SSOT) for application settings. Hardcoding secrets in environment files risks silent discrepancies; settings should be maintained in the Web UI, where they are automatically encrypted at rest when `ENCRYPTION_KEY` is configured.
@@ -104,7 +107,7 @@ Different translation groups or quality variants of the same artwork often carry
 
 ### 7. How does multi-root cold storage (`archive_roots`) balance capacity across multiple disks?
 - **Configuration**: In **Settings → Library → Cold archive roots**, enter multiple mount paths (one path per line, e.g., `/archive1` and `/archive2`).
-- **Dynamic Load Balancing**: When cold archiving is triggered, the backend checks free space on every configured root via `statvfs` and writes the new CBZ to the volume with the most free space (and enough headroom).
+- **Dynamic Load Balancing**: When cold archiving is triggered, the backend checks free space on every configured root via `statvfs` and writes the new CBZ to the volume with the most free space (and enough headroom). A volume is capped at 500 pages and 2GiB; larger galleries split.
 
 ### 8. How do I detect missing pages or corrupted image archives in the library?
 - Open **Manage → Integrity** (`#/integrity`) and click **Scan missing pages & corrupt images**.

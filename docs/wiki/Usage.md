@@ -8,7 +8,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 
 桌面端顶栏：Browse（浏览）、Discover（发现）、Library（画廊库）、**Series（系列）**、Tags（标签）、Downloads（下载）、Favorites（收藏夹）、「管理」。History / Settings / Logs 在「更多」。点「管理」落到回收站（`#/recycle`），页内 tab 为：回收站、重复副本（`#/duplicates`）、收藏夹重复（`#/duplicates/favorites`）、跨 GID（`#/duplicates/cross-gid`）、缺页体检（`#/integrity`）、**冷库归档（`#/archive`）**。`#/favorites/manage` 仍指向收藏夹重复，仅作旧链兼容。移动端汉堡菜单扁平展示。
 
-顶栏可叠加黄条（全局暂停）、红条（Cookie 失效 / 无里站权限）与图片配额告警。🎲 旁的铃铛为**应用内通知中心**（下载完成/失败、扫库完成/失败、Cookie 失效/无权限；约 15 秒轮询，无需配置 Telegram 也可获知后台事件；Cookie 红条仍保留；面板支持一键「清空」；时间戳跟随容器 TZ 本地时区，非 UTC 截断）。
+顶栏可叠加黄条（全局暂停）、红条（Cookie 失效 / 无里站权限 / IP 封禁）与图片配额告警；探活失败（网络或站点异常、Cookie 未必坏）走**橙条**。🎲 旁的铃铛为**应用内通知中心**（下载完成/失败/改下新版、扫库完成/失败、归档开始/成功/失败、Cookie 失效/无权限/IP 封禁；约 15 秒轮询，无需配置 Telegram 也可获知后台事件；Cookie 红条仍保留；面板支持一键「清空」；时间戳跟随容器 TZ 本地时区，非 UTC 截断）。
 
 ---
 
@@ -17,7 +17,7 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 首次部署后（仍在使用默认密码时），登录会自动进入 `#/welcome` 三步向导：
 
 1. **修改默认密码**：把内置默认密码 `p1a2s3s4` 改成你自己的强密码（不可跳过，可随时在设置中修改）。
-2. **连接 ExHentai**：选择 base URL（ExHentai 里站 / E-Hentai 外站 / 自定义代理子域）并填入 `ipb_member_id` / `ipb_pass_hash` / `igneous` cookie，可用「测试登录」验证（可跳过，详见后文 [配置 ExHentai Cookie](#配置-exhentai-cookie)）。
+2. **连接 ExHentai**：选择 base URL（ExHentai 里站 / E-Hentai 外站 / 官方域名的自定义子域，任意其它主机名会拒绝）并填入 `ipb_member_id` / `ipb_pass_hash` / `igneous` cookie，可用「测试登录」验证（可跳过，详见后文 [配置 ExHentai Cookie](#配置-exhentai-cookie)）。
 3. **填充画廊库**：点击「扫描库」或「立即检查所有收藏夹」（可跳过）。
 
 每步完成会显示 ✓；点击「完成设置」即可进入主界面。已配置的实例登录不会强制进入向导，可在地址栏手动访问 `#/welcome` 重新查看。
@@ -46,12 +46,12 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
      - `igneous`：里站专属访问凭据（访问 exhentai.org 必填；部分账号需里站权限才会有此字段）。
 2. **填入系统**：
    - 在 `#/welcome` 向导第二步，或进入 [系统设置](Settings)（`#/settings`）的 **ExHentai** 配置区；
-   - 基础 URL 保持默认 `https://exhentai.org`（若无里站权限可改为 `https://e-hentai.org`）；
+    - 基础 URL 保持默认 `https://exhentai.org`（无里站可改为 `https://e-hentai.org`；仅允许这两个官方域或其子域）；
    - 依次填入对应的三个字段；Cookie 在前端提交后不会回显。
 3. **连通性验证与探活**：
    - 点击 **测试登录** 按钮，系统会即时验证 Cookie 的有效性并反馈连接结果；
    - 服务启动时会自动探活，且之后每 30 分钟轮询检测一次；
-   - 当 Cookie 失效或账号缺少里站访问权限时，Web 界面顶栏会弹出明显的红色警告条，引导前往设置更新凭据。
+    - Cookie 失效、无里站权限或 IP 封禁时顶栏出**红条**；探活因网络/站点失败时出**橙条**（不一定是 Cookie 坏了）。红条链到设置更新凭据。
 
 > **安全提示**：Cookie 属于敏感凭据，请切勿将其写入仓库正文、公开文档或分享给他人。系统支持启用环境变量 `ENCRYPTION_KEY` 进行数据库静态加密保护（详见 [静态加密](Encryption)）。
 

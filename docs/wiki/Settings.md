@@ -10,11 +10,11 @@
 - **界面**：
   - **标题显示**：`japanese`（默认，日文标题优先）/ `english`（英文标题优先）/ `directory`（目录名）。画廊库、浏览、画廊详情、收藏夹（含纯云端项）、收藏夹查重与重复副本去重页的标题都跟随此设置。
 - **站点与代理**：
-  - **ExHentai**：基础 URL 与 `ipb_member_id` / `ipb_pass_hash` / `igneous` cookie，**测试登录**验证；cookie 不会回显。启动时探活、之后每 30 分钟；Cookie 失效或无里站权限时顶栏分别展示对应红条并链到设置（登录后也会立刻刷新一次）。具体获取与配置流程请参阅 [入门向导与 Cookie 配置](Usage#配置-exhentai-cookie)。
+   - **ExHentai**：基础 URL（仅 `exhentai.org` / `e-hentai.org` 或其子域）与 `ipb_member_id` / `ipb_pass_hash` / `igneous` cookie，**测试登录**验证；cookie 不会回显。启动时探活、之后每 30 分钟；Cookie 失效、无里站权限或 IP 封禁出红条，探活网络失败出橙条，均链到设置（登录后也会立刻刷新一次）。具体获取与配置流程请参阅 [入门向导与 Cookie 配置](Usage#配置-exhentai-cookie)。
   - **代理**：HTTP 或 SOCKS5（二选一）。
 - **资料库**：
-  - **库根目录**：每行一个文件系统路径；新下载不会写入这里。删除画廊时若挂载可写会一并删除这里的对应文件，若为只读挂载则删除失败并在 toast 与日志页提示。
-- **归档 / Archive**：和库根在同一「资料库」分区。多行 `archive_roots`（如 `/archive`、`/archive2`），留空 = 不启用。旧字段 `cold_storage_root` 读入时升成单元素列表。写入挑「剩余空间 ≥ 预估 × 1.2 且最空」的根；扫库会扫全部归档根。默认不自动归档、归档后不删源。CBZ 名固定 `gid-英文标题.cbz`，不跟 `download_title`。打包与清理操作在 **管理 → 冷库归档**（`#/archive`）；设置页存储表也有「清理已归档源目录残留文件」，跳过 pending/downloading。
+   - **库根目录**：每行一个文件系统路径。默认含 `/library` 与 `/downloads`（新下载仍只写入 `download_root`，但扫库会扫 downloads）。删除画廊时若挂载可写会一并删除这里的对应文件，若为只读挂载则删除失败并在 toast 与日志页提示。
+- **归档 / Archive**：和库根在同一「资料库」分区。多行 `archive_roots`（如 `/archive`、`/archive2`），留空 = 不启用。旧字段 `cold_storage_root` 读入时升成单元素列表。写入挑「剩余空间 ≥ 预估 × 1.2 且最空」的根；扫库会扫全部归档根。默认不自动归档、归档后不删源。CBZ 名固定 `gid-英文标题.cbz`，不跟 `download_title`。单卷上限 **500 页且 2GiB**（两者取 AND），超限自动切卷。打包与清理操作在 **管理 → 冷库归档**（`#/archive`）；设置页存储表也有「清理已归档源目录残留文件」，跳过 pending/downloading。
 - **磁盘用量**：表里四行 **library / cold / downloads / cache**（路径、条目数、已用、盘剩余）。library/cold 显示画廊数与图片数，cache 显示缩略图约数。打开设置页不扫全盘。下面列出体积最大的 10 本。
 - **下载常用**：根目录、并发画廊数、**单画廊并发页数**（默认 4——H@H 节点对同一出口 IP 的并发连接数有限，设太高会顶穿限制、在线路不稳时大量报连接错误；求稳就保持低值，线路干净想榨带宽再调高）、画质（普通/原图）、**归档下载质量**（归档默认档位）、**归档不可用降级为逐页下载**（默认开；归档通道无法服务该画廊时自动转逐页，不扣 GP、走 H@H）；**下载标题**：仅控制**下载热目录** `download_root` 新建文件夹命名——`japanese`（默认，`gid-日文标题`，无日文标题时 fallback 英文）/ `english`（`gid-英文标题`），与显示用「标题显示」相互独立（冷库 CBZ 固定使用英文标题，不受此项影响），已下载的画廊会复用原有目录，切换设置不会改名或重复下载。
 - **下载高级选项（折叠）**：H@H 开关、归档默认画质、`favorites_archive_max_pages`（归档页数阈值，0=全部）、定时扫描大画廊走归档、归档不可用降级为逐页。慢速 H@H 看门狗：单图最大耗时、预热窗口、最低 KB/s。302 探针间隔环境变量 `GV_CHALLENGE_PROBE_INTERVAL`（默认 600 秒）。
@@ -27,12 +27,12 @@
 - **PWA**：可「添加到主屏幕」。Service worker 只缓存 html/css/js 壳（js/css **network-first**，成功再写入缓存；离线回退缓存），**不缓存画廊图片与 `/api/`**。
 - **浅色主题**：顶栏 ◐ 切换；`localStorage gv_theme=dark|light`，默认 dark。
 - **7z / PDF 扫描**：库扫描识别 `.7z`（py7zr，只收图）与 `.pdf`（抽取内嵌图；抽不到则跳过并 warning）。
-- **OPDS 与 CBZ 导出**：`GET /api/opds`（atom+xml）列出最近入库，acquisition 链到 `GET /api/galleries/{id}/export.cbz`。OPDS 端点支持 HTTP Basic 认证（用户名固定为 `galleryvault`，不是 EH 账号；密码为本站 Web 登录密码），便于第三方阅读器接入；Cookie 鉴权仍完全可用。未提供凭据或认证失败时返回 `401 Unauthorized` 并携带响应头 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`。CBZ 导出及其实际 API 路由需常规登录会话，其余 `/api/*` 均为 Cookie-only。
+- **OPDS 与 CBZ 导出**：`GET /api/opds`（atom+xml）列出**最近入库最多 50 条**，acquisition 链到 `GET /api/galleries/{id}/export.cbz`。OPDS 端点支持 HTTP Basic 认证（用户名固定为 `galleryvault`，不是 EH 账号；密码为本站 Web 登录密码），便于第三方阅读器接入；Cookie 鉴权仍完全可用。未提供凭据或认证失败时返回 `401 Unauthorized` 并携带响应头 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`。CBZ 导出及其实际 API 路由需常规登录会话，其余 `/api/*` 均为 Cookie-only。
 - **Telegram bot 控制命令**（仅「允许的 user ID」；聊天框输入 `/` 可见菜单）：
 
   | 分类 | 命令 |
   | :--- | :--- |
-  | 系统与运维 | `/status` 运行状态与队列概况；`/ping` 延迟；`/cookie` Cookie 有效性；`/quota` 图像配额与 GP；`/storage` 磁盘用量；`/scan` 触发扫库 |
+   | 系统与运维 | `/status` 运行状态与队列概况；`/ping` 延迟；`/cookie` Cookie 有效性；`/quota` 图像配额与 GP；`/storage` 磁盘用量；`/scan` 触发扫库；`/help` 命令说明 |
   | 下载与队列 | `/queue` 队列 + InlineKeyboard；`/pause` `/resume` 全局暂停；`/retry <id/all>`；`/cancel <id/gid>`（找不到会回复）；`/clear` 清成功记录；`/stats` 库本数与队列快照 |
   | 后台任务 | `/tasks` 长任务列表；`/kill <name>` 中断 |
   | 图库 | `/search <关键词>` 本地检索翻页；`/info <gid>` 详情与封面（5 级降级）；`/random`；`/redownload <gid>` |

@@ -60,7 +60,7 @@ docker compose up -d
 
 镜像基于多架构 Manifest（`linux/amd64` 与 `linux/arm64`），Docker 会根据宿主硬件自动匹配。
 
-> 首次登录请访问 `http://<主机IP>:8000`，使用默认口令 **`p1a2s3s4`**。登录后进入 `#/welcome` 向导，必须先改密才能进主界面。
+> 首次登录请访问 `http://<主机IP>:8000`，使用默认口令 **`p1a2s3s4`**。登录后进入 `#/welcome` 向导，必须先改密才能进主界面。仓库 compose 默认 `TZ: Asia/Shanghai`（通知时间戳跟容器时区）。
 
 ---
 
@@ -99,7 +99,8 @@ docker compose up -d
     - **动态空间均衡**：冷归档任务通过 `statvfs` 查看各 `archive_roots` 的剩余空间，写入「剩余空间 ≥ 预估体积 × 1.2 且最空」的那块盘。
 4. **英文固定命名规范 (`gid-gallery.title.cbz`)**：
    - 为确保归档 CBZ 文件在跨平台、跨操作系统（Linux、Windows、macOS）及网络文件共享协议（SMB / NFS / WebDAV / rsync）与远程云备份同步时不发生字符集乱码或非法转义，冷归档统一强制采用官方英文/罗马音标题格式；
-   - 文件名应用严格的 **243 字节上限截断**（预留 12 字节临时后缀缓冲区），彻底规避 Linux ext4 文件系统的 `[Errno 36] File name too long` 错误。
+    - 文件名应用严格的 **243 字节上限截断**（预留 12 字节临时后缀缓冲区），彻底规避 Linux ext4 文件系统的 `[Errno 36] File name too long` 错误。
+    - 单卷上限 **500 页且 2GiB**（同时满足才单文件），超限自动切卷。
 5. **安全反向清理已归档源目录 (`purge-archived-sources`)**：
    - 当画廊在冷存储目录成功归档为 CBZ 后，可在「设置 → 存储面板」点击「清理已归档源目录」（`POST /api/system/purge-archived-sources`）。
    - 该操作具备严格的防御保障：在冷热两端校验 GID 对应关系，**主动排除处于 pending / downloading 状态的活跃任务**，安全删除下载目录中的解压散图源文件夹并即时核减物理用量。

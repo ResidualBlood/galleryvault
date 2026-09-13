@@ -23,7 +23,7 @@ Manage in the top bar lands on `#/recycle`. In-page tabs: **Recycle**, **Duplica
 ## Cold archive (`#/archive`)
 
 - Last Manage tab (`#/archive`). First set `archive_roots` under Settings → Library (one container path per line) and mount the volumes in compose (default `./archive:/archive` is commented out).
-- **Start archive**: pack ingested galleries into single-volume CBZ, picking the root with the most free space. Names are always `gid-english-title.cbz` plus a `.galleryvault.json` sidecar. **Cancel archive** stops a run in progress.
+- **Start archive**: pack ingested galleries into CBZ, picking the root with the most free space. Names are always `gid-english-title.cbz` plus a `.galleryvault.json` sidecar. A volume is capped at **500 pages and 2GiB** (AND); larger galleries split. **Cancel archive** stops a run in progress.
 - **Purge archived sources**: after a valid CBZ exists on the cold side, delete the matching unpacked folder in the hot download root. Skips `pending` / `downloading` tasks. The same button is on the Settings storage table. Progress shows on `#/logs`.
 - Nothing is packed or deleted until you configure roots and start a run.
 
@@ -32,7 +32,7 @@ Manage in the top bar lands on `#/recycle`. In-page tabs: **Recycle**, **Duplica
 - Accessible via the "Management" tab bar in desktop navigation (legacy hash `#/integrity` remains directly usable). Lists galleries whose recorded `page_count` disagrees with pages on disk, or that contain corrupt image files (unset page counts are excluded). Entering the page does **not** trigger an automatic full scan, keeping large libraries responsive.
 - **Split Scan & Incremental Repair Workflow**:
   - **Scan missing & corrupt pages** (`POST /api/galleries/integrity/scan`): Click **Scan** in the toolbar to initiate a background inspection. The scanner processes on-disk files at 2 worker concurrency:
-    - **Magic Header Validation**: Deep inspection reads the first 16 bytes of each file to verify file signatures for JPEG (`FF D8 FF`), PNG (`89 50 4E 47`), GIF (`47 49 46 38`), and WebP (`RIFF....WEBP`), alongside strict 4-digit / 8-digit zero-padding filename sequence validation. This catches truncated image downloads, cloud anti-hotlink 403/503 HTML error pages inadvertently saved as images, and zero-padded sequence misalignments.
+     - **Magic Header Validation**: Reads the file header (up to 20 bytes in the implementation) to verify JPEG (`FF D8 FF`), PNG (`89 50 4E 47`), GIF (`47 49 46 38`), and WebP (`RIFF....WEBP`) signatures, alongside 4-digit / 8-digit zero-padding filename checks. This catches truncated image downloads, cloud anti-hotlink 403/503 HTML error pages inadvertently saved as images, and zero-padded sequence misalignments.
     - **Execution Tracking**: Total scan time, scanned file counts, and detected corrupt galleries are recorded in task history (`#/logs`). If globally paused, the page displays a paused notification and refrains from scheduling workers.
   - **Incremental Missing/Corrupt Page Repair**:
     - Galleries with issues are highlighted in red, showing the delta between cataloged page count and valid on-disk images;
@@ -57,4 +57,4 @@ Split into two tabs:
 
 The page auto-refreshes every 2~3 seconds. The "Sync tags now / Generate now / Update translations now" buttons in Settings also leave a trace here.
 
-> Tip: To inspect raw real-time container streams across Nginx, backend, and PostgreSQL side by side, see the [Deployment](Deployment-EN) guide for an optional Dozzle configuration recipe.
+> Tip: For raw Nginx / backend / database streams use `docker compose logs -f` or `docker logs galleryvault-backend --since 5m`. The default compose stack does not include Dozzle.

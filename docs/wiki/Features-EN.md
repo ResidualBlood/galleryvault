@@ -45,8 +45,8 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 
 ### 3. Deep Cloud Metadata Integration
 - **Batch Metadata Caching (gdata)**: Efficiently retrieves category information, ratings, and tag sets using user credentials, backed by persistent caching to avoid redundant requests.
-- **10 Independent Favorite Folders**: Configures independent sync policies ("Incremental download", "Watch only", or "Scheduled poll") for each folder, queueing new additions automatically.
-- **Public & Private Domain Adaptability**: Switches cleanly between `exhentai.org`, `e-hentai.org`, and custom proxy mirrors; safely pauses tag sync for restricted listings under public domains to prevent false deletions.
+- **10 Independent Favorite Folders**: Each folder can be Incremental download, Watch only, or Force download, with a separate polling interval; scheduled checks enqueue new items according to the mode.
+- **Public & Private Domain Adaptability**: Base URL must be `exhentai.org`, `e-hentai.org`, or a subdomain of those hosts (arbitrary reverse-proxy hostnames return 422); tag sync for restricted listings is paused on the public site to prevent false deletions.
 - **Active Credential Probing**: Automatically validates credential status on boot and during periodic cycles, alerting users through top banners before background sync jobs stall.
 - **Integrated Discover View**: Explores live cloud listings (Popular, Watched, Top lists) directly from the Web interface, enabling one-click ingestion or remote favoriting.
 

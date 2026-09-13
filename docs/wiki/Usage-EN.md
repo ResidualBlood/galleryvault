@@ -8,7 +8,7 @@ GalleryVault is built as a single-page application (SPA) using hash routing (suc
 
 Desktop top nav: Browse, Discover, Library, **Series**, Tags, Downloads, Favorites, Manage. History / Settings / Logs live under More. Manage lands on the recycle bin (`#/recycle`) with tabs: Recycle, Duplicate copies (`#/duplicates`), Favorite duplicates (`#/duplicates/favorites`), Cross-GID (`#/duplicates/cross-gid`), Integrity (`#/integrity`), **Cold archive (`#/archive`)**. `#/favorites/manage` still opens favorite duplicates (legacy alias). Mobile uses a flat hamburger menu.
 
-The top banner stacks a yellow global-pause bar, a red Cookie-expired / no-access warning, and image quota alerts when necessary. The bell next to 🎲 serves as the **in-app notification center** (download completions/failures, library scan results, and cookie status polled every 15 seconds, visible even without Telegram configured; the Cookie red warning bar remains displayed; supports one-click "Clear"; timestamps follow the container local TZ rather than UTC truncation).
+The top banner stacks a yellow global-pause bar, a red Cookie-expired / no-access / IP-banned warning, and image quota alerts when necessary. Probe failures (network/site; Cookie may still be valid) use an **orange** bar. The bell next to 🎲 serves as the **in-app notification center** (download completions/failures/retarget, library scan results, archive start/ok/fail, and cookie expired/no-access/IP-banned, polled every 15 seconds, visible even without Telegram; the Cookie red bar remains; one-click "Clear"; timestamps follow the container TZ, not truncated UTC).
 
 ---
 
@@ -17,7 +17,7 @@ The top banner stacks a yellow global-pause bar, a red Cookie-expired / no-acces
 Right after initial deployment (while the default password is still active), logging in automatically directs to the three-step `#/welcome` wizard:
 
 1. **Change default password**: Replace the built-in password `p1a2s3s4` with a strong master password (mandatory, can also be modified later in Settings).
-2. **Connect ExHentai**: Select your base URL (ExHentai or E-Hentai mirror / custom proxy) and fill in `ipb_member_id` / `ipb_pass_hash` / `igneous` cookies, verifiable via "Test login" (optional; see [Configuring ExHentai Cookies](#configuring-exhentai-cookies) below).
+2. **Connect ExHentai**: Select your base URL (ExHentai, E-Hentai, or a **subdomain of those hosts**; any other hostname is rejected) and fill in `ipb_member_id` / `ipb_pass_hash` / `igneous` cookies, verifiable via "Test login" (optional; see [Configuring ExHentai Cookies](#configuring-exhentai-cookies) below).
 3. **Fill library**: Click "Scan library" or "Check all folders" to begin indexing (optional).
 
 Completed steps receive a ✓ indicator. Click "Finish setup" to enter the main interface. Configured instances will not force this wizard upon login, though you can revisit it at any time by navigating directly to `#/welcome`.
@@ -51,7 +51,7 @@ Connecting with ExHentai, synchronizing favorite folders, fetching tags, or down
 3. **Test Connectivity & Health Probes**:
    - Click **Test login** to verify cookie validity immediately;
    - The service automatically runs a connectivity probe on startup and every 30 minutes thereafter;
-   - If cookies expire or lack ExHentai privileges, a red top alert banner appears with a direct link to Settings.
+    - Cookie expiry, no ExHentai access, or an IP ban shows a **red** top banner linking to Settings. Probe failures caused by network/site issues show an **orange** bar (the Cookie may still be valid).
 
 > **Security Note**: Cookies contain sensitive session credentials. Never commit them to git repositories, public documentation, or unencrypted logs. GalleryVault supports AES-256-GCM database encryption at rest via `ENCRYPTION_KEY` (see [Encryption at rest](Encryption-EN)).
 

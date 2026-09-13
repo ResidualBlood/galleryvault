@@ -52,74 +52,65 @@ GalleryVault supports flexible multi-tier mounts. A standard directory topology 
 
 ### 1. `.ehviewer` Specification (SpiderInfo)
 
-Originating from Hippo Seven's EhViewer specification (`com.hippo.ehviewer.spider.SpiderInfo`), this file uses structured multi-line text:
+Originating from Hippo Seven's EhViewer specification (`com.hippo.ehviewer.spider.SpiderInfo`). The scanner expects line 1 to be `VERSION1` or `VERSION2` (**not** `SpiderInfo VERSION2`):
 
 ```text
-SpiderInfo VERSION2
+VERSION2
+0
 123456
 a1b2c3d4e5
-Category Name
-Gallery Title (English / Romaji)
-Gallery Japanese Title
-2026-09-08 12:00:00
-uploader_username
-4.5
-48
-tag_namespace:tag_name,group:group_name,artist:artist_name
+0
+0
+0
+3
+0 abcdef01
+1 abcdef02
+2 abcdef03
 ```
 
-- **Line 1**: Format identifier (`SpiderInfo VERSION1` or `SpiderInfo VERSION2`).
-- **Line 2**: Global gallery identifier (`gid`).
-- **Line 3**: Remote access token (`token`).
-- **Subsequent lines**: Category, primary title, Japanese title, posted timestamp, uploader, rating, page count, and comma-separated tags.
+- **Line 1**: `VERSION1` or `VERSION2`.
+- **Next 7 fields** (one per line): start page (hex), `gid`, `token`, `mode`, preview page count, previews per page (ignored on VERSION1), total pages.
+- **Then**: one `index pToken` line per page. Titles, category, and tags are **not** in `.ehviewer`; they come from the folder name, sidecar, or gdata.
 
 ### 2. JHenTai `metadata` JSON Specification
 
-JHenTai saves gallery metadata in a standard JSON format located in the gallery root:
+JHenTai writes a `metadata` file in the gallery root. Fields live under a `gallery` object; `tags` is a comma-separated string, not a dict:
 
 ```json
 {
-  "gid": 234567,
-  "token": "f6e5d4c3b2",
-  "title": "Sample Gallery Title",
-  "japaneseTitle": "サンプルギャラリータイトル",
-  "category": "Manga",
-  "uploader": "SampleUploader",
-  "publishTime": "2026-09-08 12:00:00",
-  "rating": 4.8,
-  "filecount": 32,
-  "tags": {
-    "artist": ["artist_name"],
-    "female": ["long hair", "glasses"],
-    "language": ["chinese", "translated"]
-  }
+  "gallery": {
+    "gid": 234567,
+    "token": "f6e5d4c3b2",
+    "title": "Sample Gallery Title",
+    "category": "Manga",
+    "uploader": "SampleUploader",
+    "publishTime": "2026-09-08 12:00:00",
+    "pageCount": 32,
+    "tags": "artist:artist_name,female:long hair,language:chinese"
+  },
+  "images": "[]"
 }
 ```
 
-GalleryVault's scanner automatically maps these properties to its internal database schema without requiring external network lookups.
+The scanner reads `gallery.gid` / `token` / `title` / `category` / `uploader` / `publishTime` / `pageCount` / `tags`.
 
 ### 3. `.galleryvault.json` Sidecar Specification
 
-For cold archive storage or portable exports, GalleryVault writes a `.galleryvault.json` sidecar alongside the archive to preserve complete metadata offline:
+For cold archive storage or portable exports, GalleryVault writes a `.galleryvault.json` sidecar. Written fields are `gid` / `token` / `title` / `title_jpn` / `tags` / `p_tokens`, plus optional `category` (no `version`, `posted`, `rating`, or `archived_at`):
 
 ```json
 {
-  "version": 1,
   "gid": 345678,
   "token": "b9c8d7e6f5",
   "title": "Archived Gallery Title",
   "title_jpn": "アーカイブ画廊タイトル",
   "category": "Doujinshi",
-  "uploader": "archive_manager",
-  "posted": "2026-09-08T12:00:00Z",
-  "rating": 4.75,
-  "pages": 64,
   "tags": [
     "artist:sample_artist",
     "female:long hair",
     "language:chinese"
   ],
-  "archived_at": "2026-09-08T18:30:00Z"
+  "p_tokens": ["abcdef01", "abcdef02"]
 }
 ```
 
@@ -130,8 +121,8 @@ For cold archive storage or portable exports, GalleryVault writes a `.galleryvau
 1. **Bare numeric/title directories without `.ehviewer`** (e.g. `123456-Title/`):
    - The scanner extracts the prefix digits as the `gid`.
    - If cloud credentials are configured, background jobs will backfill covers, categories, and tags via GData APIs.
-2. **CBZ / CBR Archives & Specifications**:
-   - Filenames prefixed with GID (e.g. `123456-title.cbz`) are indexed immediately.
+  2. **CBZ / CBR Archives & Specifications**:
+    - Filenames prefixed with GID (e.g. `123456-title.cbz`) are indexed immediately. `.cbr` / `.rar` need Python `rarfile` **and** host `unrar` or libarchive; without a native extractor the scan fails.
    - **ComicInfo.xml Compatibility & Writer Truncation**: Embedded `ComicInfo.xml` metadata is parsed to extract titles, authors, and tag namespaces. During ingestion, overlong `Writer` tags are automatically truncated to 128 characters to prevent database column overflow errors from halting ingestion.
    - **243-Byte Filename Truncation Standard**: When generating or managing CBZ archives, GalleryVault replaces legacy character-based truncation with Linux ext4 byte-level rules. CBZ base filenames are clamped to 243 bytes, leaving sufficient headroom for the temporary `.cbz.partial` suffix (12 bytes) to strictly stay within the ext4 255-byte limit. Directory names are capped at 247 bytes. This completely resolves `[Errno 36] File name too long` exceptions caused by CJK multi-byte characters and overlong titles.
 3. **Galleries without a GID**:

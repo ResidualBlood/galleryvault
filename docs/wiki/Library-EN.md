@@ -18,8 +18,8 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 - Toolbar: query, category checkboxes (site `f_cats` bitmask), minimum rating, download quality (resample by default, original optional).
 - Cards: cover, title, category, page count, rating; stackable badges **in library / favorited / not downloaded**.
 - **Download** uses existing `POST /api/downloads`; **Add to favorites** picks folder 0–9 via `POST /api/favorites/add` (**local DB is written only after cloud success**).
-- Infinite scroll uses the site `next=gid-ts` cursor, **not** `page=N`; a short TTL cache avoids re-hitting the first page while scrolling.
-- No hits, Sad Panda, empty-body anti-bot, 509, and cookie expiry are **shown separately** and never treated as “no results” (which would keep paging). Cookie expiry still uses the top red banner.
+- Search / Popular / Watched infinite scroll uses the site `next=gid-ts` cursor. **Toplist is different**: it always hits `https://e-hentai.org/toplist.php?tl=` and pages with `p=N` (not `gid-ts`), ignoring the configured ExHentai base URL. A short TTL cache avoids re-hitting the first page while scrolling.
+- No hits, Sad Panda, empty-body anti-bot, 509, cookie expiry / no access / IP banned are **shown separately** and never treated as “no results” (which would keep paging). Cookie banners still use the top bar.
 
 ## Series (#/series)
 
@@ -40,7 +40,7 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 - **Saved searches**: store the current library filter under a name (about 30 max, in `user_settings.saved_searches` with get+merge so `auth_secret` is kept); apply or delete from the toolbar.
 - **Local lists**: independent of ExHentai. Add/remove from the library or detail page; gid-less CBZ archives can join; the library can filter by list (see the dedicated section below).
 - **"Not in favorites" filter**: the category dropdown ends with "Not in favorites", showing local galleries whose gid is not in any ExHentai favorite folder (gid-less local archives count as not favorited; older local copies with a newer favorited version are excluded and routed to Gallery Updates instead). Before favorites have ever been synced this item is equivalent to "All".
-- This page uses **infinite scroll**: the next page (24 galleries by default) is appended as you near the bottom; the numbered pager at the bottom stays as a fallback. Your page-size choice is remembered across visits (`localStorage` key: `gv_page_size`).
+- This page uses **infinite scroll**: the next page (24 galleries by default) is appended as you near the bottom; the pager stays as a fallback. The page-size dropdown is 5/30/50/100/200/500 (24 is the default but not in the list). Your choice is remembered (`localStorage` key: `gv_page_size`).
 - Click a cover to open the gallery detail page (see [Gallery Details & Reader](Reading-EN)).
 - **Multi-tag filtering (AND / OR) & Exclude Tags (`-tag`)**:
   - Clicking a tag **appends it to the filter**; **Shift / Alt / Ctrl / Cmd + click** on a gallery card's tag **appends it as an exclude tag** (`-namespace:name`, e.g. `Shift+click female:lolicon → -female:lolicon`) — the click uses `stopPropagation` so it won't open the gallery, and the red badge shows the exclusion; excluded tags are honored by **Delete filtered** and sticky navigation;
