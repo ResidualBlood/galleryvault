@@ -6,7 +6,7 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 
 ## Browse (`#/browse`)
 
-- The default landing page (empty hash / unspecified route lands here): newest galleries first. **Infinite scroll** loads the next page; the pager at the bottom is a fallback. Page size is remembered.
+- The default landing page (empty hash / unspecified route lands here): newest galleries first. **Infinite scroll** loads the next page; the pager at the bottom is a fallback. Page size is remembered (`localStorage` key: `gv_page_size`).
 - **Continue Reading Cards**: Top section automatically aggregates recently read galleries with cover thumbnails, reading progress bars, one-click resumption, and per-gallery "Mark as unread / ✕" (clears progress and removes the card from Continue Reading / History).
 - The **tag namespace strip** on top (Tag / Artist / Character / Parody / Group / Female / Male / Language) and a **random gallery** button (🎲, opens a random gallery's detail page).
 - The **global search box** in the top bar jumps to the library and runs the title search on Enter; pressing **`/`** anywhere focuses the search box.
@@ -40,7 +40,7 @@ This guide covers gallery browsing, discovery, the main library, local lists, ta
 - **Saved searches**: store the current library filter under a name (about 30 max, in `user_settings.saved_searches` with get+merge so `auth_secret` is kept); apply or delete from the toolbar.
 - **Local lists**: independent of ExHentai. Add/remove from the library or detail page; gid-less CBZ archives can join; the library can filter by list (see the dedicated section below).
 - **"Not in favorites" filter**: the category dropdown ends with "Not in favorites", showing local galleries whose gid is not in any ExHentai favorite folder (gid-less local archives count as not favorited; older local copies with a newer favorited version are excluded and routed to Gallery Updates instead). Before favorites have ever been synced this item is equivalent to "All".
-- This page uses **infinite scroll**: the next page (24 galleries by default) is appended as you near the bottom; the numbered pager at the bottom stays as a fallback. Your page-size choice is remembered across visits.
+- This page uses **infinite scroll**: the next page (24 galleries by default) is appended as you near the bottom; the numbered pager at the bottom stays as a fallback. Your page-size choice is remembered across visits (`localStorage` key: `gv_page_size`).
 - Click a cover to open the gallery detail page (see [Gallery Details & Reader](Reading-EN)).
 - **Multi-tag filtering (AND / OR) & Exclude Tags (`-tag`)**:
   - Clicking a tag **appends it to the filter**; **Shift / Alt / Ctrl / Cmd + click** on a gallery card's tag **appends it as an exclude tag** (`-namespace:name`, e.g. `Shift+click female:lolicon → -female:lolicon`) — the click uses `stopPropagation` so it won't open the gallery, and the red badge shows the exclusion; excluded tags are honored by **Delete filtered** and sticky navigation;

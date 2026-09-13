@@ -31,7 +31,7 @@ Manage in the top bar lands on `#/recycle`. In-page tabs: **Recycle**, **Duplica
 
 - Accessible via the "Management" tab bar in desktop navigation (legacy hash `#/integrity` remains directly usable). Lists galleries whose recorded `page_count` disagrees with pages on disk, or that contain corrupt image files (unset page counts are excluded). Entering the page does **not** trigger an automatic full scan, keeping large libraries responsive.
 - **Split Scan & Incremental Repair Workflow**:
-  - **Scan missing & corrupt pages** (`POST /api/galleries/integrity/check`): Click **Scan** in the toolbar to initiate a background inspection. The scanner processes on-disk files at ~30 worker concurrency:
+  - **Scan missing & corrupt pages** (`POST /api/galleries/integrity/scan`): Click **Scan** in the toolbar to initiate a background inspection. The scanner processes on-disk files at ~30 worker concurrency:
     - **Magic Header Validation**: Deep inspection reads the first 16 bytes of each file to verify file signatures for JPEG (`FF D8 FF`), PNG (`89 50 4E 47`), GIF (`47 49 46 38`), and WebP (`RIFF....WEBP`), alongside strict 4-digit / 8-digit zero-padding filename sequence validation. This catches truncated image downloads, cloud anti-hotlink 403/503 HTML error pages inadvertently saved as images, and zero-padded sequence misalignments.
     - **Execution Tracking**: Total scan time, scanned file counts, and detected corrupt galleries are recorded in task history (`#/logs`). If globally paused, the page displays a paused notification and refrains from scheduling workers.
   - **Incremental Missing/Corrupt Page Repair**:

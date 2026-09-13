@@ -9,6 +9,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Wiki 阅读器 / 幻灯片说明对齐实现：启动即全屏、退出全屏停止、动图 `duration_ms + 150ms`、缓存头与条漫例外（`docs/wiki/Reading.md`、`Reading-EN.md`、`Features.md`、`Features-EN.md`）。
+- Wiki 库页注明每页条数保存在 `localStorage` 键 `gv_page_size`（`Library.md` / `Library-EN.md`）。
+
+### Fixed
+
+- Wiki 缺页体检路由改为 `POST /api/galleries/integrity/scan`；收藏封面改为 `GET /api/favorites/cover?gid={gid}`（`Manage.md`、`Favorites.md` 中英）。
 
 ## [1.12.5] - 2026-09-12
 
