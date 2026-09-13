@@ -13,11 +13,11 @@ GalleryVault focuses on managing local digital gallery archives, natively suppor
 | **Ehviewer_CN_SXJ** | Primary Reference | `.ehviewer` (SpiderInfo V1/V2) | The project's reference architecture for directory and metadata structures |
 | **FooIbar / EhViewer (MD3)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Natively indexes gallery and page-level metadata |
 | **Ehviewer-Overhauled** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Completely upstream-compatible; mount and scan directly |
-| **EhViewer-NekoInverter / NekoWhite** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Natively supported with full category and tag parsing |
+| **EhViewer-NekoInverter / NekoWhite** | Legacy text only | Legacy text `.ehviewer` | Current Neko writes `.ehviewer` as CBOR; this scanner only parses Hippo/SXJ plaintext, so CBOR exports are skipped |
 | **axlecho / MHViewer** & forks | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Full export format compatibility |
 | **EhViewer-Apple (iOS / macOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Direct ingestion of mobile exports |
 | **Ehviewer_OHOS (HarmonyOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Full export format compatibility |
-| **JHenTai (Flutter Multi-platform)** | Full Support | `metadata` (JSON format) | Automatically parses JSON tags, categories, and timestamps |
+| **JHenTai (Flutter Multi-platform)** | Page downloads | Gallery-root `metadata` JSON | Reads `{gid} - {title}/metadata` from page-by-page downloads; archive unpack dirs with `ametadata` are **not** scanned |
 | **Tachiyomi / Mihon / Panels** | Protocol Integration | OPDS Catalog (`/api/opds`) | Connects via HTTP Basic authentication for remote browsing and reading |
 | **Generic CBZ / CBR Archives** | Standard Support | `ComicInfo.xml` / filename prefix | Recognizes `gid-title.cbz` formats and embedded metadata schemas |
 
@@ -35,15 +35,15 @@ GalleryVault supports flexible multi-tier mounts. A standard directory topology 
 │   ├── 0002.jpg
 │   └── 0003.jpg
 ├── 234567 - GalleryTitleB/
-│   ├── metadata                   # JHenTai JSON metadata file
-│   ├── 1.png
-│   └── 2.png
-├── 345678-GalleryTitleC.cbz       # Standard CBZ package (with ComicInfo.xml)
-└── /archive (Tiered cold storage volume)
-    └── 456789-GalleryTitleD/
-        ├── .galleryvault.json     # GalleryVault standard sidecar index
-        ├── 0001.webp
-        └── 0002.webp
+│   ├── metadata                   # JHenTai page-download JSON (no extension)
+│   ├── 0.png
+│   └── 1.png
+├── 345678-GalleryTitleC.cbz       # Cold CBZ: ComicInfo.xml + .galleryvault.json inside the zip
+└── /archive/dir/.../456789/       # Oversize galleries stay as a cold directory
+    ├── .galleryvault.json         # Inside the directory, not beside the .cbz file
+    ├── ComicInfo.xml
+    ├── 0001.webp
+    └── 0002.webp
 ```
 
 ---
@@ -52,29 +52,29 @@ GalleryVault supports flexible multi-tier mounts. A standard directory topology 
 
 ### 1. `.ehviewer` Specification (SpiderInfo)
 
-Originating from Hippo Seven's EhViewer specification (`com.hippo.ehviewer.spider.SpiderInfo`). The scanner expects line 1 to be `VERSION1` or `VERSION2` (**not** `SpiderInfo VERSION2`):
+From Hippo Seven / SXJ (`com.hippo.ehviewer.spider.SpiderInfo`): plaintext lines, never CBOR. SXJ and this project's downloader **write VERSION2 only** (**not** `SpiderInfo VERSION2`):
 
 ```text
 VERSION2
-0
+00000000
 123456
 a1b2c3d4e5
-0
-0
-0
+1
+1
+20
 3
 0 abcdef01
 1 abcdef02
 2 abcdef03
 ```
 
-- **Line 1**: `VERSION1` or `VERSION2`.
-- **Next 7 fields** (one per line): start page (hex), `gid`, `token`, `mode`, preview page count, previews per page (ignored on VERSION1), total pages.
-- **Then**: one `index pToken` line per page. Titles, category, and tags are **not** in `.ehviewer`; they come from the folder name, sidecar, or gdata.
+- **VERSION2 (current)**: line 1 is `VERSION2`; next 7 fields: start page (8-digit hex, SXJ uses `%08x`; readers also accept `0`), `gid`, `token`, `mode` (written as `"1"`), preview page count, previews per page (this project writes `20`), total pages.
+- **VERSION1 (read-only legacy)**: no `VERSION1` marker; line 1 is the hex start page. The same 7 fields follow; the previews-per-page line is present but ignored. The scanner also accepts a mistaken `VERSION1` first line; SXJ neither writes nor correctly reads that form.
+- **Then**: one `index pToken` line per page. Titles, category, and tags are **not** in `.ehviewer`; they come from the folder name, `.galleryvault.json`, or gdata.
 
 ### 2. JHenTai `metadata` JSON Specification
 
-JHenTai writes a `metadata` file in the gallery root. Fields live under a `gallery` object; `tags` is a comma-separated string, not a dict:
+JHenTai **page-by-page downloads** write `{gid} - {title}/metadata` (no extension). Fields live under a `gallery` object; `tags` is a comma-separated `namespace:key` string; `images` is a JSON-encoded **string**, not an array. Image files are `{serial}.{ext}` **starting at 0**:
 
 ```json
 {
@@ -92,11 +92,28 @@ JHenTai writes a `metadata` file in the gallery root. Fields live under a `galle
 }
 ```
 
-The scanner reads `gallery.gid` / `token` / `title` / `category` / `uploader` / `publishTime` / `pageCount` / `tags`.
+The scanner reads `gallery.gid` / `token` / `title` / `category` / `uploader` / `publishTime` / `pageCount` / `tags`; pages are the directory's images in natural order (`images` is not parsed). Archive unpack dirs are `Archive - {gid} - {title}/` plus a top-level `ametadata` file (no `gallery` wrapper) and are **not** recognized.
 
 ### 3. `.galleryvault.json` Sidecar Specification
 
-For cold archive storage or portable exports, GalleryVault writes a `.galleryvault.json` sidecar. Written fields are `gid` / `token` / `title` / `title_jpn` / `tags` / `p_tokens`, plus optional `category` (no `version`, `posted`, `rating`, or `archived_at`):
+Two writers, slightly different fields. `tags` is always a list of `{namespace, name}` objects (readers also accept `"namespace:name"` strings). No `version` / `posted` / `rating` / `archived_at`.
+
+**After a download** (page-by-page and archive-zip share this path) the sidecar sits next to `.ehviewer` in the hot folder. gid / token / pTokens live in `.ehviewer`; the sidecar only adds category, titles, tags, and quality:
+
+```json
+{
+  "category": "Doujinshi",
+  "title": "Downloaded Gallery Title",
+  "title_jpn": "ダウンロード画廊タイトル",
+  "tags": [
+    {"namespace": "artist", "name": "sample_artist"},
+    {"namespace": "female", "name": "long hair"}
+  ],
+  "quality": "resample"
+}
+```
+
+**Cold archive** writes the sidecar **inside** the CBZ or cold directory (not beside the `.cbz` file). It includes gid / token / p_tokens and optional `category`; it does **not** write `quality`:
 
 ```json
 {
@@ -104,15 +121,16 @@ For cold archive storage or portable exports, GalleryVault writes a `.galleryvau
   "token": "b9c8d7e6f5",
   "title": "Archived Gallery Title",
   "title_jpn": "アーカイブ画廊タイトル",
-  "category": "Doujinshi",
+  "category": "doujinshi",
   "tags": [
-    "artist:sample_artist",
-    "female:long hair",
-    "language:chinese"
+    {"namespace": "artist", "name": "sample_artist"},
+    {"namespace": "female", "name": "long hair"}
   ],
   "p_tokens": ["abcdef01", "abcdef02"]
 }
 ```
+
+Ingest: hot-dir, cold-dir, and CBZ scanners all merge sidecar title / tags / category / quality. The CBZ scanner also reads gid / token from the embedded sidecar. Missing `category` falls back to misc unless the filename or parent folder infers one.
 
 ---
 

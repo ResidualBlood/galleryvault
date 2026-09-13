@@ -100,7 +100,7 @@ docker compose up -d
 4. **英文固定命名规范 (`gid-gallery.title.cbz`)**：
    - 为确保归档 CBZ 文件在跨平台、跨操作系统（Linux、Windows、macOS）及网络文件共享协议（SMB / NFS / WebDAV / rsync）与远程云备份同步时不发生字符集乱码或非法转义，冷归档统一强制采用官方英文/罗马音标题格式；
     - 文件名应用严格的 **243 字节上限截断**（预留 12 字节临时后缀缓冲区），彻底规避 Linux ext4 文件系统的 `[Errno 36] File name too long` 错误。
-    - 单卷上限 **500 页且 2GiB**（同时满足才单文件），超限自动切卷。
+    - 单卷上限 **500 页且 2GiB**（同时满足才打 CBZ），超限打成冷目录，不是多卷 CBZ。
 5. **安全反向清理已归档源目录 (`purge-archived-sources`)**：
    - 当画廊在冷存储目录成功归档为 CBZ 后，可在「设置 → 存储面板」点击「清理已归档源目录」（`POST /api/system/purge-archived-sources`）。
    - 该操作具备严格的防御保障：在冷热两端校验 GID 对应关系，**主动排除处于 pending / downloading 状态的活跃任务**，安全删除下载目录中的解压散图源文件夹并即时核减物理用量。

@@ -271,6 +271,8 @@ class CbzZipScanner(ArchiveScanner):
                             metadata["title_jpn"] = str(gv_data["title_jpn"])
                         if gv_data.get("quality"):
                             metadata["image_quality"] = str(gv_data["quality"])
+                        if gv_data.get("category"):
+                            metadata["category"] = str(gv_data["category"])
                 except (json.JSONDecodeError, UnicodeDecodeError, OSError):
                     pass
             return self._meta(path, pages, raw, **metadata)

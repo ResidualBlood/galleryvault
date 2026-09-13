@@ -31,8 +31,8 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 ## Detailed Feature Matrix
 
 ### 1. Local Asset Archiving & High-Fidelity Parsing
-- **Zero-Friction Ehviewer Ingestion**: Directly scans standard `<gid>-<title>/` directory trees, parsing `.ehviewer` metadata files (SpiderInfo V1 & V2) to restore gid, token, category, and page indexes without file moves or extraction.
-- **Multi-Format Ingestion**: Full compatibility with CBZ and CBR archives (with embedded `ComicInfo.xml`), JHenTai `metadata` JSON files, and standardized `.galleryvault.json` sidecar files in tiered cold storage.
+- **Zero-Friction Ehviewer Ingestion**: Directly scans standard `<gid>-<title>/` trees and parses `.ehviewer` (SpiderInfo V2; unmarked V1 is readable) for gid, token, and per-page pTokens. Title, category, and tags are not in SpiderInfo — they come from the folder name, `.galleryvault.json`, or gdata. No unpack-and-rename.
+- **Multi-Format Ingestion**: CBZ and CBR (embedded `ComicInfo.xml`), JHenTai page-download `metadata` JSON (archive `ametadata` is not scanned), and `.galleryvault.json` inside cold CBZ/directories.
 - **7z / PDF and gid-less folders**: `.7z` scans image members only (non-images stay packed); `.pdf` extracts embedded images. Gid-less image folders still browse and rate.
 - **Tiered Cold/Hot Storage**: Decouples the active download workspace (hot tier) from read-only archival pools (cold storage), allowing seamless archive migrations on demand.
 - **Custom Local Taxonomy**: Organizes media collections using local star ratings, custom reading lists, and private notes completely independent of external providers.

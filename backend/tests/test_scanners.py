@@ -224,6 +224,7 @@ def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path
     gv_payload = {
         "gid": 888,
         "token": "tok999",
+        "category": "Doujinshi",
         "tags": [{"namespace": "artist", "name": "ArtistA"}],
     }
     with zipfile.ZipFile(cbz_with_gid, "w") as z:
@@ -238,6 +239,7 @@ def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path
     assert meta.token == "tok999"
     assert meta.tags == [{"namespace": "artist", "name": "ArtistA"}]
     assert meta.title == "Zip Title"
+    assert meta.category == "doujinshi"
 
     # Case 2: Filename has NO gid (e.g. hash-title for ungid archive) -> gid supplemented from json
     cbz_ungid = tmp_path / "abcdef0123456789-ungid_title.cbz"
@@ -254,6 +256,7 @@ def test_cbz_scanner_reads_galleryvault_json_with_filename_gid_priority(tmp_path
     assert meta2.gid == 77777  # Supplemented from .galleryvault.json
     assert meta2.token == "tok777"
     assert meta2.tags == [{"namespace": "misc", "name": "tag1"}]
+    assert meta2.category == "misc"
 
     # Test open_page on CBZ
     stream = scanner.open_page(meta2, meta2.pages[0])

@@ -107,7 +107,7 @@ Different translation groups or quality variants of the same artwork often carry
 
 ### 7. How does multi-root cold storage (`archive_roots`) balance capacity across multiple disks?
 - **Configuration**: In **Settings → Library → Cold archive roots**, enter multiple mount paths (one path per line, e.g., `/archive1` and `/archive2`).
-- **Dynamic Load Balancing**: When cold archiving is triggered, the backend checks free space on every configured root via `statvfs` and writes the new CBZ to the volume with the most free space (and enough headroom). A volume is capped at 500 pages and 2GiB; larger galleries split.
+- **Dynamic Load Balancing**: When cold archiving is triggered, the backend checks free space on every configured root via `statvfs` and writes the new CBZ to the volume with the most free space (and enough headroom). A volume is capped at 500 pages and 2GiB; larger galleries become a cold directory.
 
 ### 8. How do I detect missing pages or corrupted image archives in the library?
 - Open **Manage → Integrity** (`#/integrity`) and click **Scan missing pages & corrupt images**.

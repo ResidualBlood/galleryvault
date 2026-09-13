@@ -31,8 +31,8 @@ GalleryVault 并非通用型电子书工具，而是专门针对画廊数字资�
 ## 详细功能矩阵
 
 ### 1. 本地画廊资产管理与高保真解析
-- **Ehviewer 目录零侵入直读**：扫描原生 `<gid>-<标题>/` 目录结构，自动解析 `.ehviewer` 元数据（SpiderInfo V1 与 V2），精准恢复 gid、token、画廊分类与各页索引，无需解压或重构文件夹。
-- **多元归档格式支持**：全面兼容 CBZ、CBR 压缩包（内嵌 `ComicInfo.xml`）、JHenTai `metadata` JSON，以及分层冷存储归档中的 `.galleryvault.json` sidecar 索引文件。
+- **Ehviewer 目录零侵入直读**：扫描原生 `<gid>-<标题>/` 目录结构，解析 `.ehviewer`（SpiderInfo V2；可读无标记 V1）恢复 gid、token 与各页 pToken。标题、分类、标签不在 SpiderInfo 里，由目录名 / `.galleryvault.json` / gdata 补全。无需解压或改名。
+- **多元归档格式支持**：兼容 CBZ、CBR（内嵌 `ComicInfo.xml`）、JHenTai 逐页目录的 `metadata` JSON（不扫归档 `ametadata`），以及冷库 CBZ/目录内的 `.galleryvault.json`。
 - **7z / PDF 与无 gid 本地库**：`.7z` 扫描只收图片成员（不把非图片解到库目录）；`.pdf` 抽内嵌图。没有 gid 的纯图目录也能浏览、打星。
 - **冷热分层存储架构**：支持将新下载的活跃工作区（热存储）与只读归档硬盘（冷存储）解耦挂载，支持随时按需向冷库迁移归档。
 - **本地画廊自定义组织**：支持基于本地自定义列表、星级评分与私有阅读笔记进行个性化分类管理，完全独立于外部站点。
