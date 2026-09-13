@@ -4,37 +4,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
-CATEGORIES = (
-    "manga",
-    "misc",
-    "cosplay",
-    "doujinshi",
-    "artistcg",
-    "gamecg",
-    "western",
-    "non-h",
-    "image_set",
-    "asianporn",
-    "deleted",
-    "other",
+from ..metadata.sidecar import (
+    CATEGORIES,
+    GENERIC_CATEGORY,
+    normalize_category,
 )
 
-# ExHentai "Misc" and our generic fallback are the same bucket; unknown or
-# unclassifiable galleries land here too.
-GENERIC_CATEGORY = "misc"
-
-
-def normalize_category(value: object) -> str:
-    candidate = str(value or "").strip().casefold().replace(" ", "_")
-    if candidate == "other":
-        # 'other' (our generic bucket) and ExHentai's 'misc' are the same class.
-        return GENERIC_CATEGORY
-    if candidate in CATEGORIES:
-        return candidate
-    compact = candidate.replace("_", "")
-    if compact in CATEGORIES:
-        return compact
-    return GENERIC_CATEGORY
+__all__ = [
+    "CATEGORIES",
+    "GENERIC_CATEGORY",
+    "ExistingGallery",
+    "GalleryMeta",
+    "GalleryScanner",
+    "PageInfo",
+    "ScannerRegistry",
+    "infer_category",
+    "normalize_category",
+]
 
 
 def infer_category(path: Path, metadata: dict[str, Any] | None = None) -> str:

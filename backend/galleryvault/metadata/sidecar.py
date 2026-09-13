@@ -14,7 +14,28 @@ logger = logging.getLogger(__name__)
 
 SIDECAR_FILENAME = ".galleryvault.json"
 
+CATEGORIES = (
+    "manga",
+    "misc",
+    "cosplay",
+    "doujinshi",
+    "artistcg",
+    "gamecg",
+    "western",
+    "non-h",
+    "image_set",
+    "asianporn",
+    "deleted",
+    "other",
+)
+
+# ExHentai "Misc" and our generic fallback are the same bucket; unknown or
+# unclassifiable galleries land here too.
+GENERIC_CATEGORY = "misc"
+
 __all__ = [
+    "CATEGORIES",
+    "GENERIC_CATEGORY",
     "SIDECAR_FILENAME",
     "build_galleryvault_json",
     "normalize_category",
@@ -23,15 +44,16 @@ __all__ = [
     "normalize_quality",
     "normalize_tags",
     "normalize_title_jpn",
+    "parse_datetime_utc",
     "parse_galleryvault_json",
     "read_galleryvault_json",
     "write_galleryvault_json",
 ]
 
 
-def normalize_tags(tags_input: Sequence[dict[str, Any] | str] | None) -> list[dict[str, str]]:
+def normalize_tags(tags_input: Any) -> list[dict[str, str]]:
     """Normalize tags into a list of {namespace, name} dicts."""
-    if not tags_input:
+    if not tags_input or isinstance(tags_input, (str, bytes)):
         return []
     tags: list[dict[str, str]] = []
     for item in tags_input:
@@ -40,24 +62,46 @@ def normalize_tags(tags_input: Sequence[dict[str, Any] | str] | None) -> list[di
             name = str(item.get("name", "")).strip()
             if name:
                 tags.append({"namespace": ns, "name": name})
+        elif isinstance(item, (tuple, list)):
+            if len(item) >= 2:
+                ns = str(item[0] or "misc").strip() or "misc"
+                name = str(item[1] or "").strip()
+            elif len(item) == 1:
+                ns = "misc"
+                name = str(item[0] or "").strip()
+            else:
+                continue
+            if name:
+                tags.append({"namespace": ns, "name": name})
         elif isinstance(item, str):
             val = item.strip()
             if not val:
                 continue
             if ":" in val:
                 ns, name = val.split(":", 1)
-                tags.append({"namespace": ns.strip(), "name": name.strip()})
+                tags.append({"namespace": ns.strip() or "misc", "name": name.strip()})
             else:
                 tags.append({"namespace": "misc", "name": val})
     return tags
 
 
-def normalize_category(cat: str | None) -> str | None:
-    """Normalize category name to lowercase stripped string or None."""
-    if not cat:
+def normalize_category(value: object) -> str | None:
+    """Normalize category name to lowercase stripped string or fallback to generic."""
+    if value is None:
         return None
-    val = str(cat).strip().lower()
-    return val or None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    candidate = raw.casefold().replace(" ", "_")
+    if candidate == "other":
+        # 'other' (our generic bucket) and ExHentai's 'misc' are the same class.
+        return GENERIC_CATEGORY
+    if candidate in CATEGORIES:
+        return candidate
+    compact = candidate.replace("_", "")
+    if compact in CATEGORIES:
+        return compact
+    return GENERIC_CATEGORY
 
 
 def normalize_quality(quality: str | None) -> str | None:
@@ -87,24 +131,58 @@ def normalize_title_jpn(title_jpn: str | None) -> str:
     return val
 
 
-def normalize_posted(posted: Any) -> str | None:
-    """Normalize posted timestamp to ISO 8601 string or None."""
+def parse_datetime_utc(posted: Any) -> datetime | None:
+    """Parse various datetime representations into a UTC-aware datetime."""
     if posted is None:
         return None
     if isinstance(posted, datetime):
         if posted.tzinfo is not None:
-            return posted.astimezone(UTC).isoformat().replace("+00:00", "Z")
-        return posted.isoformat() + "Z"
+            return posted.astimezone(UTC)
+        return posted.replace(tzinfo=UTC)
     if isinstance(posted, (int, float)):
         try:
-            dt = datetime.fromtimestamp(float(posted), tz=UTC)
-            return dt.isoformat().replace("+00:00", "Z")
+            return datetime.fromtimestamp(float(posted), tz=UTC)
         except (ValueError, OSError, OverflowError):
             return None
     if isinstance(posted, str):
         val = posted.strip()
-        return val or None
+        if not val:
+            return None
+        if not ("-" in val or ":" in val or "T" in val):
+            try:
+                num = float(val)
+                return datetime.fromtimestamp(num, tz=UTC)
+            except (ValueError, OSError, OverflowError):
+                pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(val, fmt).replace(tzinfo=UTC)
+            except ValueError:
+                continue
+        iso_val = val[:-1] + "+00:00" if val.endswith("Z") else val
+        try:
+            dt = datetime.fromisoformat(iso_val)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            else:
+                dt = dt.astimezone(UTC)
+            return dt
+        except ValueError:
+            pass
+        try:
+            num = float(val)
+            return datetime.fromtimestamp(num, tz=UTC)
+        except (ValueError, OSError, OverflowError):
+            pass
     return None
+
+
+def normalize_posted(posted: Any) -> str | None:
+    """Normalize posted timestamp to ISO 8601 string with trailing 'Z' or None."""
+    dt = parse_datetime_utc(posted)
+    if dt is None:
+        return None
+    return dt.isoformat().replace("+00:00", "Z")
 
 
 def build_galleryvault_json(

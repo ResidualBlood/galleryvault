@@ -46,7 +46,7 @@ def test_exhentai_tag_link_markup_is_parsed() -> None:
 
 
 def test_gdata_tag_normalization_from_cache_dicts() -> None:
-    from galleryvault.services.favorites_worker import _parse_gdata_tags, _tags_to_gdata_strings
+    from galleryvault.metadata.sidecar import normalize_tags
 
     # metadata_map returns {"namespace": ..., "name": ...} dicts; the favorites
     # metadata builder must NOT unpack the dict keys as the tag values.
@@ -55,16 +55,16 @@ def test_gdata_tag_normalization_from_cache_dicts() -> None:
         {"namespace": "misc", "name": "twintails"},
         {"namespace": "", "name": ""},
     ]
-    gtags = _tags_to_gdata_strings(dict_tags)
-    assert gtags == ["artist:alice", "misc:twintails"]
-    assert _parse_gdata_tags(gtags) == [
-        ("artist", "alice"),
-        ("misc", "twintails"),
+    assert normalize_tags(dict_tags) == [
+        {"namespace": "artist", "name": "alice"},
+        {"namespace": "misc", "name": "twintails"},
     ]
 
     # The DB-pair shape must also round-trip.
-    assert _tags_to_gdata_strings([["language", "chinese"]]) == ["language:chinese"]
-    assert _tags_to_gdata_strings(None) == []
+    assert normalize_tags([["language", "chinese"]]) == [
+        {"namespace": "language", "name": "chinese"}
+    ]
+    assert normalize_tags(None) == []
 
 
 class FakeFavoritesRepo:

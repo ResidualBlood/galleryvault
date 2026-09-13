@@ -30,6 +30,7 @@ from ...db.repository import (
 )
 from ...db.session import safe_transaction
 from ...logging import log_extra
+from ...metadata.sidecar import parse_datetime_utc
 from ...scanners import registry
 from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
 from ...services.deletion import delete_galleries_local
@@ -85,18 +86,10 @@ _IMAGE_QUALITY = frozenset({"original", "resample"})
 def _parse_posted(value: str | None) -> datetime | None:
     if not value or not str(value).strip():
         return None
-    raw = str(value).strip()
-    try:
-        if len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
-            return datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC)
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        dt = datetime.fromisoformat(raw)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return dt
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail="invalid posted date") from exc
+    dt = parse_datetime_utc(value)
+    if dt is None:
+        raise HTTPException(status_code=422, detail="invalid posted date")
+    return dt
 
 
 def _page_media_type(ext: str) -> str:

@@ -24,6 +24,7 @@ from ...db.repository import (
 )
 from ...db.session import safe_transaction
 from ...logging import log_extra
+from ...metadata.sidecar import normalize_posted, normalize_tags
 from ...scanners.base import CATEGORIES
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
@@ -117,39 +118,6 @@ def _resolve_eh_client_manager(mgr: Any) -> Any:
     if isinstance(mgr, Depends) or not hasattr(mgr, "client_context"):
         mgr = get_eh_client_manager()
     return _EhClientManagerWrapper(mgr)
-
-
-def _parse_gdata_tags(raw_tags: list[Any]) -> list[tuple[str | None, str]]:
-    out: list[tuple[str | None, str]] = []
-    for tag in raw_tags or []:
-        if isinstance(tag, dict):
-            ns = str(tag.get("namespace") or "").strip() or None
-            name = str(tag.get("name") or "").strip()
-            if name:
-                out.append((ns, name))
-        elif isinstance(tag, (list, tuple)) and len(tag) >= 2:
-            ns = str(tag[0] or "").strip() or None
-            name = str(tag[1] or "").strip()
-            if name:
-                out.append((ns, name))
-        elif isinstance(tag, str) and tag.strip():
-            val = tag.strip()
-            if ":" in val:
-                ns, name = val.split(":", 1)
-                out.append((ns.strip() or None, name.strip()))
-            else:
-                out.append((None, val))
-    return out
-
-
-def _unix_to_iso(val: Any) -> str | None:
-    if val is None:
-        return None
-    try:
-        ts = float(val)
-        return datetime.fromtimestamp(ts, tz=UTC).isoformat()
-    except (ValueError, TypeError, OSError):
-        return None
 
 
 def _record_favorites_remove_log(
@@ -359,11 +327,11 @@ async def favorite_items(
             file_size = meta.get("file_size") or item.file_size
             tags = [
                 {
-                    "namespace": ns,
-                    "name": name,
-                    "display": translated_tag(ns, name)[1],
+                    "namespace": t["namespace"],
+                    "name": t["name"],
+                    "display": translated_tag(t["namespace"], t["name"])[1],
                 }
-                for ns, name in _parse_gdata_tags(meta.get("tags", []))
+                for t in normalize_tags(meta.get("tags", []))
             ]
         items.append(
             {
@@ -1044,15 +1012,15 @@ async def duplicates_ignored_list(
                 )
                 detail["cover_data"] = None
                 detail["file_size"] = detail.get("file_size") or meta.get("file_size")
-                detail["posted_at"] = detail.get("posted_at") or _unix_to_iso(meta.get("posted"))
+                detail["posted_at"] = detail.get("posted_at") or normalize_posted(meta.get("posted"))
                 if meta.get("tags"):
                     detail["tags"] = [
                         {
-                            "namespace": ns,
-                            "name": name,
-                            "display": translated_tag(ns, name)[1],
+                            "namespace": t["namespace"],
+                            "name": t["name"],
+                            "display": translated_tag(t["namespace"], t["name"])[1],
                         }
-                        for ns, name in _parse_gdata_tags(meta.get("tags", []))
+                        for t in normalize_tags(meta.get("tags", []))
                     ]
         return [
             {**entry, "items": [items.get(gid) for gid in (entry.get("gids") or []) if gid in items]}

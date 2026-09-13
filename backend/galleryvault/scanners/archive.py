@@ -14,32 +14,11 @@ from xml.etree import ElementTree
 
 from ..metadata.sidecar import (
     SIDECAR_FILENAME,
+    normalize_tags,
     parse_galleryvault_json,
 )
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 from .ehviewer import IMAGE_EXTENSIONS, natural_key, strip_gid_prefix
-
-
-def _normalize_tags(raw: object) -> list[dict[str, str]]:
-    if not isinstance(raw, list):
-        return []
-    tags: list[dict[str, str]] = []
-    for item in raw:
-        if isinstance(item, dict):
-            name = str(item.get("name") or "").strip()
-            if name:
-                ns = str(item.get("namespace") or "misc").strip()
-                tags.append({"namespace": ns, "name": name})
-        elif isinstance(item, str):
-            val = item.strip()
-            if not val:
-                continue
-            if ":" in val:
-                ns, n = val.split(":", 1)
-                tags.append({"namespace": ns.strip(), "name": n.strip()})
-            else:
-                tags.append({"namespace": "misc", "name": val})
-    return tags
 
 
 def _is_symlink(info: object) -> bool:
@@ -103,7 +82,7 @@ class ArchiveScanner(GalleryScanner):
             except (TypeError, ValueError):
                 pass
         token = str(metadata["token"]) if metadata.get("token") else None
-        tags = metadata.get("tags") or []
+        tags = normalize_tags(metadata.get("tags"))
         image_quality = str(metadata["image_quality"]) if metadata.get("image_quality") else None
         fallback_title = strip_gid_prefix(path.stem, gid) or path.stem
         return GalleryMeta(

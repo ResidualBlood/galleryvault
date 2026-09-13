@@ -17,6 +17,7 @@ from galleryvault.app.schemas import (
 )
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
+from galleryvault.metadata.sidecar import normalize_posted, normalize_tags
 from galleryvault.services import favorites_worker as fw
 from galleryvault.services.eh_client import EhClient, EhClientError
 from galleryvault.services.favorites_worker import (
@@ -27,8 +28,6 @@ from galleryvault.services.favorites_worker import (
     _cover_cache_write_path,
     _fav_counts_cache,
     _img_data_uri,
-    _parse_gdata_tags,
-    _unix_to_iso,
     favorite_counts_cached,
     favorite_size_sync,
     favorites_skip_decision,
@@ -42,26 +41,26 @@ from galleryvault.services.favorites_worker import (
 
 
 def test_unix_to_iso() -> None:
-    assert _unix_to_iso(None) is None
-    assert _unix_to_iso("invalid") is None
-    res = _unix_to_iso(1600000000)
+    assert normalize_posted(None) is None
+    assert normalize_posted("invalid") is None
+    res = normalize_posted(1600000000)
     assert res is not None
     assert "2020" in res
 
 
 def test_parse_gdata_tags() -> None:
     tags = ["artist:michiking", "group:circle", "female:sole female", "nonamespace"]
-    parsed = _parse_gdata_tags(tags)
+    parsed = normalize_tags(tags)
     assert parsed == [
-        ("artist", "michiking"),
-        ("group", "circle"),
-        ("female", "sole female"),
-        ("misc", "nonamespace"),
+        {"namespace": "artist", "name": "michiking"},
+        {"namespace": "group", "name": "circle"},
+        {"namespace": "female", "name": "sole female"},
+        {"namespace": "misc", "name": "nonamespace"},
     ]
 
 
 def test_parse_gdata_tags_accepts_metadata_map_dicts() -> None:
-    parsed = _parse_gdata_tags(
+    parsed = normalize_tags(
         [
             {"namespace": "artist", "name": "alice"},
             {"namespace": "misc", "name": "twintails"},
@@ -75,12 +74,12 @@ def test_parse_gdata_tags_accepts_metadata_map_dicts() -> None:
         ]
     )
     assert parsed == [
-        ("artist", "alice"),
-        ("misc", "twintails"),
-        ("language", "chinese"),
-        ("group", "circle"),
-        ("female", "sole female"),
-        ("misc", "nonamespace"),
+        {"namespace": "artist", "name": "alice"},
+        {"namespace": "misc", "name": "twintails"},
+        {"namespace": "language", "name": "chinese"},
+        {"namespace": "group", "name": "circle"},
+        {"namespace": "female", "name": "sole female"},
+        {"namespace": "misc", "name": "nonamespace"},
     ]
 
 

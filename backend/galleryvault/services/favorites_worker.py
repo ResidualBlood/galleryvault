@@ -23,6 +23,7 @@ from ..db.repository import (
     GalleryUpdatesRepository,
 )
 from ..logging import bind_log_context, log_extra
+from ..metadata.sidecar import normalize_posted, normalize_tags
 from ..services.tag_translation import translated_tag
 from .download_worker import infer_image_quality
 from .duplicates import duplicate_group_is_ignored, find_duplicate_groups
@@ -127,55 +128,6 @@ _COVER_HEAL_CHUNK = 25
 _fav_counts_cache: dict[str, Any] = {"ts": 0.0, "counts": {}}
 _fav_counts_refresh_task: asyncio.Task[None] | None = None
 _size_sync_inflight: set[int] = set()
-
-
-def _unix_to_iso(val: Any) -> str | None:
-    if val is None:
-        return None
-    try:
-        ts = float(val)
-        return datetime.fromtimestamp(ts, tz=UTC).isoformat()
-    except (ValueError, TypeError, OSError):
-        return None
-
-
-def _parse_gdata_tags(tags: list[object] | None) -> list[tuple[str, str]]:
-    parsed: list[tuple[str, str]] = []
-    for tag in tags or []:
-        if isinstance(tag, dict):
-            ns = str(tag.get("namespace") or "").strip() or "misc"
-            name = str(tag.get("name") or "").strip()
-            if name:
-                parsed.append((ns, name))
-        elif isinstance(tag, (list, tuple)) and len(tag) >= 2:
-            ns = str(tag[0] or "").strip() or "misc"
-            name = str(tag[1] or "").strip()
-            if name:
-                parsed.append((ns, name))
-        elif isinstance(tag, str) and tag.strip():
-            if ":" in tag:
-                ns, name = tag.split(":", 1)
-                parsed.append((ns.strip(), name.strip()))
-            else:
-                parsed.append(("misc", tag.strip()))
-    return parsed
-
-
-def _tags_to_gdata_strings(raw_tags: list[object] | None) -> list[str]:
-    out: list[str] = []
-    for tag in raw_tags or []:
-        if isinstance(tag, dict):
-            ns = str(tag.get("namespace") or "")
-            name = str(tag.get("name") or "")
-        elif isinstance(tag, (list, tuple)) and len(tag) >= 2:
-            ns, name = str(tag[0] or ""), str(tag[1] or "")
-        else:
-            continue
-        name = name.strip()
-        if not name:
-            continue
-        out.append(f"{ns}:{name}" if ns else name)
-    return out
 
 
 def _remote_cover_cache_dir() -> Path:
@@ -861,10 +813,14 @@ async def run_duplicates_scan() -> None:
                         val = meta["posted_at"]
                         it["posted_at"] = val.isoformat() if isinstance(val, datetime) else val
                     else:
-                        it["posted_at"] = _unix_to_iso(meta.get("posted"))
+                        it["posted_at"] = normalize_posted(meta.get("posted"))
                     it["tags"] = [
-                        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                        for ns, name in _parse_gdata_tags(meta.get("tags", []))
+                        {
+                            "namespace": t["namespace"],
+                            "name": t["name"],
+                            "display": translated_tag(t["namespace"], t["name"])[1],
+                        }
+                        for t in normalize_tags(meta.get("tags", []))
                     ]
             cover_map = await remote_cover_data_batch(cloud_pairs, gmeta)
             for it in group_items:
@@ -894,7 +850,7 @@ async def run_duplicates_scan() -> None:
                 for it in group_items:
                     if it["posted_at"] or it["gid"] not in posted_meta:
                         continue
-                    posted = _unix_to_iso(posted_meta[it["gid"]].get("posted"))
+                    posted = normalize_posted(posted_meta[it["gid"]].get("posted"))
                     if not posted:
                         continue
                     it["posted_at"] = posted

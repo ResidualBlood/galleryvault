@@ -2,13 +2,14 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 from xml.etree import ElementTree
 
 from ..metadata.sidecar import (
     SIDECAR_FILENAME,
+    normalize_tags,
+    parse_datetime_utc,
     read_galleryvault_json,
 )
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
@@ -181,68 +182,26 @@ def natural_key(name: str) -> list[object]:
 _JHENTAI_TAG = re.compile(r"^([^:]*):(.*)$")
 
 
-def _normalize_tags(raw: object) -> list[dict[str, str]]:
-    if not isinstance(raw, list):
-        return []
-    tags: list[dict[str, str]] = []
-    for item in raw:
-        if isinstance(item, dict):
-            name = str(item.get("name") or "").strip()
-            if name:
-                ns = str(item.get("namespace") or "misc").strip()
-                tags.append({"namespace": ns, "name": name})
-        elif isinstance(item, str):
-            val = item.strip()
-            if not val:
-                continue
-            if ":" in val:
-                ns, n = val.split(":", 1)
-                tags.append({"namespace": ns.strip(), "name": n.strip()})
-            else:
-                tags.append({"namespace": "misc", "name": val})
-    return tags
-
-
 def parse_jhentai_tags(raw: object) -> list[dict[str, str]]:
     """Parse JHenTai's comma-joined ``namespace:key`` tag string."""
     if not isinstance(raw, str) or not raw.strip():
         return []
     tags: list[dict[str, str]] = []
-    for chunk in raw.split(","):
-        chunk = chunk.strip()
-        if not chunk:
+    for item in raw.split(","):
+        val = item.strip()
+        if not val:
             continue
-        match = _JHENTAI_TAG.match(chunk)
-        if match:
-            namespace, name = match.group(1), match.group(2).strip()
+        m = _JHENTAI_TAG.match(val)
+        if m:
+            ns, name = m.group(1).strip(), m.group(2).strip()
         else:
-            namespace, name = "misc", chunk
+            ns, name = "misc", val
         if name:
-            tags.append({"namespace": namespace, "name": name})
+            tags.append({"namespace": ns or "misc", "name": name})
     return tags
 
 
-def parse_jhentai_posted(value: object) -> datetime | None:
-    """Parse JHenTai's ``publishTime`` string into a UTC-aware datetime.
-
-    The ``publishTime`` string carries no timezone, so it is assumed to be UTC
-    (matching the timezone-aware ``galleries.posted_at`` column).
-    """
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
-        except ValueError:
-            continue
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
+parse_jhentai_posted = parse_datetime_utc
 
 
 class EhviewerDirScanner(GalleryScanner):
@@ -309,17 +268,16 @@ class EhviewerDirScanner(GalleryScanner):
         fallback_title = strip_gid_prefix(path.name, gid) or path.name
         title = (gv_data.get("title") if gv_data and gv_data.get("title") else None) or fallback_title
         title_jpn = (gv_data.get("title_jpn") if gv_data and gv_data.get("title_jpn") else None) or source_meta.get("title_jpn")
-        tags = gv_data.get("tags") if (gv_data and gv_data.get("tags")) else (source_meta.get("tags") or [])
+        tags = normalize_tags(
+            gv_data.get("tags")
+            if (gv_data and gv_data.get("tags"))
+            else source_meta.get("tags")
+        )
         category = (gv_data.get("category") if gv_data and gv_data.get("category") else None) or infer_category(path, source_meta)
         image_quality = gv_data.get("quality") if gv_data else source_meta.get("quality")
         uploader = gv_data.get("uploader") if gv_data else None
         rating = gv_data.get("rating") if gv_data else None
-        posted_at = None
-        if gv_data and gv_data.get("posted"):
-            try:
-                posted_at = datetime.fromisoformat(str(gv_data["posted"]))
-            except (ValueError, TypeError):
-                pass
+        posted_at = parse_datetime_utc(gv_data.get("posted")) if gv_data else None
 
         return GalleryMeta(
             title=title,
@@ -419,7 +377,7 @@ class JhentaiDirScanner(GalleryScanner):
         uploader = gallery.get("uploader")
         if not isinstance(uploader, str):
             uploader = None
-        posted_at = parse_jhentai_posted(gallery.get("publishTime"))
+        posted_at = parse_datetime_utc(gallery.get("publishTime"))
         tags = parse_jhentai_tags(gallery.get("tags"))
         declared_pages = gallery.get("pageCount")
         files = sorted(
@@ -602,12 +560,11 @@ class BareImageDirScanner(GalleryScanner):
         else:
             title_jpn = None
 
-        if gv_data and gv_data.get("tags"):
-            tags = gv_data["tags"]
-        elif comic_tags:
-            tags = comic_tags
-        else:
-            tags = []
+        tags = normalize_tags(
+            gv_data.get("tags")
+            if (gv_data and gv_data.get("tags"))
+            else comic_tags
+        )
 
         if gv_data and gv_data.get("category"):
             category = gv_data["category"]
@@ -618,12 +575,7 @@ class BareImageDirScanner(GalleryScanner):
         token = gv_data.get("token") if gv_data else None
         uploader = (gv_data.get("uploader") if gv_data and gv_data.get("uploader") else None) or comic_uploader
         rating = gv_data.get("rating") if gv_data else None
-        posted_at = None
-        if gv_data and gv_data.get("posted"):
-            try:
-                posted_at = datetime.fromisoformat(str(gv_data["posted"]))
-            except (ValueError, TypeError):
-                pass
+        posted_at = parse_datetime_utc(gv_data.get("posted")) if gv_data else None
 
         if gv_data and gv_data.get("p_tokens"):
             source_meta["p_tokens"] = gv_data["p_tokens"]
