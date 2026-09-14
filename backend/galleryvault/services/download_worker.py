@@ -779,6 +779,7 @@ async def _run_download_inner(
             "retry_count": 0,
             "retry_at": None,
             "finished_at": now,
+            "updated_at": now,
         }
         if getattr(exec_task, "archive_fallback", False):
             update_values["archive_fallback"] = True

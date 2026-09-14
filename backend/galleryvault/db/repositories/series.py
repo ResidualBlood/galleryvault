@@ -18,7 +18,7 @@ from ..models import (
     SeriesItem,
     Tag,
 )
-from .base import BaseRepository
+from .base import BaseRepository, count_select
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -138,8 +138,7 @@ class SeriesRepository(BaseRepository[Series]):
             valid_sids_subq = valid_local_sids.union(valid_cloud_sids).subquery()
             series_query = series_query.where(Series.id.in_(select(valid_sids_subq.c.series_id)))
 
-        count_query = select(func.count()).select_from(series_query.subquery())
-        total = int((await self.session.scalar(count_query)) or 0)
+        total = await count_select(self.session, series_query)
         if total == 0:
             return [], 0
 

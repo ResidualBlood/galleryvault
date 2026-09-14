@@ -21,9 +21,49 @@ def test_sevenzip_images_and_rejects_traversal(tmp_path: Path) -> None:
     assert meta.storage_type == "7z"
     data = SevenZipScanner().open_page(meta, meta.pages[0]).read()
     assert data == b"aaaa"
+    later = SevenZipScanner().open_page(meta, meta.pages[1]).read()
+    assert later == b"bbbb"
 
     with pytest.raises(ValueError):
         validate_archive_member("../x.jpg", None)
+
+
+def test_sevenzip_later_page_not_blocked_by_prefix_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """max_extract_size is cumulative; per-page cap must still allow later members."""
+    py7zr = pytest.importorskip("py7zr")
+    import galleryvault.scanners.sevenzip as sevenzip_mod
+
+    monkeypatch.setattr(sevenzip_mod, "MAX_ARCHIVE_PAGE_SIZE", 1500)
+    (tmp_path / "a.jpg").write_bytes(b"x" * 1000)
+    (tmp_path / "b.jpg").write_bytes(b"y" * 1000)
+    archive_path = tmp_path / "two-page.7z"
+    with py7zr.SevenZipFile(archive_path, "w") as archive:
+        archive.write(tmp_path / "a.jpg", "a.jpg")
+        archive.write(tmp_path / "b.jpg", "b.jpg")
+    meta = SevenZipScanner().scan(archive_path)
+    assert [p.name for p in meta.pages] == ["a.jpg", "b.jpg"]
+    first = SevenZipScanner().open_page(meta, meta.pages[0]).read()
+    second = SevenZipScanner().open_page(meta, meta.pages[1]).read()
+    assert first == b"x" * 1000
+    assert second == b"y" * 1000
+
+
+def test_sevenzip_rejects_oversize_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    py7zr = pytest.importorskip("py7zr")
+    import galleryvault.scanners.sevenzip as sevenzip_mod
+
+    (tmp_path / "big.jpg").write_bytes(b"z" * 200)
+    archive_path = tmp_path / "big.7z"
+    with py7zr.SevenZipFile(archive_path, "w") as archive:
+        archive.write(tmp_path / "big.jpg", "big.jpg")
+    meta = SevenZipScanner().scan(archive_path)
+    monkeypatch.setattr(sevenzip_mod, "MAX_ARCHIVE_PAGE_SIZE", 100)
+    with pytest.raises(ValueError, match="size limit"):
+        SevenZipScanner().open_page(meta, meta.pages[0])
 
 
 def test_sevenzip_scan_extracts_images_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,7 +98,6 @@ def test_sevenzip_scan_extracts_images_only(tmp_path: Path, monkeypatch: pytest.
 
     meta = SevenZipScanner().scan(archive_path)
     assert [p.name for p in meta.pages] == ["1.jpg"]
-    assert seen
     for targets in seen:
         assert targets is not None
         assert "payload.bin" not in targets

@@ -23,7 +23,7 @@ from ..models import (
     Tag,
 )
 from ..tag_filters import build_tag_predicates
-from .base import BaseRepository, _chunked, escape_like_wildcards, path_hash
+from .base import BaseRepository, _chunked, count_select, escape_like_wildcards, path_hash
 
 # Cache title sort column per display mode (japanese/english/directory).
 # Lazily computed to avoid per-call recomputation when title_display hasn't changed.
@@ -767,9 +767,7 @@ class GalleryRepository(BaseRepository[Gallery]):
         if tag_predicates:
             query = query.where(*tag_predicates)
         query = query.where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
-        total = int(
-            await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        )
+        total = await count_select(self.session, query)
         title_col = _title_sort_column(title_display)
         order_map = {
             "id_desc": [Gallery.id.desc()],
@@ -862,7 +860,7 @@ class GalleryRepository(BaseRepository[Gallery]):
             match = match.where(Tag.namespace == namespace)
         if pattern:
             match = match.where(Tag.name.ilike(pattern) | Tag.namespace.ilike(pattern))
-        total = int(await self.session.scalar(select(func.count()).select_from(match.subquery())) or 0)
+        total = await count_select(self.session, match)
         # Limit the tag rows first, then compute usage counts only for the
         # visible page — counting usage for every matching tag then slicing was
         # a full-table aggregation on large libraries.
@@ -997,7 +995,7 @@ class GalleryRepository(BaseRepository[Gallery]):
 
     async def list_trashed(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
         query = select(Gallery).where(Gallery.trashed.is_(True))
-        total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        total = await count_select(self.session, query)
         rows = (
             await self.session.scalars(
                 query.order_by(Gallery.trashed_at.desc().nullslast(), Gallery.id.desc())
@@ -1009,7 +1007,7 @@ class GalleryRepository(BaseRepository[Gallery]):
 
     async def list_expunged(self, page: int, page_size: int) -> tuple[int, list[Gallery]]:
         query = select(Gallery).where(Gallery.expunged.is_(True), Gallery.trashed.is_(False))
-        total = int(await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        total = await count_select(self.session, query)
         rows = (
             await self.session.scalars(
                 query.order_by(Gallery.updated_at.desc(), Gallery.id.desc())

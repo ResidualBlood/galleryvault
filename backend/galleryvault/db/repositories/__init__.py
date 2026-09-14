@@ -1,4 +1,4 @@
-from .base import _CHUNK_SIZE, _chunked, escape_like_wildcards, path_hash
+from .base import _CHUNK_SIZE, _chunked, count_select, escape_like_wildcards, path_hash
 from .downloads import DownloadRepository
 from .favorites import FavoritesRepository
 from .galleries import GalleryRepository
@@ -17,6 +17,7 @@ __all__ = [
     "LocalListRepository",
     "SettingsRepository",
     "_chunked",
+    "count_select",
     "escape_like_wildcards",
     "path_hash",
 ]

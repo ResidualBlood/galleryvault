@@ -92,31 +92,45 @@ def upgrade() -> None:
         "DELETE FROM local_list_items lli USING _dup_gallery_mapping m WHERE lli.gallery_id = m.loser_id",
         """
         INSERT INTO reading_progress (gallery_id, current_page, total_pages, updated_at)
-        SELECT
-            m.winner_id,
-            MAX(rp.current_page),
-            MAX(rp.total_pages),
-            MAX(rp.updated_at)
-        FROM reading_progress rp
-        JOIN _dup_gallery_mapping m ON rp.gallery_id = m.loser_id
-        GROUP BY m.winner_id
+        SELECT winner_id, current_page, total_pages, updated_at
+        FROM (
+            SELECT DISTINCT ON (m.winner_id)
+                m.winner_id,
+                rp.current_page,
+                rp.total_pages,
+                rp.updated_at
+            FROM reading_progress rp
+            JOIN _dup_gallery_mapping m ON rp.gallery_id = m.loser_id
+            ORDER BY m.winner_id, rp.current_page DESC, rp.updated_at DESC
+        ) AS src
         ON CONFLICT (gallery_id) DO UPDATE SET
             current_page = GREATEST(reading_progress.current_page, EXCLUDED.current_page),
+            total_pages = CASE
+                WHEN EXCLUDED.current_page > reading_progress.current_page THEN EXCLUDED.total_pages
+                ELSE reading_progress.total_pages
+            END,
             updated_at = GREATEST(reading_progress.updated_at, EXCLUDED.updated_at)
         """,
         "DELETE FROM reading_progress rp USING _dup_gallery_mapping m WHERE rp.gallery_id = m.loser_id",
         """
         INSERT INTO reading_history (gallery_id, current_page, total_pages, last_read_at)
-        SELECT
-            m.winner_id,
-            MAX(rh.current_page),
-            MAX(rh.total_pages),
-            MAX(rh.last_read_at)
-        FROM reading_history rh
-        JOIN _dup_gallery_mapping m ON rh.gallery_id = m.loser_id
-        GROUP BY m.winner_id
+        SELECT winner_id, current_page, total_pages, last_read_at
+        FROM (
+            SELECT DISTINCT ON (m.winner_id)
+                m.winner_id,
+                rh.current_page,
+                rh.total_pages,
+                rh.last_read_at
+            FROM reading_history rh
+            JOIN _dup_gallery_mapping m ON rh.gallery_id = m.loser_id
+            ORDER BY m.winner_id, rh.current_page DESC, rh.last_read_at DESC
+        ) AS src
         ON CONFLICT (gallery_id) DO UPDATE SET
             current_page = GREATEST(reading_history.current_page, EXCLUDED.current_page),
+            total_pages = CASE
+                WHEN EXCLUDED.current_page > reading_history.current_page THEN EXCLUDED.total_pages
+                ELSE reading_history.total_pages
+            END,
             last_read_at = GREATEST(reading_history.last_read_at, EXCLUDED.last_read_at)
         """,
         "DELETE FROM reading_history rh USING _dup_gallery_mapping m WHERE rh.gallery_id = m.loser_id",

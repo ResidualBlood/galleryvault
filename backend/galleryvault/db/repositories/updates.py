@@ -1,10 +1,11 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import DownloadTask, Gallery, GalleryUpdate
+from .base import count_select
 
 
 class GalleryUpdatesRepository:
@@ -55,9 +56,7 @@ class GalleryUpdatesRepository:
         query = select(GalleryUpdate)
         if status:
             query = query.where(GalleryUpdate.status == status)
-        total = int(
-            await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        )
+        total = await count_select(self.session, query)
         rows = (
             await self.session.scalars(
                 query.order_by(GalleryUpdate.detected_at.desc())

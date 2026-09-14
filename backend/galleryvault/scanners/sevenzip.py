@@ -1,12 +1,69 @@
 from __future__ import annotations
 
 import io
-import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
 from .archive import MAX_ARCHIVE_PAGE_SIZE, ArchiveScanner, validate_archive_member
 from .ehviewer import IMAGE_EXTENSIONS
+
+
+class _CappedMemWriter:
+    """py7zr WriterFactory product: cap writes for the requested member only."""
+
+    def __init__(self, max_size: int, member_name: str) -> None:
+        self._buf = io.BytesIO()
+        self._max_size = max_size
+        self._member_name = member_name
+        self._written = 0
+
+    def write(self, s: bytes | bytearray) -> int:
+        n = len(s)
+        if self._written + n > self._max_size:
+            raise ValueError(
+                f"page file exceeds size limit ({self._written + n} > {self._max_size}): {self._member_name}"
+            )
+        self._written += n
+        return self._buf.write(s)
+
+    def read(self, size: int | None = None) -> bytes:
+        if size is None:
+            return self._buf.read()
+        return self._buf.read(size)
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        return self._buf.seek(offset, whence)
+
+    def flush(self) -> None:
+        self._buf.flush()
+
+    def size(self) -> int:
+        return self._written
+
+    def close(self) -> None:
+        return None
+
+    def seekable(self) -> bool:
+        return True
+
+    def getvalue(self) -> bytes:
+        return self._buf.getvalue()
+
+
+class _CappedWriterFactory:
+    def __init__(self, max_size: int, member_name: str) -> None:
+        self.max_size = max_size
+        self.member_name = member_name
+        self.writer: _CappedMemWriter | None = None
+
+    def create(self, _filename: str) -> _CappedMemWriter:
+        self.writer = _CappedMemWriter(self.max_size, self.member_name)
+        return self.writer
+
+    def getvalue(self) -> bytes:
+        if self.writer is None:
+            return b""
+        return self.writer.getvalue()
 
 
 class SevenZipScanner(ArchiveScanner):
@@ -37,92 +94,68 @@ class SevenZipScanner(ArchiveScanner):
             pages = self._pages(list(sizes), sizes)
             return self._meta(path, pages, {"archive": "7z"})
 
-    @staticmethod
-    def _member_size(buf: object) -> int:
-        getbuffer = getattr(buf, "getbuffer", None)
-        if callable(getbuffer):
-            return int(getbuffer().nbytes)
-        read = getattr(buf, "read", None)
-        if callable(read):
-            return len(read())
-        return len(buf)  # type: ignore[arg-type]
-
     def _image_sizes(self, archive: object, image_names: list[str]) -> dict[str, int]:
         wanted = set(image_names)
-        read = getattr(archive, "read", None)
-        if callable(read):
-            extracted = read(targets=image_names) or {}
-            return {
-                name: self._member_size(buf)
-                for name, buf in extracted.items()
-                if name in wanted and buf is not None
-            }
         sizes: dict[str, int] = {}
-        with tempfile.TemporaryDirectory() as tmp:
-            archive.extract(targets=image_names, path=tmp)  # type: ignore[union-attr]
-            for name in image_names:
-                fp = Path(tmp) / name
-                if fp.is_file():
-                    sizes[name] = fp.stat().st_size
+        list_fn = getattr(archive, "list", None)
+        if callable(list_fn):
+            try:
+                for item in list_fn():
+                    name = getattr(item, "filename", None)
+                    if name not in wanted:
+                        continue
+                    uncompressed = getattr(item, "uncompressed", None)
+                    if uncompressed is None:
+                        continue
+                    size = int(uncompressed)
+                    if size > MAX_ARCHIVE_PAGE_SIZE:
+                        continue
+                    sizes[name] = size
+            except Exception:  # noqa: BLE001
+                sizes = {}
+        missing = [name for name in image_names if name not in sizes]
+        for name in missing:
+            reset = getattr(archive, "reset", None)
+            if callable(reset):
+                reset()
+            factory = _CappedWriterFactory(MAX_ARCHIVE_PAGE_SIZE, name)
+            try:
+                archive.extract(targets=[name], factory=factory)
+            except Exception:  # noqa: BLE001, S112
+                continue
+            if factory.writer is not None:
+                sizes[name] = factory.writer.size()
         return sizes
+
+    @staticmethod
+    def _reject_oversize_member(archive: object, page_name: str) -> None:
+        list_fn = getattr(archive, "list", None)
+        if not callable(list_fn):
+            return
+        try:
+            for item in list_fn():
+                if getattr(item, "filename", None) == page_name:
+                    uncompressed = getattr(item, "uncompressed", 0)
+                    if uncompressed and uncompressed > MAX_ARCHIVE_PAGE_SIZE:
+                        raise ValueError(
+                            f"page file exceeds size limit ({uncompressed} > {MAX_ARCHIVE_PAGE_SIZE}): {page_name}"
+                        )
+                    break
+        except ValueError:
+            raise
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     def open_page(self, gallery, page) -> BinaryIO:
         validate_archive_member(page.name, None)
         py7zr = self._py7zr()
-        try:
-            archive = py7zr.SevenZipFile(
-                gallery.path, mode="r", max_extract_size=MAX_ARCHIVE_PAGE_SIZE
-            )
-        except TypeError:
-            archive = py7zr.SevenZipFile(gallery.path, mode="r")
-            archive.max_extract_size = MAX_ARCHIVE_PAGE_SIZE
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            archive,
-        ):
-            if getattr(archive, "max_extract_size", None) is None:
-                archive.max_extract_size = MAX_ARCHIVE_PAGE_SIZE
-            # Check uncompressed size before extraction if metadata is available
-            list_fn = getattr(archive, "list", None)
-            if callable(list_fn):
-                try:
-                    for item in list_fn():
-                        if getattr(item, "filename", None) == page.name:
-                            uncompressed = getattr(item, "uncompressed", 0)
-                            if uncompressed and uncompressed > MAX_ARCHIVE_PAGE_SIZE:
-                                raise ValueError(
-                                    f"page file exceeds size limit ({uncompressed} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"
-                                )
-                            break
-                except ValueError:
-                    raise
-                except Exception:  # noqa: BLE001, S110
-                    pass
-            try:
-                archive.extract(
-                    targets=[page.name],
-                    path=tmp,
-                )
-            except Exception as exc:
-                decompression_bomb_err = getattr(
-                    getattr(py7zr, "exceptions", None), "DecompressionBombError", None
-                )
-                if (
-                    decompression_bomb_err and isinstance(exc, decompression_bomb_err)
-                ) or type(exc).__name__ == "DecompressionBombError":
-                    raise ValueError(
-                        f"page file exceeds size limit (decompression bomb): {page.name}"
-                    ) from exc
-                raise
-            fp = Path(tmp) / page.name
-            if not fp.is_file():
+        with py7zr.SevenZipFile(gallery.path, mode="r") as archive:
+            self._reject_oversize_member(archive, page.name)
+            factory = _CappedWriterFactory(MAX_ARCHIVE_PAGE_SIZE, page.name)
+            archive.extract(targets=[page.name], factory=factory)
+            data = factory.getvalue()
+            if factory.writer is None:
                 raise ValueError(f"missing 7z member: {page.name}")
-            st_size = fp.stat().st_size
-            if st_size > MAX_ARCHIVE_PAGE_SIZE:
-                raise ValueError(
-                    f"page file exceeds size limit ({st_size} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"
-                )
-            data = fp.read_bytes()
             if len(data) > MAX_ARCHIVE_PAGE_SIZE:
                 raise ValueError(
                     f"page file exceeds size limit ({len(data)} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"

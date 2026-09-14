@@ -28,6 +28,12 @@ def _chunked(values: Sequence[Any], size: int = _CHUNK_SIZE) -> list[list[Any]]:
     return [values_list[start : start + size] for start in range(0, len(values_list), size)]
 
 
+async def count_select(session: AsyncSession, query: Any) -> int:
+    """Count matching rows without wrapping ``SELECT *`` as a subquery."""
+    stmt = query.with_only_columns(func.count(), maintain_column_froms=True).order_by(None)
+    return int(await session.scalar(stmt) or 0)
+
+
 ModelT = TypeVar("ModelT")
 
 

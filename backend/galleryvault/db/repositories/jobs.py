@@ -118,7 +118,11 @@ class BackgroundJobsRepository:
             stmt = (
                 update(BackgroundJob)
                 .where(BackgroundJob.id.in_(subquery))
-                .values(status="claimed", lease_until=now + timedelta(seconds=lease_seconds))
+                .values(
+                    status="claimed",
+                    lease_until=now + timedelta(seconds=lease_seconds),
+                    updated_at=now,
+                )
                 .returning(BackgroundJob.gallery_id, BackgroundJob.attempts)
             )
         else:
@@ -138,7 +142,11 @@ class BackgroundJobsRepository:
             stmt = (
                 update(BackgroundJob)
                 .where(BackgroundJob.id == locked.c.id)
-                .values(status="claimed", lease_until=now + timedelta(seconds=lease_seconds))
+                .values(
+                    status="claimed",
+                    lease_until=now + timedelta(seconds=lease_seconds),
+                    updated_at=now,
+                )
                 .returning(BackgroundJob.gallery_id, BackgroundJob.attempts)
             )
         rows = await self.session.execute(stmt)
@@ -162,7 +170,7 @@ class BackgroundJobsRepository:
                 BackgroundJob.status == "claimed",
                 BackgroundJob.lease_until < now,
             )
-            .values(status="pending", lease_until=None)
+            .values(status="pending", lease_until=None, updated_at=now)
         )
         return int(result.rowcount or 0)
 

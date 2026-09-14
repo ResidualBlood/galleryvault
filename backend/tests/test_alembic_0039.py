@@ -184,7 +184,9 @@ async def test_alembic_0039_deduplicate_and_constraints():
         "INSERT INTO local_lists VALUES (10)",
         "INSERT INTO local_list_items VALUES (10, 101)",
         "INSERT INTO reading_progress VALUES (101, 15, 30, NOW())",
+        "INSERT INTO reading_progress VALUES (103, 20, 10, NOW() - INTERVAL '1 day')",
         "INSERT INTO reading_history (gallery_id, current_page, total_pages) VALUES (101, 15, 30)",
+        "INSERT INTO reading_history (gallery_id, current_page, total_pages) VALUES (103, 8, 12)",
         "INSERT INTO series VALUES (20)",
         "INSERT INTO series_items VALUES (20, 101)",
         "INSERT INTO series_exclusions VALUES (101)",
@@ -254,21 +256,21 @@ async def test_alembic_0039_deduplicate_and_constraints():
             ).fetchall()
             assert lists == [(10, 102)]
 
-            # 验证 reading_progress 迁移
+            # 验证 reading_progress 迁移：多 loser 取同一行（current_page 最大的 103）
             progress = (
                 await conn.execute(
-                    text("SELECT gallery_id, current_page FROM reading_progress")
+                    text("SELECT gallery_id, current_page, total_pages FROM reading_progress")
                 )
             ).fetchall()
-            assert progress == [(102, 15)]
+            assert progress == [(102, 20, 10)]
 
-            # 验证 reading_history 迁移
+            # 验证 reading_history 迁移：取 current_page 较大的 101，不拼 103 的 total
             history = (
                 await conn.execute(
-                    text("SELECT gallery_id, current_page FROM reading_history")
+                    text("SELECT gallery_id, current_page, total_pages FROM reading_history")
                 )
             ).fetchall()
-            assert history == [(102, 15)]
+            assert history == [(102, 15, 30)]
 
             # 验证 series_items 迁移
             series_items = (

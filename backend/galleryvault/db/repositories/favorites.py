@@ -18,7 +18,7 @@ from ..models import (
     Tag,
 )
 from ..tag_filters import build_tag_predicates
-from .base import BaseRepository, _chunked, escape_like_wildcards
+from .base import BaseRepository, _chunked, count_select, escape_like_wildcards
 
 
 class CloudSizeBreakdown(NamedTuple):
@@ -455,12 +455,7 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         if tag_predicates:
             query = query.where(*tag_predicates)
 
-        total = int(
-            await self.session.scalar(
-                select(func.count()).select_from(query.subquery())
-            )
-            or 0
-        )
+        total = await count_select(self.session, query)
         order_map = {
             "last_seen_desc": [FavoriteItem.last_seen_at.desc()],
             "first_seen_desc": [FavoriteItem.first_seen_at.desc()],
