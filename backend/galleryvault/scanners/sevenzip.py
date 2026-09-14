@@ -1,12 +1,70 @@
 from __future__ import annotations
 
+import builtins
 import io
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Self
 
 from .archive import MAX_ARCHIVE_PAGE_SIZE, ArchiveScanner, validate_archive_member
 from .ehviewer import IMAGE_EXTENSIONS
+
+
+@contextmanager
+def _limit_extracted_file_size(target_dir: Path, max_size: int, member_name: str | None = None):
+    orig_open = builtins.open
+    target_dir_resolved = target_dir.resolve()
+
+    class _LimitedWriter:
+        def __init__(self, raw_file: object) -> None:
+            self._raw = raw_file
+            self._written = 0
+
+        def write(self, b: object) -> int:
+            chunk_len = len(b) if isinstance(b, (bytes, bytearray, memoryview, str)) else 0
+            if self._written + chunk_len > max_size:
+                name_suffix = f": {member_name}" if member_name else ""
+                raise ValueError(
+                    f"page file exceeds size limit ({self._written + chunk_len} > {max_size}){name_suffix}"
+                )
+            n = self._raw.write(b)  # type: ignore[attr-defined]
+            self._written += chunk_len
+            return n
+
+        def writelines(self, lines: object) -> None:
+            for line in lines:  # type: ignore[union-attr]
+                self.write(line)
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._raw, name)
+
+        def __enter__(self) -> Self:
+            self._raw.__enter__()  # type: ignore[attr-defined]
+            return self
+
+        def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> object:
+            return self._raw.__exit__(exc_type, exc_val, exc_tb)  # type: ignore[attr-defined]
+
+    def guarded_open(file: object, *args: object, **kwargs: object) -> object:
+        f = orig_open(file, *args, **kwargs)  # type: ignore[call-overload]
+        mode = kwargs.get("mode")
+        if mode is None:
+            mode = args[0] if args else "r"
+        if any(m in str(mode) for m in ("w", "a", "x", "+")):
+            try:
+                p = Path(str(file)).resolve()
+                if p.is_relative_to(target_dir_resolved):
+                    return _LimitedWriter(f)
+            except Exception:  # noqa: BLE001, S110
+                pass
+        return f
+
+    builtins.open = guarded_open  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        builtins.open = orig_open  # type: ignore[assignment]
 
 
 class SevenZipScanner(ArchiveScanner):
@@ -89,7 +147,8 @@ class SevenZipScanner(ArchiveScanner):
                     raise
                 except Exception:  # noqa: BLE001, S110
                     pass
-            archive.extract(targets=[page.name], path=tmp)
+            with _limit_extracted_file_size(Path(tmp), MAX_ARCHIVE_PAGE_SIZE, page.name):
+                archive.extract(targets=[page.name], path=tmp)
             fp = Path(tmp) / page.name
             if not fp.is_file():
                 raise ValueError(f"missing 7z member: {page.name}")

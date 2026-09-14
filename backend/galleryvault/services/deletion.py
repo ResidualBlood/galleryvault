@@ -365,7 +365,7 @@ async def delete_galleries_local(
                     item["trashed"] = True
                     item["staged"] = False
                 else:
-                    if delete_all_copies and len(targets) > 1:
+                    if delete_files:
                         if gallery is not None:
                             gallery.trashed = True
                             gallery.trashed_at = datetime.now(UTC)
@@ -390,6 +390,11 @@ async def delete_galleries_local(
         failed_paths: list[str] = list(item.get("blocked_paths") or [])
 
         if delete_files:
+            if item.get("blocked_paths"):
+                item["deleted_paths"] = deleted_paths
+                item["failed_paths"] = failed_paths
+                continue
+
             for target in targets:
                 if str(target) in failed_paths:
                     continue
@@ -446,7 +451,7 @@ async def delete_galleries_local(
                         item["trashed"] = False
                     else:
                         item["db_removed"] = False
-                        item["trashed"] = False
+                        item["trashed"] = True
                         if delete_all_copies and deleted_paths and gid is not None:
                             dup_row = await sess.get(DuplicateRecord, gid)
                             if dup_row is not None:
@@ -481,6 +486,7 @@ async def delete_galleries_local(
                                     gallery.trashed = False
                                     gallery.trashed_at = None
                                     gallery.updated_at = datetime.now(UTC)
+                                    item["trashed"] = False
                 await sess.flush()
 
     return [
