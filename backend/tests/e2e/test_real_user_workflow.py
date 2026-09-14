@@ -61,10 +61,13 @@ async def test_real_user_workflow_e2e():
             # -------------------------------------------------------------
             # 1. 鉴权与站源配置
             # -------------------------------------------------------------
-            # 登录获取 session cookie
+            # 登录获取 session cookie 与 csrf token
             login_resp = await client.post("/login", data={"password": E2E_PASSWORD})
             assert login_resp.status_code in {200, 302, 303}, f"Login failed: {login_resp.status_code}"
             session_cookie = client.cookies.get("galleryvault_session") or client.cookies.get("session")
+            csrf_token = client.cookies.get("galleryvault_csrf") or login_resp.cookies.get("galleryvault_csrf")
+            if csrf_token:
+                client.headers["x-csrf-token"] = csrf_token
             # 容忍未启用 auth 模式
             if login_resp.status_code in {302, 303}:
                 assert session_cookie or len(client.cookies) > 0, "No session cookie set on redirect"

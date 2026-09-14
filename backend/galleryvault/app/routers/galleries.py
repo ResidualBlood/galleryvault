@@ -1162,9 +1162,11 @@ async def save_gallery_progress(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     row, pages = await _invoke_gallery(identifier, session=session)
+    if not pages:
+        raise HTTPException(status_code=400, detail="Gallery has no pages")
     current = body.current_page if body.current_page is not None else (body.page or 0)
     total_pages = body.total_pages or len(pages)
-    if current < 0 or (current > len(pages) and len(pages) > 0):
+    if current < 0 or current >= len(pages):
         raise HTTPException(status_code=422, detail="current_page is outside gallery")
     async with safe_transaction(session):
         progress = await GalleryRepository(session).upsert_progress(
@@ -1695,17 +1697,20 @@ async def get_page(
 ) -> StreamingResponse:
     session = await resolve_session(session, fallback_dep=get_session)
     row, pages = await _invoke_gallery(identifier, session=session)
-    if not 0 <= page_index < len(pages):
+    page = next((p for p in pages if p.page_index == page_index), None)
+    if page is None:
         raise HTTPException(status_code=404, detail="Page not found")
-    page = pages[page_index]
     scanner = registry.for_path(Path(row.storage_path or ""))
     if scanner is None:
         raise HTTPException(status_code=500, detail="No scanner for gallery storage")
-    stream = await run_in_threadpool(
-        scanner.open_page,
-        _meta(row, pages),
-        PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
-    )
+    try:
+        stream = await run_in_threadpool(
+            scanner.open_page,
+            _meta(row, pages),
+            PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return StreamingResponse(
         _closing_stream(stream),
         media_type=_page_media_type(page.media_type or "jpg"),
@@ -1822,9 +1827,9 @@ async def get_page_meta(
 ) -> dict[str, Any]:
     session = await resolve_session(session, fallback_dep=get_session)
     row, pages = await _invoke_gallery(identifier, session=session)
-    if not 0 <= page_index < len(pages):
+    page = next((p for p in pages if p.page_index == page_index), None)
+    if page is None:
         raise HTTPException(status_code=404, detail="Page not found")
-    page = pages[page_index]
     scanner = registry.for_path(Path(row.storage_path or ""))
     if scanner is None:
         raise HTTPException(status_code=500, detail="No scanner for gallery storage")
@@ -1948,9 +1953,9 @@ async def get_thumbnail(
         repo = GalleryRepository(session)
         pages = list(await repo.get_pages(row.id))
 
-    if not 0 <= page_index < len(pages):
+    page = next((p for p in pages if p.page_index == page_index), None)
+    if page is None:
         raise HTTPException(status_code=404, detail="Page not found")
-    page = pages[page_index]
 
     scanner = registry.for_path(Path(row.storage_path or ""))
     if scanner is None:

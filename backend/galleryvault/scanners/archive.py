@@ -20,6 +20,8 @@ from ..metadata.sidecar import (
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 from .ehviewer import IMAGE_EXTENSIONS, natural_key, strip_gid_prefix
 
+MAX_ARCHIVE_PAGE_SIZE = 128 * 1024 * 1024  # 128 MB max uncompressed page size to prevent Zip bomb/OOM
+
 
 def _is_symlink(info: object) -> bool:
     """Return True if archive member is a symlink (ZipInfo/RarInfo unified)."""
@@ -306,8 +308,22 @@ class CbzZipScanner(ArchiveScanner):
                 info = zf.getinfo(matched_name)
             if _is_symlink(info):
                 raise ValueError(f"unsafe symlink in archive: {info.filename}")
-            data = zf.read(info.filename)
-        return io.BytesIO(data)
+            if info.file_size > MAX_ARCHIVE_PAGE_SIZE:
+                raise ValueError(
+                    f"page file exceeds size limit ({info.file_size} > {MAX_ARCHIVE_PAGE_SIZE}): {info.filename}"
+                )
+            with zf.open(info.filename) as member:
+                buf = io.BytesIO()
+                copied = 0
+                while chunk := member.read(65536):
+                    copied += len(chunk)
+                    if copied > MAX_ARCHIVE_PAGE_SIZE:
+                        raise ValueError(
+                            f"page file exceeds size limit during extraction: {info.filename}"
+                        )
+                    buf.write(chunk)
+                buf.seek(0)
+                return buf
 
 
 class CbrRarScanner(ArchiveScanner):
@@ -357,13 +373,29 @@ class CbrRarScanner(ArchiveScanner):
                 try:
                     infos = archive.infolist()
                     target_info = next((i for i in infos if i.filename == page.name), None)
-                    if target_info is not None and _is_symlink(target_info):
-                        raise ValueError(f"unsafe symlink in archive: {page.name}")
+                    if target_info is not None:
+                        if _is_symlink(target_info):
+                            raise ValueError(f"unsafe symlink in archive: {page.name}")
+                        if getattr(target_info, "file_size", 0) > MAX_ARCHIVE_PAGE_SIZE:
+                            raise ValueError(
+                                f"page file exceeds size limit ({target_info.file_size} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"
+                            )
                 except ValueError:
                     raise
                 except Exception:  # noqa: BLE001, S110
                     pass
-                return io.BytesIO(archive.read(page.name))
+                with archive.open(page.name) as member:
+                    buf = io.BytesIO()
+                    copied = 0
+                    while chunk := member.read(65536):
+                        copied += len(chunk)
+                        if copied > MAX_ARCHIVE_PAGE_SIZE:
+                            raise ValueError(
+                                f"page file exceeds size limit during extraction: {page.name}"
+                            )
+                        buf.write(chunk)
+                    buf.seek(0)
+                    return buf
         except ValueError:
             raise
         except Exception as exc:

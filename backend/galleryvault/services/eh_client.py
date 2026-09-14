@@ -104,6 +104,25 @@ IMAGE_LIMIT_PLAIN_RE = re.compile(
     re.IGNORECASE,
 )
 
+ALLOWED_EH_DOMAINS = (
+    "e-hentai.org",
+    "exhentai.org",
+    "ehgt.org",
+    "hath.network",
+)
+
+
+def _is_allowed_eh_host(host: str, base_url: str | None = None) -> bool:
+    if not host:
+        return False
+    host = host.lower()
+    if base_url:
+        base_host = (urlparse(base_url).hostname or "").lower()
+        if base_host and (host == base_host or host.endswith("." + base_host)):
+            return True
+    return any(host == domain or host.endswith("." + domain) for domain in ALLOWED_EH_DOMAINS)
+
+
 
 def _page_token_from_href(absolute: str) -> str | None:
     """Extract the 10-hex pToken from a viewer URL (mirrors Ehviewer_CN_SXJ).
@@ -2209,6 +2228,9 @@ class EhClient:
         archive itself rather than through H@H nodes.  ``cb(downloaded, total)``
         receives byte progress.  Returns the final total size.
         """
+        host = (urlparse(url).hostname or "").lower()
+        if not _is_allowed_eh_host(host, self.settings.exhentai_base_url):
+            raise EhClientError(f"Disallowed host in archive URL: {host}")
         offset = dest.stat().st_size if dest.is_file() else 0
         headers = {"Referer": self.settings.exhentai_base_url.rstrip("/") + "/"}
         if offset > 0:
@@ -2315,6 +2337,8 @@ class EhClient:
         # Route cover through the correct limiter (H@H images vs site pages),
         # mirroring download_image_with_metadata's host-based budget.
         host = (urlparse(cover_url).hostname or "").lower()
+        if not _is_allowed_eh_host(host, self.settings.exhentai_base_url):
+            raise EhClientError(f"Disallowed host in gallery cover URL: {host}")
         use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
         semaphore = self._image_semaphore if use_image_budget else self._semaphore
         t_wait_start = time.perf_counter()
@@ -2345,6 +2369,8 @@ class EhClient:
 
     async def download_image_with_metadata(self, url: str) -> tuple[bytes, str]:
         host = (urlparse(url).hostname or "").lower()
+        if not _is_allowed_eh_host(host, self.settings.exhentai_base_url):
+            raise EhClientError(f"Disallowed host in image URL: {host}")
         # H@H image nodes (hath.network) are a distributed CDN with loose
         # limits — use the higher image limiter. Original-quality downloads
         # against the exhentai.org host stay on the page-fetch budget so we

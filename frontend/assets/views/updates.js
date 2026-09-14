@@ -57,7 +57,7 @@ async function renderUpdates() {
 }
 
 function updRow(u) {
-  const cover = u.cover_url ? `<img loading="lazy" src="${u.cover_url}" alt="">` : `<span class="badge">no cover</span>`;
+  const cover = u.cover_url ? `<img loading="lazy" src="${esc(u.cover_url)}" alt="">` : `<span class="badge">no cover</span>`;
   const retry = u.status === "failed"
     ? ` <button class="secondary" data-action="upd-retry" data-id="${u.id}" type="button">${esc(t("retry"))}</button>`
     : "";
@@ -245,7 +245,7 @@ async function renderFavIgnored() {
       </div>
       ${(g.items || []).map(it => `
         <div class="dup-row">
-          <span class="dup-thumb-wrap">${it.cover_url ? `<img class="dup-thumb" loading="lazy" src="${it.cover_url}" alt="">` : (it.cover_data ? `<img class="dup-thumb" loading="lazy" src="${it.cover_data}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`)}</span>
+          <span class="dup-thumb-wrap">${it.cover_url ? `<img class="dup-thumb" loading="lazy" src="${esc(it.cover_url)}" alt="">` : (it.cover_data ? `<img class="dup-thumb" loading="lazy" src="${esc(it.cover_data)}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`)}</span>
           <span class="dup-body">
             <span class="dup-title"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></span>
             <span class="dup-meta">

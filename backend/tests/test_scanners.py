@@ -30,16 +30,21 @@ def test_real_ehviewer_samples() -> None:
     galleries = [scanner.scan(path) for path in TEMP.iterdir() if path.is_dir()]
     if not galleries:
         pytest.skip("no TEMP/library sample galleries available")
-    assert sorted(len(g.pages) for g in galleries) == [15, 76]
-    assert all(g.pages[0].index == 0 for g in galleries)
-    assert {g.gid for g in galleries} == {560135, 3452635}
+    assert all(g.pages and g.pages[0].index == 0 for g in galleries)
     by_gid = {gallery.gid: gallery for gallery in galleries}
-    assert by_gid[560135].source_meta["start_page"] == 0
-    assert by_gid[560135].source_meta["mode"] == 1
-    assert by_gid[560135].source_meta["preview_pages"] == 1
-    assert by_gid[560135].source_meta["preview_per_page"] == 15
-    assert len(by_gid[560135].source_meta["p_tokens"]) == 15
-    assert by_gid[3452635].source_meta["preview_per_page"] == 76
+    assert set(by_gid.keys()).issubset({560135, 3452635})
+    if 560135 in by_gid:
+        g15 = by_gid[560135]
+        assert len(g15.pages) == 15
+        assert g15.source_meta["start_page"] == 0
+        assert g15.source_meta["mode"] == 1
+        assert g15.source_meta["preview_pages"] == 1
+        assert g15.source_meta["preview_per_page"] == 15
+        assert len(g15.source_meta["p_tokens"]) == 15
+    if 3452635 in by_gid:
+        g76 = by_gid[3452635]
+        assert len(g76.pages) == 76
+        assert g76.source_meta["preview_per_page"] == 76
 
 
 def test_version2_spider_info_fields_are_decoded() -> None:

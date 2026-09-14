@@ -59,7 +59,7 @@ class Gallery(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
         Index("idx_galleries_gid", "gid", unique=True, postgresql_where=text("gid IS NOT NULL")),
-        Index("idx_galleries_path_hash", "path_hash"),
+        Index("idx_galleries_path_hash", "path_hash", unique=True),
         Index("idx_galleries_tags_synced_at", "tags_synced_at"),
         Index("idx_galleries_storage_type", "storage_type"),
         Index("idx_galleries_posted_at", "posted_at"),
@@ -196,7 +196,9 @@ class GalleryUpdate(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     favcat: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
-    download_task_id: Mapped[int | None] = mapped_column(BigInteger)
+    download_task_id: Mapped[int | None] = mapped_column(
+        ForeignKey("download_tasks.id", ondelete="SET NULL"), nullable=True
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -389,7 +391,7 @@ class BackgroundJob(Base):
     __tablename__ = "background_jobs"
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     job_type: Mapped[str] = mapped_column(String(32))
-    gallery_id: Mapped[int] = mapped_column(BigInteger)
+    gallery_id: Mapped[int] = mapped_column(ForeignKey("galleries.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(String(16), default="pending")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

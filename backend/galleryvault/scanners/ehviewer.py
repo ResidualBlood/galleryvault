@@ -64,6 +64,20 @@ def parse_jhentai_tags(raw: object) -> list[dict[str, str]]:
 parse_jhentai_posted = parse_datetime_utc
 
 
+def _safe_resolve_page_file(gallery_dir: Path, page_name: str) -> Path:
+    root = gallery_dir.resolve()
+    name = (page_name or "").replace("\\", "/")
+    if not name or name.startswith(("/", "~")):
+        raise ValueError(f"unsafe page path: {page_name}")
+    parts = Path(name).parts
+    if ".." in parts:
+        raise ValueError(f"unsafe page path: {page_name}")
+    candidate = (root / name).resolve()
+    if not candidate.is_relative_to(root):
+        raise ValueError(f"unsafe page path: {page_name}")
+    return candidate
+
+
 class EhviewerDirScanner(GalleryScanner):
     storage_type = "ehviewer_dir"
 
@@ -181,7 +195,7 @@ class EhviewerDirScanner(GalleryScanner):
         return digest.hexdigest()
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
-        return (gallery.path / page.name).open("rb")
+        return _safe_resolve_page_file(gallery.path, page.name).open("rb")
 
 
 class JhentaiDirScanner(GalleryScanner):
@@ -303,7 +317,7 @@ class JhentaiDirScanner(GalleryScanner):
         return digest.hexdigest()
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
-        return (gallery.path / page.name).open("rb")
+        return _safe_resolve_page_file(gallery.path, page.name).open("rb")
 
 
 _DIR_NAME = re.compile(r"^\s*(\d+)\s*[-\s_]\s*(.+?)\s*$")
@@ -482,4 +496,4 @@ class BareImageDirScanner(GalleryScanner):
         return digest.hexdigest()
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
-        return (gallery.path / page.name).open("rb")
+        return _safe_resolve_page_file(gallery.path, page.name).open("rb")

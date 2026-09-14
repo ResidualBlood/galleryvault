@@ -106,7 +106,7 @@
       const cat = it.category ? escape(catLabelFn(it.category)) : "";
       const cover = it.cover_url || it.cover_data || null;
       const inner = cover
-        ? `<img class="cover-bg" loading="lazy" src="${cover}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${cover}" alt="">`
+        ? `<img class="cover-bg" loading="lazy" src="${escape(cover)}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${escape(cover)}" alt="">`
         : `<span class="badge">no cover</span>`;
       const stateBadge = it.gallery_id != null
         ? `<span class="fav-state local">${escape(translate("favLocal"))}</span>`
@@ -153,7 +153,7 @@
       const cat = g.category ? escape(catLabelFn(g.category)) : "";
       const coverSrc = g.cover_url || (g.id != null ? `/api/galleries/${g.id}/thumb/0` : null);
       const inner = coverSrc
-        ? `<img class="cover-bg" loading="lazy" src="${coverSrc}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${coverSrc}" alt="${escape(g.title || "")}">`
+        ? `<img class="cover-bg" loading="lazy" src="${escape(coverSrc)}" alt="" aria-hidden="true"><img class="cover-fg" loading="lazy" src="${escape(coverSrc)}" alt="${escape(g.title || "")}">`
         : `<span class="badge">no cover</span>`;
 
       const ratingBadge = g.rating != null && g.rating > 0

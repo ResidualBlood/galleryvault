@@ -131,6 +131,7 @@ function cycleReaderMode() {
 
 function buildReaderInnerHtml(id, page, total, mode, gallery) {
   const g = gallery || app.readerGallery || {};
+  total = total || g.page_count || 0;
   const isDoubleMode = mode.startsWith("double");
   const isDouble = isDoubleMode && page > 0;
   const isRtl = mode === "rtl" || mode === "double-rtl";
@@ -228,7 +229,7 @@ async function renderReader() {
       g = await api("GET", `/api/galleries/${id}`);
       app.readerGallery = g;
     }
-    const total = g.page_count;
+    const total = (g && g.page_count) || 0;
     app.readerTotal = total;
 
     const innerHtml = buildReaderInnerHtml(id, page, total, mode, g);

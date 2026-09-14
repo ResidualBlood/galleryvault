@@ -128,24 +128,50 @@ class GalleryRepository(BaseRepository[Gallery]):
             else select(Gallery).where(false())
         )
         existing = list((await self.session.scalars(stmt)).all())
-        by_key = {
-            ("gid", row.gid) if row.gid is not None else ("path", row.path_hash): row
-            for row in existing
-        }
+        existing_by_gid: dict[int, Gallery] = {}
+        existing_by_path: dict[str, Gallery] = {}
+        for row in existing:
+            if row.gid is not None:
+                existing_by_gid[row.gid] = row
+            if row.path_hash:
+                existing_by_path[row.path_hash] = row
+
         changed: list[tuple[Gallery, GalleryMeta]] = []
         for key, gallery in unique.items():
-            row = by_key.get(key)
+            p_hash = path_hash(gallery.path)
+            row: Gallery | None = None
+            if gallery.gid is not None:
+                row = existing_by_gid.get(gallery.gid)
+            if row is None and p_hash:
+                row = existing_by_path.get(p_hash)
+
             if row is None:
                 row = Gallery(**values_by_key[key])
                 self.session.add(row)
+                if row.gid is not None:
+                    existing_by_gid[row.gid] = row
+                if row.path_hash:
+                    existing_by_path[row.path_hash] = row
                 changed.append((row, gallery))
-            elif row.storage_signature != gallery.storage_signature or row.expunged:
+            elif (
+                row.storage_signature != gallery.storage_signature
+                or row.expunged
+                or (gallery.gid is not None and row.gid != gallery.gid)
+                or row.path_hash != p_hash
+            ):
                 for name, value in values_by_key[key].items():
                     if name == "image_quality" and value is None:
                         # Keep an already-known quality: a re-scan of a download
                         # without a fresh quality marker must not erase it.
                         continue
+                    if name in ("gid", "token") and value is None and getattr(row, name) is not None:
+                        # Keep already-known gid/token if scanner re-scan has no metadata
+                        continue
                     setattr(row, name, value)
+                if row.gid is not None:
+                    existing_by_gid[row.gid] = row
+                if row.path_hash:
+                    existing_by_path[row.path_hash] = row
                 changed.append((row, gallery))
         if changed:
             await self.session.flush()

@@ -218,9 +218,10 @@ async def delete_galleries_local(
 ) -> list[dict]:
     """Delete galleries (DB rows + optional on-disk copies) with safety boundary checks.
 
-    Phase 1: Query metadata and targets in a short read session.
-    Phase 2: Perform disk I/O outside of any DB session or transaction.
-    Phase 3: Persist DB status (trash/delete) in a short write transaction.
+    Phase 1: Query metadata and targets in a short read session with security pre-check.
+    Phase 2: Persist DB status (trash/delete) in a write transaction first.
+    Phase 3: Perform disk I/O outside of the DB write transaction; log failures.
+    Phase 4: Finalize multi-copy staged items if any copy failed disk deletion.
     """
     from contextlib import asynccontextmanager
     from datetime import UTC, datetime
@@ -263,6 +264,7 @@ async def delete_galleries_local(
             raise RuntimeError("Database session factory is not configured")
 
     deleter_fn = delete_local_copy
+    scan_roots_list = scan_roots if scan_roots is not None else _scan_roots_default()
 
     def _deleter(p: Path) -> bool:
         if delete_fn is not None:
@@ -299,40 +301,30 @@ async def delete_galleries_local(
                     p = Path(str(copy.get("path") or ""))
                     if p not in targets:
                         targets.append(p)
+
+            blocked_paths: list[str] = []
+            if delete_files:
+                for t in targets:
+                    if not in_scan_roots(t, scan_roots_list):
+                        logger.error(
+                            "SECURITY_ALERT: refusal to delete file outside configured scan roots",
+                            extra={"path": str(t)},
+                        )
+                        blocked_paths.append(str(t))
+
             items_meta.append({
                 "gallery_id": gallery.id,
                 "gid": gid,
                 "storage_path": gallery.storage_path,
                 "targets": targets,
+                "blocked_paths": blocked_paths,
             })
 
     if not items_meta:
         return []
 
-    # Phase 2: Perform disk I/O outside of any DB session or transaction
-    io_results: list[dict[str, Any]] = []
-    for meta in items_meta:
-        targets = meta["targets"]
-        deleted_paths: list[str] = []
-        failed_paths: list[str] = []
-        if delete_files:
-            for target in targets:
-                if _deleter(target):
-                    deleted_paths.append(str(target))
-                else:
-                    failed_paths.append(str(target))
-        io_results.append({
-            "gallery_id": meta["gallery_id"],
-            "gid": meta["gid"],
-            "storage_path": meta["storage_path"],
-            "targets": targets,
-            "deleted_paths": deleted_paths,
-            "failed_paths": failed_paths,
-        })
-
-    # Phase 3: Persist DB status (trash/delete) in a short write transaction
+    # Phase 2: Persist DB status (trash/delete) in a write transaction first
     auto_trash = trash
-    results: list[dict[str, Any]] = []
     async with get_cm() as sess:
         begin_ctx = sess.begin() if hasattr(sess, "begin") and callable(sess.begin) else None
         if begin_ctx is not None and hasattr(begin_ctx, "__aenter__"):
@@ -346,13 +338,11 @@ async def delete_galleries_local(
 
         async with cm_begin:
             repo = GalleryRepository(sess)
-            for item in io_results:
+            for item in items_meta:
                 gallery_id = item["gallery_id"]
                 gid = item["gid"]
-                storage_path = item["storage_path"]
                 targets = item["targets"]
-                deleted_paths = item["deleted_paths"]
-                failed_paths = item["failed_paths"]
+                blocked_paths = item.get("blocked_paths") or []
 
                 gallery = await sess.get(Gallery, gallery_id)
                 if gallery is None and galleries_map.get(gallery_id) is not None:
@@ -362,42 +352,119 @@ async def delete_galleries_local(
                 if should_trash is None:
                     should_trash = not delete_files
 
-                if should_trash:
+                if blocked_paths:
+                    item["db_removed"] = False
+                    item["trashed"] = False
+                    item["staged"] = False
+                elif should_trash:
                     if gallery is not None:
                         gallery.trashed = True
                         gallery.trashed_at = datetime.now(UTC)
                         gallery.updated_at = datetime.now(UTC)
-                    db_removed = False
-                    trashed = True
+                    item["db_removed"] = False
+                    item["trashed"] = True
+                    item["staged"] = False
                 else:
-                    if not delete_files or not failed_paths:
+                    if delete_all_copies and len(targets) > 1:
+                        if gallery is not None:
+                            gallery.trashed = True
+                            gallery.trashed_at = datetime.now(UTC)
+                            gallery.updated_at = datetime.now(UTC)
+                        item["db_removed"] = False
+                        item["trashed"] = True
+                        item["staged"] = True
+                    else:
                         if gallery is not None:
                             await sess.delete(gallery)
-                        if delete_all_copies and gid is not None and not failed_paths:
+                        if delete_all_copies and gid is not None:
                             await repo.delete_duplicate(gid)
-                        db_removed = True
-                        trashed = False
+                        item["db_removed"] = True
+                        item["trashed"] = False
+                        item["staged"] = False
+            await sess.flush()
+
+    # Phase 3: Perform disk I/O outside of the write transaction
+    for item in items_meta:
+        targets = item["targets"]
+        deleted_paths: list[str] = []
+        failed_paths: list[str] = list(item.get("blocked_paths") or [])
+
+        if delete_files:
+            for target in targets:
+                if str(target) in failed_paths:
+                    continue
+                try:
+                    if _deleter(target):
+                        deleted_paths.append(str(target))
                     else:
-                        db_removed = False
-                        trashed = False
+                        failed_paths.append(str(target))
+                        logger.warning("gallery file removal failed", extra={"path": str(target)})
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "gallery file removal failed with exception",
+                        extra={"path": str(target), "error": str(exc)},
+                    )
+                    failed_paths.append(str(target))
+
+        item["deleted_paths"] = deleted_paths
+        item["failed_paths"] = failed_paths
+
+    # Phase 4: Finalize multi-copy staged items if any copy failed disk deletion
+    staged_items = [it for it in items_meta if it.get("staged")]
+    if staged_items:
+        async with get_cm() as sess:
+            begin_ctx = sess.begin() if hasattr(sess, "begin") and callable(sess.begin) else None
+            if begin_ctx is not None and hasattr(begin_ctx, "__aenter__"):
+                cm_begin = begin_ctx
+            else:
+                @asynccontextmanager
+                async def _noop_begin():
+                    yield sess
+
+                cm_begin = _noop_begin()
+
+            async with cm_begin:
+                repo = GalleryRepository(sess)
+                for item in staged_items:
+                    gallery_id = item["gallery_id"]
+                    gid = item["gid"]
+                    storage_path = item["storage_path"]
+                    targets = item["targets"]
+                    deleted_paths = item["deleted_paths"]
+                    failed_paths = item["failed_paths"]
+
+                    gallery = await sess.get(Gallery, gallery_id)
+                    if gallery is None and galleries_map.get(gallery_id) is not None:
+                        gallery = galleries_map[gallery_id]
+
+                    if not failed_paths:
+                        if gallery is not None:
+                            await sess.delete(gallery)
+                        if delete_all_copies and gid is not None:
+                            await repo.delete_duplicate(gid)
+                        item["db_removed"] = True
+                        item["trashed"] = False
+                    else:
+                        item["db_removed"] = False
+                        item["trashed"] = False
                         if delete_all_copies and deleted_paths and gid is not None:
                             dup_row = await sess.get(DuplicateRecord, gid)
                             if dup_row is not None:
-                                    deleted_resolved = {Path(p).resolve() for p in deleted_paths}
-                                    remaining_copies = [
-                                        c for c in (dup_row.copies or [])
-                                        if Path(str(c.get("path") or "")).resolve() not in deleted_resolved
-                                    ]
-                                    if not remaining_copies:
-                                        await sess.delete(dup_row)
-                                    else:
-                                        dup_row.copies = remaining_copies
-                                        if (
-                                            dup_row.winner_path
-                                            and Path(dup_row.winner_path).resolve() in deleted_resolved
-                                        ):
-                                            dup_row.winner_path = str(remaining_copies[0].get("path") or "")
-                                        dup_row.updated_at = datetime.now(UTC)
+                                deleted_resolved = {Path(p).resolve() for p in deleted_paths}
+                                remaining_copies = [
+                                    c for c in (dup_row.copies or [])
+                                    if Path(str(c.get("path") or "")).resolve() not in deleted_resolved
+                                ]
+                                if not remaining_copies:
+                                    await sess.delete(dup_row)
+                                else:
+                                    dup_row.copies = remaining_copies
+                                    if (
+                                        dup_row.winner_path
+                                        and Path(dup_row.winner_path).resolve() in deleted_resolved
+                                    ):
+                                        dup_row.winner_path = str(remaining_copies[0].get("path") or "")
+                                    dup_row.updated_at = datetime.now(UTC)
 
                         if storage_path and gallery is not None:
                             gallery_resolved = Path(storage_path).resolve()
@@ -411,17 +478,22 @@ async def delete_galleries_local(
                                     new_path = surviving[0]
                                     gallery.storage_path = str(new_path)
                                     gallery.path_hash = path_hash(new_path)
+                                    gallery.trashed = False
+                                    gallery.trashed_at = None
                                     gallery.updated_at = datetime.now(UTC)
-                results.append({
-                    "gallery_id": gallery_id,
-                    "gid": gid,
-                    "db_removed": db_removed,
-                    "trashed": trashed,
-                    "deleted_paths": deleted_paths,
-                    "failed_paths": failed_paths,
-                })
-            await sess.flush()
-    return results
+                await sess.flush()
+
+    return [
+        {
+            "gallery_id": item["gallery_id"],
+            "gid": item["gid"],
+            "db_removed": item["db_removed"],
+            "trashed": item["trashed"],
+            "deleted_paths": item["deleted_paths"],
+            "failed_paths": item["failed_paths"],
+        }
+        for item in items_meta
+    ]
 
 
 async def remove_superseded_copy(
