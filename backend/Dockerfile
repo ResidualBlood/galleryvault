@@ -2,7 +2,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends unrar-free tzdata \
+    && apt-get install -y --no-install-recommends unrar-free tzdata git \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/share/doc /usr/share/man /usr/share/locale \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime

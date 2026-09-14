@@ -11,3 +11,5 @@ Pillow>=12.3.0,<13
 cryptography>=50.0.1,<51
 py7zr>=1.1.3,<2
 pypdf>=6.17.0,<7
+ehviewer-parser @ git+https://github.com/ResidualBlood/ehviewer-parser.git
+gallery-dedup @ git+https://github.com/ResidualBlood/gallery-dedup.git
