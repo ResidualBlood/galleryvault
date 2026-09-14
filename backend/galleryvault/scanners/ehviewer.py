@@ -1,10 +1,17 @@
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import BinaryIO
 from xml.etree import ElementTree
+
+from ehviewer_parser import (
+    SpiderInfo,
+    SpiderPageEntry,
+    natural_key,
+    parse_spider_info,
+    strip_gid_prefix,
+)
 
 from ..metadata.sidecar import (
     SIDECAR_FILENAME,
@@ -16,167 +23,20 @@ from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}
 _GID = re.compile(r"^(\d+)-")
-_TOKEN = re.compile(r"^[A-Za-z0-9]+$")
-MAX_PAGES = 100_000
-MAX_HEADER_LINE_LENGTH = 1024
 
-
-def strip_gid_prefix(name: str, gid: int | str | None = None) -> str:
-    """Strip leading GID prefix(es) from a title or directory/file name.
-
-    If gid is provided, strictly and iteratively strips leading occurrences of
-    f"{gid}-", f"{gid}_", or f"{gid} " to avoid corrupting genuine titles that
-    start with numbers. If gid is None, iteratively strips generic leading
-    numbers followed by a delimiter ("-", "_", or whitespace).
-    """
-    if not name:
-        return ""
-    s = str(name).strip()
-    if gid is not None:
-        gid_str = str(gid).strip()
-        if gid_str:
-            prefix_pattern = re.compile(rf"^\s*{re.escape(gid_str)}\s*[-\s_]\s*")
-            while True:
-                m = prefix_pattern.match(s)
-                if m:
-                    s = s[m.end():]
-                else:
-                    break
-            if s == gid_str:
-                return ""
-            return s.strip()
-    generic_pattern = re.compile(r"^\s*\d+\s*[-\s_]\s*")
-    while True:
-        m = generic_pattern.match(s)
-        if m:
-            s = s[m.end():]
-        else:
-            break
-    return s.strip()
-
-
-@dataclass(frozen=True)
-class SpiderPageEntry:
-    index: int
-    p_token: str
-
-
-@dataclass(frozen=True)
-class SpiderInfo:
-    version: str
-    start_page: int
-    gid: int
-    token: str
-    mode: int
-    preview_pages: int
-    preview_per_page: int | None
-    pages: int
-    page_entries: list[SpiderPageEntry]
-    warnings: list[str]
-
-    @property
-    def p_tokens(self) -> list[str]:
-        return [entry.p_token for entry in self.page_entries]
-
-    def source_meta(self) -> dict[str, object]:
-        result = asdict(self)
-        result["p_tokens"] = self.p_tokens
-        result["page_entries"] = [asdict(entry) for entry in self.page_entries]
-        return result
-
-
-def parse_spider_info(text: str) -> SpiderInfo:
-    """Parse Ehviewer SpiderInfo v1/v2 without discarding recoverable entries."""
-    lines = text.splitlines()
-    while lines and not lines[-1].strip():
-        lines.pop()
-    if not lines:
-        raise ValueError("empty .ehviewer")
-    marker = lines[0].strip()
-    if marker.startswith("VERSION") and marker not in {"VERSION1", "VERSION2"}:
-        raise ValueError("unsupported SpiderInfo version")
-    version2 = marker == "VERSION2"
-    version = "VERSION2" if version2 else "VERSION1"
-    offset = 1 if marker in {"VERSION1", "VERSION2"} else 0
-    # Both formats carry the same physical header fields. VERSION1 ignores
-    # previewPerPage, while VERSION2 stores it.
-    field_count = 7
-    if len(lines) < offset + field_count:
-        raise ValueError(f"malformed {version} header")
-    if any(len(line) > MAX_HEADER_LINE_LENGTH for line in lines[offset : offset + field_count]):
-        raise ValueError(f"{version} header line is too long")
-    fields = [line.strip() for line in lines[offset : offset + field_count]]
-    try:
-        start_page = int(fields[0], 16)
-        gid = int(fields[1])
-        token = fields[2]
-        mode = int(fields[3])
-        preview_pages = int(fields[4])
-        preview_per_page = int(fields[5]) if version2 else None
-        pages = int(fields[6])
-    except (TypeError, ValueError, IndexError) as exc:
-        raise ValueError(f"malformed {version} header fields") from exc
-    if start_page < 0 or gid <= 0 or not _TOKEN.fullmatch(token) or len(token) > 64:
-        raise ValueError("invalid start_page, gid, or token")
-    if mode < 0 or preview_pages < 0 or pages <= 0 or pages > MAX_PAGES:
-        raise ValueError("invalid page counts")
-    if version2 and (preview_per_page is None or preview_per_page < 0):
-        raise ValueError("invalid preview_per_page")
-
-    warnings: list[str] = []
-    entries: list[SpiderPageEntry] = []
-    seen: set[int] = set()
-    entry_offset = offset + field_count
-    for line_number, line in enumerate(lines[entry_offset:], entry_offset + 1):
-        if len(line) > 2048:
-            warnings.append(f"line {line_number}: page entry is too long")
-            continue
-        parts = line.split()
-        if not parts:
-            continue
-        if len(parts) < 2:
-            warnings.append(f"line {line_number}: missing pToken")
-            continue
-        try:
-            index = int(parts[0])
-        except ValueError:
-            warnings.append(f"line {line_number}: invalid page index")
-            continue
-        p_token = parts[1]
-        if len(p_token) > 128:
-            warnings.append(f"line {line_number}: pToken is too long")
-            continue
-        if index in seen:
-            warnings.append(f"line {line_number}: duplicate page index {index}")
-            continue
-        if index < 0 or index >= pages:
-            warnings.append(f"line {line_number}: page index {index} out of range")
-            continue
-        if not _TOKEN.fullmatch(p_token):
-            warnings.append(f"line {line_number}: invalid pToken")
-            continue
-        seen.add(index)
-        entries.append(SpiderPageEntry(index, p_token))
-    if len(entries) < pages:
-        warnings.append(f"missing pToken entries: metadata={pages}, parsed={len(entries)}")
-    if len(lines[entry_offset:]) > pages:
-        warnings.append("extra page entry lines")
-    return SpiderInfo(
-        version,
-        start_page,
-        gid,
-        token,
-        mode,
-        preview_pages,
-        preview_per_page,
-        pages,
-        entries,
-        warnings,
-    )
-
-
-def natural_key(name: str) -> list[object]:
-    return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name)]
+__all__ = [
+    "IMAGE_EXTENSIONS",
+    "BareImageDirScanner",
+    "EhviewerDirScanner",
+    "JhentaiDirScanner",
+    "SpiderInfo",
+    "SpiderPageEntry",
+    "natural_key",
+    "parse_jhentai_posted",
+    "parse_jhentai_tags",
+    "parse_spider_info",
+    "strip_gid_prefix",
+]
 
 
 _JHENTAI_TAG = re.compile(r"^([^:]*):(.*)$")
