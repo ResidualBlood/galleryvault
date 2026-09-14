@@ -541,7 +541,10 @@ async def test_download_image_rejects_truncated_and_hijacked() -> None:
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
         eh = EhClient(Settings(exhentai_base_url="https://exhentai.org"), client=client)
-        with pytest.raises(EhClientError, match="redirected to unexpected host"):
+        with pytest.raises(
+            EhClientError,
+            match=r"(redirected to unexpected host|Disallowed redirect host)",
+        ):
             await eh.download_image_with_metadata("https://node.hath.network/h/redirect.jpg")
         with pytest.raises(EhClientError, match="incomplete"):
             await eh.download_image_with_metadata("https://node.hath.network/h/x.jpg")

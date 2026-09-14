@@ -1033,6 +1033,21 @@ class EhClient:
                 follow_redirects=True,
             )
 
+        if isinstance(getattr(self.client, "event_hooks", None), dict):
+            self.client.event_hooks.setdefault("response", []).append(self._check_redirect_host)
+
+    async def _check_redirect_host(self, response: httpx.Response) -> None:
+        """Validate redirect Location host against allowed Eh domains to prevent SSRF."""
+        if response.is_redirect:
+            location = response.headers.get("Location")
+            if location:
+                target_url = urljoin(str(response.url), location)
+                target_host = (urlparse(target_url).hostname or "").lower()
+                if not _is_allowed_eh_host(target_host, self.settings.exhentai_base_url):
+                    raise EhClientError(
+                        f"Disallowed redirect host in EhClient request: {target_host}"
+                    )
+
     async def __aenter__(self) -> Self:
         return self
 
@@ -2349,12 +2364,28 @@ class EhClient:
                 wait_elapsed,
                 {"type": "image" if use_image_budget else "page"},
             )
+            if isinstance(getattr(self.client, "event_hooks", None), dict):
+                resp_hooks = self.client.event_hooks.setdefault("response", [])
+                if self._check_redirect_host not in resp_hooks:
+                    resp_hooks.append(self._check_redirect_host)
             cover_response = await self.client.get(
                 cover_url,
                 headers={"Referer": str(response.url)},
                 timeout=httpx.Timeout(120.0, read=30.0),
                 follow_redirects=True,
             )
+        for redirect_resp in getattr(cover_response, "history", []):
+            loc = redirect_resp.headers.get("Location")
+            if loc:
+                redirect_url = urljoin(str(redirect_resp.url), loc)
+                redirect_host = (urlparse(redirect_url).hostname or "").lower()
+                if not _is_allowed_eh_host(redirect_host, self.settings.exhentai_base_url):
+                    raise EhClientError(
+                        f"Disallowed redirect host in gallery cover: {redirect_host}"
+                    )
+        final_host = (urlparse(str(cover_response.url)).hostname or "").lower()
+        if not _is_allowed_eh_host(final_host, self.settings.exhentai_base_url):
+            raise EhClientError(f"Disallowed host in gallery cover response: {final_host}")
         if cover_response.status_code in (401, 403) or "login" in str(cover_response.url).lower():
             raise EhClientError("ExHentai authentication is required or expired")
         cover_response.raise_for_status()

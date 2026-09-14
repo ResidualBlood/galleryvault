@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
-from .archive import ArchiveScanner, validate_archive_member
+from .archive import MAX_ARCHIVE_PAGE_SIZE, ArchiveScanner, validate_archive_member
 from .ehviewer import IMAGE_EXTENSIONS
 
 
@@ -69,11 +69,38 @@ class SevenZipScanner(ArchiveScanner):
     def open_page(self, gallery, page) -> BinaryIO:
         validate_archive_member(page.name, None)
         py7zr = self._py7zr()
-        with tempfile.TemporaryDirectory() as tmp, py7zr.SevenZipFile(
-            gallery.path, mode="r"
-        ) as archive:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            py7zr.SevenZipFile(gallery.path, mode="r") as archive,
+        ):
+            # Check uncompressed size before extraction if metadata is available
+            list_fn = getattr(archive, "list", None)
+            if callable(list_fn):
+                try:
+                    for item in list_fn():
+                        if getattr(item, "filename", None) == page.name:
+                            uncompressed = getattr(item, "uncompressed", 0)
+                            if uncompressed and uncompressed > MAX_ARCHIVE_PAGE_SIZE:
+                                raise ValueError(
+                                    f"page file exceeds size limit ({uncompressed} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"
+                                )
+                            break
+                except ValueError:
+                    raise
+                except Exception:  # noqa: BLE001, S110
+                    pass
             archive.extract(targets=[page.name], path=tmp)
             fp = Path(tmp) / page.name
             if not fp.is_file():
                 raise ValueError(f"missing 7z member: {page.name}")
-            return io.BytesIO(fp.read_bytes())
+            st_size = fp.stat().st_size
+            if st_size > MAX_ARCHIVE_PAGE_SIZE:
+                raise ValueError(
+                    f"page file exceeds size limit ({st_size} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"
+                )
+            data = fp.read_bytes()
+            if len(data) > MAX_ARCHIVE_PAGE_SIZE:
+                raise ValueError(
+                    f"page file exceeds size limit ({len(data)} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"
+                )
+            return io.BytesIO(data)

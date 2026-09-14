@@ -601,6 +601,38 @@ def test_cross_origin_api_request_rejected(client: TestClient) -> None:
     assert resp.json() == {"detail": "Cross-origin request rejected"}
 
 
+def test_origin_null_request_rejected(client: TestClient) -> None:
+    # 带 session cookie 发送 Origin: null 的变更请求，断言被中间件拦截返回 403
+    client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+    resp = client.post(
+        "/api/tasks/scan",
+        headers={"Origin": "null"},
+    )
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "Cross-origin request rejected"}
+
+
+def test_missing_origin_csrf_token_enforcement(client: TestClient) -> None:
+    # 带 session cookie 且无 Origin / Referer 的外部变更请求
+    with TestClient(
+        app, client=("192.168.1.50", 50000), base_url="http://galleryvault.local"
+    ) as ext_client:
+        ext_client.cookies.set("galleryvault_session", create_session("unit-test-secret", 60))
+
+        # 未携带 x-csrf-token 时断言返回 403
+        resp_no_csrf = ext_client.post("/api/tasks/scan")
+        assert resp_no_csrf.status_code == 403
+        assert resp_no_csrf.json() == {"detail": "CSRF token required"}
+
+        # 携带有效 x-csrf-token 时通过中间件校验（进入下游路由，非 403）
+        ext_client.cookies.set("galleryvault_csrf", "valid-csrf-token")
+        resp_valid_csrf = ext_client.post(
+            "/api/tasks/scan",
+            headers={"x-csrf-token": "valid-csrf-token"},
+        )
+        assert resp_valid_csrf.status_code != 403
+
+
 def test_basic_auth_ignored_on_other_api_routes(client: TestClient) -> None:
     auth_header = "Basic " + base64.b64encode(b"galleryvault:correct horse").decode()
 

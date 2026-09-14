@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import BinaryIO
 
-from .archive import ArchiveScanner, _is_unsafe_path
+from .archive import MAX_ARCHIVE_PAGE_SIZE, ArchiveScanner, _is_unsafe_path
 from .base import GalleryMeta, PageInfo
 from .ehviewer import IMAGE_EXTENSIONS, natural_key
 
@@ -46,9 +46,19 @@ class PdfScanner(ArchiveScanner):
                 data = getattr(image, "data", None)
                 if not data:
                     continue
+                image_size = len(data) if hasattr(data, "__len__") else 0
+                if image_size > MAX_ARCHIVE_PAGE_SIZE:
+                    raise ValueError(
+                        f"PDF page image exceeds size limit ({image_size} > {MAX_ARCHIVE_PAGE_SIZE}): {name}"
+                    )
+                raw_bytes = bytes(data)
+                if len(raw_bytes) > MAX_ARCHIVE_PAGE_SIZE:
+                    raise ValueError(
+                        f"PDF page image exceeds size limit ({len(raw_bytes)} > {MAX_ARCHIVE_PAGE_SIZE}): {name}"
+                    )
                 if suffix not in IMAGE_EXTENSIONS:
                     name = f"{Path(name).stem or name}.jpg"
-                images.append((name, bytes(data)))
+                images.append((name, raw_bytes))
         return images
 
     def scan(self, path: Path) -> GalleryMeta:
@@ -79,5 +89,9 @@ class PdfScanner(ArchiveScanner):
         extracted = self._extract_images(gallery.path)
         for name, data in extracted:
             if name == page.name:
+                if len(data) > MAX_ARCHIVE_PAGE_SIZE:
+                    raise ValueError(
+                        f"PDF page image exceeds size limit ({len(data)} > {MAX_ARCHIVE_PAGE_SIZE}): {page.name}"
+                    )
                 return io.BytesIO(data)
         raise ValueError(f"missing pdf image: {page.name}")

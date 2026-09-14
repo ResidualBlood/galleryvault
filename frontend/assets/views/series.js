@@ -20,7 +20,7 @@ function seriesMemberCard(it) {
   const cat = it.category ? esc(catLabel(it.category)) : "";
   const cover = it.cover_url || null;
   const inner = cover
-    ? `<img class="cover-fg" loading="lazy" src="${cover}" alt="">`
+    ? `<img class="cover-fg" loading="lazy" src="${esc(cover)}" alt="">`
     : `<div class="cover-placeholder" style="width:100%;height:100%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.8rem">${esc(t("noCover") || "no cover")}</div>`;
   const stateBadge = isLocal
     ? `<span class="fav-state local">${esc(t("favLocal") || "Local")}</span>`
