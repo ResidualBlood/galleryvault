@@ -56,7 +56,9 @@ class Gallery(Base):
     tags_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     category_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     __table_args__ = (
         Index("idx_galleries_gid", "gid", unique=True, postgresql_where=text("gid IS NOT NULL")),
         Index("idx_galleries_path_hash", "path_hash", unique=True),
@@ -143,7 +145,9 @@ class DownloadTask(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     target_path: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
@@ -204,7 +208,7 @@ class GalleryUpdate(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
     __table_args__ = (
         UniqueConstraint("gallery_id", "new_gid"),
@@ -260,7 +264,7 @@ class GalleryMetadata(Base):
     tags: Mapped[list[Any] | None] = mapped_column(JSONB)
     thumb: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
@@ -318,7 +322,7 @@ class DuplicateRecord(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
@@ -326,7 +330,9 @@ class AppConfig(Base):
     __tablename__ = "app_config"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ReadingProgress(Base):
@@ -336,7 +342,9 @@ class ReadingProgress(Base):
     )
     current_page: Mapped[int] = mapped_column(Integer, default=0)
     total_pages: Mapped[int | None] = mapped_column(Integer)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ReadingHistory(Base):
@@ -397,7 +405,9 @@ class BackgroundJob(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     __table_args__ = (
         UniqueConstraint("job_type", "gallery_id"),
         Index("idx_background_jobs_claim", "job_type", "status", "next_attempt_at", "id"),

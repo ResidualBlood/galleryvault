@@ -1801,7 +1801,9 @@ def _inspect_image_meta(stream: BinaryIO) -> dict[str, Any]:
                 return {"animated": False, "duration_ms": 0}
             is_webp = getattr(img, "format", "") == "WEBP"
             total_duration = 0
-            for frame in ImageSequence.Iterator(img):
+            for frame_count, frame in enumerate(ImageSequence.Iterator(img)):
+                if frame_count >= 50:
+                    break
                 if is_webp:
                     frame.load()
                 dur = frame.info.get("duration", 100)

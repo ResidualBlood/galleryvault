@@ -1,5 +1,6 @@
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -18,6 +19,11 @@ from ..models import (
 )
 from ..tag_filters import build_tag_predicates
 from .base import BaseRepository, _chunked, escape_like_wildcards
+
+
+class CloudSizeBreakdown(NamedTuple):
+    known_bytes: int
+    unknown_count: int
 
 
 class FavoritesRepository(BaseRepository[FavoriteItem]):
@@ -90,6 +96,34 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         )
         result = row.one()
         return int(result[0]), int(result[1])
+
+    async def cloud_size_breakdown_all(self) -> dict[int, CloudSizeBreakdown]:
+        """Exact-ish cloud size for all folders: {favcat: CloudSizeBreakdown(known bytes, unknown count)}."""
+        rows = await self.session.execute(
+            select(
+                FavoriteItem.favcat,
+                func.coalesce(
+                    func.sum(func.coalesce(Gallery.file_size, FavoriteItem.file_size)), 0
+                ),
+                func.count().filter(
+                    and_(Gallery.id.is_(None), FavoriteItem.file_size.is_(None))
+                ),
+            )
+            .select_from(FavoriteItem)
+            .outerjoin(
+                Gallery,
+                and_(
+                    Gallery.gid == FavoriteItem.gid,
+                    Gallery.expunged.is_(False),
+                    Gallery.trashed.is_(False),
+                ),
+            )
+            .group_by(FavoriteItem.favcat)
+        )
+        return {
+            int(favcat): CloudSizeBreakdown(int(known), int(unknown))
+            for favcat, known, unknown in rows
+        }
 
     async def pending_size_gids(self, favcat: int, limit: int = 200) -> list[tuple[int, str]]:
         """``(gid, token)`` of folder galleries missing a size and not local."""

@@ -1138,10 +1138,7 @@ async def favorite_categories(
     try:
         rows = await FavoritesRepository(session).categories()
         stats = await FavoritesRepository(session).counts_and_sizes()
-        breakdown = {
-            row.favcat: await FavoritesRepository(session).cloud_size_breakdown(row.favcat)
-            for row in rows
-        }
+        breakdown = await FavoritesRepository(session).cloud_size_breakdown_all()
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     live_counts: dict[int, int] = {}
