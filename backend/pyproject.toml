@@ -24,10 +24,6 @@ dependencies = [
   "gallery-dedup>=0.1.0",
 ]
 
-[tool.uv.sources]
-ehviewer-parser = { git = "https://github.com/ResidualBlood/ehviewer-parser.git" }
-gallery-dedup = { git = "https://github.com/ResidualBlood/gallery-dedup.git" }
-
 [project.optional-dependencies]
 dev = ["pytest>=9.1.1,<10", "pytest-asyncio>=1.4.0,<2", "pytest-cov>=7.1.0,<8", "pytest-xdist>=3.8.0,<4", "ruff>=0.16.6,<1", "pre-commit>=4.6.2,<5"]
 socks = ["httpx[socks]>=0.28.1,<1"]
