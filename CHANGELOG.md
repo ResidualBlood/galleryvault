@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-09-15
+
 ### Changed
 
 - 动图时长：GIF/WebP 用二进制扫描累加各帧 delay（不再按 50 帧截断），`duration_ms` 前后端封顶 120 秒；解析失败才走 Pillow，且仍最多 50 帧。
