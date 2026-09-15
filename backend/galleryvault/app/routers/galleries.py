@@ -1734,16 +1734,19 @@ def _skip_stream_bytes(stream: BinaryIO, num_bytes: int) -> bool:
 
 
 def _skip_subblocks(stream: BinaryIO) -> bool:
-    while True:
+    subblock_count = 0
+    max_subblocks = 100_000
+    while subblock_count < max_subblocks:
+        subblock_count += 1
         sub_len_b = stream.read(1)
         if not sub_len_b:
             return False
         sub_len = sub_len_b[0]
         if sub_len == 0:
             return True
-        data = stream.read(sub_len)
-        if len(data) < sub_len:
+        if not _skip_stream_bytes(stream, sub_len):
             return False
+    return False
 
 
 def _fast_parse_gif_duration(stream: BinaryIO) -> int | None:
@@ -1778,6 +1781,9 @@ def _fast_parse_gif_duration(stream: BinaryIO) -> int | None:
             intro = stream.read(1)
             if not intro or intro == b"\x3b":
                 break
+
+            if intro == b"\x00":
+                continue
 
             if intro == b"\x21":
                 label = stream.read(1)
