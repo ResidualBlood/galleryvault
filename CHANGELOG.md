@@ -8,8 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- 动图元数据解码最多 50 帧：GIF/WebP 的 `duration_ms` 只累加前 50 帧 delay，避免巨型动图拖垮 CPU。
-- Wiki 对齐本批行为：7z 内存按页解压与 128MB 上限、PDF 超限跳过、幻灯片 50 帧、删除 staged / `blocked_paths`、CSRF `Origin: null`（`docs/wiki/` 中英）。
+- 动图时长：GIF/WebP 用二进制扫描累加各帧 delay（不再按 50 帧截断），`duration_ms` 前后端封顶 120 秒；解析失败才走 Pillow，且仍最多 50 帧。
+- Wiki 对齐本批行为：7z 内存按页解压与 128MB 上限、PDF 超限跳过、幻灯片动图快路径与 120 秒上限、删除 staged / `blocked_paths`、CSRF `Origin: null`（`docs/wiki/` 中英）。
 
 ### Fixed
 
