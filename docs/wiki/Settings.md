@@ -26,7 +26,7 @@
 - **Telegram（折叠）**：bot token、chat ID、允许的 user ID，**发送测试消息**验证；**通知级别**（汇总 / 即时 / 仅失败 / 关闭）与**通知语言**（中文 / English）——下载、扫库、收藏夹检查、302 临时挑战告警（🚨 触发/✅ 恢复）与 bot 回复统一用该语言发送，消息采用 Telegram HTML 格式（标题加粗、gid 等宽），画廊标题保持原文不翻译。配置 token 后启动会自动向 Telegram 注册客户端指令菜单。
 - **PWA**：可「添加到主屏幕」。Service worker 只缓存 html/css/js 壳（js/css **network-first**，成功再写入缓存；离线回退缓存），**不缓存画廊图片与 `/api/`**。
 - **浅色主题**：顶栏 ◐ 切换；`localStorage gv_theme=dark|light`，默认 dark。
-- **7z / PDF 扫描**：库扫描识别 `.7z`（py7zr，只收图）与 `.pdf`（抽取内嵌图；抽不到则跳过并 warning）。
+- **7z / PDF 扫描**：库扫描识别 `.7z`（py7zr，只收图，阅读按页内存解压，单页上限 128MB）与 `.pdf`（抽取内嵌图；单图超 128MB 跳过；抽不到则跳过并 warning）。
 - **OPDS 与 CBZ 导出**：`GET /api/opds`（atom+xml）列出**最近入库最多 50 条**，acquisition 链到 `GET /api/galleries/{id}/export.cbz`。OPDS 端点支持 HTTP Basic 认证（用户名固定为 `galleryvault`，不是 EH 账号；密码为本站 Web 登录密码），便于第三方阅读器接入；Cookie 鉴权仍完全可用。未提供凭据或认证失败时返回 `401 Unauthorized` 并携带响应头 `WWW-Authenticate: Basic realm="GalleryVault OPDS"`。CBZ 导出及其实际 API 路由需常规登录会话，其余 `/api/*` 均为 Cookie-only。
 - **Telegram bot 控制命令**（仅「允许的 user ID」；聊天框输入 `/` 可见菜单）：
 

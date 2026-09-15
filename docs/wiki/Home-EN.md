@@ -8,7 +8,7 @@ Welcome to the official **GalleryVault** documentation. It is a self-hosted gall
 
 ## What it does
 
-- Mount Ehviewer `<gid>-title/` trees and CBZ as-is (SpiderInfo / sidecars). No unpack-and-rename step.
+- Mount Ehviewer `<gid>-title/` trees, CBZ, 7z (images only), and PDF as-is (SpiderInfo / sidecars). No unpack-and-rename step.
 - With cookies: Discover, ten favorite folders, page or official Archive downloads, GID replacements.
 - Manage: same-GID copies, favorite dupes, cross-GID, missing/corrupt pages, optional multi-disk cold CBZ.
 - Reader: RTL / dual-page / webtoon; slideshow follows GIF/WebP frame duration. Optional OPDS, at-rest field encryption, and a Telegram bot (paste URLs to enqueue, queue actions, scan / quota / local search with covers).

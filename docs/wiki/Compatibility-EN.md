@@ -20,6 +20,8 @@ GalleryVault focuses on managing local digital gallery archives, natively suppor
 | **JHenTai (Flutter Multi-platform)** | Page downloads | Gallery-root `metadata` JSON | Reads `{gid} - {title}/metadata` from page-by-page downloads; archive unpack dirs with `ametadata` are **not** scanned |
 | **Tachiyomi / Mihon / Panels** | Protocol Integration | OPDS Catalog (`/api/opds`) | Connects via HTTP Basic authentication for remote browsing and reading |
 | **Generic CBZ / CBR Archives** | Standard Support | `ComicInfo.xml` / filename prefix | Recognizes `gid-title.cbz` formats and embedded metadata schemas |
+| **Generic 7z** | Standard Support | Image members only | py7zr; per-page in-memory extract, 128MB cap; non-images stay packed |
+| **PDF** | Standard Support | Embedded images | Extracts embedded images; images over 128MB are skipped |
 
 ---
 
@@ -146,7 +148,7 @@ Reader Compatibility & Scanner Backfill:
 - **Backward Compatibility**: Readers seamlessly parse both legacy formats (early download version without `gid`/`token`/`p_tokens` but with `quality`; cold archive version with `gid` but without `quality` and optional `category`; tags as string lists).
 - **Precedence**: Field precedence follows `sidecar > ComicInfo.xml > .ehviewer / directory inference` (sidecar title and tags override ComicInfo). However, a `gid` extracted from the filename prefix (e.g., `123456-xxx`) retains highest priority for gallery identification.
 - **Directory Backfill**: After successful ingestion, only directory storages (hot and cold directories) are checked. If the sidecar is missing or lacks any critical key, a full v1 sidecar is automatically generated from current metadata; complete v1 sidecars are skipped to avoid altering filesystem `mtime`.
-- **Read-Only Archives**: Compressed archive packages (CBZ, CBR, PDF) are strictly treated as read-only and are never modified or repacked during library scans.
+- **Read-Only Archives**: Compressed archive packages (CBZ, CBR, 7z, PDF) are strictly treated as read-only and are never modified or repacked during library scans.
 
 ---
 
@@ -160,5 +162,9 @@ Reader Compatibility & Scanner Backfill:
    - **ComicInfo.xml Compatibility & Writer Truncation**: Embedded `ComicInfo.xml` metadata is parsed to extract titles, authors, and tag namespaces. During ingestion, overlong `Writer` tags are automatically truncated to 128 characters to prevent database column overflow errors from halting ingestion.
    - **243-Byte Filename Truncation Standard**: When generating or managing CBZ archives, GalleryVault replaces legacy character-based truncation with Linux ext4 byte-level rules. CBZ base filenames are clamped to 243 bytes, leaving sufficient headroom for the temporary `.cbz.partial` suffix (12 bytes) to strictly stay within the ext4 255-byte limit. Directory names are capped at 247 bytes. This completely resolves `[Errno 36] File name too long` exceptions caused by CJK multi-byte characters and overlong titles.
 3. **Galleries without a GID**:
-   - Fully browsable and readable locally, with support for star ratings and custom reading lists.
-   - Without a persistent GID, these entries cannot participate in cloud sync, re-upload update tracking, or cross-GID duplicate resolution.
+    - Fully browsable and readable locally, with support for star ratings and custom reading lists.
+    - Without a persistent GID, these entries cannot participate in cloud sync, re-upload update tracking, or cross-GID duplicate resolution.
+4. **7z / PDF**:
+    - `.7z` indexes image members only and opens pages from memory (solid archives stay per-page; earlier members do not count toward the cap). Uncompressed page size is capped at **128MB**; oversize pages are refused.
+    - `.pdf` extracts embedded images; images over 128MB are skipped without aborting the scan. Galleries with no extractable images are skipped with a warning.
+    - Both formats stay packed in the library tree; scans never unpack them onto disk.

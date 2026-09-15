@@ -109,7 +109,7 @@ docker compose up -d
 
 ## 反向代理最佳实践
 
-为确保登录限速、防跨站请求伪造（CSRF）与安全认证正常工作，反向代理必须正确透传客户端来源信息。
+为确保登录限速、防跨站请求伪造（CSRF）与安全认证正常工作，反向代理必须正确透传客户端来源信息。不要剥掉 `Origin`；`Origin: null` 或空 Origin 带会话 Cookie 且无 CSRF token 的 API 变更请求会被拒绝。
 
 ### 1. Nginx 完整配置范例
 
@@ -253,7 +253,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，平滑升级无须手动介入。
+Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，平滑升级无须手动介入。含重复 `path_hash` 的旧库会在 0039 迁移中合并后再加 UNIQUE 索引。
 
 ---
 

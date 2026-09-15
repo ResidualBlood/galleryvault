@@ -18,7 +18,7 @@
 ## 一、安装与部署排错
 
 ### 1. 跨网段或反代访问时，提交操作报「Cross-origin request rejected」？
-这是系统的 CSRF 防护机制在校验客户端来源与服务端 Host。当请求经过 Nginx、Caddy 或 Cloudflare 等外部反代时，反代需正确透传 Host 请求头（例如 Nginx 中配置 `proxy_set_header Host $http_host;`）。若客户端 IP 处于私网反代网段后，请在 `docker-compose.yml` 中配置 `TRUSTED_PROXIES` 白名单。详细配置见 **[部署指南 → 安全加固](Deployment#反向代理最佳实践)**。
+这是系统的 CSRF 防护机制在校验客户端来源与服务端 Host。当请求经过 Nginx、Caddy 或 Cloudflare 等外部反代时，反代需正确透传 Host，**不要剥掉 `Origin`**（例如 Nginx 中配置 `proxy_set_header Host $http_host;`）。`Origin: null`（`file://`、沙箱 iframe）或无 Origin 却带会话 Cookie、又没有 CSRF token 的 API 变更请求会 403。若客户端 IP 处于私网反代网段后，请在 `docker-compose.yml` 中配置 `TRUSTED_PROXIES` 白名单。详细配置见 **[部署指南 → 安全加固](Deployment#反向代理最佳实践)**。
 
 ### 2. 如何修改外部访问端口或绑定自定义域名？
 在 `docker-compose.yml` 中修改前端服务 `galleryvault-frontend` 的端口映射（例如 `"8888:80"`）。如需绑定独立域名与启用 HTTPS，推荐在宿主机使用 Nginx 或 Caddy 终结 TLS 并反代至前端容器端口。
@@ -27,7 +27,7 @@
 PostgreSQL 官方容器固定运行在容器内 `postgres` 用户（UID 999）。请确保不要将宿主机的 `./db-data` 目录整体 `chown` 给其他普通用户。若已误改属主，请在宿主机执行 `chown -R 999:999 ./db-data` 恢复。
 
 ### 4. 扫描 7z 压缩包是否会将全部图片解压到磁盘？
-**不会把整包解到库目录。** 扫描默认只读图片成员；阅读单页时用临时目录抽出那一张，用完即删。非图片文件留在压缩包里。`.cbr` / `.rar` 还需要宿主机安装 `unrar` 或 libarchive，否则扫库失败。
+**不会把整包解到库目录。** 扫描只索引图片成员；阅读单页时在内存中解出那一张（固实压缩包也按页，不把前面页累加进限额）。单页未压缩大小上限 **128MB**，超限拒读（该页 404）。非图片文件留在压缩包里。`.cbr` / `.rar` 还需要宿主机安装 `unrar` 或 libarchive，否则扫库失败。
 
 ### 5. 升级到 PostgreSQL 18 后数据库容器起不来？
 官方 `postgres:18-alpine` 把数据放在 `/var/lib/postgresql` 下的版本子目录。仓库 `docker-compose.yml` 已把宿主 `./db-data` 挂到 `/var/lib/postgresql`，**不要再设置 `PGDATA`**，也不要继续挂旧路径 `/var/lib/postgresql/data`（目录非空检查会让容器退出）。新安装直接 `docker compose up -d` 即可。详见 **[部署指南 → 存储拓扑](Deployment#存储拓扑与数据卷挂载)**。
@@ -83,7 +83,8 @@ docker logs galleryvault-backend --since 6h | grep -E "download task failed|page
 
 ### 2. 在本地删除了画廊，能否找回？
 - 若删除时**未勾选**「同时从磁盘删除文件」，画廊会进入系统的「回收站」，可在回收站界面一键撤回恢复。
-- 若已勾选「彻底从磁盘删除」，文件已被物理移除，无法通过软件撤回。
+- 若已勾选「彻底从磁盘删除」：先标进回收站，磁盘文件全部删成功后才从索引移除。删盘失败会留在回收站（不是「记录没了、文件还在」）。任一副本路径不在扫描根白名单内则**整本跳过**，不删其余合法文件。
+- 只读挂载导致删盘失败时，DB 行保留，toast 与日志会提示。
 
 ### 3. 新版本已下载完成，为什么「更新画廊」页面依然显示该条目？
 当检测到新 GID 的完整画廊已存在于本地库时，点击「立即检测」会自动安全清理旧版本的本地残留并关闭对应更新项。若该项目曾被手动标记为「忽略」，则不会自动执行清理。

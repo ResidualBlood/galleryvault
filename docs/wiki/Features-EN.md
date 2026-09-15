@@ -33,7 +33,7 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 ### 1. Local Asset Archiving & High-Fidelity Parsing
 - **Zero-Friction Ehviewer Ingestion**: Directly scans standard `<gid>-<title>/` trees and parses `.ehviewer` (SpiderInfo V2; unmarked V1 is readable) for gid, token, and per-page pTokens. Title, category, and tags are not in SpiderInfo — they come from the folder name, `.galleryvault.json`, or gdata. No unpack-and-rename.
 - **Multi-Format Ingestion**: CBZ and CBR (embedded `ComicInfo.xml`), JHenTai page-download `metadata` JSON (archive `ametadata` is not scanned), and `.galleryvault.json` inside cold CBZ/directories.
-- **7z / PDF and gid-less folders**: `.7z` scans image members only (non-images stay packed); `.pdf` extracts embedded images. Gid-less image folders still browse and rate.
+- **7z / PDF and gid-less folders**: `.7z` scans image members only (non-images stay packed) and opens pages from memory with a 128MB per-page cap; `.pdf` extracts embedded images (oversize images are skipped). Gid-less image folders still browse and rate.
 - **Tiered Cold/Hot Storage**: Decouples the active download workspace (hot tier) from read-only archival pools (cold storage), allowing seamless archive migrations on demand.
 - **Custom Local Taxonomy**: Organizes media collections using local star ratings, custom reading lists, and private notes completely independent of external providers.
 
@@ -63,7 +63,7 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 - **Versatile Reader**:
   - **Layout Modes**: Right-to-Left (Japanese manga), Left-to-Right, vertical continuous cascade (webtoon mode), and dual-page split viewing.
   - **Controls & Navigation**: Keyboard shortcuts, touch tap zones, `G` key jump navigation, multi-page prefetching, and auto-advance to the next gallery after the last page. In Webtoon, wheel/touch vertical scroll is used (arrow keys and left/right tap zones do not page).
-- **Adaptive Slideshow**: Probes GIF/WebP `duration_ms` (sum of per-frame delays) and uses `max(user interval, duration + 150ms)`. Starting slideshow enters fullscreen; exiting fullscreen stops it.
+- **Adaptive Slideshow**: Probes GIF/WebP `duration_ms` (sum of per-frame delays, **at most 50 frames**) and uses `max(user interval, duration + 150ms)`. Starting slideshow enters fullscreen; exiting fullscreen stops it.
 - **Advanced Tag Search**: Powered by the EhTagTranslation multi-language database; supports tag autocomplete, AND/OR logic combinations, exclusion filters (`-tag`), and multi-language reverse-lookup (e.g. typing Chinese suggests English equivalents).
 - **Standard OPDS Catalog**: Exposes a standard OPDS endpoint (`GET /api/opds`) with HTTP Basic authentication for direct access in Tachiyomi, Mihon, and Panels.
 - **Recycle Bin & Audit Log**: Safely stages user-deleted or offline items in a restorable recycle bin with complete activity logs.
@@ -71,7 +71,7 @@ GalleryVault is not a generic e-book reader, but a dedicated private archival an
 ### 6. Security & deployment
 - **AES-256-GCM Database Encryption**: Encrypts sensitive credentials, cookies, and tokens at rest when `ENCRYPTION_KEY` is configured.
 - **10-Year Persistent Sessions**: Persists session cookie signing secrets in the database across container rebuilds and updates; immediate session invalidation on password updates.
-- **Unprivileged Runtime (PUID / PGID)**: Configurable runtime user and group mappings prevent host permission issues on private NAS environments; strict CSRF protection with trusted proxy whitelisting (`TRUSTED_PROXIES`).
+- **Unprivileged Runtime (PUID / PGID)**: Configurable runtime user and group mappings prevent host permission issues on private NAS environments; CSRF protection (including `Origin: null` / cookied requests with no Origin) with trusted proxy whitelisting (`TRUSTED_PROXIES`); 128MB per-page archive cap against decompression bombs.
 - **Turnkey Containerization**: Multi-architecture Docker Hub images (AMD64 / ARM64) with PostgreSQL 18 and built-in Alembic migrations for single-command deployments.
 
 ### 7. Telegram Bot operations

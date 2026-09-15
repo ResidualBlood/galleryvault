@@ -8,13 +8,66 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Wiki 对照代码修正：SpiderInfo / JHenTai / sidecar 样例、收藏夹三种模式与跳过启发式、Toplist 翻页、Cookie 红/橙条与 IP 封禁、冷库 500 页+2GiB、下载「全部重试」、OPDS 50 条、CBR 依赖 unrar（`docs/wiki/` 中英）。
-- Wiki 阅读器 / 幻灯片说明对齐实现：启动即全屏、退出全屏停止、动图 `duration_ms + 150ms`、缓存头与条漫例外（`docs/wiki/Reading.md`、`Reading-EN.md`、`Features.md`、`Features-EN.md`）。
-- Wiki 库页注明每页条数保存在 `localStorage` 键 `gv_page_size`（`Library.md` / `Library-EN.md`）。
+- 动图元数据解码最多 50 帧：GIF/WebP 的 `duration_ms` 只累加前 50 帧 delay，避免巨型动图拖垮 CPU。
+- Wiki 对齐本批行为：7z 内存按页解压与 128MB 上限、PDF 超限跳过、幻灯片 50 帧、删除 staged / `blocked_paths`、CSRF `Origin: null`（`docs/wiki/` 中英）。
 
 ### Fixed
 
-- Wiki 缺页体检路由改为 `POST /api/galleries/integrity/scan`；收藏封面改为 `GET /api/favorites/cover?gid={gid}`（`Manage.md`、`Favorites.md` 中英）。
+- 7z 固实包按页阅读不再把前面成员累加进 128MB 限额（内存 writer，单页超限拒绝）；PDF 内嵌图同样 128MB，超限跳过。
+- 本地删除：路径不在扫描根内（`blocked_paths`）则整本跳过；硬删先标回收站，磁盘删失败留下可追溯记录。
+- Alembic 0039：`path_hash` 建 UNIQUE 前清洗重复行，并补 `gallery_updates.download_task_id` / `background_jobs.gallery_id` 外键。
+- 收藏夹列表去掉 N+1；若干分页 COUNT 查询收紧。
+
+### Security
+
+- CSRF 拒绝 `Origin: null` 与无 Origin 带会话 Cookie 且无 CSRF token 的 API 变更请求。
+- 封面抓取跟随重定向时校验目标 host（防 SSRF）；前端封面 URL 插值转义（防 XSS）。
+- 压缩包单页解压上限 128MB，防止解压炸弹。
+
+## [1.13.1] - 2026-09-13
+
+### Changed
+
+- 扫库目录签名减少 stat 风暴；sidecar 回写与 DB 事务解耦。
+- `deletion` / `eh_client` 不再引用 `app.main` 状态；回收站全局 `selRecycle` 修正。
+
+## [1.13.0] - 2026-09-13
+
+### Added
+
+- 库扫描支持 `.7z` / `.pdf`（7z 只收图片成员；PDF 抽内嵌图）。
+
+### Changed
+
+- `.galleryvault.json` 读写统一；分类 / 标签 / posted 跨扫描器规整；元数据优先 gdata。
+- Wiki 设置页网络访问边界说明。
+
+### Fixed
+
+- 收藏夹缓存元数据调用传 `limit` 而非 `batch_size`。
+- Windows 路径匹配与 gid 正则。
+
+## [1.12.7] - 2026-09-13
+
+### Added
+
+- CBZ 内 `.galleryvault.json` 解析 `category`。
+
+### Changed
+
+- Wiki 对照代码修正：SpiderInfo / JHenTai / sidecar 样例、收藏夹三种模式与跳过启发式、Toplist 翻页、Cookie 红/橙条与 IP 封禁、冷库 500 页+2GiB、下载「全部重试」、OPDS 50 条、CBR 依赖 unrar（`docs/wiki/` 中英）。
+
+## [1.12.6] - 2026-09-13
+
+### Changed
+
+- 默认十个收藏夹分类。
+- Wiki 阅读器 / 幻灯片说明对齐实现：启动即全屏、退出全屏停止、动图 `duration_ms + 150ms`、缓存头与条漫例外。
+- Wiki 库页注明每页条数保存在 `localStorage` 键 `gv_page_size`。
+
+### Fixed
+
+- Wiki 缺页体检路由改为 `POST /api/galleries/integrity/scan`；收藏封面改为 `GET /api/favorites/cover?gid={gid}`。
 
 ## [1.12.5] - 2026-09-12
 

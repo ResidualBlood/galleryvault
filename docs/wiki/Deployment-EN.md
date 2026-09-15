@@ -99,7 +99,7 @@ To mount multiple storage pools on your NAS or scan existing collections without
 
 ## Reverse Proxy Best Practices
 
-To ensure rate limiting, CSRF protections, and session authentication function properly, the reverse proxy must pass client identity headers correctly.
+To ensure rate limiting, CSRF protections, and session authentication function properly, the reverse proxy must pass client identity headers correctly. Do not strip `Origin`; `Origin: null` or a cookied API mutation with no Origin and no CSRF token is rejected.
 
 ### 1. Nginx Configuration Sample
 
@@ -237,7 +237,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Alembic schema migrations run automatically during backend container initialization.
+Alembic schema migrations run automatically during backend container initialization. Older databases with duplicate `path_hash` rows are merged in migration 0039 before the UNIQUE index is created.
 
 ---
 

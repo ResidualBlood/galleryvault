@@ -18,7 +18,7 @@ This document organizes common troubleshooting scenarios and operational questio
 ## 1. Installation & Deployment Troubleshooting
 
 ### 1. Behind a reverse proxy or across subnets, write operations fail with "Cross-origin request rejected"?
-This is GalleryVault's built-in CSRF protection verifying client origin against the host header. When deploying behind external proxies (Nginx, Caddy, Cloudflare), ensure the proxy forwards the incoming host header (e.g. `proxy_set_header Host $http_host;`). In addition, configure `TRUSTED_PROXIES` in `docker-compose.yml` with your proxy CIDR range. See **[Deployment Guide → Security Hardening](Deployment-EN#reverse-proxy-best-practices)**.
+This is GalleryVault's built-in CSRF protection verifying client origin against the host header. When deploying behind external proxies (Nginx, Caddy, Cloudflare), forward the incoming host header and **do not strip `Origin`** (e.g. `proxy_set_header Host $http_host;`). `Origin: null` (`file://`, sandboxed iframes) or a cookied API mutation with no Origin and no CSRF token is rejected with 403. Also configure `TRUSTED_PROXIES` in `docker-compose.yml` with your proxy CIDR range. See **[Deployment Guide → Security Hardening](Deployment-EN#reverse-proxy-best-practices)**.
 
 ### 2. How do I change external ports or bind a custom domain?
 Adjust the external port mapping for `galleryvault-frontend` in `docker-compose.yml` (e.g. `"8888:80"`). For custom domain names and HTTPS certificates, terminating TLS at an external Nginx or Caddy proxy is recommended.
@@ -27,7 +27,7 @@ Adjust the external port mapping for `galleryvault-frontend` in `docker-compose.
 The official PostgreSQL image relies strictly on container UID 999 (`postgres`). **Never run a blanket `chown` on `./db-data`** for normal host users. If accidentally modified, restore ownership on the host: `chown -R 999:999 ./db-data`.
 
 ### 4. Does scanning a 7z archive extract all files to disk?
-**It does not unpack the whole archive into the library.** Scans read image members only. Opening a page extracts that one file into a temp directory and deletes it afterwards. Non-image files stay packed. `.cbr` / `.rar` also need host `unrar` or libarchive, or the scan fails.
+**It does not unpack the whole archive into the library.** Scans index image members only. Opening a page decompresses that one file in memory (solid archives are still per-page; earlier members do not count toward the cap). Uncompressed page size is capped at **128MB**; oversize pages are refused (404). Non-image files stay packed. `.cbr` / `.rar` also need host `unrar` or libarchive, or the scan fails.
 
 ### 5. PostgreSQL 18 container fails to start after an upgrade?
 Official `postgres:18-alpine` stores data under a versioned subdirectory of `/var/lib/postgresql`. The shipped `docker-compose.yml` bind-mounts host `./db-data` to `/var/lib/postgresql`. **Do not set `PGDATA`**, and do not keep the old mount `/var/lib/postgresql/data` (a non-empty data directory check will exit the container). Fresh installs just need `docker compose up -d`. See **[Deployment → Storage topology](Deployment-EN#storage-topology--volume-mounts)**.
@@ -83,7 +83,8 @@ Clicking Pause stops claiming new pages or tasks from the pool. Images currently
 
 ### 2. Can deleted galleries be restored?
 - If deleted **without** checking "Delete files from disk", the gallery moves to the Recycle Bin and can be restored with a single click.
-- If deleted with disk purge checked, files are permanently deleted from storage.
+- If disk purge is checked: the row is staged in the Recycle Bin first and removed from the index only after every on-disk copy is gone. A failed disk delete leaves the gallery in the Recycle Bin (the record is not dropped while files remain). If any copy sits outside the scan-root whitelist, **the whole gallery is skipped** and no sibling files are deleted.
+- Read-only mounts keep the DB row and surface a toast plus a log line.
 
 ### 3. Why does an updated gallery still appear under Updates after downloading?
 Once the newly assigned GID is fully downloaded into the library, clicking **Scan now** deletes the obsolete local archive and dismisses the update record. If marked as "Ignored", it remains unchanged.
