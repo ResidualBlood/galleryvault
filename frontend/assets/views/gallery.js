@@ -191,9 +191,10 @@ async function renderGallery() {
     const thumbCard = p => `
       <a class="thumb" 
          id="thumb-${p.index}"
-         ${p.index === progress.current_page ? 'style="box-shadow: 0 0 0 3px var(--accent) inset; border-radius: 4px;"' : ''}
+         ${p.index === progress.current_page ? 'style="box-shadow: 0 0 0 3px var(--accent) inset;"' : ''}
          href="${navHash("reader", { id, page: p.index }, galleryCtx)}">
-        <img class="lazy-thumb" data-src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
+        <img class="lazy-thumb cover-bg" data-src="/api/galleries/${id}/thumb/${p.index}" alt="" aria-hidden="true">
+        <img class="lazy-thumb cover-fg" data-src="/api/galleries/${id}/thumb/${p.index}" alt="Page ${p.index + 1}">
       </a>`;
     const thumbs = thumbsVisible.map(thumbCard).join("");
     const txtMore = t("more");
