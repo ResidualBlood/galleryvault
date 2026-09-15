@@ -21,6 +21,7 @@ jobs:
 
   test-backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -69,10 +70,11 @@ jobs:
         run: ruff check .
 
       - name: Test (with coverage gate)
+        timeout-minutes: 8
         working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
-        run: pytest -q -n auto -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
+        run: pytest -q -n 2 -p no:cacheprovider --cov=galleryvault --cov-report=term-missing --cov-fail-under=45
 
   syntax-check-frontend:
     runs-on: ubuntu-latest
