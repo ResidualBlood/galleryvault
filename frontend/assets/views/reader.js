@@ -746,7 +746,8 @@ async function scheduleNextSlide(userIntervalMs, sessionId) {
       }
       if (res && res.animated && typeof res.duration_ms === "number" && res.duration_ms > 0) {
         // 动图自适应轮播：至少保证完整播放一个动画周期 + 150ms 缓冲防首尾帧撕裂，同时尊重用户设置的间隔
-        delayMs = Math.max(userIntervalMs, res.duration_ms + 150);
+        const parsedDuration = Math.min(res.duration_ms, 120000);
+        delayMs = Math.max(userIntervalMs, parsedDuration + 150);
       }
     } catch (_) {
       // ignore network errors and fallback to userIntervalMs
