@@ -10,6 +10,6 @@ Pillow>=12.3.0,<13
 # At-rest encryption for sensitive settings (ENCRYPTION_KEY)
 cryptography>=50.0.1,<51
 py7zr>=1.1.3,<2
-pypdf>=6.17.0,<7
+pypdf>=6.18.1,<7
 ehviewer-parser>=0.1.0
 gallery-dedup>=0.1.0
