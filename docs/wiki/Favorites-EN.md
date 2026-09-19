@@ -2,7 +2,7 @@
 
 > [中文](Favorites) · English | Part of the [Usage Guide](Usage-EN) series
 
-This guide covers ExHentai favorites synchronization, monitoring policies, favorites deduplication, and gallery updates in GalleryVault.
+ExHentai favorite-folder sync, watch modes, favorite dedupe, and GID replacements (Updates).
 
 ## Favorites (`#/favorites`)
 

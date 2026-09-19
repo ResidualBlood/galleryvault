@@ -2,7 +2,7 @@
 
 > **中文** · [English](Compatibility-EN)
 
-GalleryVault 专注于管理本地数字画廊资产归档，优先深度支持主流移动客户端的导出格式，并提供高保真度元数据解析。
+GalleryVault 读取常见 Ehviewer 系客户端的导出目录与元数据，并支持 CBZ / CBR / 7z / PDF 与 OPDS。
 
 ---
 
@@ -11,7 +11,7 @@ GalleryVault 专注于管理本地数字画廊资产归档，优先深度支持�
 | 客户端 / 生态工具 | 支持级别 | 元数据识别方式 | 说明 |
 | :--- | :--- | :--- | :--- |
 | **Ehviewer_CN_SXJ** | 原生推荐 | `.ehviewer` (SpiderInfo V1/V2) | 本项目目录结构与元数据标准的基准参考实现 |
-| **FooIbar / EhViewer (MD3)** | 完整支持 | `.ehviewer` (SpiderInfo V1/V2) | 原生读取与索引，完美还原画廊与各页元数据 |
+| **FooIbar / EhViewer (MD3)** | 完整支持 | `.ehviewer` (SpiderInfo V1/V2) | 读取 gid、token 与各页 pToken |
 | **Ehviewer-Overhauled** | 完整支持 | `.ehviewer` (SpiderInfo V1/V2) | 结构完全同源，直接挂载即可扫库 |
 | **EhViewer-NekoInverter / NekoWhite** | 旧文本可读 | 旧版文本 `.ehviewer` | 现代版本把 `.ehviewer` 写成 CBOR，本扫描器只解析 Hippo/SXJ 纯文本，CBOR 导出会当损坏跳过 |
 | **axlecho / MHViewer** 等分支 | 完整支持 | `.ehviewer` (SpiderInfo V1/V2) | 导出格式完全兼容 |

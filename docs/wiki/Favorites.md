@@ -2,7 +2,7 @@
 
 > 中文 · [English](Favorites-EN) | 属于 [使用指南](Usage) 系列
 
-本文档介绍 GalleryVault 的 ExHentai 收藏夹同步、监控策略、收藏夹查重、以及云端重传更新（Gallery Updates）机制。
+ExHentai 收藏夹同步、监控模式、收藏夹查重，以及重传换 GID（Updates）。
 
 ## 收藏夹（`#/favorites`）
 

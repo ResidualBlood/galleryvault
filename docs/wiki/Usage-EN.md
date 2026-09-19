@@ -4,7 +4,7 @@
 >
 > **Direct Chapters**: [Browsing & Library](Library-EN) · [Gallery Details & Reader](Reading-EN) · [Download Management](Downloads-EN) · [Favorites & Updates](Favorites-EN) · [Library Maintenance](Manage-EN) · [Settings](Settings-EN)
 
-GalleryVault is built as a single-page application (SPA) using hash routing (such as `#/library`, `#/gallery/7`), meaning page navigation, browser refresh, and history traversal require no extra server round-trips.
+GalleryVault is a hash-routed single-page app (for example `#/library`, `#/gallery/7`). Refresh and back/forward do not request a new HTML document.
 
 Desktop top nav: Browse, Discover, Library, **Series**, Tags, Downloads, Favorites, Manage. History / Settings / Logs live under More. Manage lands on the recycle bin (`#/recycle`) with tabs: Recycle, Duplicate copies (`#/duplicates`), Favorite duplicates (`#/duplicates/favorites`), Cross-GID (`#/duplicates/cross-gid`), Integrity (`#/integrity`), **Cold archive (`#/archive`)**. `#/favorites/manage` still opens favorite duplicates (legacy alias). Mobile uses a flat hamburger menu.
 
@@ -24,13 +24,13 @@ Completed steps receive a ✓ indicator. Click "Finish setup" to enter the main 
 
 ## Recommended Workflow
 
-For optimal metadata accuracy and minimal network bandwidth consumption, follow this recommended sequence:
+Suggested order:
 
-1. **Configure Account Cookies (Optional but Recommended)**: Connect your ExHentai account via the welcome wizard or Settings and verify login connectivity.
-2. **Cache Favorites Metadata First**: Navigate to [Favorites & Updates](Favorites-EN) (`#/favorites`) and click "Check all folders" (or configure periodic polling) to pre-warm remote metadata and cover images into local database storage.
-3. **Scan Local Library**: Place your local gallery archives into the `./library` directory and click "Scan library" in [Browsing & Library](Library-EN). Local archives will match against pre-cached cloud metadata with high fidelity.
-4. **Deduplication & Maintenance**: Open [Library Maintenance](Manage-EN) → Duplicate copies (`#/duplicates`) for same-GID extra copies; favorite-folder dupes are `#/duplicates/favorites` (legacy `#/favorites/manage` still works).
-5. **Incremental Tracking & Reading**: Enable desired favorite folders with "Incremental download" to track fresh uploads automatically; read locally in [Gallery Details & Reader](Reading-EN) with search context retention across multiple reading modes.
+1. **Cookies (optional)**: set ExHentai cookies in the wizard or Settings and use Test login.
+2. **Check favorites first**: open [Favorites & Updates](Favorites-EN) (`#/favorites`) and click "Check all folders" so cloud metadata and covers land in the local cache.
+3. **Scan the library**: put existing archives in `./library` and click "Scan library" in [Browsing & Library](Library-EN). The scan matches files against cached cloud metadata.
+4. **Dedupe**: open [Library Maintenance](Manage-EN) → Duplicate copies (`#/duplicates`) for same-GID extra copies; favorite-folder dupes are `#/duplicates/favorites` (legacy `#/favorites/manage` still works).
+5. **Day to day**: enable folders as Incremental download; reading is in [Gallery Details & Reader](Reading-EN). Opening a gallery from a search keeps the filter in the reader.
 
 ## Configuring ExHentai Cookies
 
@@ -57,7 +57,7 @@ Connecting with ExHentai, synchronizing favorite folders, fetching tags, or down
 
 ## Documentation Chapters
 
-The usage guide is divided into the following dedicated chapters:
+Per-page notes:
 
 - **[Browsing & Library (Library)](Library-EN)**:
   - [Browse (#/browse)](Library-EN#browse-browse) — Default landing grid, continue reading cards, keyboard navigation, and global instant search; landscape gallery card covers are no longer cropped, using blurred background padding. Card covers prioritize EH remote-covers cache with immediate 0.jpg fallback and background fetching on cache miss; favorites checks immediately skip existing covers.
@@ -73,14 +73,14 @@ The usage guide is divided into the following dedicated chapters:
   - [Reader (#/reader/<id>/<page>)](Reading-EN#reader-readeridpage) — Streamed page rendering, LTR / RTL Manga / Double-page / Webtoon modes, pinch-to-zoom, `G` jump prompt, `F` image fullscreen, and persistent search context.
 
 - **[Download Management (Downloads)](Downloads-EN)**:
-  - [Downloads (#/downloads)](Downloads-EN#downloads-downloads) — Batch URL/GID queueing, automatic re-upload version following, live progress, global pause, GP/quota gauges, and exponential backoff self-healing.
+  - [Downloads (#/downloads)](Downloads-EN#downloads-downloads) — paste URL/GID, follow replacements, queue status, global pause, GP/quota, resume and exponential backoff.
   - [Archive Downloads (ExHentai archive)](Downloads-EN#archive-downloads-exhentai-archive) — Official zip channel, GP balance preview, HTTP Range resumption, and automatic fallback to page-by-page.
 
 - **[Favorites & Updates (Favorites)](Favorites-EN)**:
   - [Favorites (#/favorites)](Favorites-EN#favorites-favorites) — Monitoring 10 favorite folders, automatic metadata application, skip heuristic, folder search, and batch moves.
   - [Favorite duplicates (#/duplicates/favorites)](Manage-EN#duplicate-copies--deduplication-duplicates) — Multi-version dupes in favorite folders; legacy `#/favorites/manage` still works.
-  - [Gallery Updates (#/updates)](Favorites-EN#gallery-updates-updates) — Intelligent re-upload detection (GID changes), background download, and automatic superseded local copy cleanup.
-  - ["download favorites" vs. "enabled"](Favorites-EN#download-favorites-vs-enabled) — Logical matrix of global scheduled scanning versus per-folder enablement.
+  - [Gallery Updates (#/updates)](Favorites-EN#gallery-updates-updates) — GID replacements, download the new version, then delete the old local copy.
+  - ["download favorites" vs. "enabled"](Favorites-EN#download-favorites-vs-enabled) — global scheduled-check switch vs per-folder enable.
   - [The Three Modes](Favorites-EN#the-three-modes) — Incremental download, watch only, and force download mechanics.
 
 - **[Library Maintenance (Manage)](Manage-EN)**:

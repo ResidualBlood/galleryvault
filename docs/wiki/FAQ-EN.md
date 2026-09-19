@@ -2,7 +2,7 @@
 
 > [中文](FAQ) · **English**
 
-This document organizes common troubleshooting scenarios and operational questions for GalleryVault by domain.
+Troubleshooting notes, grouped by topic.
 
 ---
 

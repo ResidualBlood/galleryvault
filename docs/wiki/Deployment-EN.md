@@ -2,7 +2,7 @@
 
 > [中文](Deployment) · **English**
 
-GalleryVault features a modular containerized architecture. This guide covers everything from standard Docker Compose setup to typical production network topologies, reverse proxy configurations, and storage performance tuning.
+How to deploy GalleryVault with Docker Compose, plus reverse proxy, storage, and permission notes.
 
 ---
 

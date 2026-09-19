@@ -11,14 +11,14 @@ Manage in the top bar lands on `#/recycle`. In-page tabs: **Recycle**, **Duplica
   - **Favorite duplicates** (`#/duplicates/favorites`): Groups different re-uploaded versions of the same title in favorite folders (normalized title + artist). Bulk unfavorite, unfavorite+delete local copies, or ignore a group. Legacy `#/favorites/manage` opens the same page. Ignored items: `#/favorites/ignored`.
   - **Cross-GID duplicates** (`#/duplicates/cross-gid`): Aggregates local library galleries with cloud-only favorites across different GIDs (translations, revisions, uncensored uploads):
     - **Clustering & Scoring Mechanism**: The algorithm automatically strips doujinshi convention prefixes (e.g. `(C100)`, `(COMIC1☆15)`), scanlation group/circle tags (e.g. `[Group]`), and version suffixes (e.g. `[DL-raw]`, `[Chinese]`, `[Digital]`), extracting the canonical title and the `artist` namespace. A multi-tier Levenshtein distance and token similarity scoring algorithm identifies cluster candidates.
-    - **Cloud vs. Local Comparison**: Within each cluster card, the interface displays local copies (annotated with gallery ID, storage path, physical page count, and image quality tier) side-by-side with uningested ExHentai cloud favorite entries (showing remote cover and posted date). Users can easily assess quality differences and make informed decisions: keep the optimal version, batch unfavorite redundant cloud items, safely purge duplicate local copies, or click **Dismiss group** to permanently ignore false positives (persisted across future scans). Clustered results are calculated asynchronously after library scans and stored in an in-memory cache for sub-second loads, with a manual **Refresh** button available.
+    - **Local vs cloud**: each cluster shows local copies (gallery ID, path, page count, quality) next to uningested favorite entries (cover, posted date). You can batch-unfavorite extra cloud items, delete extra local copies, or **Dismiss group** (kept across later scans). Clustering runs in the background after a library scan and is cached in memory; **Refresh** recomputes on demand.
 
 ## Recycle Bin (`#/recycle`)
 
 - Default landing view of the "Management" navigation tab (legacy hash `#/recycle` remains directly usable). Two tabs: **User deleted** (library delete without removing files) and **Scan missing** (not found on disk during a scan).
 - **Restore** puts galleries back in the library (user-deleted only; scan-missing ghosts are not restored into the library); **Purge** asks again whether to delete files on disk (purged-with-files will not be re-ingested on scan). With disk delete checked, the row is staged in the Recycle Bin and dropped from the index only after every on-disk copy is gone; a failed disk delete leaves it in the bin. If any copy sits outside the scan-root whitelist, the whole gallery is skipped and no sibling files are deleted.
 - Galleries in the recycle bin are **not** treated as “newer version already local” and will not trigger a hard-delete of the old copy.
-- **High-Risk Deletion Guards & Secondary Confirmation**: Destructive operations are protected with defense-in-depth safety checks — clearing reading history (`/api/history`) and wiping global reading progress (`/api/galleries/progress`) require passing an explicit `?confirm=true` query parameter, accompanied by a front-end modal dialog; file deletion and duplicate cleanup strictly validate absolute paths against allowed root whitelists, which have been expanded to include archive roots (`archive_roots`, `archive_root`, and `cold_storage_root`) to safely manage and prune redundant cold-archive galleries without path-traversal risks; and filtered bulk deletion strictly rejects empty filter conditions to prevent unintentional full-library wiping.
+- **Deletion guards**: clearing history (`/api/history`) and resetting reading progress (`/api/galleries/progress`) require `?confirm=true` and a confirmation dialog. File deletes and duplicate cleanup resolve paths against scan roots or archive roots (`archive_roots`, `archive_root`, `cold_storage_root`). Filtered bulk delete rejects an empty filter.
 
 ## Cold archive (`#/archive`)
 
@@ -36,8 +36,8 @@ Manage in the top bar lands on `#/recycle`. In-page tabs: **Recycle**, **Duplica
     - **Execution Tracking**: Total scan time, scanned file counts, and detected corrupt galleries are recorded in task history (`#/logs`). If globally paused, the page displays a paused notification and refrains from scheduling workers.
   - **Incremental Missing/Corrupt Page Repair**:
     - Galleries with issues are highlighted in red, showing the delta between cataloged page count and valid on-disk images;
-    - Users can click **Repair** on an individual card or **Select All & Repair** in the toolbar for batch self-healing;
-    - Repairs are dispatched through an incremental patch pipeline that **only re-downloads missing or signature-corrupted pages**, reusing the gallery's configured quality tier (resample or original) while leaving intact pages untouched. This immediately heals the archive while conserving ExHentai download limits and bandwidth.
+    - Click **Repair** on a card, or **Select All & Repair** in the toolbar;
+    - Repair **re-downloads only missing or signature-failed pages**, keeps intact pages, and uses the gallery's existing quality tier (original or resample).
 
 ## Logs (`#/logs`)
 

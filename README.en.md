@@ -1,35 +1,36 @@
+<div align="center">
+
+<img src="frontend/assets/icon.svg" alt="GalleryVault Logo" width="96" height="96">
+
 # GalleryVault
 
-<p align="center">
-  <img src="frontend/assets/icon.svg" alt="GalleryVault Logo" width="96" height="96">
-</p>
+**Self-hosted gallery library for Ehviewer export directories**
 
-<p align="center">
-  <strong>Self-hosted gallery library · built for Ehviewer export trees</strong><br>
-  Index <code>&lt;gid&gt;-title/</code> folders and CBZ as-is · optional E-Hentai / ExHentai favorites sync · files stay on your machine
-</p>
+[![Backend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml)
+[![Frontend CI](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml)
+[![Docker](https://img.shields.io/badge/docker-images-blue?logo=docker)](https://hub.docker.com/u/residualblood)
+[![Wiki](https://img.shields.io/badge/docs-wiki-9cf?logo=github)](https://github.com/ResidualBlood/galleryvault/wiki/Home-EN)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-<p align="center">
-  <a href="https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml"><img src="https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-backend.yml/badge.svg" alt="Backend CI"></a>
-  <a href="https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml"><img src="https://github.com/ResidualBlood/galleryvault/actions/workflows/ci-frontend.yml/badge.svg" alt="Frontend CI"></a>
-  <a href="https://hub.docker.com/u/residualblood"><img src="https://img.shields.io/badge/docker-images-blue?logo=docker" alt="Docker"></a>
-  <a href="https://github.com/ResidualBlood/galleryvault/wiki/Home-EN"><img src="https://img.shields.io/badge/docs-wiki-9cf?logo=github" alt="Wiki"></a>
-  <a href="https://github.com/ResidualBlood/galleryvault/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
-</p>
+[Quick start](#quick-start) · [Features](#features) · [Wiki](https://github.com/ResidualBlood/galleryvault/wiki/Home-EN) · [中文](README.md)
 
-<p align="center">
-  <a href="README.md">中文</a> · <strong>English</strong> · <a href="https://github.com/ResidualBlood/galleryvault/wiki/Home-EN">Wiki</a>
-</p>
+</div>
 
-Mount Ehviewer export folders and read SpiderInfo as-is. **Cookies are recommended** for Discover, favorite-folder sync, and downloads; without them it still works as a local library.
+---
 
-## Highlights
+Mount Ehviewer export directories and browse them in the browser. Renaming or re-packing is not required. With cookies configured, Discover, favorite-folder sync, and downloads are available; without cookies the app still works as a local library. Files remain on the host.
 
-- **Ingest without renaming** — native `<gid>-title/` trees, `.ehviewer` (SpiderInfo V1/V2), JHenTai `metadata`, CBZ/CBR, 7z (images only), PDF. Downloads land in `downloads/`, never in library.
-- **Favorites as a private cloud** — watch ten folders (incremental download or watch-only); Discover Popular / Watched / Toplist; GID replacements in one click.
-- **Library hygiene** — same-GID copies, favorite dupes, cross-GID clusters (alt translations / quality), series grouping, missing-page integrity, multi-disk cold CBZ.
-- **Reader for doujin / manga** — RTL / dual-page / webtoon; slideshow follows GIF/WebP frame duration. OPDS for Tachiyomi / Mihon; optional Telegram bot (paste a URL to enqueue).
-- **Secrets at rest** — with `ENCRYPTION_KEY`, cookies / bot token / password hashes use AES-256-GCM. Changing the password revokes every session.
+## Features
+
+📁 **Directory scanning** — Native `<gid>-title/` trees, `.ehviewer` (SpiderInfo V1/V2), JHenTai `metadata`, CBZ/CBR, 7z (images only), and PDF. New downloads are written to `downloads/` and do not modify library.
+
+⭐ **Favorites and Discover** — Each of the ten favorite folders can incremental-download or watch only. Discover provides Popular, Watched, and Toplist. When a re-upload changes the GID, the local copy can be replaced in one step.
+
+🧹 **Dedupe, integrity, and cold archive** — Same-GID copies, favorite-folder duplicates, cross-GID clusters (different translations or quality), series grouping, and missing-page / corrupt-image checks. Additional disks can store cold-archive CBZ files.
+
+📖 **Reader** — Right-to-left, dual-page, and webtoon. The slideshow follows GIF/WebP frame duration. OPDS works with Tachiyomi / Mihon. An optional Telegram bot enqueues a gallery from a pasted URL.
+
+🔐 **Encryption** — With `ENCRYPTION_KEY` set, cookies, bot token, and password hashes are stored with AES-256-GCM. Changing the password revokes all sessions.
 
 <p align="center">
   <img src="docs/screenshots/library_en.png" alt="Library" width="270">
@@ -37,7 +38,7 @@ Mount Ehviewer export folders and read SpiderInfo as-is. **Cookies are recommend
   <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorite duplicates" width="270">
 </p>
 
-More shots: [Wiki · Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots-EN). Routes: [Usage](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN).
+More screenshots: [Wiki · Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots-EN)
 
 ## Quick start
 
@@ -47,56 +48,67 @@ curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/doc
 docker compose up -d
 ```
 
-1. Open `http://<host-ip>:8000` (API binds `127.0.0.1:8001` only, proxied by the frontend).
-2. Default password **`p1a2s3s4`**. First login goes to `#/welcome`; you must change it.
-3. Put existing galleries in `./library`, then **Scan library**. Downloads land in `./downloads`, never in library.
+1. Open `http://<host-ip>:8000` (the API binds `127.0.0.1:8001` and is reverse-proxied by the frontend).
+2. Default password is **`p1a2s3s4`**. The first login goes to `#/welcome`; the password must be changed.
+3. Place existing galleries in `./library` and click **Scan library**. Subsequent downloads are written to `./downloads`, not library.
 
 ### Volumes
 
 | Host path | Container | Purpose |
 | :--- | :--- | :--- |
-| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18 (UID 999 — do not chown to yourself. **Do not use `/var/lib/postgresql/data`, do not set `PGDATA`**) |
-| `./library` | `/library` | Existing library; downloads never write here. Read-only mounts fail deletes and log it |
-| `./downloads` | `/downloads` | New downloads, ingested immediately |
-| `./cache` | `/gv-cache` | Thumbnail / cover cache |
-| `./archive` | `/archive` | **Optional**; commented out in compose. Set `archive_roots` in Settings (one container path per line) |
+| `./db-data` | `/var/lib/postgresql` | PostgreSQL 18 data directory (UID 999; do not chown. **Do not use `/var/lib/postgresql/data`; do not set `PGDATA`**) |
+| `./library` | `/library` | Existing galleries. Downloads are never written here. On a read-only mount, deletes fail and are logged |
+| `./downloads` | `/downloads` | New downloads; ingested as soon as they finish |
+| `./cache` | `/gv-cache` | Thumbnail and cover cache |
+| `./archive` | `/archive` | Optional; commented out in compose. After enabling, set `archive_roots` in Settings (one container path per line) |
 
-Cold archive: uncomment `- ./archive:/archive`, save `archive_roots` in Settings, then **Manage → Cold archive** (`#/archive`). CBZ names are always `gid-english-title.cbz`. Multi-disk balancing and source purge: [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN).
+Cold archive: uncomment `- ./archive:/archive`, save `archive_roots` in Settings, then run **Manage → Cold archive** (`#/archive`). CBZ filenames are `gid-english-title.cbz`. Disk balancing and source cleanup: [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN).
 
 ### Environment
 
 Set these on the backend service in `docker-compose.yml`:
 
-- `ENCRYPTION_KEY`: any long random string (not a 32-byte hex key). Encrypts cookies / bot token / password hashes with AES-256-GCM. Losing it makes ciphertext unreadable; see [Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption-EN).
-- `AUTH_SECRET`: session HMAC. If unset, generated on first boot and stored in the DB.
-- `PUID` / `PGID`: avoid root-owned files on NAS.
-- `TRUSTED_PROXIES`: proxy CIDRs, e.g. `127.0.0.1,192.168.1.0/24`.
-- `POSTGRES_PASSWORD`: DB password, default `galleryvault`.
+- `ENCRYPTION_KEY`: a long random string (not a 32-byte hex key). Cookies, bot token, and password hashes are then stored with AES-256-GCM. If the key is lost, ciphertext cannot be decrypted; see [Encryption](https://github.com/ResidualBlood/galleryvault/wiki/Encryption-EN).
+- `AUTH_SECRET`: session signing key. If unset, the first boot generates one and stores it in the database.
+- `PUID` / `PGID`: on NAS hosts, keeps downloaded files from being owned by root.
+- `TRUSTED_PROXIES`: reverse-proxy CIDRs, e.g. `127.0.0.1,192.168.1.0/24`.
+- `POSTGRES_PASSWORD`: database password, default `galleryvault`.
 
-Library / download / archive paths and concurrency live in the Web UI. Connection-pool tuning: [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN).
+Library, download, and archive roots, and concurrency, are configured in the web UI. Connection-pool tuning: [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN).
 
 ## Docs
 
-- [Usage](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN) — wizard, cookies, nav
-- [Features](https://github.com/ResidualBlood/galleryvault/wiki/Features-EN) — capability matrix
-- [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN) — mounts, Nginx/Caddy, tiered storage
-- [Manage](https://github.com/ResidualBlood/galleryvault/wiki/Manage-EN) — dedupe, integrity, cold archive
-- [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ-EN)
+| Doc | Contents |
+| --- | --- |
+| [Usage](https://github.com/ResidualBlood/galleryvault/wiki/Usage-EN) | wizard, cookies, navigation |
+| [Features](https://github.com/ResidualBlood/galleryvault/wiki/Features-EN) | feature notes |
+| [Deployment](https://github.com/ResidualBlood/galleryvault/wiki/Deployment-EN) | mounts, Nginx/Caddy, archive storage |
+| [Manage](https://github.com/ResidualBlood/galleryvault/wiki/Manage-EN) | dedupe, integrity, cold archive |
+| [Compatibility](https://github.com/ResidualBlood/galleryvault/wiki/Compatibility-EN) | Ehviewer family, JHenTai, OPDS |
+| [FAQ](https://github.com/ResidualBlood/galleryvault/wiki/FAQ-EN) | common issues |
 
-Ehviewer family, JHenTai, OPDS: [Compatibility](https://github.com/ResidualBlood/galleryvault/wiki/Compatibility-EN).
+Feedback: [Discussions](https://github.com/ResidualBlood/galleryvault/discussions) · [Issues](https://github.com/ResidualBlood/galleryvault/issues)
 
 ## Acknowledgements
 
-- Ehviewer_CN_SXJ — directory and SpiderInfo conventions
-- EhTagTranslation — tag database
-- ehsyringe — translation packaging
+- [Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ) — directory layout and SpiderInfo
+- [EhTagTranslation](https://github.com/EhTagTranslation/Database) — tag translation database
+- [EhSyringe](https://github.com/EhTagTranslation/EhSyringe) — translation data packaging
 
 ## Disclaimer
 
-### 1. NSFW / 18+
+This software is for organizing media on private hardware and may be used with adult content. **It is intended only for users of legal adult age where local law permits.** GalleryVault does not host or distribute media files. Access to E-Hentai / ExHentai requires the user's own cookies. The user is solely responsible for what is searched, downloaded, and stored.
 
-This software is for organizing media on private hardware. It may be used with adult content. **Only for people of legal adult age.** If you are a minor or local law forbids it, stop using the software.
+## Star History
 
-### 2. Third-party content
+[![Star History Chart](https://api.star-history.com/svg?repos=ResidualBlood/galleryvault&type=Date)](https://star-history.com/#ResidualBlood/galleryvault&Date)
 
-GalleryVault **does not host or distribute** media files. E-Hentai / ExHentai access needs your own cookies. You are solely responsible for what you search, download, and store.
+---
+
+<div align="center">
+
+If GalleryVault helps you, a ⭐ Star is appreciated
+
+Made with ❤️ by [ResidualBlood](https://github.com/ResidualBlood/)
+
+</div>

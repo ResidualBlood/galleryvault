@@ -2,7 +2,7 @@
 
 > [中文](Compatibility) · **English**
 
-GalleryVault focuses on managing local digital gallery archives, natively supporting download formats from major mobile clients with high-fidelity metadata parsing.
+GalleryVault reads export directories and metadata from common Ehviewer-family clients, plus CBZ / CBR / 7z / PDF and OPDS.
 
 ---
 
@@ -11,7 +11,7 @@ GalleryVault focuses on managing local digital gallery archives, natively suppor
 | Client / Ecosystem Tool | Support Level | Metadata Detection | Details |
 | :--- | :--- | :--- | :--- |
 | **Ehviewer_CN_SXJ** | Primary Reference | `.ehviewer` (SpiderInfo V1/V2) | The project's reference architecture for directory and metadata structures |
-| **FooIbar / EhViewer (MD3)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Natively indexes gallery and page-level metadata |
+| **FooIbar / EhViewer (MD3)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Reads gid, token, and per-page pTokens |
 | **Ehviewer-Overhauled** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Completely upstream-compatible; mount and scan directly |
 | **EhViewer-NekoInverter / NekoWhite** | Legacy text only | Legacy text `.ehviewer` | Current Neko writes `.ehviewer` as CBOR; this scanner only parses Hippo/SXJ plaintext, so CBOR exports are skipped |
 | **axlecho / MHViewer** & forks | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Full export format compatibility |

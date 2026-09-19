@@ -2,7 +2,7 @@
 
 > **中文** · [English](Deployment-EN)
 
-GalleryVault 采用模块化容器架构设计。本文档提供从基础 Docker Compose 到典型生产架构拓扑、反向代理配置与存储调优的完整部署指引。
+本文说明如何用 Docker Compose 部署 GalleryVault，以及反向代理、存储与权限相关配置。
 
 ---
 
@@ -103,7 +103,7 @@ docker compose up -d
     - 单卷上限 **500 页且 2GiB**（同时满足才打 CBZ），超限打成冷目录，不是多卷 CBZ。
 5. **安全反向清理已归档源目录 (`purge-archived-sources`)**：
    - 当画廊在冷存储目录成功归档为 CBZ 后，可在「设置 → 存储面板」点击「清理已归档源目录」（`POST /api/system/purge-archived-sources`）。
-   - 该操作具备严格的防御保障：在冷热两端校验 GID 对应关系，**主动排除处于 pending / downloading 状态的活跃任务**，安全删除下载目录中的解压散图源文件夹并即时核减物理用量。
+    - 核对本冷两端 GID，**跳过 pending / downloading 任务**，再删除下载目录里对应的散图文件夹。
 
 ---
 

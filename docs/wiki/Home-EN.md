@@ -1,14 +1,14 @@
-# GalleryVault Documentation Hub
+# GalleryVault documentation
 
 > [中文](Home) · **English**
 
-Welcome to the official **GalleryVault** documentation. It is a self-hosted gallery library for **Ehviewer export folders**: files, the index, and favorite mappings stay on your machine or NAS. It scans `<gid>-title/` trees and SpiderInfo as-is. **Cookies are recommended** for E-Hentai / ExHentai sync; without them it still works as a local library. See [Features](Features-EN).
+GalleryVault is a self-hosted gallery library for Ehviewer export directories. Files, the index, and favorite mappings stay on the host or NAS. It scans `<gid>-title/` trees and SpiderInfo. **Cookies are recommended** for E-Hentai / ExHentai sync; without them the app still works as a local library. See [Features](Features-EN).
 
 ---
 
-## What it does
+## Overview
 
-- Mount Ehviewer `<gid>-title/` trees, CBZ, 7z (images only), and PDF as-is (SpiderInfo / sidecars). No unpack-and-rename step.
+- Mount Ehviewer `<gid>-title/` trees, CBZ, 7z (images only), and PDF. SpiderInfo / sidecars are read as-is. No unpack-and-rename step.
 - With cookies: Discover, ten favorite folders, page or official Archive downloads, GID replacements.
 - Manage: same-GID copies, favorite dupes, cross-GID, missing/corrupt pages, optional multi-disk cold CBZ.
 - Reader: RTL / dual-page / webtoon; slideshow follows GIF/WebP frame duration. Optional OPDS, at-rest field encryption, and a Telegram bot (paste URLs to enqueue, queue actions, scan / quota / local search with covers).
@@ -48,25 +48,27 @@ Downloads go to `downloads/`. Cold archive uses `archive_roots` you configure (`
 
 ---
 
-## Documentation Navigation
+## Index
 
-### 📖 User Guides
-- **[Features](Features-EN)** — Comprehensive feature matrix, design philosophy, and system architecture
-- **[Usage Guide](Usage-EN)** — Searching, reader navigation, download queue, favorites monitoring, deduplication, and recycle bin
-- **[Screenshots](Screenshots-EN)** — Interface previews across major modules in English and Chinese
-- **[FAQ](FAQ-EN)** — Troubleshooting guides, network tuning, cookie maintenance, and common questions
+### Usage
 
-### ⚙️ Operations & Deployment
-- **[Compatibility](Compatibility-EN)** — Directory hierarchies, SpiderInfo V1/V2 formats, Sidecar JSON schemas, and client matrix
-- **[Deployment](Deployment-EN)** — Docker Compose quickstart, volume mounts, Nginx/Caddy reverse proxies, and permission setup
-- **[Backup & Restore](Backup-EN)** — Database snapshots, cold archive exports, and disaster recovery procedures
-- **[Encryption at Rest](Encryption-EN)** — AES-256-GCM database encryption mechanism, key management, and emergency recovery
+- **[Features](Features-EN)** — behaviors by module
+- **[Usage](Usage-EN)** — routes and operations
+- **[Screenshots](Screenshots-EN)** — main pages
+- **[FAQ](FAQ-EN)** — troubleshooting
+
+### Operations
+
+- **[Compatibility](Compatibility-EN)** — directories, SpiderInfo, sidecars, clients
+- **[Deployment](Deployment-EN)** — Compose, mounts, reverse proxy, permissions
+- **[Backup](Backup-EN)** — `pg_dump` / `pg_restore`
+- **[Encryption](Encryption-EN)** — AES-256-GCM, keys, recovery after loss
 
 API and development notes live in the repo: `backend/docs/API.md` and `backend/docs/DEVELOPMENT.md` (not on the GitHub Wiki).
 
 ---
 
-## Quick Launch
+## Quick start
 
 ```bash
 mkdir galleryvault && cd galleryvault
@@ -74,12 +76,12 @@ curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/doc
 docker compose up -d
 ```
 
-- Web Access: `http://<host-ip>:8000`
-- Default Password: `p1a2s3s4` (login opens `#/welcome`; you must change it)
-- Persistent Data: Stored locally in `./library`, `./downloads`, `./db-data`, and `./cache`.
+- URL: `http://<host-ip>:8000`
+- Default password: `p1a2s3s4` (login opens `#/welcome`; the password must be changed)
+- Data directories: `./library`, `./downloads`, `./db-data`, `./cache`
 
 ---
 
 ## License
 
-Released under the open-source [MIT License](https://github.com/ResidualBlood/galleryvault/blob/main/LICENSE).
+[MIT License](https://github.com/ResidualBlood/galleryvault/blob/main/LICENSE)

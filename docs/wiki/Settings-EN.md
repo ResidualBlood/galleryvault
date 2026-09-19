@@ -2,7 +2,7 @@
 
 > [中文](Settings) · English | Part of the [Usage Guide](Usage-EN) series
 
-This guide covers GalleryVault's system settings, client and OPDS integration, Telegram bot commands, and network access behavior across features.
+System settings, OPDS, Telegram bot commands, and which operations need the network.
 
 ## Settings (`#/settings`)
 

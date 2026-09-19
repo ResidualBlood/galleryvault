@@ -2,7 +2,7 @@
 
 > [中文](Reading) · English | Part of the [Usage Guide](Usage-EN) series
 
-This guide covers gallery detail views, tag and metadata synchronization, and web reader capabilities in GalleryVault.
+Gallery detail, tag sync, and the web reader.
 
 ## Gallery Detail (`#/gallery/<id>`)
 

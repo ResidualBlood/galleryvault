@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.13.4] - 2026-09-19
+
+### Changed
+
+- README 中英改成居中标题与徽章、emoji 功能行、文档表；正文按开源项目说明重写；截图直接展示；保留 Star History 与页脚。
+- Wiki 中英（`docs/wiki/`）按同样口径改开篇与功能说明，操作步骤、路由与数字未改。
+
+## [1.13.3] - 2026-09-15
+
+### Changed
+
+- 画廊详情横向封面：不再裁切，改用同图模糊铺底。
+
 ## [1.13.2] - 2026-09-15
 
 ### Changed
@@ -1510,7 +1523,12 @@ gallery library manager with ExHentai integration.
 - Documentation site as a GitHub Wiki (deployment, usage, backup, encryption,
   API reference, development, FAQ), kept in sync with the backend docs.
 
-[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.5...HEAD
+[Unreleased]: https://github.com/ResidualBlood/galleryvault/compare/v1.13.4...HEAD
+[1.13.4]: https://github.com/ResidualBlood/galleryvault/compare/v1.13.3...v1.13.4
+[1.13.3]: https://github.com/ResidualBlood/galleryvault/compare/v1.13.2...v1.13.3
+[1.13.2]: https://github.com/ResidualBlood/galleryvault/compare/v1.13.1...v1.13.2
+[1.13.1]: https://github.com/ResidualBlood/galleryvault/compare/v1.13.0...v1.13.1
+[1.13.0]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.5...v1.13.0
 [1.12.5]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.4...v1.12.5
 [1.12.4]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.3...v1.12.4
 [1.12.3]: https://github.com/ResidualBlood/galleryvault/compare/v1.12.2...v1.12.3

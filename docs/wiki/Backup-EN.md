@@ -51,7 +51,7 @@ GalleryVault supports distributing cold CBZ archives across multiple disks or NA
 
 - **Configuration**: Specify multiple cold storage mount points under **Settings → Library → Cold archive roots** (one path per line, e.g., `/archive1` and `/archive2`).
 - **Dynamic Space Balancing**: A cold archive task checks free space on every configured root via `statvfs` and writes to the volume with enough headroom and the most free space.
-- **Intelligent Routing**: New CBZ archives are automatically routed to the storage volume with the largest available free space, achieving automated load balancing across heterogeneous drives without manual intervention.
+- **Volume selection**: new CBZ files go to the configured root with the most free space (and enough headroom).
 
 ### 2. Canonical English Naming & 243-Byte Boundary (`gid-gallery.title.cbz`)
 

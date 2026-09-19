@@ -2,7 +2,7 @@
 
 > [中文](Downloads) · English | Part of the [Usage Guide](Usage-EN) series
 
-This guide covers GalleryVault's download management page, task queue controls, automatic self-healing, and ExHentai official zip archive downloads.
+The download queue, retries, and ExHentai's official zip archive channel.
 
 ## Downloads (`#/downloads`)
 
@@ -13,10 +13,10 @@ This guide covers GalleryVault's download management page, task queue controls, 
 - Lists download tasks with their status (waiting / downloading / success / failed / cancelled), filterable by status.
 - A **channel badge** next to each task title marks how it downloads: archive tasks show "Archive · Original/Resample" (or "Fallback pages" if an archive failure falls back to page-by-page), plain H@H page-by-page downloads show "Page-by-page · Original/Resample" (tasks without quality or legacy tasks without backfill still show "Page-by-page"; retries inherit the existing quality), making both channel and quality instantly recognizable.
 - Active tasks show a **live progress bar** (`current/total` + percentage, plus speed and ETA while transferring); the list auto-refreshes every 2 seconds. Successful tasks that entered cold archive show archive ok / pending / fail.
-- **Persisted fallback flag & composite index**: When an archive download falls back to page-by-page fetching, the state is persisted directly in the database via the `archive_fallback` column. This eliminates N+1 filesystem probe overhead (`.archive.json` checking) when listing download tasks. Additionally, the composite index `idx_download_tasks_status_id` accelerates paginated queue queries and status filtering under high-volume task queues.
+- **Archive fallback flag**: when an archive download falls back to page-by-page, the state is stored in `archive_fallback`. The task list does not probe `.archive.json` per row. `idx_download_tasks_status_id` (status + id) is used for status filters and pagination.
 - **Retries are resumable & integrity checked**: only missing/failed pages are fetched; pages already on disk are skipped. Files are verified against image magic headers upon disk write (supporting JPEG, PNG, WebP, and GIF animations with `b"GIF8"`), preventing HTML interception pages or corrupt files from entering the library.
-- **Failures self-heal & smart node rotation**:
-  - **Smart H@H node rotation (`skip_hath`)**: during per-page retries or when encountering slow/failing nodes, the engine automatically extracts the failed node key and appends `nl=<skip_hath_key>` to request the next H@H node; **if the page has no key, it falls back to parsing the HTML for a replacement node and syncs task state**, preventing a single problematic node from stalling or backing off the entire gallery download;
+- **Retries and H@H node rotation**:
+  - **H@H node rotation (`skip_hath`)**: on per-page retry or a slow/failing node, the failed node key is sent as `nl=<skip_hath_key>` to request the next node; **if the page has no key, HTML is parsed for a replacement node and task state is updated**, so one bad node does not stall the whole gallery;
   - **Exponential backoff & 509 circuit break**: transient errors retry automatically with an **exponential backoff** (30s → 2m → 8m → 30m → 1h → … up to 6h), retried up to 10 times before being marked `failed`; if ExHentai returns HTTP 509 (Image limits exceeded), the engine triggers an immediate task-level circuit breaker to abort retries and preserve quota; a periodic sweep automatically reactivates older failed tasks with remaining retry budget.
 - Waiting and downloading tasks (both pending and downloading) can be **cancelled** (the worker will not write to disk once cancelled); failed/cancelled/successful tasks can be **retried** (individually or in bulk with checkboxes). **Retry all tasks** calls `POST /api/downloads/retry-all`, clearing backoff on pending / failed / cancelled and retrying immediately.
 - **Clear all successful**: one click removes every `success` task record (the confirm dialog shows the count). This only clears the task list; **ingested gallery files are not deleted**. Failed, cancelled, and in-progress tasks are left alone.

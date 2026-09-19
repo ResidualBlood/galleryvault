@@ -4,7 +4,7 @@
 >
 > **分册直达**：[浏览与库](Library) · [画廊详情与阅读](Reading) · [下载管理](Downloads) · [收藏与更新](Favorites) · [库维护](Manage) · [系统设置](Settings)
 
-GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`、`#/gallery/7`），浏览器刷新与前进/后退均无需服务器往返。
+GalleryVault 是 hash 路由的单页应用（例如 `#/library`、`#/gallery/7`）。刷新与前进/后退不请求新的 HTML。
 
 桌面端顶栏：Browse（浏览）、Discover（发现）、Library（画廊库）、**Series（系列）**、Tags（标签）、Downloads（下载）、Favorites（收藏夹）、「管理」。History / Settings / Logs 在「更多」。点「管理」落到回收站（`#/recycle`），页内 tab 为：回收站、重复副本（`#/duplicates`）、收藏夹重复（`#/duplicates/favorites`）、跨 GID（`#/duplicates/cross-gid`）、缺页体检（`#/integrity`）、**冷库归档（`#/archive`）**。`#/favorites/manage` 仍指向收藏夹重复，仅作旧链兼容。移动端汉堡菜单扁平展示。
 
@@ -24,13 +24,13 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 
 ## 推荐使用流程
 
-为保证最佳的使用体验与元数据匹配准确率，推荐按以下步骤使用：
+建议按以下顺序：
 
-1. **配置账户 Cookie（可选但推荐）**：在向导或设置页中配置 ExHentai Cookie 并通过连通性测试。
-2. **先缓存收藏夹元数据**：前往 [收藏与更新](Favorites)（`#/favorites`）点击「立即检查所有」，优先将云端收藏夹元数据与封面预热至本地缓存。
-3. **扫描本地画廊入库**：将本地归档存入 `./library` 挂载目录，在 [浏览与库](Library) 点击「扫描库」。本地文件将自动比对云端已缓存元数据，实现高精度入库识别。
-4. **查重与维护**：进入 [库维护](Manage) → 重复副本（`#/duplicates`）清理同 GID 多目录副本；收藏夹重复用 `#/duplicates/favorites`（旧链 `#/favorites/manage` 仍可用）。
-5. **增量监控与日常阅读**：在收藏夹中启用目标文件夹并设为「增量下载」以追踪最新画廊；日常可在 [画廊详情与阅读](Reading) 中享受多模式阅读与搜索上下文保护。
+1. **配置 Cookie（可选）**：在向导或设置页填写 ExHentai Cookie，并用「测试登录」验证。
+2. **先检查收藏夹**：打开 [收藏与更新](Favorites)（`#/favorites`），点「立即检查所有」，把云端元数据与封面写入本地缓存。
+3. **扫描本地库**：把已有归档放到 `./library`，在 [浏览与库](Library) 点「扫描库」。扫描会对照已缓存的云端元数据识别画廊。
+4. **查重**：打开 [库维护](Manage) → 重复副本（`#/duplicates`）处理同 GID 多目录副本；收藏夹重复用 `#/duplicates/favorites`（旧链 `#/favorites/manage` 仍可用）。
+5. **日常**：在收藏夹中启用文件夹并设为「增量下载」；阅读见 [画廊详情与阅读](Reading)。从搜索进入时，阅读器会保留筛选条件。
 
 ## 配置 ExHentai Cookie
 
@@ -57,10 +57,10 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
 
 ## 文档分册目录
 
-使用指南已拆分为以下各功能分册，点击即可深入查阅对应特性说明：
+各页说明：
 
 - **[浏览与库 (Library)](Library)**：
-  - [浏览（#/browse）](Library#浏览browse) — 落地网格、继续阅读卡片区、键盘导航与全局快捷搜索；画廊卡片横向封面不再裁切，采用同图模糊铺底。卡片封面优先读取 EH 原图缓存（remote-covers），miss 时立即回退本地 0.jpg 并在后台拉取；收藏立即检查自动识别并跳过已有封面。
+  - [浏览（#/browse）](Library#浏览browse) — 默认网格、继续阅读、键盘导航与全局搜索；横向封面用同图模糊铺底，不裁切。封面优先用 EH 原图缓存（remote-covers），没有则用本地 0.jpg 并在后台拉取；收藏夹检查会跳过已有封面。
   - [发现（#/discover）](Library#发现discover) — 在线浏览 ExHentai、Popular / Watched / Toplist 热门与游标翻页
   - [系列作品（#/series）](Library#系列作品series) — 默认同人/漫画过滤与分页浏览、活动前缀剥离与多维打分聚类；支持聚合云端未下载收藏成员并展示云端角标与一键下载，支持手工添加 GID/收藏画廊及移出云端，扫库收尾自动 rebuild。
   - [画廊库（#/library）](Library#画廊库library) — 多维索引排序、阅读状态互斥过滤、AND/OR 多标签与 `-tag` 排除筛选、批量加收藏与批量删除熔断
@@ -73,14 +73,14 @@ GalleryVault 采用单页应用（SPA）与 hash 路由体系（如 `#/library`�
   - [阅读器（#/reader/<id>/<page>）](Reading#阅读器readeridpage) — 逐页流式加载、LTR/日漫 RTL/双页并排/条漫 Webtoon 模式、移动端捏合缩放、`G` 精准跳页、`F` 图片全屏、搜索上下文粘性保留
 
 - **[下载管理 (Downloads)](Downloads)**：
-  - [下载页（#/downloads）](Downloads#下载页downloads) — 粘贴 URL/GID 批量入队、自动跟随新版、任务状态队列、全局暂停、GP 与配额看板、断点续传与指数退避自愈
+  - [下载页（#/downloads）](Downloads#下载页downloads) — 粘贴 URL/GID 入队、跟随新版、队列状态、全局暂停、GP 与配额、断点续传与指数退避
   - [归档下载（ExHentai archive）](Downloads#归档下载exhentai-archive) — 官方整包 zip 通道、GP 余额/清晰度只读预检、Range 断点续传与逐页自动降级
 
 - **[收藏与更新 (Favorites)](Favorites)**：
   - [收藏夹（#/favorites）](Favorites#收藏夹favorites) — 10 个收藏夹全量/单夹检查、元数据自动应用、跳过启发式、文件夹内排序与批量移动
   - [收藏夹查重（#/duplicates/favorites）](Manage#重复副本与查重duplicates) — 同作品多版本查重；旧路由 `#/favorites/manage` 仍可用
-  - [更新画廊（#/updates）](Favorites#更新画廊updates) — 重传换 GID 智能检测、新版下载与旧版本地副本安全级联删除
-  - [「download favorites」与「启用」的区别](Favorites#download-favorites与启用的区别) — 全局定时检查总开关与单文件夹启用逻辑矩阵
+  - [更新画廊（#/updates）](Favorites#更新画廊updates) — 重传换 GID、下载新版、成功后删除本地旧副本
+  - [「download favorites」与「启用」的区别](Favorites#download-favorites与启用的区别) — 全局定时检查开关与单文件夹启用
   - [三种模式的区别](Favorites#三种模式的区别) — 增量下载、仅监控、强制下载的行为机制
 
 - **[库维护 (Manage)](Manage)**：

@@ -2,7 +2,7 @@
 
 > [中文](Library) · English | Part of the [Usage Guide](Usage-EN) series
 
-This guide covers gallery browsing, discovery, the main library, local lists, tag management, and reading history in GalleryVault.
+Browse, Discover, Library, local lists, tags, and reading history.
 
 ## Browse (`#/browse`)
 

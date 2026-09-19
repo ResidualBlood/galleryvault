@@ -1,19 +1,19 @@
-# GalleryVault 知识库
+# GalleryVault 文档
 
 > **中文** · [English](Home-EN)
 
-欢迎查阅 **GalleryVault** 官方文档。这是给 **Ehviewer 导出目录** 用的自托管画廊库：文件、索引和收藏关系都在你自己的机器或 NAS 上。直接扫 `<gid>-标题/` 和 SpiderInfo。**推荐配置 Cookie** 以同步 E-Hentai / ExHentai；不配也能先当本地库用。能力一览见 [功能特性](Features)。
+GalleryVault 是面向 Ehviewer 导出目录的自托管画廊库。文件、索引与收藏关系保存在本机或 NAS。扫描 `<gid>-标题/` 与 SpiderInfo。**建议配置 Cookie** 以同步 E-Hentai / ExHentai；未配置时仍可作为本地库使用。功能列表见 [功能特性](Features)。
 
 ---
 
-## 能做什么
+## 功能概要
 
-- 直接挂载 Ehviewer `<gid>-标题/`、CBZ、7z（只抽图片）与 PDF，读 SpiderInfo / sidecar，不必先解压改名。
-- 配 Cookie 后：发现页、十个收藏夹监控、逐页或官方 Archive 下载、重传换 GID。
+- 挂载 Ehviewer `<gid>-标题/`、CBZ、7z（仅提取图片）与 PDF，读取 SpiderInfo / sidecar，无需先解压或改名。
+- 配置 Cookie 后：发现页、十个收藏夹、逐页或官方 Archive 下载、重传换 GID。
 - 管理页：同 GID 副本、收藏夹重复、跨 GID、缺页坏图、冷库 CBZ（可选多盘）。
-- 阅读器：RTL / 双页 / 条漫；幻灯片跟 GIF/WebP 帧时长。可选 OPDS、库字段加密、Telegram Bot（粘贴 URL 入队、队列操作、扫库/配额/本地检索与封面）。
+- 阅读器：RTL / 双页 / 条漫；幻灯片跟随 GIF/WebP 帧时长。可选 OPDS、字段加密、Telegram Bot（粘贴 URL 入队、队列操作、扫库 / 配额 / 本地检索与封面）。
 
-下载写 `downloads/`；冷归档写你配置的 `archive_roots`（compose 默认不挂 `./archive`）。细节见 [功能特性](Features)。
+下载写入 `downloads/`。冷归档写入配置的 `archive_roots`（compose 默认不挂载 `./archive`）。详见 [功能特性](Features)。
 
 ---
 
@@ -48,25 +48,27 @@
 
 ---
 
-## 模块全景索引
+## 文档索引
 
-### 📖 用户指南
-- **[功能特性 (Features)](Features)** — 全量功能矩阵、底层架构与专精能力全景
-- **[使用指南 (Usage Guide)](Usage)** — 浏览筛选、在线阅读器、下载管理、收藏夹监控、查重与回收站操作
-- **[界面截图 (Screenshots)](Screenshots)** — 各主要功能模块中英文界面直观一览
-- **[常见问题 (FAQ)](FAQ)** — 部署排错、网络调度、Cookie 维护与常见疑问解答
+### 使用
 
-### ⚙️ 运维与部署
-- **[兼容性与格式规范 (Compatibility)](Compatibility)** — 目录结构标准、SpiderInfo V1/V2、Sidecar JSON 规范与客户端矩阵
-- **[部署指南 (Deployment)](Deployment)** — Docker Compose 快速上手、目录挂载、Nginx/Caddy 反向代理与权限配置
-- **[数据备份与恢复 (Backup)](Backup)** — 数据库快照导出、冷备份归档与一键灾备恢复流程
-- **[静态数据加密 (Encryption)](Encryption)** — AES-256-GCM 数据库字段级加密原理、密钥管理与紧急灾备方案
+- **[功能特性](Features)** — 按模块列出行为
+- **[使用指南](Usage)** — 界面路由与操作
+- **[界面截图](Screenshots)** — 主要页面
+- **[常见问题](FAQ)** — 排错
 
-开发接口写在仓库 `backend/docs/API.md` 与 `backend/docs/DEVELOPMENT.md`（不在 GitHub Wiki）。
+### 运维
+
+- **[兼容格式](Compatibility)** — 目录、SpiderInfo、sidecar、客户端
+- **[部署](Deployment)** — Compose、挂载、反向代理、权限
+- **[备份与恢复](Backup)** — `pg_dump` / `pg_restore`
+- **[静态加密](Encryption)** — AES-256-GCM、密钥、丢失后的处理
+
+开发接口在仓库 `backend/docs/API.md` 与 `backend/docs/DEVELOPMENT.md`（不在 GitHub Wiki）。
 
 ---
 
-## 快速运行命令
+## 快速运行
 
 ```bash
 mkdir galleryvault && cd galleryvault
@@ -74,12 +76,12 @@ curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/doc
 docker compose up -d
 ```
 
-- 默认访问入口：`http://<主机IP>:8000`
-- 默认管理员密码：`p1a2s3s4`（登录后进入 `#/welcome`，必须改密）
-- 数据落盘：默认存储在当前目录的 `./library`、`./downloads`、`./db-data` 与 `./cache`。
+- 访问：`http://<主机IP>:8000`
+- 默认密码：`p1a2s3s4`（登录后进入 `#/welcome`，必须改密）
+- 数据目录：`./library`、`./downloads`、`./db-data`、`./cache`
 
 ---
 
-## 许可协议
+## 许可
 
-本项目基于 [MIT License](https://github.com/ResidualBlood/galleryvault/blob/main/LICENSE) 开源发布。
+[MIT License](https://github.com/ResidualBlood/galleryvault/blob/main/LICENSE)
