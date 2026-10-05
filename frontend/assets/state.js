@@ -22,7 +22,7 @@ const TAG_NAMESPACES = [
   { key: "all", ns: "" }, { key: "tag", ns: "other" }, { key: "artist", ns: "artist" },
   { key: "character", ns: "character" }, { key: "parody", ns: "parody" }, { key: "group", ns: "group" },
   { key: "female", ns: "female" }, { key: "male", ns: "male" },
-  { key: "language", ns: "language" },
+  { key: "language", ns: "language" }, { key: "location", ns: "location" },
 ];
 
 const DL_STATUSES = ["all", "pending", "downloading", "success", "failed", "cancelled"];

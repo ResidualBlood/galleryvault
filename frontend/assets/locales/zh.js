@@ -393,6 +393,6 @@ window.GV_LOCALES.zh = {
         <li><strong>Magic Header 魔数校验与容错</strong>：校验落盘图片二进制文件头（JPEG、PNG、GIF、WebP 魔数），排查空文件与假文件；特别引入 <strong>WebP 截断容错校验</strong>（验证 RIFF/WEBP 头与数据块完整性），有效过滤因网络抖动产生的残缺坏图。</li>
         <li><strong>一键差量修复</strong>：勾选画廊后点击「重试 / 修复」，系统会自动将缺失或损坏的单页重新推入下载队列进行补页，无需重新下载整本画廊。</li>
       </ul>`,
-  groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言" },
-  ns: { artist: "作者", character: "角色", parody: "原作", group: "社团", language: "语言", category: "分类", misc: "标签", other: "标签", female: "女性", male: "男性", mixed: "男女", local: "本地" },
+  groups: { all: "全部", tag: "标签", artist: "作者", character: "角色", parody: "原作", group: "社团", female: "女性", male: "男性", language: "语言", location: "地点" },
+  ns: { artist: "作者", character: "角色", parody: "原作", group: "社团", language: "语言", location: "地点", category: "分类", misc: "标签", other: "标签", female: "女性", male: "男性", mixed: "男女", local: "本地" },
 };

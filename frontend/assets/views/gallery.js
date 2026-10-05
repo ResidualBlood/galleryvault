@@ -121,7 +121,7 @@ async function renderGallery() {
     let progress = progressRes.status === "fulfilled" && progressRes.value
       ? progressRes.value
       : { current_page: 0, total_pages: g.page_count };
-    const order = ["parody", "character", "group", "artist", "language", "category", "misc"];
+    const order = ["parody", "character", "group", "artist", "language", "location", "category", "misc"];
     const byNs = {};
     for (const tg of (g.tags || [])) (byNs[tg.namespace] = byNs[tg.namespace] || []).push(tg);
     const nsList = Object.keys(byNs).sort((a, b) => order.indexOf(a) - order.indexOf(b));

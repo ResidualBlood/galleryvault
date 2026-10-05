@@ -86,9 +86,12 @@ class EhviewerDirScanner(GalleryScanner):
 
     def scan(self, path: Path) -> GalleryMeta:
         try:
-            spider = parse_spider_info((path / ".ehviewer").read_text(encoding="utf-8"))
+            text = (path / ".ehviewer").read_text(encoding="utf-8", errors="replace")
+            spider = parse_spider_info(text)
         except ValueError as exc:
             raise ValueError(f"{path}: {exc}") from exc
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"{path}: cannot read .ehviewer: {exc}") from exc
         declared = spider.pages
         files = sorted(
             (

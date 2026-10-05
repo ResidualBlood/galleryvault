@@ -4,7 +4,7 @@
 // 按 Phase 0 拆分，保持函数名不变（全局）
 
 function nsClass(ns) {
-  return "nst-" + (ns && ["artist","character","parody","group","language","category","female","male","mixed","other","misc"].includes(ns) ? ns : "misc");
+  return "nst-" + (ns && ["artist","character","parody","group","language","location","category","female","male","mixed","other","misc"].includes(ns) ? ns : "misc");
 }
 
 function stopInfinite() {

@@ -412,7 +412,7 @@ button:disabled { opacity: .5; cursor: default; }
 :root {
   --ns-artist: #f2b56b; --ns-character: #83cc4a; --ns-parody: #9968cc;
   --ns-group: #49a3cb; --ns-language: #ee4f4f; --ns-category: #cd61ce; --ns-misc: #98a2a6;
-  --ns-female: #e3679a; --ns-male: #3fa5c9;
+  --ns-female: #e3679a; --ns-male: #3fa5c9; --ns-location: #4db6ac;
 }
 .nst { font-size: .72rem; }
 .nst.artist { color: var(--ns-artist); }
@@ -425,11 +425,13 @@ button:disabled { opacity: .5; cursor: default; }
 .nst.other { color: var(--ns-misc); }
 .nst.female { color: var(--ns-female); }
 .nst.male { color: var(--ns-male); }
+.nst.location { color: var(--ns-location); }
 .tag-list a.tag.artist { background: #f2b56b26; border-color: #f2b56b66; color: var(--ns-artist); }
 .tag-list a.tag.character { background: #83cc4a22; border-color: #83cc4a55; color: var(--ns-character); }
 .tag-list a.tag.parody { background: #9968cc26; border-color: #9968cc66; color: var(--ns-parody); }
 .tag-list a.tag.group { background: #49a3cb26; border-color: #49a3cb66; color: var(--ns-group); }
 .tag-list a.tag.language { background: #ee4f4f22; border-color: #ee4f4f55; color: var(--ns-language); }
+.tag-list a.tag.location { background: #4db6ac22; border-color: #4db6ac55; color: var(--ns-location); }
 .tag-list a.tag.category { background: #cd61ce24; border-color: #cd61ce66; color: var(--ns-category); }
 
 /* tag word cloud */
@@ -458,6 +460,7 @@ button:disabled { opacity: .5; cursor: default; }
 .cloud-tag.other { color: var(--ns-misc); }
 .cloud-tag.female { color: var(--ns-female); }
 .cloud-tag.male { color: var(--ns-male); }
+.cloud-tag.location { color: var(--ns-location); }
 .ns-strip { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 
 .pager { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; margin: 22px 0; }
