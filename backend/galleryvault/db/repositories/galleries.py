@@ -62,6 +62,58 @@ def _is_valid_page_header(header: bytes) -> bool:
     return window.startswith(_IMAGE_MAGIC_PREFIXES)
 
 
+async def _upsert_uploader_tag(
+    session: AsyncSession, pairs: Sequence[tuple[int, str | None]]
+) -> None:
+    """Ensure galleries have tags(namespace='uploader') and matching gallery_tags."""
+    valid_pairs = [
+        (gid, str(uploader).strip())
+        for gid, uploader in pairs
+        if gid is not None and uploader is not None and str(uploader).strip()
+    ]
+    if not valid_pairs:
+        return
+
+    unique_uploaders = {u for _, u in valid_pairs}
+    await session.execute(
+        pg_insert(Tag)
+        .values([{"namespace": "uploader", "name": name} for name in unique_uploaders])
+        .on_conflict_do_nothing(index_elements=["namespace", "name"])
+    )
+    await session.flush()
+
+    tag_rows = (
+        await session.scalars(
+            select(Tag).where(
+                Tag.namespace == "uploader", Tag.name.in_(unique_uploaders)
+            )
+        )
+    ).all()
+    tag_by_name = {tag.name: tag.id for tag in tag_rows}
+
+    gallery_ids = list({gid for gid, _ in valid_pairs})
+    old_uploader_tag_ids = select(Tag.id).where(Tag.namespace == "uploader")
+    await session.execute(
+        delete(GalleryTag).where(
+            GalleryTag.gallery_id.in_(gallery_ids),
+            GalleryTag.tag_id.in_(old_uploader_tag_ids),
+        )
+    )
+
+    gallery_tag_values = [
+        {"gallery_id": gid, "tag_id": tag_by_name[u]}
+        for gid, u in valid_pairs
+        if u in tag_by_name
+    ]
+    if gallery_tag_values:
+        await session.execute(
+            pg_insert(GalleryTag)
+            .values(gallery_tag_values)
+            .on_conflict_do_nothing(index_elements=["gallery_id", "tag_id"])
+        )
+    await session.flush()
+
+
 class GalleryRepository(BaseRepository[Gallery]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, Gallery)
@@ -302,6 +354,13 @@ class GalleryRepository(BaseRepository[Gallery]):
             await self.session.execute(
                 delete(GalleryTag).where(GalleryTag.gallery_id.in_(changed_ids))
             )
+        uploader_pairs = [
+            (row.id, gallery.uploader)
+            for row, gallery in changed
+            if gallery.uploader
+        ]
+        if uploader_pairs:
+            await _upsert_uploader_tag(self.session, uploader_pairs)
         await self.session.flush()
 
     async def fetch_existing_rows_raw(
@@ -1833,6 +1892,15 @@ class GalleryRepository(BaseRepository[Gallery]):
                     .values(gallery_tag_rows)
                     .on_conflict_do_nothing(index_elements=["gallery_id", "tag_id"])
                 )
+
+        uploader_pairs = [
+            (gallery.id, gallery.uploader)
+            for gallery, _ in pairs
+            if gallery.uploader
+        ]
+        if uploader_pairs:
+            await _upsert_uploader_tag(self.session, uploader_pairs)
+
         return len(pairs)
 
     async def apply_metadata_to_galleries(self, favcat: int, limit: int = 200) -> int:

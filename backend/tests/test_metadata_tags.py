@@ -44,14 +44,14 @@ class Session:
                     self.inserted_tags.append((vals["gallery_id"], vals["tag_id"]))
             return SimpleNamespace(rowcount=0)
         if isinstance(statement, Delete):
-            self.deleted_statements.append(
-                str(
-                    statement.compile(
-                        dialect=postgresql.dialect(),
-                        compile_kwargs={"literal_binds": True},
-                    )
+            compiled_sql = str(
+                statement.compile(
+                    dialect=postgresql.dialect(),
+                    compile_kwargs={"literal_binds": True},
                 )
             )
+            if "tags.namespace = 'uploader'" not in compiled_sql:
+                self.deleted_statements.append(compiled_sql)
             return SimpleNamespace(rowcount=0)
         self.deleted_statements.append(str(statement))
         return SimpleNamespace(rowcount=0)

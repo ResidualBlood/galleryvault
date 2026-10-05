@@ -129,6 +129,19 @@ async def test_tag_sync_sync_updates_titles_from_cache_and_network(
         def begin(self):
             return self
 
+        async def execute(self, statement):
+            return MagicMock()
+
+        async def scalars(self, statement):
+            class _Scalars:
+                def all(self):
+                    return []
+
+            return _Scalars()
+
+        async def flush(self):
+            pass
+
     class FakeSyncRepo:
         def __init__(self, target_gallery: Gallery):
             self.gallery = target_gallery
