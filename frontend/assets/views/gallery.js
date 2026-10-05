@@ -124,7 +124,12 @@ async function renderGallery() {
     const order = ["parody", "character", "group", "artist", "language", "location", "category", "misc"];
     const byNs = {};
     for (const tg of (g.tags || [])) (byNs[tg.namespace] = byNs[tg.namespace] || []).push(tg);
-    const nsList = Object.keys(byNs).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const nsList = Object.keys(byNs).sort((a, b) => {
+      if (a === b) return 0;
+      if (a === "uploader") return 1;
+      if (b === "uploader") return -1;
+      return order.indexOf(a) - order.indexOf(b);
+    });
     const tagHtml = nsList.map(ns => `
       <div class="tag-group"><strong>${esc(nsLabel(ns))}</strong><div class="tag-list">
         ${byNs[ns].map(tg => `<a class="tag ${nsClass(tg.namespace)}" href="${addTagHash(tg.namespace, tg.name)}">${esc(tagText(tg))}</a>`).join("")}
