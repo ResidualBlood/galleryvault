@@ -267,7 +267,10 @@ class TagSyncService:
                 str(new_title) if new_title is not None else None,
                 str(new_title_jpn) if new_title_jpn is not None else None,
             )
-        uploader = plan.get("uploader") or getattr(gallery, "uploader", None)
+        raw_uploader = (plan.get("uploader") or "").strip() or getattr(gallery, "uploader", None)
+        uploader = raw_uploader.strip() if isinstance(raw_uploader, str) else raw_uploader
+        if uploader:
+            gallery.uploader = uploader
         session = getattr(self.repository, "session", None)
         if session is not None and uploader:
             from ..db.repositories.galleries import _upsert_uploader_tag

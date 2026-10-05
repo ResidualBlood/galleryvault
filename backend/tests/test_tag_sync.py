@@ -108,6 +108,79 @@ async def test_tag_sync_apply_plan_updates_titles() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tag_sync_apply_plan_updates_uploader(monkeypatch: pytest.MonkeyPatch) -> None:
+    gallery = Gallery(
+        id=42,
+        gid=2849972,
+        token="tok42",
+        title="Test Gallery",
+        uploader=None,
+    )
+
+    upsert_calls: list[list[tuple[int, str]]] = []
+
+    async def fake_upsert_uploader_tag(session, pairs):
+        upsert_calls.append(pairs)
+
+    monkeypatch.setattr(
+        "galleryvault.db.repositories.galleries._upsert_uploader_tag",
+        fake_upsert_uploader_tag,
+    )
+
+    fake_session = MagicMock()
+
+    class FakeTagRepo:
+        def __init__(self, target_gallery: Gallery):
+            self.gallery = target_gallery
+            self.session = fake_session
+
+        async def get_for_tag_sync(self, ident: int):
+            return self.gallery
+
+        async def replace_tags(self, g, tags, synced_at, category=None):
+            return len(tags)
+
+    fake_repo = FakeTagRepo(gallery)
+    service = TagSyncService(MagicMock(), fake_repo)  # type: ignore[arg-type]
+
+    # 1. 有效 uploader 写入 gallery.uploader，并调用 _upsert_uploader_tag
+    plan = {
+        "source": "network",
+        "gid": 2849972,
+        "tags": [],
+        "uploader": "  uploader_person  ",
+    }
+    await service.apply_plan(42, plan)
+    assert gallery.uploader == "uploader_person"
+    assert upsert_calls == [[(42, "uploader_person")]]
+
+    # 2. 空白 plan uploader 保留旧有效 uploader，且依然同步标签
+    upsert_calls.clear()
+    plan_empty = {
+        "source": "cache",
+        "gid": 2849972,
+        "tags": [],
+        "uploader": "   ",
+    }
+    await service.apply_plan(42, plan_empty)
+    assert gallery.uploader == "uploader_person"
+    assert upsert_calls == [[(42, "uploader_person")]]
+
+    # 3. 若旧值为空且 plan 为空，则不更新也不触发 _upsert_uploader_tag
+    upsert_calls.clear()
+    gallery.uploader = None
+    plan_none = {
+        "source": "cache",
+        "gid": 2849972,
+        "tags": [],
+        "uploader": None,
+    }
+    await service.apply_plan(42, plan_none)
+    assert gallery.uploader is None
+    assert upsert_calls == []
+
+
+@pytest.mark.asyncio
 async def test_tag_sync_sync_updates_titles_from_cache_and_network(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
