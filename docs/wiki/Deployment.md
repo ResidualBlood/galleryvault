@@ -78,7 +78,7 @@ docker compose up -d
 
 ### 2. 冷热分层存储、多盘挂载与归档规则
 
-如果您在 NAS 上拥有多块存储池或希望将既有下载目录作为**仅扫描不写入**的库，或希望利用多块硬盘作为冷归档池，可按如下方式在 `docker-compose.yml` 中追加数据卷：
+在 NAS 上拥有多块存储池、希望将既有下载目录作为只读扫描库，或利用多块硬盘作为冷归档池时，可在 `docker-compose.yml` 中追加数据卷挂载：
 
 ```yaml
     volumes:
@@ -96,14 +96,13 @@ docker compose up -d
 2. **多库扫描目录**：打开 Web 界面进入「系统设置 → 资料库 → 库根目录」，在多行文本框中填入只读或既有画廊路径（如 `/mnt/pool2`，每行一个）并保存，点击「扫描库」开始增量索引。
 3. **冷存储多根目录 (`archive_roots`) 与容量负载均衡**：
    - 在「系统设置 → 资料库 → 冷归档目录」中填写多个冷存储挂载点（每行一个路径，例如 `/archive1` 与 `/archive2`）。
-    - **动态空间均衡**：冷归档任务通过 `statvfs` 查看各 `archive_roots` 的剩余空间，写入「剩余空间 ≥ 预估体积 × 1.2 且最空」的那块盘。
-4. **英文固定命名规范 (`gid-gallery.title.cbz`)**：
-   - 为确保归档 CBZ 文件在跨平台、跨操作系统（Linux、Windows、macOS）及网络文件共享协议（SMB / NFS / WebDAV / rsync）与远程云备份同步时不发生字符集乱码或非法转义，冷归档统一强制采用官方英文/罗马音标题格式；
-    - 文件名应用严格的 **243 字节上限截断**（预留 12 字节临时后缀缓冲区），彻底规避 Linux ext4 文件系统的 `[Errno 36] File name too long` 错误。
-    - 单卷上限 **500 页且 2GiB**（同时满足才打 CBZ），超限打成冷目录，不是多卷 CBZ。
+   - **动态空间均衡**：冷归档任务通过 `statvfs` 检查各 `archive_roots` 的剩余空间，写入剩余空间 ≥ 预估体积 × 1.2 且空闲空间最多的挂载目录。
+4. **命名规范与单卷规格**：
+   - 归档文件名与目录名规范、UTF-8 字节截断及临时后缀缓冲规则详见 [兼容性与格式规范 → 格式降级与容错处理](Compatibility#格式降级与容错处理)。
+   - 单卷上限为 **500 页且 2GiB**（两项指标均未超出才打包为 CBZ）；超出任一限制时打成冷目录，不打成多卷 CBZ。
 5. **安全反向清理已归档源目录 (`purge-archived-sources`)**：
-   - 当画廊在冷存储目录成功归档为 CBZ 后，可在「设置 → 存储面板」点击「清理已归档源目录」（`POST /api/system/purge-archived-sources`）。
-    - 核对本冷两端 GID，**跳过 pending / downloading 任务**，再删除下载目录里对应的散图文件夹。
+   - 当画廊在冷存储目录成功归档后，可在「系统设置 → 存储面板」点击「清理已归档源目录」（调用 `POST /api/system/purge-archived-sources`）。
+   - 系统核对冷存储与热存储两端的画廊 GID，主动跳过处于 `pending` 或 `downloading` 状态的任务，确认已归档后再删除下载目录中对应的散图文件夹以回收磁盘空间。
 
 ---
 
@@ -253,37 +252,50 @@ docker compose pull
 docker compose up -d
 ```
 
-Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，平滑升级无须手动介入。含重复 `path_hash` 的旧库会在 0039 迁移中合并后再加 UNIQUE 索引。
+Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，更新数据库表结构与索引。升级前建议执行常规数据库备份以防异常。
 
 ---
 
 ## 运维工具与离线修复脚本速查
 
-针对多端迁移历史遗留的超长文件名或 GID 叠加污染，可在后端容器内直接调用内置的 Python 运维脚本：
+针对多端迁移历史遗留的超长文件名或 GID 叠加污染，可在离线或维护状态下使用内置的 Python 运维脚本进行修复：
 
 ### 1. 冷库与本地目录全量修复 (`repair_cold_archives.py`)
-- **功能**：自动剥离前导重复 GID（如 `[12345] 12345-标题`），批量回查云端官方 GData API 清洗并重构 `.galleryvault.json` 索引。
+- **功能**：检测并剥离如 `[12345] 12345-标题` 的重复前导 GID，分片批量回查云端官方 GData API 并更新 `.galleryvault.json` 索引文件。
 - **参数说明**：
-  - `--archive-dir`：容器内扫描修复的冷存储或画廊目录路径；
-  - `--dry-run`：安全演练模式，仅打印拟清洗重命名列表与元数据，不写入磁盘；
+  - `--archive-dir`：扫描与修复的目标归档或画廊根目录路径；
+  - `--dry-run`：安全演练模式，仅打印拟修改项与元数据计划，不写入磁盘；
   - `--batch-size`：批量请求 GData 接口的批大小（默认 25）。
-- **容器内一行命令**：
-  ```bash
-  # 演练预览：
-  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1 --dry-run
+- **执行方法**：
+  - **宿主机执行**（本地开发或宿主 Python 环境）：
+    ```bash
+    # 演练预览：
+    python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive --dry-run
 
-  # 正式执行清洗：
-  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1
-  ```
+    # 正式执行：
+    python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive
+    ```
+  - **Docker 容器内执行**（推荐生产部署方式）：
+    ```bash
+    # 演练预览（注意将 /archive 替换为容器内挂载的实际冷存储路径）：
+    docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive --dry-run
+
+    # 正式执行：
+    docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive
+    ```
 
 ### 2. CBZ 超长文件名 243 字节对齐 (`repair_cbz_filenames.py`)
-- **功能**：将旧 CBZ 文件名按 Linux ext4 243 字节规范统一截断对齐，彻底根除 `[Errno 36] File name too long`。
+- **功能**：遍历目标目录中的历史 CBZ 文件，按 243 字节文件名限制进行截断对齐，规避文件系统错误。
+- **环境要求**：脚本位于仓库根目录 `scripts/repair_cbz_filenames.py`，**未打包进 Docker 镜像**，须在宿主机直接调用 Python 执行。
 - **参数说明**：
-  - `--target-dir`：待处理的旧 CBZ 文件目录；
+  - `--target-dir`：待处理的 CBZ 归档目录路径；
   - `--max-bytes`：字节截断上限（默认 243 字节）；
-  - `--dry-run`：仅演练输出拟截断列表。
-- **宿主执行**（脚本在仓库根 `scripts/`，**未打进镜像**）：
+  - `--dry-run`：安全演练模式，仅打印拟截断重命名的文件列表。
+- **宿主机执行**：
   ```bash
+  # 演练预览：
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
+
+  # 正式执行：
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
   ```

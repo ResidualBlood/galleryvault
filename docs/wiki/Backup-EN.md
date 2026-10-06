@@ -45,55 +45,26 @@ lost, see [Encryption at Rest → Recovering from a lost key](Encryption-EN#reco
 
 ## Cold Storage Multi-Root Directories & Naming Conventions (`archive_roots`)
 
+GalleryVault supports distributing cold CBZ archives across multiple disks or NAS shares to reduce hot storage usage. Archives and sidecars stored on cold storage volumes represent persistent assets and should be included in regular backup routines.
+
 ### 1. Multi-Root Storage & Dynamic Capacity Balancing (`statvfs`)
-
-GalleryVault supports distributing cold CBZ archives across multiple disks or NAS shares:
-
-- **Configuration**: Specify multiple cold storage mount points under **Settings → Library → Cold archive roots** (one path per line, e.g., `/archive1` and `/archive2`).
-- **Dynamic Space Balancing**: A cold archive task checks free space on every configured root via `statvfs` and writes to the volume with enough headroom and the most free space.
-- **Volume selection**: new CBZ files go to the configured root with the most free space (and enough headroom).
+- Configuration of multiple archive mount points, `archive_roots` settings, `statvfs`-based dynamic capacity balancing, and safe source cleanup are detailed in [Deployment Guide → Tiered Storage & Multi-Disk Mounting](Deployment-EN#2-tiered-storage--multi-disk-mounting).
+- When running safe source purging (`POST /api/system/purge-archived-sources`), the system skips tasks in active downloading states and removes unpacked source images only after cold archives are verified.
 
 ### 2. Canonical English Naming & 243-Byte Boundary (`gid-gallery.title.cbz`)
-
-- **Cross-Platform Compatibility**: Cold archives strictly adhere to official English/Romanized titles (`gid-gallery.title.cbz`) to avoid character set corruption, illegal escapes, or filesystem incompatibilities across Linux, Windows, macOS, and network protocols (SMB, NFS, WebDAV, rsync).
-- **243-Byte Truncation Limit**: Base filenames are strictly truncated to an upper limit of **243 UTF-8 bytes**, reserving 12 bytes of headroom for the temporary `.cbz.partial` staging suffix. This prevents filenames from exceeding the 255-byte boundary and completely eliminates Linux ext4 `[Errno 36] File name too long` errors.
-- **Safe Source Purge (`purge-archived-sources`)**: Once a gallery is successfully archived as CBZ in cold storage, administrators can execute "Purge archived sources" from **Settings → Storage** (`POST /api/system/purge-archived-sources`). This operation validates GID consistency across hot and cold storage, actively skips tasks in pending/downloading states, and safely purges loose image directories to reclaim disk space.
+- Cold archives use official English/Romanized titles to maintain compatibility across operating systems and network transfer protocols (SMB, NFS, WebDAV, rsync).
+- Detailed specifications for the 243-byte base filename truncation limit, 12-byte temporary suffix headroom, and 247-byte directory limits are tabulated in [Compatibility and Scope → Graceful Degradation & Fallback](Compatibility-EN#graceful-degradation--fallback).
 
 ---
 
 ## Offline Full Repair & Metadata Sanitization Tools
 
-When external migrations, third-party exporters, or historical operations introduce dirty state (such as overlong filenames, stacked leading GID prefixes, or corrupted metadata sidecars), offline maintenance scripts are available in the repository.
+When external migrations or legacy tools leave archives with stacked GID prefixes or overlong filenames, offline maintenance scripts are available in the repository. Complete parameter definitions and command examples are provided in [Deployment Guide → Offline Maintenance & Repair Utilities](Deployment-EN#offline-maintenance--repair-utilities).
 
 ### 1. Cold Archive & Local Directory Repair (`repair_cold_archives.py`)
-
-Located at `backend/galleryvault/scripts/repair_cold_archives.py`, this script performs deep health inspection, prefix deduplication, and metadata reconstruction across cold CBZ archives and local gallery folders.
-
-- **Core Capabilities**:
-  - **`--dry-run` Simulation Mode**: Inspects corrupt or malformed paths and previews planned renames and metadata updates without modifying any files on disk.
-  - **Strip Redundant Leading GIDs**: Detects and strips duplicate GID prefixes caused by multi-hop imports (e.g. `[12345] 12345-Title` or `12345-12345-Title`), restoring canonical `gid-title` naming.
-  - **Dual GID Contamination Sanitization**: Cleanses both loose directory structures and cold CBZ packages, purging nested GID anomalies from filenames and internal index entries.
-  - **Chunked Upstream GData Re-validation**: Collects sanitized GIDs and performs chunked batch queries against the upstream GData API, fetching authoritative titles, tags, and category taxonomies to rewrite pristine `.galleryvault.json` sidecar files.
-
-- **Usage**:
-  ```bash
-  # 1. Dry run: preview planned sanitation without touching disk
-  python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive --dry-run
-
-  # 2. Execute: strip redundant GIDs, rewrite sidecars, and clean archives
-  python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive
-  ```
+- **Applicability**: Strips duplicate leading GID prefixes (such as `[12345] 12345-Title`) and queries upstream GData APIs to reconstruct `.galleryvault.json` sidecar indexes.
+- **Safety**: Supports `--dry-run` simulation mode; recommended to run inside the backend Docker container. See [Deployment Guide → Cold Archive & Local Directory Repair](Deployment-EN#1-cold-archive--local-directory-repair-repair_cold_archivespy).
 
 ### 2. CBZ Filename Truncation Alignment (`repair_cbz_filenames.py`)
-
-Located at `scripts/repair_cbz_filenames.py`, this script aligns legacy CBZ filenames with current filesystem boundary constraints.
-
-- **Core Capabilities**:
-  - **243-Byte Boundary Alignment**: Scans target archive directories and truncates legacy CBZ filenames to 243 UTF-8 bytes (leaving 12 bytes of headroom for `.cbz.partial` to stay strictly within the 255-byte limit).
-  - **Eliminating Errno 36**: Completely eliminates `[Errno 36] File name too long` errors induced by multi-byte CJK titles during archiving or syncing.
-
-- **Usage** (repo root `scripts/`; **not** inside the backend image):
-  ```bash
-  python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
-  python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
-  ```
+- **Applicability**: Scans target directories and truncates legacy CBZ filenames to 243 bytes, resolving filesystem boundary errors.
+- **Requirements**: Located at repository root `scripts/`, not packaged into the container image; must be run directly on the host. See [Deployment Guide → CBZ Filename 243-Byte Boundary Alignment](Deployment-EN#2-cbz-filename-243-byte-boundary-alignment-repair_cbz_filenamespy).

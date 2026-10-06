@@ -2,78 +2,139 @@
 
 > [中文](Library) · English | Part of the [Usage Guide](Usage-EN) series
 
-Browse, Discover, Library, local lists, tags, and reading history.
+Browse, Discover, Series, Library, local lists, tags, and reading history.
 
 ## Browse (`#/browse`)
 
-- The default landing page (empty hash / unspecified route lands here): newest galleries first. **Infinite scroll** loads the next page; the pager at the bottom is a fallback. Page size is remembered (`localStorage` key: `gv_page_size`).
-- **Continue Reading Cards**: Top section automatically aggregates recently read galleries with cover thumbnails, reading progress bars, one-click resumption, and per-gallery "Mark as unread / ✕" (clears progress and removes the card from Continue Reading / History).
-- The **tag namespace strip** on top (Tag / Artist / Character / Parody / Group / Female / Male / Language) and a **random gallery** button (🎲, opens a random gallery's detail page).
-- The **global search box** in the top bar jumps to the library and runs the title search on Enter; pressing **`/`** anywhere focuses the search box.
-- The gallery grid supports **keyboard arrow navigation** (`←`/`→`/`↑`/`↓` moves focus, `Enter` opens the detail page).
+- **Default Landing Page**: The default entry point when no route is specified, displaying a gallery grid ordered from newest to oldest. Infinite scroll automatically loads the next page; the pager at the bottom serves as a fallback. The browser remembers the page size setting.
+- **Continue Reading Cards**: The top section displays recently read gallery cards with cover thumbnails, reading progress bars, and percentage indicators. Click a card to resume reading, or click "✕" to mark as unread (resets reading progress and removes the card from Continue Reading and History).
+- **Toolbar**:
+  - **Namespace Shortcuts**: Quick filter strip for Tag, Artist, Character, Parody, Group, Female, Male, and Language.
+  - **Random Gallery**: Click the "🎲" button to jump to a random gallery's detail page.
+- **Keyboard Navigation**:
+  - Press `/` anywhere to focus the global search box in the top bar; press Enter to jump to the Library and run a title search.
+  - The gallery grid supports arrow key navigation: `←` / `→` / `↑` / `↓` to move focus, and `Enter` to open the detail page.
 
 ## Discover (`#/discover`)
 
-- Browse / search ExHentai; the toolbar also has **Popular / Watched / Toplist** (Toplist: yesterday / month / year / all-time = site `tl=11/12/13/15`). Watched without a login uses the existing Cookie error state.
-- Toolbar: query, category checkboxes (site `f_cats` bitmask), minimum rating, download quality (resample by default, original optional).
-- Cards: cover, title, category, page count, rating; stackable badges **in library / favorited / not downloaded**.
-- **Download** uses existing `POST /api/downloads`; **Add to favorites** picks folder 0–9 via `POST /api/favorites/add` (**local DB is written only after cloud success**).
-- Search / Popular / Watched infinite scroll uses the site `next=gid-ts` cursor. **Toplist is different**: it always hits `https://e-hentai.org/toplist.php?tl=` and pages with `p=N` (not `gid-ts`), ignoring the configured ExHentai base URL. A short TTL cache avoids re-hitting the first page while scrolling.
-- No hits, Sad Panda, empty-body anti-bot, 509, cookie expiry / no access / IP banned are **shown separately** and never treated as “no results” (which would keep paging). Cookie banners still use the top bar.
+Browse and search online galleries on ExHentai.
+
+- **Rankings & Views**: The toolbar provides Popular, Watched, and Toplist views (Yesterday / Month / Year / All-time, corresponding to site `tl=11/12/13/15`). Watched displays a Cookie configuration prompt when no login is present.
+- **Filter Criteria**: Supports keyword queries, category checkboxes (based on site category bitmasks), minimum rating filters, and download quality settings (resampled by default, original optional).
+- **Gallery Cards**: Displays cover, title, category, page count, and rating, with badges indicating "In Library", "Favorited", or "Not Downloaded" status.
+- **Ingestion & Favorites**:
+  - Click Download to enqueue download tasks; see [Downloads & Management](Downloads-EN).
+  - Add to Favorites allows selecting folders 0–9; **local database records are updated only after cloud confirmation succeeds**.
+- **Pagination & Request Rules**:
+  - Search, Popular, and Watched use site cursors to load subsequent pages.
+  - Toplist always requests `https://e-hentai.org/toplist.php?tl=` with page numbers, ignoring the configured custom ExHentai base URL.
+- **Status Warnings**: Distinctly alerts for no results, Sad Panda, empty-body anti-bot responses, 509 quota exhaustion, expired cookies, permission errors, and IP bans; requests do not continue paging when encountering these errors.
 
 ## Series (#/series)
 
-- **Automatic Clustering & Event Prefix Stripping**: Automatically clusters doujinshi and manga series while stripping convention and event prefixes (such as C100, COMIC1, Reitaisai) to group related works together.
-- **Default Filtering & Pagination**: Filters to Doujinshi and Manga categories by default with pagination; toggle "Show All" to view complete series across all categories.
-- **Cloud Un-downloaded Members & One-click Download**: Shows favorited cloud members not yet downloaded locally with distinct badges, supporting one-click batch downloading to complete the collection.
-- **Manual Management & Allocation**: Add works via gallery GID or favorites, remove mismatched cloud items from groups, create custom series groups, rename or delete groups, and reassign member galleries between groups.
-- **Library Scan Rebuild & Manual Re-clustering**: A filesystem library scan automatically triggers a series rebuild upon completion; you can also manually trigger "Re-cluster" from the series page, with background progress and results logged in the Logs page (`#/logs`).
-- **Series Covers**: Series cards reuse the existing `GET /api/favorites/cover` thumbnail endpoint for rendering.
+- **Automatic Clustering**: Automatically identifies doujinshi and manga series, stripping convention prefixes (such as C100, COMIC1, Reitaisai) to group related works together.
+- **Category Filtering**: Defaults to filtering Doujinshi and Manga categories with pagination; click "Show All" to view complete series across all categories.
+- **Cloud Collection Backfill**: Aggregates favorited cloud items not yet downloaded locally, marked with dedicated badges, and supports one-click batch download to complete local collections.
+- **Manual Adjustments**: Allows manually adding works via gallery GID or favorites, removing mismatched galleries, creating custom series groups, renaming, deleting, and reallocating members between groups.
+- **Reorganization**: A filesystem scan automatically triggers series rebuilding upon completion; you can also click "Re-cluster" manually on the page, with background progress and results logged in the Logs page (`#/logs`).
+- **Series Covers**: Series cards display corresponding gallery thumbnail covers.
 
 ## Library (`#/library`)
 
-- Search by title, filter by category, sort across multiple fields, filter by reading status, and browse indexed galleries.
-- **Title Display Fallback**: When Title Display is configured to Japanese, galleries with an empty Japanese title or a numeric-only GID automatically fall back to the English title, preventing blank or raw-GID titles.
-- **Multi-criteria Sorting**: Order by **Ingest date (default)**, **Posted date**, **Title**, **Pages**, **Size**, and **Rating**, backed by dedicated database indexes for sub-second responses on large collections.
-- **Reading Status Filter**: Quickly filter by **All**, **Unread**, **Reading**, or **Completed**; the three are mutually exclusive. Unread excludes completed. Completed requires actually having read (progress > 0 and at the last page; a 1-page gallery with progress 0 is not completed).
-- **Collapsible Advanced Filters**: Secondary filters are collapsed into an expandable panel displaying an active filter count badge; expanding it reveals min/max page inputs, minimum rating (≥2 / ≥3 / ≥4 / ≥4.5), size range (MB → bytes), posted date, uploader substring, image quality (original/resample), language shortcuts (existing `language:` tags), local star rating, and local lists. These stick with sort, read status and tag filters.
-- **Saved searches**: store the current library filter under a name (about 30 max, in `user_settings.saved_searches` with get+merge so `auth_secret` is kept); apply or delete from the toolbar.
-- **Local lists**: independent of ExHentai. Add/remove from the library or detail page; gid-less CBZ archives can join; the library can filter by list (see the dedicated section below).
-- **"Not in favorites" filter**: the category dropdown ends with "Not in favorites", showing local galleries whose gid is not in any ExHentai favorite folder (gid-less local archives count as not favorited; older local copies with a newer favorited version are excluded and routed to Gallery Updates instead). Before favorites have ever been synced this item is equivalent to "All".
-- This page uses **infinite scroll**: the next page (24 galleries by default) is appended as you near the bottom; the pager stays as a fallback. The page-size dropdown is 5/30/50/100/200/500 (24 is the default but not in the list). Your choice is remembered (`localStorage` key: `gv_page_size`).
-- Click a cover to open the gallery detail page (see [Gallery Details & Reader](Reading-EN)).
-- **Multi-tag filtering (AND / OR) & Exclude Tags (`-tag`)**:
-  - Clicking a tag **appends it to the filter**; **Shift / Alt / Ctrl / Cmd + click** on a gallery card's tag **appends it as an exclude tag** (`-namespace:name`, e.g. `Shift+click female:lolicon → -female:lolicon`) — the click uses `stopPropagation` so it won't open the gallery, and the red badge shows the exclusion; excluded tags are honored by **Delete filtered** and sticky navigation;
-  - The tag filter bar lets you toggle **AND / OR** mode; AND / OR applies only to positive include tags, while exclude tags always strictly filter out matches;
-  - Exclude tags (`-namespace:name` or `-tag`, e.g. `-female:lolicon`) are displayed with distinct red badges, excluding matching galleries;
-  - **uploader tag filtering**: Uploaders are integrated into the tag taxonomy under `namespace="uploader"`. Entering `uploader:ExampleUser` in the search box or calling `GET /api/galleries?tags=uploader:ExampleUser` filters galleries by that uploader; entering `-uploader:ExampleUser` excludes them. The default `tag_match=exact` mode performs an exact full-name tag match (matching exact case first, falling back to case-insensitive match); `tag_match=fuzzy` matches substrings of tag names. Note that the separate "uploader" field in Collapsible Advanced Filters corresponds to the `uploader=Example` query parameter, which performs a case-insensitive substring match against the `galleries.uploader` column; the two mechanisms are distinct. See [Gallery Details & Reader](Reading-EN) for background retrieval and backfill details.
-- **Tag filters are opt-in, never guessed**: while you type, tag suggestions appear under the search box — **clicking a suggestion** adds that tag to the filter (and consumes matching query tokens — including partial input such as 「和泉」 when picking 「和泉纱雾」 — so they don't also act as a title keyword; leftover words still search the title). Tags can also be added with explicit `ns:name` syntax (`parody:touhou`) or from the tag cloud / gallery detail page. Pressing Enter without `ns:name` performs a **title text search only** and never auto-promotes words into tag filters.
-- **Multi-word search ANDs each word**: the title query splits on whitespace and every word must appear (each as an independent substring, order- and position-independent), so `mimu gif` matches any title containing both mimu and gif. Single-word and CJK-sentence searches behave as before.
-- **Batch add to favorites**: after selecting cards, **Add to favorites** picks a folder 0–9 and submits in chunks of 25; **only cloud-confirmed gids are written locally** (add is a move — one gid lives in one favcat); gid-less local archives are skipped with a toast.
-- **Bulk & filtered deletion**:
-  - Ticking gallery cards reveals a **Delete selected** action, with an option to delete corresponding files on disk (**leaving files on disk sends the row to `#/recycle` → User deleted**, restorable, see [Library Maintenance](Manage-EN); when partial copy deletion fails, records stay consistent with remaining on-disk paths; paths outside scan roots skip the whole gallery);
-  - **Delete filtered** removes all galleries matching the active category, search query, read status, or tag filter at once. Requests without active filter criteria are strictly rejected to prevent accidental full-library wipes; a 5,000-row safety guard rejects excessive matches with `409` to prevent accidental library wipes; deletion runs safely in 500-row batches, keeping the DB row and logging a notice if disk files are read-only.
-- **Scan library** triggers a filesystem scan: new archives are ingested, and galleries missing from disk go to `#/recycle` → Scan missing (restorable; purge removes them from the index). The completion Telegram notification appends `N duplicate-copy group(s) found (gid …)` when duplicates were detected, pointing to the [Duplicate copies](Manage-EN) page. A **global pause** skips the scan (the trigger returns `paused`).
+The Library is used to browse and search all locally indexed galleries, supporting multi-criteria sorting, status filtering, tag filtering, and batch maintenance.
+
+### Views & Display
+
+- **Title Display Fallback**: When Title Display is configured to Japanese, galleries with an empty Japanese title or a numeric-only GID automatically fall back to the English title, preventing blank titles or raw numeric IDs.
+- **Infinite Scroll & Pagination**: Automatically loads the next page when scrolling near the bottom (defaults to 24 items per page; options include 5, 30, 50, 100, 200, and 500 items). The bottom pager remains available as a fallback. The browser remembers the selected page size.
+- **Cover Navigation**: Click a gallery cover to enter the detail page; see [Gallery Details & Reader](Reading-EN).
+
+### Sorting & Reading Status
+
+| Sort Field | Description |
+| :--- | :--- |
+| **Ingest Date (Default)** | Ordered descending by the time the gallery was first indexed locally |
+| **Posted Date** | Ordered by original site publication time |
+| **Title** | Ordered alphabetically and lexicographically by gallery title |
+| **Pages** | Ordered ascending or descending by total page count |
+| **File Size** | Ordered ascending or descending by total file size |
+| **Rating** | Ordered by rating score |
+
+| Reading Status | Filter Scope & Conditions |
+| :--- | :--- |
+| **All** | Shows all galleries |
+| **Unread** | Excludes completed galleries |
+| **Reading** | Progress is greater than 0 and not at the last page |
+| **Completed** | Reading progress has reached the final page (a 1-page gallery with progress 0 is not completed) |
+
+### Advanced Filters & Saved Searches
+
+- **Advanced Filters Configuration**: Secondary filters are collapsed into an expandable panel displaying an active filter count badge. Expanding it allows configuring:
+
+| Filter Dimension | Description & Matching Rules |
+| :--- | :--- |
+| **Page Range** | Minimum / maximum page count |
+| **Minimum Rating** | ≥2 / ≥3 / ≥4 / ≥4.5 |
+| **File Size** | Minimum / maximum file size range |
+| **Posted Date** | Start and end publication dates |
+| **Uploader** | Case-insensitive substring match |
+| **Image Quality** | Original / Resampled |
+| **Language** | Shortcut filters matching corresponding `language:` tags |
+| **Local Attributes** | Local star rating and local lists |
+| **Not in Favorites** | Shows local galleries not present in any ExHentai favorite folder (includes gid-less local archives; older local copies replaced by favorited newer versions are routed to Gallery Updates; equivalent to "All" if favorites were never synced) |
+
+- **Saved Searches**: Supports saving the active filter combinations as a named search (up to approximately 30 entries), which can be applied or deleted from the toolbar.
+
+### Search & Tag Syntax
+
+- **Title Search**:
+  - Enter text directly into the search box and press Enter (without namespace syntax) to execute a text search on gallery titles.
+  - Multiple keywords separated by spaces perform word-by-word AND matching (each keyword functions as an independent substring, regardless of order or position, e.g., `mimu gif` requires both words to appear).
+- **Tag Filtering**:
+  - **Suggestion Selection**: Typing in the search box displays tag suggestions; clicking a suggestion adds it to the filter and removes matching keyword tokens from the input box.
+  - **Syntax Input**: Supports entering `namespace:name` syntax directly (e.g., `parody:touhou`).
+  - **Card Clicking**: Tags on gallery cards can be clicked to add them to positive inclusion filters.
+  - **Combination Modes**: The tag filter bar allows toggling between **AND / OR** modes, applicable exclusively to positive include tags.
+- **Tag Exclusion**:
+  - **Syntax Input**: Enter `-namespace:name` or `-tag` (e.g., `-female:lolicon`).
+  - **Quick Addition**: Use Shift / Alt / Ctrl / Cmd + click on a gallery card's tag to add it as an exclude tag (without navigating to the detail page).
+  - **Enforcement Rules**: Exclude tags are displayed with a distinct red badge and are strictly enforced as mandatory exclusions, unaffected by the positive AND/OR combination mode.
+- **Uploader Filtering & Matching**:
+  - **Tag Syntax**: Enter `uploader:Username` to filter for a specific uploader, or `-uploader:Username` to exclude that uploader. The default matching mode (`tag_match=exact`) performs an exact match (matching exact case first, falling back to case-insensitive match); specifying `tag_match=fuzzy` performs substring fuzzy matching on the tag name.
+  - **Advanced Filter Field**: The "Uploader" field in the Advanced Filters panel matches against the gallery uploader text column via case-insensitive substring search, functioning independently from tag filtering. For full details on uploader backfilling, see [Gallery Details & Reader](Reading-EN).
+
+### Batch Operations & Safety Limits
+
+- **Batch Add to Favorites**:
+  1. Select gallery cards and click "Batch Add to Favorites", then pick folder 0–9.
+  2. The backend submits entries to the cloud in chunks of 25.
+  3. **Restrictions & Safety**: **Only cloud-confirmed GIDs are updated in the local database** (moving the item to the new favorite folder; a single GID can belong to only one folder). GID-less local archives are skipped with a notification toast.
+- **Bulk & Filtered Deletion**:
+  - **Selected Deletion**: Select gallery cards to delete them, choosing whether to delete disk files synchronously. If files on disk are retained, galleries move to [Library Maintenance](Manage-EN) under "Recycle Bin → User Deleted" and can be restored. If partial copy deletions fail, records remain synchronized with remaining on-disk files. Paths outside scanned library roots are skipped from complete deletion.
+  - **Filtered Deletion**: Deletes all galleries matching the active category, search query, reading status, or tag filter at once. Must have valid filter criteria; unconditional full-library wiping is prohibited. Governed by a 5,000-gallery safety limit (rejects execution with an alert to narrow down filters if exceeded), processed in batches of 500 in the background. If disk storage is read-only, database records are preserved and reported in logs.
+- **Scan Library**: Triggers a filesystem scan: newly discovered archives are indexed, and missing files move to "Recycle Bin → Scan Missing" (restorable; completely removed from the index only upon permanent deletion). Sends a Telegram notification upon completion; if duplicates are found, prompts to handle them in [Library Maintenance](Manage-EN). Library scans will not start if the system is in a globally paused state.
 
 ## Local Lists (`#/library`)
 
-- **Independent of ExHentai**: Local lists are completely decoupled from ExHentai cloud favorites; gid-less local archives (CBZ, directory galleries) can be freely added and organized.
-- **Frontend Entry & Filtering**: Accessible from the Library (`#/library`) and Gallery Detail (`#/gallery/<id>`) pages. The list dropdown on the Library toolbar filters galleries by list (URL hash `#/library?list_id=<id>`).
-- **List Lifecycle Management**: Supports creating, renaming, and deleting local lists. You can click "New list" on the Library toolbar to create one instantly; the backend API provides full CRUD capabilities (`POST /api/lists`, `PATCH /api/lists/{id}`, `DELETE /api/lists/{id}`).
-- **Adding & Removing Galleries**: In the Library, tick galleries and click "Add to list" to batch-assign them (prompts to create a new list if none is selected); on the Gallery Detail page, click the toolbar list buttons to add or remove the gallery from a list with one click.
+- **Independent Management**: Local lists are completely decoupled from ExHentai cloud favorites; GID-less local archives (CBZ, directory galleries) can be freely added and organized.
+- **Entry & Filtering**: Accessible from the list dropdown on the Library toolbar (URL: `#/library?list_id=<id>`) or from the gallery detail page (`#/gallery/<id>`).
+- **List Lifecycle**: Supports creating, renaming, and deleting local lists. Click "New List" in the Library toolbar and enter a name to create one.
+- **Gallery Assignment**: Select galleries in the Library and click "Add to List" to assign them in bulk (prompts to create a new list if none is selected). Galleries can also be added or removed with one click on the gallery detail page.
 
 ## Tags (`#/tags`)
 
-- Search the local tag taxonomy and view usage counts; filter by namespace strip (All / Tag / Artist / Character / Parody / Group / Female / Male / Language / Category). Uploader tags also belong to the local taxonomy under `namespace="uploader"` derived from gallery metadata; see [Gallery Details & Reader](Reading-EN) for details.
-- The namespace filter strip stays intact across page turns.
-- The search box supports Chinese autocomplete (same reverse-translation matching as the top bar, e.g. 「巨乳」). **Picking a suggestion stays on the tags page and filters the cloud** (switches to that namespace, queries by English name). Submitting Chinese also matches local tags via translations. The button is “Search tags”. The top-bar search still searches galleries and jumps to the library.
-- Clicking a tag in the cloud appends it to the library filter (multi-tag AND); tags on detail pages can also be appended.
-- In Chinese UI, tags display translations; multi-value tags display only the translated portion.
-- Results are fixed at 100 items per page (API limit 500).
+- **Browsing & Category Filtering**: Search the local tag taxonomy and view usage counts; the top filter strip supports filtering by namespace (All, Tag, Artist, Character, Parody, Group, Female, Male, Language, Category). Uploader tags also belong to the local tag taxonomy (`namespace="uploader"`); see [Gallery Details & Reader](Reading-EN) for backfill rules. The top namespace filter strip remains fixed across pagination.
+- **Search & Autocomplete**: The search box supports Chinese autocomplete; selecting a suggestion remains on the tags page and filters the tag cloud for that namespace. Submitting Chinese directly also matches local tags via translations. Click "Search Tags" to query the current page, while the top bar search box performs global gallery searches and jumps to the Library.
+- **Tag Integration**: Clicking a tag in the tag cloud or detail page navigates to the Library and appends that tag to active filter criteria (multi-tag AND combination).
+- **Language & Pagination**: In Chinese UI mode, tags prioritize displaying translations; multi-value tags (`A | B`) display only the translated portion. Results display a fixed 100 entries per page.
 
 ## History (`#/history`)
 
-- Lists reading history per gallery (last reading position and time), with direct "Read Now" shortcuts and per-gallery "✕" mark-as-unread buttons (clears progress and removes the row from History / Continue Reading).
-- **Clear history**: clears timeline entries (does not affect progress bookmarks on galleries). Requires modal confirmation and passing an explicit `?confirm=true` query parameter to prevent accidental or unauthorized clearing.
-- **Clear reading progress**: resets reading progress for all galleries after confirmation (marks all as unread / progress reset to 0). Requires passing an explicit `?confirm=true` query parameter to prevent accidental deletion.
-- The reading position is saved automatically by the reader and restored when you reopen a gallery / reader.
+Lists reading history per gallery (last reading position and timestamp). Each item allows clicking "Read Now" to jump directly to the current progress, or clicking "✕" to mark as unread (clears progress and removes the entry from History and Continue Reading). The reader automatically saves and restores the reading position upon entry.
+
+### History & Progress Cleanup
+
+| Action | Scope of Effect | Impact on Gallery Reading Progress | Safety & Confirmation Requirements |
+| :--- | :--- | :--- | :--- |
+| **Clear History** | Clears timeline records from history | Does not alter individual gallery reading progress bars | Confirmation modal required; request must include confirmation parameter |
+| **Clear Reading Progress** | Resets reading progress for all galleries | All galleries marked as unread (progress reset to 0) and removed from Continue Reading | Confirmation modal required; request must include confirmation parameter |

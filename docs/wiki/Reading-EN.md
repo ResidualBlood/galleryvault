@@ -2,65 +2,65 @@
 
 > [中文](Reading) · English | Part of the [Usage Guide](Usage-EN) series
 
-Gallery detail, tag sync, and the web reader.
+Gallery details, tag synchronization, and the web reader.
 
 ## Gallery Detail (`#/gallery/<id>`)
 
-- Shows metadata (size, adaptive units), tags and page thumbnails. When `uploader` namespace tags exist, this group is pinned to the end of all tag groups (representing the end of the tags section, not a floating element at the page bottom); galleries without an uploader tag do not display this group.
-- Page thumbnails **infinite-scroll** (a **Load more** button after about 5 auto batches); the pager remains. **30 per page by default** (5/30/50/100/200/500, sharing `gv_page_size` with the library); the choice is remembered and survives the reader round trip.
-- **Thumbnails open at your reading position**: without an explicit `?page=`, loading starts at the batch that contains your last progress (so returning from the reader lands near where you were); an explicit `?page=` always wins.
-- **Click a tag** to jump to the library and **append** it to the active tag filter (combine several tags to narrow down).
-- **Start reading & Slideshow auto-play**: "Start reading" opens the reader (positioned at your last reading spot); the toolbar also provides a "▶ Slideshow" button and interval input (in seconds) to start hands-free auto-advance directly from the gallery details.
-- **Export CBZ**: download this gallery as a CBZ. An on-disk `.cbz` is served as-is; a directory gallery is packed in page order (on-disk format is not rewritten).
-- **Open on ExHentai**: opens the corresponding gallery page on ExHentai in a new tab. The link is built from the configured base URL (`{base}/g/{gid}/{token}/`); your browser must be logged in to EH. Not shown for local galleries without a token.
-- **Sync tags**: The detail page reads exclusively from the local database; clicking "Sync tags" (`POST /api/galleries/{identifier}/sync-tags`) or background worker sync explicitly initiates tag synchronization and metadata fetching. Reuses the favorites metadata cache when available (no network).
+### Page Information & Action Entries
+
+| Entry / Area | Description & Supported Actions | Outcome & Constraints |
+| :--- | :--- | :--- |
+| **Metadata & Tags** | Displays gallery size (adaptive units), categories, tags, and page thumbnails. Clicking a tag jumps to the library and appends it to the active filter (syntax in [Browsing & Library](Library-EN)). If `uploader` namespace tags exist, this group is pinned to the end of all tag groups; omitted when no uploader exists. | Displays local database records only without initiating remote network requests. |
+| **Thumbnail List** | Defaults to 30 items per page (switchable between 5 / 30 / 50 / 100 / 200 / 500, persisted across sessions). Supports infinite scroll (a "Load more" button appears after ~5 batches) alongside the bottom pager. | Automatically navigates to the batch matching your last reading progress; an explicit `?page=` query parameter takes precedence. |
+| **Reading & Slideshow** | Click "Start reading" to enter the reader at your last recorded page. The top toolbar provides "▶ Slideshow" and interval settings (in seconds) to enter the reader directly in fullscreen auto-advance mode. | Reading progress and preferences are saved automatically; slideshow controls are unavailable in Webtoon mode. |
+| **Export CBZ** | Click "Export CBZ" to package and download the full gallery. | On-disk `.cbz` files are served directly; directory galleries are streamed and packed in page order without modifying on-disk storage structures. |
+| **Open on ExHentai** | Click "Open on ExHentai" to navigate to the ExHentai gallery page (`{base}/g/{gid}/{token}/`) in a new browser tab. | Requires an active ExHentai login session in the browser; button is hidden if no gallery token is stored locally. |
+| **Tag Sync** | Explicitly click "Sync tags" (`POST /api/galleries/{identifier}/sync-tags`) or trigger synchronization via background tasks. | Reuses local metadata cache if available; ExHentai-only galleries pause synchronization when configured with the public mirror (`e-hentai.org`), resuming when switched back to `exhentai.org`. |
+| **Local Annotation & Favorites** | The "More" menu supports 1–5 star local ratings, custom notes, and `local:` prefixed tags (which are never overwritten by tag sync). Displays favorite folder badges. | Supports adding unfiled galleries to folders 0–9, moving folders, and removing favorites; updating favorite notes and folder states requires verified ExHentai cloud confirmation before updating local records. |
+| **Quality & Upgrade to Original** | Displays quality badges (Original / Resampled) next to favorite folder indicators. For resampled galleries with an ExHentai gid, the toolbar offers "Download original" (page-by-page, zero GP cost) and "Archive-download original" (zip archive package, consumes GP; details in [Downloads](Downloads-EN)). | Deletes the superseded resampled copy automatically upon completion if page counts match; if the storage volume is read-only, prompts for manual deletion while keeping the download task intact. |
 
 ### Uploader retrieval and backfill
 
-- **Background pending queue**: On service startup, background workers scan galleries without synced tags (`tags_synced_at IS NULL` and not expunged / trashed) and enqueue them automatically; newly ingested galleries are also enqueued.
-- **Cache reuse & remote fetch policy**: In non-forced mode, if the local metadata cache already contains tags, the cache is reused directly without initiating remote requests; if the cached metadata only lacks an uploader field, it does not independently trigger remote fetching. When no cache exists or forced sync is requested, batch gdata is queried first, falling back to HTML parsing if gdata fails or returns incomplete data.
-- **Uploader field & tag persistence**: Sync prefers the valid uploader parsed from the fetch plan, falling back to the existing gallery uploader value; non-empty trimmed values are written to `galleries.uploader`, upserted into `namespace="uploader"` tags, and replace any previous uploader tag associations for the gallery (leaving other namespace tags intact). If neither is present, uploader tags are skipped.
-- **Fault isolation**: Remote fetch failures trigger exponential backoff. If writing the local metadata cache after a remote fetch fails, only a warning is logged; it does not block the gallery tag persistence nor raise as a remote fetch failure.
-- **Historical migrations (Alembic 0040 & 0041)**:
-  - **Migration 0040**: Scanned non-empty `uploader` values in `galleries`, trimmed whitespace, and backfilled `uploader` tags and gallery associations with deduplication.
-  - **Migration 0041**: Matched by gid to fill missing `galleries.uploader` values from `gallery_metadata.uploader` (never overwriting existing non-empty values), then backfilled corresponding `uploader` tags and associations.
-  - Both migrations filtered out NULL and whitespace-only strings, preserved original case, and skipped duplicates via unique constraints.
-  - For tag search and filtering syntax, see [Browsing & Library](Library-EN).
-- With the **public mirror (e-hentai.org)** configured, ExHentai-only galleries *pause* tag sync instead of being misclassified as deleted (their category is untouched) and resume automatically once Settings switch back to `exhentai.org`.
-- **Local rating / note / custom tags**: Grouped under the "More" action menu on the detail page: set 1–5 stars, write notes, and add `local:` tags (EH tags are not overwritten; tag sync keeps `local:`). The library can filter by local stars.
-- The favorite folders the gallery belongs to are shown as badges. Galleries support **Add to Favorites** (modal folder selector 0–9; cloud success writes locally and moves the gid out of other folders), **Change Folder** (Move), and **Unfavorite**, with strict cloud-success verification before updating local database records. **Favorite notes** live under **More** and are edited via EH applyfav / `favnote` (local write only after cloud success); they also show on the favorites list.
-- **Original / resampled**: next to the favorite badges the detail page shows whether the local copy is original or resampled (hidden when unknown). Quality is recorded when a gallery is downloaded and inferred for existing galleries by comparing the local file size against the ExHentai original size — backfilled during the favorites metadata sync (poll / check now / fetch missing) and when a **library scan** completes.
-- **Upgrade to original**: galleries that are not already original and have an ExHentai gid get two toolbar buttons —
-  - **Download original**: downloads original images page-by-page (no GP, see the [Downloads](Downloads-EN) page for progress); not enqueued when the gallery has no original images on ExHentai.
-  - **Archive-download original**: shows a cost/balance preview (locked to the original tier, disabled when original is unavailable or GP is too low) and downloads through the ExHentai archive (zip) channel (see [Downloads](Downloads-EN)).
-  - After an original download finishes, the superseded resampled copy is removed automatically (only when the page count matches; if the mount is read-only the task still succeeds and you are told to remove it manually).
+- **Source & Queue**: Background workers scan unsynced galleries on service startup and during new ingestion, enqueuing them automatically.
+- **Automatic Backfill**: Prioritizes local metadata cache reuse; queries batch gdata when cache is absent or forced sync is requested, falling back to gallery HTML parsing if gdata fails or returns incomplete fields.
+- **Tag Usage**: Once resolved, the uploader is stored on the gallery record and indexed as a `namespace="uploader"` tag; searchable in the library via exact `uploader:"..."` or prefix `uploader:name*` queries, see [Browsing & Library](Library-EN).
 
 ## Reader (`#/reader/<id>/<page>`)
 
-- Streams one page at a time. Page with **←/→ arrows**, **space**, or a **left/right tap on the reader area** (except in Webtoon; see below).
-- **Keyboard Shortcuts**:
-  | Shortcut | Action | Notes |
-  |---|---|---|
-  | `←` / `→` | Previous / Next page | Automatically inverted in Manga (RTL) mode; unused in Webtoon |
-  | `Space` | Next page | Unused in Webtoon |
-  | `G` | Focus page jump input / prompt | Opens quick jump prompt in fullscreen or when toolbar is hidden |
-  | `F` | Toggle image fullscreen | In-place image swapping without exiting fullscreen |
-  | `Esc` | Exit fullscreen | Native browser fullscreen exit; also stops slideshow and restores the pre-fullscreen reader style |
-- **Mobile Touch Gestures** (left/right tap and pinch/zoom are unused in Webtoon):
-  - **Left / Right Tap**: Previous / Next page (direction inverted in RTL mode).
-  - **Double-Tap**: Fast 2.2x zoom focused on the tapped position; double-tap again to reset.
-  - **Pinch-to-Zoom**: Continuous 1.0x to 3.5x smooth zoom; double-tap again to reset after zooming (pinch back near 1x also resets).
-- **Page Jump Input & `G` Shortcut**: Direct 1-based page number input in the toolbar jumps immediately on Enter; pressing **`G`** anywhere focuses the page jump input or opens a quick jump prompt in fullscreen.
-- **Multi-mode reading (LTR / RTL Manga / Double-page / Webtoon)**: The "Mode" toolbar button switches between **Left-to-Right (LTR)**, **Manga (RTL)**, **Double Page**, **Double RTL**, and **Webtoon** with persisted user preference. In RTL mode, key and tap directions invert naturally; in Double-page mode, pairs of pages display side-by-side on wide screens (with solo cover on page 1). Webtoon is a vertical continuous strip (`loading="lazy"`); the visible page is written as reading progress. Click/arrow paging and double-page spreads are not used; the toolbar still supports `G` jump and back-to-details.
-- **Adaptive Slideshow (GIF/WebP duration)**:
-  - The reader toolbar provides a "▶" start button and an inline interval input (default 5 seconds, persisted to `gv_slideshow_interval`). Clicking ▶ writes `?slideshow=<seconds>` into the URL, **enters image fullscreen**, and starts auto-advance. The button is not a play/pause toggle (it always shows ▶). The toolbar is hidden in fullscreen; **exiting fullscreen (`Esc` or the fullscreen control) stops the slideshow**.
-  - **Duration probe**: when the current page type includes GIF or WebP, the reader calls `GET /api/galleries/{id}/pages/{page}/meta` and reads `duration_ms` (sum of per-frame delays; no frame-rate field; GIF/WebP binary scan of a full loop, **capped at 120 seconds**, so longer animations may advance early). The scheduler uses `max(user interval, duration_ms + 150ms)`. Pages are pre-decoded with `img.decode()`; stale swap requests are dropped.
-  - Manual paging or left/right taps cancel the current timer and reschedule for the new page (they do not pause). Changing the interval input does nothing until you click ▶ again. Webtoon has no slideshow controls. Past the last page, slideshow stops and fullscreen exits before jumping to the next gallery (it does not keep playing).
-- **Advances to the next gallery after the last page** (paging backward on the first page is a no-op: no fullscreen exit and no previous gallery).
-- On open, preloads the next three pages (four in double-spread mode); after a page turn, preloads the next 1–2 pages.
-- **Browser cache**: the page-image endpoint sets no `Cache-Control` (browser default). Thumbnail cover uses `max-age=86400` (24 h); other page thumbnails use `max-age=31536000, immutable` (~1 year).
-- Progress: single page shows `page / total · size` (adaptive B/KB/MB/GB); double-page shows `left-right / total` (no size).
-- Reading position is saved automatically.
-- **The fullscreen button (or the `F` key) enters image-only fullscreen**: only the page image fills the screen (proportions kept, `object-fit: contain`, black background), and the toolbar and page navigation are hidden. While fullscreen, paging (arrows / space / tap zones) swaps the image in place and **keeps fullscreen active**; paging past the last page exits fullscreen first, then jumps to the next gallery. `Esc` exits fullscreen and syncs the URL.
-- **Fit-mode toggle**: the "Fit" button switches between the default (max height ~82vh) and full page width. Leaving fullscreen restores the reader style that was active before entering.
-- Galleries opened from a **searched library keep the search context throughout the reader**: after paging (arrows / space / tap zones / thumbnail links / auto-advance to the next gallery) the back-to-details and back-to-library links still carry the active search query and tag filter, so you never land back on an unfiltered library.
+### Reading Modes & Shortcut Operations
+
+The reader streams pages dynamically, offering multiple layout modes and control schemes:
+
+| Mode | Navigation Controls | Display Characteristics & Differences |
+| :--- | :--- | :--- |
+| **Default (LTR)** | `←` Previous page, `→` / `Space` Next page; click left/right half of reader area | Single page centered and scaled to fit; standard reading order. |
+| **Manga (RTL)** | `→` Previous page, `←` / `Space` Next page; click right half for previous, left half for next | Keyboard arrows and touch navigation directions are inverted. |
+| **Double Page** | Same navigation as LTR mode | Side-by-side spread on widescreen displays, with page 1 centered as cover. Progress displays `left-right / total`. |
+| **Double RTL** | Same navigation as RTL mode | Side-by-side spread ordered right-to-left, with page 1 centered as cover. |
+| **Webtoon** | Continuous vertical scroll; click-to-turn, spacebar, and dual spreads are disabled | Vertical continuous strip with lazy image loading (`loading="lazy"`). Scroll position continuously syncs reading progress; page jump (`G`) remains available. |
+
+**Keyboard Shortcuts**:
+
+| Shortcut | Action | Notes & Constraints |
+| :--- | :--- | :--- |
+| `←` / `→` | Previous / Next page | Automatically inverted in Manga (RTL) mode; disabled in Webtoon mode. |
+| `Space` | Next page | Disabled in Webtoon mode. |
+| `G` | Focus page jump input / open jump prompt | Directly invokes page jumping even in fullscreen or with hidden toolbars. |
+| `F` | Enter / exit image fullscreen | Swaps images in place without exiting fullscreen during page turns. |
+| `Esc` | Exit fullscreen | Exits fullscreen mode; halts active slideshow playback and restores pre-fullscreen reader layout. |
+
+**Mobile Touch Gestures**:
+
+| Gesture | Action & Effect | Constraints & Reset |
+| :--- | :--- | :--- |
+| **Left / Right Tap** | Tap left screen for previous page, right screen for next page (inverted in RTL mode) | Ineffective in Webtoon mode |
+| **Double-Tap** | Quickly zooms to 2.2x magnification centered on tap coordinates; double-tap again resets to 1.0x | Ineffective in Webtoon mode |
+| **Pinch-to-Zoom** | Supports continuous smooth zoom from 1.0x to 3.5x | Automatically resets when pinched or double-tapped back near 1.0x; ineffective in Webtoon mode |
+
+### Slideshow Auto-Play & Display Controls
+
+- **Start & Controls**: The toolbar provides a "▶" button and an interval input (default 5 seconds, persisted to `gv_slideshow_interval`). Clicking ▶ appends interval parameters to the URL (`?slideshow=<seconds>`), enters image fullscreen, and starts automatic cycling. Toolbars are hidden in fullscreen; pressing `Esc` or clicking fullscreen controls exits fullscreen and terminates playback.
+- **Animation Duration Probing**: When the current page is a GIF or WebP animation, the reader calls the page metadata endpoint to calculate total frame delay (`duration_ms`, scanning one full loop, capped at 120 seconds). Playback interval uses `max(user interval, duration_ms + 150ms)` with pre-decoding applied prior to page swaps.
+- **Scheduling & Boundary Handling**: Manual paging or tapping active zones cancels the current timer and reschedules for the new page; changing the interval input requires clicking "▶" again to take effect. Turning past the last page stops the slideshow, exits fullscreen, and advances to the next gallery (auto-play does not chain across galleries). Paging backward on the first page neither exits fullscreen nor jumps to the previous gallery.
+- **Preloading & Caching**: Opening the reader preloads the next 3 pages (4 pages in double-spread modes); turning pages preloads 1–2 subsequent pages. Cover thumbnails are cached for 24 hours, remaining page thumbnails are cached long-term, and full-resolution images are managed by standard browser caching.
+- **Layout Adaptability & Search Context**: The toolbar "Fit" toggle switches between maximum height (~82vh) and full page width. When entering the reader from library searches, page turns, thumbnail selections, and advancing to the next gallery preserve active search queries and tag filter context throughout navigation.

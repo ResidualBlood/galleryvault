@@ -78,7 +78,7 @@ Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd6
 
 ### 2. Tiered Storage & Multi-Disk Mounting
 
-To mount multiple storage pools on your NAS or scan existing collections without downloading into them:
+To mount multiple storage pools on your NAS, use existing download directories as read-only libraries, or distribute cold archives across multiple disks:
 
 ```yaml
     volumes:
@@ -88,12 +88,21 @@ To mount multiple storage pools on your NAS or scan existing collections without
       # Additional disk volumes or network shares:
       - /mnt/storage_pool2/ehviewer_export:/mnt/pool2:ro
       - /mnt/cold_archive/disk1:/archive1:rw
+      - /mnt/cold_archive/disk2:/archive2:rw
 ```
 
 **Steps to Apply**:
-1. Add paths under `backend.volumes` in `docker-compose.yml` and restart the backend: `docker compose up -d backend`.
-2. Open *Settings → Library roots*, enter the container paths (e.g. `/mnt/pool2`, one per line), and save.
-3. Click **Scan library**. All mounted roots will be aggregated into the central library view.
+1. **Update Volumes**: Add paths under `backend.volumes` in `docker-compose.yml` and restart the backend: `docker compose up -d backend`.
+2. **Library Scan Roots**: Open *Settings → Library → Library roots*, enter the container paths (e.g. `/mnt/pool2`, one per line), save, and click **Scan library**.
+3. **Cold Archive Roots (`archive_roots`) & Capacity Balancing**:
+   - In *Settings → Library → Cold archive roots*, enter multiple archive mount paths (one per line, e.g. `/archive1` and `/archive2`).
+   - **Dynamic Space Balancing**: A cold archive task checks free space across configured roots via `statvfs` and writes to the root where available space ≥ estimated size × 1.2 and free space is greatest.
+4. **Naming Standards & Volume Limits**:
+   - Naming conventions, UTF-8 byte boundary truncation, and temporary suffix rules are detailed in [Compatibility and Scope → Graceful Degradation & Fallback](Compatibility-EN#graceful-degradation--fallback).
+   - Single-volume threshold is **500 pages and 2GiB** (packaged as CBZ only when both limits are respected). Exceeding either limit results in a directory-based cold archive rather than a multi-volume CBZ.
+5. **Safe Source Purge (`purge-archived-sources`)**:
+   - After galleries are archived to cold storage, click **Purge archived sources** in *Settings → Storage* (`POST /api/system/purge-archived-sources`).
+   - The system verifies gallery GIDs between hot and cold storage, actively skips tasks in `pending` or `downloading` states, and deletes loose image folders from the download root to reclaim disk space.
 
 ---
 
@@ -237,7 +246,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Alembic schema migrations run automatically during backend container initialization. Older databases with duplicate `path_hash` rows are merged in migration 0039 before the UNIQUE index is created.
+Alembic schema migrations execute automatically during backend container initialization to update database schemas and indexes. Performing a routine database backup prior to major upgrades is recommended.
 
 ---
 
@@ -246,28 +255,41 @@ Alembic schema migrations run automatically during backend container initializat
 To clean up legacy issues from multi-device migrations (such as overlong filenames or stacked GID contamination), built-in Python maintenance scripts can be executed directly inside the backend container or on the host:
 
 ### 1. Cold Archive & Local Directory Repair (`repair_cold_archives.py`)
-- **Function**: Automatically strips redundant leading GIDs (e.g. `[12345] 12345-Title`), queries the upstream official GData API in batches to clean up and rebuild `.galleryvault.json` sidecar indexes.
+- **Function**: Detects and strips duplicate leading GIDs (e.g. `[12345] 12345-Title`), queries upstream official GData APIs in chunks, and updates `.galleryvault.json` sidecar indexes.
 - **Parameters**:
-  - `--archive-dir`: Container path of the cold archive or gallery directory to scan and repair;
-  - `--dry-run`: Dry-run simulation mode; prints planned renames and metadata updates without modifying disk;
+  - `--archive-dir`: Target cold archive or gallery root directory path to scan and repair;
+  - `--dry-run`: Simulation mode; prints planned changes without writing to disk;
   - `--batch-size`: Batch size for querying the upstream GData API (default 25).
-- **Single-line command in container**:
-  ```bash
-  # Dry-run preview:
-  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1 --dry-run
+- **Execution**:
+  - **Host Execution** (local development or host Python environment):
+    ```bash
+    # Dry-run preview:
+    python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive --dry-run
 
-  # Execute cleanup:
-  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1
-  ```
+    # Execute cleanup:
+    python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive
+    ```
+  - **Container Execution** (standard production deployment):
+    ```bash
+    # Dry-run preview (replace /archive with the mounted container path):
+    docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive --dry-run
+
+    # Execute cleanup:
+    docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive
+    ```
 
 ### 2. CBZ Filename 243-Byte Boundary Alignment (`repair_cbz_filenames.py`)
-- **Function**: Scans and aligns legacy CBZ filenames to the Linux ext4 243-byte boundary standard, completely eliminating `[Errno 36] File name too long`.
+- **Function**: Scans target directories and truncates legacy CBZ filenames to 243 bytes, resolving filesystem boundary errors.
+- **Environment Requirement**: Located at repository root `scripts/repair_cbz_filenames.py`, **not packaged into the Docker container image**; must be run on the host.
 - **Parameters**:
   - `--target-dir`: Target directory containing legacy CBZ archives;
   - `--max-bytes`: Maximum filename length in bytes (default 243 bytes);
-  - `--dry-run`: Dry-run simulation mode; prints planned truncations only.
-- **Host Execution** (script is located at repository root `scripts/`, **not packaged into container image**):
+  - `--dry-run`: Simulation mode; prints planned truncations only.
+- **Host Execution**:
   ```bash
+  # Dry-run preview:
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
+
+  # Execute truncation:
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
   ```

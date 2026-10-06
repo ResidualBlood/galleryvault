@@ -6,55 +6,116 @@ System settings, OPDS, Telegram bot commands, and which operations need the netw
 
 ## Settings (`#/settings`)
 
-- **Account**: change password (this **revokes every logged-in session**) and toggle *Require login*. Web session cookies (`galleryvault_session`) and CSRF cookies (`galleryvault_csrf`) default to a 10-year expiration (`315360000` seconds) for persistent login; changing the password or resetting the secret immediately invalidates all active sessions.
-- **Interface**:
-  - **Title display**: `japanese` (default, Japanese title preferred) / `english` / `directory` (folder name). The library, browse, gallery detail, favorites (including cloud-only items), favorites-duplicates and duplicate-copies pages all show titles according to this setting.
-- **Site & Proxy**:
-   - **ExHentai**: base URL (only `exhentai.org` / `e-hentai.org` or a subdomain) and `ipb_member_id` / `ipb_pass_hash` / `igneous` cookies, with a **Test login** button; cookies are never echoed back. A health probe runs at startup and every 30 minutes; expired cookies, no ExHentai access, or an IP ban show red top banners; network/site probe failures show orange. All link to Settings (also refreshed once right after login). For setup instructions, see [Usage Guide: Cookie Setup](Usage-EN#configuring-exhentai-cookies).
-  - **Proxy**: HTTP or SOCKS5 (choose one).
-- **Library**:
-   - **Library roots**: one filesystem path per line. Defaults include `/library` and `/downloads` (new downloads still go only to `download_root`, but scans include downloads). Deleting a gallery removes its files under these roots when the mount is writable; on a read-only mount the deletion fails and is reported in the toast and on the Logs page.
-- **Archive / Cold storage**: same Library fieldset as library roots. Multi-line `archive_roots` (e.g. `/archive`, `/archive2`); blank = off. Legacy `cold_storage_root` is upgraded to a one-item list. Writes pick the root with free space ≥ estimate × 1.2 and the most free space; scans include every archive root. Auto-archive and delete-source default off. CBZ path is `{cold}/cbz/{hh}/{ii}/{gid}-{DB English title}.cbz`, ignoring `download_title`; `.galleryvault.json` is inside the zip. A single volume is capped at **500 pages and 2GiB** (AND); larger galleries become a cold directory, not multi-volume CBZ. Packing and purge live on **Manage → Cold archive** (`#/archive`); the Settings storage table has the same purge button and skips pending/downloading tasks.
-- **Disk usage**: four rows — **library / cold / downloads / cache** (path, item counts, used, disk free). Library/cold show gallery and image counts; cache shows an approximate thumbnail count. Opening Settings does not walk the whole disk. The 10 largest galleries are listed below.
-- **Downloads (Common)**: root directory, concurrent galleries, **pages in parallel per gallery** (default 4 — H@H nodes cap concurrent connections per source IP, so values much above 4-6 trip the cap and cause connection errors on lossy lines; keep it low for stability, raise it only on a clean line), image quality (normal/original), **archive quality** (default tier for archive downloads), **fall back to page-by-page if archive is unavailable** (on by default — a gallery the archive channel cannot serve downloads page-by-page, no GP cost); **Download title**: controls folder naming only for newly created folders in the **hot download directory** (`download_root`) — `japanese` (default, `gid-<Japanese title>`, falling back to English when no Japanese title exists) or `english` (`gid-<English title>`). Independent of the display *Title display* setting (cold storage CBZ files always use the English title regardless of this setting); existing download folders are reused as-is, switching never renames or re-downloads them.
-- **Downloads Advanced (Collapsed)**: H@H toggle, archive quality, `favorites_archive_max_pages` (0 = all), archive large favorites on scheduled scan, fall back to page-by-page if archive is unavailable. Slow-H@H watchdogs: image max time, warmup window, min KB/s. 302 probe interval: `GV_CHALLENGE_PROBE_INTERVAL` (default 600s).
-- **Tags**:
-  - **Tag sync**: automatic sync after scans/startup, interval and concurrency, **Sync tags now**.
-  - **Translation auto-update**: interval (minutes, 0 = off) and **Update now** (this page, not Logs).
-  - **Local category repair**: no network; rewrites Misc/Other from local metadata / `.galleryvault.json`.
-- **Thumbnails**: auto-generation toggle, **Generate now**, and the **live thumbnail status**. The background engine includes automated maintenance tasks: **orphan thumbnail cleanup** (periodically sweeps the cache directory to remove orphaned files whose galleries no longer exist in the database, reclaiming storage) and a **periodic seeding mechanism** (regularly checks and seeds missing cover and page thumbnail generation jobs for newly ingested or incomplete galleries), ensuring cache completeness without accumulating stale files.
-- **Telegram (Collapsed)**: bot token, chat ID, allowed user IDs, **notification level** (summary / immediate / failures-only / off) and **notification language** (中文 / English) — download, scan, favorites-check, 302 challenge alerts (🚨 trigger/✅ clearance), and bot-reply notifications all use the selected language, formatted as Telegram HTML (bold titles, mono gids); gallery titles are never translated. A **Send test message** button verifies the bot can reach the chat. After a token is configured, startup auto-registers the Telegram command menu.
-- **PWA**: add to home screen. The service worker caches only the html/css/js shell (js/css **network-first**, then update the cache; offline falls back to cache), **not gallery images or `/api/`**.
-- **Light theme**: ◐ in the top bar; `localStorage gv_theme=dark|light`, default dark.
-- **7z / PDF scan**: library scan accepts `.7z` (py7zr, images only; per-page in-memory extract, 128MB cap) and `.pdf` (embedded images; skip images over 128MB; skip the gallery with a warning if none).
-- **OPDS & CBZ export**: `GET /api/opds` (atom+xml) lists the **50 most recently ingested** galleries with acquisition links to `GET /api/galleries/{id}/export.cbz`. The OPDS endpoint supports HTTP Basic authentication (fixed username `galleryvault`, not an EH account; password is the web login password) for third-party reader clients; session cookie authentication remains fully supported. Missing or invalid credentials return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. CBZ export and all other `/api/*` routes require standard session cookies.
-- **Telegram bot control commands** (allowed user IDs only; type `/` in chat to see the menu):
+### Account & Interface
 
-  | Group | Commands |
-  | :--- | :--- |
-   | System | `/status` runtime + queue overview; `/ping` latency; `/cookie` cookie health; `/quota` image quota and GP; `/storage` disk usage; `/scan` trigger library scan; `/help` command list |
-  | Queue | `/queue` + InlineKeyboard; `/pause` `/resume` global pause; `/retry <id/all>`; `/cancel <id/gid>` (replies when not found); `/clear` completed history; `/stats` library count + queue snapshot |
-  | Tasks | `/tasks` running jobs; `/kill <name>` interrupt |
-  | Library | `/search <query>` paginated local search; `/info <gid>` details + cover (5-step fallback); `/random`; `/redownload <gid>` |
-  | Favorites | `/fav_sync` categories; `/fav_download [0-9]` missing items; `/fav_check` full update check |
+| Setting | Field / Values | Description & Defaults |
+| :--- | :--- | :--- |
+| Change Password | - | Changing the password revokes all active logged-in sessions. |
+| Require Login | Toggle | Toggles authentication enforcement. |
+| Session Expiration | `galleryvault_session`<br>`galleryvault_csrf` | Web session and CSRF cookies default to a 10-year expiration (`315360000` seconds); changing the password or resetting secrets immediately invalidates all active sessions. |
+| Title Display | `japanese`<br>`english`<br>`directory` | Title display policy across library, browse, details, favorites, favorites duplicate checks, and duplicate copies pages. Default is `japanese` (Japanese preferred, falls back to English). |
+| Theme | `gv_theme` | Top-bar ◐ icon toggles light or dark theme, persisted to local storage; defaults to dark (`dark`). |
 
-  `/pause` is a **global pause** (persisted to `app_config.user_settings`, survives restart): it **stops claiming new galleries and does not claim new pages** (the current in-flight page finishes; queued galleries are kept and resume later), and pauses **auto scans** and **Web-triggered scans** (trigger returns `paused`). The Web downloads page toggle and bot `/pause`/`/resume` operate **the same switch** (`GET/POST /api/pause`); the yellow pause banner stacks with the Cookie red banner. URLs pasted while paused are ignored, not enqueued. **Pasting a gallery URL** (e.g. `https://exhentai.org/g/2325283/d3722b6aa8/`, extra surrounding slashes are fine) parses the gid/token and enqueues it immediately. The bot reply includes the **gallery title** (and old→new gid if the listing was replaced; 404/deleted is reported and not queued). Unknown non-URL text gets `/help`.
+### Site & Proxy
+
+| Setting | Parameter / Field | Description & Defaults |
+| :--- | :--- | :--- |
+| ExHentai Base URL | `exhentai_base_url` | Only `exhentai.org` / `e-hentai.org` or their subdomains are supported. |
+| Cookie Authentication | `ipb_member_id`<br>`ipb_pass_hash`<br>`igneous` | Verified via **Test login**; cookie values are never echoed back. For setup steps, see [Usage Guide: Cookie Setup](Usage-EN#configuring-exhentai-cookies). |
+| Health Probe | Periodic Probe | Runs at startup and every 30 minutes thereafter; expired cookies, missing ExHentai access, or IP bans show a red banner, while network probe failures show an orange banner, both linking to Settings. |
+| Proxy | HTTP / SOCKS5 | Configure server address and port (choose one). |
+
+### Library & Storage
+
+| Setting | Parameter / Value | Description & Constraints |
+| :--- | :--- | :--- |
+| Library Roots | Path list | One filesystem path per line, defaulting to `/library` and `/downloads`. Scans cover all paths; deleting a gallery deletes its files when mounted writable, or fails with errors on toast and Logs if read-only. |
+| Cold Archive | `archive_roots` | Multi-line filesystem paths (e.g. `/archive`). Blank disables cold archiving; legacy `cold_storage_root` upgrades to a one-item list. By default, auto-archive and deleting source files are disabled. For mounting and capacity balancing, see [Deployment Guide → Tiered Storage](Deployment-EN#2-tiered-storage--multi-disk-mounting). |
+| Cold Archive Spec | Specifications | Single volume is capped at **500 pages and 2GiB** (AND); exceeding either creates a cold directory instead of a single-volume CBZ. CBZ path is `{cold}/cbz/{hh}/{ii}/{gid}-{DB English title}.cbz` with internal `.galleryvault.json`. Managed at **Manage → Cold archive** (`#/archive`). |
+| Purge Residue | Storage action | The Settings storage table provides "Purge archived source directory files", automatically skipping tasks in pending or downloading states. |
+| Disk Usage | Metrics | Displays library, cold, downloads, and cache paths, item counts, used space, and disk free; lists the 10 largest galleries. Opening Settings does not walk the entire disk. |
+| Archives & Documents | `.7z` / `.pdf` | Recognizes `.7z` (images only, in-memory extract per page, 128MB cap) and `.pdf` (extracts embedded images, skipping single images over 128MB or galleries without extractable images). |
+
+### Downloads Common & Advanced
+
+**Common Download Settings**:
+
+| Setting | Parameter / Value | Description & Defaults |
+| :--- | :--- | :--- |
+| Download Root | `download_root` | Target hot directory where new download tasks write files. |
+| Concurrent Galleries | Numeric | Maximum number of gallery download tasks running concurrently. |
+| Pages in Parallel per Gallery | Numeric | Concurrent image download limit per gallery, default `4`. H@H nodes cap concurrent connections per source IP, so high values on unstable connections cause connection errors. |
+| Image Quality | Normal / Original | Default image download quality. |
+| Archive Quality | Quality tier | Default tier requested for official archive download channels. |
+| Fall Back to Page-by-Page | Toggle | Default on. When official archive channels are unavailable, automatically falls back to page-by-page downloads without deducting GP. |
+
+**Download Title & Advanced Options**:
+
+- **Download Title**: Controls folder naming only for newly created folders in the hot download directory (`download_root`) — `japanese` (default, `gid-<Japanese title>`, falling back to English when absent) or `english` (`gid-<English title>`). Independent of the interface "Title Display" setting (cold storage CBZ files always use database English titles); existing download folders are reused without renaming or re-downloading.
+- **Advanced Options (Collapsed)**:
+  - H@H toggle and archive default quality.
+  - `favorites_archive_max_pages`: Favorite archive page threshold (`0` = all).
+  - Archive large favorites on scheduled scans.
+  - Slow H@H watchdogs: image max time, warmup window, and minimum KB/s rate.
+  - 302 challenge probe interval: environment variable `GV_CHALLENGE_PROBE_INTERVAL` (default 600 seconds).
+
+### Tags & Thumbnails
+
+| Setting | Field / Action | Description & Behavior |
+| :--- | :--- | :--- |
+| Tag Sync | Toggle / Interval / Concurrency | Automatically syncs tag metadata after scans or startup; includes "Sync tags now" action. |
+| Translation Auto-Update | Interval (minutes) | `0` disables; provides "Update now" action on this page. |
+| Local Category Repair | Offline action | Reclassifies galleries mislabeled as Misc/Other using local `.galleryvault.json` tags without internet access. |
+| Thumbnail Generation | Toggle / Action | Auto-generation toggle and "Generate now" action with real-time status; periodically generates missing thumbnails for new galleries and sweeps orphaned thumbnail cache entries no longer in the database. |
+
+### OPDS & PWA
+
+| Feature | Protocol / Path | Authentication & Behavior |
+| :--- | :--- | :--- |
+| OPDS Catalog | `GET /api/opds` | Returns up to 50 most recently ingested galleries (Atom XML format), with acquisition links to `GET /api/galleries/{id}/export.cbz`. |
+| OPDS Authentication | HTTP Basic | Supports HTTP Basic authentication with fixed username `galleryvault` (not an EH account) and web login password; session cookies also supported. Missing or invalid credentials return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. |
+| CBZ Export | Export API | Actual CBZ export and regular `/api/*` requests require standard cookie-based login sessions. |
+| PWA Offline Support | Service Worker | Supports adding to home screen. Only caches HTML, CSS, and JS shell (static assets use network-first strategy and update cache upon success; falls back to cache offline). Explicitly does not cache gallery images or `/api/` endpoints. |
+
+### Telegram Bot Configuration & Commands
+
+**Bot Configuration**:
+
+- **Basic Configuration**: Configure bot token, chat ID, and allowed user IDs; provides "Send test message" to verify connectivity. Startup automatically registers client command menus with Telegram once a token is set.
+- **Notification Options**: Notification levels support "Summary / Immediate / Failures only / Off"; notification language supports "中文 / English". Download, scan, favorites check, 302 challenge alerts (🚨 triggered / ✅ resolved), and bot replies use this language. Messages use Telegram HTML format (bold titles, monospace GID); gallery titles remain untranslated.
+
+**Control Commands** (Allowed user IDs only; type `/` in chat to view menu):
+
+| Category | Commands | Description |
+| :--- | :--- | :--- |
+| System & Ops | `/status`<br>`/ping`<br>`/cookie`<br>`/quota`<br>`/storage`<br>`/scan`<br>`/help` | View runtime status and queue overview; test latency; check cookie health; inspect image quota and GP; view disk usage; trigger library scan; view command help. |
+| Queue & Download | `/queue`<br>`/pause`<br>`/resume`<br>`/retry <id/all>`<br>`/cancel <id/gid>`<br>`/clear`<br>`/stats` | View queue and actions; global pause and resume; retry failed tasks; cancel task; clear completed history; view library count and queue snapshot. |
+| Background Tasks | `/tasks`<br>`/kill <name>` | View running long-running jobs; terminate specified task. |
+| Library | `/search <query>`<br>`/info <gid>`<br>`/random`<br>`/redownload <gid>` | Paginated local search; view gallery details and cover; pick random gallery; re-download specified gallery. |
+| Favorites | `/fav_sync`<br>`/fav_download [0-9]`<br>`/fav_check` | Synchronize favorite categories; download missing items in designated favorite; full favorites update check. |
+
+**Global Pause & URL Enqueueing**:
+
+- **Global Pause Semantics**: `/pause` is a global pause persisted in `app_config.user_settings` that survives service restarts. When activated, it stops claiming new galleries and halts claiming new page images (the current in-flight page completes); queued tasks remain intact and resume when unpaused. It also pauses scheduled auto-scans and web-triggered manual scans (which return `paused`). The web downloads page toggle and bot `/pause` / `/resume` share the same switch (`GET/POST /api/pause`); top yellow pause banners and red cookie banners can stack.
+- **Pasting Gallery URLs**: Pasting a gallery URL in chat (e.g. `https://exhentai.org/g/2325283/d3722b6aa8/`) automatically extracts GID and token and enqueues the download immediately if not paused. The bot replies with confirmation and gallery title (noting GID replacement if a newer version is detected; reports failure if 404 or deleted). URLs pasted during global pause are ignored and not enqueued. Non-URL text receives `/help`.
 
 ## What Needs the Network
 
-| Access Level | Scenario | Included Operations & Mechanisms |
-| --- | --- | --- |
-| **Must access ExHentai<br>/ E-Hentai original site** | **Discover & Search** | Supports standard search, Popular, Watched, Toplist; features cursor pagination and backend short-term cache (60s/120s). |
-| | **Gallery Download (Two Modes)** | 1. **Standard page-by-page**: concurrency capped, standard/original requests separated from H@H control.<br>2. **Archive download**: deducts GP or quota to pull pre-packed cbz/zip directly from the origin. |
-| | **Tag & Metadata Sync** | Includes metadata API (gdata) batch fetches, online category backfill, and automatic quality detection. |
-| | **Favorites Two-Way Management** | Periodic sync of cloud categories/counts/lists; modifications (add/remove, move category, edit note). |
-| | **Health Probe & Quota** | Background 30-min Cookie keepalive, test login; automatic probe recovery on Challenge/509 blocks; GP and quota checks. |
-| | **New Version Fetch** | Triggers full network download flow when one-click update starts a new task for a new GID. |
-| **Third-Party Network** | **EhTag Translation** | Hits GitHub API (`api.github.com`) to check and download the translation database. |
-| | **Telegram Notifications** | Hits Telegram Bot API (`api.telegram.org`) for pushing alerts and polling bot interactions (if configured). |
-| **Pure Local / Offline** | **Detail & Reading** | Detail page reads only local DB; Reader loads only local resources; no requests to the origin. |
-| | **Archive & Maintenance** | Cold storage archiving (CBZ) & source cleanup; local disk scan; OPDS feeds and CBZ exports; recycle bin. |
-| | **Update Preliminary Screening** | Normalizes and compares local favorites/downloaded titles entirely offline without network requests. |
-| | **Local Category Repair** | Repairs misclassified galleries using existing `.galleryvault.json` tags without accessing the internet. |
-| **Local First** | **Detail & Enqueue** | Details read DB; download prep prioritizes local DB/cache metadata, hitting gdata only when missing. |
-| | **Cover & Quota Cache** | Remote covers check local cache first; GP and quota reuse cached values before expiration. |
+| Network Target | Operation | Conditions & Behavior |
+| :--- | :--- | :--- |
+| **ExHentai / E-Hentai Origin** | Discover & Search | Accesses standard search, Popular, Watched, and Toplist; includes short-term backend caching (60s / 120s). |
+| | Standard Page Download | Concurrency capped, original and normal requests controlled separately, fetched via H@H nodes. |
+| | Archive Download | Deducts GP or quota to pull pre-packed files directly from origin. |
+| | Tag & Metadata Sync | Batch calls gdata API to retrieve metadata, online categories, and quality detection info. |
+| | Favorites Two-Way Management | Periodically synchronizes cloud categories, counts, and lists; submits additions, removals, category moves, or note edits. |
+| | Cookie Keepalive & Quota | Startup and 30-minute periodic health checks; automatic recovery probe after challenge/509 blocks; inspects GP and image quota. |
+| | New Version Downloads | Pulls gallery data for new GIDs when one-click update initiates a new download task. |
+| **GitHub API (`api.github.com`)** | EhTag Translation Database | Checks and downloads EhTag translation updates. |
+| **Telegram Bot API (`api.telegram.org`)** | Notifications & Interaction | Push notifications and bot long-polling interaction (requires configured Bot Token). |
+| **Pure Local Offline (No Network)** | Gallery Details & Reading | Details page reads local database; reader loads only local files without contacting origin. |
+| | Library Maintenance & Cold Archive | Scans local disks, CBZ cold packaging and source residue purge, OPDS feed and CBZ export, recycle bin operations. |
+| | Favorites Update Screening | Text matching and normalization against local records and titles, with zero external network traffic. |
+| | Local Category Repair | Reclassifies gallery categories using local `.galleryvault.json` tags without accessing the internet. |
+| **Local-First Cache Exceptions** | Details & Enqueue Preparation | Details prioritize local database; download preparation reuses local metadata and queries gdata only when missing. |
+| | Cover & Quota Caching | Remote covers check local cache first before requesting origin; GP and quota reuse valid cached values. |
+| | PWA Asset Caching | Service worker caches only static HTML/CSS/JS shell (network-first); explicitly does not cache gallery images or `/api/` endpoint responses. |

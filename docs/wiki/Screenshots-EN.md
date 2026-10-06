@@ -1,7 +1,8 @@
 # Screenshots
 
-The UI is available in **English** and **中文**, switchable anytime from the
-top-right corner. Below are the main pages — see corresponding chapters for details.
+> [中文](Screenshots) · English
+
+Screenshots of key pages in both English and Chinese, along with links to the corresponding documentation chapters. The interface language can be switched anytime in the top-right corner.
 
 | Page | English UI | Chinese UI |
 |------|------------|------------|

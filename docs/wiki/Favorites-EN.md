@@ -2,56 +2,88 @@
 
 > [中文](Favorites) · English | Part of the [Usage Guide](Usage-EN) series
 
-ExHentai favorite-folder sync, watch modes, favorite dedupe, and GID replacements (Updates).
+ExHentai favorite-folder sync, watch modes, favorite dedupe, and re-uploaded GID replacement management.
 
 ## Favorites (`#/favorites`)
 
-- Lists the ten ExHentai favorite folders: an enable toggle, a mode (incremental download / watch only / force download) and the polling interval; **Save** writes it all at once.
-- **Sync folder names** pulls the folder names from ExHentai.
-- **Check now** scans one folder; **Check all folders** scans them all.
-- Each folder shows cloud/local counts and sizes; a **progress ring** appears next to the name while a check is running.
-- Every check caches the full metadata (title, tags, category, posted date, size) into the database and **applies the fresh metadata** to already downloaded galleries (tag replacement, category/title/posted/size refresh), skipping when nothing changed, so repeated checks are cheap.
-- **Skip heuristic** (**scheduled** checks only; **Check now** always runs fully): when the live cloud count matches the known local count, the full re-scan is skipped immediately; after four skips the fifth run is forced full. A changed count resets the counter and runs a full check.
-- Click a folder name to open `#/favorites/<favcat>`: that folder's gallery grid (with **title search**, **multi-criteria sorting**, checkboxes, **select all**, **download selected**, **download selected original**, **archive download selected**, **move selected**, **remove from favorites**, and an **All / local only / cloud only** state filter). **Check now** warms cloud covers onto disk; opening a folder only reads that cache (`<img>` via `/api/favorites/cover?gid={gid}&token={token}`) and does not wait on ExHentai. The grid uses **infinite scroll** with a pager fallback; default page size is 24.
-  - **In-folder Search & Sorting**: Top toolbar provides instant title filtering and sorting by last seen, first seen, posted date, title, and size.
-  - **Advanced filters**: Provides a collapsible advanced filter panel (aligned with the library) supporting local star rating, page range, file size, posted date, uploader, image quality, language, and local lists, with an active filter count indicator.
-  - **Select all**: Inside a favorite folder (`#/favorites/:id`), the toolbar provides "Select All" to the left of "Clear Selection"; selection applies to currently rendered cards only (cards not yet loaded into DOM via infinite scroll are not selected), and clicking again after scrolling merges newly rendered cards into the selection.
-  - **Move selected**: Move selected galleries to another favorite folder (0–9), syncing both ExHentai cloud favorites and local records.
-  - **Batch downloads & original upgrades**: The toolbar supports three batch download actions, persisting task quality on enqueue and handling already-ingested galleries as follows:
-    - **Download selected**: Follows the global quality setting (default resample). Uningested galleries enqueue normally; already-ingested galleries are still skipped (even if the global setting is original, preventing unintended duplicate upgrades).
-    - **Download selected original**: Forces page-by-page original quality regardless of global settings. Uningested galleries enqueue as usual; galleries already stored as original are skipped; local resample/unknown copies undergo page-by-page original upgrades, and superseded copies (including CBZ) are deleted upon ingest.
-    - **Archive download selected**: Tier (original/resample) selected in the cost preview popup. Uningested galleries enqueue as usual; galleries already stored as original are skipped; local non-original galleries trigger a `gallery_archive` original upgrade if the user selects the original tier in the cost preview, but remain skipped if resample is selected.
-- The **Download missing items** button on the Favorites overview spawns a per-folder pass that downloads cover files for every gallery missing one on disk (shown inline in lists and duplicate groups).
-- Configuring **ExHentai cookies** (see [Usage Guide: Cookie Setup](Usage-EN#configuring-exhentai-cookies) or [Settings](Settings-EN) → ExHentai, stored encrypted in the database) is required — checks will fail and no favorites/covers are fetched without them.
-- **Archive Downloads & Updates**: Supports downloading or updating selected galleries via ExHentai's official zip channel (with a cost/balance preview popup); for details on execution, Range resumption, and fallback policies, see [Download Management → Archive Downloads](Downloads-EN#archive-downloads-exhentai-archive).
+- **Prerequisites**: Requires configured ExHentai cookies (see [Usage Guide: Cookie Setup](Usage-EN#configuring-exhentai-cookies) or [Settings](Settings-EN) → ExHentai; stored encrypted in the database). Without cookies, checks will fail and cannot read favorite contents or covers.
+- **Overview & Basic Controls**:
+  - Lists the 10 ExHentai favorite folders (folders 0–9), displaying cloud count, local count, and disk usage; a progress ring appears beside the folder name while a check is running.
+  - **Sync folder names**: Pulls cloud custom folder names from ExHentai.
+  - **Check now**: Manually scans the selected folder; **Check all folders**: Checks all folders at once.
+  - **Save**: Saves modifications to folder enable toggles, watch modes, and polling intervals all at once.
+  - **Download missing items**: Spawns an overview pass across all checked folders to complete missing local cover thumbnail cache files on disk (for list display and duplicate group inlining).
+- **Metadata Caching & Skip Rules**:
+  - Every check fetches full metadata (title, tags, category, posted date, size) and caches it in the local database; for already downloaded local galleries, fresh metadata is applied automatically (updating tags, category, title, posted date, and size), skipping when nothing changed.
+  - Checks automatically warm cloud covers into local disk cache. Opening a folder subsequently reads local disk only (`/api/favorites/cover?gid={gid}&token={token}`) without waiting on external requests.
+  - **Skip heuristic (scheduled polling only)**: During scheduled checks, if live cloud count matches known local count, full re-scanning is skipped immediately; after 4 consecutive skips, the 5th check forces a full scan. If live cloud count changes, the counter resets immediately and a full scan runs (clicking "Check now" never triggers skips, running a full check directly).
+- **Folder Gallery Grid (`#/favorites/<favcat>`)**:
+  - Click a folder name to open the gallery grid view (24 items per page by default, with infinite scrolling and a bottom pager fallback).
+  - **Search & Sorting**: Top toolbar provides real-time title filtering; supports multi-criteria sorting by first added date, last added date (default), posted date, title, and file size.
+  - **Filtering**: Supports All, Local only, and Cloud only state filters; provides a collapsible advanced filter panel (local star rating, page count range, file size, posted date, uploader, image quality, language, and local lists).
+  - **Select All & Move**: Toolbar provides "Select All" for currently rendered cards (scroll down to load new cards and click again to merge into selection); supports batch moving to other favorite folders (folders 0–9), syncing local records after ExHentai cloud confirmation succeeds.
+- **Batch Download & Original Upgrade Rules**:
+
+| Action Button | Quality Rule | Uningested Gallery (Not in Library) | Ingested Gallery (Already Local) |
+| :--- | :--- | :--- | :--- |
+| **Download selected** | Follows global setting (default resample) | Enqueues normally | Skipped (not re-queued; remains skipped even if global setting is original, preventing duplicate upgrades) |
+| **Download selected original** | Forces page-by-page original quality | Enqueues normally | Skipped if local copy is already original; enqueues page-by-page original upgrade if local copy is resample/unknown, deleting superseded copies (including CBZ) upon ingest |
+| **Archive download selected** | Tier (original or resample) chosen in cost preview popup | Enqueues normally | Skipped if local copy is already original; triggers archive original upgrade if local copy is non-original and original tier is selected, deleting old copy upon ingest; skipped if resample tier is selected |
+
+For official archive channel cost previews, Range resumption, and fallback policies, see [Download Management → Archive Downloads (ExHentai Archive)](Downloads-EN#archive-downloads-exhentai-archive).
 
 ## Favorite duplicates (`#/duplicates/favorites`)
 
-- Primary entry: **Manage → Favorite duplicates**. Legacy `#/favorites/manage` opens the same page.
-- **Scan for duplicate galleries** groups versions of the same work (DL / uncensored / language re-uploads). Bulk **unfavorite** or **unfavorite and delete the local copy** (all physical copies of that gid under library roots; read-only failures toast + Logs, DB row kept so the next scan does not re-import). **Ignore selected** hides false positives; restore from `#/favorites/ignored`.
+- **Entry**: Located under **Manage → Favorite duplicates** (legacy path `#/favorites/manage` redirects here automatically).
+- **Scanning & Actions**:
+  - Click **Scan for duplicate galleries**; different versions of the same work (digital editions, uncensored releases, different language versions) are grouped and displayed by work.
+  - Supports batch **Remove from favorites**, or **Remove from favorites and delete local copy** (deletes all physical files and CBZ copies for that gallery GID under library roots).
+- **Safety & Read-Only Protection**:
+  - Favorite removals update local records only after cloud confirmation succeeds.
+  - If underlying storage is mounted read-only and physical file deletion fails, an alert is displayed and logged while database records are retained, preventing future scans from misidentifying the gallery as a new item.
+- **False Positive Management**: Click **Ignore selected** for items that do not require processing; view and restore ignored entries under `#/favorites/ignored`.
 
 ## Gallery Updates (`#/updates`)
 
-- Linked from the top row of the Favorites page (legacy hash `#/updates` remains directly accessible). When ExHentai **re-uploads** a gallery it moves it to a new gid and the favorites entry follows the new version, leaving the old-gid copy on disk. This page lists those "local copy is the old version" galleries (detected by "local gid not in any favorite folder, but normalized title matches a favorite item"), showing `old gid → new gid` per row.
-- Check rows and hit **Update selected** (quality follows global setting), **Update selected original** (forces page-by-page original, persisting quality on enqueue), or **Archive update selected** (tier selected in popup): the new version downloads first, then the old local copy is removed (its reading progress resets). If an incremental/force favorites check **already downloaded the new gid**, detection deletes the old copy immediately (the row disappears) — no need to click Update selected. Enqueueing from favorites also pins any existing update row to that download task, and a successful ingest finalizes the same way.
-- Detection runs automatically after every favorites check and can be triggered with **Scan now**; false positives can be ignored (ignored rows are never auto-deleted even if the new gid is already local), and ignored items are restored from `#/updates/ignored`.
-- When a download task is deleted from the tasks page, its update entry is marked **failed** and kept here; under the **failed** filter you can use **Delete selected** to permanently remove those records (this only cleans the page's history, it never touches the tasks page).
+- **Entry & Detection**:
+  - Accessible via the top row of the Favorites page, or directly at `#/updates`.
+  - When an ExHentai gallery is re-uploaded, the cloud creates a new GID and the favorites entry follows the new version, while local storage retains the old GID copy. This page lists local galleries holding superseded versions (matching rule: local gallery GID is not contained in any current favorite folder, but normalized title matches an existing favorite entry), displaying `old GID → new GID` per row.
+  - Detection runs automatically after each favorites check, and can also be triggered manually with **Scan now**.
+- **Update Workflow & Old Copy Clean-up**:
+  - Supports selecting items to execute **Update selected** (quality follows global setting), **Update selected original** (forces page-by-page original), or **Archive update selected** (tier selected via popup).
+  - When updating, the system downloads the new version first; **superseded local files are deleted only after the new version is downloaded and ingested successfully** (reading progress resets accordingly).
+  - If an incremental or forced check has already downloaded the new GID gallery into the library, detection automatically removes superseded local copies (the corresponding entry in the Updates page clears automatically). When batch-downloading from the favorites page, matching update rows are linked to the download task and superseded copies are automatically cleaned up upon ingest.
+- **Failures & Ignore Handling**:
+  - If a running update download task is deleted from the task management page, the update entry is marked as **failed** and retained here; filter by **Failed** and click **Delete selected** to clear failure records (clears update list records only without affecting download task history).
+  - Click **Ignore selected** for false positives (ignored items will not auto-delete superseded local copies even if the new version is ingested); restore ignored items under `#/updates/ignored`.
 
 ## "download favorites" vs. "enabled"
 
-- **download favorites** in Settings is the global **automatic scheduled check** master switch (checks by polling interval and downloads missing galleries).
-- The **enabled** checkbox per folder on the Favorites page decides whether that folder takes part in the scheduled checks and whether it downloads during them (unchecked = record only, never download). New folders are disabled by default and require checking and saving.
-
-For automatic downloads all three must hold: the master switch is on + the folder is checked + the mode is "incremental/force download". A manual **Check now** is not gated by the master switch, but an unchecked folder only records even when checked manually.
-
-With **"Archive large favorites on scheduled scan"** enabled, the scheduled check batch-fetches page counts for its candidates first: galleries above the **archive page threshold** (0 = all) go through the archive channel (tier = "Archive quality"), the rest download page-by-page as usual. If the page-count fetch fails, the check safely falls back to page-by-page. A gallery the archive channel cannot serve (e.g. the selected tier does not exist) also automatically falls back to page-by-page (Settings-toggleable, see [Download Management](Downloads-EN)).
+- **download favorites (Global Setting)**: System setting master switch for automatic scheduled checks; controls whether background workers perform automated checks and downloads by polling intervals.
+- **enabled (Folder Option)**: Per-folder toggle in favorites configuration; controls whether the folder participates in scheduled checks, and whether downloads are allowed during checks (unchecked folders only record metadata and never download). Newly added or disabled folders are unchecked by default and require manual activation and saving.
+- **Automatic Download Trigger Conditions**:
+  All three conditions must be satisfied simultaneously for the system to automatically download missing galleries:
+  1. Global **download favorites** master switch in System Settings is turned on;
+  2. Target favorite folder has its **enabled** checkbox turned on;
+  3. Target favorite folder run mode is set to **incremental download** or **force download**.
+- **Manual Check Behavior**:
+  Clicking "Check now" manually is not gated by the global **download favorites** master switch; however, if the target folder is not toggled "enabled", manual checks still only record metadata without triggering downloads.
+- **Large Gallery Archive Download Integration**:
+  When "Archive large favorites on scheduled scan" is enabled:
+  - Candidates filtered by automatic checks batch-fetch total page counts in advance.
+  - Items with page counts exceeding the "archive page threshold" (set to 0 for all galleries) switch automatically to ExHentai official archive full package downloads (quality tier follows "Archive quality"), while galleries below threshold continue page-by-page.
+  - If page count fetching fails, it falls back safely to page-by-page download; if the official archive channel cannot obtain the specified tier package, it defaults to page-by-page download (fallback toggleable in Settings; see [Download Management](Downloads-EN)).
 
 ## The Three Modes
 
-Every check records **all** folder galleries into the local set (`favorite_items`); the modes differ only in which galleries are candidates for download:
+Every check records all galleries within the folder into the local database (`favorite_items` table). The three modes differ only in candidate download scope and existing local item handling:
 
-- **Incremental download**: only downloads galleries **seen for the first time** — gids not yet recorded locally (i.e. newly added to the folder). So after a folder has been checked once, the existing favorites are *not* downloaded by incremental mode (they are already recorded and no longer count as "new").
-- **Watch only**: records counts/sizes, never downloads.
-- **Force download**: skips the recorded-set filter and queues **every gallery in the folder that is not already in the local library** (the `galleries` table). Galleries already in the library are still skipped, so nothing is re-downloaded.
+| Mode | Records Metadata | Candidate Download Scope | Existing Local Item Handling |
+| :--- | :--- | :--- | :--- |
+| **Incremental download** | Yes (full recording) | Galleries **seen for the first time** only (new GID previously absent in local records) | Galleries already existing in the local library are skipped directly |
+| **Watch only** | Yes (full recording) | Does not download any galleries (candidate scope is empty) | No downloads performed |
+| **Force download** | Yes (full recording) | All galleries in folder **not present in local gallery library (`galleries` table)** | Galleries already existing in the local library are skipped directly without duplicate downloads |
 
-Incremental and force both skip galleries already in the local library. To pull down an already-checked folder's backlog, temporarily switch the mode to **force download** and run **Check now** (or tick **Download selected** inside `#/favorites/<favcat>`; use **Download selected original** or **Archive download selected** for original upgrades), then switch back to incremental to follow only new additions again.
+**Backlog Favorites in Incremental Mode**:
+- In incremental download mode, once a folder has completed a check, all existing backlog galleries are written into local records. Even if not previously downloaded, they are no longer treated as "first seen", and therefore **will not trigger downloads in incremental mode**.
+- To download already-recorded historical backlog galleries, temporarily switch folder mode to **force download** and click "Check now" (or tick target galleries within `#/favorites/<favcat>` and click "Download selected" / "Download selected original" / "Archive download selected"). Once all queued downloads finish, switch back to **incremental download** to resume tracking only newly added favorites.
