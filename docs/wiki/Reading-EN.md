@@ -6,14 +6,26 @@ Gallery detail, tag sync, and the web reader.
 
 ## Gallery Detail (`#/gallery/<id>`)
 
-- Shows metadata (size, adaptive units), tags and page thumbnails.
+- Shows metadata (size, adaptive units), tags and page thumbnails. When `uploader` namespace tags exist, this group is pinned to the end of all tag groups (representing the end of the tags section, not a floating element at the page bottom); galleries without an uploader tag do not display this group.
 - Page thumbnails **infinite-scroll** (a **Load more** button after about 5 auto batches); the pager remains. **30 per page by default** (5/30/50/100/200/500, sharing `gv_page_size` with the library); the choice is remembered and survives the reader round trip.
 - **Thumbnails open at your reading position**: without an explicit `?page=`, loading starts at the batch that contains your last progress (so returning from the reader lands near where you were); an explicit `?page=` always wins.
 - **Click a tag** to jump to the library and **append** it to the active tag filter (combine several tags to narrow down).
 - **Start reading & Slideshow auto-play**: "Start reading" opens the reader (positioned at your last reading spot); the toolbar also provides a "▶ Slideshow" button and interval input (in seconds) to start hands-free auto-advance directly from the gallery details.
 - **Export CBZ**: download this gallery as a CBZ. An on-disk `.cbz` is served as-is; a directory gallery is packed in page order (on-disk format is not rewritten).
 - **Open on ExHentai**: opens the corresponding gallery page on ExHentai in a new tab. The link is built from the configured base URL (`{base}/g/{gid}/{token}/`); your browser must be logged in to EH. Not shown for local galleries without a token.
-- **Sync tags**: pulls that gallery's tags/metadata from ExHentai, or reuses the favorites cache when available (no network).
+- **Sync tags**: The detail page reads exclusively from the local database; clicking "Sync tags" (`POST /api/galleries/{identifier}/sync-tags`) or background worker sync explicitly initiates tag synchronization and metadata fetching. Reuses the favorites metadata cache when available (no network).
+
+### Uploader retrieval and backfill
+
+- **Background pending queue**: On service startup, background workers scan galleries without synced tags (`tags_synced_at IS NULL` and not expunged / trashed) and enqueue them automatically; newly ingested galleries are also enqueued.
+- **Cache reuse & remote fetch policy**: In non-forced mode, if the local metadata cache already contains tags, the cache is reused directly without initiating remote requests; if the cached metadata only lacks an uploader field, it does not independently trigger remote fetching. When no cache exists or forced sync is requested, batch gdata is queried first, falling back to HTML parsing if gdata fails or returns incomplete data.
+- **Uploader field & tag persistence**: Sync prefers the valid uploader parsed from the fetch plan, falling back to the existing gallery uploader value; non-empty trimmed values are written to `galleries.uploader`, upserted into `namespace="uploader"` tags, and replace any previous uploader tag associations for the gallery (leaving other namespace tags intact). If neither is present, uploader tags are skipped.
+- **Fault isolation**: Remote fetch failures trigger exponential backoff. If writing the local metadata cache after a remote fetch fails, only a warning is logged; it does not block the gallery tag persistence nor raise as a remote fetch failure.
+- **Historical migrations (Alembic 0040 & 0041)**:
+  - **Migration 0040**: Scanned non-empty `uploader` values in `galleries`, trimmed whitespace, and backfilled `uploader` tags and gallery associations with deduplication.
+  - **Migration 0041**: Matched by gid to fill missing `galleries.uploader` values from `gallery_metadata.uploader` (never overwriting existing non-empty values), then backfilled corresponding `uploader` tags and associations.
+  - Both migrations filtered out NULL and whitespace-only strings, preserved original case, and skipped duplicates via unique constraints.
+  - For tag search and filtering syntax, see [Browsing & Library](Library-EN).
 - With the **public mirror (e-hentai.org)** configured, ExHentai-only galleries *pause* tag sync instead of being misclassified as deleted (their category is untouched) and resume automatically once Settings switch back to `exhentai.org`.
 - **Local rating / note / custom tags**: Grouped under the "More" action menu on the detail page: set 1–5 stars, write notes, and add `local:` tags (EH tags are not overwritten; tag sync keeps `local:`). The library can filter by local stars.
 - The favorite folders the gallery belongs to are shown as badges. Galleries support **Add to Favorites** (modal folder selector 0–9; cloud success writes locally and moves the gid out of other folders), **Change Folder** (Move), and **Unfavorite**, with strict cloud-success verification before updating local database records. **Favorite notes** live under **More** and are edited via EH applyfav / `favnote` (local write only after cloud success); they also show on the favorites list.
