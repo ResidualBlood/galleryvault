@@ -3,9 +3,18 @@
 // views/updates.js — Phase 1 continue (updates + helpers)
 // extracted from app.js
 
+let updSelScope = "";
+
+// 作用域 = 状态筛选 + 页码；切换后清空选择，避免批量操作波及不可见行
+function updSyncSelScope() {
+  const scope = `${app.query.state || "active"}|${app.query.page || "1"}`;
+  if (scope !== updSelScope) { updSelScope = scope; selUpdate.clear(); }
+}
+
 async function renderUpdates() {
   const page = app.query.page || "1";
   const state = app.query.state || "active";
+  updSyncSelScope();
   const selCount = selUpdate.size;
   const stateBtn = (s, label) =>
     `<button class="secondary${state === s ? " active-pill" : ""}" data-action="upd-state" data-state="${s}" type="button">${esc(label)}</button>`;
@@ -126,6 +135,18 @@ async function updScan() {
   } catch (e) { toast(e.message); }
 }
 
+// 当前已渲染可见集内的勾选 id；顺带清掉不可见残留，保证按钮计数与实际 payload 一致
+function updSelectedIds() {
+  const visible = new Set([...document.querySelectorAll('#upd-list input[data-upd-id]')]
+    .map(cb => parseInt(cb.dataset.updId, 10)));
+  let pruned = false;
+  for (const id of [...selUpdate]) {
+    if (!visible.has(id)) { selUpdate.delete(id); pruned = true; }
+  }
+  if (pruned) updateUpdSelBtn();
+  return [...selUpdate];
+}
+
 async function updRunIds(ids, quality) {
   if (!ids.length) { toast(t("select")); return; }
   try {
@@ -139,18 +160,18 @@ async function updRunIds(ids, quality) {
 }
 
 async function updRunSelected() {
-  await updRunIds([...selUpdate]);
+  await updRunIds(updSelectedIds());
 }
 
 async function updRunSelectedOrig() {
-  await updRunIds([...selUpdate], "original");
+  await updRunIds(updSelectedIds(), "original");
 }
 
 async function updArchiveSelected() {
-  const ids = [...selUpdate];
+  const ids = updSelectedIds();
   if (!ids.length) { toast(t("select")); return; }
   const gids = ids.map(id => {
-    const el = document.querySelector(`#upd-list [data-upd-id="${id}"]`);
+    const el = document.querySelector(`#upd-list tr[data-upd-id="${id}"]`);
     return el ? parseInt(el.getAttribute("data-new-gid"), 10) : null;
   }).filter(Boolean);
   if (!gids.length) { toast(t("select")); return; }
@@ -165,7 +186,7 @@ async function updArchiveSelected() {
 }
 
 async function updIgnoreSelected() {
-  const ids = [...selUpdate];
+  const ids = updSelectedIds();
   if (!ids.length) { toast(t("select")); return; }
   try {
     await api("POST", "/api/updates/ignore", { ids });
@@ -175,7 +196,7 @@ async function updIgnoreSelected() {
 }
 
 async function updDeleteSelected() {
-  const ids = [...selUpdate];
+  const ids = updSelectedIds();
   if (!ids.length) { toast(t("select")); return; }
   if (!window.confirm(t("deleteSel") + " (" + ids.length + ")?")) return;
   try {

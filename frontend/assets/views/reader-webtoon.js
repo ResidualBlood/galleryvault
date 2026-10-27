@@ -76,7 +76,7 @@ async function renderWebtoonReader() {
   }
   cleanupWebtoon();
   const id = app.params.id;
-  const page = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
+  const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   try {
     let g = app.readerGallery;
     if (!g || String(g.id) !== String(id)) {
@@ -85,6 +85,12 @@ async function renderWebtoonReader() {
     }
     const total = g.page_count;
     app.readerTotal = total;
+    // 夹取到有效页码，避免越界图片与 PUT /progress 422
+    const page = total > 0 ? Math.min(rawPage, total - 1) : 0;
+    if (page !== rawPage) {
+      app.params.page = String(page);
+      syncReaderUrl();
+    }
     const imgs = [];
     for (let i = 0; i < total; i++) {
       imgs.push(
@@ -119,7 +125,7 @@ async function renderWebtoonReader() {
       if (target) target.scrollIntoView({ block: "start" });
       bindWebtoonObserver(id, total);
       webtoonLastPage = page;
-      api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }).catch(() => {});
+      if (total > 0) api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }).catch(() => {});
     });
   } catch (e) {
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;

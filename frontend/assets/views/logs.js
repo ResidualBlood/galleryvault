@@ -142,6 +142,17 @@ function taskMeta(task, stage) {
       desc: t("tasks.purgeArchivedSourcesDesc") || "Scan and purge leftover source files",
     };
     case "integrity": return { label: t("tasks.integrity"), desc: t("tasks.integrityDesc") };
+    case "gallery-local": return { label: t("tasks.galleryLocal"), desc: t("tasks.galleryLocalDesc") };
+    case "download-enqueue": return { label: t("tasks.downloadEnqueue"), desc: t("tasks.downloadEnqueueDesc") };
+    case "export-cbz": return { label: t("tasks.exportCbz"), desc: t("tasks.exportCbzDesc") };
+    case "favorites-note": return { label: t("tasks.favoritesNote"), desc: t("tasks.favoritesNoteDesc") };
+    case "local-list-create": return { label: t("tasks.localListCreate"), desc: t("tasks.localListCreateDesc") };
+    case "local-list-add": return { label: t("tasks.localListAdd"), desc: t("tasks.localListAddDesc") };
+    case "local-list-remove": return { label: t("tasks.localListRemove"), desc: t("tasks.localListRemoveDesc") };
+    case "local-list-delete": return { label: t("tasks.localListDelete"), desc: t("tasks.localListDeleteDesc") };
+    case "move_favorites": return { label: t("tasks.moveFavorites"), desc: t("tasks.moveFavoritesDesc") };
+    case "remove_favorites": return { label: t("tasks.removeFavorites"), desc: t("tasks.removeFavoritesDesc") };
+    case "restore_galleries": return { label: t("tasks.restoreGalleries"), desc: t("tasks.restoreGalleriesDesc") };
     default: return { label: task, desc: "" };
   }
 }

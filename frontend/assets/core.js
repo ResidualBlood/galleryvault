@@ -389,6 +389,7 @@ async function doLogout() {
   stopNotificationPolling();
   closeNotificationPanel();
   closeMorePanel();
+  clearViewTimers();
   await fetch("/logout", { method: "POST", credentials: "include" });
   app.authenticated = false;
   app.paused = false;
@@ -441,18 +442,32 @@ function navHash(view, params = {}, query = {}) {
   return "#" + p + (q ? "?" + q : "");
 }
 
+// 清理所有视图级轮询；登出/未认证时也必须先调用，避免 401 幽灵轮询
+function clearViewTimers() {
+  if (favTimer) { clearInterval(favTimer); favTimer = null; }
+  if (updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; }
+  if (dlTimer) { clearInterval(dlTimer); dlTimer = null; }
+  if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  if (archiveTimer) { clearInterval(archiveTimer); archiveTimer = null; }
+}
+
 function router() {
   parseHash();
   updateLangButton();
   updateBanner();
-  if (!app.authenticated) { renderLogin(); return; }
+  if (!app.authenticated) {
+    clearViewTimers();
+    stopInfinite();
+    renderLogin();
+    return;
+  }
   if (app.view !== "library") selGalleries.clear();
   if (app.view !== "discover") selDiscover.clear();
-  if (app.view !== "favorites" && app.view !== "favlist" && favTimer) { clearInterval(favTimer); favTimer = null; }
-  if (app.view !== "updates" && app.view !== "updignored" && updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; }
-  if (app.view !== "downloads" && dlTimer) { clearInterval(dlTimer); dlTimer = null; }
-  if (app.view !== "logs" && logTimer) { clearInterval(logTimer); logTimer = null; }
-  if (app.view !== "archive" && archiveTimer) { clearInterval(archiveTimer); archiveTimer = null; }
+  if (app.view !== "favorites" && app.view !== "favlist") { if (favTimer) { clearInterval(favTimer); favTimer = null; } }
+  if (app.view !== "updates" && app.view !== "updignored") { if (updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; } }
+  if (app.view !== "downloads") { if (dlTimer) { clearInterval(dlTimer); dlTimer = null; } }
+  if (app.view !== "logs") { if (logTimer) { clearInterval(logTimer); logTimer = null; } }
+  if (app.view !== "archive") { if (archiveTimer) { clearInterval(archiveTimer); archiveTimer = null; } }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "recycle") selRecycle.clear();
   if (app.view !== "integrity") selIntegrity.clear();
