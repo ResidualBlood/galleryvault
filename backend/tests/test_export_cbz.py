@@ -128,21 +128,40 @@ def test_export_cbz_unauthenticated_returns_401(
 ) -> None:
     resp = export_test_client.get("/api/galleries/123/export.cbz")
     assert resp.status_code == 401
-    # CBZ is no longer a basic auth route, so no WWW-Authenticate realm header
-    assert resp.headers.get("www-authenticate") is None
+    # OPDS acquisition links must advertise Basic auth so readers can prompt.
+    assert resp.headers.get("www-authenticate") == 'Basic realm="GalleryVault OPDS"'
     assert resp.json() == {"detail": "Authentication required"}
 
 
-def test_export_cbz_basic_auth_alone_rejected(
+def test_export_cbz_basic_auth_alone_accepted(
     export_test_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Basic Auth alone (without valid session cookie) is rejected with 401
+    """OPDS readers only speak HTTP Basic; the export must not demand a cookie."""
+    from galleryvault.app.routers import galleries as galleries_router
+
+    cbz_file = tmp_path / "basic.cbz"
+    cbz_file.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+    row = SimpleNamespace(
+        id=123,
+        gid=456,
+        title="Sample Gallery",
+        storage_path=str(cbz_file),
+    )
+
+    async def fake_gallery(identifier: int):
+        return row, []
+
+    monkeypatch.setattr(galleries_router, "_gallery", fake_gallery)
+
     resp = export_test_client.get(
         "/api/galleries/123/export.cbz",
         headers={"authorization": _make_basic_auth("galleryvault", "export-pass")},
     )
-    assert resp.status_code == 401
-    assert resp.headers.get("www-authenticate") is None
+    assert resp.status_code == 200
+    assert resp.headers.get("content-type") == "application/zip"
+    assert resp.content == cbz_file.read_bytes()
 
 
 def test_export_cbz_valid_auth_success(

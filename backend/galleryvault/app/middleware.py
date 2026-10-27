@@ -21,12 +21,30 @@ logger = logging.getLogger(__name__)
 
 CSRF_COOKIE = "galleryvault_csrf"
 BASIC_AUTH_REALM = 'Basic realm="GalleryVault OPDS"'
+_OPDS_PATH = "/api/opds"
+_EXPORT_CBZ_SUFFIX = "/export.cbz"
+
+
+def _is_export_cbz_path(path: str) -> bool:
+    """True for ``/api/galleries/{identifier}/export.cbz`` only."""
+    if not path.endswith(_EXPORT_CBZ_SUFFIX):
+        return False
+    prefix = path[: -len(_EXPORT_CBZ_SUFFIX)].split("/")
+    return (
+        len(prefix) == 4
+        and prefix[1] == "api"
+        and prefix[2] == "galleries"
+        and prefix[3].isdigit()
+    )
 
 
 def _is_basic_auth_route(request: Request) -> bool:
-    if request.method != "GET":
-        return False
-    return request.url.path == "/api/opds"
+    path = request.url.path
+    if request.method == "GET" and path == _OPDS_PATH:
+        return True
+    # OPDS acquisition links (export.cbz) are opened by readers that only know
+    # HTTP Basic, so they must accept Basic auth as well.
+    return request.method in {"GET", "HEAD"} and _is_export_cbz_path(path)
 
 
 def _verify_basic_auth(request: Request, settings: Any) -> bool:
