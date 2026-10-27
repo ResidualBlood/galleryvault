@@ -366,7 +366,7 @@ async def rebuild_series_groups(
             or app_state.session_factory
         )
     if not session_factory:
-        return {"created": 0, "merged": 0}
+        raise RuntimeError("series rebuild requires a database session factory")
 
     try:
         async with session_factory() as session:
@@ -599,9 +599,9 @@ async def rebuild_series_groups(
                 },
             )
             return {"created": created_count, "merged": merged_count}
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
+    except Exception as exc:
+        logger.exception(
             "series rebuild failed",
             extra={"error": type(exc).__name__, "detail": str(exc)},
         )
-        return {"created": 0, "merged": 0}
+        raise
