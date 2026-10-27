@@ -226,27 +226,39 @@ async def run_scan() -> None:
                 if not tm.is_cancelled("scan"):
                     candidates = None
                     expunged = 0
-                    async with session_factory() as session:
-                        repo = GalleryRepository(session)
-                        if isinstance(getattr(repo, "expunge_missing", None), Mock) or not hasattr(repo, "fetch_expunge_candidates"):
-                            expunged = await repo.expunge_missing(
-                                _scan_roots(), service.seen_path_hashes
-                            )
-                        else:
-                            candidates = await repo.fetch_expunge_candidates()
-
-                    if not tm.is_cancelled("scan") and candidates is not None:
-                        missing_ids = await run_in_threadpool(
-                            GalleryRepository.find_missing_ids,
-                            candidates,
-                            _scan_roots(),
-                            service.seen_path_hashes,
+                    scan_incomplete = bool(getattr(service, "scan_incomplete", False))
+                    if scan_incomplete:
+                        # A root was missing/unreadable or yielded nothing: the
+                        # seen-path set does not cover the library, so expunging
+                        # would mark healthy rows as deleted.
+                        incomplete_roots = sorted(getattr(service, "incomplete_roots", ()))
+                        logger.warning(
+                            "library scan incomplete; skipping expunge",
+                            extra=log_extra(incomplete_roots=incomplete_roots),
                         )
-                        if missing_ids and not tm.is_cancelled("scan"):
-                            async with session_factory() as session, session.begin():
-                                expunged = await GalleryRepository(session).mark_expunged(missing_ids)
-                        else:
-                            expunged = 0
+                        tracker.update(scan_incomplete=True, incomplete_roots=incomplete_roots)
+                    else:
+                        async with session_factory() as session:
+                            repo = GalleryRepository(session)
+                            if isinstance(getattr(repo, "expunge_missing", None), Mock) or not hasattr(repo, "fetch_expunge_candidates"):
+                                expunged = await repo.expunge_missing(
+                                    _scan_roots(), service.seen_path_hashes
+                                )
+                            else:
+                                candidates = await repo.fetch_expunge_candidates()
+
+                        if not tm.is_cancelled("scan") and candidates is not None:
+                            missing_ids = await run_in_threadpool(
+                                GalleryRepository.find_missing_ids,
+                                candidates,
+                                _scan_roots(),
+                                service.seen_path_hashes,
+                            )
+                            if missing_ids and not tm.is_cancelled("scan"):
+                                async with session_factory() as session, session.begin():
+                                    expunged = await GalleryRepository(session).mark_expunged(missing_ids)
+                            else:
+                                expunged = 0
                     tracker.update(expunged=expunged)
 
                     if not tm.is_cancelled("scan"):

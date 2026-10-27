@@ -73,20 +73,57 @@ class LibraryService:
         self.last_duplicates: list[ResolvedGroup] = []
         self.seen_path_hashes: set[str] = set()
         self._seen_signatures: set[tuple[str, str]] = set()
+        # Roots that could not be fully traversed (missing, unreadable, walk
+        # error or no candidates at all).  ``scan_worker`` must not expunge
+        # rows when this is non-empty, otherwise an unmounted root would mark
+        # the whole library as deleted.
+        self.incomplete_roots: set[str] = set()
+
+    @property
+    def scan_incomplete(self) -> bool:
+        return bool(self.incomplete_roots)
+
+    def _root_has_known_rows(self, root: Path) -> bool:
+        """Whether the DB has active rows under ``root`` (used for empty roots)."""
+        try:
+            resolved_root = root.resolve()
+        except OSError:
+            resolved_root = root
+        for known in self.existing.values():
+            path = getattr(known, "path", None)
+            if not path:
+                continue
+            try:
+                if Path(path).resolve().is_relative_to(resolved_root):
+                    return True
+            except (OSError, ValueError):
+                continue
+        return False
 
     def candidates(self) -> Iterable[tuple[Path, int]]:
         import os
 
         archive_exts = {".cbz", ".zip", ".cbr", ".rar", ".7z", ".pdf"}
+        self.incomplete_roots = set()
         for priority, root in enumerate(self.roots):
             if not root.exists():
                 logger.warning("library root missing", extra=log_extra(root=str(root)))
+                self.incomplete_roots.add(str(root))
                 continue
             if registry.for_path(root) is not None:
                 yield root, priority
                 continue
+            found = 0
+
+            def _on_walk_error(exc: OSError, _root: Path = root) -> None:
+                self.incomplete_roots.add(str(_root))
+                logger.warning(
+                    "library scan error on root",
+                    extra=log_extra(root=str(_root), error=str(exc)),
+                )
+
             try:
-                for dirpath, dirnames, filenames in os.walk(root):
+                for dirpath, dirnames, filenames in os.walk(root, onerror=_on_walk_error):
                     # Exclude hidden directories (e.g. .git, .gv-*)
                     dirnames[:] = [d for d in dirnames if not d.startswith(".")]
                     current_path = Path(dirpath)
@@ -96,6 +133,13 @@ class LibraryService:
                         or (current_path / ".galleryvault.json").is_file()
                         or _BARE_DIR_NAME.match(current_path.name)
                     ):
+                        # A bare-directory name is only a hint; confirm the
+                        # registry really has a scanner for it before yielding
+                        # and pruning, otherwise nested galleries would be
+                        # silently skipped.
+                        if registry.for_path(current_path) is None:
+                            continue
+                        found += 1
                         yield current_path, priority
                         # Prune: do not traverse into gallery directory's subdirectories
                         dirnames.clear()
@@ -105,12 +149,21 @@ class LibraryService:
                             continue
                         fpath = current_path / fname
                         if fpath.suffix.casefold() in archive_exts:
+                            found += 1
                             yield fpath, priority
             except OSError as exc:
                 logger.warning(
                     "library scan error on root",
                     extra=log_extra(root=str(root), error=str(exc)),
                 )
+                self.incomplete_roots.add(str(root))
+            if found == 0 and self._root_has_known_rows(root):
+                # An existing but empty root that still has DB rows is the
+                # classic unmounted-volume shape; treat it as unverified rather
+                # than "everything gone".  A genuinely empty new root (no rows)
+                # stays complete so expunge keeps working for other roots.
+                logger.warning("library root yielded no candidates", extra=log_extra(root=str(root)))
+                self.incomplete_roots.add(str(root))
 
     def scan_batches(self, should_stop=None) -> Iterator[list[GalleryMeta]]:
         """Two-phase scan: collect every copy first, then resolve duplicates.
@@ -134,6 +187,10 @@ class LibraryService:
             if should_stop is not None and should_stop():
                 logger.info("library scan cancelled", extra=log_extra(processed=counters.scanned))
                 break
+            # Normalize once so the scanner-produced GalleryMeta.path (which is
+            # persisted as storage_path) matches path_hash, which is always
+            # built from Path.resolve().
+            path = Path(path).resolve()
             counters.scanned += 1
             key = _path_key(path)
             self.seen_path_hashes.add(key)
