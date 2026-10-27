@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,11 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db.models import DownloadTask as DownloadTaskModel
 from ...db.repository import DownloadRepository, GalleryUpdatesRepository
 from ...db.session import safe_transaction
+from ...logging import log_extra
 from ...services.download_prepare import PreparedGallery, prepare_galleries
 from ...services.download_worker import (
     clear_download_cancelled,
     mark_download_cancelled,
     notify_new_task,
+    reset_challenge_count,
 )
 from ...services.messages import GONE_DETAIL
 from ..dependencies import (
@@ -34,6 +37,12 @@ from ..schemas import DownloadBatchRequest, DownloadRequest
 from ..state import app_state
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+# How long the delete endpoint waits for a cancelled worker to stop writing
+# before giving up on removing `.gv-<gid>` itself.
+_CANCEL_IDLE_TIMEOUT = 30.0
 
 
 async def _create_from_prepared(
@@ -316,6 +325,7 @@ async def retry_all_downloads(
 
     for task_id in retried_ids:
         clear_download_cancelled(task_id)
+        reset_challenge_count(task_id)
     if retried_ids:
         notify_new_task()
 
@@ -351,6 +361,7 @@ async def retry_download(
         raise db_error(exc) from exc
 
     clear_download_cancelled(task_id)
+    reset_challenge_count(task_id)
     notify_new_task()
     return {"id": task_id, "status": "pending"}
 
@@ -414,8 +425,22 @@ async def delete_download_task(
 
 
 async def _cleanup_download_temp(gid: int) -> None:
-    """Remove a partial download directory (.gv-{gid}) if present."""
+    """Remove a partial download directory (.gv-{gid}) if present.
+
+    Cancellation is cooperative, so a still-running worker may be mid-write.
+    Wait for the gid to become idle first; if it does not, leave the directory
+    to the worker's own cancel handler instead of deleting it under a writer.
+    """
     import shutil
+
+    downloader = app_state.downloader
+    wait_idle = getattr(downloader, "wait_idle", None)
+    if callable(wait_idle) and not await wait_idle(gid, timeout=_CANCEL_IDLE_TIMEOUT):
+        logger.warning(
+            "download temp cleanup skipped; worker still active",
+            extra=log_extra(gid=gid),
+        )
+        return
     try:
         settings = get_current_settings()
         temp = Path(settings.download_root) / f".gv-{gid}"
