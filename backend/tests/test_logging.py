@@ -431,14 +431,20 @@ async def test_cover_hit_miss_and_fallback_logging(
 
     # 2. Miss on ensure_remote_cover -> 1 INFO log with source=thumb0, event=miss, gid=67890
     mock_client = AsyncMock()
-    mock_client.fetch_gmetadata = AsyncMock(return_value={67890: {"thumb": "https://ehgt.org/t/dummy.jpg"}})
     mock_client.download_image = AsyncMock(return_value=b"downloaded image")
     orig_client = app_state.eh_client
     app_state.eh_client = mock_client
     try:
         caplog.clear()
         with caplog.at_level(logging.INFO):
-            res2 = await ensure_remote_cover(67890, token="def", cache_dir=cache_dir, source="thumb0")
+            res2 = await ensure_remote_cover(
+                67890,
+                token="def",
+                cache_dir=cache_dir,
+                source="thumb0",
+                # Known thumb URL keeps this test independent of a live database.
+                cached_meta={"thumb": "https://ehgt.org/t/dummy.jpg"},
+            )
             assert res2 is not None
             miss_records = [
                 rec for rec in caplog.records

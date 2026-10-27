@@ -18,14 +18,22 @@ try:
 except ImportError:
     pass
 
-# Global fast PBKDF2: reduce PBKDF2 HMAC iterations to 1 to eliminate CPU cost in test suite
+# Fast PBKDF2 for the application's own password hashing, to eliminate CPU cost in the
+# test suite. Only calls made from galleryvault.auth are shortened: asyncpg >= 0.32
+# derives the SCRAM-SHA-256 salted password through hashlib.pbkdf2_hmac as well, and
+# rewriting its iteration count breaks database (password) authentication.
 _orig_pbkdf2_hmac = hashlib.pbkdf2_hmac
+_AUTH_MODULE_SUFFIX = "galleryvault/auth.py"
 
 
 def _fast_pbkdf2_hmac(hash_name, password, salt, iterations, dklen=None):
+    frame = inspect.currentframe()
+    caller = frame.f_back.f_code.co_filename if frame and frame.f_back else ""
+    if caller.endswith(_AUTH_MODULE_SUFFIX):
+        iterations = 1
     if dklen is not None:
-        return _orig_pbkdf2_hmac(hash_name, password, salt, 1, dklen)
-    return _orig_pbkdf2_hmac(hash_name, password, salt, 1)
+        return _orig_pbkdf2_hmac(hash_name, password, salt, iterations, dklen)
+    return _orig_pbkdf2_hmac(hash_name, password, salt, iterations)
 
 
 hashlib.pbkdf2_hmac = _fast_pbkdf2_hmac
