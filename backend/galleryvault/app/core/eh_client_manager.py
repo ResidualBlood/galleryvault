@@ -29,6 +29,9 @@ class EhClientManager:
         self._active_client: Any | None = None
         self._active_generation: int = 0
         self._retiring_clients: set[Any] = set()
+        # asyncio only keeps weak references to tasks; hold the drain tasks here
+        # so a retirement cannot be garbage-collected before it closes the client.
+        self._retire_tasks: set[asyncio.Task[Any]] = set()
 
     @property
     def active_generation(self) -> int:
@@ -81,12 +84,23 @@ class EhClientManager:
 
             task = spawn_task(_drain_and_close(), "retire eh_client")
             if task is None:
-                asyncio.create_task(_drain_and_close())
+                self._spawn_retire_task(_drain_and_close)
+            else:
+                self._track_retire_task(task)
         except Exception:  # noqa: BLE001
-            try:
-                asyncio.create_task(_drain_and_close())
-            except Exception:  # noqa: BLE001, S110
-                pass
+            self._spawn_retire_task(_drain_and_close)
+
+    def _track_retire_task(self, task: asyncio.Task[Any]) -> None:
+        self._retire_tasks.add(task)
+        task.add_done_callback(self._retire_tasks.discard)
+
+    def _spawn_retire_task(self, coro_fn: Callable[[], Any]) -> None:
+        """Start a retirement task and keep a strong reference until it finishes."""
+        try:
+            task = asyncio.create_task(coro_fn())
+        except Exception:  # noqa: BLE001
+            return
+        self._track_retire_task(task)
 
     def _get_active_client(self) -> Any | None:
         if self._active_client is not None:
@@ -121,10 +135,11 @@ class EhClientManager:
         """Check if E-Hentai credentials/cookies are configured."""
         try:
             settings = self._get_settings()
-            cookie_path = getattr(settings, "eh_cookie_file", None) or getattr(settings, "exhentai_cookie_file", None)
-            raw_cookie = getattr(settings, "exhentai_cookie", None) or getattr(settings, "eh_cookie", None)
-            if raw_cookie or cookie_path:
-                return True
+            # ``Settings`` exposes the cookie jar as ``exhentai_cookies``
+            # (a dict); the legacy *_cookie_file/*_cookie names never existed,
+            # so probing them made this always False.
+            cookies = getattr(settings, "exhentai_cookies", None)
+            return bool(cookies)
         except Exception:  # noqa: BLE001, S110
             pass
         return False
