@@ -40,6 +40,7 @@ For official archive channel cost previews, Range resumption, and fallback polic
   - Supports batch **Remove from favorites**, or **Remove from favorites and delete local copy** (deletes all physical files and CBZ copies for that gallery GID under library roots).
 - **Safety & Read-Only Protection**:
   - Favorite removals update local records only after cloud confirmation succeeds.
+  - Logout, rate-limit, or ban pages returned by the cloud are treated as failures: local favorite state and files stay unchanged, and failed GIDs never update local records (the API lists them under `cloud_failed`).
   - If underlying storage is mounted read-only and physical file deletion fails, an alert is displayed and logged while database records are retained, preventing future scans from misidentifying the gallery as a new item.
 - **False Positive Management**: Click **Ignore selected** for items that do not require processing; view and restore ignored entries under `#/favorites/ignored`.
 

@@ -38,7 +38,7 @@ Key capabilities, prerequisites, and core constraints by module. The system cons
 - **Official archive channel**: Downloads official zip archives consuming account GP; uses single-connection streaming with HTTP Range resume; retries reuse existing task URLs without re-deducting GP (except when re-requesting corrupted archives).
 - **H@H node selection & eviction**: Features per-image timeout watchdogs, warmup windows, and minimum transfer rate thresholds, automatically evicting unresponsive or slow H@H nodes.
 - **Exponential backoff retries**: Temporarily failed tasks retry with stepped backoff from 30 seconds up to 6 hours, capped at 10 attempts per task.
-- **Quota challenge protection**: Automatically pauses the download queue upon encountering HTTP 302 challenges or HTTP 509 quota exhaustion; background probes run every 10 minutes and automatically resume downloads once restrictions clear.
+- **Quota challenge protection**: Automatically pauses the download queue upon encountering HTTP 302 challenges; background probes run every 10 minutes and automatically resume downloads once restrictions clear. HTTP 429/509 responses are retried as quota/rate-limit errors with backoff and carry the server's `Retry-After` (60 seconds when absent).
 - **Direct download ingest**: Automatically indexes completed downloads and generates cover caches without triggering a full library rescan.
 - **Detailed references**: See [Download Management & Archiving](Downloads-EN) for queue operations, status badges, and archive boundaries.
 
@@ -48,7 +48,7 @@ Key capabilities, prerequisites, and core constraints by module. The system cons
 - **Navigation & shortcuts**: Supports keyboard shortcuts, screen tap zones, `G` key page jump, and background prefetching. Webtoon mode uses mouse wheel or touch scrolling, disabling horizontal paging keys and tap zones.
 - **Animated slideshow**: Parses frame durations for GIF and WebP animations (binary scan capped at 120 seconds per image), automatically adjusting slideshow intervals to image duration; enters fullscreen on start and exits slideshow when fullscreen is closed.
 - **Advanced tag search**: Integrates the EhTagTranslation database; supports autocomplete suggestions, AND/OR logic, `-tag` exclusion syntax, and reverse search matching English tags from non-English queries.
-- **OPDS catalog feed**: Provides a `GET /api/opds` endpoint with HTTP Basic authentication, compatible with reader clients such as Tachiyomi, Mihon, and Panels.
+- **OPDS catalog feed**: Provides a `GET /api/opds` catalog endpoint and `GET/HEAD /api/galleries/{id}/export.cbz` acquisition endpoint, both accepting HTTP Basic authentication (unauthenticated requests return 401 with `WWW-Authenticate: Basic`); compatible with reader clients such as Tachiyomi, Mihon, and Panels.
 - **Safe deletion & recycle bin**: Deleted or missing galleries are moved to the recycle bin directory, supporting on-demand restoration or permanent removal.
 - **Detailed references**: See [Gallery Details & Reading](Reading-EN) for reader settings and shortcuts; see [Library & Browsing](Library-EN) for search syntax; see [Library Management & Maintenance](Manage-EN) for recycle bin operations.
 

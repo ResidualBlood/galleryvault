@@ -18,8 +18,8 @@ GalleryVault reads export directories and metadata from common Ehviewer-family c
 | **EhViewer-Apple (iOS / macOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Direct ingestion of mobile exports |
 | **Ehviewer_OHOS (HarmonyOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Full export format compatibility |
 | **JHenTai (Flutter Multi-platform)** | Page downloads | Gallery-root `metadata` JSON | Reads `{gid} - {title}/metadata` from page-by-page downloads; archive unpack dirs with `ametadata` are **not** scanned |
-| **Tachiyomi / Mihon / Panels** | Protocol Integration | OPDS Catalog (`/api/opds`) | Connects via HTTP Basic authentication for remote browsing and reading |
-| **Generic CBZ / CBR Archives** | Standard Support | `ComicInfo.xml` / filename prefix | Recognizes `gid-title.cbz` formats and embedded metadata schemas |
+| **Tachiyomi / Mihon / Panels** | Protocol Integration | OPDS Catalog (`/api/opds`) and CBZ acquisition links (`/api/galleries/{id}/export.cbz`) | Both endpoints accept HTTP Basic authentication for remote browsing and reading |
+| **Generic CBZ / CBR Archives** | Standard Support | `ComicInfo.xml` / filename prefix | Recognizes `gid-title.cbz` formats and embedded metadata schemas; member names are probed as UTF-8 / GBK / cp932 to avoid mojibake in CJK filenames |
 | **Generic 7z** | Standard Support | Image members only | py7zr; per-page in-memory extract, 128MB cap; non-images stay packed |
 | **PDF** | Standard Support | Embedded images | Extracts embedded images; images over 128MB are skipped |
 
