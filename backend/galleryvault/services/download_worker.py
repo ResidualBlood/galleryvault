@@ -303,10 +303,111 @@ async def _archive_downloaded_gallery(gid: int) -> None:
     await record_archive_notification(kind, title, detail)
 
 
-def maybe_scan_after_download(result: Any) -> None:
-    """Ingest just the single downloaded gallery unless full scan is running."""
+_pending_ingests: dict[int | str, Any] = {}
+_ingest_pump_task: asyncio.Task[None] | None = None
+_INGEST_PUMP_INTERVAL = 5.0
+
+
+def _ingest_key(result: Any) -> int | str:
+    gid = getattr(result, "gid", None)
+    if isinstance(gid, int):
+        return gid
+    path = getattr(result, "path", None)
+    if path is not None:
+        return str(path)
+    return id(result)
+
+
+def _scan_running() -> bool:
     tm = app_state.task_manager
-    if tm and tm.scan_state.get("running"):
+    return bool(tm and tm.scan_state.get("running"))
+
+
+def queue_pending_ingest(result: Any) -> None:
+    """Remember a finished download that must be ingested after the scan ends."""
+    _pending_ingests.setdefault(_ingest_key(result), result)
+    tm = app_state.task_manager
+    if tm is not None:
+        now = datetime.now(UTC).isoformat()
+        tm.record_task(
+            "download-ingest",
+            now,
+            now,
+            "pending",
+            reason="waiting for running scan to finish",
+            done=0,
+            total=1,
+        )
+    _ensure_ingest_pump()
+
+
+def pending_ingest_count() -> int:
+    return len(_pending_ingests)
+
+
+async def drain_pending_ingests() -> int:
+    """Ingest every queued download result. Returns the number processed."""
+    if not _pending_ingests:
+        return 0
+    results = list(_pending_ingests.values())
+    _pending_ingests.clear()
+    ingested = 0
+    for result in results:
+        try:
+            await ingest_downloaded_gallery(result)
+            ingested += 1
+        except Exception as exc:  # one bad result must not drop the rest
+            logger.exception(
+                "deferred download ingest failed",
+                extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__),
+            )
+    return ingested
+
+
+async def pending_ingest_loop() -> None:
+    """Consume deferred ingests once no full-library scan is running."""
+    global _ingest_pump_task
+    try:
+        while _pending_ingests:
+            await asyncio.sleep(_INGEST_PUMP_INTERVAL)
+            if _scan_running():
+                continue
+            count = await drain_pending_ingests()
+            tm = app_state.task_manager
+            if tm is not None:
+                now = datetime.now(UTC).isoformat()
+                tm.record_task(
+                    "download-ingest",
+                    now,
+                    now,
+                    "success",
+                    reason=f"ingested {count} deferred download(s)",
+                    done=count,
+                    total=count,
+                )
+            logger.info("deferred download ingests completed", extra=log_extra(count=count))
+    finally:
+        if _ingest_pump_task is asyncio.current_task():
+            _ingest_pump_task = None
+
+
+def _ensure_ingest_pump() -> None:
+    global _ingest_pump_task
+    if _ingest_pump_task is not None and not _ingest_pump_task.done():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    _ingest_pump_task = loop.create_task(pending_ingest_loop())
+
+
+def maybe_scan_after_download(result: Any) -> None:
+    """Ingest the downloaded gallery, deferring while a full scan is running."""
+    if _scan_running():
+        # A full scan owns the ingest path right now; keep the result and let the
+        # pending-ingest pump import it afterwards instead of silently dropping it.
+        queue_pending_ingest(result)
         return
     from ..app.dependencies import spawn_task
     spawn_task(ingest_downloaded_gallery(result), "download ingest")
@@ -523,6 +624,47 @@ async def _apply_replacement(task: DownloadTask, exc: GalleryReplacedError) -> D
     )
 
 
+async def _finalize_replacement_skip(task: DownloadTask, exc: GalleryReplacedError) -> None:
+    """Write a terminal state when a replaced gallery could not be retargeted.
+
+    Without this the row stays ``downloading`` forever and keeps occupying the
+    unique active-gid index, blocking any later enqueue for the same gid.
+    """
+    session_cm = _get_background_session_factory()
+    if session_cm is None or task.id is None:
+        return
+    message = f"替换链未能重定向：gid {exc.old_gid} -> {exc.new_gid}"
+    try:
+        async with session_cm() as session, session.begin():
+            row = await session.get(DownloadTaskModel, task.id)
+            if row is None:
+                return
+            now = datetime.now(UTC)
+            if row.status == "cancelled":
+                row.finished_at = row.finished_at or now
+            else:
+                row.status = "failed"
+                row.error_message = message
+                row.retry_at = None
+                row.finished_at = now
+                row.updated_at = now
+                # The source gid no longer exists on ExHentai, so requeueing it
+                # is pointless: consume the budget to keep it out of the sweep.
+                row.retry_count = max(row.retry_count or 0, row.max_retries)
+            await DownloadRepository(session).record_attempt(
+                task.id, max(1, row.retry_count or 1), "failed", "GalleryReplacedError"
+            )
+    except SQLAlchemyError as db_exc:
+        logger.error(
+            "download replacement skip state persistence failed",
+            extra=log_extra(
+                task_id=task.id,
+                gid=task.gid,
+                error=str(db_exc) or type(db_exc).__name__,
+            ),
+        )
+
+
 def _extract_http_meta(exc: BaseException) -> dict[str, Any]:
     resp = getattr(exc, "response", None)
     if resp is None:
@@ -544,9 +686,34 @@ def _extract_http_meta(exc: BaseException) -> dict[str, Any]:
 
 
 _CHALLENGE_PROBE_INTERVAL = float(os.getenv("GV_CHALLENGE_PROBE_INTERVAL", "600"))
+_MAX_CHALLENGE_PAUSES = max(1, int(os.getenv("GV_MAX_CHALLENGE_PAUSES", "5")))
+# 302 challenges have their own per-task budget: pausing must not burn the
+# retry budget (that is what makes sweep_auto_retry a dead path), but an
+# endless pause/resume/challenge loop must still terminate.
+_challenge_counts: dict[int, int] = {}
 _challenge_lock = asyncio.Lock()
 _last_resume_time = 0.0
 _RESUME_DEBOUNCE_SECONDS = float(os.getenv("GV_RESUME_DEBOUNCE_SECONDS", "1.0"))
+
+
+def challenge_count(task_id: int | None) -> int:
+    if task_id is None:
+        return 0
+    return _challenge_counts.get(int(task_id), 0)
+
+
+def reset_challenge_count(task_id: int | None) -> None:
+    if task_id is None:
+        return
+    _challenge_counts.pop(int(task_id), None)
+
+
+def _bump_challenge_count(task_id: int | None) -> int:
+    if task_id is None:
+        return 1
+    count = _challenge_counts.get(int(task_id), 0) + 1
+    _challenge_counts[int(task_id)] = count
+    return count
 
 
 async def _trigger_challenge_pause(
@@ -851,6 +1018,7 @@ async def _run_download_inner(
             completed = True
 
         clear_download_cancelled(task.id)
+        reset_challenge_count(task.id)
         if completed:
             old_gid: int | None = replaced_from_gid
             if old_gid is None and session_cm is not None:
@@ -925,6 +1093,7 @@ async def _run_download_inner(
             return
         rewritten = await _apply_replacement(task, exc)
         if rewritten is None:
+            await _finalize_replacement_skip(task, exc)
             return
         await _run_download_inner(
             rewritten,
@@ -969,16 +1138,38 @@ async def _run_download_inner(
             extra=log_extra(**challenge_extra),
         )
         now = datetime.now(UTC)
+        count = _bump_challenge_count(task.id)
+        over_budget = count >= _MAX_CHALLENGE_PAUSES
         try:
             async with session_cm() as session, session.begin():
                 row = await session.get(DownloadTaskModel, task.id)
                 if row and row.status != "cancelled":
-                    row.status = "pending"
-                    row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count or 1))
-                    row.error_message = "自动暂停：检测到 ExHentai 302 临时挑战"
+                    if over_budget:
+                        # Stop the pause/resume/challenge loop, but keep the
+                        # remaining retry budget so rearm_failed / manual retry
+                        # can still pick the task up later.
+                        row.status = "failed"
+                        row.retry_at = None
+                        row.finished_at = now
+                        row.retry_count = min(
+                            max(0, row.retry_count or 0), max(0, row.max_retries - 1)
+                        )
+                        row.error_message = (
+                            f"自动暂停失败：302 临时挑战已达上限 "
+                            f"({count}/{_MAX_CHALLENGE_PAUSES})"
+                        )
+                    else:
+                        row.status = "pending"
+                        row.retry_at = now + timedelta(
+                            seconds=retry_backoff(max(1, count))
+                        )
+                        row.error_message = (
+                            f"自动暂停：检测到 ExHentai 302 临时挑战 "
+                            f"({count}/{_MAX_CHALLENGE_PAUSES})"
+                        )
                     row.updated_at = now
                     await DownloadRepository(session).record_attempt(
-                        task.id or 0, row.retry_count, "challenged", "EhChallengeError"
+                        task.id or 0, max(1, row.retry_count or 1), "challenged", "EhChallengeError"
                     )
         except SQLAlchemyError as db_exc:
             logger.exception(
@@ -987,6 +1178,16 @@ async def _run_download_inner(
                     task_id=task.id,
                     gid=task.gid,
                     error=str(db_exc) or type(db_exc).__name__,
+                ),
+            )
+        if over_budget:
+            logger.error(
+                "302 challenge budget exhausted; failing task",
+                extra=log_extra(
+                    task_id=task.id,
+                    gid=task.gid,
+                    challenges=count,
+                    limit=_MAX_CHALLENGE_PAUSES,
                 ),
             )
         sample_path = f"/g/{task.gid}/{task.token}/" if task.token else "/"
@@ -1182,8 +1383,31 @@ def adjust_download_concurrency(new_concurrency: int | None = None) -> None:
         notify_new_task()
 
 
+async def stop_download_workers() -> None:
+    """Cancel supervisor-owned download workers and wait for them to stop.
+
+    Called on shutdown (before engines are disposed) and whenever the
+    supervisor exits, so child workers never outlive their owner.
+    """
+    global _ingest_pump_task, _worker_tasks
+    pump = _ingest_pump_task
+    _ingest_pump_task = None
+    if pump is not None and not pump.done():
+        pump.cancel()
+        await asyncio.gather(pump, return_exceptions=True)
+    pending = [t for t in _worker_tasks if not t.done()]
+    _worker_tasks = [t for t in _worker_tasks if not t.done()]
+    for t in pending:
+        t.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+    _worker_tasks = []
+    _worker_events.clear()
+
+
 async def download_worker_loop() -> None:
     """Recover and claim persisted jobs continuously."""
+    global _worker_tasks, _target_download_concurrency
     session_factory = _get_background_session_factory()
     if not session_factory:
         return
@@ -1203,7 +1427,6 @@ async def download_worker_loop() -> None:
     try:
         while True:
             await asyncio.sleep(10)
-            global _worker_tasks, _target_download_concurrency
             _worker_tasks = [t for t in _worker_tasks if not t.done()]
             settings = app_state.settings or get_settings()
             target = _effective_download_concurrency(settings.download_concurrency)
@@ -1211,16 +1434,12 @@ async def download_worker_loop() -> None:
             if len(_worker_tasks) < target:
                 for _ in range(target - len(_worker_tasks)):
                     _worker_tasks.append(asyncio.create_task(_download_worker()))
-    except asyncio.CancelledError:
+    finally:
+        # Runs on cancellation *and* on an unexpected crash of the supervisor:
+        # without this, orphaned page writers keep running after engine dispose.
         probe_task.cancel()
-        for t in _worker_tasks:
-            t.cancel()
-        tasks_to_wait = [probe_task, *_worker_tasks]
-        if tasks_to_wait:
-            await asyncio.gather(*tasks_to_wait, return_exceptions=True)
-        _worker_tasks.clear()
-        _worker_events.clear()
-        raise
+        await asyncio.gather(probe_task, return_exceptions=True)
+        await stop_download_workers()
 
 
 async def download_retry_sweep_loop() -> None:

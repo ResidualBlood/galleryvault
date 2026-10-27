@@ -9,7 +9,7 @@ import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -337,6 +337,10 @@ from fastapi.params import Depends as DependsType
 class _ManagedSessionWrapper:
     """Wraps an AsyncSession obtained from an async generator, ensuring aclose() on completion or GC."""
 
+    # Strong references to fire-and-forget aclose() tasks so the event loop does
+    # not garbage-collect them mid-flight (RUF006).
+    _close_tasks: ClassVar[set[asyncio.Task[Any]]] = set()
+
     def __init__(self, session: Any, gen: AsyncIterator[Any] | None = None) -> None:
         self._session = session
         self._gen = gen
@@ -355,7 +359,9 @@ class _ManagedSessionWrapper:
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                loop.create_task(self._gen.aclose())
+                close_task = loop.create_task(self._gen.aclose())
+                self._close_tasks.add(close_task)
+                close_task.add_done_callback(self._close_tasks.discard)
         except RuntimeError:
             pass
 

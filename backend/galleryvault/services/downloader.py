@@ -318,6 +318,20 @@ class Downloader:
                 self._tasks.pop(task.gid, None)
             self._clear_stats(task.gid)
 
+    async def wait_idle(self, gid: int, timeout: float = 30.0) -> bool:
+        """Wait until no download for ``gid`` is writing to its temp dir.
+
+        Returns True when idle, False on timeout. Callers that want to remove
+        ``.gv-<gid>`` must use this so cleanup never races an in-flight page
+        writer (cancellation is cooperative and only observed at await points).
+        """
+        deadline = asyncio.get_running_loop().time() + max(0.0, timeout)
+        while int(gid) in self._gids:
+            if asyncio.get_running_loop().time() >= deadline:
+                return False
+            await asyncio.sleep(0.1)
+        return True
+
     async def _execute_with_retries(
         self, task: DownloadTask, progress: ProgressCallback | None = None
     ) -> DownloadResult:
@@ -610,9 +624,20 @@ class Downloader:
                     extra=log_extra(gid=gallery.gid, page=index, error=type(exc).__name__),
                 )
 
-        await asyncio.gather(
-            *(_worker((index, page)) for index, page in enumerate(pages))
-        )
+        page_tasks = [
+            asyncio.create_task(_worker((index, page)))
+            for index, page in enumerate(pages)
+        ]
+        try:
+            await asyncio.gather(*page_tasks)
+        except BaseException:
+            # Cancellation/error must propagate only after every page writer has
+            # stopped, otherwise orphan tasks keep writing `.gv-<gid>` while the
+            # caller (cancel/delete) removes the directory.
+            for page_task in page_tasks:
+                page_task.cancel()
+            await asyncio.gather(*page_tasks, return_exceptions=True)
+            raise
         if first_error is not None:
             raise first_error
         # Final pass writes the resume manifest (progress is reported live above).

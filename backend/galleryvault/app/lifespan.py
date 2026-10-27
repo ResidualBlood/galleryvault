@@ -7,7 +7,7 @@ import contextlib
 import logging
 import secrets
 import shutil
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -38,6 +38,43 @@ from .state import app_state, create_services, sync_state
 logger = logging.getLogger(__name__)
 
 translation_update_task: asyncio.Task | None = None
+
+# Backoff for restarting a crashed background worker supervisor.
+_WORKER_RESTART_INITIAL_DELAY = 1.0
+_WORKER_RESTART_MAX_DELAY = 60.0
+
+
+async def supervise_worker(
+    name: str,
+    factory: Callable[[], Awaitable[None]],
+    *,
+    initial_delay: float = _WORKER_RESTART_INITIAL_DELAY,
+    max_delay: float = _WORKER_RESTART_MAX_DELAY,
+) -> None:
+    """Run a long-lived background worker, restarting it with backoff if it crashes.
+
+    A worker that returns normally is not restarted: its loops only return when
+    their precondition is gone (e.g. no session factory), and respawning would
+    spin. Crashes are logged and retried with exponential backoff up to
+    ``max_delay`` so a transient DB or network failure does not silently stop
+    a worker until the process restarts.
+    """
+    delay = max(0.0, initial_delay)
+    while True:
+        try:
+            await factory()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "background worker crashed; restarting with backoff",
+                extra=log_extra(worker=name, error=type(exc).__name__, retry_in=delay),
+            )
+            await asyncio.sleep(delay)
+            delay = min(max(delay * 2, initial_delay), max_delay)
+            continue
+        logger.info("background worker exited", extra=log_extra(worker=name))
+        return
 
 
 async def warmup_database_pool(session_factory: Any) -> None:
@@ -323,17 +360,29 @@ async def startup() -> None:
         pass
     await cleanup_partial_downloads(settings_obj.download_root, app_state.session_factory)
 
-    app_state.extra["download_worker_task"] = asyncio.create_task(download_worker_loop())
-    app_state.extra["download_retry_sweep_task"] = asyncio.create_task(download_retry_sweep_loop())
-    app_state.extra["gallery_updates_finalize_task"] = asyncio.create_task(
-        gallery_updates_finalize_loop()
+    app_state.extra["download_worker_task"] = asyncio.create_task(
+        supervise_worker("download_worker", download_worker_loop)
     )
-    app_state.extra["telegram_flush_task"] = asyncio.create_task(telegram_flush_loop())
-    app_state.extra["tag_sync_worker_task"] = asyncio.create_task(tag_sync_worker_loop())
-    app_state.extra["thumb_worker_task"] = asyncio.create_task(thumbnail_worker_loop())
-    app_state.extra["thumb_cleanup_task"] = asyncio.create_task(orphan_thumbnail_cleanup_loop())
+    app_state.extra["download_retry_sweep_task"] = asyncio.create_task(
+        supervise_worker("download_retry_sweep", download_retry_sweep_loop)
+    )
+    app_state.extra["gallery_updates_finalize_task"] = asyncio.create_task(
+        supervise_worker("gallery_updates_finalize", gallery_updates_finalize_loop)
+    )
+    app_state.extra["telegram_flush_task"] = asyncio.create_task(
+        supervise_worker("telegram_flush", telegram_flush_loop)
+    )
+    app_state.extra["tag_sync_worker_task"] = asyncio.create_task(
+        supervise_worker("tag_sync_worker", tag_sync_worker_loop)
+    )
+    app_state.extra["thumb_worker_task"] = asyncio.create_task(
+        supervise_worker("thumbnail_worker", thumbnail_worker_loop)
+    )
+    app_state.extra["thumb_cleanup_task"] = asyncio.create_task(
+        supervise_worker("orphan_thumbnail_cleanup", orphan_thumbnail_cleanup_loop)
+    )
     app_state.extra["thumb_periodic_seed_task"] = asyncio.create_task(
-        thumbnail_periodic_seed_loop()
+        supervise_worker("thumbnail_periodic_seed", thumbnail_periodic_seed_loop)
     )
 
     from ..services.storage_usage import storage_tracker
@@ -404,6 +453,13 @@ async def shutdown() -> None:
         app_state.extra.get("storage_calibrate_task"),
     ]
     await stop_background_tasks(all_spawned, specific)
+    # The supervisor's own cleanup only runs if it was cancelled before it
+    # finished; cancel any orphaned download workers explicitly so no page writer
+    # keeps using the engines we are about to dispose.
+    from ..services.download_worker import stop_download_workers
+
+    with contextlib.suppress(Exception):
+        await stop_download_workers()
     if app_state.telegram is not None:
         if hasattr(app_state.telegram, "flush_summary") and callable(
             app_state.telegram.flush_summary
