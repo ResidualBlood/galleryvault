@@ -231,8 +231,14 @@ async function renderReader() {
     }
     const total = (g && g.page_count) || 0;
     app.readerTotal = total;
+    // 夹取到有效页码，避免越界图片与 PUT /progress 422
+    const safePage = total > 0 ? Math.min(page, total - 1) : 0;
+    if (safePage !== page) {
+      app.params.page = String(safePage);
+      syncReaderUrl();
+    }
 
-    const innerHtml = buildReaderInnerHtml(id, page, total, mode, g);
+    const innerHtml = buildReaderInnerHtml(id, safePage, total, mode, g);
 
     const existingReader = $view().querySelector(".reader");
     if (existingReader) {
@@ -243,7 +249,9 @@ async function renderReader() {
     }
 
     initReaderGestures();
-    try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }); } catch (_) {}
+    if (total > 0) {
+      try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: safePage, total_pages: total }); } catch (_) {}
+    }
     const ssSec = parseInt(app.query && app.query.slideshow, 10);
     if (ssSec > 0) {
       startSlideshow(ssSec);

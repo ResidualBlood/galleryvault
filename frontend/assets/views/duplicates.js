@@ -4,9 +4,32 @@
 // extracted renderFavManage, runDupScan, renderDupGroups + dup helpers
 
 function updateDupButtons() {
+  const n = selDup.size;
   document.querySelectorAll('[data-action="dup-unfav"], [data-action="dup-unfav-delete"]').forEach(b => {
-    b.textContent = (b.getAttribute("data-action") === "dup-unfav" ? t("dupUnfav") : t("dupUnfavDelete")) + (selDup.size ? ` (${selDup.size})` : "");
+    b.textContent = (b.getAttribute("data-action") === "dup-unfav" ? t("dupUnfav") : t("dupUnfavDelete")) + (n ? ` (${n})` : "");
   });
+  document.querySelectorAll('[data-action="dup-ignore-selected"]').forEach(b => {
+    b.textContent = t("dupIgnoreSel") + (n ? ` (${n})` : "");
+  });
+}
+
+// 作用域 = 筛选 + 页码；切换后清空选择，保证按钮计数与批量 payload 只覆盖当前可见页
+let dupSelScope = "";
+function dupSyncSelScope(page) {
+  const scope = `${dupFilter}|${page || dupPage}`;
+  if (scope !== dupSelScope) { dupSelScope = scope; selDup.clear(); }
+}
+
+// 当前已渲染可见集内的勾选 gid；顺带清掉不可见残留，保证计数与 payload 一致
+function dupSelectedGids() {
+  const visible = new Set([...document.querySelectorAll('#dup-groups input[data-dup-gid]')]
+    .map(cb => parseInt(cb.getAttribute("data-dup-gid"), 10)));
+  let pruned = false;
+  for (const gid of [...selDup]) {
+    if (!visible.has(gid)) { selDup.delete(gid); pruned = true; }
+  }
+  if (pruned) updateDupButtons();
+  return [...selDup];
 }
 
 // --- Duplicate copies (library scan) --------------------------------------
@@ -34,6 +57,7 @@ function setDupScanBtn(scanning) {
 
 async function renderFavManage() {
   await loadFavNames();
+  dupSyncSelScope();
   const filterBtn = (val, label) =>
     `<button class="secondary${dupFilter === val ? " active-pill" : ""}" data-action="dup-filter" data-value="${val}" type="button">${esc(label)}</button>`;
   $view().innerHTML = `
@@ -201,10 +225,11 @@ function renderDupGroups(st) {
   const el = document.getElementById("dup-groups");
   if (!el) return;
   const groups = applyDupFilter(st.groups || []);
-  if (!groups.length) { el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
+  if (!groups.length) { dupSyncSelScope(); el.innerHTML = `<p class="muted">${esc(t("dupNone"))}</p>`; return; }
   const perPage = 24;
   const totalPages = Math.max(1, Math.ceil(groups.length / perPage));
   const page = Math.max(1, Math.min(dupPage, totalPages));
+  dupSyncSelScope(page);
   const slice = groups.slice((page - 1) * perPage, page * perPage);
   const renderGroup = (g, gi) => {
     const hidden = dupLocallyIgnored.has(g.key);
@@ -365,8 +390,7 @@ async function renderDupGroupsFromCache() {
 }
 
 async function dupAction(deleteLocal) {
-  const items = [...document.querySelectorAll('#dup-groups [data-dup-gid]')]
-    .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.dupGid, 10));
+  const items = dupSelectedGids();
   if (!items.length) { toast(t("select")); return; }
   const msg = deleteLocal ? t("confirmDupDelete") : t("confirmDupUnfav");
   if (!window.confirm(msg + " " + items.length)) return;
@@ -400,8 +424,10 @@ function dupSelectGroup(gi) {
 }
 
 async function dupIgnoreSelected() {
+  const selected = new Set(dupSelectedGids());
   const keys = new Set();
-  document.querySelectorAll('#dup-groups input[data-dup-gid]:checked').forEach(cb => {
+  document.querySelectorAll('#dup-groups input[data-dup-gid]').forEach(cb => {
+    if (!selected.has(parseInt(cb.getAttribute("data-dup-gid"), 10))) return;
     const k = cb.getAttribute("data-key");
     if (k) keys.add(k);
   });
@@ -579,7 +605,7 @@ function renderCrossGidList() {
           ${hidden ? `<span class="badge dup-ignored-badge">${esc(t("dupIgnored"))}</span>` : ""}
           <span class="dup-head-actions">
             <button class="secondary" data-action="dupxgid-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button>
-            <button class="secondary" data-action="dupxgid-group-toggle" onclick="this.closest('.dup-group').querySelectorAll('.dup-row').forEach(r => r.style.display = r.style.display === 'none' ? '' : 'none')" type="button" title="${esc(t("collapse"))}">⇕</button>
+            <button class="secondary" data-action="dupxgid-group-toggle" type="button" title="${esc(t("collapse"))}">⇕</button>
           </span>
         </div>
         ${g.items.map((it, ii) => {

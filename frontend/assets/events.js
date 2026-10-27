@@ -98,6 +98,11 @@ async function onClick(e) {
   if (action === "dupxgid-ignore-selected") { xgidIgnoreSelected(); return; }
   if (action === "dupxgid-clear") { selXgid.clear(); renderCrossGidList(); return; }
   if (action === "dupxgid-group-sel") { xgidSelectGroup(el.getAttribute("data-gi")); return; }
+  if (action === "dupxgid-group-toggle") {
+    const group = el.closest(".dup-group");
+    if (group) group.querySelectorAll(".dup-row").forEach(r => { r.style.display = r.style.display === "none" ? "" : "none"; });
+    return;
+  }
   if (action === "dupgal-scan") {
     scanLibrary().then(async (r) => {
       if (!r || r.status === "paused") return;
