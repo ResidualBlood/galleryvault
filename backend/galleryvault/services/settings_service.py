@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ..auth import DEFAULT_PASSWORD
 from ..config import get_settings, library_root_warnings, normalize_archive_roots
 from ..logging import log_extra
 from ..secrets import (
@@ -52,6 +53,21 @@ def _get_app_state() -> Any | None:
         return app_state
     except (ImportError, AttributeError):
         return None
+
+
+_RETIRED_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _spawn_retired_task(coro: Any) -> None:
+    """Spawn a drain coroutine while holding a strong reference (RUF006)."""
+    try:
+        task = asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        if hasattr(coro, "close"):
+            coro.close()
+        return
+    _RETIRED_TASKS.add(task)
+    task.add_done_callback(_RETIRED_TASKS.discard)
 
 
 def is_public_site(url: str | None) -> bool:
@@ -238,10 +254,7 @@ async def refresh_services() -> None:
 
             tg_task = spawn_task(_drain_telegram(old_telegram), "drain retired telegram")
             if tg_task is None:
-                try:
-                    asyncio.create_task(_drain_telegram(old_telegram))
-                except Exception:  # noqa: BLE001, S110
-                    pass
+                _spawn_retired_task(_drain_telegram(old_telegram))
 
     # 2. Build new client and retire old EhClient gracefully
     client = EhClient(settings, max_concurrency=settings.exhentai_max_concurrency)
@@ -281,10 +294,7 @@ async def refresh_services() -> None:
 
         c_task = spawn_task(_drain_eh_client(old_client), "drain retired eh_client")
         if c_task is None:
-            try:
-                asyncio.create_task(_drain_eh_client(old_client))
-            except Exception:  # noqa: BLE001, S110
-                pass
+            _spawn_retired_task(_drain_eh_client(old_client))
 
     downloader = Downloader(
         (lambda: app_st.eh_client) if app_st is not None else client,
@@ -331,7 +341,7 @@ def settings_public() -> dict[str, Any]:
     current = (app_st.settings if app_st and getattr(app_st, "settings", None) else None) or get_settings()
     auth_hash_configured = bool(current.auth_password_hash or current.auth_password)
     must_change_password = bool(
-        current.auth_required and (not auth_hash_configured or current.auth_password == "p1a2s3s4")
+        current.auth_required and (not auth_hash_configured or current.auth_password == DEFAULT_PASSWORD)
     )
     return {
         "library_roots": current.library_roots,

@@ -24,6 +24,7 @@ from ...logging import (
     get_log_level,
     get_log_root,
     get_recent_logs,
+    log_extra,
     mask_sensitive,
     set_log_level,
 )
@@ -224,13 +225,18 @@ async def _save_settings(
     current_settings = get_current_settings()
     if cookie_fields:
         values["exhentai_cookies"] = {**current_settings.exhentai_cookies, **cookie_fields}
-    update_runtime_settings(values)
 
-    db_settings = {}
+    # Never fall back to an empty baseline: doing so would wipe every persisted
+    # key (cookies, telegram token, saved searches, ...) not present in this
+    # request. Fail closed and leave the database untouched instead.
     try:
         db_settings = await SettingsRepository(session).get()
-    except Exception:  # noqa: BLE001
-        db_settings = {}
+    except Exception as exc:
+        logger.error(
+            "settings save aborted: could not read current settings",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        raise db_error(exc) from exc
 
     persisted_values = {**db_settings, **values}
     cookies = persisted_values.get("exhentai_cookies")
@@ -264,6 +270,10 @@ async def _save_settings(
                 )
     except Exception as exc:
         raise db_error(exc) from exc
+
+    # Runtime (in-memory) settings only change once the database write succeeded,
+    # so a failed save cannot make the running app diverge from disk state.
+    update_runtime_settings(values)
 
     old_base = str(db_settings.get("exhentai_base_url") or "")
     new_base = str(persisted_values.get("exhentai_base_url") or "")

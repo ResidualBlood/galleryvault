@@ -9,6 +9,7 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
+    JSONResponse,
     RedirectResponse,
     Response,
 )
@@ -89,7 +90,22 @@ async def login(request: Request):
     valid = True
     settings = get_current_settings()
     if settings.auth_required:
-        valid = verify_login_password(password, _password_effective())
+        effective = _password_effective()
+        if not effective:
+            logger.warning(
+                "login rejected: no password configured",
+                extra=log_extra(ip=ip, reason="password_not_initialized"),
+            )
+            return JSONResponse(
+                {
+                    "detail": (
+                        "Account not initialized: set an admin password "
+                        "(POST /api/auth/change-password) before logging in"
+                    )
+                },
+                status_code=409,
+            )
+        valid = verify_login_password(password, effective)
     if not valid:
         logger.info(
             "authentication failed",
