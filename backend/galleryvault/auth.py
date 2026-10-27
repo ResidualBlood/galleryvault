@@ -120,8 +120,10 @@ def client_ip(request: Request) -> str:
 
 def verify_login_password(password: str, effective: str | None) -> bool:
     if not effective:
-        # No password configured. Never accept the baked-in default: callers
-        # must refuse the login instead (see the /login handler → 409).
+        # No password configured. This helper is used by the OPDS/cbz Basic Auth
+        # path, which must never fall back to the baked-in default; only the
+        # interactive /login handler may accept DEFAULT_PASSWORD for first-run
+        # onboarding (see app/routers/auth.py).
         return False
     if effective.startswith("pbkdf2_sha256$"):
         return verify_password(password, effective)

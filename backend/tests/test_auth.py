@@ -47,13 +47,14 @@ def test_password_hash_and_verify() -> None:
 def test_verify_login_password_none_rejects_default() -> None:
     from galleryvault.auth import verify_login_password
 
-    # No configured password must never fall back to the baked-in default.
+    # Basic Auth uses this helper: no configured password must never fall back
+    # to the baked-in default.
     assert verify_login_password("p1a2s3s4", None) is False
     assert verify_login_password("p1a2s3s4", "") is False
     assert verify_login_password("wrong_password", None) is False
 
 
-def test_uninitialized_login_is_rejected(client: TestClient) -> None:
+def test_uninitialized_login_accepts_only_default_password(client: TestClient) -> None:
     from galleryvault.app.main import app
     from galleryvault.app.state import app_state
 
@@ -69,12 +70,18 @@ def test_uninitialized_login_is_rejected(client: TestClient) -> None:
     app_state.settings = updated
     app.state.settings = updated
     try:
-        for password in ("p1a2s3s4", "wrong"):
-            response = client.post(
-                "/login", data={"password": password}, follow_redirects=False
-            )
-            assert response.status_code == 409
-            assert "galleryvault_session" not in response.headers.get("set-cookie", "")
+        successful = client.post(
+            "/login", data={"password": "p1a2s3s4"}, follow_redirects=False
+        )
+        assert successful.status_code == 303
+        assert successful.headers["location"] == "/"
+        assert "galleryvault_session" in successful.headers.get("set-cookie", "")
+        # Onboarding still forces a password change before the main UI.
+        assert client.get("/api/auth/session").json()["must_change_password"] is True
+
+        failed = client.post("/login", data={"password": "wrong"}, follow_redirects=False)
+        assert failed.status_code == 303
+        assert "error=1" in failed.headers["location"]
     finally:
         app_state.settings = original
         app.state.settings = original

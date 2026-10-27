@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import secrets as _secrets
 from urllib.parse import parse_qs
@@ -9,7 +10,6 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
-    JSONResponse,
     RedirectResponse,
     Response,
 )
@@ -53,6 +53,10 @@ def _password_effective() -> str | None:
     return None
 
 
+def _matches_default_password(password: str) -> bool:
+    return hmac.compare_digest(password, DEFAULT_PASSWORD)
+
+
 def _must_change_password() -> bool:
     settings = get_current_settings()
     auth_hash_configured = bool(settings.auth_password_hash or settings.auth_password)
@@ -88,30 +92,30 @@ async def login(request: Request):
     if len(password) > 256:
         password = password[:256]
     valid = True
+    used_default = False
     settings = get_current_settings()
     if settings.auth_required:
         effective = _password_effective()
         if not effective:
-            logger.warning(
-                "login rejected: no password configured",
-                extra=log_extra(ip=ip, reason="password_not_initialized"),
-            )
-            return JSONResponse(
-                {
-                    "detail": (
-                        "Account not initialized: set an admin password "
-                        "(POST /api/auth/change-password) before logging in"
-                    )
-                },
-                status_code=409,
-            )
-        valid = verify_login_password(password, effective)
+            # Fresh install / reset: no password configured yet. Accept only the
+            # built-in default so onboarding can reach #/welcome and change it.
+            # Basic Auth intentionally does not: verify_login_password keeps
+            # rejecting the default when nothing is configured.
+            valid = _matches_default_password(password)
+            used_default = valid
+        else:
+            valid = verify_login_password(password, effective)
     if not valid:
         logger.info(
             "authentication failed",
             extra=log_extra(ip=ip, reason="invalid_password"),
         )
         return RedirectResponse("/login?error=1", status_code=303)
+    if used_default:
+        logger.warning(
+            "login with built-in default password",
+            extra=log_extra(ip=ip, reason="default_password"),
+        )
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
         settings.auth_cookie_name,
@@ -183,11 +187,11 @@ async def change_password(
     effective = _password_effective()
     using_default = effective is None
     current_valid = (
-        using_default and body.current == DEFAULT_PASSWORD
+        using_default and _matches_default_password(body.current)
     ) or verify_login_password(body.current, effective)
     if not current_valid:
         raise HTTPException(status_code=403, detail="Current password is incorrect")
-    if body.new == DEFAULT_PASSWORD and using_default:
+    if using_default and _matches_default_password(body.new):
         raise HTTPException(status_code=422, detail="New password cannot be the default")
     new_hash = hash_password(body.new)
     new_secret = _secrets.token_urlsafe(32)
