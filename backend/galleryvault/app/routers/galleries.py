@@ -1551,11 +1551,16 @@ async def delete_galleries_filtered(
             if not confirm:
                 raise HTTPException(
                     status_code=409,
-                    detail=(
-                        f"matched {matched} galleries exceeds confirm threshold "
-                        f"{_CONFIRM_THRESHOLD}; resend with confirm=true and "
-                        f"match_count={matched}"
-                    ),
+                    detail={
+                        "code": "CONFIRM_REQUIRED",
+                        "matched": matched,
+                        "threshold": _CONFIRM_THRESHOLD,
+                        "message": (
+                            f"matched {matched} galleries exceeds confirm threshold "
+                            f"{_CONFIRM_THRESHOLD}; resend with confirm=true and "
+                            f"match_count={matched}"
+                        ),
+                    },
                 )
             if expected_count != matched:
                 raise HTTPException(

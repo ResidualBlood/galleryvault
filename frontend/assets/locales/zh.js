@@ -182,6 +182,8 @@ window.GV_LOCALES.zh = {
   dupUnignoreSel: "恢复所选",
   deleteFiles: "同时删除磁盘文件", confirmDelete: "确定删除此画廊？",
   confirmDeleteFiltered: "确定删除所有匹配的画廊？", deleted: "已删除",
+  confirmDeleteFilteredLarge: "将删除 {n} 本画廊，此操作不可撤销；同时删除磁盘文件：{files}。确认继续？",
+  yes: "是", no: "否",
   select: "选择", clearSel: "清除选择", deleteSel: "删除所选",
   confirmDeleteSel: "确定删除所选画廊？",
   batchFav: "批量加收藏", batchFavCount: "批量加收藏 ({count})", favAddBatch: "已加入 {count} 本，失败 {failed} 本", favAddNoGid: "选中 {count} 本无 GID，已跳过",
