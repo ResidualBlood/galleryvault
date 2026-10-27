@@ -225,7 +225,21 @@ async function deleteFiltered() {
     if (urlParams.get("image_quality")) payload.image_quality = urlParams.get("image_quality");
     if (urlParams.get("min_local_rating")) payload.min_local_rating = parseInt(urlParams.get("min_local_rating"), 10);
     if (urlParams.get("list_id")) payload.list_id = parseInt(urlParams.get("list_id"), 10);
-    const r = await api("POST", "/api/galleries/delete-filtered", payload);
+    const send = extra => api("POST", "/api/galleries/delete-filtered", extra ? { ...payload, ...extra } : payload);
+    let r;
+    try {
+      r = await send();
+    } catch (e) {
+      const d = e && e.detail;
+      // Large delete sets need an explicit echo of confirm + match_count.
+      if (!e || e.status !== 409 || !d || d.code !== "CONFIRM_REQUIRED") throw e;
+      const ok = window.confirm(t("confirmDeleteFilteredLarge", {
+        n: d.matched,
+        files: deleteFiles ? t("yes") : t("no")
+      }));
+      if (!ok) return;
+      r = await send({ confirm: true, match_count: d.matched });
+    }
     toast(t("deleted") + ": " + (r.deleted !== undefined ? r.deleted : (r.matched || 0))
       + ((r.failed_deletions || []).length ? " · " + t("dupDeleteFail") + r.failed_deletions.length : ""));
     location.hash = navHash("library");

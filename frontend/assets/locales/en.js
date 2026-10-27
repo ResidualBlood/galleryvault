@@ -182,6 +182,8 @@ window.GV_LOCALES.en = {
   delete: "Delete", deleteGallery: "Delete gallery", deleteFiltered: "Delete filtered",
   deleteFiles: "Also delete files on disk", confirmDelete: "Delete this gallery?",
   confirmDeleteFiltered: "Delete all matching galleries?", deleted: "Deleted",
+  confirmDeleteFilteredLarge: "This will permanently delete {n} galleries. Delete files on disk: {files}. Continue?",
+  yes: "Yes", no: "No",
   select: "Select", clearSel: "Clear selection", deleteSel: "Delete selected",
   confirmDeleteSel: "Delete selected galleries?",
   batchFav: "Batch add favorite", batchFavCount: "Batch add ({count})", favAddBatch: "Added {count}, failed {failed}", favAddNoGid: "{count} without GID skipped",

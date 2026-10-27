@@ -264,7 +264,10 @@ async def test_delete_filtered_above_threshold_requires_confirm(monkeypatch, _de
     with pytest.raises(HTTPException) as excinfo:
         await delete_galleries_filtered(body, _StubRequest())
     assert excinfo.value.status_code == 409
-    assert "confirm" in excinfo.value.detail
+    detail = excinfo.value.detail
+    assert detail["code"] == "CONFIRM_REQUIRED"
+    assert detail["matched"] == 250
+    assert "confirm" in detail["message"]
     assert _delete_setup == []  # nothing was deleted
 
 
