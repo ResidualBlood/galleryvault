@@ -193,6 +193,102 @@ class EhChallengeError(EhClientError):
     """ExHentai 302 temporary anti-abuse / remoteapi.php challenge."""
 
 
+class EhQuotaExceededError(EhClientError):
+    """ExHentai rate limited the request (HTTP 429/509: IP/account quota).
+
+    Distinct from a transport error: retrying immediately burns more quota, so
+    callers should wait ``retry_delay()`` seconds (the server's ``Retry-After``
+    when present, otherwise a fixed backoff).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+
+    def retry_delay(self, default: float = 60.0, maximum: float = 3600.0) -> float:
+        """Seconds to wait before retrying (``Retry-After`` or fixed backoff)."""
+        value = self.retry_after if self.retry_after is not None else default
+        return max(0.0, min(float(value), float(maximum)))
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def _quota_exceeded_error(response: httpx.Response) -> EhQuotaExceededError:
+    status = response.status_code
+    return EhQuotaExceededError(
+        f"ExHentai rate limited (HTTP {status})",
+        status_code=status,
+        retry_after=_retry_after_seconds(response),
+    )
+
+
+# Favorites pages advertise every folder in their header/selector as
+# ``favorites.php?favcat=N``.  Login/logout/challenge pages never carry those
+# markers, so they are the reliable "this is really the favorites page" signal
+# for a write that otherwise only returns HTTP 200.
+_FAVORITES_PAGE_FAVCAT_RE = re.compile(
+    r"favorites\.php\?[^\"'<>\s]*?favcat=(?P<favcat>\d)", re.IGNORECASE
+)
+_FAVORITES_AUTH_FAILURE_MARKERS = (
+    "sad panda",
+    "you must be logged in",
+    "expired login session",
+    "you are not logged in",
+)
+
+
+def _favorites_page_favcats(body: str) -> set[int]:
+    return {int(match.group("favcat")) for match in _FAVORITES_PAGE_FAVCAT_RE.finditer(body or "")}
+
+
+def _is_favorites_auth_failure_page(body: str) -> bool:
+    lowered = (body or "").lower()
+    return any(marker in lowered for marker in _FAVORITES_AUTH_FAILURE_MARKERS)
+
+
+def _validate_favorites_write_response(
+    response: httpx.Response, *, target_favcat: int | None = None
+) -> None:
+    """Reject HTTP-200 responses that are not a confirmed favorites page.
+
+    ExHentai answers a favorites POST with HTTP 200 even when the session is
+    dead, the IP is banned, or the client is being rate limited; following
+    redirects means ``raise_for_status`` never fires.  Callers must not treat
+    such a body as "favorites changed", so require the favorites page identity
+    (folder markers) and, for moves, that the target folder is present.
+    """
+    if response.status_code in (401, 403) or "login" in str(response.url).lower():
+        raise EhClientError("ExHentai authentication is required or expired")
+    body = response.text or ""
+    if _is_favorites_auth_failure_page(body) or _is_ip_banned_page(body):
+        raise EhClientError("ExHentai authentication is required or expired")
+    if not body.strip():
+        raise EhClientError("ExHentai favorites response was empty")
+    favcats = _favorites_page_favcats(body)
+    if not favcats:
+        raise EhClientError("ExHentai favorites response was not the favorites page")
+    if target_favcat is not None and int(target_favcat) not in favcats:
+        raise EhClientError(
+            f"ExHentai favorites move to folder {int(target_favcat)} was not confirmed"
+        )
+
+
 def _is_ip_banned_page(body: str) -> bool:
     """Detect the ExHentai IP-banned page."""
     return (
@@ -1066,9 +1162,42 @@ class EhClient:
             t_req_start = time.perf_counter()
             try:
                 return await self.client.request(method, url, **kwargs)
+            except httpx.HTTPStatusError as exc:
+                # ``_request`` normally returns 4xx/5xx responses and callers use
+                # ``_raise_for_status``; wrapping here keeps the "EhClient only
+                # raises EhClientError" contract if a transport/wrapper raises.
+                raise self._status_error(exc.response) from exc
             finally:
                 req_elapsed = time.perf_counter() - t_req_start
                 observe_histogram("gv_ehclient_request_duration_seconds", req_elapsed, {"method": method})
+
+    @staticmethod
+    def _status_error(response: httpx.Response) -> EhClientError:
+        """Classify a non-2xx response (quota exhaustion vs. generic failure)."""
+        status = response.status_code
+        if status in (429, 509):
+            return _quota_exceeded_error(response)
+        return EhClientError(f"ExHentai returned HTTP {status}")
+
+    def _raise_for_status(
+        self, response: httpx.Response, *, gallery_404: bool = False
+    ) -> None:
+        """Turn HTTP status failures into ``EhClientError`` subclasses."""
+        status = response.status_code
+        if status in (401, 403) or "login" in str(response.url).lower():
+            raise EhClientError("ExHentai authentication is required or expired")
+        if status in (429, 509):
+            raise _quota_exceeded_error(response)
+        if status < 400:
+            return
+        if status == 404 and gallery_404:
+            try:
+                path = response.request.url.path
+            except RuntimeError:
+                path = ""
+            if path.startswith("/g/"):
+                raise GalleryGoneError("gallery does not exist on ExHentai (404)")
+        raise self._status_error(response)
 
     async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
         try:
@@ -1080,7 +1209,7 @@ class EhClient:
                 or _is_ip_banned_page(response.text)
             ):
                 raise EhClientError("ExHentai authentication is required or expired")
-            response.raise_for_status()
+            self._raise_for_status(response, gallery_404=True)
             # Buffer the body inside the try so a connection reset while reading
             # is wrapped as EhClientError below instead of leaking a raw
             # RemoteProtocolError to the download worker.
@@ -1094,18 +1223,13 @@ class EhClient:
             logger.warning("ExHentai request failed", extra=log_extra(error=type(exc).__name__))
             raise EhClientError("ExHentai request failed") from exc
         except httpx.HTTPStatusError as exc:
+            # ``_request`` already converts these; kept as a defensive catch so a
+            # raw httpx status error never escapes the EhClient contract.
             status = exc.response.status_code
             logger.warning(
                 "ExHentai returned HTTP error", extra=log_extra(status=status)
             )
-            if status == 404:
-                path = exc.request.url.path
-                if path.startswith("/g/"):
-                    raise GalleryGoneError("gallery does not exist on ExHentai (404)") from exc
-                raise EhClientError(f"ExHentai request returned 404: {path}") from exc
-            if status in (429, 509):
-                raise EhClientError(f"ExHentai rate limited (HTTP {status})") from exc
-            raise EhClientError("ExHentai returned an HTTP error") from exc
+            raise self._status_error(exc.response) from exc
 
     async def check_login(self) -> tuple[str, str]:
         """Probe ExHentai and return ``(state, detail)``.
@@ -1604,9 +1728,7 @@ class EhClient:
                 extra=log_extra(error=type(exc).__name__),
             )
             raise EhClientError("ExHentai request failed") from exc
-        if response.status_code in (401, 403) or "login" in str(response.url).lower():
-            raise EhClientError("ExHentai authentication is required or expired")
-        response.raise_for_status()
+        self._raise_for_status(response)
         try:
             body = response.json()
         except ValueError as exc:
@@ -1868,9 +1990,8 @@ class EhClient:
                     "Origin": self.settings.exhentai_base_url.rstrip("/"),
                 },
             )
-            if response.status_code in (401, 403) or "login" in str(response.url).lower():
-                raise EhClientError("ExHentai authentication is required or expired")
-            response.raise_for_status()
+            self._raise_for_status(response)
+            _validate_favorites_write_response(response)
 
         for chunk in (
             gids[i : i + EXHENTAI_API_CHUNK_SIZE]
@@ -1927,9 +2048,8 @@ class EhClient:
                     "Origin": self.settings.exhentai_base_url.rstrip("/"),
                 },
             )
-            if response.status_code in (401, 403) or "login" in str(response.url).lower():
-                raise EhClientError("ExHentai authentication is required or expired")
-            response.raise_for_status()
+            self._raise_for_status(response)
+            _validate_favorites_write_response(response, target_favcat=target_favcat)
 
         for chunk in (
             gids[i : i + EXHENTAI_API_CHUNK_SIZE]
@@ -1992,7 +2112,7 @@ class EhClient:
             or _is_ip_banned_page(response.text)
         ):
             raise EhClientError("ExHentai authentication is required or expired")
-        response.raise_for_status()
+        self._raise_for_status(response)
 
     async def add_favorites(
         self, items: list[tuple[int, str]], favcat: int, note: str = ""
@@ -2069,9 +2189,7 @@ class EhClient:
                     "Origin": self.settings.exhentai_base_url.rstrip("/"),
                 },
             )
-            if response.status_code in (401, 403) or "login" in str(response.url).lower():
-                raise EhClientError("ExHentai authentication is required or expired")
-            response.raise_for_status()
+            self._raise_for_status(response)
             try:
                 body = response.json()
             except ValueError as exc:
@@ -2215,9 +2333,7 @@ class EhClient:
             data={"dltype": dltype, "dlcheck": dlcheck},
             headers={"Referer": url, "Origin": origin},
         )
-        if response.status_code in (401, 403) or "login" in str(response.url).lower():
-            raise EhClientError("ExHentai authentication is required or expired")
-        response.raise_for_status()
+        self._raise_for_status(response)
         body = response.text
         direct = _parse_archiver_download_url(body)
         if direct:
@@ -2284,7 +2400,7 @@ class EhClient:
                         dest.unlink(missing_ok=True)
                         offset = 0
                 elif response.status_code != 206:
-                    response.raise_for_status()
+                    raise self._status_error(response)
                 content_length = response.headers.get("content-length") or ""
                 total = _content_range_total(
                     response.headers.get("content-range")
@@ -2388,7 +2504,7 @@ class EhClient:
             raise EhClientError(f"Disallowed host in gallery cover response: {final_host}")
         if cover_response.status_code in (401, 403) or "login" in str(cover_response.url).lower():
             raise EhClientError("ExHentai authentication is required or expired")
-        cover_response.raise_for_status()
+        self._raise_for_status(cover_response)
         if len(cover_response.content) < 200:
             # ExHentai answers galleries without a usable cover (or ones that
             # need a different H@H setup) with a 1x1 placeholder GIF.

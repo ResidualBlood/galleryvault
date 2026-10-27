@@ -22,6 +22,7 @@ from ..db.repository import (
     GalleryRepository,
     GalleryUpdatesRepository,
 )
+from ..db.session import safe_transaction
 from ..logging import bind_log_context, log_extra
 from ..metadata.sidecar import normalize_posted, normalize_tags
 from ..services.tag_translation import translated_tag
@@ -667,7 +668,9 @@ async def _run_favorites_check_inner(
                         if should_skip:
                             entry["done"] = entry["total"] = live_count
                             entry["skipped"] = True
-                            async with session.begin():
+                            # ``session`` already autobegan on the reads above;
+                            # a nested ``session.begin()`` raises on SQLAlchemy.
+                            async with safe_transaction(session):
                                 await FavoritesRepository(session).checked(favcat, True)
                             logger.info(
                                 "favorites check skipped (cloud count unchanged)",

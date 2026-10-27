@@ -1031,6 +1031,15 @@ def test_record_favorites_add_log(monkeypatch: pytest.MonkeyPatch) -> None:
 # ==============================================================================
 
 
+def _favorites_page_body(*favcats: int) -> str:
+    """Minimal favorites-page markup carrying the folder markers EhClient checks."""
+    ids = favcats or tuple(range(10))
+    links = "".join(
+        f'<a href="favorites.php?favcat={favcat}">Favorite {favcat}</a>' for favcat in ids
+    )
+    return f'<html><body><div class="fp">{links}</div></body></html>'
+
+
 def _move_handler(*, fail_gids: tuple[int, ...] = (), bad_batch: tuple[int, ...] = ()) -> tuple[Any, list[Any]]:
     requests: list[tuple[str, str, list[str]]] = []
 
@@ -1042,10 +1051,10 @@ def _move_handler(*, fail_gids: tuple[int, ...] = (), bad_batch: tuple[int, ...]
         ddact = parsed.get("ddact", [""])[0]
         requests.append((request.method, ddact, modify))
         if any(g in bad_batch for g in [int(g) for g in modify]):
-            return httpx.Response(500, text="boom")
+            raise httpx.ConnectError("boom", request=request)
         if any(int(g) in fail_gids for g in modify):
-            return httpx.Response(500, text="boom")
-        return httpx.Response(200, text="ok")
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, text=_favorites_page_body())
 
     return handler, requests
 
@@ -1245,10 +1254,10 @@ def _remove_handler(*, fail_gids: tuple[int, ...] = (), bad_batch: tuple[int, ..
         modify = [v for v in parsed.get("modifygids[]", [])]
         requests.append((request.method, modify))
         if any(g in bad_batch for g in [int(g) for g in modify]):
-            return httpx.Response(500, text="boom")
+            raise httpx.ConnectError("boom", request=request)
         if any(int(g) in fail_gids for g in modify):
-            return httpx.Response(500, text="boom")
-        return httpx.Response(200, text="ok")
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, text=_favorites_page_body())
 
     return handler, requests
 

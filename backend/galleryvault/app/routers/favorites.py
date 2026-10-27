@@ -623,26 +623,33 @@ async def favorites_remove(
     deleted_local_galleries = 0
     failed_deletions: list[str] = []
     try:
-        gallery_ids: list[int] = []
-        if successful_gids and (body.delete_local or body.delete_files):
-            mapping = await FavoritesRepository(session).galleries_for_gids(
-                successful_gids
-            )
-            gallery_ids = [gid for gid in mapping.values() if gid is not None]
-
-            if gallery_ids:
-                results = await delete_galleries_local(
-                    gallery_ids, delete_files=True, delete_all_copies=body.delete_all_copies
-                )
-                deleted_local_galleries = sum(1 for r in results if r.get("db_removed"))
-                for r in results:
-                    failed_deletions.extend(r.get("failed_paths", []))
-
-        if successful_gids:
-            async with safe_transaction(session):
+        # Cloud failures (including a dead session that returns a 200 login page)
+        # remove the gid from ``successful_gids`` above, so a failed gid never
+        # reaches the local delete path.  The favorite rows and the local
+        # gallery/file removal share this single transaction scope.
+        async with safe_transaction(session):
+            if successful_gids:
                 local_removed = await FavoritesRepository(session).remove_gids(
                     successful_gids
                 )
+
+            if successful_gids and (body.delete_local or body.delete_files):
+                mapping = await FavoritesRepository(session).galleries_for_gids(
+                    successful_gids
+                )
+                gallery_ids = [gid for gid in mapping.values() if gid is not None]
+
+                if gallery_ids:
+                    results = await delete_galleries_local(
+                        gallery_ids,
+                        delete_files=True,
+                        delete_all_copies=body.delete_all_copies,
+                    )
+                    deleted_local_galleries = sum(
+                        1 for r in results if r.get("db_removed")
+                    )
+                    for r in results:
+                        failed_deletions.extend(r.get("failed_paths", []))
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 

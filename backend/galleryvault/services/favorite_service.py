@@ -210,18 +210,27 @@ class FavoriteService(BaseService):
             try:
                 async with self.eh_client_manager.client_context() as client:
                     if hasattr(client, "move_favorites"):
-                        cloud_res = await client.move_favorites(
+                        cloud_failed = await client.move_favorites(
                             valid_gids, target_favcat
                         )
-                        if isinstance(cloud_res, (list, set, tuple)):
-                            successful_gids = [int(g) for g in cloud_res]
-                        elif cloud_res is False:
+                        if isinstance(cloud_failed, (list, set, tuple)):
+                            # The client returns the gids it could NOT move.
+                            failed_set = {int(g) for g in cloud_failed}
+                            successful_gids = [
+                                g for g in valid_gids if g not in failed_set
+                            ]
+                            errors.extend(
+                                f"Cloud move failed for {g}" for g in sorted(failed_set)
+                            )
+                        elif cloud_failed is False:
                             successful_gids = []
                             errors.append("Cloud operation rejected")
                         else:
-                            successful_gids = valid_gids
+                            successful_gids = []
+                            errors.append("Cloud move result was not understood")
                     else:
-                        successful_gids = valid_gids
+                        successful_gids = []
+                        errors.append("EhClient cannot move favorites")
             except Exception as exc:  # noqa: BLE001
                 self.logger.warning("Cloud move_favorites failed: %s", exc)
                 errors.append(f"Cloud synchronization failed: {exc}")
@@ -273,16 +282,25 @@ class FavoriteService(BaseService):
             try:
                 async with self.eh_client_manager.client_context() as client:
                     if hasattr(client, "remove_favorites"):
-                        cloud_res = await client.remove_favorites(valid_gids)
-                        if isinstance(cloud_res, (list, set, tuple)):
-                            successful_gids = [int(g) for g in cloud_res]
-                        elif cloud_res is False:
+                        cloud_failed = await client.remove_favorites(valid_gids)
+                        if isinstance(cloud_failed, (list, set, tuple)):
+                            # The client returns the gids it could NOT remove.
+                            failed_set = {int(g) for g in cloud_failed}
+                            successful_gids = [
+                                g for g in valid_gids if g not in failed_set
+                            ]
+                            errors.extend(
+                                f"Cloud removal failed for {g}" for g in sorted(failed_set)
+                            )
+                        elif cloud_failed is False:
                             successful_gids = []
                             errors.append("Cloud removal rejected")
                         else:
-                            successful_gids = valid_gids
+                            successful_gids = []
+                            errors.append("Cloud removal result was not understood")
                     else:
-                        successful_gids = valid_gids
+                        successful_gids = []
+                        errors.append("EhClient cannot remove favorites")
             except Exception as exc:  # noqa: BLE001
                 self.logger.warning("Cloud remove_favorites failed: %s", exc)
                 errors.append(f"Cloud synchronization failed: {exc}")
@@ -319,22 +337,44 @@ class FavoriteService(BaseService):
         favcat: int | None = None,
         sync_cloud: bool = True,
     ) -> bool:
-        """Update note for a favorite gallery in DB and optionally on cloud."""
-        async with self.transaction():
-            affected = await self.uow.favorites.update_note(gid, note, favcat=favcat)
+        """Update note for a favorite gallery, cloud first then DB.
+
+        ExHentai has no dedicated note endpoint: notes are written through the
+        same ``gallerypopups.php?act=addfav`` form as adding a favorite
+        (``add_favorite(..., note=...)``).  The local note must never be
+        written before the cloud confirms it.
+        """
+        item = await self.uow.favorites.item_for_gid(int(gid))
+        if item is None:
+            return False
 
         if (
             sync_cloud
-            and affected > 0
             and self.eh_client_manager is not None
             and self.eh_client_manager.is_configured()
         ):
+            token = getattr(item, "token", None)
+            if not token:
+                self.logger.warning(
+                    "Cannot sync favorite note %s to cloud: missing token", gid
+                )
+                return False
+            target_favcat = int(favcat if favcat is not None else item.favcat)
             try:
                 async with self.eh_client_manager.client_context() as client:
-                    if hasattr(client, "update_favorite_note"):
-                        await client.update_favorite_note(gid, note, favcat=favcat)
+                    add_favorite = getattr(client, "add_favorite", None)
+                    if add_favorite is None:
+                        self.logger.warning(
+                            "EhClient cannot update favorite notes; cloud note not synced"
+                        )
+                        return False
+                    await add_favorite(int(gid), str(token), target_favcat, note=note)
             except Exception as exc:  # noqa: BLE001
                 self.logger.warning("Failed to sync favorite note to cloud: %s", exc)
+                return False
+
+        async with self.transaction():
+            affected = await self.uow.favorites.update_note(gid, note, favcat=favcat)
 
         return affected > 0
 
