@@ -44,7 +44,7 @@ class ListService(BaseService):
         async with self.transaction():
             local_list = await self.uow.lists.get(list_id)
             if local_list is None:
-                raise NotFoundError(f"List {list_id} not found", entity="LocalList", entity_id=list_id)
+                raise NotFoundError(f"List {list_id} not found", entity="LocalList", identifier=list_id)
 
             galleries = await self.uow.lists.get_items_with_galleries(list_id)
             return {
@@ -72,15 +72,14 @@ class ListService(BaseService):
         """Create a new local list with unique name validation."""
         clean_name = name.strip() if name else ""
         if not clean_name:
-            raise ValidationError("List name cannot be empty", field="name")
+            raise ValidationError("List name cannot be empty", details={"field": "name"})
 
         async with self.transaction():
             existing = await self.uow.lists.get_by_name(clean_name)
             if existing is not None:
                 raise ConflictError(
                     f"List with name '{clean_name}' already exists",
-                    entity="LocalList",
-                    entity_id=existing.id,
+                    details={"entity": "LocalList", "entity_id": existing.id},
                 )
 
             new_list = await self.uow.lists.create(clean_name)
@@ -95,20 +94,19 @@ class ListService(BaseService):
         """Rename an existing local list."""
         clean_name = name.strip() if name else ""
         if not clean_name:
-            raise ValidationError("List name cannot be empty", field="name")
+            raise ValidationError("List name cannot be empty", details={"field": "name"})
 
         async with self.transaction():
             existing = await self.uow.lists.get_by_name(clean_name)
             if existing is not None and existing.id != list_id:
                 raise ConflictError(
                     f"Another list named '{clean_name}' already exists",
-                    entity="LocalList",
-                    entity_id=existing.id,
+                    details={"entity": "LocalList", "entity_id": existing.id},
                 )
 
             updated = await self.uow.lists.rename(list_id, clean_name)
             if updated is None:
-                raise NotFoundError(f"List {list_id} not found", entity="LocalList", entity_id=list_id)
+                raise NotFoundError(f"List {list_id} not found", entity="LocalList", identifier=list_id)
 
             return {
                 "id": updated.id,
@@ -121,7 +119,7 @@ class ListService(BaseService):
         async with self.transaction():
             deleted = await self.uow.lists.delete_list(list_id)
             if not deleted:
-                raise NotFoundError(f"List {list_id} not found", entity="LocalList", entity_id=list_id)
+                raise NotFoundError(f"List {list_id} not found", entity="LocalList", identifier=list_id)
             return True
 
     async def add_galleries_to_list(self, list_id: int, gallery_ids: list[int]) -> int:
@@ -132,7 +130,7 @@ class ListService(BaseService):
         async with self.transaction():
             local_list = await self.uow.lists.get(list_id)
             if local_list is None:
-                raise NotFoundError(f"List {list_id} not found", entity="LocalList", entity_id=list_id)
+                raise NotFoundError(f"List {list_id} not found", entity="LocalList", identifier=list_id)
 
             added_count = await self.uow.lists.add_items(list_id, gallery_ids)
 
@@ -155,7 +153,7 @@ class ListService(BaseService):
         async with self.transaction():
             local_list = await self.uow.lists.get(list_id)
             if local_list is None:
-                raise NotFoundError(f"List {list_id} not found", entity="LocalList", entity_id=list_id)
+                raise NotFoundError(f"List {list_id} not found", entity="LocalList", identifier=list_id)
 
             removed_count = await self.uow.lists.remove_items(list_id, gallery_ids)
 
