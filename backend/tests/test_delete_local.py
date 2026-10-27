@@ -16,6 +16,16 @@ from galleryvault.services import deletion
 from galleryvault.services.deletion import delete_galleries_local, delete_local_copy
 
 
+class _StubRequest:
+    """Minimal ``Request`` stand-in exposing only the JSON guard fields."""
+
+    def __init__(self, payload: dict | None = None):
+        self._payload = payload or {}
+
+    async def json(self):
+        return self._payload
+
+
 def _session_factory(gallery_rows, dup_rows):
     """Build an in-memory session recording deletes against simple dict maps."""
 
@@ -395,7 +405,9 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
 
     try:
         body = FilteredDeleteRequest(q="test", category=None, tags="", tag_mode="or", delete_files=False)
-        result = await delete_galleries_filtered(body)
+        result = await delete_galleries_filtered(
+            body, _StubRequest({"confirm": True, "match_count": 1200})
+        )
         assert result["matched"] == 1200
         assert result["deleted"] == 1200
         assert len(page_calls) == 3  # 1200 rows / 500 per page
@@ -514,7 +526,7 @@ async def test_delete_filtered_with_q_and_read_status(monkeypatch):
             order_by="title_asc",
             delete_files=False,
         )
-        result = await delete_galleries_filtered(body)
+        result = await delete_galleries_filtered(body, _StubRequest())
         assert result["matched"] == 2
         assert result["deleted"] == 2
         # q resolver must have stripped the tag token, leaving only the title keyword
@@ -583,7 +595,7 @@ async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monke
 
     try:
         body = FilteredDeleteRequest(q="", category="__not_fav__", tags="", tag_mode="or", delete_files=False)
-        result = await delete_galleries_filtered(body)
+        result = await delete_galleries_filtered(body, _StubRequest())
         assert result["matched"] == 0
         assert calls and calls[0] == (None, True)
     finally:

@@ -1400,9 +1400,26 @@ async def delete_galleries_bulk(
     return {"deleted": deleted, "trashed": trashed, "failed_deletions": failed_deletions, "results": results}
 
 
+async def _filtered_delete_confirmation(request: Request) -> tuple[bool, int | None]:
+    """Read the optional ``confirm`` / ``match_count`` guard fields from the raw body."""
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError):
+        return False, None
+    if not isinstance(payload, dict):
+        return False, None
+    raw_count = payload.get("match_count")
+    try:
+        match_count = int(raw_count) if raw_count is not None else None
+    except (TypeError, ValueError):
+        match_count = None
+    return bool(payload.get("confirm")), match_count
+
+
 @router.post("/api/galleries/delete-filtered", status_code=200)
 async def delete_galleries_filtered(
     body: FilteredDeleteRequest,
+    request: Request,
     session: AsyncSession = Depends(get_session),  # noqa: B008
     gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
@@ -1424,6 +1441,7 @@ async def delete_galleries_filtered(
         parsed_exc_tags.extend(extra_inc)
         parsed_exc_tags.extend(extra_exc)
     _MAX_FILTERED_DELETE = 5000
+    _CONFIRM_THRESHOLD = 200
     try:
         resolved_q = body.q or ""
         order_by = body.order_by or "id_desc"
@@ -1509,6 +1527,11 @@ async def delete_galleries_filtered(
                  ),
                  min_local_rating=body.min_local_rating,
                  list_id=body.list_id,
+                 favorite=body.favorite,
+                 read=body.read,
+                 expunged=body.expunged,
+                 media_type=body.media_type,
+                 storage_type=body.storage_type,
              )
             if not rows:
                 break
@@ -1522,9 +1545,31 @@ async def delete_galleries_filtered(
                 break
             page += 1
 
+        matched = len(dict.fromkeys(matching_ids))
+        if matched > _CONFIRM_THRESHOLD:
+            confirm, expected_count = await _filtered_delete_confirmation(request)
+            if not confirm:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"matched {matched} galleries exceeds confirm threshold "
+                        f"{_CONFIRM_THRESHOLD}; resend with confirm=true and "
+                        f"match_count={matched}"
+                    ),
+                )
+            if expected_count != matched:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"match_count mismatch: confirmed {expected_count}, current "
+                        f"match {matched}; refresh the filter preview before deleting"
+                    ),
+                )
+
         results: list[dict] = []
-        if matching_ids:
-            for chunk in _chunked(list(dict.fromkeys(matching_ids))):
+        unique_ids = list(dict.fromkeys(matching_ids))
+        if unique_ids:
+            for chunk in _chunked(unique_ids):
                 res = await delete_galleries_local(
                     chunk, delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
                 )

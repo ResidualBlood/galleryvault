@@ -721,6 +721,11 @@ class GalleryRepository(BaseRepository[Gallery]):
         min_local_rating: int | None = None,
         list_id: int | None = None,
         title_display: str | None = None,
+        favorite: bool | None = None,
+        read: bool | None = None,
+        expunged: bool | None = None,
+        media_type: str | None = None,
+        storage_type: str | None = None,
     ) -> tuple[int, list[Gallery]]:
         query = select(Gallery)
         if q and q.strip():
@@ -764,9 +769,9 @@ class GalleryRepository(BaseRepository[Gallery]):
                 )
             )
             query = query.where(in_list.exists())
-        if exclude_favorited:
-            # Local galleries whose gid is not in any favorite folder and
-            # not superseded by a tracked update whose new_gid is in favorites.
+        if exclude_favorited or favorite is not None:
+            # A local gallery is favorited when its gid is in a favorite folder
+            # or when a tracked update points at a favorited new_gid.
             fav_exists = select(1).select_from(FavoriteItem).where(FavoriteItem.gid == Gallery.gid)
             updated_fav_exists = (
                 select(1)
@@ -777,13 +782,15 @@ class GalleryRepository(BaseRepository[Gallery]):
                     GalleryUpdate.status != "ignored",
                 )
             )
-            query = query.where(
-                Gallery.gid.is_(None)
-                | (
-                    ~fav_exists.exists()
-                    & ~updated_fav_exists.exists()
-                )
+            is_favorited = Gallery.gid.is_not(None) & (
+                fav_exists.exists() | updated_fav_exists.exists()
             )
+            if exclude_favorited:
+                query = query.where(~is_favorited)
+            if favorite is True:
+                query = query.where(is_favorited)
+            elif favorite is False:
+                query = query.where(~is_favorited)
         completed_exists = (
             select(1)
             .select_from(ReadingProgress)
@@ -815,6 +822,10 @@ class GalleryRepository(BaseRepository[Gallery]):
             query = query.where(prog_exists.exists(), ~completed_exists.exists())
         elif read_status in {"completed", "read"}:
             query = query.where(completed_exists.exists())
+        if read is True:
+            query = query.where(completed_exists.exists())
+        elif read is False:
+            query = query.where(~completed_exists.exists())
         tag_predicates = build_tag_predicates(
             Gallery.id,
             tags=tags,
@@ -825,7 +836,19 @@ class GalleryRepository(BaseRepository[Gallery]):
         )
         if tag_predicates:
             query = query.where(*tag_predicates)
-        query = query.where(Gallery.expunged.is_(False), Gallery.trashed.is_(False))
+        if expunged is True:
+            query = query.where(Gallery.expunged.is_(True))
+        else:
+            query = query.where(Gallery.expunged.is_(False))
+        if storage_type:
+            query = query.where(Gallery.storage_type == storage_type)
+        if media_type:
+            has_media = select(1).select_from(GalleryPage).where(
+                GalleryPage.gallery_id == Gallery.id,
+                GalleryPage.media_type == media_type,
+            )
+            query = query.where(has_media.exists())
+        query = query.where(Gallery.trashed.is_(False))
         total = await count_select(self.session, query)
         title_col = _title_sort_column(title_display)
         order_map = {
