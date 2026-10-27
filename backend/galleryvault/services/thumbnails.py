@@ -9,10 +9,12 @@ Animated formats (WebP) are rendered as their first, static frame.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageFile
+from PIL import Image, ImageFile, ImageOps
 from PIL.Image import DecompressionBombError
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -35,6 +37,23 @@ Image.MAX_IMAGE_PIXELS = 64_000_000
 
 class ThumbnailError(Exception):
     """Raised when a thumbnail cannot be produced for a page."""
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically (tmp file + os.replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 class ThumbnailService:
@@ -88,8 +107,7 @@ class ThumbnailService:
         except OSError:
             pass
         data = self._render(page_bytes)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        _atomic_write_bytes(path, data)
         storage_tracker.record_cache_delta(len(data))
         return path
 
@@ -114,8 +132,7 @@ class ThumbnailService:
         if path.is_file():
             return path
         data = self._render(page_bytes)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        _atomic_write_bytes(path, data)
         storage_tracker.record_cache_delta(len(data))
         return path
 
@@ -131,7 +148,7 @@ class ThumbnailService:
                     except Exception:  # noqa: BLE001, S110
                         pass
                 source.load()
-                image = source.convert("RGB")
+                image = ImageOps.exif_transpose(source).convert("RGB")
                 image.thumbnail((THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT))
         except DecompressionBombError as exc:
             raise ThumbnailError(f"image exceeds maximum safe dimensions: {exc}") from exc

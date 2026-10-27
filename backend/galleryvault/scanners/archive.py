@@ -21,6 +21,73 @@ from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 from .ehviewer import IMAGE_EXTENSIONS, natural_key, strip_gid_prefix
 
 MAX_ARCHIVE_PAGE_SIZE = 128 * 1024 * 1024  # 128 MB max uncompressed page size to prevent Zip bomb/OOM
+MAX_COMICINFO_SIZE = 8 * 1024 * 1024  # 8 MB cap for ComicInfo.xml members
+MAX_SIDECAR_SIZE = 4 * 1024 * 1024  # 4 MB cap for .galleryvault.json members
+# Legacy codepages used when a ZIP member name was written without the UTF-8
+# flag (bit 11).  Python decodes those names as cp437 by default.
+_LEGACY_ZIP_ENCODINGS = ("utf-8", "gbk", "cp932")
+_encoding_cache: dict[str, tuple[int, str | None]] = {}
+_encoding_cache_lock = threading.Lock()
+
+
+def _has_cjk(text: str) -> bool:
+    for char in text:
+        code = ord(char)
+        if (
+            0x3040 <= code <= 0x30FF  # kana
+            or 0x3400 <= code <= 0x9FFF  # CJK ideographs
+            or 0xAC00 <= code <= 0xD7AF  # hangul
+            or 0xF900 <= code <= 0xFAFF  # CJK compatibility ideographs
+        ):
+            return True
+    return False
+
+
+def _legacy_zip_name_encoding(name: str, flag_bits: int) -> str | None:
+    """Return the codepage that recovers a non-UTF-8-flagged member name."""
+    if flag_bits & 0x800:
+        return None
+    try:
+        raw = name.encode("cp437")
+    except UnicodeEncodeError:
+        return None
+    for encoding in _LEGACY_ZIP_ENCODINGS:
+        try:
+            decoded = raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        if decoded != name and _has_cjk(decoded):
+            return encoding
+    return None
+
+
+def detect_zip_metadata_encoding(path: Path | str) -> str | None:
+    """Probe a ZIP for member names written with a legacy codepage (GBK/cp932)."""
+    resolved = Path(path).resolve()
+    cache_key = str(resolved)
+    try:
+        mtime = resolved.stat().st_mtime_ns
+    except OSError:
+        return None
+    with _encoding_cache_lock:
+        cached = _encoding_cache.get(cache_key)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+    encoding: str | None = None
+    try:
+        with zipfile.ZipFile(resolved) as archive:
+            for info in archive.infolist():
+                found = _legacy_zip_name_encoding(info.filename, info.flag_bits)
+                if found is not None:
+                    encoding = found
+                    break
+    except (OSError, zipfile.BadZipFile):
+        return None
+    with _encoding_cache_lock:
+        if len(_encoding_cache) >= 64:
+            _encoding_cache.pop(next(iter(_encoding_cache)))
+        _encoding_cache[cache_key] = (mtime, encoding)
+    return encoding
 
 
 def _is_symlink(info: object) -> bool:
@@ -115,7 +182,9 @@ class ArchiveScanner(GalleryScanner):
         )
 
     @staticmethod
-    def _comic_info(archive: object, names: list[str]) -> tuple[dict, dict[str, object]]:
+    def _comic_info(
+        archive: object, names: list[str], sizes: dict[str, int] | None = None
+    ) -> tuple[dict, dict[str, object]]:
         comic = next(
             (
                 name
@@ -126,6 +195,8 @@ class ArchiveScanner(GalleryScanner):
         )
         if not comic:
             return {}, {}
+        if sizes is not None and sizes.get(comic, 0) > MAX_COMICINFO_SIZE:
+            return {"comic_info_error": "ComicInfo.xml exceeds size limit"}, {}
         try:
             root = ElementTree.fromstring(archive.read(comic))
         except ElementTree.ParseError as exc:
@@ -192,9 +263,12 @@ def _close_all_zips() -> None:
 atexit.register(_close_all_zips)
 
 
-def _get_cached_zip(path: Path | str) -> tuple[zipfile.ZipFile, threading.RLock]:
+def _get_cached_zip(
+    path: Path | str, metadata_encoding: str | None = None
+) -> tuple[zipfile.ZipFile, threading.RLock]:
+    _cleanup_stale_zips()
     resolved = Path(path).resolve()
-    key = str(resolved)
+    key = f"{resolved}\0{metadata_encoding or ''}"
     current_mtime = resolved.stat().st_mtime
     now = time.monotonic()
 
@@ -210,7 +284,7 @@ def _get_cached_zip(path: Path | str) -> tuple[zipfile.ZipFile, threading.RLock]
             del _zip_cache[key]
             to_close.append((zf, file_lock))
 
-        new_zf = zipfile.ZipFile(resolved)
+        new_zf = zipfile.ZipFile(resolved, metadata_encoding=metadata_encoding)
         new_lock = threading.RLock()
         _zip_cache[key] = (new_zf, current_mtime, now, new_lock)
         _zip_cache.move_to_end(key)
@@ -236,7 +310,10 @@ class CbzZipScanner(ArchiveScanner):
         return path.is_file() and path.suffix.casefold() in {".cbz", ".zip"}
 
     def scan(self, path: Path) -> GalleryMeta:
-        with zipfile.ZipFile(path) as archive:
+        _cleanup_stale_zips()
+        metadata_encoding = detect_zip_metadata_encoding(path)
+        warnings: list[str] = []
+        with zipfile.ZipFile(path, metadata_encoding=metadata_encoding) as archive:
             for info in archive.infolist():
                 try:
                     validate_archive_member(info.filename, info)
@@ -244,7 +321,7 @@ class CbzZipScanner(ArchiveScanner):
                     raise ValueError(f"{path}: {exc}") from exc
             sizes = {info.filename: info.file_size for info in archive.infolist()}
             pages = self._pages(list(sizes), sizes)
-            raw, metadata = self._comic_info(archive, list(sizes))
+            raw, metadata = self._comic_info(archive, list(sizes), sizes)
             gv_name = next(
                 (
                     name
@@ -253,6 +330,9 @@ class CbzZipScanner(ArchiveScanner):
                 ),
                 None,
             )
+            if gv_name and sizes.get(gv_name, 0) > MAX_SIDECAR_SIZE:
+                warnings.append(f"{SIDECAR_FILENAME} exceeds size limit")
+                gv_name = None
             if gv_name:
                 try:
                     gv_data = parse_galleryvault_json(archive.read(gv_name))
@@ -283,12 +363,14 @@ class CbzZipScanner(ArchiveScanner):
                             pass
                 except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError, TypeError):
                     pass
-            return self._meta(path, pages, raw, **metadata)
+            return self._meta(path, pages, raw, warnings=warnings, **metadata)
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
         if _is_unsafe_path(page.name):
             raise ValueError(f"unsafe page path: {page.name}")
-        zf, file_lock = _get_cached_zip(gallery.path)
+        zf, file_lock = _get_cached_zip(
+            gallery.path, detect_zip_metadata_encoding(gallery.path)
+        )
         with file_lock:
             try:
                 info = zf.getinfo(page.name)
@@ -354,7 +436,7 @@ class CbrRarScanner(ArchiveScanner):
                     except ValueError as exc:
                         raise ValueError(f"{path}: {exc}") from exc
                 sizes = {info.filename: info.file_size for info in infos}
-                raw, metadata = self._comic_info(archive, list(sizes))
+                raw, metadata = self._comic_info(archive, list(sizes), sizes)
                 return self._meta(path, self._pages(list(sizes), sizes), raw, **metadata)
         except RuntimeError:
             raise
