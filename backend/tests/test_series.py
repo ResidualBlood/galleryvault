@@ -1068,6 +1068,12 @@ async def test_rebuild_series_respects_cloud_exclusions(monkeypatch: pytest.Monk
             pass
 
     class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
         def begin(self):
             class Ctx:
                 async def __aenter__(self):
