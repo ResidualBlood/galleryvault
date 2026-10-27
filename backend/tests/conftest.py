@@ -60,6 +60,8 @@ def _isolate_app_state():
     orig_session_factory = app_state.session_factory
     orig_eh_client = app_state.eh_client
     orig_telegram = app_state.telegram
+    orig_task_manager = app_state.task_manager
+    orig_downloader = app_state.downloader
     orig_extra = dict(app_state.extra)
 
     # 单元测试默认隔离 worker 连接池，避免跨 loop 污染及打到真实 DB
@@ -78,6 +80,8 @@ def _isolate_app_state():
     app_state.session_factory = orig_session_factory
     app_state.eh_client = orig_eh_client
     app_state.telegram = orig_telegram
+    app_state.task_manager = orig_task_manager
+    app_state.downloader = orig_downloader
     app_state.extra = orig_extra
     try:
         from galleryvault.app.main import app

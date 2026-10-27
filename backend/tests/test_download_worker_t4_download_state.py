@@ -142,7 +142,7 @@ def _patch_repository(monkeypatch, recorded: list[tuple]) -> None:
 async def test_replacement_skip_writes_terminal_state(monkeypatch) -> None:
     app_state.settings = Settings(global_paused=False)
     app_state.extra.clear()
-    app_state.task_manager = _FakeTaskManager()
+    monkeypatch.setattr(app_state, "task_manager", _FakeTaskManager())
     row = _Row(retry_count=2)
     app_state.session_factory = lambda: _Session(row)
 
@@ -176,7 +176,7 @@ async def test_replacement_skip_writes_terminal_state(monkeypatch) -> None:
 async def test_challenge_budget_is_separate_and_capped(monkeypatch) -> None:
     app_state.settings = Settings(global_paused=False)
     app_state.extra.clear()
-    app_state.task_manager = _FakeTaskManager()
+    monkeypatch.setattr(app_state, "task_manager", _FakeTaskManager())
     row = _Row(retry_count=0, max_retries=5)
     app_state.session_factory = lambda: _Session(row)
 
@@ -215,7 +215,7 @@ async def test_challenge_budget_is_separate_and_capped(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_completed_download_during_scan_is_deferred(monkeypatch) -> None:
     tm = _FakeTaskManager(scan_running=True)
-    app_state.task_manager = tm
+    monkeypatch.setattr(app_state, "task_manager", tm)
     ingested: list[object] = []
 
     async def _fake_ingest(result: object) -> None:
@@ -283,7 +283,7 @@ async def test_cancel_cancels_sibling_page_writers(monkeypatch, tmp_path: Path) 
             return _png()
 
     app_state.settings = Settings(global_paused=False)
-    app_state.task_manager = _FakeTaskManager()
+    monkeypatch.setattr(app_state, "task_manager", _FakeTaskManager())
     downloader = Downloader(FakeClient(), gallery_root, concurrency=1, page_concurrency=2)
 
     task = DownloadTask(4242, "tok", "Test", id=7)
