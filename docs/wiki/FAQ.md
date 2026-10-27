@@ -156,7 +156,7 @@
 - **表现**：保留。阅读器维护独立的浏览上下文，退出阅读器返回列表时多标签筛选、排序与页码保持不变。
 
 ### 3. 如何通过第三方阅读客户端（如 Tachiyomi / Mihon / Panels）访问？
-- **处理**：系统提供标准 OPDS 服务（`GET /api/opds`）。在客户端添加 OPDS 源地址，采用 HTTP Basic 认证，用户名为 `galleryvault`，密码为管理员登录密码。
+- **处理**：系统提供标准 OPDS 服务：目录为 `GET /api/opds`，条目中的 CBZ 获取链接为 `GET/HEAD /api/galleries/{id}/export.cbz`。两个端点均接受 HTTP Basic 认证，用户名为 `galleryvault`，密码为管理员登录密码；未认证时返回 `401` 并附带 `WWW-Authenticate: Basic` 响应头。
 
 ### 4. 将应用「添加到主屏幕」（PWA）是否会将画廊离线下载到本地？
 - **表现**：不会。PWA 仅缓存前端界面资源与静态样式，画廊图片与元数据均按需在线流式加载。

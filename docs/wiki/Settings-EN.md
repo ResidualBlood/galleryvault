@@ -58,6 +58,7 @@ System settings, OPDS, Telegram bot commands, and which operations need the netw
   - Archive large favorites on scheduled scans.
   - Slow H@H watchdogs: image max time, warmup window, and minimum KB/s rate.
   - 302 challenge probe interval: environment variable `GV_CHALLENGE_PROBE_INTERVAL` (default 600 seconds).
+  - Per-task 302 challenge pause limit: environment variable `GV_MAX_CHALLENGE_PAUSES` (default 5; once reached, the task is marked failed with its remaining retry budget preserved).
 
 ### Tags & Thumbnails
 
@@ -74,7 +75,7 @@ System settings, OPDS, Telegram bot commands, and which operations need the netw
 | :--- | :--- | :--- |
 | OPDS Catalog | `GET /api/opds` | Returns up to 50 most recently ingested galleries (Atom XML format), with acquisition links to `GET /api/galleries/{id}/export.cbz`. |
 | OPDS Authentication | HTTP Basic | Supports HTTP Basic authentication with fixed username `galleryvault` (not an EH account) and web login password; session cookies also supported. Missing or invalid credentials return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. |
-| CBZ Export | Export API | Actual CBZ export and regular `/api/*` requests require standard cookie-based login sessions. |
+| CBZ Export | Export API | `GET/HEAD /api/galleries/{id}/export.cbz` accepts HTTP Basic authentication (username `galleryvault`, administrator password) or a session cookie, just like the OPDS catalog; regular `/api/*` requests still require cookie-based sessions. |
 | PWA Offline Support | Service Worker | Supports adding to home screen. Only caches HTML, CSS, and JS shell (static assets use network-first strategy and update cache upon success; falls back to cache offline). Explicitly does not cache gallery images or `/api/` endpoints. |
 
 ### Telegram Bot Configuration & Commands

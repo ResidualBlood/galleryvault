@@ -156,7 +156,7 @@ Red-banner states pause cloud sync tasks to protect local library integrity.
 - **Behavior**: Yes. The reader maintains browsing context; returning from reading preserves multi-tag filters, sorting criteria, and page positions.
 
 ### 3. How do I connect third-party mobile readers (Tachiyomi / Mihon / Panels)?
-- **Remediation**: The system exposes standard OPDS feeds (`GET /api/opds`). Connect using HTTP Basic authentication with username `galleryvault` and your administrator password.
+- **Remediation**: The system exposes standard OPDS feeds: the catalog at `GET /api/opds` and the per-entry CBZ acquisition link at `GET/HEAD /api/galleries/{id}/export.cbz`. Both accept HTTP Basic authentication with username `galleryvault` and your administrator password; unauthenticated requests return `401` with a `WWW-Authenticate: Basic` header.
 
 ### 4. Does "Add to Home Screen" (PWA) download galleries for offline use?
 - **Behavior**: No. The PWA shell caches interface styling and app frames; gallery assets stream on demand to avoid consuming local device storage.

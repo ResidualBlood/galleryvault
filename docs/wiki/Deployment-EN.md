@@ -60,7 +60,7 @@ docker compose up -d
 
 Pre-built Docker Hub images are distributed as multi-arch manifests (`linux/amd64` and `linux/arm64`), which automatically pull the architecture matching your host.
 
-> Open `http://<host-ip>:8000` with the default password **`p1a2s3s4`**. Login goes to the `#/welcome` wizard; you must change the password before the main UI. The shipped compose sets `TZ: Asia/Shanghai` (notification timestamps follow the container TZ).
+> Open `http://<host-ip>:8000` with the default password **`p1a2s3s4`**. Login goes to the `#/welcome` wizard; you must change the password before the main UI. The shipped compose sets `TZ: Asia/Shanghai` (notification timestamps follow the container TZ). The default password only works while no administrator password is configured; once one is set it is always rejected. OPDS HTTP Basic authentication also does not accept the default password when no password is configured.
 
 ---
 
@@ -224,6 +224,7 @@ Tune these parameters in *Settings* based on your network conditions:
 - **`page_concurrency`**: Default `4` (max `16`). Adjust according to proxy stability; reduce to `2-4` if connection drops occur over UDP/proxy hops.
 - **`exhentai_max_concurrency`**: Default `6`. Hard global cap protecting your account from burst traffic triggers.
 - **`GV_CHALLENGE_PROBE_INTERVAL`**: Default `600` seconds. Background probe cycle when auto-paused by anti-bot challenges.
+- **`GV_MAX_CHALLENGE_PAUSES`**: Default `5`. Per-task limit on 302 challenge pauses; once reached, the task is marked failed with its remaining retry budget preserved, preventing an endless pause/resume/re-challenge loop.
 
 ### 3. Database Connection Pool Tuning
 

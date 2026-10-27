@@ -58,6 +58,7 @@
   - 定时扫描大画廊走归档。
   - 慢速 H@H 看门狗：配置单图最大耗时、预热窗口与最低 KB/s 速率。
   - 302 探针间隔：环境变量 `GV_CHALLENGE_PROBE_INTERVAL`（默认 600 秒）。
+  - 单任务 302 挑战暂停上限：环境变量 `GV_MAX_CHALLENGE_PAUSES`（默认 5 次；达到后任务标记失败并保留剩余重试预算）。
 
 ### 标签与缩略图
 
@@ -74,7 +75,7 @@
 | :--- | :--- | :--- |
 | OPDS 目录 | `GET /api/opds` | 返回最近入库最多 50 条画廊（Atom XML 格式），条目 acquisition 指向 `GET /api/galleries/{id}/export.cbz`。 |
 | OPDS 认证 | HTTP Basic | 支持 HTTP Basic 认证，用户名固定为 `galleryvault`（非 EH 账号），密码为本系统 Web 登录密码；亦支持 Cookie 鉴权。未提供凭据或认证失败返回 `401 Unauthorized` 并附带 `WWW-Authenticate: Basic realm="GalleryVault OPDS"` 响应头。 |
-| CBZ 导出 | 导出 API | 实际 CBZ 导出及常规 `/api/*` 请求均仅支持基于 Cookie 的登录会话。 |
+| CBZ 导出 | 导出 API | `GET/HEAD /api/galleries/{id}/export.cbz` 与 OPDS 目录一样接受 HTTP Basic 认证（用户名 `galleryvault`，密码为管理员登录密码）或 Cookie 会话；常规 `/api/*` 请求仍仅支持 Cookie 登录会话。 |
 | PWA 离线支持 | Service Worker | 支持添加到主屏幕。仅缓存 HTML、CSS 与 JS 壳（静态资源采用 network-first 策略，成功后写入缓存；离线时回退到缓存）。明确不缓存画廊图片与 `/api/` 接口响应。 |
 
 ### Telegram Bot 配置与命令
