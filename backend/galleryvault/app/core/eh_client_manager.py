@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -12,6 +13,10 @@ from ...logging import log_extra
 from ..exceptions import EhClientUnavailableError
 
 logger = logging.getLogger(__name__)
+
+# Upper bound on how long a retired client may keep waiting for its in-flight
+# transfers to finish before it is closed anyway.
+_MAX_DRAIN_WAIT_SECONDS = 900.0
 
 
 class EhClientManager:
@@ -55,16 +60,34 @@ class EhClientManager:
         if old_client is not None and old_client is not new_client:
             self.retire_client(old_client)
 
-    def retire_client(self, client: Any, delay: float = 120.0) -> None:
-        """Schedule a retired client to be safely closed after delay."""
+    def retire_client(self, client: Any, delay: float | None = None) -> None:
+        """Schedule a retired client to be safely closed after delay.
+
+        The client is only closed once its in-flight image/archive transfers
+        have finished (bounded by ``_MAX_DRAIN_WAIT_SECONDS``), so rebuilding the
+        client from the settings page cannot kill a running download.
+        """
         if client is None:
             return
         self._retiring_clients.add(client)
+        grace = 120.0 if delay is None else float(delay)
 
         async def _drain_and_close() -> None:
             try:
-                if delay > 0:
-                    await asyncio.sleep(delay)
+                if grace > 0:
+                    await asyncio.sleep(grace)
+                deadline = time.monotonic() + _MAX_DRAIN_WAIT_SECONDS
+                while (
+                    int(getattr(client, "in_flight_requests", 0) or 0) > 0
+                    and time.monotonic() < deadline
+                ):
+                    await asyncio.sleep(1.0)
+                in_flight = int(getattr(client, "in_flight_requests", 0) or 0)
+                if in_flight > 0:
+                    logger.warning(
+                        "Closing retired EhClient with transfers still in flight",
+                        extra=log_extra(in_flight=in_flight),
+                    )
                 if hasattr(client, "aclose"):
                     await client.aclose()
                 elif hasattr(client, "close"):
@@ -84,10 +107,17 @@ class EhClientManager:
 
             task = spawn_task(_drain_and_close(), "retire eh_client")
             if task is None:
+                logger.warning(
+                    "No task runner for retired EhClient; spawning directly"
+                )
                 self._spawn_retire_task(_drain_and_close)
             else:
                 self._track_retire_task(task)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to schedule retired EhClient close, spawning directly",
+                extra=log_extra(error=str(exc)),
+            )
             self._spawn_retire_task(_drain_and_close)
 
     def _track_retire_task(self, task: asyncio.Task[Any]) -> None:
@@ -96,9 +126,20 @@ class EhClientManager:
 
     def _spawn_retire_task(self, coro_fn: Callable[[], Any]) -> None:
         """Start a retirement task and keep a strong reference until it finishes."""
+        coroutine = coro_fn()
         try:
-            task = asyncio.create_task(coro_fn())
-        except Exception:  # noqa: BLE001
+            task = asyncio.create_task(coroutine)
+        except Exception as exc:  # noqa: BLE001
+            # No running loop (or the loop is closing): the retired client will
+            # never be closed, so at least leave a trail instead of silently
+            # dropping it.
+            close = getattr(coroutine, "close", None)
+            if callable(close):
+                close()
+            logger.warning(
+                "Could not start retired EhClient close task",
+                extra=log_extra(error=str(exc)),
+            )
             return
         self._track_retire_task(task)
 

@@ -7,6 +7,7 @@ import html
 import logging
 import re
 import time
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -122,6 +123,35 @@ def _is_allowed_eh_host(host: str, base_url: str | None = None) -> bool:
             return True
     return any(host == domain or host.endswith("." + domain) for domain in ALLOWED_EH_DOMAINS)
 
+
+# Process-wide limiters. A settings save rebuilds the EhClient and keeps the old
+# one alive for a grace period; per-client semaphores would let both clients
+# spend a full ExHentai budget at the same time and double our effective
+# concurrency. Sharing per running event loop keeps exactly one budget. The
+# loop-keyed map keeps test suites (one loop per test) isolated.
+_SHARED_LIMITERS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[tuple[str, int], asyncio.Semaphore]
+] = weakref.WeakKeyDictionary()
+
+
+def _shared_limiter(kind: str, limit: int) -> asyncio.Semaphore:
+    """Return the loop-wide semaphore for ``kind`` with the given ``limit``."""
+    limit = max(1, int(limit))
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # Constructed outside a loop (e.g. sync unit tests): no sharing possible.
+        return asyncio.Semaphore(limit)
+    per_loop = _SHARED_LIMITERS.get(loop)
+    if per_loop is None:
+        per_loop = {}
+        _SHARED_LIMITERS[loop] = per_loop
+    key = (kind, limit)
+    semaphore = per_loop.get(key)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(limit)
+        per_loop[key] = semaphore
+    return semaphore
 
 
 def _page_token_from_href(absolute: str) -> str | None:
@@ -316,6 +346,34 @@ def _is_exhentai_org_host(host: str | None) -> bool:
     return h == "exhentai.org" or h.endswith(".exhentai.org")
 
 
+# ``/uconfig.php`` is a member-only settings page: a valid session returns the
+# full settings form, while a logged-out session returns either the exact
+# "expired login session" marker or a generic public/challenge page.  Treating
+# "any non-empty body" as logged in (the previous behaviour) reported dead
+# cookies as healthy whenever the site answered 200 with something else, so the
+# success path now requires a marker only the real settings page carries.
+_UCONFIG_POSITIVE_MARKERS = (
+    "uconfig.php",
+    "user control panel",
+    "user configuration",
+    "front page settings",
+    "thumbnail size",
+    "archiver settings",
+    'name="uh"',
+    "logged in",
+)
+_UCONFIG_LOGIN_FAILURE_MARKERS = (
+    "expired login session",
+    "you are not logged in",
+    "you must be logged in",
+)
+
+
+def _is_uconfig_page(body: str) -> bool:
+    lowered = (body or "").lower()
+    return any(marker in lowered for marker in _UCONFIG_POSITIVE_MARKERS)
+
+
 def parse_login_state(
     body: str,
     member_id: str = "",
@@ -328,7 +386,8 @@ def parse_login_state(
     ExHentai answers every session state with HTTP 200 and the public pages
     carry no login markers, so the member-only page body is the reliable
     signal (measured against production cookies):
-    - a valid session returns the full page (tens of KB)
+    - a valid session returns the full settings page, which carries
+      ``/uconfig.php`` markers (see ``_UCONFIG_POSITIVE_MARKERS``)
     - an expired/invalid session returns exactly ``expired login session``
     - an IP-banned page indicates the IP address is banned
     - a Sad-Panda page has no content at all
@@ -336,6 +395,8 @@ def parse_login_state(
       the account lacks ExHentai access (no igneous / no exhentai permission)
     - an empty body on other hosts (e.g. e-hentai.org, unknown) is an anti-bot
       challenge or transient glitch, classified as ``failed``
+    - any other non-empty body without the settings-page markers is an
+      anti-abuse/redirect page, classified as ``failed`` rather than ``ok``
 
     Returns one of ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
     ``ip_banned`` / ``failed``.  An empty body on exhentai.org is classified
@@ -350,9 +411,12 @@ def parse_login_state(
         return "no_exhentai_access"
     if not body or not body.strip():
         return "no_exhentai_access" if _is_exhentai_org_host(host) else "failed"
-    if "expired login session" not in body:
+    lowered = body.lower()
+    if any(marker in lowered for marker in _UCONFIG_LOGIN_FAILURE_MARKERS):
+        return "not_logged_in"
+    if _is_uconfig_page(body):
         return "ok"
-    return "not_logged_in"
+    return "failed"
 
 
 @dataclass(frozen=True)
@@ -557,17 +621,22 @@ def parse_gallery_url(value: str, base_url: str = "https://exhentai.org") -> tup
     # Host validation to avoid SSRF via user-supplied evil.com/g/... URLs.
     # fetch_gallery builds its own URL from gid/token + base_url, but callers
     # that blindly use the parsed gid/token could be misled; reject non-ExHentai hosts early.
-    try:
-        parsed_input = urlparse(value)
-        if parsed_input.scheme and parsed_input.hostname:
-            host = parsed_input.hostname.lower()
-            allowed = {"exhentai.org", "e-hentai.org"}
-            if host not in allowed and not host.endswith((".exhentai.org", ".e-hentai.org")):
-                raise ValueError("gallery URL must be on exhentai.org / e-hentai.org")
-    except ValueError:
-        raise
-    except Exception:  # noqa: BLE001, S110
-        pass
+    raw = value.strip()
+    host = (urlparse(raw).hostname or "").lower()
+    if not host and not raw.startswith(("/", "?", "#")):
+        # Schemeless absolute form ("evil.com/g/1/abc/"): urlparse() puts the
+        # whole string in ``path`` and reports no host, so the check above would
+        # be skipped. Re-parse with an authority marker and validate a
+        # host-looking first segment (a plain "123/abcdef" gid/token pair is
+        # kept valid).
+        candidate = urlparse("//" + raw)
+        candidate_host = (candidate.hostname or "").lower()
+        if "." in candidate_host or ":" in candidate_host:
+            host = candidate_host
+    if host:
+        allowed = {"exhentai.org", "e-hentai.org"}
+        if host not in allowed and not host.endswith((".exhentai.org", ".e-hentai.org")):
+            raise ValueError("gallery URL must be on exhentai.org / e-hentai.org")
     match = GALLERY_RE.search(value)
     if not match:
         compact = re.fullmatch(r"\s*/*\s*(\d+)\s*/\s*([0-9a-fA-F]+)\s*/*\s*", value)
@@ -664,7 +733,9 @@ def _parse_tags(body: str) -> list[dict[str, str]]:
 
 def _favorites_next_url(body: str) -> str:
     """The ``next`` cursor URL embedded by ExHentai for favorites paging."""
-    match = re.search(r"var\s+nexturl\s*=\s*\"([^\"]*)\"", body)
+    # ExHentai emits either quote style; matching only ``"`` silently stopped
+    # after page 1 if the markup changed, truncating favorites.
+    match = re.search(r"var\s+nexturl\s*=\s*[\"']([^\"']*)[\"']", body)
     if not match:
         return ""
     value = match.group(1).strip()
@@ -1086,13 +1157,26 @@ class EhClient:
         self._owned = client is None
         # A single shared limiter for ALL ExHentai page traffic (gallery pages,
         # gdata, favorites) so the many background workers cannot stack dozens
-        # of parallel requests and trip ExHentai's anti-abuse.
-        self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
+        # of parallel requests and trip ExHentai's anti-abuse.  The limiter is
+        # shared per event loop rather than per client: a settings save rebuilds
+        # the client and keeps the old one alive for a grace period, and two
+        # independent budgets would double the real concurrency.
+        self._semaphore = _shared_limiter("page", max(1, max_concurrency))
         # Image downloads go to the H@H network (hath.network) which is a
         # distributed CDN with its own generous limits — mirroring Ehviewer's
         # 32-thread IO pool, we give images their own, higher limiter instead of
         # sharing the page-fetch budget.
-        self._image_semaphore = asyncio.Semaphore(max(8, max(1, max_concurrency) * 2))
+        self._image_semaphore = _shared_limiter(
+            "image", max(8, max(1, max_concurrency) * 2)
+        )
+        # Archive (zip) transfers hit the site itself, not H@H, and are long
+        # lived; they get their own small budget so concurrent archives cannot
+        # bypass the page limits entirely.
+        self._archive_semaphore = _shared_limiter("archive", 2)
+        # Long-lived transfers currently in flight (images / covers / archives).
+        # ``EhClientManager`` waits for this to reach zero before closing a
+        # retired client so a settings rebuild cannot kill a running download.
+        self._stream_count = 0
         if client is not None:
             self.client = client
         else:
@@ -1153,6 +1237,11 @@ class EhClient:
     async def aclose(self) -> None:
         if self._owned:
             await self.client.aclose()
+
+    @property
+    def in_flight_requests(self) -> int:
+        """Number of long-lived transfers (image / cover / archive) still running."""
+        return self._stream_count
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         t_wait_start = time.perf_counter()
@@ -1787,6 +1876,18 @@ class EhClient:
         params: dict[str, object] = {"favcat": int(favcat)}
         while True:
             response = await self._get(url, params=params)
+            # Identity check: a dead session or an anti-abuse redirect can land
+            # on a generic page that still carries ``/g/`` links. Parsing it
+            # would import homepage/search gids as favorites (and let the
+            # pruner delete real rows), so require the favorites route, and
+            # never treat a login/logout body as "empty favorites".
+            final_path = urlparse(str(response.url)).path.rstrip("/")
+            if final_path != "/favorites.php":
+                raise EhClientError(
+                    f"ExHentai favorites request left the favorites page ({final_path or '/'})"
+                )
+            if _is_favorites_auth_failure_page(response.text):
+                raise EhClientError("ExHentai authentication is required or expired")
             # The cover thumbnail lives in a SEPARATE link (the glthumb cell)
             # from the title link the loop below matches, so map gid -> thumb
             # from the whole page once and look it up per item.
@@ -2171,29 +2272,53 @@ class EhClient:
         ExHentai caps each request at 25 galleries, so larger lists are chunked.
         Returns ``{gid: {thumb, title, title_jpn, category, file_count,
         file_size, tags}}`` for every gallery the API answered with.
+
+        A chunk that fails is logged and skipped so the galleries already
+        fetched are still returned; if no chunk succeeded the error is
+        re-raised.  Quota/rate-limit errors abort immediately (retrying them
+        would only deepen the limit).
         """
         result: dict[int, dict[str, Any]] = {}
+        chunk_count = 0
+        failed_chunks = 0
+        last_error: EhClientError | None = None
         for start in range(0, len(pairs), EXHENTAI_API_CHUNK_SIZE):
+            chunk_count += 1
             chunk = pairs[start : start + EXHENTAI_API_CHUNK_SIZE]
             payload = {
                 "method": "gdata",
                 "gidlist": [[int(gid), token] for gid, token in chunk],
                 "namespace": 1,
             }
-            response = await self._request(
-                "POST",
-                "/api.php",
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Origin": self.settings.exhentai_base_url.rstrip("/"),
-                },
-            )
-            self._raise_for_status(response)
             try:
-                body = response.json()
-            except ValueError as exc:
-                raise EhClientError("ExHentai gdata response was not JSON") from exc
+                response = await self._request(
+                    "POST",
+                    "/api.php",
+                    json=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Origin": self.settings.exhentai_base_url.rstrip("/"),
+                    },
+                )
+                self._raise_for_status(response)
+                try:
+                    body = response.json()
+                except ValueError as exc:
+                    raise EhClientError("ExHentai gdata response was not JSON") from exc
+            except EhQuotaExceededError:
+                raise
+            except EhClientError as exc:
+                # A failed chunk must not discard the chunks that already
+                # succeeded: keep the partial result and only fail hard when
+                # nothing at all came back (single-chunk callers keep the old
+                # "raise on failure" contract).
+                failed_chunks += 1
+                last_error = exc
+                logger.warning(
+                    "ExHentai gdata chunk failed",
+                    extra=log_extra(gids=len(chunk), error=str(exc)),
+                )
+                continue
             for gallery in body.get("gmetadata", []) or []:
                 if gallery.get("error") or gallery.get("gid") is None:
                     continue
@@ -2219,6 +2344,13 @@ class EhClient:
                     "rating": float(gallery.get("rating") or 0) or None,
                     "parent_gid": parent_gid,
                 }
+        if failed_chunks and not result and last_error is not None:
+            raise last_error
+        if failed_chunks:
+            logger.warning(
+                "ExHentai gdata returned partial metadata",
+                extra=log_extra(failed_chunks=failed_chunks, total_chunks=chunk_count),
+            )
         return result
 
     async def fetch_gallery_by_category(self, category: str) -> tuple[int, str] | None:
@@ -2355,13 +2487,29 @@ class EhClient:
     ) -> int:
         """Stream an archive zip to ``dest`` with Range resume support.
 
-        A single long-lived connection (no page semaphore): ExHentai serves the
-        archive itself rather than through H@H nodes.  ``cb(downloaded, total)``
-        receives byte progress.  Returns the final total size.
+        Archives are served by ExHentai itself (not H@H nodes) and are long
+        lived, so they take their own small budget (``_archive_semaphore``)
+        instead of bypassing the limiters entirely, and the image chain's
+        throughput watchdog (warm-up + minimum average speed) applies here too.
+        There is deliberately no total wall-clock budget: a multi-GB archive can
+        legitimately take many minutes, while a stalled or trickling transfer is
+        still aborted.  ``cb(downloaded, total)`` receives byte progress.
+        Returns the final total size.
         """
         host = (urlparse(url).hostname or "").lower()
         if not _is_allowed_eh_host(host, self.settings.exhentai_base_url):
             raise EhClientError(f"Disallowed host in archive URL: {host}")
+        await self._archive_semaphore.acquire()
+        self._stream_count += 1
+        try:
+            return await self._stream_archive(url, dest, cb)
+        finally:
+            self._stream_count -= 1
+            self._archive_semaphore.release()
+
+    async def _stream_archive(
+        self, url: str, dest: Path, cb: Callable[[int, int | None], object] | None = None
+    ) -> int:
         offset = dest.stat().st_size if dest.is_file() else 0
         headers = {"Referer": self.settings.exhentai_base_url.rstrip("/") + "/"}
         if offset > 0:
@@ -2409,10 +2557,26 @@ class EhClient:
                 last_cb_time = 0.0
                 last_cb_bytes = downloaded
                 mode = "ab" if offset > 0 else "wb"
+                started = time.monotonic()
+                # Same watchdog as the image chain: the 30s read timeout only
+                # fires when a transfer stalls completely, so a node trickling a
+                # few KB/s could hold a worker (and its archive slot) forever.
+                # No total budget here — archives are legitimately large.
+                warmup = max(1, int(self.settings.image_slow_warmup_seconds))
+                min_speed = max(1, int(self.settings.image_min_speed_kb_s)) * 1024
                 with dest.open(mode) as handle:
                     async for chunk in response.aiter_bytes():
                         handle.write(chunk)
                         downloaded += len(chunk)
+                        elapsed = time.monotonic() - started
+                        if elapsed > warmup:
+                            transferred = downloaded - offset
+                            if transferred / elapsed < min_speed:
+                                raise EhClientError(
+                                    "ExHentai archive transfer throttled "
+                                    f"({transferred / elapsed / 1024:.0f} KB/s < "
+                                    f"{int(self.settings.image_min_speed_kb_s)} KB/s)"
+                                )
                         if cb is not None:
                             now = time.monotonic()
                             if (
@@ -2473,23 +2637,27 @@ class EhClient:
         use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
         semaphore = self._image_semaphore if use_image_budget else self._semaphore
         t_wait_start = time.perf_counter()
-        async with semaphore:
-            wait_elapsed = time.perf_counter() - t_wait_start
-            observe_histogram(
-                "gv_ehclient_semaphore_wait_seconds",
-                wait_elapsed,
-                {"type": "image" if use_image_budget else "page"},
-            )
-            if isinstance(getattr(self.client, "event_hooks", None), dict):
-                resp_hooks = self.client.event_hooks.setdefault("response", [])
-                if self._check_redirect_host not in resp_hooks:
-                    resp_hooks.append(self._check_redirect_host)
-            cover_response = await self.client.get(
-                cover_url,
-                headers={"Referer": str(response.url)},
-                timeout=httpx.Timeout(120.0, read=30.0),
-                follow_redirects=True,
-            )
+        self._stream_count += 1
+        try:
+            async with semaphore:
+                wait_elapsed = time.perf_counter() - t_wait_start
+                observe_histogram(
+                    "gv_ehclient_semaphore_wait_seconds",
+                    wait_elapsed,
+                    {"type": "image" if use_image_budget else "page"},
+                )
+                if isinstance(getattr(self.client, "event_hooks", None), dict):
+                    resp_hooks = self.client.event_hooks.setdefault("response", [])
+                    if self._check_redirect_host not in resp_hooks:
+                        resp_hooks.append(self._check_redirect_host)
+                cover_response = await self.client.get(
+                    cover_url,
+                    headers={"Referer": str(response.url)},
+                    timeout=httpx.Timeout(120.0, read=30.0),
+                    follow_redirects=True,
+                )
+        finally:
+            self._stream_count -= 1
         for redirect_resp in getattr(cover_response, "history", []):
             loc = redirect_resp.headers.get("Location")
             if loc:
@@ -2525,6 +2693,7 @@ class EhClient:
         use_image_budget = "hath.network" in host or host.endswith(".ehgt.org")
         semaphore = self._image_semaphore if use_image_budget else self._semaphore
         t_wait_start = time.perf_counter()
+        self._stream_count += 1
         try:
             async with semaphore:
                 wait_elapsed = time.perf_counter() - t_wait_start
@@ -2577,7 +2746,7 @@ class EhClient:
                     chunks: list[bytes] = []
                     total = 0
                     started = time.monotonic()
-                    # Watchdogs for a slow-but-alive H@H node: the 15s read
+                    # Watchdogs for a slow-but-alive H@H node: the 30s read
                     # timeout only fires when no bytes arrive at all, so a node
                     # trickling a few KB/s would otherwise hold the worker
                     # indefinitely.  Enforce a total wall-clock budget plus a
@@ -2625,6 +2794,8 @@ class EhClient:
             raise EhClientError(
                 f"ExHentai image download failed: {type(exc).__name__} on {host}"
             ) from exc
+        finally:
+            self._stream_count -= 1
 
 
 async def probe_cookie_health() -> dict[str, Any]:
@@ -2672,6 +2843,20 @@ async def probe_cookie_health() -> dict[str, Any]:
     return health
 
 
+def _report_cookie_health(tracker: Any, health: dict[str, Any]) -> None:
+    """Record a cookie-health probe result on a task tracker.
+
+    ``check_login`` reports ``ok`` / ``not_logged_in`` / ``no_exhentai_access`` /
+    ``ip_banned`` / ``failed`` (never ``valid``/``expired``), so the tracker must
+    key off those names or it always reported "nothing done" and dropped the
+    failure detail.
+    """
+    state = health.get("state")
+    tracker.update(done=1 if state == "ok" else 0, total=1, stage=state)
+    if state != "ok":
+        tracker.update(last_error=health.get("detail") or state)
+
+
 async def cookie_health_loop(interval_seconds: int = 1800) -> None:
     """Periodically probe ExHentai cookie health while the app is running.
 
@@ -2695,13 +2880,7 @@ async def cookie_health_loop(interval_seconds: int = 1800) -> None:
             tm = get_task_manager()
             async with tm.track_task("cookie-health") as tracker:
                 health = await probe_cookie_health()
-                tracker.update(
-                    done=1 if health.get("state") == "valid" else 0,
-                    total=1,
-                    stage=health.get("state"),
-                )
-                if health.get("state") in ("failed", "expired"):
-                    tracker.update(last_error=health.get("detail"))
+                _report_cookie_health(tracker, health)
         except asyncio.CancelledError:
             return
         except Exception:  # noqa: BLE001, S110
