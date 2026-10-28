@@ -49,6 +49,7 @@ from ..dependencies import (
     get_current_settings,
     get_eh_client_manager,
     get_favorite_service,
+    get_leased_eh_client,
     get_session,
     get_task_manager,
     image_content_type,
@@ -57,6 +58,7 @@ from ..dependencies import (
     resolve_session,
     spawn_task,
 )
+from ..exceptions import EhClientUnavailableError
 from ..schemas import (
     ArchivePreviewRequest,
     DownloadSelectedRequest,
@@ -119,6 +121,24 @@ def _resolve_eh_client_manager(mgr: Any) -> Any:
     if isinstance(mgr, Depends) or not hasattr(mgr, "client_context"):
         mgr = get_eh_client_manager()
     return _EhClientManagerWrapper(mgr)
+
+
+def _resolve_leased_eh_client(client: Any) -> Any:
+    """Return the request's leased ExHentai client.
+
+    FastAPI injects the client through ``get_leased_eh_client`` so a hot client
+    rebuild cannot retire the instance an in-flight request is still using.
+    Direct calls (tests/scripts) fall back to the managed active client instead
+    of reading ``app_state.eh_client`` directly.
+    """
+    from fastapi.params import Depends
+
+    if client is not None and not isinstance(client, Depends):
+        return client
+    try:
+        return get_eh_client_manager().get_client()
+    except EhClientUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="ExHentai client is unavailable") from exc
 
 
 def _record_favorites_remove_log(
@@ -369,6 +389,7 @@ async def favorite_items(
 async def archives_preview(
     body: ArchivePreviewRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    leased_client: Any = Depends(get_leased_eh_client),  # noqa: B008
 ) -> dict[str, object]:
     """Read-only archive info for a set of gids (no GP is charged)."""
     session = await resolve_session(session, fallback_dep=get_session)
@@ -376,9 +397,6 @@ async def archives_preview(
     gids = list(dict.fromkeys([*(body.gids or []), *item_tokens.keys()]))
     if not gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
-    client = app_state.eh_client
-    if client is None:
-        raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
     try:
         detail = await FavoritesRepository(session).favorite_items_detail_by_gids(gids)
         if len(detail) < len(gids):
@@ -412,6 +430,8 @@ async def archives_preview(
     # All DB reads are done; release the pooled connection before the ExHentai
     # network calls (metadata preparation, archive info, GP balance).
     await release_session(session)
+
+    client = _resolve_leased_eh_client(leased_client)
 
     pairs: list[tuple[int, str]] = []
     for gid in gids:
@@ -1218,6 +1238,11 @@ async def download_missing_favorites(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
+    tm = get_task_manager()
+    if tm.metadata_sync_state.get("running"):
+        raise HTTPException(
+            status_code=409, detail="favorite metadata sync already running"
+        )
     favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
     if not favcats:
         favcats = list(range(10))
