@@ -91,7 +91,17 @@ async function saveSettings(form) {
   } catch (e) { toast(e.message); }
 }
 
+// Storage dashboard re-checks itself while the backend is still computing sizes;
+// keep a single cancellable timer so leaving the view doesn't leave work behind.
+let storageDashTimer = null;
+
+function clearStorageDashTimer() {
+  if (storageDashTimer) { clearTimeout(storageDashTimer); storageDashTimer = null; }
+}
+
 async function renderSettings() {
+  clearStorageDashTimer();
+  if (typeof currentViewCleanup !== "undefined") currentViewCleanup = clearStorageDashTimer;
   if (!app.settings) {
     try { app.settings = await api("GET", "/api/settings"); } catch (_) { app.settings = {}; }
   }
@@ -365,8 +375,10 @@ async function fillStorageDash() {
       `<h3>${esc(t("storageLargest"))}</h3><ul>${largest || `<li class="muted">${esc(t("noData"))}</li>`}</ul>`;
 
     if (d.downloads?.computing || d.cache?.computing || d.library?.computing) {
-      setTimeout(() => {
-        if (document.getElementById("storage-dash")) fillStorageDash();
+      clearStorageDashTimer();
+      storageDashTimer = setTimeout(() => {
+        storageDashTimer = null;
+        if (app.view === "settings" && document.getElementById("storage-dash")) fillStorageDash();
       }, 3000);
     }
   } catch (e) {

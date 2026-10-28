@@ -96,7 +96,7 @@ async function renderLogs() {
         <input type="search" id="syslog-search-input" placeholder="${esc(t("searchLogs"))}" value="${esc(systemLogSearch)}" style="flex:1; min-width:180px;">
         <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;user-select:none;">
           <input type="checkbox" id="syslog-autoscroll" ${systemLogAutoScroll ? "checked" : ""}>
-          <span>${esc(t("autoScroll") || (document.documentElement.lang === "en" ? "Auto-scroll" : "自动滚动"))}</span>
+          <span>${esc(t("autoScroll"))}</span>
         </label>
         <a class="btn btn-secondary" href="/api/system/logs/download" download style="display:inline-flex;align-items:center;padding:5px 12px;font-size:13px;text-decoration:none;border-radius:4px" target="_blank">${esc(t("downloadLogs"))}</a>
         <button class="secondary" data-action="refresh-system-logs" type="button">${esc(t("refreshLogs"))}</button>
@@ -213,10 +213,13 @@ function renderSystemLogRow(row) {
   `;
 }
 
+let syslogFetchSeq = 0;
+
 async function fetchSystemLogs() {
   const container = document.getElementById("syslog-container");
   if (!container) return;
   bindSyslogEvents();
+  const seq = ++syslogFetchSeq;
 
   if (systemLogSearch !== lastSearchQuery || systemLogMinLevel !== lastMinLevel) {
     lastRenderedLogId = null;
@@ -231,6 +234,8 @@ async function fetchSystemLogs() {
     });
     if (systemLogSearch) q.set("search", systemLogSearch);
     const data = await api("GET", `/api/system/logs?${q.toString()}`);
+    // A newer request (search/filter change or poll tick) already superseded this one.
+    if (seq !== syslogFetchSeq) return;
     if (data.level) {
       systemLogLevel = data.level;
       const sel = document.getElementById("syslog-runtime-level");
@@ -239,8 +244,8 @@ async function fetchSystemLogs() {
     const infoEl = document.getElementById("syslog-storage-info");
     if (infoEl) {
       infoEl.textContent = data.log_mode === "file" && data.log_file
-        ? `Storage: File (${data.log_file})`
-        : "Storage: In-memory RingBuffer";
+        ? t("logStorageFile", { path: data.log_file })
+        : t("logStorageMemory");
     }
     const logs = data.logs || [];
     if (!logs.length) {

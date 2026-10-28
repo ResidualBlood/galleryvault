@@ -295,7 +295,8 @@ async function loadSeriesList() {
     const statsEl = document.getElementById("series-stats");
     if (statsEl) {
       const totalGalleries = items.reduce((acc, it) => acc + (it.count || 0), 0);
-      statsEl.textContent = `${total} ${t("groups") || "groups"} · ${totalGalleries} ${t("details") || "items"}`;
+      // The "groups" locale key is a namespace object; using it as text rendered "[object Object]".
+      statsEl.textContent = `${total} ${t("seriesGroupsUnit")} · ${totalGalleries} ${t("seriesItemsUnit")}`;
     }
 
     const buildQuery = p => ({

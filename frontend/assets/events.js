@@ -6,6 +6,25 @@
 let suggestController = null;
 let discoverBatchInFlight = false;
 
+// Unified in-flight guard for bulk/destructive actions: a second click while the
+// first request is still running is ignored, and the triggering control stays
+// disabled until the handler settles.
+async function runGuarded(el, fn) {
+  if (el && el.getAttribute("data-busy") === "1") return;
+  if (el) {
+    el.setAttribute("data-busy", "1");
+    if ("disabled" in el) el.disabled = true;
+  }
+  try {
+    return await fn();
+  } finally {
+    if (el) {
+      el.removeAttribute("data-busy");
+      if ("disabled" in el) el.disabled = false;
+    }
+  }
+}
+
 async function onClick(e) {
   const notifWrap = document.getElementById("notif-wrap");
   if (notifWrap && !notifWrap.contains(e.target)) closeNotificationPanel();
@@ -44,14 +63,14 @@ async function onClick(e) {
   if (action === "remove-tag") { e.preventDefault(); location.hash = removeTagHash(el.getAttribute("data-tag")); return; }
   if (action === "clear-history") { clearHistory(); return; }
   if (action === "clear-progress") { clearProgress(); return; }
-  if (action === "cancel-download") { cancelDownload(el.getAttribute("data-id")); return; }
-  if (action === "retry-download") { retryDownload(el.getAttribute("data-id")); return; }
-  if (action === "delete-download") { deleteDownload(el.getAttribute("data-id")); return; }
+  if (action === "cancel-download") { runGuarded(el, () => cancelDownload(el.getAttribute("data-id"))); return; }
+  if (action === "retry-download") { runGuarded(el, () => retryDownload(el.getAttribute("data-id"))); return; }
+  if (action === "delete-download") { runGuarded(el, () => deleteDownload(el.getAttribute("data-id"))); return; }
   if (action === "dl-select-all") { selectAllDownloads(); return; }
-  if (action === "dl-retry-selected") { retrySelectedDownloads(); return; }
-  if (action === "dl-retry-all") { retryAllDownloads(); return; }
-  if (action === "dl-delete-selected") { deleteSelectedDownloads(); return; }
-  if (action === "dl-clear-success") { clearSuccessDownloads(); return; }
+  if (action === "dl-retry-selected") { runGuarded(el, retrySelectedDownloads); return; }
+  if (action === "dl-retry-all") { runGuarded(el, retryAllDownloads); return; }
+  if (action === "dl-delete-selected") { runGuarded(el, deleteSelectedDownloads); return; }
+  if (action === "dl-clear-success") { runGuarded(el, clearSuccessDownloads); return; }
   if (action === "dl-add-archive") { addArchiveFromInput(); return; }
   if (action === "test-exhentai") { testExhentai(); return; }
   if (action === "favcats-save") { saveFavoriteCategories(); return; }
@@ -60,20 +79,20 @@ async function onClick(e) {
   if (action === "favcats-download-missing") { downloadMissingFavorites(); return; }
   if (action === "favlist-state") { e.preventDefault(); location.hash = navHash("favlist", { id: app.params.id }, { ...app.query, state: el.getAttribute("data-state") || "all", page: undefined }); return; }
   if (action === "favcat-check") { checkFavoriteCategory(el.getAttribute("data-favcat")); return; }
-  if (action === "favlist-download") { favListDownload(el.getAttribute("data-favcat")); return; }
-  if (action === "favlist-download-orig") { favListDownloadOrig(el.getAttribute("data-favcat")); return; }
-  if (action === "favlist-archive") { favListArchive(el.getAttribute("data-favcat")); return; }
-  if (action === "favlist-move") { favListMove(parseInt(el.getAttribute("data-favcat"), 10)); return; }
-  if (action === "favlist-unfav") { favListUnfavorite(el.getAttribute("data-favcat")); return; }
+  if (action === "favlist-download") { runGuarded(el, () => favListDownload(el.getAttribute("data-favcat"))); return; }
+  if (action === "favlist-download-orig") { runGuarded(el, () => favListDownloadOrig(el.getAttribute("data-favcat"))); return; }
+  if (action === "favlist-archive") { runGuarded(el, () => favListArchive(el.getAttribute("data-favcat"))); return; }
+  if (action === "favlist-move") { runGuarded(el, () => favListMove(parseInt(el.getAttribute("data-favcat"), 10))); return; }
+  if (action === "favlist-unfav") { runGuarded(el, () => favListUnfavorite(el.getAttribute("data-favcat"))); return; }
   if (action === "favlist-select-all") { favListSelectAll(); return; }
   if (action === "favlist-clear") { selFav.clear(); router(); return; }
   if (action === "upd-scan") { updScan(); return; }
   if (action === "upd-state") { e.preventDefault(); location.hash = navHash("updates", {}, { state: el.getAttribute("data-state") || "active", page: undefined }); return; }
-  if (action === "upd-update") { updRunSelected(); return; }
-  if (action === "upd-update-orig") { updRunSelectedOrig(); return; }
-  if (action === "upd-archive") { updArchiveSelected(); return; }
-  if (action === "upd-ignore") { updIgnoreSelected(); return; }
-  if (action === "upd-delete-selected") { updDeleteSelected(); return; }
+  if (action === "upd-update") { runGuarded(el, updRunSelected); return; }
+  if (action === "upd-update-orig") { runGuarded(el, updRunSelectedOrig); return; }
+  if (action === "upd-archive") { runGuarded(el, updArchiveSelected); return; }
+  if (action === "upd-ignore") { runGuarded(el, updIgnoreSelected); return; }
+  if (action === "upd-delete-selected") { runGuarded(el, updDeleteSelected); return; }
   if (action === "upd-retry") { updRunIds([parseInt(el.getAttribute("data-id"), 10)]); return; }
   if (action === "upd-unignore") { updUnignore([parseInt(el.getAttribute("data-id"), 10)]); return; }
   if (action === "upd-unignore-selected") { updUnignoreSelected(); return; }
@@ -247,13 +266,13 @@ async function onClick(e) {
   if (action === "integrity-scan") { integrityScan(); return; }
   if (action === "integrity-select-all") { integritySelectAll(); return; }
   if (action === "integrity-clear") { integrityClearSelection(); return; }
-  if (action === "integrity-repair") { integrityRepair(); return; }
+  if (action === "integrity-repair") { runGuarded(el, integrityRepair); return; }
   if (action === "archive-start") { archiveStart(); return; }
   if (action === "archive-cancel") { archiveCancel(); return; }
   if (action === "archive-purge-sources") { purgeArchivedSources(el); return; }
-  if (action === "delete-filtered") { deleteFiltered(); return; }
+  if (action === "delete-filtered") { runGuarded(el, deleteFiltered); return; }
   if (action === "sel-clear") { selGalleries.clear(); renderCardCheckboxes(); router(); return; }
-  if (action === "sel-delete") { deleteSelected(); return; }
+  if (action === "sel-delete") { runGuarded(el, deleteSelected); return; }
   if (action === "tag-ns") { e.preventDefault(); selectTagNamespace(el.getAttribute("data-ns")); return; }
   if (action === "gallery-slideshow") { startGallerySlideshow(el.getAttribute("data-id")); return; }
   if (action === "reader-slideshow") { startReaderSlideshow(); return; }
@@ -399,7 +418,7 @@ async function toggleLang() {
   const targetLang = app.lang === "zh" ? "en" : "zh";
   await loadLocale(targetLang);
   app.lang = targetLang;
-  localStorage.setItem("gv_lang", app.lang);
+  safeSetItem("gv_lang", app.lang);
   updateLangButton();
   router();
 }
@@ -509,15 +528,19 @@ function bindTagSuggest() {
 }
 
 // onChange moved here too for completeness
+// localStorage can throw (private mode, quota); never let persistence break the action.
+function safeSetItem(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch (_) { return false; }
+}
+
 function onChange(e) {
   const el = e.target;
   if (!el) return;
   if (el.matches("#syslog-runtime-level")) { changeRuntimeLogLevel(el.value); return; }
   if (el.matches("#syslog-filter-level")) { systemLogMinLevel = el.value; fetchSystemLogs(); return; }
-  if (el.matches("#syslog-search-input")) { systemLogSearch = el.value; fetchSystemLogs(); return; }
   if (el.matches("select[data-eh-select]")) { toggleEhCustom(el); return; }
   if (!el.matches(".page-size")) return;
-  localStorage.setItem("gv_page_size", el.value);
+  safeSetItem("gv_page_size", el.value);
   const view = el.getAttribute("data-view") || app.view;
   const params = (view === "gallery" || view === "favlist") ? { id: app.params.id } : {};
   const q = { ...app.query, page_size: el.value, page: undefined };

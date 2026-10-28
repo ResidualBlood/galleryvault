@@ -39,7 +39,7 @@ async function renderDownloads() {
     <h2>${esc(t("dlTasks"))}</h2>
     <div class="toolbar">
       <div class="pills" style="margin:0">
-        ${DL_STATUSES.map(s => `<a class="pill${s === filter ? " active" : ""}" href="${navHash("downloads", {}, s !== "all" ? { filter: s } : {})}">${esc(s === "all" ? t("filterAll") : s)}</a>`).join("")}
+        ${DL_STATUSES.map(s => `<a class="pill${s === filter ? " active" : ""}" href="${navHash("downloads", {}, s !== "all" ? { filter: s } : {})}">${esc(s === "all" ? t("filterAll") : dlStatusLabel(s))}</a>`).join("")}
       </div>
       <button class="secondary" data-action="dl-select-all" type="button">${esc(t("selectAll"))}</button>
       <button class="primary" data-action="dl-retry-selected" type="button">${esc(t("retrySelected"))}</button>
@@ -49,10 +49,14 @@ async function renderDownloads() {
     </div>
     <div id="dl-list"><p>${esc(t("loading"))}</p></div>
     <div class="pages" id="dl-pages"></div>`);
+  dlRenderSig = "";
+  dlProgCache = new Map();
   loadDownloads(filter, app.query.page || "1");
   loadQuota();
   if (dlTimer) clearInterval(dlTimer);
   dlTimer = setInterval(() => {
+    // Skip polling for hidden tabs and when the user is typing in the pager.
+    if (document.hidden) return;
     if (location.hash.startsWith("#/downloads")) {
       const active = document.activeElement;
       if (active && active.matches && active.matches("#dl-pages .page-jump")) return;
@@ -118,7 +122,7 @@ function dlProgressHtml(x) {
     return `<div class="dl-progress dl-progress-indet"></div>
       <span class="row-meta">${esc(t("downloading"))}…</span>`;
   }
-  let statusText = x.status;
+  let statusText = dlStatusLabel(x.status);
   if (x.status === "success" && x.archive_status) {
     if (x.archive_status === "ok") {
       statusText = t("dlArchivedCold");
@@ -174,6 +178,32 @@ function toastDlBatch(data, extraFailed) {
   toast(msgParts.join(" · ") || t("dlAddEmpty"));
 }
 
+// Snapshot of the last rendered row structure; used to avoid rebuilding the whole
+// list when only progress numbers changed during the 2s auto-refresh.
+let dlRenderSig = "";
+let dlProgCache = new Map();
+
+function dlStatusLabel(status) {
+  const key = {
+    pending: "dlStatusPending",
+    downloading: "dlStatusDownloading",
+    success: "dlStatusSuccess",
+    failed: "dlStatusFailed",
+    cancelled: "dlStatusCancelled",
+  }[status];
+  return key ? t(key) : status;
+}
+
+function dlRowStructSig(x) {
+  return [x.id, x.status, x.mode, x.quality, x.archive_status, x.archive_fallback, x.title, x.retry_count].join("\u0001");
+}
+
+// 409 = a task for this gallery is already queued/running; show localized copy.
+function dlErrorToast(e) {
+  if (e && e.status === 409) { toast(t("dlAlreadyActive")); return; }
+  toast(e.message || t("error"));
+}
+
 async function loadDownloads(filter, page) {
   try {
     const status = filter !== "all" ? `&status=${encodeURIComponent(filter)}` : "";
@@ -182,10 +212,30 @@ async function loadDownloads(filter, page) {
     const items = (data && data.items) || [];
     const el = document.getElementById("dl-list");
     if (!el) return;
+    const structSig = items.map(dlRowStructSig).join("\u0002") + "\u0003"
+      + [data.total, data.page, data.page_size, filter, pageSize].join("\u0001");
+    // Auto-refresh fast path: same rows/pager as last render → only patch the
+    // progress fragments that actually changed (no innerHTML rebuild, no focus loss).
+    if (structSig === dlRenderSig && el.querySelector(".row[data-task-id]")) {
+      for (const x of items) {
+        const html = dlProgressHtml(x);
+        if (dlProgCache.get(String(x.id)) === html) continue;
+        dlProgCache.set(String(x.id), html);
+        const holder = el.querySelector(`.row[data-task-id="${x.id}"] .dl-prog`);
+        if (holder) holder.innerHTML = html;
+      }
+      return;
+    }
     // Preserve the user's selection across the auto-refresh re-render.
     const checked = new Set(
       [...document.querySelectorAll(".dl-check:checked")].map(b => b.getAttribute("data-id"))
     );
+    const activeEl = document.activeElement;
+    const focusSel = (activeEl && el.contains(activeEl) && activeEl.dataset && activeEl.dataset.action && activeEl.dataset.id)
+      ? `[data-action="${activeEl.dataset.action}"][data-id="${activeEl.dataset.id}"]`
+      : null;
+    dlRenderSig = structSig;
+    dlProgCache = new Map(items.map(x => [String(x.id), dlProgressHtml(x)]));
     if (!items.length) { el.innerHTML = `<p>${esc(t("noTasks"))}</p>`; }
     else {
       el.innerHTML = `<div class="rows">` + items.map(x => {
@@ -209,10 +259,14 @@ async function loadDownloads(filter, page) {
         return `<div class="row" data-task-id="${x.id}">
           <input type="checkbox" class="dl-check" data-id="${x.id}"${checked.has(String(x.id)) ? " checked" : ""} aria-label="${esc(t("selectAll"))}">
           <span class="row-title dl-title" title="${esc(title)}">${esc(title)}</span>${badge}
-          ${dlProgressHtml(x)}
+          <div class="dl-prog" style="display:contents">${dlProgressHtml(x)}</div>
           ${actions.join("")}
         </div>`;
       }).join("") + `</div>`;
+    }
+    if (focusSel) {
+      const again = el.querySelector(focusSel);
+      if (again && typeof again.focus === "function") again.focus();
     }
     const last = Math.max(1, Math.ceil(data.total / data.page_size));
     const qp = p => navHash("downloads", {}, { ...(filter !== "all" ? { filter } : {}), page: p, page_size: pageSize });
@@ -231,19 +285,19 @@ async function loadDownloads(filter, page) {
 }
 
 async function cancelDownload(id) {
-  try { await api("POST", `/api/downloads/${id}/cancel`); toast("#" + id + " cancelled"); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
-  catch (e) { toast(e.message); }
+  try { await api("POST", `/api/downloads/${id}/cancel`); toast("#" + id + " " + t("dlStatusCancelled")); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
+  catch (e) { dlErrorToast(e); }
 }
 
 async function retryDownload(id) {
-  try { await api("POST", `/api/downloads/${id}/retry`); toast("#" + id + " queued"); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
-  catch (e) { toast(e.message); }
+  try { await api("POST", `/api/downloads/${id}/retry`); toast("#" + id + " " + t("dlQueued")); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
+  catch (e) { dlErrorToast(e); }
 }
 
 async function deleteDownload(id) {
   if (!window.confirm(t("deleteDl") + " #" + id + "?")) return;
   try { await api("DELETE", `/api/downloads/${id}`); toast("#" + id + " " + t("deleted")); loadDownloads(app.query.filter || "all", app.query.page || "1"); }
-  catch (e) { toast(e.message); }
+  catch (e) { dlErrorToast(e); }
 }
 
 function selectAllDownloads() {
@@ -261,7 +315,7 @@ async function deleteSelectedDownloads() {
     try { await api("DELETE", `/api/downloads/${id}`); ok++; }
     catch (_) { fail++; }
   }
-  toast(`${ok} ${t("deleted")}${fail ? `, ${fail} failed` : ""}`);
+  toast(`${ok} ${t("deleted")}${fail ? `, ${fail} ${t("dlStatusFailed")}` : ""}`);
   loadDownloads(app.query.filter || "all", app.query.page || "1");
 }
 
@@ -288,7 +342,7 @@ async function retrySelectedDownloads() {
     try { await api("POST", `/api/downloads/${id}/retry`); ok++; }
     catch (_) { fail++; }
   }
-  toast(`${ok} queued${fail ? `, ${fail} failed` : ""}`);
+  toast(`${ok} ${t("dlQueued")}${fail ? `, ${fail} ${t("dlStatusFailed")}` : ""}`);
   loadDownloads(app.query.filter || "all", app.query.page || "1");
 }
 

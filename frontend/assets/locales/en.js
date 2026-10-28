@@ -407,6 +407,20 @@ window.GV_LOCALES.en = {
         <li><strong>Magic Header & WebP Tolerance</strong>: Validates image file binary headers (JPEG, PNG, GIF, WebP) to catch corrupted or zero-byte files; includes robust <strong>WebP truncation tolerance</strong> to detect aborted transfers.</li>
         <li><strong>Differential Repair</strong>: Select galleries and click "Retry / Repair" to re-queue only the missing or damaged pages without redownloading the entire gallery.</li>
       </ul>`,
+  seriesGroupsUnit: "groups",
+  seriesItemsUnit: "items",
+  // Batch 1 frontend fixes: previously hardcoded strings (downloads/logs/duplicates/favorites)
+  favFolderName: "Folder {n}",
+  logStorageFile: "Storage: File ({path})",
+  logStorageMemory: "Storage: In-memory RingBuffer",
+  dlStatusPending: "Pending",
+  dlStatusDownloading: "Downloading",
+  dlStatusSuccess: "Success",
+  dlStatusFailed: "Failed",
+  dlStatusCancelled: "Cancelled",
+  dlQueued: "Queued",
+  dlAlreadyActive: "An active download already exists for this gallery.",
+  dupScanning: "Scanning\u2026",
   groups: { all: "All", tag: "Tags", artist: "Artists", character: "Characters", parody: "Parodies", group: "Groups", female: "Female", male: "Male", language: "Languages", location: "Locations" },
   ns: { artist: "Artist", character: "Character", parody: "Parody", group: "Group", language: "Language", location: "Location", category: "Category", misc: "Tag", other: "Tag", female: "Female", male: "Male", mixed: "Mixed", local: "Local" },
 };
