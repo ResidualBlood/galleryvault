@@ -135,6 +135,9 @@ def test_scan_roots_dedupes_trailing_slash(tmp_path: Path, monkeypatch: pytest.M
     from galleryvault.config import Settings
     from galleryvault.services.scan_worker import _scan_roots
 
+    # The ambient environment (e.g. the test stack) may define a cold storage
+    # root; keep this test hermetic.
+    monkeypatch.setenv("COLD_STORAGE_ROOT", "")
     library = tmp_path / "library"
     library.mkdir()
     settings = Settings(
