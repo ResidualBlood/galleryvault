@@ -172,7 +172,8 @@ function startInfinite(containerId, fetchNext, buildItem, initialCursor = null) 
             break;
           }
           sentinel.style.padding = "8px 0";
-          sentinel.innerHTML = `<button type="button" class="btn btn-secondary inf-retry-btn" style="margin:4px auto;cursor:pointer;font-size:13px">↻ Click to retry (${typeof t === "function" ? t("retry") : "Retry"})</button>`;
+          const retryLabel = typeof t === "function" ? t("clickToRetry") : "Click to retry";
+          sentinel.innerHTML = `<button type="button" class="btn btn-secondary inf-retry-btn" style="margin:4px auto;cursor:pointer;font-size:13px">↻ ${esc(retryLabel)}</button>`;
           const btn = sentinel.querySelector(".inf-retry-btn");
           if (btn) {
             btn.onclick = (e) => {
@@ -255,6 +256,17 @@ function gridPager(elId, data, buildQuery) {
     parts.join(" ") +
     ` ${pagerJump(data.page, last)}` +
     ` · ${pageSizeSelect(data.page_size, app.view)}`;
+}
+
+// 列表删除/筛选后当前页超出新总页数时回退：优先上一页，若上一页也超界则直接到末页
+function fallbackEmptyPage(page, data) {
+  const cur = Math.max(1, parseInt(page, 10) || 1);
+  if (cur <= 1 || !data) return cur;
+  const total = Math.max(0, parseInt(data.total, 10) || 0);
+  const size = Math.max(1, parseInt(data.page_size, 10) || 1);
+  const last = Math.max(1, Math.ceil(total / size));
+  if (cur <= last) return cur;
+  return Math.max(1, Math.min(cur - 1, last));
 }
 
 function parseTags(s) {

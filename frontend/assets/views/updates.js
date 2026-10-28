@@ -45,6 +45,16 @@ async function renderUpdates() {
   try {
     const qs = `page=${encodeURIComponent(page)}&page_size=${prefPageSize()}&state=${encodeURIComponent(state)}`;
     const data = await api("GET", `/api/updates?${qs}`);
+    // 批量删除后当前页可能被删空：按新 total 回退到上一页
+    const targetPage = fallbackEmptyPage(page, data);
+    if (targetPage !== (parseInt(page, 10) || 1)) {
+      location.hash = navHash("updates", {}, {
+        page_size: data.page_size || prefPageSize(),
+        state,
+        ...(targetPage > 1 ? { page: String(targetPage) } : {})
+      });
+      return;
+    }
     const el = document.getElementById("upd-list");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("updNoUpdates"))}</p>`; }
     else {

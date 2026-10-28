@@ -124,6 +124,7 @@ function taskMeta(task, stage) {
     case "favorites-check": return { label: t("checkAll"), desc: t("favCheckDesc") };
     case "duplicates": return { label: t("tasks.duplicates"), desc: t("tasks.duplicatesDesc") };
     case "gallery-updates": return { label: t("tasks.galleryUpdates"), desc: t("tasks.galleryUpdatesDesc") };
+    case "gallery-update": return { label: t("tasks.galleryUpdate"), desc: t("tasks.galleryUpdateDesc") };
     case "orphan-thumbnail-cleanup": return { label: t("tasks.orphanThumbnailCleanup"), desc: t("tasks.orphanThumbnailCleanupDesc") };
     case "thumbnail-periodic-seed": return { label: t("tasks.thumbnailPeriodicSeed"), desc: t("tasks.thumbnailPeriodicSeedDesc") };
     case "download-retry-sweep": return { label: t("tasks.downloadRetrySweep"), desc: t("tasks.downloadRetrySweepDesc") };
@@ -144,6 +145,8 @@ function taskMeta(task, stage) {
     case "integrity": return { label: t("tasks.integrity"), desc: t("tasks.integrityDesc") };
     case "gallery-local": return { label: t("tasks.galleryLocal"), desc: t("tasks.galleryLocalDesc") };
     case "download-enqueue": return { label: t("tasks.downloadEnqueue"), desc: t("tasks.downloadEnqueueDesc") };
+    case "download-ingest": return { label: t("tasks.downloadIngest"), desc: t("tasks.downloadIngestDesc") };
+    case "download-updated": return { label: t("tasks.downloadUpdated"), desc: t("tasks.downloadUpdatedDesc") };
     case "export-cbz": return { label: t("tasks.exportCbz"), desc: t("tasks.exportCbzDesc") };
     case "favorites-note": return { label: t("tasks.favoritesNote"), desc: t("tasks.favoritesNoteDesc") };
     case "local-list-create": return { label: t("tasks.localListCreate"), desc: t("tasks.localListCreateDesc") };
