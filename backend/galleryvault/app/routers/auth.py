@@ -20,9 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...auth import (
     DEFAULT_PASSWORD,
+    LOGIN_RATE_WINDOW,
+    account_lock_remaining,
     client_ip,
     create_session,
     hash_password,
+    login_failed,
     login_gate,
     login_succeeded,
     verify_login_password,
@@ -82,11 +85,19 @@ def _cookie_secure(request: Request, settings) -> bool:
 @router.post("/login")
 async def login(request: Request):
     ip = client_ip(request)
-    if not await login_gate(ip):
+    retry_after = await account_lock_remaining(ip)
+    if retry_after <= 0 and not await login_gate(ip):
+        retry_after = LOGIN_RATE_WINDOW
+    if retry_after > 0:
         logger.info(
-            "login rate limited", extra=log_extra(ip=ip, reason="rate_limit")
+            "login rate limited",
+            extra=log_extra(ip=ip, reason="rate_limit", retry_after=int(retry_after)),
         )
-        return HTMLResponse("Too many attempts, try again later", status_code=429)
+        return HTMLResponse(
+            "Too many attempts, try again later",
+            status_code=429,
+            headers={"Retry-After": str(max(1, int(retry_after + 0.999)))},
+        )
     form = parse_qs((await request.body()).decode(errors="replace"), keep_blank_values=True)
     password = form.get("password", [""])[0]
     if len(password) > 256:
@@ -106,10 +117,18 @@ async def login(request: Request):
         else:
             valid = verify_login_password(password, effective)
     if not valid:
+        # The single administrator account backs off across all source IPs.
+        lockout = await login_failed(ip)
         logger.info(
             "authentication failed",
-            extra=log_extra(ip=ip, reason="invalid_password"),
+            extra=log_extra(ip=ip, reason="invalid_password", lockout_seconds=int(lockout)),
         )
+        if lockout > 0:
+            return HTMLResponse(
+                "Too many attempts, try again later",
+                status_code=429,
+                headers={"Retry-After": str(max(1, int(lockout + 0.999)))},
+            )
         return RedirectResponse("/login?error=1", status_code=303)
     if used_default:
         logger.warning(

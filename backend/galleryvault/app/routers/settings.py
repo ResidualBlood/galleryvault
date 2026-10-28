@@ -9,13 +9,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, not_, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...auth import client_ip, verify_login_password
 from ...config import normalize_library_roots
-from ...db.models import FavoritesMonitor, Gallery
+from ...db.models import AppConfig, FavoritesMonitor, Gallery
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
 from ...logging import (
@@ -60,6 +63,74 @@ router = APIRouter()
 __all__ = ["router", "spawn_task"]
 
 _SAVED_SEARCH_MAX = 30
+_USER_SETTINGS_KEY = "user_settings"
+
+# Settings that decide who may reach the app at all, where files are read from,
+# or which proxies are trusted to supply the client IP.  A single ordinary
+# settings POST must not be able to change them silently (e.g. an XSS/stolen
+# session moving the library boundary), so a change requires a fresh password or
+# an explicit confirmation flag.
+_SECURITY_SENSITIVE_KEYS = ("auth_required", "trusted_proxies", "download_root", "library_roots")
+
+
+def _comparable_setting(key: str, value: object) -> object:
+    if key == "library_roots":
+        return tuple(normalize_library_roots(value))
+    if key == "trusted_proxies":
+        entries = value if isinstance(value, list) else [value]
+        return tuple(sorted(str(entry).strip() for entry in entries if str(entry).strip()))
+    if key == "download_root":
+        return str(value or "").strip()
+    return value
+
+
+def _changed_security_keys(values: dict[str, Any], current: Any) -> list[str]:
+    """Return the security-sensitive keys this request would actually change."""
+    changed: list[str] = []
+    for key in _SECURITY_SENSITIVE_KEYS:
+        if key not in values:
+            continue
+        old = getattr(current, key, None)
+        if _comparable_setting(key, values[key]) != _comparable_setting(key, old):
+            changed.append(key)
+    return changed
+
+
+def _confirmation_method(current_password: str, confirm_flag: bool, settings: Any) -> str | None:
+    """Return how the caller confirmed a sensitive change, or None."""
+    if confirm_flag:
+        return "confirm_flag"
+    if current_password:
+        effective = getattr(settings, "auth_password_hash", None) or getattr(
+            settings, "auth_password", None
+        )
+        if effective and verify_login_password(current_password, effective):
+            return "password"
+    return None
+
+
+async def _read_confirmation(request: Request | None) -> tuple[bool, str]:
+    """Read the confirmation flag / password sent with a settings save.
+
+    The flag can travel either as the ``X-Confirm-Security-Change`` header or as
+    ``confirm_security_change`` in the JSON body (unknown fields would be
+    dropped by the pydantic schema).
+    """
+    if request is None:
+        return False, ""
+    header = request.headers.get("x-confirm-security-change", "")
+    confirm = header.strip().lower() in {"1", "true", "yes", "on"}
+    password = ""
+    if confirm:
+        return True, ""
+    try:
+        raw = await request.json()
+    except Exception:  # noqa: BLE001
+        return False, ""
+    if isinstance(raw, dict):
+        confirm = raw.get("confirm_security_change") is True
+        password = str(raw.get("current_password") or "")
+    return confirm, password
 
 
 def get_settings_service(
@@ -83,20 +154,37 @@ async def settings_get(
     try:
         persisted = await service.get_persisted_settings()
         update_runtime_settings(persisted)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("settings could not be re-read", extra={"error": str(exc)})
+    except SQLAlchemyError as exc:
+        # A failed re-read must not look like a successful load: the in-memory
+        # values may be stale, so fail loudly with a generic message.
+        raise db_error(exc) from exc
+    except Exception as exc:
+        logger.error(
+            "settings could not be re-read",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        raise HTTPException(status_code=500, detail="settings could not be loaded") from exc
     return service.get_public_settings()
 
 
 @router.post("/api/settings")
 async def settings_save(
     body: SettingsRequest,
+    request: Request = None,  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),  # noqa: B008
     dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     disp = _resolve_dispatcher(dispatcher)
-    return await _save_settings(body, session=session, dispatcher=disp)
+    confirm_flag, current_password = await _read_confirmation(request)
+    return await _save_settings(
+        body,
+        session=session,
+        dispatcher=disp,
+        confirm_flag=confirm_flag,
+        current_password=current_password,
+        request=request,
+    )
 
 
 @router.get("/api/settings/cookie-health")
@@ -161,18 +249,57 @@ async def settings_test_exhentai() -> JSONResponse:
     )
 
 
+def _validate_choice_values(values: dict[str, Any]) -> None:
+    """Reject enum/quality values the runtime Settings model would refuse.
+
+    The API schema lives in ``app/schemas.py``; validating here keeps a POST
+    from persisting values that ``config.Settings`` rejects (which would then
+    silently drive downstream ``!= "original"`` branches).
+    """
+    quality_keys = ("download_quality", "archive_quality")
+    for key in quality_keys:
+        value = values.get(key)
+        if value is not None and value not in {"original", "resample"}:
+            raise HTTPException(status_code=422, detail=f"{key} must be 'original' or 'resample'")
+    if values.get("download_title") not in (None, "japanese", "english"):
+        raise HTTPException(
+            status_code=422, detail="download_title must be 'japanese' or 'english'"
+        )
+    if values.get("title_display") not in (None, "japanese", "english", "directory"):
+        raise HTTPException(
+            status_code=422,
+            detail="title_display must be 'japanese', 'english', or 'directory'",
+        )
+    interval = values.get("tag_translation_update_interval_minutes")
+    if interval is not None and int(interval) < 0:
+        raise HTTPException(
+            status_code=422, detail="tag_translation_update_interval_minutes must be >= 0"
+        )
+
+
 async def _save_settings(
     body: SettingsRequest,
     session: AsyncSession | None = None,
     dispatcher: TaskDispatcher | None = None,
+    confirm_flag: bool = False,
+    current_password: str = "",
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, object]:
     if session is None:
         if not app_state.session_factory:
             raise HTTPException(status_code=503, detail="Database session factory not initialized")
         async with app_state.session_factory() as s:
-            return await _save_settings(body, session=s, dispatcher=dispatcher)
+            return await _save_settings(
+                body,
+                session=s,
+                dispatcher=dispatcher,
+                confirm_flag=confirm_flag,
+                current_password=current_password,
+                request=request,
+            )
 
     values = body.model_dump(exclude_none=True)
+    _validate_choice_values(values)
     if "cold_storage_root" in values and isinstance(values["cold_storage_root"], str):
         values["cold_storage_root"] = values["cold_storage_root"].strip()
     if "telegram_bot_token" in values and not str(values["telegram_bot_token"]).strip():
@@ -226,6 +353,33 @@ async def _save_settings(
     if cookie_fields:
         values["exhentai_cookies"] = {**current_settings.exhentai_cookies, **cookie_fields}
 
+    # Security-sensitive keys need an explicit confirmation: either the current
+    # admin password or a deliberate ``confirm_security_change`` flag.  Nothing
+    # is written when confirmation is missing (fail closed).
+    changed_security_keys = _changed_security_keys(values, current_settings)
+    confirm_method = None
+    if changed_security_keys:
+        confirm_method = _confirmation_method(
+            current_password, confirm_flag, current_settings
+        )
+        if confirm_method is None:
+            logger.warning(
+                "settings save blocked: security-sensitive change without confirmation",
+                extra=log_extra(
+                    keys=changed_security_keys,
+                    ip=client_ip(request) if request is not None else "unknown",
+                ),
+            )
+            raise HTTPException(
+                status_code=428,
+                detail={
+                    "message": "security-sensitive settings require confirmation",
+                    "keys": changed_security_keys,
+                    "confirmation": "send current_password, confirm_security_change=true, "
+                    "or the X-Confirm-Security-Change: true header",
+                },
+            )
+
     # Never fall back to an empty baseline: doing so would wipe every persisted
     # key (cookies, telegram token, saved searches, ...) not present in this
     # request. Fail closed and leave the database untouched instead.
@@ -271,6 +425,18 @@ async def _save_settings(
     except Exception as exc:
         raise db_error(exc) from exc
 
+    if changed_security_keys:
+        # Audit trail for account/security boundary changes.  Values are not
+        # logged (they may contain internal paths), only which keys moved.
+        logger.warning(
+            "security-sensitive settings changed",
+            extra=log_extra(
+                keys=changed_security_keys,
+                confirmed=confirm_method,
+                ip=client_ip(request) if request is not None else "unknown",
+            ),
+        )
+
     # Runtime (in-memory) settings only change once the database write succeeded,
     # so a failed save cannot make the running app diverge from disk state.
     update_runtime_settings(values)
@@ -294,6 +460,28 @@ async def _save_settings(
     return settings_public()
 
 
+def _sanitize_log_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mask credentials in every field the logs API echoes back.
+
+    ``message``/``context`` are already masked when the record is buffered, but
+    ``exception`` (formatted traceback) is stored raw and can contain cookies,
+    proxy URLs or bot tokens.  Mask defensively here so the HTTP response never
+    leaks them.
+    """
+    sanitized: list[dict[str, Any]] = []
+    for entry in entries:
+        item = dict(entry)
+        item["message"] = mask_sensitive(str(item.get("message", "")))
+        context = item.get("context")
+        if isinstance(context, dict):
+            item["context"] = mask_sensitive(context)
+        exception = item.get("exception")
+        if exception:
+            item["exception"] = mask_sensitive(str(exception))
+        sanitized.append(item)
+    return sanitized
+
+
 @router.get("/api/system/logs")
 def system_logs_get(
     min_level: str = "INFO", limit: int = 100, search: str | None = None
@@ -302,11 +490,12 @@ def system_logs_get(
     capped_limit = max(1, min(limit, 500))
     log_path = get_log_file_path()
     file_exists = bool(log_path and log_path.exists() and log_path.is_file())
+    entries = get_recent_logs(min_level=min_level, limit=capped_limit, search=search)
     return {
         "level": get_log_level(),
         "log_mode": "file" if file_exists else "memory",
         "log_file": str(log_path) if file_exists else None,
-        "logs": get_recent_logs(min_level=min_level, limit=capped_limit, search=search),
+        "logs": _sanitize_log_entries(entries),
     }
 
 
@@ -395,22 +584,28 @@ async def _user_settings(session: AsyncSession | None = None) -> dict:
     return {}
 
 
-async def _merge_user_settings(updates: dict, session: AsyncSession | None = None) -> dict:
-    if session is not None:
-        async with safe_transaction(session):
-            repo = SettingsRepository(session)
-            existing = await repo.get()
-            merged = {**existing, **updates}
-            await repo.save(merged)
-            return merged
-    if app_state.session_factory:
-        async with app_state.session_factory() as s, safe_transaction(s):
-            repo = SettingsRepository(s)
-            existing = await repo.get()
-            merged = {**existing, **updates}
-            await repo.save(merged)
-            return merged
-    return updates
+async def _locked_user_settings(session: AsyncSession) -> dict:
+    """Read ``app_config.user_settings`` under a row lock.
+
+    ``SELECT ... FOR UPDATE`` serialises concurrent read-modify-write cycles
+    (e.g. two tabs adding a saved search at the same time), which otherwise
+    lose updates because each request read the same snapshot.
+    """
+    # A missing row cannot be locked. Seed it atomically before taking the lock;
+    # concurrent first saves wait on the same unique key rather than losing data.
+    await session.execute(
+        insert(AppConfig).values(key=_USER_SETTINGS_KEY, value={}).on_conflict_do_nothing(
+            index_elements=[AppConfig.key]
+        )
+    )
+    stmt = (
+        select(AppConfig)
+        .where(AppConfig.key == _USER_SETTINGS_KEY)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    row = (await session.execute(stmt)).scalar_one_or_none()
+    return dict(row.value) if row is not None and row.value else {}
 
 
 def _normalize_saved_searches(raw: object) -> list[dict]:
@@ -453,13 +648,14 @@ async def saved_searches_add(
     if not name:
         raise HTTPException(status_code=422, detail="name is required")
     try:
-        stored = await _user_settings(session=session)
-        items = _normalize_saved_searches(stored.get("saved_searches"))
-        if len(items) >= _SAVED_SEARCH_MAX:
-            raise HTTPException(status_code=409, detail="saved search limit reached")
-        entry = {"id": uuid.uuid4().hex, "name": name, "query": body.query or {}}
-        items.append(entry)
-        await _merge_user_settings({"saved_searches": items}, session=session)
+        async with safe_transaction(session):
+            stored = await _locked_user_settings(session)
+            items = _normalize_saved_searches(stored.get("saved_searches"))
+            if len(items) >= _SAVED_SEARCH_MAX:
+                raise HTTPException(status_code=409, detail="saved search limit reached")
+            entry = {"id": uuid.uuid4().hex, "name": name, "query": body.query or {}}
+            items.append(entry)
+            await SettingsRepository(session).save({**stored, "saved_searches": items})
     except HTTPException:
         raise
     except Exception as exc:
@@ -474,12 +670,13 @@ async def saved_searches_delete(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        stored = await _user_settings(session=session)
-        items = _normalize_saved_searches(stored.get("saved_searches"))
-        next_items = [it for it in items if it.get("id") != search_id]
-        if len(next_items) == len(items):
-            raise HTTPException(status_code=404, detail="saved search not found")
-        await _merge_user_settings({"saved_searches": next_items}, session=session)
+        async with safe_transaction(session):
+            stored = await _locked_user_settings(session)
+            items = _normalize_saved_searches(stored.get("saved_searches"))
+            next_items = [it for it in items if it.get("id") != search_id]
+            if len(next_items) == len(items):
+                raise HTTPException(status_code=404, detail="saved search not found")
+            await SettingsRepository(session).save({**stored, "saved_searches": next_items})
     except HTTPException:
         raise
     except Exception as exc:

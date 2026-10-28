@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from ..auth import verify_login_password, verify_session
+from ..auth import ensure_runtime_auth_secret, verify_login_password, verify_session
 from ..logging import log_extra
 from .dependencies import get_current_settings
 
@@ -23,6 +23,34 @@ CSRF_COOKIE = "galleryvault_csrf"
 BASIC_AUTH_REALM = 'Basic realm="GalleryVault OPDS"'
 _OPDS_PATH = "/api/opds"
 _EXPORT_CBZ_SUFFIX = "/export.cbz"
+
+# Baseline response headers.  The SPA shell is served by nginx, which sets the
+# same values (frontend/nginx.conf); repeating them here covers direct API
+# access (dev, reverse-proxy bypass, OPDS readers).  The CSP mirrors the nginx
+# policy so it stays compatible with the existing inline <style> block, the
+# external-only script tags and the service worker.
+SECURITY_HEADERS: dict[str, str] = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data: https://ehgt.org; "
+        "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
+        "worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+        "frame-ancestors 'none'"
+    ),
+}
+
+
+def apply_security_headers(response: Any) -> Any:
+    """Add the baseline security headers unless a handler already set them."""
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return response
+    for name, value in SECURITY_HEADERS.items():
+        if name not in headers:
+            headers[name] = value
+    return response
 
 
 def _is_export_cbz_path(path: str) -> bool:
@@ -68,6 +96,20 @@ def _verify_basic_auth(request: Request, settings: Any) -> bool:
 
 
 async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
+    # Workers-disabled deployments never run the startup auth bootstrap; adopt
+    # the DB-persisted session secret before the first authentication check.
+    try:
+        await ensure_runtime_auth_secret()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("session secret unavailable", extra=log_extra(error=type(exc).__name__))
+        return apply_security_headers(JSONResponse(
+            {"detail": "authentication temporarily unavailable"}, status_code=503
+        ))
+    response = await _auth_and_csrf(request, call_next)
+    return apply_security_headers(response)
+
+
+async def _auth_and_csrf(request: Request, call_next: Any) -> Any:
     path = request.url.path
     settings = get_current_settings()
     if path in {"/healthz", "/login", "/logout"}:
