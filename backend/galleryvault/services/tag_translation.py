@@ -104,9 +104,13 @@ def _rebuild_zh_exact_index() -> None:
     namespaces in ``_ZH_ORDER`` priority order, entries in insertion order
     within a namespace.  Aliases (e.g. misc/other both storing the same
     translation) resolve to whichever namespace the original table kept.
+
+    The new structures are built aside and swapped in with a single assignment
+    each, so concurrent readers never observe a half-filled index.
     """
-    _ZH_EXACT.clear()
-    _ZH_SEARCH_ENTRIES.clear()
+    global _ZH_EXACT, _ZH_SEARCH_ENTRIES
+    exact: dict[str, tuple[str, str, str]] = {}
+    entries: list[tuple[int, str, str, str, str]] = []
     for ns in sorted(
         _TRANSLATIONS, key=lambda ns: _ZH_ORDER.index(ns) if ns in _ZH_ORDER else len(_ZH_ORDER)
     ):
@@ -115,10 +119,12 @@ def _rebuild_zh_exact_index() -> None:
             display = clean_display(str(zh)) if zh else ""
             if display:
                 key = display.casefold()
-                if key not in _ZH_EXACT:
-                    _ZH_EXACT[key] = ns, name, display
-                _ZH_SEARCH_ENTRIES.append((rank, ns, name, display, key))
-    _ZH_SEARCH_ENTRIES.sort(key=lambda item: item[0])
+                if key not in exact:
+                    exact[key] = ns, name, display
+                entries.append((rank, ns, name, display, key))
+    entries.sort(key=lambda item: item[0])
+    _ZH_EXACT = exact
+    _ZH_SEARCH_ENTRIES = entries
 
 
 def load_translations(path: str | Path | None = None, *, reset: bool = False) -> int:
@@ -197,9 +203,11 @@ def merge_translation_data(data: object) -> int:
     elif isinstance(entries, dict):
         for ns, tags in entries.items():
             if isinstance(tags, dict):
-                _TRANSLATIONS.setdefault(ns, {}).update(
-                    {str(k): str(v) for k, v in tags.items()}
-                )
+                pairs = {str(k): str(v) for k, v in tags.items()}
+                _TRANSLATIONS.setdefault(ns, {}).update(pairs)
+                alias = NAMESPACE_ALIASES.get(ns)
+                if alias:
+                    _TRANSLATIONS.setdefault(alias, {}).update(pairs)
     _rebuild_zh_exact_index()
     return translation_entry_count()
 

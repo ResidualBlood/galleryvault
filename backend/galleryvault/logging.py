@@ -374,6 +374,35 @@ def _parse_log_lines(raw_lines: list[str]) -> list[dict[str, Any]]:
     return parsed_entries
 
 
+_HYDRATE_CHUNK_BYTES = 64 * 1024
+_HYDRATE_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _read_tail_lines(path: Path, limit: int) -> list[str]:
+    """Return at most ``limit`` trailing lines of ``path`` without reading it whole.
+
+    Reads fixed-size chunks backwards from EOF, stopping once enough newlines
+    (or the byte cap) are seen, so a large ``maxBytes`` rotation never causes a
+    startup memory spike.
+    """
+    if limit <= 0:
+        return []
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        pos = fh.tell()
+        data = b""
+        while pos > 0 and data.count(b"\n") <= limit and len(data) < _HYDRATE_MAX_BYTES:
+            read = min(_HYDRATE_CHUNK_BYTES, pos)
+            pos -= read
+            fh.seek(pos)
+            data = fh.read(read) + data
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    if pos > 0 and lines:
+        # The oldest chunk boundary likely cut a line in half; drop it.
+        lines = lines[1:]
+    return lines[-limit:]
+
+
 class RingBufferHandler(logging.Handler):
     """Stores the latest N formatted log entries in memory for diagnostic retrieval."""
 
@@ -398,16 +427,20 @@ class RingBufferHandler(logging.Handler):
 
         all_lines: list[str] = []
         try:
-            for f in valid_files:
-                with open(f, encoding="utf-8", errors="replace") as fh:
-                    all_lines.extend(fh.readlines())
+            # Walk newest -> oldest and stop as soon as the buffer tail is full,
+            # so rotated files larger than the requested window are never read.
+            for f in reversed(valid_files):
+                remaining = max_lines - len(all_lines)
+                if remaining <= 0:
+                    break
+                all_lines = _read_tail_lines(f, remaining) + all_lines
         except Exception:  # noqa: BLE001
             return
 
         if not all_lines:
             return
 
-        recent_lines = all_lines[-max_lines:] if len(all_lines) > max_lines else all_lines
+        recent_lines = all_lines[-max_lines:]
         parsed = _parse_log_lines(recent_lines)
 
         with self._lock:
