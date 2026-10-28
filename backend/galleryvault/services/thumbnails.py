@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -19,7 +20,7 @@ from PIL.Image import DecompressionBombError
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-from .storage_usage import storage_tracker
+from .storage_usage import safe_stat_size, storage_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -116,11 +117,41 @@ class ThumbnailService:
         return [i for i in range(page_count) if self.cached(gallery_id, i) is None]
 
     def has_missing_pages(self, gallery_id: int, page_count: int) -> bool:
-        root = self.root / str(gallery_id)
+        """Whether any page still lacks a real (non-placeholder) thumbnail.
+
+        Zero-byte placeholder files written by the thumbnail worker after a
+        failed page must not be treated as cached: otherwise the page would
+        never be retried, even after the source file is fixed.
+        """
+        return bool(self.missing_pages(gallery_id, page_count))
+
+    def prune_dup_cache(self, valid_keys: set[str]) -> int:
+        """Delete ``dup/<hash>`` thumbnail dirs whose copy key is no longer valid.
+
+        Duplicate-copy thumbnails are keyed by path hash and are not covered by
+        the numeric-orphan cleanup in ``thumbnail_worker``; without this they
+        leak forever once a duplicate copy is removed or merged away.
+        """
+        dup_root = self.root / "dup"
+        if not dup_root.is_dir():
+            return 0
+        removed = 0
         try:
-            return sum(1 for p in root.iterdir() if p.name.endswith(".jpg")) < page_count
+            entries = list(dup_root.iterdir())
         except OSError:
-            return True
+            return 0
+        for entry in entries:
+            if not entry.is_dir() or entry.name in valid_keys:
+                continue
+            size = safe_stat_size(entry)
+            try:
+                shutil.rmtree(entry)
+            except OSError:
+                continue
+            if size > 0:
+                storage_tracker.record_cache_delta(-size)
+            removed += 1
+        return removed
 
     def get_or_create_dup(self, key: str, page_bytes: bytes) -> Path:
         """Cached thumbnail for a duplicate copy, keyed by its path hash.

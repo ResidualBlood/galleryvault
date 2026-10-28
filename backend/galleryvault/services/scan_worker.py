@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
@@ -27,16 +29,35 @@ logger = logging.getLogger(__name__)
 scan_lock = asyncio.Lock()
 
 
+def _normalize_root(root: str) -> str:
+    """Resolve a scan root so ``/library`` and ``/library/`` dedupe to one path."""
+    text = str(root).strip()
+    if not text:
+        return ""
+    try:
+        return str(Path(text).resolve())
+    except OSError:
+        return os.path.normpath(text)
+
+
 def _scan_roots() -> list[str]:
     settings = app_state.settings or get_settings()
-    roots = list(settings.library_roots)
-    if settings.download_root and settings.download_root not in roots:
-        roots.append(settings.download_root)
+    roots: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str | None) -> None:
+        normalized = _normalize_root(value or "")
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            roots.append(normalized)
+
+    for root in settings.library_roots:
+        _add(root)
+    _add(settings.download_root)
     from .cold_archive import resolve_archive_roots
 
-    for ar in [str(r) for r in resolve_archive_roots()]:
-        if ar and ar not in roots:
-            roots.append(ar)
+    for archive_root in resolve_archive_roots():
+        _add(str(archive_root))
     return roots
 
 
@@ -57,6 +78,27 @@ def scan_summary_message(
         duplicate_gids,
         lang,
     )
+
+
+async def _prune_duplicate_thumbnail_cache(settings: Any) -> int:
+    """Drop ``dup/<hash>`` thumbnails whose copy is no longer a duplicate row."""
+    from .thumbnails import ThumbnailService
+
+    session_factory = _get_background_session_factory()
+    if not session_factory:
+        return 0
+    service = app_state.thumbnail_service
+    if service is None:
+        service = ThumbnailService(settings.thumbnail_cache_dir)
+    async with session_factory() as session:
+        groups = await GalleryRepository(session).list_duplicates()
+    keys = {
+        str(copy.get("key"))
+        for group in groups
+        for copy in (group.get("copies") or [])
+        if copy.get("key")
+    }
+    return await run_in_threadpool(service.prune_dup_cache, keys)
 
 
 async def backfill_image_quality(should_stop: Callable[[], bool] | None = None) -> int:
@@ -100,7 +142,10 @@ async def backfill_image_quality(should_stop: Callable[[], bool] | None = None) 
                     "image quality backfill gdata round failed",
                     extra=log_extra(error=type(exc).__name__),
                 )
-                continue
+                # The cursor has already advanced past this batch; retrying the
+                # remaining batches would silently skip these rows for good.
+                # Stop here so the next scan starts over from the beginning.
+                break
 
         if should_stop is not None and should_stop():
             break
@@ -291,6 +336,20 @@ async def run_scan() -> None:
                             duplicates=len(service.last_duplicates),
                             duplicate_gids=[group.gid for group in service.last_duplicates],
                         )
+
+                    if not tm.is_cancelled("scan"):
+                        try:
+                            pruned = await _prune_duplicate_thumbnail_cache(settings)
+                            if pruned:
+                                logger.info(
+                                    "pruned orphan duplicate thumbnails",
+                                    extra=log_extra(count=pruned),
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "duplicate thumbnail cleanup failed",
+                                extra=log_extra(error=type(exc).__name__),
+                            )
 
                     if not tm.is_cancelled("scan") and settings.auto_sync_tags:
                         from .tag_sync_worker import enqueue_tag_sync
