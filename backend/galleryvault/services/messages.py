@@ -96,6 +96,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "• 剩余额度：<b>{remaining}</b>"
         ),
         "bot_quota_fail": "❌ 无法获取 E-Hentai 配额：{detail}",
+        "bot_quota_unavailable": "暂无数据",
         "bot_storage": (
             "💾 <b>存储空间使用情况</b>\n"
             "• 图库目录：<b>{library}</b>{lib_extra}\n"
@@ -267,6 +268,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
             "• Remaining: <b>{remaining}</b>"
         ),
         "bot_quota_fail": "❌ Failed to fetch E-Hentai quota: {detail}",
+        "bot_quota_unavailable": "Quota unavailable",
         "bot_storage": (
             "💾 <b>Storage Usage</b>\n"
             "• Library: <b>{library}</b>{lib_extra}\n"
@@ -711,7 +713,7 @@ def bot_quota(
     has_limits = current is not None and limit is not None
     has_gp = gp is not None and str(gp).strip() != ""
     if not has_limits and not has_gp:
-        return _t(lang, "bot_quota_fail").format(detail="Quota unavailable")
+        return _t(lang, "bot_quota_fail").format(detail=esc(_t(lang, "bot_quota_unavailable")))
     if not has_limits:
         msg = (
             "📊 <b>E-Hentai 配额状态</b>\n• GP 余额：<b>{gp}</b>"
