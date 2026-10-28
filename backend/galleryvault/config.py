@@ -4,7 +4,7 @@ import os
 import secrets
 from pathlib import Path
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     archive_delete_source: bool = False
     thumbnail_cache_dir: str = "/gv-cache/thumbs"
     generate_thumbnails: bool = True
-    thumbnail_workers: int = 4
+    # Worker count for thumbnail generation; 0 would create no workers at all
+    # (the seeding loop then waits forever), so it is bounded like the other
+    # concurrency knobs.
+    thumbnail_workers: int = Field(default=4, ge=1, le=16)
     log_level: str = "INFO"
     log_json: bool = False
     log_file: str | None = None
@@ -33,6 +36,11 @@ class Settings(BaseSettings):
     log_backup_count: int = 3
     scan_batch_size: int = 500
     auth_secret: str | None = None
+    # True when ``auth_secret`` was generated in this process because neither
+    # env nor the database provided one; app.auth then restores the persisted
+    # secret on first request so every worker signs sessions identically.
+    auth_secret_ephemeral: bool = False
+    _generated_auth_secret: str | None = PrivateAttr(default=None)
     auth_password_hash: str | None = None
     auth_password: str | None = None
     auth_required: bool = True
@@ -79,7 +87,7 @@ class Settings(BaseSettings):
     # Cap on parallel ExHentai requests across ALL background workers (tag
     # sync, downloads, favorites, covers). Kept low to avoid tripping
     # ExHentai's anti-abuse when several tasks run at once.
-    exhentai_max_concurrency: int = 6
+    exhentai_max_concurrency: int = Field(default=6, ge=1, le=32)
     title_display: str = "japanese"
     auto_sync_tags: bool = True
     tag_sync_interval_seconds: float = 1.5
@@ -228,6 +236,8 @@ class Settings(BaseSettings):
             self.cold_storage_root = ""
         if not self.auth_secret:
             self.auth_secret = secrets.token_urlsafe(32)
+            self.auth_secret_ephemeral = True
+            self._generated_auth_secret = self.auth_secret
             logger.info("AUTH_SECRET not set in env, will use DB-persisted secret or generate a new one")
 
 
