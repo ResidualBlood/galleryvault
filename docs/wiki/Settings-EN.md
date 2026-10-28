@@ -72,7 +72,7 @@ System settings, OPDS, Telegram bot commands, and which operations need the netw
 | Tag Sync | Toggle / Interval / Concurrency | Automatically syncs tag metadata after scans or startup; includes "Sync tags now" action. |
 | Translation Auto-Update | Interval (minutes) | `0` disables; provides "Update now" action on this page. |
 | Local Category Repair | Offline action | Reclassifies galleries mislabeled as Misc/Other using local `.galleryvault.json` tags without internet access. |
-| Thumbnail Generation | Toggle / Action | Auto-generation toggle and "Generate now" action with real-time status; periodically generates missing thumbnails for new galleries and sweeps orphaned thumbnail cache entries no longer in the database. Worker count is controlled by environment variable `THUMBNAIL_WORKERS` (1–16, default 4). |
+| Thumbnail Generation | Toggle / Action | Auto-generation toggle and "Generate now" action with real-time status; periodically generates missing thumbnails for new galleries and sweeps orphaned thumbnail cache entries no longer in the database. Galleries without page rows (e.g. legacy databases) are not queued to spin idly; rescan to backfill page rows, then generate. Worker count is controlled by environment variable `THUMBNAIL_WORKERS` (1–16, default 4). |
 
 ### OPDS & PWA
 

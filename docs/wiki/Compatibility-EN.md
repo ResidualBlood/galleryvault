@@ -133,7 +133,7 @@ Conventions & Rules:
 
 - `version`: Schema version, fixed integer `1`.
 - `gid` / `token`: Unique gallery identifier and access token. Integer `gid` (`null` if unknown), lowercase hex string `token` (`""` if unknown).
-- `title` / `title_jpn`: Primary title and Japanese title. Pure numeric `title_jpn` values are automatically normalized to `""`.
+- `title` / `title_jpn`: Primary title and Japanese title. Pure numeric `title_jpn` values are automatically normalized to `""`. `title_jpn` is written only when a scanner or the sidecar supplies a Japanese title explicitly; a title guessed from the directory name is never persisted as the Japanese title, and an existing non-empty sidecar value is never overwritten (legacy bad values are not cleaned up automatically).
 - `category`: Strictly lowercase (e.g. `"doujinshi"`, `"manga"`, not capitalized).
 - `quality`: Strict enumeration `"original"` | `"resample"` | `null`. Unknown values must be explicitly written as `null` and never omitted (preventing rescans from clearing existing `image_quality` records in the database).
 - `tags`: Formatted as an array of `{"namespace": "artist", "name": "sample"}` objects. The reader remains backward-compatible with legacy `"namespace:name"` strings.

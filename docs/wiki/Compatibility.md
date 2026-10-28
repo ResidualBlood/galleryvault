@@ -133,7 +133,7 @@ JHenTai **逐页下载**把元数据写在 `{gid} - {title}/metadata`（无扩�
 
 - `version`：版本号，固定为整型 `1`。
 - `gid` / `token`：画廊唯一标识与访问令牌。整型 `gid`（未知时 `null`），小写十六进制字符串 `token`（未知时 `""`）。
-- `title` / `title_jpn`：主标题与日文标题。若 `title_jpn` 为纯数字，系统规整为 `""`。
+- `title` / `title_jpn`：主标题与日文标题。若 `title_jpn` 为纯数字，系统规整为 `""`。只有扫描器或 sidecar 明确给出日文标题时才写入 `title_jpn`；由目录名推测的标题不会被当成日文标题写盘，sidecar 中已有的非空值也不会被覆盖（历史遗留的错误值不会被自动清除）。
 - `category`：统一小写（如 `"doujinshi"`, `"manga"`，非首字母大写）。
 - `quality`：严格受限枚举 `"original"` | `"resample"` | `null`。未知必须写 `null`，禁止省略键（防止重扫冲掉库内已有画质标记）。
 - `tags`：规范写出形如 `{"namespace": "artist", "name": "sample"}` 的对象数组。读端保持兼容，亦可解析 `"namespace:name"` 纯字符串。
