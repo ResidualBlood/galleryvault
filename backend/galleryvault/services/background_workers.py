@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -97,6 +98,7 @@ class WorkerLifecycleManager:
     def __init__(self, default_context: WorkerContext | None = None) -> None:
         self.default_context = default_context
         self._workers: dict[str, asyncio.Task[Any]] = {}
+        self._retiring: set[asyncio.Task[Any]] = set()
         self._contexts: dict[str, WorkerContext] = {}
         self._states: dict[str, WorkerState] = {}
         self._errors: dict[str, str | None] = {}
@@ -107,9 +109,16 @@ class WorkerLifecycleManager:
         worker_coro_fn: Callable[[WorkerContext], Coroutine[Any, Any, None]],
         context: WorkerContext | None = None,
     ) -> asyncio.Task[Any]:
-        """Register and start a background worker with its execution context."""
-        if name in self._workers and not self._workers[name].done():
+        """Register and start a background worker with its execution context.
+
+        Re-registering a live name cancels the previous task and keeps it in
+        ``_retiring`` so ``stop_all_and_wait`` can await it; the old task's
+        wrapper no longer overwrites the new worker's state.
+        """
+        existing = self._workers.get(name)
+        if existing is not None and not existing.done():
             self.stop_worker(name)
+            self._retiring.add(existing)
 
         ctx = context or self.default_context
         if ctx is None:
@@ -121,15 +130,22 @@ class WorkerLifecycleManager:
         self._errors[name] = None
 
         async def _wrapper() -> None:
+            current = asyncio.current_task()
             try:
                 await worker_coro_fn(ctx)
-                self._states[name] = WorkerState.STOPPED
+                if self._workers.get(name) is current:
+                    self._states[name] = WorkerState.STOPPED
             except asyncio.CancelledError:
-                self._states[name] = WorkerState.STOPPED
+                if self._workers.get(name) is current:
+                    self._states[name] = WorkerState.STOPPED
                 logger.info("Worker %s was cancelled", name)
+                # Re-raise: swallowing cancellation made ``task.cancelled()``
+                # false and broke gather/timeout semantics (report 01 P3-1).
+                raise
             except Exception as exc:
-                self._states[name] = WorkerState.ERROR
-                self._errors[name] = str(exc)
+                if self._workers.get(name) is current:
+                    self._states[name] = WorkerState.ERROR
+                    self._errors[name] = str(exc)
                 logger.exception("Worker %s encountered unhandled error", name)
 
         task = asyncio.create_task(_wrapper(), name=f"worker-{name}")
@@ -150,6 +166,24 @@ class WorkerLifecycleManager:
         """Signal all managed workers to terminate."""
         for name in list(self._workers.keys()):
             self.stop_worker(name)
+
+    async def stop_all_and_wait(self, timeout: float | None = None) -> None:
+        """Stop every worker (including replaced ones) and await their tasks."""
+        self.stop_all()
+        pending = [t for t in [*self._workers.values(), *self._retiring] if not t.done()]
+        if pending:
+            done, still_pending = await asyncio.wait(pending, timeout=timeout)
+            for task in done:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    task.result()
+            if still_pending:
+                logger.warning(
+                    "workers still running after stop_all_and_wait",
+                    extra={"count": len(still_pending)},
+                )
+            self._retiring = set(still_pending & self._retiring)
+        else:
+            self._retiring.clear()
 
     def get_status(self, name: str) -> dict[str, Any] | None:
         """Retrieve status details for a specific worker."""

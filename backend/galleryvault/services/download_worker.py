@@ -43,12 +43,18 @@ from .messages import GONE_DETAIL, HOPS_DETAIL
 
 logger = logging.getLogger(__name__)
 
+# Retry budget semantics: transient errors are requeued with exponential
+# backoff until ``max_retries`` is exhausted; after that the task is terminal.
+# There is no automatic "resurrect failed tasks" sweep: failed rows always
+# carried a fully consumed budget, so the old 60s sweep was dead code, and it
+# would also have resurrected tasks that failed on purpose (e.g. the 302
+# challenge budget). Recovery is the manual retry endpoint, which resets
+# retry_count (report 01 P2-2).
 _RETRY_BACKOFFS = (
     30, 120, 480, 1800, 3600, 7200, 10800, 14400, 18000, 21600,
 )
 _PROGRESS_FLUSH_STEP = 20
 _PROGRESS_FLUSH_INTERVAL = 5.0
-_DOWNLOAD_RETRY_SWEEP_INTERVAL = 60.0
 _TELEGRAM_FLUSH_INTERVAL = 60.0
 
 _worker_events: set[asyncio.Event] = set()
@@ -649,7 +655,7 @@ async def _finalize_replacement_skip(task: DownloadTask, exc: GalleryReplacedErr
                 row.finished_at = now
                 row.updated_at = now
                 # The source gid no longer exists on ExHentai, so requeueing it
-                # is pointless: consume the budget to keep it out of the sweep.
+                # is pointless: consume the budget so it stays terminal.
                 row.retry_count = max(row.retry_count or 0, row.max_retries)
             await DownloadRepository(session).record_attempt(
                 task.id, max(1, row.retry_count or 1), "failed", "GalleryReplacedError"
@@ -688,12 +694,26 @@ def _extract_http_meta(exc: BaseException) -> dict[str, Any]:
 _CHALLENGE_PROBE_INTERVAL = float(os.getenv("GV_CHALLENGE_PROBE_INTERVAL", "600"))
 _MAX_CHALLENGE_PAUSES = max(1, int(os.getenv("GV_MAX_CHALLENGE_PAUSES", "5")))
 # 302 challenges have their own per-task budget: pausing must not burn the
-# retry budget (that is what makes sweep_auto_retry a dead path), but an
-# endless pause/resume/challenge loop must still terminate.
+# retry budget, but an endless pause/resume/challenge loop must still
+# terminate.
 _challenge_counts: dict[int, int] = {}
-_challenge_lock = asyncio.Lock()
+# Created lazily on first use instead of at import time: asyncio primitives
+# bind to the loop of their first waiter, and module import happens before any
+# loop exists (report 01 P3-10).
+_challenge_lock: asyncio.Lock | None = None
+_challenge_lock_loop: asyncio.AbstractEventLoop | None = None
 _last_resume_time = 0.0
 _RESUME_DEBOUNCE_SECONDS = float(os.getenv("GV_RESUME_DEBOUNCE_SECONDS", "1.0"))
+
+
+def _get_challenge_lock() -> asyncio.Lock:
+    """Return a challenge lock bound to the current event loop."""
+    global _challenge_lock, _challenge_lock_loop
+    loop = asyncio.get_running_loop()
+    if _challenge_lock is None or _challenge_lock_loop is not loop:
+        _challenge_lock = asyncio.Lock()
+        _challenge_lock_loop = loop
+    return _challenge_lock
 
 
 def challenge_count(task_id: int | None) -> int:
@@ -724,7 +744,7 @@ async def _trigger_challenge_pause(
     response_meta: dict[str, Any] | None = None,
 ) -> None:
     """Trigger global pause due to ExHentai 302 anti-abuse challenge."""
-    async with _challenge_lock:
+    async with _get_challenge_lock():
         if app_state.extra.get("auto_resume_challenge") and getattr(
             app_state.settings or get_settings(), "global_paused", False
         ):
@@ -779,7 +799,7 @@ async def _trigger_challenge_pause(
 async def _resume_challenge_pause() -> None:
     """Resume global pause after ExHentai 302 anti-abuse challenge clears."""
     global _last_resume_time
-    async with _challenge_lock:
+    async with _get_challenge_lock():
         if not app_state.extra.get("auto_resume_challenge") and not getattr(
             app_state.settings or get_settings(), "global_paused", False
         ):
@@ -871,6 +891,7 @@ async def _run_download_inner(
         if is_download_cancelled(task.id):
             raise DownloadCancelledError("download was cancelled")
 
+        attempt_no = 1
         async with session_cm() as session, session.begin():
             row = await session.get(DownloadTaskModel, task.id)
             if row is None or row.status == "cancelled" or is_download_cancelled(task.id):
@@ -880,7 +901,11 @@ async def _run_download_inner(
                 clear_download_cancelled(task.id)
                 return
             row.status = "downloading"
-            row.started_at = datetime.now(UTC)
+            # ``started_at`` is the first start of the task, not of the latest
+            # retry: overwriting it on every attempt loses that (report 01 P3-3).
+            if getattr(row, "started_at", None) is None:
+                row.started_at = datetime.now(UTC)
+            attempt_no = (getattr(row, "retry_count", 0) or 0) + 1
 
         exec_task = DownloadTask(
             task.gid,
@@ -1013,7 +1038,7 @@ async def _run_download_inner(
                 raise DownloadCancelledError("download was cancelled")
 
             await DownloadRepository(session).record_attempt(
-                task.id or 0, 1, "success"
+                task.id or 0, attempt_no, "success"
             )
             completed = True
 
@@ -1146,8 +1171,8 @@ async def _run_download_inner(
                 if row and row.status != "cancelled":
                     if over_budget:
                         # Stop the pause/resume/challenge loop, but keep the
-                        # remaining retry budget so rearm_failed / manual retry
-                        # can still pick the task up later.
+                        # remaining retry budget so a manual retry can still
+                        # pick the task up later.
                         row.status = "failed"
                         row.retry_at = None
                         row.finished_at = now
@@ -1232,9 +1257,9 @@ async def _run_download_inner(
                         row.retry_count = max(row.retry_count, row.max_retries)
                     else:
                         row.status = "pending"
-                        # Always apply exponential backoff for transient errors so the
-                        # 60s sweep does not instantly re-claim a just-failed task.
-                        # The old `challenge ? backoff : now` caused non-challenge
+                        # Always apply exponential backoff for transient errors so a
+                        # just-failed task in not re-claimed immediately. The old
+                        # `challenge ? backoff : now` caused non-challenge
                         # EhClientError to be retried in <1s, burning the retry budget.
                         row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count))
                     if exec_task is not None and getattr(exec_task, "archive_fallback", False):
@@ -1366,6 +1391,12 @@ def adjust_download_concurrency(new_concurrency: int | None = None) -> None:
     global _worker_tasks, _target_download_concurrency
     target = _effective_download_concurrency(new_concurrency)
     _target_download_concurrency = target
+    # Keep the downloader's in-flight limit in sync too: it was fixed when the
+    # instance was built, so extra workers used to claim a row and then block
+    # on the old limit (report 01 P3-5).
+    downloader = app_state.downloader
+    if downloader is not None and hasattr(downloader, "set_concurrency"):
+        downloader.set_concurrency(target)
     _worker_tasks = [t for t in _worker_tasks if not t.done()]
     current = len(_worker_tasks)
     if target > current:
@@ -1431,6 +1462,9 @@ async def download_worker_loop() -> None:
             settings = app_state.settings or get_settings()
             target = _effective_download_concurrency(settings.download_concurrency)
             _target_download_concurrency = target
+            downloader = app_state.downloader
+            if downloader is not None and hasattr(downloader, "set_concurrency"):
+                downloader.set_concurrency(target)
             if len(_worker_tasks) < target:
                 for _ in range(target - len(_worker_tasks)):
                     _worker_tasks.append(asyncio.create_task(_download_worker()))
@@ -1440,32 +1474,3 @@ async def download_worker_loop() -> None:
         probe_task.cancel()
         await asyncio.gather(probe_task, return_exceptions=True)
         await stop_download_workers()
-
-
-async def download_retry_sweep_loop() -> None:
-    """Auto-requeue failed downloads that still have retry budget left."""
-    while True:
-        await asyncio.sleep(_DOWNLOAD_RETRY_SWEEP_INTERVAL)
-        session_factory = _get_background_session_factory()
-        if not session_factory:
-            continue
-        from ..app.dependencies import get_task_manager
-
-        tm = get_task_manager()
-        try:
-            async with (
-                tm.track_task("download-retry-sweep", record_if_empty=False) as tracker,
-                session_factory() as session,
-                session.begin(),
-            ):
-                requeued = await DownloadRepository(session).sweep_auto_retry()
-                tracker.update(done=requeued, total=requeued)
-                if requeued:
-                    notify_new_task()
-                    logger.info("requeued failed downloads", extra=log_extra(count=requeued))
-        except asyncio.CancelledError:
-            break
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "download retry sweep failed", extra=log_extra(error=type(exc).__name__)
-            )

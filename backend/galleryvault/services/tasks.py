@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -15,6 +16,13 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+# Cancelled-task markers are consumed when the task reaches a terminal state,
+# but a pending task that is cancelled and then deleted/never claimed would
+# otherwise leave its marker behind forever (report 01 P3-8). Keep the most
+# recent markers only; older ones belong to tasks that are long gone.
+_MAX_CANCELLED_MARKERS = 512
+_HISTORY_LIMIT = 200
 
 
 def _utc_now_iso() -> str:
@@ -70,6 +78,7 @@ class TaskManager:
         self.session_factory = session_factory
         self.task_history: list[dict[str, Any]] = []
         self._cancelled_tasks: set[str | int] = set()
+        self._cancelled_order: deque[str | int] = deque()
 
         # In-memory backward-compatible state dictionaries
         self.scan_state: dict[str, Any] = {
@@ -173,10 +182,18 @@ class TaskManager:
 
     # Cancellation flags
     def request_cancel(self, task_key: str | int) -> None:
+        if task_key not in self._cancelled_tasks:
+            self._cancelled_order.append(task_key)
         self._cancelled_tasks.add(task_key)
+        while len(self._cancelled_order) > _MAX_CANCELLED_MARKERS:
+            self._cancelled_tasks.discard(self._cancelled_order.popleft())
 
     def clear_cancelled(self, task_key: str | int) -> None:
         self._cancelled_tasks.discard(task_key)
+        try:
+            self._cancelled_order.remove(task_key)
+        except ValueError:
+            pass
 
     def is_cancelled(self, task_key: str | int) -> bool:
         return task_key in self._cancelled_tasks
@@ -364,8 +381,37 @@ class TaskManager:
             "total": total,
         }
         self.task_history.insert(0, record)
-        if len(self.task_history) > 200:
-            self.task_history = self.task_history[:200]
+        if len(self.task_history) > _HISTORY_LIMIT:
+            self.task_history = self.task_history[:_HISTORY_LIMIT]
+
+    @staticmethod
+    def _history_key(record: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            record.get("task"),
+            record.get("started_at"),
+            record.get("completed_at"),
+            record.get("status"),
+        )
+
+    def _merge_history(self, stored: Any, local: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Merge persisted and in-memory history, newest first and de-duplicated.
+
+        ``persist_history`` used to overwrite the single ``AppConfig`` row with
+        the process-local list, so concurrent workers finishing at the same time
+        could lose each other's records (report 01 P3-9). Re-reading and merging
+        before writing keeps foreign records intact.
+        """
+        merged: dict[tuple[Any, ...], dict[str, Any]] = {}
+        candidates = list(stored or []) + list(local)
+        for record in candidates:
+            if not isinstance(record, dict):
+                continue
+            merged.setdefault(self._history_key(record), record)
+
+        def _sort_key(record: dict[str, Any]) -> str:
+            return str(record.get("completed_at") or record.get("started_at") or "")
+
+        return sorted(merged.values(), key=_sort_key, reverse=True)[:_HISTORY_LIMIT]
 
     async def persist_history(self) -> None:
         from ..app.state import app_state
@@ -381,10 +427,17 @@ class TaskManager:
                     row = await session.get(AppConfig, "task_history")
                 else:
                     row = None
+                stored = (
+                    row.value.get("history")
+                    if row is not None and isinstance(row.value, dict)
+                    else None
+                )
+                merged = self._merge_history(stored, self.task_history)
+                self.task_history = merged
                 if row:
-                    row.value = {"history": list(self.task_history)}
+                    row.value = {"history": list(merged)}
                 else:
-                    session.add(AppConfig(key="task_history", value={"history": list(self.task_history)}))
+                    session.add(AppConfig(key="task_history", value={"history": list(merged)}))
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to persist task history", extra={"error": str(exc)})
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import io
 import json
 import logging
@@ -35,6 +36,81 @@ logger = logging.getLogger(__name__)
 ProgressCallback = "callable[[int, int], object]"
 
 _ARCHIVE_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}
+
+# Number of in-page attempts for a single image. NOTE: AGENTS.md documents
+# "页内重试 3 次" (3 in-page retries) but the shipped behaviour has always been
+# 5 rounds; the count is intentionally kept as-is and the documentation should
+# be updated to match (see P2-7 in the download-worker review).
+_PAGE_ATTEMPTS = 5
+
+# Live speed/ETA stats are module-level (keyed by gid) instead of per-instance:
+# ``create_services``/settings reload builds a new ``Downloader`` while old
+# in-flight downloads keep using the previous instance, and the downloads API
+# reads stats from ``app_state.downloader``. A per-instance counter made the
+# speed/ETA of those transfers disappear (report 01 P3-5).
+_SPEED_STATS: dict[int, dict[str, object]] = {}
+_SPEED_STATS_LOCK: asyncio.Lock | None = None
+_SPEED_STATS_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _get_speed_stats_lock() -> asyncio.Lock:
+    """Return a lock bound to the current loop (never created at import time)."""
+    global _SPEED_STATS_LOCK, _SPEED_STATS_LOOP
+    loop = asyncio.get_running_loop()
+    if _SPEED_STATS_LOCK is None or _SPEED_STATS_LOOP is not loop:
+        _SPEED_STATS_LOCK = asyncio.Lock()
+        _SPEED_STATS_LOOP = loop
+    return _SPEED_STATS_LOCK
+
+
+def _accepts_skip_hath(client: object) -> bool:
+    """Return whether ``client.resolve_page`` supports the ``skip_hath`` keyword.
+
+    The previous code probed support by calling with the keyword and catching
+    ``TypeError`` (report 02 P3-5): a genuine TypeError inside ``resolve_page``
+    silently triggered a second, redundant resolve request. Inspecting the
+    signature once per download avoids both problems.
+    """
+    try:
+        params = inspect.signature(client.resolve_page).parameters  # type: ignore[attr-defined]
+    except (AttributeError, TypeError, ValueError):
+        return False
+    if "skip_hath" in params:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+class _ConcurrencyLimiter:
+    """In-flight limit for ``Downloader.execute`` that can follow runtime changes.
+
+    ``asyncio.Semaphore`` fixes its counter at construction, so raising
+    ``download_concurrency`` spawned extra workers that claimed a row and then
+    blocked on the old limit (report 01 P3-5). This limiter is also free of any
+    asyncio primitive at instantiation time, avoiding loop-binding surprises in
+    multi-loop tests (report 01 P3-10).
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._limit = max(1, int(limit))
+        self._in_use = 0
+
+    @property
+    def limit(self) -> int:
+        return self._limit
+
+    def set_limit(self, limit: int) -> None:
+        self._limit = max(1, int(limit))
+
+    async def __aenter__(self) -> None:
+        # No await between the check and the increment, so this is atomic on
+        # the single-threaded event loop. Waiting is cooperative (50 ms) and
+        # only affects callers above the current limit.
+        while self._in_use >= self._limit:
+            await asyncio.sleep(0.05)
+        self._in_use += 1
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        self._in_use = max(0, self._in_use - 1)
 
 
 class DownloadCancelledError(Exception):
@@ -233,15 +309,11 @@ class Downloader:
     ) -> None:
         self._client_ref = client
         self.root = Path(root)
-        self.semaphore = asyncio.Semaphore(max(1, concurrency))
+        self.semaphore = _ConcurrencyLimiter(concurrency)
         self.page_concurrency = max(1, min(page_concurrency, 16))
         self._gids: set[int] = set()
         self._tasks: dict[int, DownloadTask] = {}
         self._lock = asyncio.Lock()
-        # Live speed/ETA stats per gallery, keyed by gid, fed by every page
-        # write and consumed by the downloads API (Downloader.speed_stats).
-        self._stats: dict[int, dict[str, object]] = {}
-        self._stats_lock = asyncio.Lock()
 
     @property
     def client(self) -> DownloadClient:
@@ -259,7 +331,7 @@ class Downloader:
         """Compute download speed (bytes/s) and ETA (seconds) for ``gid``."""
         import time as _time
 
-        stat = self._stats.get(int(gid))
+        stat = _SPEED_STATS.get(int(gid))
         if stat is None:
             return None
         elapsed = max(1.0, _time.time() - float(stat["started_at"]))
@@ -272,15 +344,19 @@ class Downloader:
     async def _record_bytes(self, gid: int, count: int, done: int) -> None:
         import time as _time
 
-        async with self._stats_lock:
-            stat = self._stats.setdefault(
+        async with _get_speed_stats_lock():
+            stat = _SPEED_STATS.setdefault(
                 int(gid), {"bytes": 0, "started_at": _time.time(), "done": 0}
             )
             stat["bytes"] = int(stat["bytes"]) + count
             stat["done"] = int(stat.get("done") or 0) + done
 
     def _clear_stats(self, gid: int) -> None:
-        self._stats.pop(int(gid), None)
+        _SPEED_STATS.pop(int(gid), None)
+
+    def set_concurrency(self, concurrency: int) -> None:
+        """Follow a runtime ``download_concurrency`` change without a rebuild."""
+        self.semaphore.set_limit(max(1, int(concurrency)))
 
     @classmethod
     def check_archive_fallback(cls, root: Path, gid: int) -> bool:
@@ -442,18 +518,42 @@ class Downloader:
             if progress is not None:
                 await progress(done_count, len(pages))
 
+        from ..app.state import app_state as _app_state
+        from ..config import get_settings as _get_settings
+
+        def _paused() -> bool:
+            _s = _app_state.settings or _get_settings()
+            return bool(getattr(_s, "global_paused", False))
+
+        def _cancelled() -> bool:
+            tm = _app_state.task_manager
+            return bool(task.id is not None and tm and tm.is_cancelled(task.id))
+
+        # One shared pause gate: while a global pause is active the page tasks
+        # block on the event instead of each waking up every second to poll the
+        # setting (report 01 P3-11). A single watcher keeps it in sync.
+        pause_gate = asyncio.Event()
+        pause_gate.set()
+
+        async def _pause_watch() -> None:
+            while True:
+                try:
+                    paused = _paused()
+                except Exception:  # noqa: BLE001 - never strand waiting page tasks
+                    paused = False
+                if paused:
+                    pause_gate.clear()
+                else:
+                    pause_gate.set()
+                await asyncio.sleep(1)
+
+        if _paused():
+            pause_gate.clear()
+
+        supports_skip_hath = _accepts_skip_hath(self.client)
+
         async def _download_page(index: int, page: GalleryPageData) -> None:
             nonlocal first_error
-            from ..app.state import app_state as _app_state
-            from ..config import get_settings as _get_settings
-
-            def _paused() -> bool:
-                _s = _app_state.settings or _get_settings()
-                return bool(getattr(_s, "global_paused", False))
-
-            def _cancelled() -> bool:
-                tm = _app_state.task_manager
-                return bool(task.id is not None and tm and tm.is_cancelled(task.id))
 
             # Resume support (Ehviewer / SXJ style): pages already on disk in the
             # temp dir OR the final target dir are skipped, so a retry only
@@ -479,14 +579,9 @@ class Downloader:
                 if _cancelled():
                     raise DownloadCancelledError("download was cancelled")
                 if _paused():
-                    await asyncio.sleep(1)
+                    await pause_gate.wait()
                     continue
-                acquired = False
-                try:
-                    await asyncio.wait_for(worker_semaphore.acquire(), timeout=1)
-                    acquired = True
-                except TimeoutError:
-                    continue
+                await worker_semaphore.acquire()
                 try:
                     if _cancelled():
                         raise DownloadCancelledError("download was cancelled")
@@ -501,16 +596,16 @@ class Downloader:
                     # page instead of sinking the whole task into exponential
                     # backoff.  A persistent failure still escalates to the
                     # task-level retry so the gallery stays complete.
-                    for attempt in range(5):
+                    for attempt in range(_PAGE_ATTEMPTS):
                         try:
-                            try:
+                            if supports_skip_hath:
                                 current = await self.client.resolve_page(
                                     gallery.gid,
                                     current,
                                     showkey,
                                     skip_hath=(attempt > 0),
                                 )
-                            except TypeError:
+                            else:
                                 current = await self.client.resolve_page(
                                     gallery.gid, current, showkey
                                 )
@@ -591,21 +686,20 @@ class Downloader:
                                 # applies task-level backoff.
                                 raise
                             last_error = exc
-                            if attempt < 4:
+                            if attempt < _PAGE_ATTEMPTS - 1:
                                 await asyncio.sleep(1.5 * (attempt + 1))
                         except Exception as exc:  # noqa: BLE001 - per-page retry
                             # Includes EhClientError from a 403/expired keystamp or
                             # a failed re-resolution: the next round fetches a fresh
                             # URL and tries again.
                             last_error = exc
-                            if attempt < 4:
+                            if attempt < _PAGE_ATTEMPTS - 1:
                                 await asyncio.sleep(1.5 * (attempt + 1))
                     if last_error is not None:
                         raise last_error
                     break
                 finally:
-                    if acquired:
-                        worker_semaphore.release()
+                    worker_semaphore.release()
             await _report_progress()
 
         async def _worker(pair: tuple[int, object]) -> None:
@@ -624,6 +718,7 @@ class Downloader:
                     extra=log_extra(gid=gallery.gid, page=index, error=type(exc).__name__),
                 )
 
+        pause_watch_task = asyncio.create_task(_pause_watch())
         page_tasks = [
             asyncio.create_task(_worker((index, page)))
             for index, page in enumerate(pages)
@@ -638,19 +733,19 @@ class Downloader:
                 page_task.cancel()
             await asyncio.gather(*page_tasks, return_exceptions=True)
             raise
+        finally:
+            pause_watch_task.cancel()
+            await asyncio.gather(pause_watch_task, return_exceptions=True)
         if first_error is not None:
             raise first_error
-        # Final pass writes the resume manifest (progress is reported live above).
-        done = 0
-        for index, page in enumerate(pages):
-            if index not in downloaded:
-                (temp / ".download-manifest.json").write_text(
-                    json.dumps({"gid": gallery.gid, "pages": done}), encoding="utf-8"
-                )
-                continue
-            done += 1
+        # Diagnostic resume manifest: only the pages that are still missing are
+        # recorded (the previous code wrote an identical payload in both
+        # branches and then always unlinked the file, i.e. dead code — report
+        # 01 P3-4).
+        missing = [index for index in range(len(pages)) if index not in downloaded]
+        if missing:
             (temp / ".download-manifest.json").write_text(
-                json.dumps({"gid": gallery.gid, "pages": done}), encoding="utf-8"
+                json.dumps({"gid": gallery.gid, "missing": missing}), encoding="utf-8"
             )
         self._write_metadata(temp, gallery, pages, quality)
         manifest = temp / ".download-manifest.json"
@@ -798,10 +893,28 @@ class Downloader:
         # A persisted zip URL means the archive was already requested (GP
         # already spent): a retry resumes the zip without re-checking funds or
         # re-charging.  Only a fresh request needs the info page + funds gate.
+        tier = "original" if quality == "original" else "resample"
         zip_url = state.get("zip_url")
+        if zip_url and state.get("quality") != tier:
+            # The user changed download_quality between attempts. Reusing the
+            # old URL would write resample pages into a task recorded as
+            # ``original`` (and then prune real originals during ingest), so the
+            # stale state and partial zip are discarded and the archive is
+            # requested again for the requested tier (report 01 P2-8).
+            logger.warning(
+                "archive quality changed; discarding cached zip url",
+                extra=log_extra(
+                    gid=task.gid,
+                    cached_quality=state.get("quality"),
+                    quality=tier,
+                ),
+            )
+            state = {}
+            zip_url = None
+            state_file.unlink(missing_ok=True)
+            (temp / "archive.zip").unlink(missing_ok=True)
         if not zip_url:
             info = await self.client.fetch_archive_info(task.gid, task.token)
-            tier = "original" if quality == "original" else "resample"
             cost = getattr(info, "original_cost", None) if tier == "original" else getattr(
                 info, "resample_cost", None
             )
