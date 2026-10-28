@@ -162,6 +162,18 @@ async function renderLibrary() {
       });
       return;
     }
+    // 批量/筛选删除后当前页可能被删空：按新 total 回退到上一页
+    if (data) {
+      const targetPage = fallbackEmptyPage(page, data);
+      if (targetPage !== (parseInt(page, 10) || 1)) {
+        location.hash = navHash("library", {}, {
+          ...currentLibraryQuery(),
+          page_size: data.page_size || prefPageSize(),
+          ...(targetPage > 1 ? { page: String(targetPage) } : {})
+        });
+        return;
+      }
+    }
     renderCardCheckboxes();
     gridPager("lib-pager", data, p => ({
       ...(q ? { q } : {}),
