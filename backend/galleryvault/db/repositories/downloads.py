@@ -160,32 +160,6 @@ class DownloadRepository:
             row.updated_at = row.started_at
         return row
 
-    async def rearm_failed(self) -> int:
-        """Requeue failed tasks that still have retry budget left.
-
-        Called by the periodic sweep so a download that exhausted its immediate
-        attempts is tried again later instead of waiting for a manual retry.
-        """
-        now = datetime.now(UTC)
-        result = await self.session.execute(
-            update(DownloadTask)
-            .where(
-                DownloadTask.status == "failed",
-                DownloadTask.retry_count < DownloadTask.max_retries,
-            )
-            .values(status="pending", retry_at=now, updated_at=now)
-        )
-        return int(result.rowcount or 0)
-
-    async def sweep_auto_retry(self) -> int:
-        """Alias for the retry sweep expected by download_worker_loop.
-
-        The worker imports ``sweep_auto_retry``; keep it as a thin wrapper
-        over ``rearm_failed`` so tests that patch either name work. Future
-        improvements could filter by error type (skip ArchiveNotRetryable).
-        """
-        return await self.rearm_failed()
-
     async def count_active(self) -> int:
         """Number of download tasks still pending or in progress."""
         return int(
