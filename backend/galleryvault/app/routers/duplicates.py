@@ -18,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from ...db.repository import FavoritesRepository, GalleryRepository
 from ...db.session import safe_transaction
 from ...scanners import registry
-from ...services.deletion import in_scan_roots
+from ...services.deletion import _scan_roots_default, in_scan_roots
 from ...services.ingest import GalleryIngestService
 from ...services.tag_translation import translated_tag
 from ...services.thumbnails import ThumbnailError, ThumbnailService
@@ -44,11 +44,14 @@ class DuplicateResolveRequest(BaseModel):
 
 
 def _scan_roots() -> list[str]:
-    settings = get_current_settings()
-    roots = list(settings.library_roots)
-    if settings.download_root and settings.download_root not in roots:
-        roots.append(settings.download_root)
-    return roots
+    """Deletable roots: library/download plus archive/cold-storage roots.
+
+    Cold-storage copies live outside ``library_roots``; without the archive roots
+    the dedupe endpoint refuses every cold copy and the group can never be
+    resolved.  Delegating to the deletion service keeps this list identical to
+    the boundary used by the actual delete path.
+    """
+    return _scan_roots_default()
 
 
 def _in_roots(path: Path) -> bool:

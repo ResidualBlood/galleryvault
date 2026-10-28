@@ -216,9 +216,25 @@ def collapse_same_stem_pages(path: Path) -> int:
 
 
 def _scan_roots_default() -> list[str]:
+    """Roots where a deletion target is allowed to live.
+
+    Besides the library and download roots, archive/cold-storage roots are valid
+    deletion targets: a gallery archived into cold storage must still be
+    removable.  They are resolved through ``cold_archive.resolve_archive_roots``
+    so deletion shares the archive writer's notion of configured archive roots
+    (``archive_roots``, falling back to ``cold_storage_root``).
+    """
     from ..app.dependencies import get_scan_roots
 
-    return get_scan_roots()
+    roots = list(get_scan_roots())
+
+    from .cold_archive import resolve_archive_roots
+
+    for root in resolve_archive_roots():
+        value = str(root)
+        if value not in roots:
+            roots.append(value)
+    return roots
 
 
 async def delete_galleries_local(
