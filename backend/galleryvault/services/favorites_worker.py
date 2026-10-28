@@ -124,6 +124,7 @@ class FavoriteDownloadQueue:
 
 FAVORITES_SKIP_LIMIT = 5
 _FAV_COUNTS_TTL = 300.0
+_FAV_COUNTS_EMPTY_TTL = 60.0
 _COVER_SUFFIXES = (".img", ".jpg")
 _COVER_HEAL_CHUNK = 25
 _fav_counts_cache: dict[str, Any] = {"ts": 0.0, "counts": {}}
@@ -372,7 +373,12 @@ async def remote_cover_data_batch(
             except Exception as exc:  # noqa: BLE001
                 logger.debug("cover download failed", extra=log_extra(gid=gid, error=str(exc)))
 
-        await asyncio.gather(*[_fetch(gid, url) for gid, url in need_download])
+        # Bound the fan-out: a folder can miss thousands of covers, and an
+        # unbounded gather would queue every download at once (memory + slow
+        # cancellation) instead of feeding the shared image semaphore steadily.
+        for start in range(0, len(need_download), _COVER_HEAL_CHUNK):
+            chunk = need_download[start : start + _COVER_HEAL_CHUNK]
+            await asyncio.gather(*[_fetch(gid, url) for gid, url in chunk])
     return result
 
 
@@ -426,13 +432,13 @@ async def refresh_favorite_counts() -> None:
 async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False) -> dict[int, int]:
     now = _time.time()
     cached = _fav_counts_cache.get("counts")
-    if (
-        not force
-        and isinstance(cached, dict)
-        and cached
-        and (now - float(_fav_counts_cache.get("ts", 0))) < _FAV_COUNTS_TTL
-    ):
-        return cached
+    if isinstance(cached, dict):
+        # An empty mapping is a *result* (header parse failed or no favorites at
+        # all), not a cold cache: keep it briefly so every call does not hit the
+        # favorites page again, but retry sooner than a real count.
+        ttl = _FAV_COUNTS_TTL if cached else _FAV_COUNTS_EMPTY_TTL
+        if not force and (now - float(_fav_counts_cache.get("ts", 0))) < ttl:
+            return cached
 
     if (wait_on_cold and not cached) or force:
         await refresh_favorite_counts()
