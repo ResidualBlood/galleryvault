@@ -3,11 +3,13 @@ import logging
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..logging import log_extra
 from ..scanners import registry
 from ..scanners.base import ExistingGallery, GalleryMeta
 from ..scanners.ehviewer import _DIR_NAME as _BARE_DIR_NAME
+from ..scanners.ehviewer import IMAGE_EXTENSIONS
 from .duplicate_resolver import (
     DEFAULT_DUPLICATE_POLICY,
     Copy,
@@ -50,9 +52,56 @@ def _path_key(path: Path) -> str:
 def _root_priority(roots: list[Path], path: Path) -> int:
     resolved = path.resolve()
     for index, root in enumerate(roots):
-        if resolved.is_relative_to(root):
+        try:
+            resolved_root = root.resolve()
+        except OSError:
+            resolved_root = root
+        if resolved.is_relative_to(resolved_root):
             return index
     return len(roots)
+
+
+def _page_stat_digest(path: Path) -> str:
+    """Digest of the page files' ``name:size:mtime_ns`` inside a directory gallery.
+
+    Stat-only (never reads page contents) so an in-place page overwrite that
+    does not touch the directory mtime still changes the signature.
+    """
+    digest = hashlib.sha256()
+    try:
+        entries = sorted(
+            (
+                entry
+                for entry in path.iterdir()
+                if entry.is_file() and entry.suffix.casefold() in IMAGE_EXTENSIONS
+            ),
+            key=lambda entry: entry.name,
+        )
+    except OSError:
+        return ""
+    for entry in entries:
+        try:
+            st = entry.stat()
+        except OSError:
+            continue
+        digest.update(f"{entry.name}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+    return digest.hexdigest()
+
+
+def _scan_signature(scanner: Any, path: Path) -> tuple[str, str]:
+    """Return ``(base, augmented)`` fingerprints for ``path``.
+
+    Directory galleries embed a page-stat digest in ``augmented`` so editing a
+    page in place invalidates the cached signature. Archive files keep the
+    scanner signature unchanged.
+    """
+    base = scanner.fingerprint(path)
+    if not path.is_dir():
+        return base, base
+    pages = _page_stat_digest(path)
+    if not pages:
+        return base, base
+    return base, hashlib.sha256(f"{base}\0{pages}".encode()).hexdigest()
 
 
 class LibraryService:
@@ -110,6 +159,10 @@ class LibraryService:
                 logger.warning("library root missing", extra=log_extra(root=str(root)))
                 self.incomplete_roots.add(str(root))
                 continue
+            try:
+                resolved_root = root.resolve()
+            except OSError:
+                resolved_root = root
             if registry.for_path(root) is not None:
                 yield root, priority
                 continue
@@ -149,6 +202,21 @@ class LibraryService:
                             continue
                         fpath = current_path / fname
                         if fpath.suffix.casefold() in archive_exts:
+                            if fpath.is_symlink():
+                                # A symlinked file may point outside the root;
+                                # ingesting it would create a row whose resolved
+                                # path_hash is outside the library and therefore
+                                # can never be expunged.
+                                try:
+                                    target = fpath.resolve()
+                                except OSError:
+                                    continue
+                                if not target.is_relative_to(resolved_root):
+                                    logger.debug(
+                                        "skipping out-of-root symlink",
+                                        extra=log_extra(path=str(fpath), target=str(target)),
+                                    )
+                                    continue
                             found += 1
                             yield fpath, priority
             except OSError as exc:
@@ -198,7 +266,11 @@ class LibraryService:
             if scanner is None:
                 continue
             known = self.existing.get(key)
-            if known is not None and known.signature == scanner.fingerprint(path):
+            base_signature, signature = _scan_signature(scanner, path)
+            if known is not None and known.signature in {base_signature, signature}:
+                # ``base_signature`` keeps rows written by older releases
+                # (scanner fingerprint only) skipping as before; fresh scans
+                # persist ``signature`` below so page edits are detected.
                 counters.skipped += 1
                 if known.gid is not None:
                     copies_by_gid.setdefault(known.gid, []).append(
@@ -211,6 +283,7 @@ class LibraryService:
                 counters.errors += 1
                 logger.error("library scan error", extra=log_extra(path=str(path), error=str(exc)))
                 continue
+            gallery.storage_signature = signature
             seen_key = (key, gallery.storage_signature)
             if seen_key in self._seen_signatures:
                 # Same content already collected on this instance (re-scan of an

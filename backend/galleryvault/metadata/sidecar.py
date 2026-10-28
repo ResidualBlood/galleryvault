@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import tempfile
 import zipfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -13,6 +16,10 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 SIDECAR_FILENAME = ".galleryvault.json"
+
+# ExHentai tokens are 10 hex characters; the looser class keeps legacy/fake
+# tokens (and tests) working while rejecting path/URL injection characters.
+_TOKEN_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 
 CATEGORIES = (
     "manga",
@@ -300,9 +307,17 @@ def parse_galleryvault_json(data: dict[str, Any] | str | bytes) -> dict[str, Any
             clean_gid = int(raw["gid"])
         except (ValueError, TypeError):
             clean_gid = None
+        else:
+            # Gallery ids are positive; 0/negative values would build broken
+            # ``/g/{gid}/{token}/`` URLs downstream.
+            if clean_gid <= 0:
+                clean_gid = None
 
     token_raw = raw.get("token")
     token = str(token_raw).strip() if token_raw else None
+    if token is not None and not _TOKEN_RE.match(token):
+        logger.debug("ignoring invalid sidecar token: %r", token_raw)
+        token = None
 
     title = str(raw.get("title") or "")
     title_jpn = normalize_title_jpn(raw.get("title_jpn"))
@@ -439,5 +454,22 @@ def write_galleryvault_json(
     dest_dir = Path(target_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     out_file = dest_dir / SIDECAR_FILENAME
-    out_file.write_bytes(data_bytes)
+    # Atomic replace: a crash mid-write must not leave a truncated sidecar
+    # (read_galleryvault_json would then fall back to directory-name metadata).
+    fd, tmp_name = tempfile.mkstemp(
+        dir=dest_dir, prefix=f".{SIDECAR_FILENAME}.", suffix=".tmp"
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, out_file)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
     return out_file

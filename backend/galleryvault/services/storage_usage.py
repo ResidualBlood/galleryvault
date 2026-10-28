@@ -51,8 +51,32 @@ def safe_stat_size(path: Path | str) -> int:
     return 0
 
 
+# ``du`` prints a single size line; cap the consumed output so a future flag
+# change (or a pathological path name containing newlines) cannot buffer
+# unbounded data into memory.
+_DU_OUTPUT_CAP = 64 * 1024
+
+
+async def _read_capped(stream: asyncio.StreamReader, cap: int) -> tuple[bytes, bool]:
+    """Read at most ``cap`` bytes from ``stream``; return ``(data, truncated)``."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await stream.read(8192)
+        if not chunk:
+            return b"".join(chunks), False
+        chunks.append(chunk)
+        total += len(chunk)
+        if total >= cap:
+            return b"".join(chunks), True
+
+
 async def measure_dir_bytes(path: Path) -> int:
-    """Measure directory size via du -sb if available, falling back to controlled walk."""
+    """Measure directory size via ``du -sbx`` if available, else a bounded walk.
+
+    ``-x`` keeps the measurement on the starting filesystem so a nested cold
+    archive mount under the library root is not double counted.
+    """
     if not path.exists():
         return 0
     if path.is_file():
@@ -67,14 +91,24 @@ async def measure_dir_bytes(path: Path) -> int:
         try:
             proc = await asyncio.create_subprocess_exec(
                 du_bin,
-                "-sb",
+                "-sbx",
                 str(path),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout, _ = await proc.communicate()
+            stdout, truncated = await _read_capped(proc.stdout, _DU_OUTPUT_CAP)
+            if truncated:
+                logger.debug("du -sbx output exceeded cap; falling back to controlled walk")
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                await proc.wait()
+                stdout = b""
+            else:
+                await proc.wait()
             if proc.returncode == 0 and stdout:
-                parts = stdout.decode().strip().split()
+                parts = stdout.decode(errors="replace").strip().split()
                 if parts and parts[0].isdigit():
                     return int(parts[0])
         except asyncio.CancelledError:
@@ -93,13 +127,20 @@ async def measure_dir_bytes(path: Path) -> int:
     # Fallback to controlled walk run in a thread
     def _walk() -> int:
         total = 0
+        seen_inodes: set[tuple[int, int]] = set()
         try:
             for root, _dirs, files in os.walk(path, followlinks=False):
                 for f in files:
                     try:
-                        total += (Path(root) / f).stat().st_size
+                        st = (Path(root) / f).stat()
                     except OSError:
                         continue
+                    # Hard links share an inode; ``du`` counts them once.
+                    key = (st.st_dev, st.st_ino)
+                    if key in seen_inodes:
+                        continue
+                    seen_inodes.add(key)
+                    total += st.st_size
         except OSError:
             pass
         return total
