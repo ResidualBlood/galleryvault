@@ -63,6 +63,7 @@ from ..dependencies import (
     get_session,
     get_task_manager,
     image_content_type,
+    release_session,
     resolve_session,
     spawn_task,
 )
@@ -977,19 +978,26 @@ async def download_gallery_original(
     """Enqueue an original-quality download for a local gallery."""
     session = await resolve_session(session, fallback_dep=get_session)
     row, _ = await _invoke_gallery(identifier, session=session)
-    if not row.gid or not row.token:
+    gid = int(row.gid) if row.gid else None
+    token = row.token
+    title = row.title
+    title_jpn = getattr(row, "title_jpn", None)
+    if not gid or not token:
         raise HTTPException(status_code=422, detail="Gallery has no ExHentai gid/token")
     mode = "gallery_archive" if body.archive else "gallery"
     if not body.archive:
         client = get_eh_client()
+        # Finish the read transaction before the availability check so the
+        # request does not hold a pooled connection for the whole HTTP call.
+        await release_session(session)
         try:
             preview = await client.fetch_gallery(
-                row.gid, row.token, max_pages=1, resolve_urls=True
+                gid, token, max_pages=1, resolve_urls=True
             )
         except Exception as exc:
             logger.warning(
                 "original availability check failed",
-                extra=log_extra(gid=row.gid, error=type(exc).__name__),
+                extra=log_extra(gid=gid, error=type(exc).__name__),
             )
             raise HTTPException(
                 status_code=502, detail="ExHentai metadata request failed"
@@ -1001,13 +1009,13 @@ async def download_gallery_original(
     try:
         async with safe_transaction(session):
             task = await DownloadRepository(session).create(
-                row.gid,
-                row.token,
-                row.title,
+                gid,
+                token,
+                title,
                 mode,
                 None,
                 "original",
-                title_jpn=getattr(row, "title_jpn", None),
+                title_jpn=title_jpn,
             )
             if task is None:
                 raise HTTPException(
@@ -1061,32 +1069,39 @@ async def toggle_gallery_favorite(
         raise HTTPException(status_code=422, detail="favcat must be between 0 and 9")
     session = await resolve_session(session, fallback_dep=get_session)
     row, _ = await _invoke_gallery(identifier, session=session)
-    if not row.gid:
+    gid = int(row.gid) if row.gid else None
+    gallery_id = row.id
+    title = row.title
+    if not gid:
         raise HTTPException(
             status_code=400, detail="Gallery lacks gid for ExHentai favorites"
         )
     try:
         favcats = await FavoritesRepository(session).favcats_for_gid(
-            row.gid, gallery_id=row.id
+            gid, gallery_id=gallery_id
         )
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
     target_state = not bool(favcats)
     settings = get_current_settings()
+    token = row.token
 
     if target_state:
-        if not row.token:
+        if not token:
             raise HTTPException(
                 status_code=400, detail="Gallery lacks token for ExHentai favorites"
             )
+        # Read transaction is over: hand the pooled connection back before the
+        # (potentially slow) ExHentai call starts.
+        await release_session(session)
         try:
             async with eh_client_mgr.client_context(settings=settings) as client:
-                await client.add_favorite(row.gid, row.token, favcat)
+                await client.add_favorite(gid, token, favcat)
         except Exception as exc:
             logger.warning(
                 "ExHentai cloud favorite sync failed",
-                extra=log_extra(gid=row.gid, error=type(exc).__name__),
+                extra=log_extra(gid=gid, error=type(exc).__name__),
             )
             raise HTTPException(
                 status_code=502, detail="ExHentai cloud favorite sync failed"
@@ -1097,10 +1112,10 @@ async def toggle_gallery_favorite(
             or "https://exhentai.org"
         ).rstrip("/")
         fav_item = FavoriteData(
-            gid=row.gid,
-            token=row.token,
-            title=row.title or str(row.gid),
-            url=f"{base_url}/g/{row.gid}/{row.token}/",
+            gid=gid,
+            token=str(token),
+            title=title or str(gid),
+            url=f"{base_url}/g/{gid}/{token}/",
             thumb=None,
         )
         try:
@@ -1109,9 +1124,10 @@ async def toggle_gallery_favorite(
         except SQLAlchemyError as exc:
             raise db_error(exc) from exc
     else:
+        await release_session(session)
         try:
             async with eh_client_mgr.client_context(settings=settings) as client:
-                failed = await client.remove_favorites([row.gid])
+                failed = await client.remove_favorites([gid])
             if failed:
                 raise HTTPException(
                     status_code=502, detail="ExHentai cloud favorite remove failed"
@@ -1121,7 +1137,7 @@ async def toggle_gallery_favorite(
         except Exception as exc:
             logger.warning(
                 "ExHentai cloud favorite remove failed",
-                extra=log_extra(gid=row.gid, error=type(exc).__name__),
+                extra=log_extra(gid=gid, error=type(exc).__name__),
             )
             raise HTTPException(
                 status_code=502, detail="ExHentai cloud favorite remove failed"
@@ -1129,7 +1145,7 @@ async def toggle_gallery_favorite(
 
         try:
             async with safe_transaction(session):
-                await FavoritesRepository(session).remove_gids([row.gid])
+                await FavoritesRepository(session).remove_gids([gid])
         except SQLAlchemyError as exc:
             raise db_error(exc) from exc
 
@@ -1169,17 +1185,18 @@ async def save_gallery_progress(
     if current < 0 or current >= len(pages):
         raise HTTPException(status_code=422, detail="current_page is outside gallery")
     async with safe_transaction(session):
-        progress = await GalleryRepository(session).upsert_progress(
+        repo = GalleryRepository(session)
+        progress, advanced = await repo.advance_progress(
             row.id, current, total_pages
         )
-        await GalleryRepository(session).record_history(
-            row.id, current, total_pages
-        )
+        if advanced:
+            await repo.record_history(row.id, current, total_pages)
+    persisted = progress.current_page if progress else current
     return {
         "gallery_id": row.id,
-        "current_page": progress.current_page if progress else current,
+        "current_page": persisted,
         "total_pages": progress.total_pages if progress else total_pages,
-        "reading_progress": current,
+        "reading_progress": persisted,
     }
 
 
@@ -1685,6 +1702,7 @@ async def export_gallery_cbz(
     now = datetime.now(UTC).isoformat()
     filename = cbz_filename(getattr(row, "title", None), getattr(row, "gid", None), row.id)
     total = len(pages)
+    page_pairs = [(p.page_index, p.member_name or "") for p in pages]
 
     def _log(status: str, reason: str, done: int = 0) -> None:
         tm = get_task_manager()
@@ -1704,6 +1722,7 @@ async def export_gallery_cbz(
         raise HTTPException(status_code=404, detail="Gallery files not found")
     if is_cbz_file(path):
         _log("success", path.name, total)
+        await release_session(session)
         return FileResponse(path, filename=filename, media_type="application/zip")
     if not path.is_dir() or not pages:
         _log("failed", "not exportable")
@@ -1714,8 +1733,8 @@ async def export_gallery_cbz(
     fd, tmp_name = tempfile.mkstemp(suffix=".cbz", dir=export_dir)
     os.close(fd)
     tmp_path = Path(tmp_name)
+    await release_session(session)
     try:
-        page_pairs = [(p.page_index, p.member_name or "") for p in pages]
         await run_in_threadpool(pack_directory_cbz, path, page_pairs, tmp_path)
     except UnsafeExportPath as exc:
         tmp_path.unlink(missing_ok=True)
@@ -1750,20 +1769,26 @@ async def get_page(
     page = next((p for p in pages if p.page_index == page_index), None)
     if page is None:
         raise HTTPException(status_code=404, detail="Page not found")
-    scanner = registry.for_path(Path(row.storage_path or ""))
+    media_type = _page_media_type(page.media_type or "jpg")
+    page_info = PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg")
+    storage_path = Path(row.storage_path or "")
+    scanner = registry.for_path(storage_path)
     if scanner is None:
         raise HTTPException(status_code=500, detail="No scanner for gallery storage")
     try:
         stream = await run_in_threadpool(
             scanner.open_page,
             _meta(row, pages),
-            PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
+            page_info,
         )
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Streaming starts after this coroutine returns; release the pooled
+    # connection now instead of when the response finishes.
+    await release_session(session)
     return StreamingResponse(
         _closing_stream(stream),
-        media_type=_page_media_type(page.media_type or "jpg"),
+        media_type=media_type,
     )
 
 
@@ -2027,18 +2052,35 @@ async def get_page_meta(
     page = next((p for p in pages if p.page_index == page_index), None)
     if page is None:
         raise HTTPException(status_code=404, detail="Page not found")
-    scanner = registry.for_path(Path(row.storage_path or ""))
+    page_info = PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg")
+    storage_path = Path(row.storage_path or "")
+    scanner = registry.for_path(storage_path)
     if scanner is None:
         raise HTTPException(status_code=500, detail="No scanner for gallery storage")
+    # File access happens in a worker thread; the request no longer needs its
+    # DB transaction while the page is opened and inspected.
+    meta = _meta(row, pages)
+    await release_session(session)
     try:
-        stream = await run_in_threadpool(
-            scanner.open_page,
-            _meta(row, pages),
-            PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
+        stream = await run_in_threadpool(scanner.open_page, meta, page_info)
+    except FileNotFoundError as exc:
+        logger.warning(
+            "Page meta file missing",
+            extra=log_extra(gallery_id=identifier, page=page_index, error=type(exc).__name__),
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to open page for meta: %s", exc)
-        return {"animated": False, "duration_ms": 0}
+        raise HTTPException(status_code=404, detail="Page file not found") from exc
+    except ValueError as exc:
+        logger.warning(
+            "Page meta path rejected",
+            extra=log_extra(gallery_id=identifier, page=page_index, error=type(exc).__name__),
+        )
+        raise HTTPException(status_code=400, detail="Invalid page path") from exc
+    except Exception as exc:
+        logger.warning(
+            "Failed to open page for meta",
+            extra=log_extra(gallery_id=identifier, page=page_index, error=type(exc).__name__),
+        )
+        raise HTTPException(status_code=500, detail="Page could not be read") from exc
 
     return await run_in_threadpool(_inspect_image_meta, stream)
 
@@ -2110,7 +2152,7 @@ async def get_thumbnail(
             media_type = image_content_type(head)
             if media_type == "application/octet-stream":
                 media_type = JPEG_MIME
-            return _thumb_file_response(
+            response = _thumb_file_response(
                 remote_cover,
                 media_type=media_type,
                 cache_control="public, max-age=86400",
@@ -2118,6 +2160,8 @@ async def get_thumbnail(
                 page_index=page_index,
                 request=request,
             )
+            await release_session(session)
+            return response
         spawn_task(
             ensure_remote_cover(row.gid, row.token, cache_dir=service.remote_cover_dir()),
             f"remote cover {row.gid}",
@@ -2137,7 +2181,7 @@ async def get_thumbnail(
 
     cached = service.cached(row.id, page_index)
     if cached is not None:
-        return _thumb_file_response(
+        response = _thumb_file_response(
             cached,
             media_type=JPEG_MIME,
             cache_control=cache_control,
@@ -2145,6 +2189,8 @@ async def get_thumbnail(
             page_index=page_index,
             request=request,
         )
+        await release_session(session)
+        return response
 
     if pages is None:
         repo = GalleryRepository(session)
@@ -2175,7 +2221,7 @@ async def get_thumbnail(
         )
     except ThumbnailError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return _thumb_file_response(
+    response = _thumb_file_response(
         cached,
         media_type=JPEG_MIME,
         cache_control=cache_control,
@@ -2183,6 +2229,8 @@ async def get_thumbnail(
         page_index=page_index,
         request=request,
     )
+    await release_session(session)
+    return response
 
 
 gallery_page = get_page

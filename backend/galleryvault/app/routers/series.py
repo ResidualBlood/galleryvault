@@ -431,6 +431,10 @@ async def remove_series_items(
     return {"id": series_id, "removed": removed}
 
 
+# Guard so repeated rebuild clicks cannot stack full-library scoring passes.
+_series_rebuild_state: dict[str, bool] = {"running": False}
+
+
 def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
     if isinstance(dispatcher, TaskDispatcher):
         return dispatcher
@@ -441,9 +445,12 @@ def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
 async def rebuild_series(
     dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
 ) -> dict[str, object]:
+    if _series_rebuild_state["running"]:
+        raise HTTPException(status_code=409, detail="series rebuild already running")
     disp = _resolve_dispatcher(dispatcher)
     tm = disp.task_manager if getattr(disp, "task_manager", None) is not None else get_task_manager()
     started_at = datetime.now(UTC).isoformat()
+    _series_rebuild_state["running"] = True
     try:
         stats = await rebuild_series_groups()
     except Exception as exc:
@@ -460,6 +467,8 @@ async def rebuild_series(
             )
             disp.spawn(tm.persist_history(), "persist task history")
         raise
+    finally:
+        _series_rebuild_state["running"] = False
 
     completed_at = datetime.now(UTC).isoformat()
     created = int(stats.get("created", 0) or 0)

@@ -52,6 +52,7 @@ from ..dependencies import (
     get_session,
     get_task_manager,
     image_content_type,
+    release_session,
     resolve_display_title,
     resolve_session,
     spawn_task,
@@ -407,6 +408,10 @@ async def archives_preview(
         if item.title:
             entry["title"] = item.title
         detail[gid] = entry
+
+    # All DB reads are done; release the pooled connection before the ExHentai
+    # network calls (metadata preparation, archive info, GP balance).
+    await release_session(session)
 
     pairs: list[tuple[int, str]] = []
     for gid in gids:
@@ -918,6 +923,8 @@ async def favorites_set_note(
         raise HTTPException(status_code=422, detail="token is required")
     if favcat is None:
         raise HTTPException(status_code=422, detail="not in favorites")
+    # Read phase finished: return the pooled connection before the cloud call.
+    await release_session(session)
     cloud_ok = False
     try:
         async with eh_client_mgr.client_context(settings=settings) as client:
@@ -1108,6 +1115,7 @@ async def favorite_cover(
                     thumb_url = meta.get("thumb") or None
         except SQLAlchemyError:
             thumb_url = None
+        await release_session(session)
         data: bytes | None = None
         if thumb_url:
             try:
@@ -1130,6 +1138,7 @@ async def favorite_cover(
         await run_in_threadpool(_write_atomic)
     # Infer content-type from first bytes without loading whole file twice.
     head: bytes = await run_in_threadpool(lambda: path.read_bytes()[:16])
+    await release_session(session)
     return FileResponse(
         path,
         media_type=image_content_type(head),
@@ -1193,6 +1202,11 @@ async def compute_favorite_sizes(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
+    tm = get_task_manager()
+    if tm.metadata_sync_state.get("running"):
+        raise HTTPException(
+            status_code=409, detail="favorite size sync already running"
+        )
     favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
     for favcat in favcats:
         spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
@@ -1297,6 +1311,9 @@ async def check_all_favorites(
     service = app_state.favorites_service
     if service is None:
         raise HTTPException(status_code=503, detail="Favorites service is unavailable")
+    tm = get_task_manager()
+    if tm.favorites_check_state.get("running"):
+        raise HTTPException(status_code=409, detail="favorites check already running")
     try:
         categories = await FavoritesRepository(session).categories()
     except SQLAlchemyError as exc:

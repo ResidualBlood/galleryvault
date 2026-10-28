@@ -113,6 +113,27 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     raise HTTPException(status_code=503, detail="Database session factory not initialized")
 
 
+async def release_session(session: Any) -> None:
+    """End any open transaction so the pooled connection goes back to the pool.
+
+    FastAPI only tears ``yield`` dependencies down after the response has been
+    sent, so endpoints that return a ``StreamingResponse``/``FileResponse`` (or
+    that do long network I/O) would keep a request-level connection checked out
+    for the whole transfer.  Ending the read transaction before returning hands
+    the connection back; the session stays usable and the next statement starts
+    a fresh transaction.
+    """
+    rollback = getattr(session, "rollback", None)
+    if rollback is None:
+        return
+    try:
+        result = rollback()
+        if result is not None and hasattr(result, "__await__"):
+            await result
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("session release failed", extra=log_extra(error=type(exc).__name__))
+
+
 async def get_uow(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> AsyncIterator[UnitOfWork]:
@@ -466,6 +487,7 @@ __all__ = [
     "get_unit_of_work",
     "get_uow",
     "image_content_type",
+    "release_session",
     "resolve_display_title",
     "resolve_session",
     "spawn_task",

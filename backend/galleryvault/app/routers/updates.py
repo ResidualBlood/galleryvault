@@ -88,6 +88,9 @@ async def gallery_updates_list(
 
 @router.post("/api/updates/scan", status_code=202)
 async def gallery_updates_scan() -> dict[str, Any]:
+    tm = get_task_manager()
+    if tm.gallery_updates_state.get("detecting"):
+        raise HTTPException(status_code=409, detail="gallery update scan already running")
     spawn_task(detect_gallery_updates(), "gallery updates detect")
     return {"status": "started"}
 
