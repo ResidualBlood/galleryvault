@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import NamedTuple
@@ -19,6 +20,16 @@ from ..models import (
 )
 from ..tag_filters import build_tag_predicates
 from .base import BaseRepository, _chunked, count_select, escape_like_wildcards
+
+logger = logging.getLogger(__name__)
+
+# ``prune`` safety net: a cloud listing that would drop most of the recorded
+# rows is far more likely a silently truncated page (broken ``nexturl`` /
+# markup change) than a real mass unfavorite. Directories below the minimum
+# size, and listings that keep at least ``_PRUNE_KEEP_RATIO`` of the rows, are
+# pruned as before.
+_PRUNE_MIN_RECORDED = 20
+_PRUNE_KEEP_RATIO = 0.5
 
 
 class CloudSizeBreakdown(NamedTuple):
@@ -245,10 +256,17 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         """
         if not items:
             return
+        # One ``ON CONFLICT`` statement cannot touch the same row twice
+        # (PostgreSQL: "command cannot affect row a second time"), so collapse
+        # duplicate gids here instead of trusting every caller to pre-dedupe.
+        deduped: dict[int, object] = {}
+        for item in items:
+            deduped[int(item.gid)] = item
+        unique_items = list(deduped.values())
         now = datetime.now(UTC)
         batch_size = 500
-        for start in range(0, len(items), batch_size):
-            chunk = items[start : start + batch_size]
+        for start in range(0, len(unique_items), batch_size):
+            chunk = unique_items[start : start + batch_size]
             rows = [
                 {
                     "favcat": favcat,
@@ -300,21 +318,39 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         Otherwise ``count_known_gids`` drifts above the live cloud count (the
         scheduled "cloud count unchanged → skip" heuristic never fires again)
         and phantom cloud-only items linger in the folder list forever.
+
+        ``allow_empty`` must only be set when the caller has confirmed on the
+        cloud side that the folder really is empty; a successful check that
+        merely returned no items cannot be told apart from a broken listing.
         """
-        if current_gids:
-            result = await self.session.execute(
-                delete(FavoriteItem).where(
-                    FavoriteItem.favcat == favcat,
-                    FavoriteItem.gid.not_in(current_gids),
-                )
-            )
-        elif allow_empty:
+        if not current_gids:
+            if not allow_empty:
+                return 0
             # An empty folder on the cloud means every recorded row is stale.
             result = await self.session.execute(
                 delete(FavoriteItem).where(FavoriteItem.favcat == favcat)
             )
-        else:
+            return result.rowcount or 0
+
+        recorded = await self.count_known_gids(favcat)
+        if recorded >= _PRUNE_MIN_RECORDED and len(current_gids) < recorded * _PRUNE_KEEP_RATIO:
+            # Pagination silently stopped early: keep the recorded rows rather
+            # than deleting everything the (partial) listing did not mention.
+            logger.warning(
+                "favorites prune skipped for favcat=%s: listing returned %s of %s "
+                "recorded items, looks truncated",
+                favcat,
+                len(current_gids),
+                recorded,
+            )
             return 0
+
+        result = await self.session.execute(
+            delete(FavoriteItem).where(
+                FavoriteItem.favcat == favcat,
+                FavoriteItem.gid.not_in(current_gids),
+            )
+        )
         return result.rowcount or 0
 
     async def log_check(

@@ -131,7 +131,7 @@ async def test_category_refresh_once_batches_gdata(monkeypatch):
     deleted_galleries: list[int] = []
     gdata_batch_called: list[list[tuple[int, str]]] = []
 
-    async def fake_refresh_gdata(pairs, client=None, force=False):
+    async def fake_refresh_gdata(session, pairs, client=None, force=False):
         gdata_batch_called.append(list(pairs))
         return {
             101: {"category": "Manga", "expunged": False},
