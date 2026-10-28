@@ -37,7 +37,11 @@ function t(key, params) {
     || key;
   if (params && typeof res === "string") {
     for (const [k, v] of Object.entries(params)) {
-      res = res.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+      // Only `{name}` placeholders are supported. Escape regex metacharacters
+      // in the key and use a function replacement so `$&`/`$'` in the value
+      // are inserted literally instead of being treated as replacement patterns.
+      const escapedKey = String(k).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      res = res.replace(new RegExp(`\\{${escapedKey}\\}`, "g"), () => String(v));
     }
   }
   return res;

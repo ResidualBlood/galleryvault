@@ -453,6 +453,7 @@ function clearViewTimers() {
 
 function router() {
   parseHash();
+  beginViewRender();
   updateLangButton();
   updateBanner();
   if (!app.authenticated) {
@@ -507,6 +508,23 @@ function router() {
 
 // --- Phase 1 render governance (renderView + hooks) ---
 let currentViewCleanup = null;
+
+// Render ownership token: every router() / view render bumps the sequence.
+// Async views capture the token before awaiting and must discard results once
+// a newer render owns the view (avoids stale responses overwriting the DOM).
+let viewRenderSeq = 0;
+
+function beginViewRender() {
+  viewRenderSeq += 1;
+  return viewRenderSeq;
+}
+
+function isStaleViewRender(token, view, id) {
+  if (token !== viewRenderSeq) return true;
+  if (view !== undefined && app.view !== view) return true;
+  if (id !== undefined && id !== null && String(app.params && app.params.id || "") !== String(id)) return true;
+  return false;
+}
 
 function beforeRender(view) {
   if (currentViewCleanup) {

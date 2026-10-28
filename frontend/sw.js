@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE = "gv-shell-v8";
+const CACHE = "gv-shell-v9";
 const SHELL = [
   "/",
   "/index.html",
@@ -86,7 +86,11 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+  // Documents (and the manifest): network-first so a new deploy is picked up
+  // immediately. Fall back to the cached shell only when the network fails.
   event.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then(put).catch(() => caches.match("/index.html")))
+    fetch(req).then(put).catch(() =>
+      caches.match(req).then((hit) => hit || caches.match("/index.html"))
+    )
   );
 });

@@ -27,7 +27,7 @@ function jumpToWebtoonPage(targetPage) {
   syncReaderUrl();
   const jump = document.getElementById("reader-jump-input");
   if (jump) jump.value = String(clamped + 1);
-  api("PUT", `/api/galleries/${id}/progress`, { current_page: clamped, total_pages: total }).catch(() => {});
+  queueProgressWrite(id, clamped, total, { immediate: true });
 }
 
 function bindWebtoonObserver(id, total) {
@@ -44,7 +44,9 @@ function bindWebtoonObserver(id, total) {
     if (jump) jump.value = String(page + 1);
     clearTimeout(webtoonProgressTimer);
     webtoonProgressTimer = setTimeout(() => {
-      api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }).catch(() => {});
+      webtoonProgressTimer = null;
+      if (app.view !== "reader" || String(app.params.id) !== String(id)) return;
+      queueProgressWrite(id, page, total, { immediate: true });
     }, 400);
   };
   webtoonObserver = new IntersectionObserver((entries) => {
@@ -75,12 +77,14 @@ async function renderWebtoonReader() {
     readerTouchCleanup = null;
   }
   cleanupWebtoon();
+  const token = beginViewRender();
   const id = app.params.id;
   const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   try {
     let g = app.readerGallery;
     if (!g || String(g.id) !== String(id)) {
       g = await api("GET", `/api/galleries/${id}`);
+      if (isStaleViewRender(token, "reader", id)) return;
       app.readerGallery = g;
     }
     const total = g.page_count;
@@ -121,13 +125,15 @@ async function renderWebtoonReader() {
       $view().innerHTML = `<div class="reader reader-webtoon">${innerHtml}</div>`;
     }
     requestAnimationFrame(() => {
+      if (isStaleViewRender(token, "reader", id)) return;
       const target = document.querySelector(`.webtoon-strip img[data-page="${page}"]`);
       if (target) target.scrollIntoView({ block: "start" });
       bindWebtoonObserver(id, total);
       webtoonLastPage = page;
-      if (total > 0) api("PUT", `/api/galleries/${id}/progress`, { current_page: page, total_pages: total }).catch(() => {});
+      if (total > 0) queueProgressWrite(id, page, total, { immediate: true });
     });
   } catch (e) {
+    if (isStaleViewRender(token, "reader", id)) return;
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }
