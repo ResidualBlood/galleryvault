@@ -176,7 +176,7 @@ async function runDupScan(isPolling = false) {
       if (st.total > 0 && fill && text) {
         const pct = Math.min(100, Math.round((st.done / st.total) * 100));
         fill.style.width = pct + "%";
-        text.textContent = `${esc(st.stage || "")} ${st.done}/${st.total}`;
+        text.textContent = `${st.stage || ""} ${st.done}/${st.total}`;
       }
 
       if (!st.running) {

@@ -4,6 +4,7 @@
 // renderBrowse moved from app.js
 
 async function renderBrowse() {
+  const token = beginViewRender();
   renderView(`
     <header><p class="eyebrow">GALLERYVAULT</p><h1>${esc(t("browse"))}</h1></header>
     <form class="toolbar" data-action="browse-search">
@@ -32,6 +33,8 @@ async function renderBrowse() {
     api("GET", "/api/tags/search?page=1&page_size=1"),
     api("GET", "/api/history?page=1&page_size=8"),
   ]);
+  // Stale response: the user already navigated away; never write into the new view.
+  if (isStaleViewRender(token, "browse")) return;
   if (dataResult.status === "fulfilled") {
     data = dataResult.value;
     if (window.store && typeof window.store.setState === "function") {

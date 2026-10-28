@@ -102,12 +102,15 @@ async function renderGallery() {
     currentViewCleanup = cleanupGalleryThumbs;
   }
   const id = app.params.id;
+  const token = beginViewRender();
   $view().innerHTML = `<p>${esc(t("loading"))}</p>`;
   try {
     const [galleryRes, progressRes] = await Promise.allSettled([
       api("GET", `/api/galleries/${id}`),
       api("GET", `/api/galleries/${id}/progress`),
     ]);
+    // Stale response: a newer render (other view or other gallery) owns the DOM now.
+    if (isStaleViewRender(token, "gallery", id)) return;
     if (galleryRes.status !== "fulfilled") {
       throw galleryRes.reason || new Error("Failed to load gallery");
     }
@@ -283,6 +286,7 @@ async function renderGallery() {
     if (g.gid) {
       try {
         const fav = await api("GET", `/api/galleries/${id}/favorite`);
+        if (isStaleViewRender(token, "gallery", id)) return;
         const favcatEl = document.getElementById("gallery-favcats");
         const addBtn = document.querySelector('[data-action="favorite-gallery"]');
         const moveBtn = document.querySelector('[data-action="move-gallery-favorite"]');
@@ -327,7 +331,7 @@ async function renderGallery() {
         }
       } catch (_) {}
     }
-    fillGalleryLists(id);
+    fillGalleryLists(id, token);
     let autoLoadBatches = 0;
     const MAX_AUTOLOAD_BATCHES = 5;
 
@@ -383,17 +387,22 @@ async function renderGallery() {
         if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 150);
     }
-  } catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  } catch (e) {
+    if (isStaleViewRender(token, "gallery", id)) return;
+    $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
 }
 
-async function fillGalleryLists(id) {
+async function fillGalleryLists(id, token) {
   const el = document.getElementById("gallery-lists");
   if (!el) return;
+  const tk = token === undefined ? viewRenderSeq : token;
   try {
     const [all, mine] = await Promise.all([
       api("GET", "/api/lists"),
       api("GET", `/api/galleries/${id}/lists`),
     ]);
+    if (isStaleViewRender(tk, "gallery", id)) return;
     const mineIds = new Set(((mine && mine.items) || []).map(it => it.id));
     const items = (all && all.items) || [];
     el.innerHTML = items.map(it => mineIds.has(it.id)

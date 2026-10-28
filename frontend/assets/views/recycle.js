@@ -79,7 +79,7 @@ async function recycleRestore() {
   if (!ids.length) { toast(t("select")); return; }
   try {
     const r = await api("POST", "/api/galleries/restore", { ids });
-    toast(`${esc(t("restore"))}: ${r.restored}`);
+    toast(`${t("restore")}: ${r.restored}`);
     window.selRecycle && window.selRecycle.clear();
     router();
   } catch (e) { toast(e.message); }
@@ -107,7 +107,7 @@ async function recyclePurge() {
     const r = await api("POST", "/api/galleries/purge", { ids, delete_files: delFiles });
     const ok = r.purged != null ? r.purged : (r.deleted != null ? r.deleted : ids.length);
     const failed = (r.failed_deletions || []).length;
-    toast(`${esc(t("purge"))}: ${ok}` + (failed ? ` · ${esc(t("dupDeleteFail"))}${failed}` : ""));
+    toast(`${t("purge")}: ${ok}` + (failed ? ` · ${t("dupDeleteFail")}${failed}` : ""));
     window.selRecycle && window.selRecycle.clear();
     router();
   } catch (e) { toast(e.message); }
