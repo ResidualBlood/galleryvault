@@ -37,6 +37,7 @@ async function renderTags() {
   const ns = app.query.ns || "";
   const q = app.query.q || "";
   const page = app.query.page || "1";
+  const token = beginViewRender();
   const title = ns ? nsLabel(ns) : t("tags");
   $view().innerHTML = `
     <header><p class="eyebrow">LOCAL TAXONOMY</p><h1>${esc(title)}</h1></header>
@@ -58,16 +59,18 @@ async function renderTags() {
     const pills = document.getElementById("tag-pills");
     if (pills) pills.innerHTML = tagNsPillsHtml(ns, tagFacetCounts);
   }
-  loadTagPills(ns);
-  await loadTags(q, ns, page);
+  loadTagPills(ns, token);
+  await loadTags(q, ns, page, token);
 }
 
 // tagFacetCounts moved to state.js
 
-async function loadTagPills(activeNs) {
+async function loadTagPills(activeNs, token) {
+  const tk = token === undefined ? viewRenderSeq : token;
   if (!tagFacetCounts) {
     try {
       const data = await api("GET", "/api/tags/search?page=1&page_size=1");
+      if (isStaleViewRender(tk, "tags")) return;
       tagFacetCounts = {};
       for (const f of data.facets || []) tagFacetCounts[f.namespace] = f.total;
     } catch (_) { return; }
@@ -76,12 +79,16 @@ async function loadTagPills(activeNs) {
   if (pills) pills.innerHTML = tagNsPillsHtml(activeNs, tagFacetCounts);
 }
 
-async function loadTags(q, ns, page) {
+async function loadTags(q, ns, page, token) {
+  const tk = token === undefined ? viewRenderSeq : token;
   const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/u.test(q || "");
   try {
     const url = `/api/tags/search?page=${encodeURIComponent(isCjk ? "1" : page)}&page_size=100`
       + `${!isCjk && ns ? `&namespace=${encodeURIComponent(ns)}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}${isCjk && q ? "&zh=1" : ""}`;
     const data = await api("GET", url);
+    // Drop the response when another view / another tags render (ns|q|page) owns the DOM.
+    if (isStaleViewRender(tk, "tags")) return;
+    if ((app.query.ns || "") !== ns || (app.query.q || "") !== q || String(app.query.page || "1") !== String(page)) return;
     const cloud = document.getElementById("tag-cloud");
     if (!cloud) return;
     let items = data.items || [];
@@ -114,6 +121,7 @@ async function loadTags(q, ns, page) {
       }
     }
   } catch (e) {
+    if (isStaleViewRender(tk, "tags")) return;
     const cloud = document.getElementById("tag-cloud");
     if (cloud) cloud.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
