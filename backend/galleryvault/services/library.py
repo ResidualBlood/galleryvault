@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +19,37 @@ from .duplicate_resolver import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Process-wide record of files whose scan failed, keyed by
+# ``(path_hash, signature)``.  A broken archive is then reported (error log +
+# error counter) once per process instead of on every scan.  Repairing or
+# replacing the file changes its signature, which makes the next scan retry.
+# Only regular files are cached: a directory gallery failing on a transient
+# IO error must stay retryable even when its stat signature does not change.
+_KNOWN_BAD_FILES: OrderedDict[tuple[str, str], None] = OrderedDict()
+_KNOWN_BAD_LIMIT = 1024
+
+
+def _is_known_bad(path_hash: str, signature: str) -> bool:
+    return (path_hash, signature) in _KNOWN_BAD_FILES
+
+
+def _remember_bad_file(path_hash: str, signature: str) -> None:
+    key = (path_hash, signature)
+    _KNOWN_BAD_FILES[key] = None
+    _KNOWN_BAD_FILES.move_to_end(key)
+    while len(_KNOWN_BAD_FILES) > _KNOWN_BAD_LIMIT:
+        _KNOWN_BAD_FILES.popitem(last=False)
+
+
+def _forget_bad_file(path_hash: str) -> None:
+    for stale in [key for key in _KNOWN_BAD_FILES if key[0] == path_hash]:
+        del _KNOWN_BAD_FILES[stale]
+
+
+def reset_known_bad_files() -> None:
+    """Clear the process-wide failed-file cache (used by tests / manual repair)."""
+    _KNOWN_BAD_FILES.clear()
 
 
 @dataclass
@@ -277,12 +309,24 @@ class LibraryService:
                         Copy.from_existing(known, _root_priority(self.roots, Path(known.path)))
                     )
                 continue
+            if path.is_file() and _is_known_bad(key, signature):
+                # This exact file version already failed in this process; do not
+                # parse it again and do not repeat the error log/counter.
+                counters.skipped += 1
+                logger.debug(
+                    "library scan skip known bad file",
+                    extra=log_extra(path=str(path)),
+                )
+                continue
             try:
                 gallery = scanner.scan(path)
             except Exception as exc:  # noqa: BLE001 - one bad gallery must not abort a full scan
                 counters.errors += 1
+                if path.is_file():
+                    _remember_bad_file(key, signature)
                 logger.error("library scan error", extra=log_extra(path=str(path), error=str(exc)))
                 continue
+            _forget_bad_file(key)
             gallery.storage_signature = signature
             seen_key = (key, gallery.storage_signature)
             if seen_key in self._seen_signatures:
