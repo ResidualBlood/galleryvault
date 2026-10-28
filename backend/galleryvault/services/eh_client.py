@@ -467,6 +467,24 @@ class FavoriteData:
     note: str | None = None
 
 
+class FavoriteItems(list[FavoriteData]):
+    """A favorite-folder listing carrying how far its cloud page can be trusted.
+
+    An empty list alone is ambiguous: the folder may really be empty, or the
+    page markup may have changed and no gallery link matched. ``confirmed_empty``
+    is only True when a valid favorites page reported a cloud count of zero for
+    the folder; ``truncated`` marks a listing that stopped short of the count in
+    the page header (pagination silently ended). Callers must not delete local
+    records on an empty list unless ``confirmed_empty`` is set.
+    """
+
+    def __init__(self, items: list[FavoriteData] | None = None) -> None:
+        super().__init__(items or [])
+        self.confirmed_empty = False
+        self.truncated = False
+        self.cloud_count: int | None = None
+
+
 @dataclass(frozen=True)
 class SearchGallery:
     gid: int
@@ -1103,12 +1121,16 @@ def _parse_category(body: str) -> str:
     return normalize_category(_text(match.group(1)) if match else "other")
 
 
-def _parse_favorite_counts(body: str) -> dict[int, int]:
+def _parse_favorite_counts(body: str) -> dict[int, int] | None:
     """Per-folder gallery counts from the favorites page header (fp blocks).
 
     ExHentai renders each favorite folder's current size in the page header
     (``<div class="fp">…<div>234</div> <div>1 长篇大作</div>…``), so a single
     request yields every folder's count without paging through the galleries.
+
+    Returns ``None`` when no folder header could be parsed (wrong page, login
+    wall, or markup drift) so callers can tell "could not confirm" apart from a
+    parsed header that reports zero items (``{0: 0}``).
     """
     result: dict[int, int] = {}
     for block in re.finditer(
@@ -1118,7 +1140,7 @@ def _parse_favorite_counts(body: str) -> dict[int, int]:
         parts = _text(block.group(0)).split(maxsplit=2)
         if category and len(parts) >= 2 and parts[0].isdigit():
             result[int(category.group(1))] = int(parts[0])
-    return result
+    return result or None
 
 
 def _parse_favorite_categories(body: str) -> dict[int, str]:
@@ -1861,7 +1883,7 @@ class EhClient:
         self,
         favcat: int,
         progress: Callable[[int], object] | None = None,
-    ) -> list[FavoriteData]:
+    ) -> FavoriteItems:
         """Fetch every gallery in a favorite folder, following ExHentai paging.
 
         ExHentai favorites are paginated with a ``next`` cursor embedded in the
@@ -1869,9 +1891,15 @@ class EhClient:
         ``page`` number; walking only the first page silently drops the tail of
         a large folder.  ``progress`` (if given) is called with the number of
         galleries collected so far after every page.
+
+        The returned :class:`FavoriteItems` records whether an empty result is
+        confirmed by the folder header (``confirmed_empty``) and whether paging
+        stopped short of the header count (``truncated``), so callers can avoid
+        deleting local favorites on a partial or unparseable page.
         """
-        result: list[FavoriteData] = []
+        result = FavoriteItems()
         seen: set[int] = set()
+        header_counts: dict[int, int] | None = None
         url = "/favorites.php"
         params: dict[str, object] = {"favcat": int(favcat)}
         while True:
@@ -1888,6 +1916,8 @@ class EhClient:
                 )
             if _is_favorites_auth_failure_page(response.text):
                 raise EhClientError("ExHentai authentication is required or expired")
+            if header_counts is None:
+                header_counts = _parse_favorite_counts(response.text)
             # The cover thumbnail lives in a SEPARATE link (the glthumb cell)
             # from the title link the loop below matches, so map gid -> thumb
             # from the whole page once and look it up per item.
@@ -1946,6 +1976,12 @@ class EhClient:
             parsed = urlparse(next_url)
             url = parsed.path or "/favorites.php"
             params = {key: values[0] for key, values in parse_qs(parsed.query).items()}
+        # Only the header count can confirm an empty folder or a short listing;
+        # without it the result is "unknown" and callers must not prune on it.
+        cloud_count = header_counts.get(int(favcat)) if header_counts else None
+        result.cloud_count = cloud_count
+        result.confirmed_empty = not result and cloud_count == 0
+        result.truncated = cloud_count is not None and len(result) < cloud_count
         return result
 
     async def search_galleries(
@@ -2058,9 +2094,22 @@ class EhClient:
         response = await self._get("/favorites.php")
         return _parse_favorite_categories(response.text)
 
-    async def fetch_favorite_counts(self) -> dict[int, int]:
-        """Current per-folder gallery counts from one favorites.php request."""
+    async def fetch_favorite_counts(self) -> dict[int, int] | None:
+        """Current per-folder gallery counts from one favorites.php request.
+
+        Returns ``None`` when the page header could not be parsed (login wall,
+        redirect, or markup drift). A parsed mapping is authoritative and may
+        legitimately contain zeros (``{0: 0}`` = the folder is empty).
+        """
         response = await self._get("/favorites.php")
+        final_path = urlparse(str(response.url)).path.rstrip("/")
+        if final_path != "/favorites.php":
+            raise EhClientError(
+                f"ExHentai favorites counts request left the favorites page "
+                f"({final_path or '/'})"
+            )
+        if _is_favorites_auth_failure_page(response.text):
+            raise EhClientError("ExHentai authentication is required or expired")
         return _parse_favorite_counts(response.text)
 
     async def remove_favorites(self, gids: list[int]) -> list[int]:

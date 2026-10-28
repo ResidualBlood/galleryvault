@@ -1556,41 +1556,59 @@ class GalleryRepository(BaseRepository[Gallery]):
         written = 0
         for start in range(0, len(rows), batch_size):
             statement = pg_insert(GalleryMetadata).values(rows[start : start + batch_size])
+            excluded = statement.excluded
+            # gdata omits fields for some galleries (title / posted / filesize …),
+            # and the fetch layer turns those into None. Never let a partial
+            # response overwrite metadata already cached from a complete one:
+            # keep the stored value unless it is still empty. ``expunged`` is
+            # sticky for the same reason (a True flag is a fact, not a default).
+            updates = {
+                "token": func.coalesce(excluded.token, GalleryMetadata.token),
+                "title": func.coalesce(excluded.title, GalleryMetadata.title),
+                "title_jpn": func.coalesce(excluded.title_jpn, GalleryMetadata.title_jpn),
+                "category": func.coalesce(excluded.category, GalleryMetadata.category),
+                "uploader": func.coalesce(excluded.uploader, GalleryMetadata.uploader),
+                "file_count": func.coalesce(excluded.file_count, GalleryMetadata.file_count),
+                "file_size": func.coalesce(excluded.file_size, GalleryMetadata.file_size),
+                "rating": func.coalesce(excluded.rating, GalleryMetadata.rating),
+                "posted_at": func.coalesce(excluded.posted_at, GalleryMetadata.posted_at),
+                "expunged": or_(GalleryMetadata.expunged, excluded.expunged),
+                "tags": case(
+                    (
+                        or_(
+                            excluded.tags.is_(None),
+                            func.jsonb_array_length(excluded.tags) == 0,
+                        ),
+                        GalleryMetadata.tags,
+                    ),
+                    else_=excluded.tags,
+                ),
+                "parent_gid": func.coalesce(excluded.parent_gid, GalleryMetadata.parent_gid),
+                "thumb": func.coalesce(excluded.thumb, GalleryMetadata.thumb),
+                "updated_at": excluded.updated_at,
+            }
             statement = statement.on_conflict_do_update(
                 index_elements=["gid"],
-                set_={
-                    "token": statement.excluded.token,
-                    "title": statement.excluded.title,
-                    "title_jpn": statement.excluded.title_jpn,
-                    "category": statement.excluded.category,
-                    "uploader": statement.excluded.uploader,
-                    "file_count": statement.excluded.file_count,
-                    "file_size": statement.excluded.file_size,
-                    "rating": statement.excluded.rating,
-                    "posted_at": statement.excluded.posted_at,
-                    "expunged": statement.excluded.expunged,
-                    "tags": statement.excluded.tags,
-                    "parent_gid": statement.excluded.parent_gid,
-                    "thumb": statement.excluded.thumb,
-                    "updated_at": statement.excluded.updated_at,
-                },
+                set_=updates,
                 # Only advance updated_at when the content actually changed, so a
                 # later metadata-apply pass can tell "fresh" from "same as last
-                # time" without rewriting local galleries every check.
+                # time" without rewriting local galleries every check. Compare the
+                # coalesced values: an all-None payload resolves to the stored
+                # values and must not count as a change.
                 where=or_(
-                    GalleryMetadata.token.is_distinct_from(statement.excluded.token),
-                    GalleryMetadata.tags.is_distinct_from(statement.excluded.tags),
-                    GalleryMetadata.category.is_distinct_from(statement.excluded.category),
-                    GalleryMetadata.title.is_distinct_from(statement.excluded.title),
-                    GalleryMetadata.title_jpn.is_distinct_from(statement.excluded.title_jpn),
-                    GalleryMetadata.uploader.is_distinct_from(statement.excluded.uploader),
-                    GalleryMetadata.posted_at.is_distinct_from(statement.excluded.posted_at),
-                    GalleryMetadata.file_size.is_distinct_from(statement.excluded.file_size),
-                    GalleryMetadata.file_count.is_distinct_from(statement.excluded.file_count),
-                    GalleryMetadata.rating.is_distinct_from(statement.excluded.rating),
-                    GalleryMetadata.expunged.is_distinct_from(statement.excluded.expunged),
-                    GalleryMetadata.parent_gid.is_distinct_from(statement.excluded.parent_gid),
-                    GalleryMetadata.thumb.is_distinct_from(statement.excluded.thumb),
+                    GalleryMetadata.token.is_distinct_from(updates["token"]),
+                    GalleryMetadata.tags.is_distinct_from(updates["tags"]),
+                    GalleryMetadata.category.is_distinct_from(updates["category"]),
+                    GalleryMetadata.title.is_distinct_from(updates["title"]),
+                    GalleryMetadata.title_jpn.is_distinct_from(updates["title_jpn"]),
+                    GalleryMetadata.uploader.is_distinct_from(updates["uploader"]),
+                    GalleryMetadata.posted_at.is_distinct_from(updates["posted_at"]),
+                    GalleryMetadata.file_size.is_distinct_from(updates["file_size"]),
+                    GalleryMetadata.file_count.is_distinct_from(updates["file_count"]),
+                    GalleryMetadata.rating.is_distinct_from(updates["rating"]),
+                    GalleryMetadata.expunged.is_distinct_from(updates["expunged"]),
+                    GalleryMetadata.parent_gid.is_distinct_from(updates["parent_gid"]),
+                    GalleryMetadata.thumb.is_distinct_from(updates["thumb"]),
                 ),
             )
             result = await self.session.execute(statement)

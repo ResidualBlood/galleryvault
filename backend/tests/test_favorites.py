@@ -183,7 +183,9 @@ async def test_favorites_repo_proxy_methods() -> None:
             async def remember_many(self, favcat: int, items: list[Any]) -> int:
                 return len(items)
 
-            async def prune(self, favcat: int, current_gids: set[int]) -> int:
+            async def prune(
+                self, favcat: int, current_gids: set[int], allow_empty: bool = False
+            ) -> int:
                 return 0
 
             async def checked(self, favcat: int, success: bool) -> None:
