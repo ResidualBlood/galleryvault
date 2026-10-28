@@ -26,7 +26,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-scan_lock = asyncio.Lock()
+# Created lazily on first use rather than at import time: an asyncio.Lock binds
+# to the loop of its first waiter while module import happens before any loop
+# exists, which surfaced as "attached to a different loop" (report 01 P3-10).
+_scan_lock: asyncio.Lock | None = None
+_scan_lock_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_scan_lock() -> asyncio.Lock:
+    """Return the scan lock bound to the current event loop."""
+    global _scan_lock, _scan_lock_loop
+    loop = asyncio.get_running_loop()
+    if _scan_lock is None or _scan_lock_loop is not loop:
+        _scan_lock = asyncio.Lock()
+        _scan_lock_loop = loop
+    return _scan_lock
 
 
 def _normalize_root(root: str) -> str:
@@ -186,7 +200,7 @@ async def run_scan() -> None:
         return
 
     with bind_log_context(worker="scan"):
-        async with scan_lock, tm.track_task("scan", cancellable=True) as tracker:
+        async with _get_scan_lock(), tm.track_task("scan", cancellable=True) as tracker:
             persisted = 0
             scanned = 0
             success = 0
