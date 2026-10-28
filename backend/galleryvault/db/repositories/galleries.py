@@ -1,3 +1,4 @@
+import os
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -660,15 +661,33 @@ class GalleryRepository(BaseRepository[Gallery]):
         roots: Sequence[str | Path],
         seen: set[str],
     ) -> list[int]:
-        """In-memory comparison: find IDs of galleries missing from disk."""
+        """In-memory comparison: find IDs of galleries missing from disk.
+
+        Rows ingested through a symlink that escapes every configured root keep
+        the ``path_hash`` of the resolved target, so no scan can ever list them
+        as seen and they used to stay forever.  Such a row counts as missing
+        when its literal (unresolved) path is still inside a root.  Rows whose
+        root is no longer configured keep the old behaviour and are ignored.
+        """
         if not roots or not candidates:
             return []
-        normalized = [str(Path(root).resolve()) for root in roots]
+        resolved_roots = [Path(root).resolve() for root in roots]
+        # Keep the un-followed spelling of each root too, so a root that is
+        # itself a symlink still matches legacy rows stored with that spelling.
+        literal_roots = [*resolved_roots]
+        literal_roots.extend(Path(os.path.abspath(str(root))) for root in roots)
         missing_ids: list[int] = []
         for row in candidates:
             m = row._mapping if hasattr(row, "_mapping") else row
-            path = Path(m["storage_path"]).resolve()
-            if any(path.is_relative_to(root) for root in normalized) and m["path_hash"] not in seen:
+            storage_path = m["storage_path"]
+            if not storage_path:
+                continue
+            path = Path(storage_path).resolve()
+            in_roots = any(path.is_relative_to(root) for root in resolved_roots)
+            if not in_roots:
+                literal = Path(os.path.abspath(str(storage_path)))
+                in_roots = any(literal.is_relative_to(root) for root in literal_roots)
+            if in_roots and m["path_hash"] not in seen:
                 missing_ids.append(m["id"])
         return missing_ids
 
