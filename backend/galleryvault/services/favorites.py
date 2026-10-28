@@ -126,7 +126,23 @@ class FavoritesService:
         # in sync with the cloud — otherwise the scheduled "count unchanged"
         # skip never fires again and phantom cloud items linger in lists.
         await repo.remember_many(favcat, list(unique.values()))
-        await repo.prune(favcat, set(unique))
+        if getattr(items, "truncated", False):
+            # The listing stopped short of the count in the page header; deleting
+            # the recorded rows it did not mention would drop real favorites.
+            logger.warning(
+                "favorites prune skipped because the listing looks truncated",
+                extra=log_extra(
+                    favcat=favcat,
+                    parsed=len(unique),
+                    cloud=getattr(items, "cloud_count", None),
+                ),
+            )
+        elif getattr(items, "confirmed_empty", False):
+            # The cloud header confirmed the folder is empty on a valid
+            # favorites page: every recorded row is stale.
+            await repo.prune(favcat, set(), allow_empty=True)
+        else:
+            await repo.prune(favcat, set(unique))
         downloaded = failed = 0
         archive_mode = "favorite_archive" if archive_enabled else None
         archive_sizes: dict[int, int] = {}

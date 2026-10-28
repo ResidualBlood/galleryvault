@@ -47,14 +47,14 @@ class FavoritesRepositoryProxy:
     def with_session(self, session: Any) -> FavoritesRepositoryProxy:
         return FavoritesRepositoryProxy(session=session)
 
-    async def _call(self, method: str, *args: Any) -> Any:
+    async def _call(self, method: str, *args: Any, **kwargs: Any) -> Any:
         if self.session is not None:
-            return await getattr(FavoritesRepository(self.session), method)(*args)
+            return await getattr(FavoritesRepository(self.session), method)(*args, **kwargs)
         session_factory = _get_background_session_factory()
         if not session_factory:
             return None
         async with session_factory() as session, session.begin():
-            return await getattr(FavoritesRepository(session), method)(*args)
+            return await getattr(FavoritesRepository(session), method)(*args, **kwargs)
 
     async def known_gids(self, favcat: int) -> set[int]:
         res = await self._call("known_gids", favcat)
@@ -70,8 +70,10 @@ class FavoritesRepositoryProxy:
     async def remember_many(self, favcat: int, items: list[Any]) -> Any:
         return await self._call("remember_many", favcat, items)
 
-    async def prune(self, favcat: int, current_gids: set[int]) -> Any:
-        return await self._call("prune", favcat, current_gids)
+    async def prune(
+        self, favcat: int, current_gids: set[int], allow_empty: bool = False
+    ) -> Any:
+        return await self._call("prune", favcat, current_gids, allow_empty=allow_empty)
 
     async def checked(self, favcat: int, success: bool) -> Any:
         return await self._call("checked", favcat, success)
@@ -127,7 +129,7 @@ _FAV_COUNTS_TTL = 300.0
 _FAV_COUNTS_EMPTY_TTL = 60.0
 _COVER_SUFFIXES = (".img", ".jpg")
 _COVER_HEAL_CHUNK = 25
-_fav_counts_cache: dict[str, Any] = {"ts": 0.0, "counts": {}}
+_fav_counts_cache: dict[str, Any] = {"ts": 0.0, "counts": None}
 _fav_counts_refresh_task: asyncio.Task[None] | None = None
 _size_sync_inflight: set[int] = set()
 
@@ -404,12 +406,23 @@ async def _do_refresh_favorite_counts() -> None:
     try:
         async with asyncio.timeout(60):
             counts = await app_state.eh_client.fetch_favorite_counts()
+        if not counts:
+            # ``None``/empty means "could not confirm" (login wall, redirect or
+            # markup drift), never "the folder has zero items" — a confirmed
+            # zero arrives as ``{favcat: 0}``.
+            logger.warning("favorite counts unavailable (page header not parsed)")
         _fav_counts_cache["ts"] = _time.time()
-        _fav_counts_cache["counts"] = counts
+        _fav_counts_cache["counts"] = counts or None
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "favorite counts refresh failed", extra=log_extra(error=type(exc).__name__)
         )
+        # Cache the failure briefly (unknown, not zero) so a cold/expired cache
+        # does not make every caller re-request the favorites page. A previously
+        # parsed mapping is kept for its normal TTL.
+        if not isinstance(_fav_counts_cache.get("counts"), dict):
+            _fav_counts_cache["ts"] = _time.time()
+            _fav_counts_cache["counts"] = None
 
 
 def _clear_refresh_task(task: asyncio.Task[None]) -> None:
@@ -432,13 +445,13 @@ async def refresh_favorite_counts() -> None:
 async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False) -> dict[int, int]:
     now = _time.time()
     cached = _fav_counts_cache.get("counts")
-    if isinstance(cached, dict):
-        # An empty mapping is a *result* (header parse failed or no favorites at
-        # all), not a cold cache: keep it briefly so every call does not hit the
-        # favorites page again, but retry sooner than a real count.
+    if "counts" in _fav_counts_cache:
+        # A parsed mapping is a result (including ``{favcat: 0}``); ``None`` is
+        # "could not confirm" and is retried sooner, but still cached briefly so
+        # a broken header does not make every caller hit the favorites page.
         ttl = _FAV_COUNTS_TTL if cached else _FAV_COUNTS_EMPTY_TTL
         if not force and (now - float(_fav_counts_cache.get("ts", 0))) < ttl:
-            return cached
+            return cached if isinstance(cached, dict) else {}
 
     if (wait_on_cold and not cached) or force:
         await refresh_favorite_counts()
