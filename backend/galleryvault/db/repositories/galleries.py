@@ -1196,6 +1196,34 @@ class GalleryRepository(BaseRepository[Gallery]):
         await self.session.flush()
         return row
 
+    async def advance_progress(
+        self, gallery_id: int, current_page: int, total_pages: int | None
+    ) -> tuple[ReadingProgress, bool]:
+        """Upsert reading progress without ever moving it backwards.
+
+        Late-arriving requests (debounced writer, first-render save, webtoon
+        observer) can carry a page older than the stored one; keeping the
+        furthest page makes those writes harmless.  Returns the stored row and
+        whether the value actually advanced.
+        """
+        row = await self.session.get(ReadingProgress, gallery_id)
+        advanced = False
+        if row is None:
+            row = ReadingProgress(
+                gallery_id=gallery_id, current_page=current_page, total_pages=total_pages
+            )
+            self.session.add(row)
+            advanced = True
+        elif current_page > int(row.current_page or 0):
+            row.current_page, row.total_pages, row.updated_at = (
+                current_page,
+                total_pages,
+                datetime.now(UTC),
+            )
+            advanced = True
+        await self.session.flush()
+        return row, advanced
+
     async def record_history(
         self, gallery_id: int, current_page: int, total_pages: int | None
     ) -> ReadingHistory:

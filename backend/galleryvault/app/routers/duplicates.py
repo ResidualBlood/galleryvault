@@ -22,7 +22,13 @@ from ...services.deletion import in_scan_roots
 from ...services.ingest import GalleryIngestService
 from ...services.tag_translation import translated_tag
 from ...services.thumbnails import ThumbnailError, ThumbnailService
-from ..dependencies import get_current_settings, get_session, resolve_display_title, resolve_session
+from ..dependencies import (
+    get_current_settings,
+    get_session,
+    release_session,
+    resolve_display_title,
+    resolve_session,
+)
 from ..state import app_state
 
 logger = logging.getLogger(__name__)
@@ -239,6 +245,9 @@ async def duplicate_thumb(
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="copy not found")
 
+    # The file is served after this handler returns; do not hold the request
+    # connection for the whole transfer.
+    await release_session(session)
     return FileResponse(
         resolved_cached,
         media_type=DUP_JPEG,

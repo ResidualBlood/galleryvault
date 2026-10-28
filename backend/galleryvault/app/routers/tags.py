@@ -95,6 +95,8 @@ async def tag_translation_status() -> dict[str, object]:
 @router.post("/api/tags/search/reload", status_code=202)
 async def tag_translation_reload() -> dict[str, object]:
     tm = get_task_manager()
+    if tm.translation_state.get("running"):
+        raise HTTPException(status_code=409, detail="tag translation update already running")
     ok = await translation_update_once()
     return {"accepted": True, "ok": ok, "last_error": tm.translation_state.get("last_error")}
 

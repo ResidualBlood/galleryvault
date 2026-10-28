@@ -21,6 +21,9 @@ from ..state import app_state
 
 router = APIRouter()
 
+# Guard so repeated /api/tag-sync/start clicks do not run concurrent seed passes.
+_tag_sync_seed_state: dict[str, bool] = {"running": False}
+
 
 async def _clear_jobs(job_type: str) -> None:
     if not app_state.session_factory:
@@ -347,35 +350,63 @@ async def trigger_thumbnail_generation() -> dict[str, object]:
     return {"status": "started"}
 
 
-@router.post("/api/tag-sync/start", status_code=202)
-async def trigger_tag_sync(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    """Re-queue every gallery that still needs tag sync (manual full run)."""
-    session = await resolve_session(session, fallback_dep=get_session)
-    tm = get_task_manager()
-    last_id = 0
-    seeded = 0
-    while True:
-        ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
-        if not ids:
-            break
-        await enqueue_tag_sync(ids)
-        seeded += len(ids)
-        last_id = ids[-1]
+async def _seed_pending_tag_sync() -> None:
+    """Queue every pending tag-sync id in the background.
 
-    if seeded == 0 and not tm.tag_sync_state.get("running"):
-        now = datetime.now(UTC).isoformat()
+    The full table walk used to run inside the HTTP request and could take
+    minutes on a large library; it now runs as a background task so the
+    endpoint returns immediately.
+    """
+    session_factory = app_state.session_factory
+    if session_factory is None:
+        _tag_sync_seed_state["running"] = False
+        return
+    started_at = datetime.now(UTC).isoformat()
+    seeded = 0
+    status = "success"
+    reason = ""
+    try:
+        last_id = 0
+        while True:
+            async with session_factory() as session:
+                ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
+            if not ids:
+                break
+            await enqueue_tag_sync(ids)
+            seeded += len(ids)
+            last_id = ids[-1]
+        reason = f"queued {seeded} pending galleries"
+    except Exception as exc:
+        status = "failed"
+        reason = f"tag sync seeding failed: {type(exc).__name__}"
+        raise
+    finally:
+        _tag_sync_seed_state["running"] = False
+        completed_at = datetime.now(UTC).isoformat()
+        tm = get_task_manager()
         tm.record_task(
             "tag-sync",
-            now,
-            now,
-            "success",
-            reason=(
-                f"ok {tm.tag_sync_state.get('succeeded', 0)} "
-                f"/ fail {tm.tag_sync_state.get('failed', 0)}"
-            ),
-            done=int(tm.tag_sync_state.get("processed") or 0),
-            total=int(tm.tag_sync_state.get("total") or 0),
+            started_at,
+            completed_at,
+            status,
+            reason=reason,
+            done=0,
+            total=0,
         )
-    return {"status": "started", "queued": seeded}
+        spawn_task(tm.persist_history(), "persist task history")
+
+
+@router.post("/api/tag-sync/start", status_code=202)
+async def trigger_tag_sync() -> dict[str, object]:
+    """Re-queue every gallery that still needs tag sync (manual full run)."""
+    settings = app_state.settings or get_settings()
+    if getattr(settings, "global_paused", False):
+        return {"status": "paused", "detail": "Global paused: tag sync is disabled"}
+    if _tag_sync_seed_state["running"]:
+        raise HTTPException(status_code=409, detail="tag sync seeding already running")
+    _tag_sync_seed_state["running"] = True
+    task = spawn_task(_seed_pending_tag_sync(), "tag sync seeding")
+    if task is None:
+        _tag_sync_seed_state["running"] = False
+        raise HTTPException(status_code=503, detail="background tasks unavailable")
+    return {"status": "started", "queued": 0}
