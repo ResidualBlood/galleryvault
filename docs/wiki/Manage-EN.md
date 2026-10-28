@@ -25,7 +25,7 @@ When the same gallery (same GID) exists across multiple scan roots (e.g. EhViewe
 - **Selection & display**: Each group displays cover thumbnail, tags, page count, size, and posted date, with a "Current" badge indicating the active index target. Groups can be filtered by "All / Pending / Dismissed" status.
 - **Execution**:
   - **Keep this copy**: Re-points the library index to this copy.
-  - **Keep & delete others**: Retains the selected copy and deletes remaining copy files. Paths are verified via `Path.resolve()` to strictly reside within configured scan roots before deletion to prevent path traversal; deletion is rejected if any path validation fails or if the filesystem is read-only.
+  - **Keep & delete others**: Retains the selected copy and deletes remaining copy files. Paths are verified via `Path.resolve()` to strictly reside within configured scan roots before deletion to prevent path traversal; deletion is rejected if any path validation fails or if the filesystem is read-only. If some copies cannot be deleted, the group stays in the list and the undeleted paths are returned in `failed_paths`.
 - **Dismiss & restore**: Click **Dismiss group** to hide the duplicate group; can be reviewed and restored later via the "Dismissed" filter option.
 
 ### Favorite duplicates (`#/duplicates/favorites`)
@@ -47,7 +47,7 @@ Aggregates local library galleries with cloud favorites across distinct GIDs to 
 
 - Default landing view of the Manage menu (direct access via `#/recycle` remains available). Two tabs: **User deleted** (removed from library without deleting files from disk) and **Scan missing** (not found on disk during scans).
 - **Restore**: Restores selected items back into the library (user-deleted galleries only; scan-missing entries are not restored into the library).
-- **Purge**: Prompts for confirmation before deleting disk files. When disk deletion is selected, the item is staged in the Recycle Bin and removed from the index only after disk deletion succeeds; if deletion fails, the item remains in the Recycle Bin. If any copy path falls outside the scan root whitelist, the entire gallery is skipped without deleting sibling files.
+- **Purge**: Prompts for confirmation before deleting disk files. When disk deletion is selected, the item is staged in the Recycle Bin and removed from the index only after disk deletion succeeds; if deletion fails, the item remains in the Recycle Bin. When files are kept, the response lists the now-untracked disk copies in `orphan_paths` and logs a warning so they can be handled manually. If any copy path falls outside the scan root whitelist, the entire gallery is skipped without deleting sibling files; a target that is itself a scan root is likewise refused.
 - **Semantic protection**: Galleries in the Recycle Bin are not treated as "newer version in library" and will not trigger old version cleanup. Clearing history (`/api/history`) and resetting progress (`/api/galleries/progress`) require `?confirm=true`, prompting a confirmation modal. Deleting files and purging duplicate copies require absolute paths to reside within scan roots or archive roots (`archive_roots`, `archive_root`, `cold_storage_root`); filtered bulk deletion is rejected when no filter criteria are provided.
 
 ## Cold archive (`#/archive`)
@@ -72,14 +72,13 @@ Aggregates local library galleries with cloud favorites across distinct GIDs to 
 
 Split into two tabs:
 
-1. **Task Activity**: Displays background tasks (including library scans, tag synchronization, thumbnail generation, favorite metadata sync, duplicate scans, gallery update checks, and silent maintenance tasks such as orphan thumbnail cleanup, periodic thumbnail seeding, download retry sweeps, Cookie health checks, and storage capacity calibration):
+1. **Task Activity**: Displays background tasks (including library scans, tag synchronization, thumbnail generation, favorite metadata sync, duplicate scans, gallery update checks, and silent maintenance tasks such as orphan thumbnail cleanup, periodic thumbnail seeding, Cookie health checks, and storage capacity calibration):
    - **Running**: Start time · task name · `running · done/total` · progress bar · description · **Cancel** button; multiple tasks run side by side.
    - **Completed**: Start time · task name · status badge (success / failed / cancelled) · description & reason · **duration** · finish time; completed tasks do not display progress bars.
-   - **Silent tasks & automated observability**: In addition to manually triggered operations, the system tracks periodic background maintenance tasks (orphan thumbnail cleanup, missing thumbnail seeding, failed download exponential backoff retries, Cookie session health checks, and disk usage calibration). Execution duration, details, and status can be inspected in the activity panel.
-   - **Idle task history suppression**: High-frequency periodic workers (such as failed download retry sweeps) suppress logging when 0 tasks are awaiting retry, skipping empty records in `task_history` to keep operational logs clear.
-2. **System Logs**: Live diagnostic runtime logs from the backend memory ring buffer:
+   - **Silent tasks & automated observability**: In addition to manually triggered operations, the system tracks periodic background maintenance tasks (orphan thumbnail cleanup, missing thumbnail seeding, Cookie session health checks, and disk usage calibration). Execution duration, details, and status can be inspected in the activity panel. Failed downloads are not resurrected automatically; recover them with a manual retry on the Downloads page.
+2. **System Logs**: Live diagnostic runtime logs from the backend memory ring buffer (startup backfills only the tail of the log file and never reads a large history in full):
    - **Dynamic log level**: Change global log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`) online without restarting containers;
-   - **Real-time filtering & search**: Filter by minimum severity level (`INFO+` / `WARN+` / `ERROR+`) and instant text search;
+   - **Real-time filtering & search**: Filter by minimum severity level (`INFO+` / `WARN+` / `ERROR+`) and instant text search; changing the search term or level issues a single request, and stale responses never overwrite the current result;
    - **Exception stack traces & context**: Expandable exception tracebacks with request IDs, worker coroutine context (`gid` / `task_id`), and automated sensitive credential masking (`ipb_*` cookies, Telegram bot token, secrets);
    - **Export logs**: Click **Export Log** to download `galleryvault.log` (ring buffer plus on-disk rotated files via `GET /api/system/logs/download`, restricted to the current log root);
    - **Noise filtering**: Successful httpx requests (2xx/3xx, including Telegram `getUpdates` 30s long-polling) are omitted; 4xx/5xx responses and application WARNING/ERROR events remain logged.

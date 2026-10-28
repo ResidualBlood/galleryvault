@@ -29,7 +29,7 @@ Gallery details, tag synchronization, and the web reader.
 
 ### Reading Modes & Shortcut Operations
 
-The reader streams pages dynamically, offering multiple layout modes and control schemes:
+The reader streams pages dynamically, offering multiple layout modes and control schemes. Reading progress only moves forward: the saved page does not rewind when you read back to earlier pages (intentional re-reading is not recorded as progress); use "Clear reading progress" to reset. Progress writes are serialized, so rapid page turns cannot overwrite a newer page with an older one.
 
 | Mode | Navigation Controls | Display Characteristics & Differences |
 | :--- | :--- | :--- |
@@ -60,7 +60,7 @@ The reader streams pages dynamically, offering multiple layout modes and control
 ### Slideshow Auto-Play & Display Controls
 
 - **Start & Controls**: The toolbar provides a "▶" button and an interval input (default 5 seconds, persisted to `gv_slideshow_interval`). Clicking ▶ appends interval parameters to the URL (`?slideshow=<seconds>`), enters image fullscreen, and starts automatic cycling. Toolbars are hidden in fullscreen; pressing `Esc` or clicking fullscreen controls exits fullscreen and terminates playback.
-- **Animation Duration Probing**: When the current page is a GIF or WebP animation, the reader calls the page metadata endpoint to calculate total frame delay (`duration_ms`, scanning one full loop, capped at 120 seconds). Playback interval uses `max(user interval, duration_ms + 150ms)` with pre-decoding applied prior to page swaps.
+- **Animation Duration Probing**: When the current page is a GIF or WebP animation, the reader calls the page metadata endpoint to calculate total frame delay (`duration_ms`, scanning one full loop, capped at 120 seconds). Playback interval uses `max(user interval, duration_ms + 150ms)` with pre-decoding applied prior to page swaps. A missing or out-of-range page returns `404`, an invalid page path returns `400`, and an unreadable file returns `500` instead of being silently reported as a static image.
 - **Scheduling & Boundary Handling**: Manual paging or tapping active zones cancels the current timer and reschedules for the new page; changing the interval input requires clicking "▶" again to take effect. Turning past the last page stops the slideshow, exits fullscreen, and advances to the next gallery (auto-play does not chain across galleries). Paging backward on the first page neither exits fullscreen nor jumps to the previous gallery.
 - **Preloading & Caching**: Opening the reader preloads the next 3 pages (4 pages in double-spread modes); turning pages preloads 1–2 subsequent pages. Cover thumbnails are cached for 24 hours, remaining page thumbnails are cached long-term, and full-resolution images are managed by standard browser caching.
 - **Layout Adaptability & Search Context**: The toolbar "Fit" toggle switches between maximum height (~82vh) and full page width. When entering the reader from library searches, page turns, thumbnail selections, and advancing to the next gallery preserve active search queries and tag filter context throughout navigation.

@@ -93,7 +93,7 @@ To mount multiple storage pools on your NAS, use existing download directories a
 
 **Steps to Apply**:
 1. **Update Volumes**: Add paths under `backend.volumes` in `docker-compose.yml` and restart the backend: `docker compose up -d backend`.
-2. **Library Scan Roots**: Open *Settings → Library → Library roots*, enter the container paths (e.g. `/mnt/pool2`, one per line), save, and click **Scan library**.
+2. **Library Scan Roots**: Open *Settings → Library → Library roots*, enter the container paths (e.g. `/mnt/pool2`, one per line), save (confirm with the current administrator password), and click **Scan library**.
 3. **Cold Archive Roots (`archive_roots`) & Capacity Balancing**:
    - In *Settings → Library → Cold archive roots*, enter multiple archive mount paths (one per line, e.g. `/archive1` and `/archive2`).
    - **Dynamic Space Balancing**: A cold archive task checks free space across configured roots via `statvfs` and writes to the root where available space ≥ estimated size × 1.2 and free space is greatest.
@@ -220,9 +220,10 @@ To prevent spoofed `X-Forwarded-For` headers from bypassing brute-force login th
 
 Tune these parameters in *Settings* based on your network conditions:
 
-- **`download_concurrency`**: Default `2`. Sets the number of simultaneously downloading galleries.
+- **`download_concurrency`**: Default `2`. Sets the number of simultaneously downloading galleries; changes take effect immediately without a restart.
 - **`page_concurrency`**: Default `4` (max `16`). Adjust according to proxy stability; reduce to `2-4` if connection drops occur over UDP/proxy hops.
-- **`exhentai_max_concurrency`**: Default `6`. Hard global cap protecting your account from burst traffic triggers.
+- **`exhentai_max_concurrency`**: Default `6`, range `1-32`. Hard global cap protecting your account from burst traffic triggers.
+- **`THUMBNAIL_WORKERS`**: Default `4`, range `1-16`. Background thumbnail generation worker count.
 - **`GV_CHALLENGE_PROBE_INTERVAL`**: Default `600` seconds. Background probe cycle when auto-paused by anti-bot challenges.
 - **`GV_MAX_CHALLENGE_PAUSES`**: Default `5`. Per-task limit on 302 challenge pauses; once reached, the task is marked failed with its remaining retry budget preserved, preventing an endless pause/resume/re-challenge loop.
 
@@ -256,7 +257,7 @@ Alembic schema migrations execute automatically during backend container initial
 To clean up legacy issues from multi-device migrations (such as overlong filenames or stacked GID contamination), built-in Python maintenance scripts can be executed directly inside the backend container or on the host:
 
 ### 1. Cold Archive & Local Directory Repair (`repair_cold_archives.py`)
-- **Function**: Detects and strips duplicate leading GIDs (e.g. `[12345] 12345-Title`), queries upstream official GData APIs in chunks, and updates `.galleryvault.json` sidecar indexes.
+- **Function**: Detects and strips duplicate leading GIDs (e.g. `[12345] 12345-Title`), queries upstream official GData APIs in chunks, and updates `.galleryvault.json` sidecar indexes. Successful renames also update the database `path_hash` and the affected `duplicate_records` paths/keys so duplicate tracking does not become stale.
 - **Parameters**:
   - `--archive-dir`: Target cold archive or gallery root directory path to scan and repair;
   - `--dry-run`: Simulation mode; prints planned changes without writing to disk;

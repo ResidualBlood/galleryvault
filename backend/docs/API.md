@@ -12,18 +12,19 @@ authenticated session cookie. Unauthenticated `/api/*` requests receive
 - **Content-Type**: `application/json` (except `POST /login`, which is
   `application/x-www-form-urlencoded`).
 - **Auth**: session cookie `galleryvault_session` (HttpOnly, SameSite=lax).
-- **HTTP Basic Auth**: Supported *only* on `GET /api/opds`. Fixed username `galleryvault` (not an ExHentai account); password is the web login password. Missing or invalid credentials on this endpoint return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. Session cookies remain valid. All other `/api/*` routes (including CBZ export) are cookie-only.
+- **Security headers**: every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, and a `Content-Security-Policy` with `frame-ancestors 'none'` / `worker-src 'self'`.
+- **HTTP Basic Auth**: Supported on `GET /api/opds` and `GET/HEAD /api/galleries/{id}/export.cbz`. Fixed username `galleryvault` (not an ExHentai account); password is the web login password. Missing or invalid credentials on these endpoints return `401 Unauthorized` with `WWW-Authenticate: Basic realm="GalleryVault OPDS"`. Session cookies remain valid. All other `/api/*` routes are cookie-only.
 
 ## Authentication
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/healthz` | no | `{status: "ok"}` — liveness probe (used by the compose healthcheck). `503` when the database is unreachable. |
-| GET | `/metrics` | no | Prometheus-text request counters (`gv_http_requests_total`, `gv_http_errors_total`). |
+| GET | `/metrics` | no | Prometheus-text request counters (`gv_http_requests_total`, `gv_http_errors_total`). Label values are escaped per the Prometheus text format (backslash, quote, newline). |
 | GET | `/api/auth/session` | yes | `{authenticated, auth_required, must_change_password}` or `401`. |
 | GET | `/api/onboarding/status` | yes | `{password_default, exhentai_configured, library_count}` — setup progress for the first-run wizard. |
 | GET | `/login` | no | Returns the HTML login page. Redirects to `/` if already authenticated. |
-| POST | `/login` | no | Form field `password`. Success sets the session cookie and redirects (`303`) to `/`; failure redirects to `/login?error=1`. |
+| POST | `/login` | no | Form field `password`. Success sets the session cookie and redirects (`303`) to `/`; failure redirects to `/login?error=1`. After 5 consecutive failures for the administrator account, exponential backoff applies (5s up to 15 min) and login returns `429` with a `Retry-After` header; a separate per-IP window allows 10 attempts per minute (`429` when exceeded). Counters are process-local. |
 | POST | `/logout` | no | Clears the session cookie, redirects to `/login`. |
 | POST | `/api/auth/change-password` | yes | JSON `{current, new}`. `403` if current is wrong; `204` on success. Persists the new hash in the DB so it survives restarts. |
 
@@ -59,8 +60,8 @@ curl -H "Authorization: Basic <base64(galleryvault:password)>" http://localhost:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/settings` | Public subset of effective settings (library roots, proxies, quality, favorites, tag-sync, Telegram status, …). |
-| POST | `/api/settings` | Persist settings. See `SettingsRequest` fields below. |
+| GET | `/api/settings` | Public subset of effective settings (library roots, proxies, quality, favorites, tag-sync, Telegram status, …). A failed database re-read returns `503` (or `500` for non-database errors) instead of stale `200` values. |
+| POST | `/api/settings` | Persist settings. See `SettingsRequest` fields below. Changing a security-sensitive key (`auth_required`, `trusted_proxies`, `download_root`, `library_roots`) requires confirmation: send `current_password`, `confirm_security_change: true` in the JSON body, or the header `X-Confirm-Security-Change: true`. Missing confirmation returns `428` and writes nothing; when no password is configured the explicit flag is the only accepted form. |
 | GET | `/api/settings/cookie-health` | Probe or return current ExHentai Cookie login status (`{state, detail, checked_at}`). Cached ~10 min then re-probes. States: `ok`, `not_logged_in` (session expired), `no_exhentai_access` (lacks ExHentai access, e.g. empty/blank 200 on exhentai.org or Sad Panda; distinct from expired session), or `failed` (network/site error, or empty 200 on e-hentai.org / unknown hosts). |
 | POST | `/api/settings/exhentai/test` | Validate the configured ExHentai cookies. Returns `{status, message}`. |
 | POST | `/api/telegram/test` | Send a test message to every configured `telegram_chat_ids`. Returns `{ok, results}`. `422` if the bot token or chat IDs are missing. |
@@ -114,6 +115,29 @@ curl -H "Authorization: Basic <base64(galleryvault:password)>" http://localhost:
 Sending `favorites` updates every folder row (enable flag, mode, interval) and
 derives `favorites_categories` from the enabled ones.
 
+Security-sensitive changes require confirmation (see the `POST /api/settings`
+row above). The confirmation fields are read outside the schema, so they may be
+sent alongside the normal body:
+
+```json
+{
+  "auth_required": false,
+  "confirm_security_change": true
+}
+```
+
+or with the current password:
+
+```json
+{
+  "library_roots": ["/library"],
+  "current_password": "YOUR_PASSWORD"
+}
+```
+
+Without either form the request returns `428 Precondition Required` with the
+list of changed keys in `detail.keys`, and nothing is written.
+
 `telegram_notify_level` controls download notifications: `summary` (default,
 buffers terminal download events into a single digest flushed when the queue is
 idle), `immediate` (one message per event, the legacy behaviour),
@@ -150,7 +174,7 @@ most available space. Cold CBZ archives strictly enforce English/ASCII canonical
 | POST | `/api/downloads` | Enqueue a gallery. Body: `{gid, token, title, mode, max_pages?, quality?}`. `max_pages` (int) requests a partial/sample download — only the first N pages are fetched; it is persisted and honored by the background worker. `quality` (`resample`/`original`) overrides the global `download_quality` for this task (page-by-page original downloads ignore H@H and fetch full-size images). Returns `202 {id, gid, status}`. |
 | GET | `/api/downloads` | List tasks. Query: `page`, `page_size` (≤500), `status` (pending/downloading/success/failed/cancelled). Items include `current_page`/`total_pages` progress, `retry_count`/`max_retries`, and `archive_fallback` (boolean indicating whether an archive task fell back to page-by-page H@H mode). Backed by the `idx_download_tasks_status_id` composite index to eliminate N+1 filesystem checks. |
 | POST | `/api/downloads/{task_id}/cancel` | Cancel a pending or downloading task. An in-flight download is interrupted (page writes stop, partial files are removed; the worker does not write to disk upon cancellation). Cancel latency is bounded by the page-progress ticks (at most one in-flight page finishes first). |
-| POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`). Retries are otherwise automatic: transient failures re-queue with an exponential backoff up to `max_retries` (default 10), and a periodic sweep re-activates `failed` tasks that still have budget left. |
+| POST | `/api/downloads/{task_id}/retry` | Re-queue a failed/cancelled/successful task (`{id, status:pending}`) and reset its retry counter. Transient failures re-queue automatically with exponential backoff up to `max_retries` (default 10); there is **no** automatic sweep that resurrects exhausted/failed tasks — recovery is manual retry (single or `/retry-all`). |
 | DELETE | `/api/downloads/{task_id}` | `204` – permanently remove a download task and its attempt log. |
 | POST | `/api/downloads/clear-success` | Remove every task with `status=success`. Returns `{deleted}`. Does not delete ingested gallery files. |
 | POST | `/api/downloads/batch` | `202` — batch enqueue downloads. Body: `{items: [{gid, token, title?, mode?, quality?, max_pages?}], mode?, quality?, max_pages?}`. |
@@ -168,11 +192,11 @@ curl -b cookies.txt -X POST http://localhost:8001/api/downloads \
 | GET | `/api/favorites/categories` | The ten favorite folders with `enabled`/`mode`, plus `cloud_count` (live folder size from the favorites page header), `local_count`/`local_size` (galleries already local, from `favorite_items`), `cloud_size` (exact: local real size + fetched sizes of missing galleries, with an average estimate for the unfetched tail). |
 | POST | `/api/favorites/categories` | Body `{favcat, enabled?, mode?}` to update one folder. |
 | POST | `/api/favorites/sync-categories` | Refresh folder names from ExHentai. Alias: `POST /api/favorites/fetch-categories`. |
-| POST | `/api/favorites/{favcat}/check` | `202` – scan folder `favcat`. A disabled folder runs check-only (`monitor_only`): records items and sizes but never downloads; an enabled folder downloads missing galleries per its mode. Mode semantics: `incremental` enqueues only gids never recorded in `favorite_items` (new additions), `monitor_only` never downloads, and `force` skips the recorded-set filter and enqueues every folder gallery not already in the local library (`galleries` table). Both `incremental` and `force` skip already-local galleries. |
+| POST | `/api/favorites/{favcat}/check` | `202` – scan folder `favcat`. A disabled folder runs check-only (`monitor_only`): records items and sizes but never downloads; an enabled folder downloads missing galleries per its mode. Mode semantics: `incremental` enqueues only gids never recorded in `favorite_items` (new additions), `monitor_only` never downloads, and `force` skips the recorded-set filter and enqueues every folder gallery not already in the local library (`galleries` table). Both `incremental` and `force` skip already-local galleries. Local `favorite_items` rows missing from a complete cloud listing are pruned; a failed page fetch fails the whole check, and a listing that returns fewer than 50% of the recorded rows while ≥20 rows are recorded is treated as truncated and skips pruning (so a broken `nexturl` cannot delete the local set). |
 | POST | `/api/favorites/check` | `202` – generic favorites check. Body: `{favcat?: int}` (defaults to 0). Equivalent entrypoint to `{favcat}/check`. |
-| POST | `/api/favorites/check-all` | `202` – check every configured folder at once (spawns one check per favcat). |
+| POST | `/api/favorites/check-all` | `202` – check every configured folder at once (spawns one check per favcat). Returns `409` while a favorites check is already running. |
 | GET | `/api/favorites/check-status` | Per-folder check progress: `{running, categories: {favcat: {running, done, total, error}}, last_error}`. `done`/`total` track the cursor walk. |
-| POST | `/api/favorites/compute-sizes` | `202` – fetch sizes for missing galleries in the background so `cloud_size` becomes exact. |
+| POST | `/api/favorites/compute-sizes` | `202` – fetch sizes for missing galleries in the background so `cloud_size` becomes exact. Returns `409` while a metadata/size sync is already running. |
 | GET | `/api/favorites/metadata-status` | Favorites metadata sync/apply worker status (`running`, `stage` (sync/apply), `done`, `total`, `applied`, `last_error`). |
 | GET | `/api/favorites/cover` | Query `gid` + `token`. Fetches and caches a remote gallery cover (served as the image bytes); `404` when the gallery has no usable cover. |
 | GET | `/api/favorites/{favcat}/items` | Paginated folder galleries (`page`, `page_size`, optional `state` = `all`/`local`/`cloud`, `q` = title search, `order_by` = `last_seen_desc`/`first_seen_desc`/`posted_at_desc`/`title_asc`/`file_size_desc`). Each row: `favcat`, `gid`, `token`, `title`, `url`, `first_seen_at`, `state` (`local`/`cloud`), and when the gallery is local (not expunged/trashed) `gallery_id`, `category`, `page_count`, `cover_url`, `file_size`, `tags`. Cloud-only galleries get cached metadata (`file_size`, `title_jpn`, `tags`, category) and `cover_url=/api/favorites/cover?gid=&token=` (disk-first; the check/`download-missing` pass warms `/gv-cache/remote-covers/{gid}.img`). The items response does not download covers. |
@@ -201,7 +225,12 @@ The executor reads `archiver.php`, requests the zip once (the returned URL is
 persisted under `.gv-{gid}/.archive.json` so retries resume with a Range request
 instead of re-charging GP), streams it, unzips, renames images by page order and
 writes the same `.ehviewer`/`.galleryvault.json` metadata as a page-by-page
-download. Insufficient GP fails the task immediately without retries.
+download. If the task's quality tier changes between attempts, the cached URL and
+partial zip are discarded and the archive is requested again for the new tier
+(which may charge GP again). Streaming is capped at 2 concurrent archive
+transfers and aborts when throughput stays below the low-speed floor (default
+10KB/s after a 30s warm-up). Insufficient GP fails the task immediately without
+retries.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
@@ -216,8 +245,8 @@ tier, the rest download page-by-page.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/updates` | Re-upload tracking. Query `page`, `page_size`, `state` (`active` = everything except ignored, `all`, `pending`, `downloading`, `failed`, `ignored`). Each row: `id`, `gallery_id` (old local copy), `old_gid`, `new_gid`, `title`, `favcat`, `favcat_name`, `status` (`pending`/`downloading`/`failed`/`ignored`), `error_message`, `detected_at`, `updated_at`, `cover_url`. Detection: a local gallery whose gid is not in any favorite folder but whose normalized title matches a favorite item. If the new gid is already in the local library, detection finalizes immediately (deletes the old copy; ignored rows are left alone). An in-flight download for the new gid is pinned onto the update row (`downloading`) so the finalize loop can close it. |
-| POST | `/api/updates/scan` | `202` – trigger a detection scan now (also runs automatically after every favorites check). |
+| GET | `/api/updates` | Re-upload tracking. Query `page`, `page_size`, `state` (`active` = everything except ignored, `all`, `pending`, `downloading`, `failed`, `ignored`). `active` filters ignored rows in SQL, so `total` matches the returned items. Each row: `id`, `gallery_id` (old local copy), `old_gid`, `new_gid`, `title`, `favcat`, `favcat_name`, `status` (`pending`/`downloading`/`failed`/`ignored`), `error_message`, `detected_at`, `updated_at`, `cover_url`. Detection: a local gallery whose gid is not in any favorite folder but whose normalized title matches a favorite item. If the new gid is already in the local library, detection finalizes immediately (deletes the old copy; ignored rows are left alone). An in-flight download for the new gid is pinned onto the update row (`downloading`) so the finalize loop can close it. |
+| POST | `/api/updates/scan` | `202` – trigger a detection scan now (also runs automatically after every favorites check). Returns `409` while a detection scan is already running. |
 | GET | `/api/updates/status` | Detection/update status: `{detecting, last_detected_at, last_run, last_error, last_found, counts: {pending, downloading, failed, ignored}}`. |
 | POST | `/api/updates/update` | Body `{ids: [...], archive?: bool, quality?: string}` – `202`; enqueues the new-gid download for each pending row (`{started, skipped}`). If the new gid is already local, the old copy is deleted immediately (no extra download). `archive: true` uses the ExHentai archive channel with the given quality tier. When the download finishes, the old local copy is deleted (files + row, cascade-deleting the update row). |
 | POST | `/api/updates/ignore` | Body `{ids: [...]}` – mark rows ignored (hidden from the active list, restorable). |
@@ -242,19 +271,19 @@ tier, the rest download page-by-page.
 | POST | `/api/galleries/{identifier}/redownload` | `202` – enqueue redownloading this gallery (`mode=gallery` or `gallery_archive`; does not follow replacement chains). |
 | POST | `/api/galleries/{identifier}/favorite` | Body `{favcat: int}` (0-9). Modify the ExHentai favorite category folder for this gallery. |
 | POST | `/api/galleries/{identifier}/read` | Mark gallery as read (`upsert_progress` to last page). |
-| DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes on-disk files; partial disk deletion failure returns `500` with `failed_paths` and `deleted_paths` in the body, removing deleted copy paths from DB and keeping the row if residual copies remain. |
+| DELETE | `/api/galleries/{identifier}` | Remove a gallery (cascades to pages, tag links, progress, history). Query `delete_files=true` also deletes on-disk files; partial disk deletion failure returns `500` with `failed_paths` and `deleted_paths` in the body, removing deleted copy paths from DB and keeping the row if residual copies remain. A path equal to a configured scan root (and the filesystem root) is refused as a deletion target. |
 | POST | `/api/galleries/delete-bulk` | Body `{ids: [...], delete_files?: bool}`. Bulk remove galleries by id; `delete_files` also deletes on-disk files, keeping each row whose files failed to delete. Returns `{deleted, failed_deletions}`. Ids are processed in 500-row batches to stay under asyncpg's parameter limit. |
 | POST | `/api/galleries/delete-filtered` | Body `{q?, category?, tags?, tag_mode?, tag_match?, delete_files?}`. Remove every gallery matching the current library filter (same semantics as `GET /api/galleries`). The backend pages the filter and deletes in 500-row batches, so the client never sends a huge id list. Returns `{deleted, matched, failed_deletions}`. When `matched` exceeds 5000 the request is rejected with `409` (refine the filter or delete in batches). |
 | POST | `/api/galleries/expunged/redownload` | Body `{ids: [...]}`. Batch queue re-download for expunged galleries. (200 JSON, 422). |
 | POST | `/api/galleries/restore` | Body `{ids: [...]}`. Restore galleries from trash. (200 JSON, 422). |
-| POST | `/api/galleries/purge` | Body `{ids: [...]}`. Permanently purge soft-deleted galleries and disk files. (200 JSON, 422). |
+| POST | `/api/galleries/purge` | Body `{ids: [...], delete_files?: bool, delete_all_copies?: bool}`. Permanently purge soft-deleted galleries (and disk files when `delete_files=true`). With `delete_files=false` the rows are removed but disk copies are kept; each result then includes `orphan_paths` listing those now-untracked paths and a warning is logged. (200 JSON, 422). |
 | GET | `/api/galleries/{identifier}/export.cbz` | Download the gallery as a CBZ (requires session cookie authentication). An on-disk `.cbz` is streamed with `FileResponse`; a directory gallery is packed in page order (`ZIP_STORED`) to a tempfile. Member paths must resolve inside the gallery directory (zip-slip → `400`); missing files → `404`. Records an `export-cbz` task log. |
 | GET | `/api/galleries/{identifier}/pages/{page_index}` | Stream one page image (`image/jpeg`/`image/png`/…). |
-| GET | `/api/galleries/{identifier}/pages/{page_index}/meta` | Probe animation properties (`{animated: bool, duration_ms: int}`). GIF/WebP frame delays are summed from a binary scan without decoding bitmaps (`duration_ms` capped at 120000); Pillow fallback is at most 50 frames. Used by the adaptive reader slideshow. |
+| GET | `/api/galleries/{identifier}/pages/{page_index}/meta` | Probe animation properties (`{animated: bool, duration_ms: int}`). GIF/WebP frame delays are summed from a binary scan without decoding bitmaps (`duration_ms` capped at 120000); Pillow fallback is at most 50 frames. Used by the adaptive reader slideshow. `404` when the page does not exist or is out of range, `400` for an invalid page path, `500` when no scanner handles the storage, and `500` when the page file cannot be read (errors are no longer reported as a static image). |
 | GET | `/api/galleries/{identifier}/thumb/{page_index}` | Serve a cached static JPEG thumbnail for a page (generated on first access into `/gv-cache/thumbs`, `Cache-Control` + `ETag`). |
 | GET | `/api/galleries/{identifier}/progress` | Reading progress (`current_page`, `total_pages`). |
-| PUT | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – records progress and history. |
-| POST | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – records progress and history (equivalent alias to PUT). (200 JSON, 422). |
+| PUT | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – advances progress and records history. Progress only moves forward: sending a page lower than the stored one leaves it unchanged (intentional re-reading is not recorded); use the DELETE endpoints to reset. |
+| POST | `/api/galleries/{identifier}/progress` | Body `{current_page, total_pages}` – same monotonic advance as PUT. (200 JSON, 422). |
 | DELETE | `/api/galleries/{identifier}/progress` | Clear reading progress and that gallery's history row (`204`). Removes it from Continue Reading / History. |
 | DELETE | `/api/galleries/progress` | Clear / reset reading progress for all galleries (`204`). Requires query parameter `confirm=true` (`400 Bad Request` if omitted) to prevent accidental bulk wipe. |
 | POST | `/api/galleries/{identifier}/sync-tags` | Sync tags from ExHentai. |
@@ -277,7 +306,7 @@ curl -b cookies.txt 'http://localhost:8001/api/galleries?q=myth&page=1&page_size
 | DELETE | `/api/history` | Clear history (`204`). Requires query parameter `confirm=true` (`400 Bad Request` if omitted) to prevent accidental clearing. |
 | GET | `/api/tags/search` | Search local tags. Query `q`, `page`, `page_size` (≤500), `namespace`. Items include `display` (Chinese translation when available) and `usage_count`. With `zh=1`, `q` is matched against Chinese translations (for the tag-autocomplete in the search box). |
 | GET | `/api/tags/search/status` | Tag translation auto-update status (`entries`, `last`, `last_error`, `source`, `interval_minutes`). |
-| POST | `/api/tags/search/reload` | `202` – download the latest EhTagTranslation release (`db.text.json`) and reload translations now. |
+| POST | `/api/tags/search/reload` | `202` – download the latest EhTagTranslation release (`db.text.json`) and reload translations now. Returns `409` while a reload is already running. |
 
 Tag translations are updated **in the backend** from the latest
 [`EhTagTranslation/Database`](https://github.com/EhTagTranslation/Database)
@@ -300,7 +329,7 @@ refresh is available via the button in Settings. Markdown icon syntax
 | GET | `/api/series/{series_id}/cloud-candidates` | Query `q` (optional) — search cloud favorites candidates eligible to add to this series. |
 | POST | `/api/series/{series_id}/cloud-items` | Body `{gids: [...]}` — add cloud-only favorite members to the series. |
 | POST | `/api/series/{series_id}/cloud-items/remove` | Body `{gids: [...]}` — remove cloud members from the series. |
-| POST | `/api/series/rebuild` | Trigger full series re-clustering and rebuild; logs progress to task history as `series-rebuild`. |
+| POST | `/api/series/rebuild` | Trigger full series re-clustering and rebuild; logs progress to task history as `series-rebuild`. Returns `409` while a rebuild is already running. |
 
 ## Pause & Cold archive
 
@@ -319,14 +348,14 @@ refresh is available via the button in Settings. Markdown icon syntax
 | GET | `/api/scan` | Current scan status (`running`, `started_at`, `completed_at`, `scanned`, `persisted`, `success`, `errors`, `expunged`, `duplicates`, `duplicate_gids`, `last`). |
 | POST | `/api/scan` | `202` – trigger a library scan. |
 | GET | `/api/scan/duplicates` | Duplicate-copy groups found by the last scan. Each group (`gid`, `status` (`open`/`dismissed`), `policy`, `winner_path`) lists every physical copy with `path`, `key`, `gallery_id`, `storage_type`, `title`, `page_count`, `file_size`, `posted_at`, `is_current`, `tags`. |
-| POST | `/api/scan/duplicates/{gid}/resolve` | Body `{path, delete_others?}` – make `path` the stored copy (the gallery row is re-pointed at it). With `delete_others=true` the other copies are deleted from disk (paths must be inside the scan roots and listed in the group) and the group is dropped. |
+| POST | `/api/scan/duplicates/{gid}/resolve` | Body `{path, delete_others?}` – make `path` the stored copy (the gallery row is re-pointed at it). With `delete_others=true` the other copies are deleted from disk (paths must be inside the scan roots and listed in the group) and the group is dropped only when every copy was deleted; otherwise the group stays and `failed_paths` lists the survivors. |
 | POST | `/api/scan/duplicates/{gid}/dismiss` | Hide a duplicate group (survives rescans until the copies actually change). |
 | POST | `/api/scan/duplicates/{gid}/restore` | Bring a dismissed group back. |
 | GET | `/api/scan/duplicates/thumb/{key}` | Lazily-generated JPEG cover thumbnail for one copy (cached under `/gv-cache/thumbs/dup/{key}/0.jpg`). Invalid keys (`..`, slashes, or absolute paths) return `404`. |
 | GET | `/api/library/duplicates/cross-gid` | Cached cross-GID duplicate clusters grouped by normalized title and artist. Returns `{ready: bool, count: int, groups: [{key, artist, items: [{gid, token, title, title_jpn, display_title, gallery_id, storage_path, cover_url, cloud, ...}]}]}`. Groups combine both local galleries and cloud-only favorite entries with tags, category, and page count. Clustering strips convention/group prefixes (e.g. `(C100)`, `[Group]`) and matches artist namespaces and normalized title strings with multi-tier scoring. |
 | POST | `/api/library/duplicates/cross-gid/refresh` | Trigger an immediate background re-clustering of cross-GID duplicate candidates and return refreshed results. (Note: ignoring a cross-GID group reuses `POST /api/favorites/duplicates/ignore`). |
 | GET | `/api/tag-sync/status` | Background tag-sync worker status (`running`, `queued`, `total`, `processed`, `succeeded`, `failed`, `retries`, `interval`, `last_error`, `category_refreshed`, `category_refresh_running`). |
-| POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. |
+| POST | `/api/tag-sync/start` | `202` – re-queue every gallery still needing a tag sync for a manual full run. Returns immediately with `{status: "started", queued: 0}`; the pending-id walk is seeded in the background. Returns `200 {status: "paused", detail: ...}` when globally paused, `409` while a seeding pass is already running, and `503` when background tasks are unavailable. |
 | POST | `/api/tag-sync/refresh-categories` | `202` – run a one-time category backfill: galleries in the generic bucket that have ExHentai coordinates but were never category-refreshed are re-fetched and classified; galleries 404 on ExHentai are moved to `deleted`. Status is visible via `category_refreshed`/`category_refresh_running` on `/api/tag-sync/status`. |
 | POST | `/api/tag-sync/repair-categories` | `200` — Fast local category self-healing: synchronizes category fields in the local database directly from existing `.galleryvault.json` or cached metadata, instantly repairing galleries mistakenly lumped into `Misc` or `Other` without external network requests to ExHentai. Returns `{repaired: int, total: int}`. |
 | GET | `/api/thumbs/status` | Thumbnail generation worker status (`running`, `queued`, `processed`, `succeeded`, `failed`, `total`, `last_error`). |
@@ -346,10 +375,10 @@ refresh is available via the button in Settings. Markdown icon syntax
 | DELETE | `/api/lists/{list_id}` | Delete list and memberships. |
 | POST | `/api/lists/{list_id}/items` | Body `{gallery_ids}` — add (CBZ without gid allowed). |
 | POST | `/api/lists/{list_id}/items/remove` | Body `{gallery_ids}`. |
-| GET | `/api/quota` | Cached GP + Image Limit. JSON `{gp, image_limit: {current, limit}, image_limits, checked_at, error, cached}`. |
+| GET | `/api/quota` | Cached GP + Image Limit. JSON `{gp, image_limit: {current, limit}, image_limits, checked_at, error, cached}`. On failure `error` is a generic `"quota check failed"` text; internal exception strings are not echoed. |
 | GET | `/api/logs` | Aggregated activity log: `{running: [...], finished: [...]}`. `running` lists the live background tasks (each with `task` (scan/tag-sync/thumbs/metadata), `started_at`, `done`, `total`, `stage`, `cancellable`); `finished` is the latest-first history of completed tasks with `task`, `started_at`, `completed_at`, `status` (success/failed/cancelled), `reason`, `done`, `total`. |
 | POST | `/api/logs/{task}/cancel` | `202` – request cancellation of a running background task (`scan`, `tag-sync`, `thumbs`, `metadata`). The worker stops at the next safe point; the queue is drained for queue-based tasks. |
-| GET | `/api/system/logs` | In-memory diagnostic ring buffer (query: `min_level` (default INFO), `limit` (default 100, ≤500), `search` (text search)). Items include timestamp, level, logger, message, and extras (request id, worker context); secrets are masked. httpx 2xx/3xx access lines (including Telegram `getUpdates` long-poll) are omitted; 4xx/5xx and business logs are kept. |
+| GET | `/api/system/logs` | In-memory diagnostic ring buffer (query: `min_level` (default INFO), `limit` (default 100, ≤500), `search` (text search)). Items include timestamp, level, logger, message, and extras (request id, worker context); secrets are masked, including in `exception` tracebacks (stored raw, masked on read). httpx 2xx/3xx access lines (including Telegram `getUpdates` long-poll) are omitted; 4xx/5xx and business logs are kept. |
 | POST | `/api/system/logs/level` | Body `{level}` (`DEBUG`/`INFO`/`WARNING`/`ERROR`) — change the process log level without restart. |
 | DELETE | `/api/system/logs` | Clear the in-memory ring buffer (`200 {"status":"cleared"}`). |
 | GET | `/api/system/logs/download` | Download `galleryvault.log` (rotated file under configured log root plus recent memory lines) as an attachment. The file path must resolve within the log root (`403` if out-of-bounds, `404` if missing). |
@@ -359,6 +388,8 @@ refresh is available via the button in Settings. Markdown icon syntax
 - `400`/`422` – invalid input (validation).
 - `401` – authentication required (API routes).
 - `404` – resource not found.
-- `409` – conflict (e.g. download already queued).
+- `409` – conflict (e.g. download already queued, or a batch/rebuild task is already running).
+- `428` – security-sensitive settings change without confirmation (see `POST /api/settings`).
+- `429` – login rate limited or account backoff; `Retry-After` states when to retry.
 - `502` – upstream ExHentai request failed (error detail is scrubbed of cookies/tokens).
 - `503` – a backend service (downloader, database) is unavailable.

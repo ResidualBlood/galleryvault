@@ -21,7 +21,7 @@ Task titles are parsed into Japanese or English based on the "Title display" con
 
 ### Status, Badges & Task Operations
 
-The task list refreshes automatically every 2 seconds and supports filtering by status.
+The task list refreshes automatically every 2 seconds and supports filtering by status; idle refreshes update only changed rows instead of redrawing the whole table.
 
 | Task Status | Channel Badge | Progress Display | Available Operations | Behavior Boundary |
 | :--- | :--- | :--- | :--- | :--- |
@@ -31,11 +31,11 @@ The task list refreshes automatically every 2 seconds and supports filtering by 
 | **Failed (failed)** | Corresponding channel badge | Paused at failure progress | Retry (single or batch with checkboxes) | Only missing or failed pages are downloaded; completed pages are skipped; clears backoff count and triggers immediate retry |
 | **Cancelled (cancelled)** | Corresponding channel badge | Paused at cancellation progress | Retry (single or batch with checkboxes) | Reactivates task to continue downloading unfinished pages |
 
-The toolbar action "Retry all tasks" clears backoff counters on pending, failed, and cancelled tasks and immediately re-enqueues them. "Clear all successful" prompts with a confirmation dialog showing the affected count, then purges all successful task records from the list.
+The toolbar action "Retry all tasks" clears backoff counters on pending, failed, and cancelled tasks and immediately re-enqueues them. "Clear all successful" prompts with a confirmation dialog showing the affected count, then purges all successful task records from the list. Bulk and destructive buttons are disabled while their request is in flight to prevent double submission.
 
 ### Execution Control & Risk Safeguards
 
-- **Global Pause**: The system automatically triggers a global pause upon encountering ExHentai 302 anti-abuse verification challenges (`remoteapi.php`). The web interface toggle and Telegram `/pause` command control the same switch. When pause is active, background workers stop claiming new pages and suspend directory scans, while in-flight page transfers finish downloading. The pause state persists across container restarts. Each task counts 302 challenges independently without consuming its normal retry budget; once the limit is reached (default 5, environment variable `GV_MAX_CHALLENGE_PAUSES`), the task is marked failed with its remaining retry budget preserved, so manual retry or the background sweep can pick it up again.
+- **Global Pause**: The system automatically triggers a global pause upon encountering ExHentai 302 anti-abuse verification challenges (`remoteapi.php`). The web interface toggle and Telegram `/pause` command control the same switch. When pause is active, background workers stop claiming new pages and suspend directory scans, while in-flight page transfers finish downloading. The pause state persists across container restarts. Each task counts 302 challenges independently without consuming its normal retry budget; once the limit is reached (default 5, environment variable `GV_MAX_CHALLENGE_PAUSES`), the task is marked failed with its remaining retry budget preserved, and can be recovered with a manual retry.
 - **Quota Monitoring**: The header displays cached GP balances and image limits (Image Limit, refreshed roughly every 30 minutes). When image limit consumption exceeds approximately 80%, a yellow warning banner appears on the top bar recommending pausing downloads to avoid triggering HTTP 509.
 
 ### Retry Mechanism & Integrity Verification
@@ -43,7 +43,7 @@ The toolbar action "Retry all tasks" clears backoff counters on pending, failed,
 - **Resumable Gap Filling**: Retries strictly fetch missing or failed pages; pages already saved to disk and verified are skipped.
 - **Image Integrity Verification**: Verifies file magic bytes upon writing to disk, supporting JPEG, PNG, WebP, and GIF animation magic bytes `b"GIF8"`, preventing HTML error pages or disguised corrupted files from entering the library.
 - **Node Rotation**: When encountering single-page transfer errors or slow nodes, the request sends the failed node key to the scheduler to switch to another node. If the page provides no node key, HTML is parsed and task state is updated before switching nodes.
-- **Exponential Backoff & 429/509 Rate-Limit Backoff**: Transient network errors trigger exponential backoff retry intervals (30s, 2m, 8m, 30m, 1h, up to 6h), marking the task failed after 10 cumulative attempts. HTTP 429/509 responses are classified as quota/rate-limit errors: the client records the server's `Retry-After` (60 seconds when absent) and the task is re-queued with exponential backoff instead of being retried immediately as a single-page transient error. Background scheduled sweeps automatically reactivate older failed tasks that retain remaining retry budget.
+- **Exponential Backoff & 429/509 Rate-Limit Backoff**: Transient network errors trigger exponential backoff retry intervals (30s, 2m, 8m, 30m, 1h, up to 6h), marking the task failed after 10 cumulative attempts. HTTP 429/509 responses are classified as quota/rate-limit errors: the client records the server's `Retry-After` (60 seconds when absent) and the task is re-queued with exponential backoff instead of being retried immediately as a single-page transient error. Failed tasks are not automatically resurrected by a background sweep; recover them with **Retry** or **Retry all tasks** on the Downloads page (which resets the backoff counters).
 
 ### Task Completion & Notifications
 
@@ -70,18 +70,20 @@ Initiating an archive download opens a read-only cost preview modal without dedu
 
 After selecting a quality tier (Original or Resampled) in the preview modal and confirming, tasks enter the download queue:
 - Original tier downloads full native resolution; Resampled tier downloads the server's single resampled edition;
-- Archive tasks consume `download_concurrency` slots, sharing the FIFO queue alongside page-by-page tasks;
+- Archive tasks share the download queue with page-by-page tasks; archive zip streaming itself is capped at 2 concurrent transfers, independent of `download_concurrency` (which takes effect immediately when changed);
 - If a gallery already has a pending page-by-page or archive task, re-adding prompts and skips the duplicate.
 
 ### Resumable Transfer
 
 Archive downloads support HTTP Range resumable transfers:
 - Assigned quality and zip download URLs are persisted in temporary metadata within the gallery directory;
-- Interrupted downloads or manual retries reuse the existing URL for resuming without re-applying on the server and without charging GP again.
+- Interrupted downloads or manual retries reuse the existing URL for resuming without re-applying on the server and without charging GP again;
+- The whole transfer is protected by the low-speed watchdog: after the warm-up window (default 30 seconds), an average rate below the configured floor (default 10KB/s) aborts the transfer as throttled, and it can be resumed by retrying.
 
 ### Re-packaging
 
 If a downloaded zip file is corrupted or fails verification, the system deletes the corrupted local file, reapplies to the server, and requests a fresh download URL.
+If the task's quality tier changes between attempts (for example resample to original), the cached zip URL is discarded and the archive is requested again for the new tier, which may consume GP again.
 
 ### Page-by-page Fallback
 

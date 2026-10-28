@@ -4,7 +4,7 @@
 >
 > **分册直达**：[浏览与库](Library) · [画廊详情与阅读](Reading) · [下载管理](Downloads) · [收藏与更新](Favorites) · [库维护](Manage) · [系统设置](Settings)
 
-GalleryVault 是基于 hash 路由的单页应用（例如 `#/library`、`#/gallery/7`）。页面切换与交互由前端驱动，页面刷新与历史前进/后退操作无需重新请求 HTML。
+GalleryVault 是基于 hash 路由的单页应用（例如 `#/library`、`#/gallery/7`）。页面切换与交互由前端驱动，页面刷新与历史前进/后退操作无需重新请求 HTML。页面切换期间到达的过期响应会被丢弃，不会覆盖新视图内容。
 
 **主要导航入口**：
 - **桌面端顶栏**：包含 Browse（浏览）、Discover（发现）、Library（画廊库）、Series（系列）、Tags（标签）、Downloads（下载）、Favorites（收藏夹）以及「管理」。

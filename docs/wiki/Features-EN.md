@@ -35,9 +35,9 @@ Key capabilities, prerequisites, and core constraints by module. The system cons
 ## 4. Downloads
 
 - **Concurrent page downloads**: Configurable gallery-level and page-level download concurrency, displaying real-time task progress and status badges; retries fetch missing pages only.
-- **Official archive channel**: Downloads official zip archives consuming account GP; uses single-connection streaming with HTTP Range resume; retries reuse existing task URLs without re-deducting GP (except when re-requesting corrupted archives).
+- **Official archive channel**: Downloads official zip archives consuming account GP; uses single-connection streaming with HTTP Range resume; retries reuse existing task URLs without re-deducting GP (except when re-requesting corrupted archives or when the quality tier changes between attempts).
 - **H@H node selection & eviction**: Features per-image timeout watchdogs, warmup windows, and minimum transfer rate thresholds, automatically evicting unresponsive or slow H@H nodes.
-- **Exponential backoff retries**: Temporarily failed tasks retry with stepped backoff from 30 seconds up to 6 hours, capped at 10 attempts per task.
+- **Exponential backoff retries**: Temporarily failed tasks retry with stepped backoff from 30 seconds up to 6 hours, capped at 10 attempts per task; after the cap the task stays failed and is not resurrected automatically — recover it with Retry or Retry all tasks.
 - **Quota challenge protection**: Automatically pauses the download queue upon encountering HTTP 302 challenges; background probes run every 10 minutes and automatically resume downloads once restrictions clear. HTTP 429/509 responses are retried as quota/rate-limit errors with backoff and carry the server's `Retry-After` (60 seconds when absent).
 - **Direct download ingest**: Automatically indexes completed downloads and generates cover caches without triggering a full library rescan.
 - **Detailed references**: See [Download Management & Archiving](Downloads-EN) for queue operations, status badges, and archive boundaries.
@@ -57,6 +57,7 @@ Key capabilities, prerequisites, and core constraints by module. The system cons
 - **Data encryption at rest**: With `ENCRYPTION_KEY` configured, cookies, access tokens, and sensitive credentials are encrypted using AES-256-GCM.
 - **Persistent security sessions**: Session signing secrets are persisted in PostgreSQL, preserving logins across container restarts; changing passwords immediately invalidates all active sessions.
 - **Permissions & proxy hardening**: Supports unprivileged execution with configurable `PUID` and `PGID`; enforces CSRF protection; supports trusted reverse proxy CIDRs via `TRUSTED_PROXIES`; limits archive page decompression to 128MB.
+- **Authentication & settings hardening**: Failed logins apply account-level exponential backoff (from 5 failures, up to 15 minutes) and return `429` + `Retry-After`; changing security-sensitive settings (require login, trusted proxies, download root, library roots) requires the current administrator password or an explicit confirmation (the API returns `428`); API responses carry baseline security headers including `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and CSP `frame-ancestors 'none'`.
 - **Containerized deployment**: Provides AMD64 and ARM64 dual-architecture Docker images with integrated PostgreSQL and automated Alembic database migrations at startup.
 - **Detailed references**: See [Deployment Guide](Deployment-EN) for deployment, storage topology, and reverse proxy examples; see [Encryption at Rest](Encryption-EN) for key security and disaster recovery.
 

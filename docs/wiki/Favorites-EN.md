@@ -12,11 +12,12 @@ ExHentai favorite-folder sync, watch modes, favorite dedupe, and re-uploaded GID
   - **Sync folder names**: Pulls cloud custom folder names from ExHentai.
   - **Check now**: Manually scans the selected folder; **Check all folders**: Checks all folders at once.
   - **Save**: Saves modifications to folder enable toggles, watch modes, and polling intervals all at once.
-  - **Download missing items**: Spawns an overview pass across all checked folders to complete missing local cover thumbnail cache files on disk (for list display and duplicate group inlining).
+  - **Download missing items**: Spawns an overview pass across all checked folders to complete missing local cover thumbnail cache files on disk (25 per batch; for list display and duplicate group inlining).
 - **Metadata Caching & Skip Rules**:
   - Every check fetches full metadata (title, tags, category, posted date, size) and caches it in the local database; for already downloaded local galleries, fresh metadata is applied automatically (updating tags, category, title, posted date, and size), skipping when nothing changed.
   - Checks automatically warm cloud covers into local disk cache. Opening a folder subsequently reads local disk only (`/api/favorites/cover?gid={gid}&token={token}`) without waiting on external requests.
   - **Skip heuristic (scheduled polling only)**: During scheduled checks, if live cloud count matches known local count, full re-scanning is skipped immediately; after 4 consecutive skips, the 5th check forces a full scan. If live cloud count changes, the counter resets immediately and a full scan runs (clicking "Check now" never triggers skips, running a full check directly).
+  - **Truncated listing protection**: A failed page fetch or an early-ended listing fails the whole check without deleting local records; if one check returns fewer than 50% of the recorded items and at least 20 items are recorded, pruning is skipped for that run and a warning is logged, so a truncated page is not mistaken for a mass unfavorite. The next successful full check prunes items that really disappeared.
 - **Folder Gallery Grid (`#/favorites/<favcat>`)**:
   - Click a folder name to open the gallery grid view (24 items per page by default, with infinite scrolling and a bottom pager fallback).
   - **Search & Sorting**: Top toolbar provides real-time title filtering; supports multi-criteria sorting by first added date, last added date (default), posted date, title, and file size.
@@ -56,7 +57,7 @@ For official archive channel cost previews, Range resumption, and fallback polic
   - If an incremental or forced check has already downloaded the new GID gallery into the library, detection automatically removes superseded local copies (the corresponding entry in the Updates page clears automatically). When batch-downloading from the favorites page, matching update rows are linked to the download task and superseded copies are automatically cleaned up upon ingest.
 - **Failures & Ignore Handling**:
   - If a running update download task is deleted from the task management page, the update entry is marked as **failed** and retained here; filter by **Failed** and click **Delete selected** to clear failure records (clears update list records only without affecting download task history).
-  - Click **Ignore selected** for false positives (ignored items will not auto-delete superseded local copies even if the new version is ingested); restore ignored items under `#/updates/ignored`.
+  - Click **Ignore selected** for false positives (ignored items will not auto-delete superseded local copies even if the new version is ingested); restore ignored items under `#/updates/ignored`. The default (active) view's `total` excludes ignored entries.
 
 ## "download favorites" vs. "enabled"
 

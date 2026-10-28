@@ -35,7 +35,7 @@ Downloads are saved to `downloads/`; cold archives are saved to configured `arch
 
 ### A. Existing Ehviewer folders
 1. Mount the host directory into the backend container in your compose file (e.g., `/data/Ehviewer:/Ehviewer:ro`).
-2. Open **Settings → Library**, add the container path to library roots, and save.
+2. Open **Settings → Library**, add the container path to library roots, and save (you will be asked for the current administrator password to confirm).
 3. Open **Library** (`#/library`) and click **Scan library**.
 4. See [Compatibility](Compatibility-EN) and [Library](Library-EN#library-library).
 

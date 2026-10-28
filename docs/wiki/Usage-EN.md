@@ -4,7 +4,7 @@
 >
 > **Direct Chapters**: [Browsing & Library](Library-EN) · [Gallery Details & Reader](Reading-EN) · [Download Management](Downloads-EN) · [Favorites & Updates](Favorites-EN) · [Library Maintenance](Manage-EN) · [Settings](Settings-EN)
 
-GalleryVault is a single-page application built on hash routing (for example, `#/library`, `#/gallery/7`). Page transitions and interactions are driven entirely by the frontend; page refreshes and browser forward/back navigation operate without requesting a new HTML document.
+GalleryVault is a single-page application built on hash routing (for example, `#/library`, `#/gallery/7`). Page transitions and interactions are driven entirely by the frontend; page refreshes and browser forward/back navigation operate without requesting a new HTML document. Stale responses that arrive during a view transition are discarded and never overwrite the new view.
 
 **Main Navigation Entries**:
 - **Desktop Top Navigation**: Browse, Discover, Library, Series, Tags, Downloads, Favorites, and Manage.

@@ -35,7 +35,7 @@ docker compose up -d
 
 ### A. 已有 Ehviewer 目录
 1. 在 compose 文件中把宿主机目录挂载至 backend 容器（例如 `/data/Ehviewer:/Ehviewer:ro`）。
-2. 打开 **设置 → 资料库**，将容器内挂载路径添加到库根目录并保存。
+2. 打开 **设置 → 资料库**，将容器内挂载路径添加到库根目录并保存（会要求输入当前管理员密码确认）。
 3. 进入 **画廊库**（`#/library`）点击 **扫描库**。
 4. 详情见 [兼容格式](Compatibility) 与 [画廊库](Library#画廊库library)。
 

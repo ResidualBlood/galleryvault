@@ -19,8 +19,8 @@ GalleryVault 读取常见 Ehviewer 系客户端的导出目录与元数据，并
 | **Ehviewer_OHOS (鸿蒙)** | 完整支持 | `.ehviewer` (SpiderInfo V1/V2) | 导出格式完全兼容 |
 | **JHenTai (Flutter 全平台)** | 逐页目录支持 | 画廊根目录 `metadata` JSON | 识别逐页下载的 `{gid} - {title}/metadata`；归档解压目录的 `ametadata` **不扫** |
 | **Tachiyomi / Mihon / Panels** | 协议接入 | OPDS 目录协议 (`/api/opds`) 及 CBZ 获取链接 (`/api/galleries/{id}/export.cbz`) | 两个端点均支持 HTTP Basic 认证，可直接接入画廊书库浏览阅读 |
-| **通用 CBZ / CBR 压缩包** | 标准支持 | `ComicInfo.xml` / 文件名前缀 | 支持 `gid-标题.cbz` 或内部内嵌元数据解析；成员名自动探测 UTF-8 / GBK / cp932 编码，避免中文文件名乱码 |
-| **通用 7z** | 标准支持 | 仅图片成员 | py7zr；按页内存解压，单页上限 128MB；非图片留在包内 |
+| **通用 CBZ / CBR 压缩包** | 标准支持 | `ComicInfo.xml` / 文件名前缀 | 支持 `gid-标题.cbz` 或内部内嵌元数据解析（数字前缀至少 5 位才视为 GID）；成员名自动探测 UTF-8 / GBK / cp932 编码，避免中文文件名乱码 |
+| **通用 7z** | 标准支持 | 仅图片成员 | py7zr；扫描只读包内成员表、不解压整包，页数按全部图片成员计算、页序按自然序；阅读时按页内存解压，单页上限 128MB；非图片留在包内 |
 | **PDF** | 标准支持 | 内嵌图 | 抽取内嵌图；单图超 128MB 跳过 |
 
 ---
@@ -142,6 +142,8 @@ JHenTai **逐页下载**把元数据写在 `{gid} - {title}/metadata`（无扩�
 - **键完整性**：始终写出全部 15 个键，未知项填充 `null` / `[]` / `""`，**禁止省略键**。
 - **排除私有状态**：不持久化 `local_rating`、`local_note`、本地路径、文件签名或 `archived_at` 等易变或私有运行状态。
 - **编码**：UTF-8 编码、`indent=2`、`ensure_ascii=False`、末尾换行。
+- **原子写入**：先写同目录临时文件并 `fsync`，再用 `os.replace` 覆盖，崩溃不会留下截断的 sidecar。
+- **非法值处理**：读端会丢弃非正整数的 `gid` 与不符合格式的 `token`，按未知值（`null` / `""`）读回。
 
 读端兼容与扫描回写：
 
