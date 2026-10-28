@@ -3,16 +3,61 @@
 // views/reader.js — Reader with LTR, RTL Manga, and Double-page modes + gestures
 
 let readerTouchCleanup = null;
-let progressDebounceTimer = null;
+
+// Reading progress writes are serialised per gallery: only one PUT is in flight
+// at a time and only the newest intent is kept as pending. This prevents late
+// responses (render first frame / debounce / webtoon observer) from overwriting
+// a newer page with an older one.
+const progressWriteState = new Map(); // gallery id -> { seq, timer, inflight, pending }
+
+function progressStateFor(id) {
+  const key = String(id);
+  let st = progressWriteState.get(key);
+  if (!st) {
+    st = { seq: 0, timer: null, inflight: false, pending: null };
+    progressWriteState.set(key, st);
+  }
+  return st;
+}
+
+function flushProgressWrite(id) {
+  const key = String(id);
+  const st = progressWriteState.get(key);
+  if (!st || st.inflight || !st.pending) return;
+  const job = st.pending;
+  st.pending = null;
+  st.inflight = true;
+  api("PUT", `/api/galleries/${key}/progress`, { current_page: job.page, total_pages: job.total })
+    .catch(() => {})
+    .then(() => {
+      const cur = progressWriteState.get(key);
+      if (!cur) return;
+      cur.inflight = false;
+      if (cur.pending) flushProgressWrite(key);
+    });
+}
+
+function queueProgressWrite(id, page, total, opts) {
+  const st = progressStateFor(id);
+  st.seq += 1;
+  st.pending = { page, total, seq: st.seq };
+  if (opts && opts.immediate) {
+    if (st.timer) {
+      clearTimeout(st.timer);
+      st.timer = null;
+    }
+    flushProgressWrite(id);
+    return;
+  }
+  if (st.timer) clearTimeout(st.timer);
+  st.timer = setTimeout(() => {
+    st.timer = null;
+    flushProgressWrite(id);
+  }, (opts && opts.delay) || 500);
+}
 
 function updateProgressDebounced(id, target, total) {
-  if (progressDebounceTimer) {
-    clearTimeout(progressDebounceTimer);
-  }
-  progressDebounceTimer = setTimeout(() => {
-    progressDebounceTimer = null;
-    api("PUT", `/api/galleries/${id}/progress`, { current_page: target, total_pages: total }).catch(() => {});
-  }, 500);
+  queueProgressWrite(id, target, total);
 }
 
 function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
@@ -49,7 +94,13 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
   newImg.src = src;
 
   const finish = () => {
-    if (img._swapReqId !== reqId) return;
+    if (img._swapReqId !== reqId) {
+      // A newer swap has superseded this one. Report completion anyway: the
+      // caller (e.g. double-page pending counter / slideshow) must not stall
+      // waiting for a swap that will never replace the DOM.
+      notifyComplete();
+      return;
+    }
     if (img.parentNode) {
       newImg._swapReqId = reqId;
       img.replaceWith(newImg);
@@ -208,6 +259,7 @@ async function renderReader() {
     readerTouchCleanup = null;
   }
   if (typeof cleanupWebtoon === "function") cleanupWebtoon();
+  const token = beginViewRender();
   const id = app.params.id;
   const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const mode = getReaderMode();
@@ -227,6 +279,7 @@ async function renderReader() {
     let g = app.readerGallery;
     if (!g || String(g.id) !== String(id)) {
       g = await api("GET", `/api/galleries/${id}`);
+      if (isStaleViewRender(token, "reader", id)) return;
       app.readerGallery = g;
     }
     const total = (g && g.page_count) || 0;
@@ -250,13 +303,14 @@ async function renderReader() {
 
     initReaderGestures();
     if (total > 0) {
-      try { await api("PUT", `/api/galleries/${id}/progress`, { current_page: safePage, total_pages: total }); } catch (_) {}
+      queueProgressWrite(id, safePage, total, { immediate: true });
     }
     const ssSec = parseInt(app.query && app.query.slideshow, 10);
-    if (ssSec > 0) {
+    if (ssSec > 0 && !isStaleViewRender(token, "reader", id)) {
       startSlideshow(ssSec);
     }
   } catch (e) {
+    if (isStaleViewRender(token, "reader", id)) return;
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }
