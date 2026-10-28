@@ -51,7 +51,7 @@ function setDupScanBtn(scanning) {
   const btn = document.querySelector('[data-action="dup-scan"]');
   if (btn) {
     btn.disabled = scanning;
-    btn.textContent = scanning ? "扫描中..." : t("dupScan");
+    btn.textContent = scanning ? t("dupScanning") : t("dupScan");
   }
 }
 

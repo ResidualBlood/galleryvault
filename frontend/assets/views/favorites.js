@@ -20,7 +20,7 @@ async function renderFavorites() {
     (Array.isArray(cats) ? cats : []).forEach(c => { favCatNames[c.favcat] = c.name || ""; });
     const rows = (Array.isArray(cats) ? cats : []).map(c => `
       <tr data-favcat="${c.favcat}">
-        <td class="fav-name"><a href="#/favorites/${c.favcat}" class="fav-link">${esc(c.name || ("Folder " + c.favcat))}</a> <span class="badge">#${c.favcat}</span></td>
+        <td class="fav-name"><a href="#/favorites/${c.favcat}" class="fav-link">${esc(c.name || t("favFolderName", { n: c.favcat }))}</a> <span class="badge">#${c.favcat}</span></td>
         <td class="muted">${c.cloud_count || 0} / ${c.local_count || 0}</td>
         <td class="muted">${(c.cloud_size ? "~" : "") + fmtSize(c.cloud_size || 0)} / ${fmtSize(c.local_size || 0)}</td>
         <td><input type="checkbox" class="fav-enabled"${c.enabled ? " checked" : ""}></td>
@@ -401,9 +401,10 @@ async function favListDownload(favcat) {
   try {
     const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected });
     toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
+    // Only drop the selection when the request actually succeeded.
+    selFav.clear();
+    updateFavActionBar();
   } catch (e) { toast(e.message); }
-  selFav.clear();
-  updateFavActionBar();
 }
 
 async function favListDownloadOrig(favcat) {
@@ -412,9 +413,9 @@ async function favListDownloadOrig(favcat) {
   try {
     const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected, quality: "original" });
     toast(t("favDlQueued") + ": " + r.queued + (r.skipped ? " · " + t("favDlSkip") + ": " + r.skipped : ""));
+    selFav.clear();
+    updateFavActionBar();
   } catch (e) { toast(e.message); }
-  selFav.clear();
-  updateFavActionBar();
 }
 
 async function favListArchive(favcat) {
@@ -425,9 +426,9 @@ async function favListArchive(favcat) {
   try {
     const r = await api("POST", "/api/favorites/download-selected", { favcat, gids: selected, archive: true, quality: tier });
     toast(t("archiveQueued") + ": " + r.queued + (r.skipped ? " · " + t("archiveUnsupported") : ""));
+    selFav.clear();
+    updateFavActionBar();
   } catch (e) { toast(e.message); }
-  selFav.clear();
-  updateFavActionBar();
 }
 
 async function favListUnfavorite(favcat) {

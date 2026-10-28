@@ -186,7 +186,9 @@ async function renderGallery() {
       if (isOnlyView) {
         backHref = rawFrom === "library" ? navHash("library", {}, libraryContext()) : navHash(rawFrom);
       } else {
-        backHref = "#/" + rawFrom;
+        // `from` is user-controlled (URL query): percent-encode it before it lands in href
+        // so it cannot inject extra attributes/markup. encodeURI keeps ?p=1&q=x readable.
+        backHref = "#/" + encodeURI(rawFrom).replace(/"/g, "%22").replace(/'/g, "%27");
       }
     }
     const galleryCtx = { ...libraryContext(), ...(!isInvalidFrom ? { from: rawFrom } : {}) };
@@ -218,7 +220,7 @@ async function renderGallery() {
           <button class="btn btn-sm btn-secondary" data-action="gallery-slideshow" data-id="${id}" type="button">▶ ${esc(t("slideshow"))}</button>
           ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
           <button class="btn btn-secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
-          <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>
+          <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" data-title="${esc(g.title || "")}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>
           <button class="btn btn-secondary" data-action="move-gallery-favorite" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("changeFavCategory"))}</button>
           <button class="btn btn-secondary" data-action="unfavorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("unfavorite"))}</button>
           ${showOrigBtns ? `<button class="btn btn-secondary" data-action="download-original" data-id="${g.id}" data-gid="${g.gid}" type="button">${esc(t("dlOrig"))}</button>
@@ -341,7 +343,7 @@ async function renderGallery() {
         wrap.style.textAlign = "center";
         wrap.style.margin = "20px 0";
       }
-      const label = t("loadMore") || (typeof lang !== "undefined" && lang === "zh" ? "加载更多" : "Load More");
+      const label = t("loadMore");
       wrap.innerHTML = `<button type="button" class="btn btn-secondary" style="min-width:180px;padding:8px 20px;">${esc(label)}</button>`;
       thumbsContainer.appendChild(wrap);
       const btn = wrap.querySelector("button");
@@ -497,9 +499,10 @@ async function favoriteGallery(el) {
   });
   if (targetFavcat == null) return;
   try {
+    // Same payload shape as the batch path (library.js / discover.js) so the backend
+    // keeps the title instead of rebuilding a {gid, token} entry without it.
     const r = await api("POST", "/api/favorites/add", {
-      gid,
-      token,
+      items: [{ gid, token, title: el.dataset.title || "" }],
       target_favcat: targetFavcat,
     });
     if (r.cloud_ok) {
@@ -551,7 +554,7 @@ window.startGallerySlideshow = function(id) {
   const el = document.getElementById("gallery-slideshow-sec");
   const raw = el ? parseInt(el.value, 10) : 0;
   const sec = (raw && raw > 0) ? raw : (parseInt(localStorage.getItem("gv_slideshow_interval"), 10) || 5);
-  localStorage.setItem("gv_slideshow_interval", String(sec));
+  try { localStorage.setItem("gv_slideshow_interval", String(sec)); } catch (_) {}
   const page = currentGalleryProgressPage || 0;
   location.hash = navHash("reader", { id, page }, { ...currentGalleryCtx, slideshow: sec });
 };

@@ -202,7 +202,7 @@ async function discoverFavoriteOne(el) {
   });
   if (targetFavcat == null) return;
   try {
-    const r = await api("POST", "/api/favorites/add", { gid, token, title, target_favcat: targetFavcat });
+    const r = await api("POST", "/api/favorites/add", { items: [{ gid, token, title }], target_favcat: targetFavcat });
     if (r && r.cloud_ok) toast(t("favAdded"));
     else toast(t("favAddFail"));
   } catch (e) { toast(e.message || t("favAddFail")); }
