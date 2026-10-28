@@ -22,12 +22,29 @@ logger = logging.getLogger(__name__)
 
 
 def in_scan_roots(path: Path, roots: list[str]) -> bool:
-    """True when ``path`` (resolved) sits under one of the configured scan roots."""
+    """True when ``path`` (resolved) sits strictly under one of the configured scan roots.
+
+    A configured root itself is never a valid deletion target: ``is_relative_to``
+    returns True for equal paths, so a single bad ``storage_path`` pointing at a
+    root would otherwise wipe the whole library.  The filesystem root is refused
+    for the same reason.
+    """
     try:
         resolved = path.resolve()
     except (ValueError, TypeError, OSError):
         return False
-    return any(resolved.is_relative_to(Path(root).resolve()) for root in roots)
+    if resolved == Path(resolved.anchor):
+        return False
+    for root in roots:
+        try:
+            root_resolved = Path(root).resolve()
+        except (ValueError, TypeError, OSError):
+            continue
+        if resolved == root_resolved:
+            continue
+        if resolved.is_relative_to(root_resolved):
+            return True
+    return False
 
 
 def _is_in_download_root(path: Path) -> bool:
@@ -381,6 +398,19 @@ async def delete_galleries_local(
                         item["db_removed"] = True
                         item["trashed"] = False
                         item["staged"] = False
+                        # Hard delete without file removal (purge with
+                        # delete_files=false): the on-disk copies are kept but no
+                        # longer tracked by any row, so report them instead of
+                        # dropping the paths silently.
+                        if targets:
+                            orphan_paths = [str(t) for t in targets]
+                            item["orphan_paths"] = orphan_paths
+                            logger.warning(
+                                "gallery rows purged without deleting files; copies are now orphaned",
+                                extra=log_extra(
+                                    gallery_id=gallery_id, orphan_paths=orphan_paths
+                                ),
+                            )
             await sess.flush()
 
     # Phase 3: Perform disk I/O outside of the write transaction
@@ -497,6 +527,7 @@ async def delete_galleries_local(
             "trashed": item["trashed"],
             "deleted_paths": item["deleted_paths"],
             "failed_paths": item["failed_paths"],
+            "orphan_paths": item.get("orphan_paths") or [],
         }
         for item in items_meta
     ]

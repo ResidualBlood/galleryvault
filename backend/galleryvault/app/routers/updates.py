@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...db.repositories.updates import ACTIVE_STATE as UPDATES_ACTIVE_STATE
 from ...db.repository import FavoritesRepository, GalleryUpdatesRepository
 from ...db.session import safe_transaction
 from ...services.updates_worker import detect_gallery_updates, run_gallery_updates
@@ -42,10 +43,13 @@ async def gallery_updates_list(
     if state not in {"active", "all", "pending", "downloading", "failed", "ignored"}:
         raise HTTPException(status_code=422, detail="invalid state")
     session = await resolve_session(session)
-    status_filter = None
     if state == "active":
+        # Everything except "ignored": filtered in SQL so ``total`` matches
+        # ``items`` instead of counting rows the page later drops.
+        status_filter: str | None = UPDATES_ACTIVE_STATE
+    elif state == "all":
         status_filter = None
-    elif state != "all":
+    else:
         status_filter = state
     try:
         total, rows = await GalleryUpdatesRepository(session).list_page(
@@ -57,10 +61,6 @@ async def gallery_updates_list(
         raise db_error(exc) from exc
     items = []
     for row in rows:
-        if status_filter == "ignored":
-            pass
-        elif row.status == "ignored" and state != "all":
-            continue
         items.append(
             {
                 "id": row.id,

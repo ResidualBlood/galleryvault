@@ -117,6 +117,7 @@ async def resolve_duplicate(
     async with safe_transaction(session):
         await GalleryIngestService(session).ingest([meta])
 
+    failed_paths: list[str] = []
     if body.delete_others:
 
         def _delete_path(path: Path) -> None:
@@ -136,11 +137,24 @@ async def resolve_duplicate(
                     "duplicate copy deletion failed",
                     extra={"path": str(target), "error": str(exc)},
                 )
-        async with safe_transaction(session):
-            await GalleryRepository(session).delete_duplicate(gid)
+                failed_paths.append(str(target))
+        if failed_paths:
+            # Keep the duplicate record when a copy survived on disk: deleting it
+            # would leave that copy both untracked and invisible on the dedupe page.
+            logger.warning(
+                "duplicate group kept because some copies could not be deleted",
+                extra={"gid": gid, "failed_paths": failed_paths},
+            )
+        else:
+            async with safe_transaction(session):
+                await GalleryRepository(session).delete_duplicate(gid)
 
     refreshed = await GalleryRepository(session).list_duplicates()
-    return {"groups": refreshed, "count": len(refreshed)}
+    return {
+        "groups": refreshed,
+        "count": len(refreshed),
+        "failed_paths": failed_paths,
+    }
 
 
 @router.post("/api/scan/duplicates/{gid}/dismiss")

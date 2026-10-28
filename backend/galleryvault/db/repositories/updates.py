@@ -7,6 +7,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import DownloadTask, Gallery, GalleryUpdate
 from .base import count_select
 
+#: ``list_page`` status marker for "everything the user still has to act on",
+#: i.e. every row except ``ignored``.  Kept separate from the real row statuses
+#: so the filter stays in SQL instead of being applied after pagination.
+ACTIVE_STATE = "active"
+
+
+def _build_list_query(status: str | None):
+    """SELECT backing both the count and the page of ``list_page``."""
+    query = select(GalleryUpdate)
+    if status == ACTIVE_STATE:
+        query = query.where(GalleryUpdate.status != "ignored")
+    elif status:
+        query = query.where(GalleryUpdate.status == status)
+    return query
+
 
 class GalleryUpdatesRepository:
     """Tracking for local galleries superseded by re-uploaded ExHentai versions.
@@ -53,9 +68,7 @@ class GalleryUpdatesRepository:
         page_size: int,
         status: str | None = None,
     ) -> tuple[int, list[GalleryUpdate]]:
-        query = select(GalleryUpdate)
-        if status:
-            query = query.where(GalleryUpdate.status == status)
+        query = _build_list_query(status)
         total = await count_select(self.session, query)
         rows = (
             await self.session.scalars(
