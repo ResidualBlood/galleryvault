@@ -101,6 +101,31 @@ def _isolate_app_state():
         pass
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_throttle_state():
+    """Keep the process-local login counters from leaking across tests.
+
+    ``galleryvault.auth`` keeps the per-IP rate window and the single-admin
+    account backoff in module globals. Without a reset, failures recorded by one
+    test lock out later tests (they see 429 instead of 303/401), so every test
+    starts with a clean throttle. Production logic is untouched; the state is
+    also cleared afterwards so a test cannot pollute anything that follows.
+    """
+    from galleryvault import auth as auth_module
+
+    def _clear() -> None:
+        for name in ("_login_attempts", "_account_failures", "_account_locked_until"):
+            state = getattr(auth_module, name, None)
+            if isinstance(state, dict):
+                state.clear()
+
+    _clear()
+    try:
+        yield
+    finally:
+        _clear()
+
+
 def bind_runtime(**kwargs):
     """测试唯一入口：写入 app_state，并镜像到 app.state（若已创建）。"""
     for k, v in kwargs.items():

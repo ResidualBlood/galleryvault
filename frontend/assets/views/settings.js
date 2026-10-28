@@ -82,9 +82,47 @@ function collectSettings(form) {
   return body;
 }
 
+// The backend answers 428 when a save changes a security-sensitive setting
+// (auth_required / trusted_proxies / download_root / library_roots) without
+// confirmation. Ask for the current admin password, or an explicit confirmation
+// when no password is configured, and resend the same payload.
+function securityConfirmKeys(err) {
+  const detail = err && err.detail;
+  if (detail && typeof detail === "object" && Array.isArray(detail.keys)) {
+    return detail.keys.filter(k => typeof k === "string");
+  }
+  return [];
+}
+
+async function askSecurityConfirmation(err) {
+  const keyText = securityConfirmKeys(err).join(", ");
+  // `auth_hash_configured === false` means there is nothing to verify yet, so
+  // an explicit confirmation flag is the only possible proof. Otherwise (or
+  // when the value is unknown) ask for the password.
+  const noPassword = !!(app.settings && app.settings.auth_hash_configured === false);
+  if (noPassword) {
+    return window.confirm(t("securityConfirmNoPassword", { keys: keyText }))
+      ? { confirm_security_change: true }
+      : null;
+  }
+  const password = window.prompt(t("securityConfirmPassword", { keys: keyText }));
+  if (password === null || password === "") return null;
+  return { current_password: password };
+}
+
 async function saveSettings(form) {
+  const body = collectSettings(form);
   try {
-    const data = await api("POST", "/api/settings", collectSettings(form));
+    let data;
+    try {
+      data = await api("POST", "/api/settings", body);
+    } catch (e) {
+      if (!e || e.status !== 428) throw e;
+      const extra = await askSecurityConfirmation(e);
+      if (!extra) { toast(t("securityConfirmCancelled")); return; }
+      // Same payload plus the confirmation; nothing was persisted before.
+      data = await api("POST", "/api/settings", { ...body, ...extra });
+    }
     app.settings = data && data.library_roots !== undefined ? data : null;
     toast(t("saveOk"));
     renderSettings();

@@ -261,7 +261,8 @@ def test_settings_save_persists_auth_required(
 
     Regression guard: SettingsRequest previously had no ``auth_required`` field,
     so pydantic silently dropped the submitted value and the toggle could never
-    be persisted (dead UI since v1.0.0).
+    be persisted (dead UI since v1.0.0). Since B1-C a security-sensitive change
+    also needs confirmation, hence ``confirm_security_change``.
     """
     from galleryvault.app.routers import settings as settings_router
     from galleryvault.app.state import app_state
@@ -294,7 +295,10 @@ def test_settings_save_persists_auth_required(
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Session()
     try:
-        response = client.post("/api/settings", json={"auth_required": False, "page_concurrency": 8})
+        response = client.post(
+            "/api/settings",
+            json={"auth_required": False, "page_concurrency": 8, "confirm_security_change": True},
+        )
         assert response.status_code == 200
         assert saved["auth_required"] is False
         assert saved["page_concurrency"] == 8
@@ -526,10 +530,18 @@ def test_client_ip_unknown_without_client() -> None:
     assert _client_ip(SimpleNamespace(headers={}, client=None)) == "unknown"
 
 
-def test_login_rate_limit_keys_on_x_real_ip(client: TestClient) -> None:
-    """A spoofed X-Real-IP must not reset another bucket's counters."""
+def test_login_rate_limit_keys_on_x_real_ip(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A spoofed X-Real-IP must not reset another bucket's counters.
+
+    The single-admin account backoff is neutralised here: it is global (not
+    per-IP), so it would otherwise turn the fresh 6.6.6.6 bucket into a 429 and
+    hide what this test is about (the per-IP rate window).
+    """
     from galleryvault import auth
 
+    monkeypatch.setattr(auth, "ACCOUNT_FAILURE_THRESHOLD", 10_000)
     original = auth._login_attempts
     original_lock = auth._login_lock
     auth._login_attempts = {}

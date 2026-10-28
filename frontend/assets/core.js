@@ -301,7 +301,13 @@ async function api(method, path, body, opts = {}) {
   if (text) { try { data = JSON.parse(text); } catch (_) {} }
   if (!res.ok) {
     const detail = (data && (data.detail || data.message)) || text || res.statusText;
-    const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    // Keep the structured payload on err.detail (callers such as the settings
+    // confirmation flow need `keys`), but surface a readable message.
+    let message;
+    if (typeof detail === "string") message = detail;
+    else if (detail && typeof detail.message === "string") message = detail.message;
+    else message = JSON.stringify(detail);
+    const err = new Error(message);
     err.status = res.status;
     err.detail = detail;
     throw err;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...config import get_settings
 from ...db.repository import BackgroundJobsRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
+from ...logging import log_extra, mask_sensitive
 from ...services.cold_archive import run_cold_archive
 from ...services.scan_worker import run_scan
 from ...services.settings_service import update_runtime_settings
@@ -20,6 +22,11 @@ from ..schemas import QuotaResponse
 from ..state import app_state
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Stable, generic text for /api/quota failures: exception strings may embed
+# cookies, tokens or internal paths, so they only go to the log.
+_QUOTA_ERROR_MESSAGE = "quota check failed"
 
 
 async def _clear_jobs(job_type: str) -> None:
@@ -197,7 +204,14 @@ async def get_quota() -> dict[str, object]:
                     await _load_image_limit(client)
             error = None
         except Exception as exc:  # noqa: BLE001
-            error = type(exc).__name__ + ": " + str(exc)[:120]
+            logger.warning(
+                "quota check failed",
+                extra=log_extra(
+                    error=type(exc).__name__,
+                    detail=mask_sensitive(str(exc))[:200],
+                ),
+            )
+            error = _QUOTA_ERROR_MESSAGE
             if not gp_fresh:
                 balance = cache.get("balance")
         new_cache = {
