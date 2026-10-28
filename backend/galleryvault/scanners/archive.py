@@ -2,7 +2,6 @@ import atexit
 import hashlib
 import io
 import json
-import re
 import threading
 import time
 import zipfile
@@ -18,7 +17,12 @@ from ..metadata.sidecar import (
     parse_galleryvault_json,
 )
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
-from .ehviewer import IMAGE_EXTENSIONS, natural_key, strip_gid_prefix
+from .ehviewer import (
+    IMAGE_EXTENSIONS,
+    natural_key,
+    parse_gid_prefix,
+    strip_gid_prefix,
+)
 
 MAX_ARCHIVE_PAGE_SIZE = 128 * 1024 * 1024  # 128 MB max uncompressed page size to prevent Zip bomb/OOM
 MAX_COMICINFO_SIZE = 8 * 1024 * 1024  # 8 MB cap for ComicInfo.xml members
@@ -117,6 +121,10 @@ def validate_archive_member(filename: str, info: object) -> None:
 
 
 class ArchiveScanner(GalleryScanner):
+    # Most archives must yield at least one image page; archive types that can
+    # legitimately be page-less (PDF without embedded images) override this.
+    allow_empty_pages = False
+
     def fingerprint(self, path: Path) -> str:
         return self.storage_signature(path)
 
@@ -147,10 +155,11 @@ class ArchiveScanner(GalleryScanner):
     def _meta(
         self, path: Path, pages: list[PageInfo], raw: dict, **metadata: object
     ) -> GalleryMeta:
+        if not pages and not self.allow_empty_pages:
+            raise ValueError(f"archive contains no image pages: {path}")
         stat = path.stat()
         digest = self.storage_signature(path)
-        gid_match = re.match(r"^(\d{5,})-", path.stem)
-        gid = int(gid_match.group(1)) if gid_match else None
+        gid = parse_gid_prefix(path.stem)
         if gid is None and metadata.get("gid") is not None:
             try:
                 gid = int(metadata["gid"])  # type: ignore[arg-type]
@@ -183,7 +192,10 @@ class ArchiveScanner(GalleryScanner):
 
     @staticmethod
     def _comic_info(
-        archive: object, names: list[str], sizes: dict[str, int] | None = None
+        archive: object,
+        names: list[str],
+        sizes: dict[str, int] | None = None,
+        warnings: list[str] | None = None,
     ) -> tuple[dict, dict[str, object]]:
         comic = next(
             (
@@ -196,10 +208,22 @@ class ArchiveScanner(GalleryScanner):
         if not comic:
             return {}, {}
         if sizes is not None and sizes.get(comic, 0) > MAX_COMICINFO_SIZE:
+            if warnings is not None:
+                warnings.append("ComicInfo.xml exceeds size limit")
             return {"comic_info_error": "ComicInfo.xml exceeds size limit"}, {}
         try:
-            root = ElementTree.fromstring(archive.read(comic))
+            data = archive.read(comic)
+        except (RuntimeError, NotImplementedError, zipfile.BadZipFile, OSError) as exc:
+            # Encrypted or unsupported members must not abort the whole scan;
+            # keep the gallery scannable and surface a warning instead.
+            if warnings is not None:
+                warnings.append(f"cannot read ComicInfo.xml: {exc}")
+            return {"comic_info_error": str(exc)}, {}
+        try:
+            root = ElementTree.fromstring(data)
         except ElementTree.ParseError as exc:
+            if warnings is not None:
+                warnings.append("invalid ComicInfo.xml")
             return {"comic_info_error": str(exc)}, {}
         values = {child.tag.split("}")[-1]: (child.text or "").strip() for child in root}
         metadata: dict[str, object] = {}
@@ -321,7 +345,7 @@ class CbzZipScanner(ArchiveScanner):
                     raise ValueError(f"{path}: {exc}") from exc
             sizes = {info.filename: info.file_size for info in archive.infolist()}
             pages = self._pages(list(sizes), sizes)
-            raw, metadata = self._comic_info(archive, list(sizes), sizes)
+            raw, metadata = self._comic_info(archive, list(sizes), sizes, warnings)
             gv_name = next(
                 (
                     name
@@ -361,8 +385,17 @@ class CbzZipScanner(ArchiveScanner):
                             metadata["posted_at"] = datetime.fromisoformat(str(gv_data["posted"]))
                         except (ValueError, TypeError):
                             pass
-                except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError, TypeError):
-                    pass
+                except (
+                    json.JSONDecodeError,
+                    UnicodeDecodeError,
+                    OSError,
+                    ValueError,
+                    TypeError,
+                    RuntimeError,
+                    NotImplementedError,
+                    zipfile.BadZipFile,
+                ) as exc:
+                    warnings.append(f"cannot read {SIDECAR_FILENAME}: {exc}")
             return self._meta(path, pages, raw, warnings=warnings, **metadata)
 
     def open_page(self, gallery: GalleryMeta, page: PageInfo) -> BinaryIO:
@@ -427,6 +460,7 @@ class CbrRarScanner(ArchiveScanner):
 
     def scan(self, path: Path) -> GalleryMeta:
         RarFile = self._rar()
+        warnings: list[str] = []
         try:
             with RarFile(path) as archive:
                 infos = archive.infolist()
@@ -436,8 +470,9 @@ class CbrRarScanner(ArchiveScanner):
                     except ValueError as exc:
                         raise ValueError(f"{path}: {exc}") from exc
                 sizes = {info.filename: info.file_size for info in infos}
-                raw, metadata = self._comic_info(archive, list(sizes), sizes)
-                return self._meta(path, self._pages(list(sizes), sizes), raw, **metadata)
+                raw, metadata = self._comic_info(archive, list(sizes), sizes, warnings)
+                pages = self._pages(list(sizes), sizes)
+                return self._meta(path, pages, raw, warnings=warnings, **metadata)
         except RuntimeError:
             raise
         except Exception as exc:
