@@ -6,7 +6,7 @@ import asyncio
 import base64
 import logging
 import time as _time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,6 @@ from ..db.repository import (
     GalleryRepository,
     GalleryUpdatesRepository,
 )
-from ..db.session import safe_transaction
 from ..logging import bind_log_context, log_extra
 from ..metadata.sidecar import normalize_posted, normalize_tags
 from ..services.tag_translation import translated_tag
@@ -124,7 +123,7 @@ class FavoriteDownloadQueue:
         logger.debug("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
         return True
 
-FAVORITES_SKIP_LIMIT = 5
+FAVORITES_FULL_CHECK_MAX_AGE_DAYS = 15
 _FAV_COUNTS_TTL = 300.0
 _FAV_COUNTS_EMPTY_TTL = 60.0
 _COVER_SUFFIXES = (".img", ".jpg")
@@ -384,20 +383,72 @@ async def remote_cover_data_batch(
     return result
 
 
+def full_check_expired(last_check: datetime | None, *, now: datetime | None = None) -> bool:
+    """Whether a full folder listing is due (older than the max age or missing)."""
+    if last_check is None:
+        return True
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    if last_check.tzinfo is None:
+        last_check = last_check.replace(tzinfo=UTC)
+    return current - last_check >= timedelta(days=FAVORITES_FULL_CHECK_MAX_AGE_DAYS)
+
+
+async def favorites_first_page_all_known(favcat: int, known: set[int]) -> bool:
+    """Probe page 1 only: every gid there must already be recorded locally.
+
+    A version replacement keeps the cloud count identical but swaps in a gid we
+    have never seen, so the count alone is not enough to skip a folder.  Any
+    error, empty page or unparseable body is treated as "not proven unchanged"
+    and the caller falls back to a full check.
+    """
+    client = app_state.eh_client
+    if client is None:
+        return False
+    try:
+        items = await client.fetch_favorites(favcat, max_pages=1)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "favorites first-page probe failed",
+            extra=log_extra(favcat=favcat, error=type(exc).__name__),
+        )
+        return False
+    gids = {int(item.gid) for item in items}
+    if not gids:
+        logger.warning("favorites first-page probe returned no items", extra=log_extra(favcat=favcat))
+        return False
+    return gids.issubset(known)
+
+
 def favorites_skip_decision(
-    skip_count: int,
     *,
     scheduled: bool,
     category_ready: bool,
     live_count: int,
     known: int,
-) -> tuple[bool, int]:
+    first_page_known: bool,
+    last_full_check: datetime | None,
+    now: datetime | None = None,
+) -> bool:
     if not scheduled or not category_ready or live_count <= 0 or known != live_count:
-        return False, 0
-    next_count = skip_count + 1
-    if next_count >= FAVORITES_SKIP_LIMIT:
-        return False, 0
-    return True, next_count
+        return False
+    if not first_page_known:
+        return False
+    # Persisted deadline replaces the old in-memory "5 consecutive skips"
+    # counter, which a container restart (watchtower) reset before it fired.
+    return not full_check_expired(last_full_check, now=now)
+
+
+def _spawn_gallery_updates_detect() -> None:
+    from ..app.dependencies import spawn_task
+
+    try:
+        from .updates_worker import detect_gallery_updates
+
+        spawn_task(detect_gallery_updates(), "gallery updates detect")
+    except Exception:
+        logger.warning("ignoring error during post-check updates spawn", exc_info=True)
 
 
 async def _do_refresh_favorite_counts() -> None:
@@ -668,39 +719,68 @@ async def _run_favorites_check_inner(
                     extra=log_extra(favcat=favcat, error=type(exc).__name__),
                 )
 
+            live_count = int(entry.get("total") or 0)
+            category = None
+            known: set[int] = set()
+            last_full_check: datetime | None = None
             async with session_cm() as session:
-                category = await FavoritesRepository(session).category(favcat)
-
-                live_count = int(entry.get("total") or 0)
-                if scheduled and category is not None and getattr(category, "last_success_at", None) is not None:
+                repo = FavoritesRepository(session)
+                category = await repo.category(favcat)
+                if (
+                    scheduled
+                    and category is not None
+                    and getattr(category, "last_success_at", None) is not None
+                ):
                     try:
-                        known = await FavoritesRepository(session).count_known_gids(favcat)
-                        skip_counts = tracker.setdefault("skip_counts", {})
-                        should_skip, next_skip = skip_decision_fn(
-                            int(skip_counts.get(str(favcat), 0)),
-                            scheduled=True,
-                            category_ready=True,
-                            live_count=live_count,
-                            known=known,
-                        )
-                        skip_counts[str(favcat)] = next_skip
-                        if should_skip:
-                            entry["done"] = entry["total"] = live_count
-                            entry["skipped"] = True
-                            # ``session`` already autobegan on the reads above;
-                            # a nested ``session.begin()`` raises on SQLAlchemy.
-                            async with safe_transaction(session):
-                                await FavoritesRepository(session).checked(favcat, True)
-                            logger.info(
-                                "favorites check skipped (cloud count unchanged)",
-                                extra=log_extra(favcat=favcat, cloud=live_count, known=known),
-                            )
-                            return
+                        known = await repo.known_gids(favcat)
+                        last_full_check = (await repo.full_check_times()).get(favcat)
                     except Exception as exc:  # noqa: BLE001
+                        # Unknown local state must never authorise a skip.
+                        known = set()
+                        last_full_check = None
                         logger.warning(
                             "favorites skip heuristic failed",
                             extra=log_extra(favcat=favcat, error=type(exc).__name__),
                         )
+
+            if (
+                scheduled
+                and category is not None
+                and getattr(category, "last_success_at", None) is not None
+                and live_count > 0
+                and len(known) == live_count
+                and not full_check_expired(last_full_check)
+            ):
+                try:
+                    first_page_known = await favorites_first_page_all_known(favcat, known)
+                    should_skip = skip_decision_fn(
+                        scheduled=True,
+                        category_ready=True,
+                        live_count=live_count,
+                        known=len(known),
+                        first_page_known=first_page_known,
+                        last_full_check=last_full_check,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    should_skip = False
+                    logger.warning(
+                        "favorites skip heuristic failed",
+                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                    )
+                if should_skip:
+                    entry["done"] = entry["total"] = live_count
+                    entry["skipped"] = True
+                    # Fresh session: the read session above has left its
+                    # autobegun transaction, and a nested begin() would raise.
+                    async with session_cm() as session, session.begin():
+                        await FavoritesRepository(session).checked(favcat, True)
+                    logger.info(
+                        "favorites check skipped (count unchanged and first page known)",
+                        extra=log_extra(favcat=favcat, cloud=live_count, known=len(known)),
+                    )
+                    # Cheap DB-only pass; it has its own "detecting" guard.
+                    _spawn_gallery_updates_detect()
+                    return
 
             def _progress(done: int) -> None:
                 entry["done"] = done
@@ -726,16 +806,22 @@ async def _run_favorites_check_inner(
             entry["error"] = None
             async with session_cm() as session, session.begin():
                 await FavoritesRepository(session).checked(favcat, True)
+            # Only a successful full listing refreshes the deadline; skipped
+            # runs must not extend it.  A failed write is logged, not retried as
+            # a failed check (the listing itself succeeded).
+            try:
+                async with session_cm() as session, session.begin():
+                    await FavoritesRepository(session).set_full_check_time(favcat)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "could not persist favorites full-check timestamp",
+                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                )
 
             from ..app.dependencies import spawn_task
 
             spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
-            try:
-                from .updates_worker import detect_gallery_updates
-
-                spawn_task(detect_gallery_updates(), "gallery updates detect")
-            except Exception:
-                logger.warning("ignoring error during post-check updates spawn", exc_info=True)
+            _spawn_gallery_updates_detect()
         except Exception as exc:  # noqa: BLE001
             entry["error"] = str(exc)
             tracker.update(last_error=str(exc))

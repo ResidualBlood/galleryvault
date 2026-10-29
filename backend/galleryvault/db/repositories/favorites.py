@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
+    AppConfig,
     DuplicateIgnore,
     FavoriteItem,
     FavoritesCheckLog,
@@ -30,6 +31,11 @@ logger = logging.getLogger(__name__)
 # pruned as before.
 _PRUNE_MIN_RECORDED = 20
 _PRUNE_KEEP_RATIO = 0.5
+
+# ``app_config`` key holding the last successful full listing check per folder:
+# ``{"<favcat>": "<iso timestamp>"}``.  It lives outside migrations because
+# ``app_config`` is a generic key/value table.
+FULL_CHECK_CONFIG_KEY = "favorites_full_check"
 
 
 class CloudSizeBreakdown(NamedTuple):
@@ -186,6 +192,40 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
             )
             or 0
         )
+
+    async def full_check_times(self) -> dict[int, datetime]:
+        """Last successful full listing check per folder (persisted).
+
+        Returns ``{}`` when the row is missing or malformed, which callers treat
+        as "never checked" so the next scheduled run is a full check.
+        """
+        row = await self.session.get(AppConfig, FULL_CHECK_CONFIG_KEY)
+        raw = row.value if row is not None and isinstance(row.value, dict) else {}
+        times: dict[int, datetime] = {}
+        for key, value in raw.items():
+            try:
+                favcat = int(key)
+                parsed = datetime.fromisoformat(str(value))
+            except (TypeError, ValueError):
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            times[favcat] = parsed.astimezone(UTC)
+        return times
+
+    async def set_full_check_time(self, favcat: int, when: datetime | None = None) -> None:
+        """Record a successful full listing check for one folder."""
+        stamp = when or datetime.now(UTC)
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=UTC)
+        row = await self.session.get(AppConfig, FULL_CHECK_CONFIG_KEY)
+        value = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+        value[str(int(favcat))] = stamp.astimezone(UTC).isoformat()
+        if row is None:
+            self.session.add(AppConfig(key=FULL_CHECK_CONFIG_KEY, value=value))
+        else:
+            row.value = value
+        await self.session.flush()
 
     async def all_gids_for_favcat(self, favcat: int) -> list[tuple[int, str, str | None]]:
         """``(gid, token, thumb)`` for every item in a favorite folder."""

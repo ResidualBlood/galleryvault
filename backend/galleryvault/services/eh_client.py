@@ -1883,6 +1883,8 @@ class EhClient:
         self,
         favcat: int,
         progress: Callable[[int], object] | None = None,
+        *,
+        max_pages: int | None = None,
     ) -> FavoriteItems:
         """Fetch every gallery in a favorite folder, following ExHentai paging.
 
@@ -1891,6 +1893,10 @@ class EhClient:
         ``page`` number; walking only the first page silently drops the tail of
         a large folder.  ``progress`` (if given) is called with the number of
         galleries collected so far after every page.
+
+        ``max_pages`` bounds the walk (``1`` is a single first-page probe used
+        by the scheduled skip heuristic).  The header count is still parsed, so
+        the returned object reports ``truncated`` honestly even for a probe.
 
         The returned :class:`FavoriteItems` records whether an empty result is
         confirmed by the folder header (``confirmed_empty``) and whether paging
@@ -1902,6 +1908,7 @@ class EhClient:
         header_counts: dict[int, int] | None = None
         url = "/favorites.php"
         params: dict[str, object] = {"favcat": int(favcat)}
+        pages = 0
         while True:
             response = await self._get(url, params=params)
             # Identity check: a dead session or an anti-abuse redirect can land
@@ -1970,6 +1977,9 @@ class EhClient:
             result.extend(items)
             if progress is not None:
                 progress(len(result))
+            pages += 1
+            if max_pages is not None and pages >= max_pages:
+                break
             next_url = html.unescape(_favorites_next_url(response.text))
             if not next_url:
                 break

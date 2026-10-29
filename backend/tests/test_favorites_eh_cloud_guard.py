@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Self
@@ -551,6 +552,12 @@ async def test_favorites_skip_branch_does_not_nest_transaction(
         async def count_known_gids(self, favcat: int) -> int:
             return 10
 
+        async def known_gids(self, favcat: int) -> set[int]:
+            return set(range(10))
+
+        async def full_check_times(self) -> dict[int, datetime]:
+            return {1: datetime.now(UTC)}
+
         async def checked(self, favcat: int, success: bool) -> None:
             checked.append((favcat, success))
 
@@ -567,6 +574,7 @@ async def test_favorites_skip_branch_does_not_nest_transaction(
     tm = app_state.task_manager
     original_state = tm.favorites_check_state
     orig_factory = app_state.session_factory
+    orig_client = app_state.eh_client
     tm.favorites_check_state = {
         "running": False,
         "categories": {},
@@ -574,22 +582,30 @@ async def test_favorites_skip_branch_does_not_nest_transaction(
         "started_at": None,
         "completed_at": None,
         "history_recorded": False,
-        "skip_counts": {"1": 2},
     }
+
+    class Client:
+        async def fetch_favorites(self, favcat: int, progress: Any = None, *, max_pages: int | None = None) -> list[Any]:
+            return [SimpleNamespace(gid=gid) for gid in range(10)]
 
     async def _fake_counts(*a: Any, **k: Any) -> dict[int, int]:
         return {1: 10}
 
     try:
         app_state.session_factory = factory
+        app_state.eh_client = Client()
         monkeypatch.setattr(fw, "FavoritesRepository", lambda session: session._repo)
         monkeypatch.setattr(fw, "favorite_counts_cached", _fake_counts)
         monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
+        monkeypatch.setattr(fw, "_spawn_gallery_updates_detect", lambda: None)
 
         await fw.run_favorites_check(1, Service(), scheduled=True)
     finally:
         tm.favorites_check_state = original_state
         app_state.session_factory = orig_factory
+        app_state.eh_client = orig_client
 
     assert checked == [(1, True)]
-    assert all(session.begin_calls == 0 for session in sessions)
+    # The skip path opens a fresh session (the read session already left its
+    # autobegun transaction); what matters is no nested begin ever happened.
+    assert all(session.begin_calls <= 1 for session in sessions)

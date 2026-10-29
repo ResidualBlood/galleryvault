@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Self
@@ -21,7 +22,7 @@ from galleryvault.metadata.sidecar import normalize_posted, normalize_tags
 from galleryvault.services import favorites_worker as fw
 from galleryvault.services.eh_client import EhClient, EhClientError
 from galleryvault.services.favorites_worker import (
-    FAVORITES_SKIP_LIMIT,
+    FAVORITES_FULL_CHECK_MAX_AGE_DAYS,
     FavoriteDownloadQueue,
     FavoritesRepositoryProxy,
     _cover_cache_file,
@@ -589,40 +590,54 @@ async def test_favorite_size_sync_fetches_gdata_when_seeded_metadata_lacks_file_
 # ==============================================================================
 
 
-def test_skip_decision_skips_until_limit_then_forces_full() -> None:
-    counter = 0
-    for _ in range(FAVORITES_SKIP_LIMIT - 1):
-        should_skip, counter = favorites_skip_decision(
-            counter, scheduled=True, category_ready=True, live_count=10, known=10
+def test_skip_decision_allows_skip_within_max_age() -> None:
+    now = datetime(2026, 10, 29, tzinfo=UTC)
+    assert (
+        favorites_skip_decision(
+            scheduled=True,
+            category_ready=True,
+            live_count=10,
+            known=10,
+            first_page_known=True,
+            last_full_check=now - timedelta(days=FAVORITES_FULL_CHECK_MAX_AGE_DAYS - 1),
+            now=now,
         )
-        assert should_skip is True
-    should_skip, counter = favorites_skip_decision(
-        counter, scheduled=True, category_ready=True, live_count=10, known=10
+        is True
     )
-    assert should_skip is False and counter == 0
 
 
 @pytest.mark.parametrize(
-    "start_counter, scheduled, category_ready, live_count, known",
+    "scheduled, category_ready, live_count, known, first_page_known, age_days",
     [
-        (3, False, True, 10, 10),
-        (0, True, False, 10, 10),
-        (4, True, True, 11, 10),
-        (2, True, True, 0, 0),
+        (False, True, 10, 10, True, 1),
+        (True, False, 10, 10, True, 1),
+        (True, True, 11, 10, True, 1),
+        (True, True, 0, 0, True, 1),
+        (True, True, 10, 10, False, 1),
+        (True, True, 10, 10, True, None),
+        (True, True, 10, 10, True, FAVORITES_FULL_CHECK_MAX_AGE_DAYS),
+        (True, True, 10, 10, True, FAVORITES_FULL_CHECK_MAX_AGE_DAYS + 1),
     ],
 )
 def test_skip_decision_never_skips_on_condition(
-    start_counter: int, scheduled: bool, category_ready: bool, live_count: int, known: int
+    scheduled: bool,
+    category_ready: bool,
+    live_count: int,
+    known: int,
+    first_page_known: bool,
+    age_days: int | None,
 ) -> None:
-    should_skip, next_count = favorites_skip_decision(
-        start_counter,
+    now = datetime(2026, 10, 29, tzinfo=UTC)
+    should_skip = favorites_skip_decision(
         scheduled=scheduled,
         category_ready=category_ready,
         live_count=live_count,
         known=known,
+        first_page_known=first_page_known,
+        last_full_check=None if age_days is None else now - timedelta(days=age_days),
+        now=now,
     )
     assert should_skip is False
-    assert next_count == 0
 
 
 class _FakeFavoritesSession:
@@ -666,7 +681,7 @@ class _FakeFavoritesSession:
 
 
 @pytest.mark.asyncio
-async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
+async def test_run_favorites_check_records_timestamp_then_skips_within_age() -> None:
     monkeypatch = pytest.MonkeyPatch()
     tm = app_state.task_manager
     original_state = tm.favorites_check_state
@@ -677,10 +692,11 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
         "started_at": None,
         "completed_at": None,
         "history_recorded": False,
-        "skip_counts": {},
     }
 
-    full_checks = []
+    full_checks: list[int] = []
+    store: dict[int, datetime] = {}
+    checked_calls: list[tuple[int, bool]] = []
 
     class Repo:
         async def category(self, favcat: int) -> SimpleNamespace:
@@ -693,11 +709,17 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
                 last_checked_at=None,
             )
 
-        async def count_known_gids(self, favcat: int) -> int:
-            return 10
+        async def known_gids(self, favcat: int) -> set[int]:
+            return set(range(10))
+
+        async def full_check_times(self) -> dict[int, datetime]:
+            return dict(store)
+
+        async def set_full_check_time(self, favcat: int) -> None:
+            store[favcat] = datetime.now(UTC)
 
         async def checked(self, favcat: int, success: bool) -> None:
-            pass
+            checked_calls.append((favcat, success))
 
     class Service:
         async def check_category(
@@ -711,7 +733,16 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
         ) -> None:
             full_checks.append(favcat)
 
+    class Client:
+        def __init__(self) -> None:
+            self.probes: list[int] = []
+
+        async def fetch_favorites(self, favcat: int, progress: Any = None, *, max_pages: int | None = None) -> list[Any]:
+            self.probes.append(max_pages or 0)
+            return [SimpleNamespace(gid=gid) for gid in range(10)]
+
     orig_factory = app_state.session_factory
+    orig_client = app_state.eh_client
     spawned: list[str] = []
 
     def fake_spawn(coro: Any, operation: str) -> None:
@@ -723,21 +754,31 @@ async def test_run_favorites_check_forces_full_pass_after_five_skips() -> None:
         async def _fake_counts(*a: Any, **k: Any) -> dict[int, int]:
             return {3: 10}
 
+        client = Client()
         app_state.session_factory = lambda: _FakeFavoritesSession(Repo())
+        app_state.eh_client = client
         app_state.favorites_service = Service()
         monkeypatch.setattr(fw, "FavoritesRepository", lambda session: session._repo)
         monkeypatch.setattr(fw, "favorite_counts_cached", _fake_counts)
         monkeypatch.setattr("galleryvault.app.dependencies.spawn_task", fake_spawn)
         monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
 
-        for _ in range(5):
-            await run_favorites_check(3, Service(), scheduled=True)
-        assert full_checks == [3], "the 5th scheduled poll must run a full pass"
-        assert tm.favorites_check_state["skip_counts"] == {"3": 0}
-        assert "favorite size sync 3" in spawned
+        # No persisted timestamp: the first scheduled run must be a full check.
+        await run_favorites_check(3, Service(), scheduled=True)
+        assert full_checks == [3]
+        assert client.probes == []
+        assert 3 in store
+
+        # Now the count/probe/timestamp all agree: skip and still run detect.
+        await run_favorites_check(3, Service(), scheduled=True)
+        assert full_checks == [3]
+        assert client.probes == [1]
+        assert "gallery updates detect" in spawned
+        assert checked_calls == [(3, True), (3, True)]
     finally:
         tm.favorites_check_state = original_state
         app_state.session_factory = orig_factory
+        app_state.eh_client = orig_client
         monkeypatch.undo()
 
 
