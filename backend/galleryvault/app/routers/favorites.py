@@ -825,10 +825,7 @@ async def favorites_add(
             remaining = [g for g in missing_token_gids if g not in g_map]
             gm_map: dict[int, Any] = {}
             if remaining:
-                for rem_gid in remaining:
-                    meta_dict = await gallery_repo.metadata_for_gid(int(rem_gid))
-                    if meta_dict and meta_dict.get("gid"):
-                        gm_map[int(meta_dict["gid"])] = meta_dict
+                gm_map = await gallery_repo.metadata_map(remaining)
 
             for it in items_to_add:
                 gid = it["gid"]
