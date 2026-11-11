@@ -13,6 +13,10 @@ Pins the split boundary:
 4. Behaviour/order is unchanged: 422 validation happens before any cloud call,
    the pooled connection is released before the cloud call, and the local write
    only happens after cloud confirmation.
+5. ``remove_favorites`` keeps the cloud-first contract: the injected
+   ``delete_local`` (the router's ``delete_galleries_local`` patch target) is
+   only reached for cloud-confirmed gids, and the router still records the task
+   log from the returned counters.
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-from galleryvault.app.schemas import FavoriteNoteRequest
+from galleryvault.app.schemas import FavoriteNoteRequest, FavoritesRemoveRequest
 from galleryvault.services import favorites_mutations as fm
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -42,7 +46,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_service_exports_only_public_api() -> None:
-    assert sorted(fm.__all__) == ["MutationDeps", "set_favorite_note"]
+    assert sorted(fm.__all__) == ["MutationDeps", "remove_favorites", "set_favorite_note"]
 
 
 def _resolved_imports(path: Path) -> list[str]:
@@ -387,3 +391,141 @@ async def test_cloud_failure_skips_local_write(monkeypatch: pytest.MonkeyPatch) 
     assert tm.recorded == [
         {"kind": "favorites-note", "status": "failed", "done": 0, "total": 1}
     ]
+
+
+# ---------------------------------------------------------------------------
+# 4. remove: cloud confirmation gates every local delete
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_remove_uses_patched_delete_local_for_confirmed_gids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    removed: list[list[int]] = []
+    deleted: list[tuple[list[int], dict[str, Any]]] = []
+
+    class Repo:
+        def __init__(self, session: Any) -> None:
+            pass
+
+        async def remove_gids(self, gids: list[int]) -> int:
+            removed.append(list(gids))
+            return len(gids)
+
+        async def galleries_for_gids(self, gids: list[int]) -> dict[int, int]:
+            return {gid: gid * 10 for gid in gids}
+
+    async def fake_delete(
+        gallery_ids: list[int], **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        deleted.append((list(gallery_ids), kwargs))
+        return [
+            {"db_removed": True, "trashed": False, "failed_paths": []},
+            {"db_removed": False, "trashed": False, "failed_paths": ["/tmp/gone.jpg"]},
+        ]
+
+    class Client:
+        async def remove_favorites(self, gids: list[int]) -> list[int]:
+            return [200]
+
+    monkeypatch.setattr(fav_mod, "FavoritesRepository", Repo)
+    monkeypatch.setattr(fav_mod, "delete_galleries_local", fake_delete)
+    tm = _patch_task_manager(monkeypatch)
+
+    result = await fav_mod.favorites_remove(
+        FavoritesRemoveRequest(gids=[100, 200, 100], delete_local=True),
+        session=_FakeSession(),
+        eh_client_mgr=_manager(Client()),
+    )
+
+    assert result == {
+        "gids": [100, 200],
+        "cloud_ok": False,
+        "cloud_removed": 1,
+        "cloud_failed": [200],
+        "local_removed": 1,
+        "deleted_local_galleries": 1,
+        "failed_deletions": ["/tmp/gone.jpg"],
+    }
+    assert removed == [[100]]
+    assert deleted == [([1000], {"delete_files": True, "delete_all_copies": False})]
+    # The task log still comes from the router helper, fed by the service result.
+    assert tm.recorded == [
+        {"kind": "favorites-remove", "status": "failed", "done": 1, "total": 2}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_remove_cloud_failure_never_touches_local_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    calls: list[str] = []
+
+    class Repo:
+        def __init__(self, session: Any) -> None:
+            calls.append("repo")
+
+        async def remove_gids(self, gids: list[int]) -> int:
+            calls.append("remove_gids")
+            return len(gids)
+
+        async def galleries_for_gids(self, gids: list[int]) -> dict[int, int]:
+            calls.append("galleries_for_gids")
+            return {}
+
+    async def fake_delete(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        calls.append("delete_local")
+        return []
+
+    class Client:
+        async def remove_favorites(self, gids: list[int]) -> list[int]:
+            raise RuntimeError("cloud down")
+
+    monkeypatch.setattr(fav_mod, "FavoritesRepository", Repo)
+    monkeypatch.setattr(fav_mod, "delete_galleries_local", fake_delete)
+    tm = _patch_task_manager(monkeypatch)
+
+    result = await fav_mod.favorites_remove(
+        FavoritesRemoveRequest(gids=[7, 8], delete_local=True, delete_files=True),
+        session=_FakeSession(),
+        eh_client_mgr=_manager(Client()),
+    )
+
+    assert result["cloud_ok"] is False
+    assert result["cloud_removed"] == 0
+    assert result["cloud_failed"] == [7, 8]
+    assert result["local_removed"] == 0
+    assert result["deleted_local_galleries"] == 0
+    assert result["failed_deletions"] == []
+    assert calls == []
+    assert tm.recorded == [
+        {"kind": "favorites-remove", "status": "failed", "done": 0, "total": 2}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_remove_empty_gids_is_422_before_any_cloud_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    class Manager:
+        @asynccontextmanager
+        async def client_context(self, settings: Any = None) -> AsyncIterator[Any]:
+            raise AssertionError("cloud must not be called")
+            yield  # pragma: no cover
+
+    with pytest.raises(HTTPException) as excinfo:
+        await fav_mod.favorites_remove(
+            FavoritesRemoveRequest(gids=[]),
+            session=_FakeSession(),
+            eh_client_mgr=Manager(),
+        )
+
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.detail == "no galleries selected"
