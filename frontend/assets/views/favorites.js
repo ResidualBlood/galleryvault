@@ -50,6 +50,10 @@ async function favoritesViewBody({ api: viewApi, stale }) {
 async function renderFavList() {
   const favcat = parseInt(app.params.id, 10);
   if (isNaN(favcat)) { location.hash = "#/favorites"; return; }
+  return withViewRender("favlist", favcat, ctx => favListViewBody(ctx, favcat));
+}
+
+async function favListViewBody({ api: viewApi, stale, seq }, favcat) {
   const page = app.query.page || "1";
   const state = app.query.state || "all";
   const q = app.query.q || "";
@@ -92,6 +96,7 @@ async function renderFavList() {
   const stateBtn = (s, label) =>
     `<button class="secondary${state === s ? " active-pill" : ""}" data-action="favlist-state" data-state="${s}" type="button">${esc(label)}</button>`;
   await loadFavNames();
+  if (stale()) return;
   const folderName = (favCatNames[favcat] || "").trim();
   const folderTitle = folderName
     ? `${esc(folderName)} <span class="badge">#${favcat}</span>`
@@ -199,8 +204,10 @@ async function renderFavList() {
       ...(min_local_rating ? { min_local_rating } : {}),
     };
     const params = new URLSearchParams(extra);
-    const data = await api("GET", `/api/favorites/${favcat}/items?${params.toString()}`);
+    const data = await viewApi("GET", `/api/favorites/${favcat}/items?${params.toString()}`);
+    if (stale()) return;
     const el = document.getElementById("fav-items");
+    if (!el) return;
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
     else {
       el.innerHTML = `<div class="grid gc-grid">` + data.items.map(favCard).join("") + `</div>`;
@@ -212,12 +219,15 @@ async function renderFavList() {
       startInfinite("fav-items", async (p) => {
         const pParams = new URLSearchParams({ ...extra, page: String(p) });
         return await api("GET", `/api/favorites/${favcat}/items?${pParams.toString()}`);
-      }, favCard);
+      }, favCard, undefined, { ownerSeq: seq });
     }
     bindTagSuggest();
     renderFavPager("favlist-pager", data, page);
     updateFavActionBar();
-  } catch (e) { document.getElementById("fav-items").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  } catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("fav-items", e.message);
+  }
 }
 
 function favCard(it) {

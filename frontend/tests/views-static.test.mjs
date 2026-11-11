@@ -11,11 +11,6 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const viewsDir = path.join(here, "..", "assets", "views");
 
-// Bare entries that predate the runtime and are outside the T16 scope
-// (favorites.js). Kept explicit so this test fails as soon as they get migrated
-// and the exemption must be deleted.
-const KNOWN_BARE_RENDER = new Set(["favorites.js:renderFavList"]);
-
 const DECL_RE = /^(?:async\s+)?function\s+([A-Za-z0-9_$]+)/gm;
 const RENDER_RE = /^async\s+function\s+(render[A-Za-z0-9_$]*)\s*\(/gm;
 
@@ -58,10 +53,7 @@ test("views: 所有 async render* 都接入 view runtime token", () => {
       total++;
       const key = `${name}:${entry.name}`;
       const guarded = entry.source.includes("withViewRender") || entry.source.includes("isStaleViewRender");
-      if (!guarded && !KNOWN_BARE_RENDER.has(key)) bare.push(key);
-      if (guarded && KNOWN_BARE_RENDER.has(key)) {
-        assert.fail(`${key} 已接入 view runtime，请从 KNOWN_BARE_RENDER 移除`);
-      }
+      if (!guarded) bare.push(key);
     }
   }
   assert.ok(total >= 20, `扫描到的 render* 数量异常: ${total}`);
