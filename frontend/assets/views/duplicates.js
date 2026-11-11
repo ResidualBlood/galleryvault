@@ -56,7 +56,12 @@ function setDupScanBtn(scanning) {
 }
 
 async function renderFavManage() {
+  return withViewRender("favmanage", undefined, ctx => favManageViewBody(ctx));
+}
+
+async function favManageViewBody({ api: viewApi, stale }) {
   await loadFavNames();
+  if (stale()) return;
   dupSyncSelScope();
   const filterBtn = (val, label) =>
     `<button class="secondary${dupFilter === val ? " active-pill" : ""}" data-action="dup-filter" data-value="${val}" type="button">${esc(label)}</button>`;
@@ -99,7 +104,8 @@ async function renderFavManage() {
     }
   } else {
     try {
-      const st = await api("GET", "/api/favorites/duplicates/status");
+      const st = await viewApi("GET", "/api/favorites/duplicates/status");
+      if (stale()) return;
       if (st) {
         if (st.running) {
           lastDupStatus = st;
@@ -277,13 +283,17 @@ function renderDupGroups(st) {
     ${pagerHtml}`;
 }
 
-async function loadDuplicates(showLoading = true) {
+async function loadDuplicates(showLoading = true, guard) {
   const el = document.getElementById("dupgal-groups");
   if (showLoading && el) el.innerHTML = `<p>${esc(t("loading"))}</p>`;
+  const viewApi = guard && typeof guard.api === "function" ? guard.api : api;
   try {
-    const data = await api("GET", "/api/scan/duplicates");
+    const data = await viewApi("GET", "/api/scan/duplicates");
+    if (guard && typeof guard.stale === "function" && guard.stale()) return false;
     dupGalCache = (data && data.groups) || [];
   } catch (e) {
+    if (guard && typeof guard.stale === "function" && guard.stale()) return false;
+    if (isAbortError(e)) return false;
     if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
     return false;
   }
@@ -345,6 +355,10 @@ function renderDuplicatesList() {
 }
 
 async function renderDuplicates() {
+  return withViewRender("duplicates", undefined, ctx => duplicatesViewBody(ctx));
+}
+
+async function duplicatesViewBody({ api: viewApi, stale }) {
   const filterBtn = (val, label) =>
     `<button class="secondary${dupGalFilter === val ? " active-pill" : ""}" data-action="dupgal-filter" data-value="${val}" type="button">${esc(label)}</button>`;
   $view().innerHTML = `
@@ -359,7 +373,8 @@ async function renderDuplicates() {
       ${filterBtn("dismissed", t("dupGalDismissed"))}
     </div>
     <div id="dupgal-groups"><p class="muted">${esc(t("loading"))}</p></div>`;
-  await loadDuplicates();
+  await loadDuplicates(true, { api: viewApi, stale });
+  if (stale()) return;
   renderDuplicatesList();
 }
 
@@ -384,9 +399,11 @@ async function dupGalSetStatus(gid, status) {
 }
 
 async function renderDupGroupsFromCache() {
-  if (!lastDupStatus) return;
-  renderDupGroups(lastDupStatus);
-  updateDupButtons();
+  return withViewRender("favmanage", undefined, () => {
+    if (!lastDupStatus) return;
+    renderDupGroups(lastDupStatus);
+    updateDupButtons();
+  });
 }
 
 async function dupAction(deleteLocal) {
@@ -490,6 +507,10 @@ function applyCrossGidFilter(groups) {
 }
 
 async function renderCrossGidDuplicates() {
+  return withViewRender("dupxgid", undefined, ctx => crossGidViewBody(ctx));
+}
+
+async function crossGidViewBody({ api: viewApi, stale }) {
   const filterBtn = (val, label) =>
     `<button class="secondary${dupXgidFilter === val ? " active-pill" : ""}" data-action="dupxgid-filter" data-value="${val}" type="button">${esc(label)}</button>`;
   $view().innerHTML = `
@@ -514,20 +535,24 @@ async function renderCrossGidDuplicates() {
     </details>
     <div id="dupxgid-groups"><p class="muted">${esc(t("loading"))}</p></div>`;
   if (dupXgidCache === null || !dupXgidReady) {
-    await loadCrossGidDuplicates();
+    await loadCrossGidDuplicates(true, { api: viewApi, stale });
   } else {
     renderCrossGidList();
   }
 }
 
-async function loadCrossGidDuplicates(showLoading = true) {
+async function loadCrossGidDuplicates(showLoading = true, guard) {
   const el = document.getElementById("dupxgid-groups");
+  const viewApi = guard && typeof guard.api === "function" ? guard.api : api;
+  const isStale = () => !!(guard && typeof guard.stale === "function" && guard.stale());
   if (showLoading && el) el.innerHTML = `<p>${esc(t("loading"))}</p>`;
   try {
-    const data = await api("GET", "/api/library/duplicates/cross-gid");
+    const data = await viewApi("GET", "/api/library/duplicates/cross-gid");
+    if (isStale()) return;
     dupXgidReady = !!(data && data.ready);
     dupXgidCache = (data && data.groups) || [];
   } catch (e) {
+    if (isStale() || isAbortError(e)) return;
     if (el) el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
     return;
   }

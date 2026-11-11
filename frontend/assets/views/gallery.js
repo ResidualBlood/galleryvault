@@ -101,13 +101,16 @@ async function renderGallery() {
   if (typeof currentViewCleanup !== "undefined") {
     currentViewCleanup = cleanupGalleryThumbs;
   }
+  return withViewRender("gallery", app.params.id, ctx => galleryViewBody(ctx));
+}
+
+async function galleryViewBody({ seq: token, api: viewApi }) {
   const id = app.params.id;
-  const token = beginViewRender();
   $view().innerHTML = `<p>${esc(t("loading"))}</p>`;
   try {
     const [galleryRes, progressRes] = await Promise.allSettled([
-      api("GET", `/api/galleries/${id}`),
-      api("GET", `/api/galleries/${id}/progress`),
+      viewApi("GET", `/api/galleries/${id}`),
+      viewApi("GET", `/api/galleries/${id}/progress`),
     ]);
     // Stale response: a newer render (other view or other gallery) owns the DOM now.
     if (isStaleViewRender(token, "gallery", id)) return;
@@ -285,7 +288,7 @@ async function renderGallery() {
     }
     if (g.gid) {
       try {
-        const fav = await api("GET", `/api/galleries/${id}/favorite`);
+        const fav = await viewApi("GET", `/api/galleries/${id}/favorite`);
         if (isStaleViewRender(token, "gallery", id)) return;
         const favcatEl = document.getElementById("gallery-favcats");
         const addBtn = document.querySelector('[data-action="favorite-gallery"]');
@@ -377,7 +380,7 @@ async function renderGallery() {
           page_size: perPage,
           total: thumbsAll.length,
         };
-      }, thumbCard, startPage);
+      }, thumbCard, startPage, { ownerSeq: token });
     };
 
     bindInfiniteThumbs(targetPage);
@@ -388,7 +391,7 @@ async function renderGallery() {
       }, 150);
     }
   } catch (e) {
-    if (isStaleViewRender(token, "gallery", id)) return;
+    if (isStaleViewRender(token, "gallery", id) || isAbortError(e)) return;
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }

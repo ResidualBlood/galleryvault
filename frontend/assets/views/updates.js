@@ -12,6 +12,10 @@ function updSyncSelScope() {
 }
 
 async function renderUpdates() {
+  return withViewRender("updates", undefined, ctx => updatesViewBody(ctx));
+}
+
+async function updatesViewBody({ api: viewApi, stale }) {
   const page = app.query.page || "1";
   const state = app.query.state || "active";
   updSyncSelScope();
@@ -44,7 +48,8 @@ async function renderUpdates() {
   pollUpdatesStatus();
   try {
     const qs = `page=${encodeURIComponent(page)}&page_size=${prefPageSize()}&state=${encodeURIComponent(state)}`;
-    const data = await api("GET", `/api/updates?${qs}`);
+    const data = await viewApi("GET", `/api/updates?${qs}`);
+    if (stale()) return;
     // 批量删除后当前页可能被删空：按新 total 回退到上一页
     const targetPage = fallbackEmptyPage(page, data);
     if (targetPage !== (parseInt(page, 10) || 1)) {
@@ -56,6 +61,7 @@ async function renderUpdates() {
       return;
     }
     const el = document.getElementById("upd-list");
+    if (!el) return;
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("updNoUpdates"))}</p>`; }
     else {
       el.innerHTML = `<table class="table"><thead><tr><th scope="col"></th><th scope="col"></th><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("gid"))}</th><th scope="col">${esc(t("favorites"))}</th><th scope="col">${esc(t("status"))}</th></tr></thead><tbody>`
@@ -72,7 +78,10 @@ async function renderUpdates() {
       if (allBtn) allBtn.addEventListener("change", e => updSelectAll(e.target.checked));
     }
     updPager("upd-pager", data, page, state);
-  } catch (e) { document.getElementById("upd-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  } catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("upd-list", e.message);
+  }
 }
 
 function updRow(u) {
@@ -231,9 +240,18 @@ async function updUnignoreSelected() {
 }
 
 async function renderUpdateIgnored() {
+  return withViewRender("updignored", undefined, ctx => updateIgnoredViewBody(ctx));
+}
+
+async function updateIgnoredViewBody({ api: viewApi, stale }) {
   let data;
-  try { data = await api("GET", "/api/updates/ignored?page=1&page_size=500"); }
-  catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  try { data = await viewApi("GET", "/api/updates/ignored?page=1&page_size=500"); }
+  catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("view", e.message);
+    return;
+  }
+  if (stale()) return;
   $view().innerHTML = `
     <a class="link-button" href="#/updates">← ${esc(t("galleryUpdates"))}</a>
     <header style="margin-top:16px"><p class="eyebrow">GALLERY UPDATES</p><h1>${esc(t("updIgnoredPage"))}</h1></header>
@@ -242,7 +260,7 @@ async function renderUpdateIgnored() {
     </div>
     <div id="upd-ignored">${(data.items || []).length ? "" : `<p class="muted">${esc(t("updNone"))}</p>`}</div>`;
   const el = document.getElementById("upd-ignored");
-  if (!(data.items || []).length) return;
+  if (!el || !(data.items || []).length) return;
   el.innerHTML = data.items.map(u => `
     <div class="panel" style="margin-top:10px;padding:10px 14px">
       <label class="checkbox" style="margin:0"><input type="checkbox" data-upd-id="${u.id}"> <a href="${navHash("gallery", { id: u.gallery_id }, { from: currentFromPath() })}">${esc(u.title)}</a></label>
@@ -252,10 +270,20 @@ async function renderUpdateIgnored() {
 }
 
 async function renderFavIgnored() {
+  return withViewRender("favignored", undefined, ctx => favIgnoredViewBody(ctx));
+}
+
+async function favIgnoredViewBody({ api: viewApi, stale }) {
   let list = [];
-  try { list = await api("GET", "/api/favorites/duplicates/ignored"); }
-  catch (e) { $view().innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  try { list = await viewApi("GET", "/api/favorites/duplicates/ignored"); }
+  catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("view", e.message);
+    return;
+  }
+  if (stale()) return;
   await loadFavNames();
+  if (stale()) return;
   $view().innerHTML = `
     <a class="link-button" href="#/duplicates/favorites">← ${esc(t("dupFavTitle"))}</a>
     <header style="margin-top:16px"><p class="eyebrow">FAVORITES</p><h1>${esc(t("dupIgnoredPage"))}</h1>
@@ -266,7 +294,7 @@ async function renderFavIgnored() {
     </div>
     <div id="ignored-list">${list.length ? "" : `<p class="muted">${esc(t("dupNone"))}</p>`}</div>`;
   const el = document.getElementById("ignored-list");
-  if (!list.length) return;
+  if (!el || !list.length) return;
   el.innerHTML = list.map(g => `
     <div class="panel dup-group" style="margin-top:14px">
       <div class="dup-group-head">

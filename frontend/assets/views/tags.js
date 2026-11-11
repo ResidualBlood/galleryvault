@@ -34,10 +34,14 @@ function selectTagNamespace(ns) {
 // cloudSizeClass moved to utils.js
 
 async function renderTags() {
+  return withViewRender("tags", undefined, ctx => tagsViewBody(ctx));
+}
+
+async function tagsViewBody({ seq }) {
   const ns = app.query.ns || "";
   const q = app.query.q || "";
   const page = app.query.page || "1";
-  const token = beginViewRender();
+  const token = seq;
   const title = ns ? nsLabel(ns) : t("tags");
   $view().innerHTML = `
     <header><p class="eyebrow">LOCAL TAXONOMY</p><h1>${esc(title)}</h1></header>

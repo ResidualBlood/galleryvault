@@ -140,8 +140,19 @@ function clearStorageDashTimer() {
 async function renderSettings() {
   clearStorageDashTimer();
   if (typeof currentViewCleanup !== "undefined") currentViewCleanup = clearStorageDashTimer;
+  return withViewRender("settings", undefined, ctx => settingsViewBody(ctx));
+}
+
+async function settingsViewBody({ api: viewApi, stale }) {
   if (!app.settings) {
-    try { app.settings = await api("GET", "/api/settings"); } catch (_) { app.settings = {}; }
+    try {
+      const fetched = await viewApi("GET", "/api/settings");
+      if (stale()) return;
+      app.settings = fetched;
+    } catch (e) {
+      if (stale() || isAbortError(e)) return;
+      app.settings = {};
+    }
   }
   const s = app.settings;
   const warnings = (s.library_root_warnings || [])

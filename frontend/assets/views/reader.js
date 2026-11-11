@@ -187,13 +187,8 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
   const isDouble = isDoubleMode && page > 0;
   const isRtl = mode === "rtl" || mode === "double-rtl";
 
-  // Directional Preloading
-  let preload = "";
-  const preloadStep = isDoubleMode ? 4 : 3;
-  for (let i = 1; i <= preloadStep && page + i < total; i++) {
-    preload += `<link rel="preload" as="image" href="/api/galleries/${id}/pages/${page + i}">`;
-  }
-
+  // Directional preloading: warm the HTTP cache for the next pages.
+  // (Done via new Image() below; never inject <link rel=preload> into the body.)
   let imgHtml = "";
   if (isDoubleMode) {
     const p1 = page;
@@ -248,9 +243,17 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
         <button class="btn btn-secondary" data-action="reader-fullscreen" type="button">${esc(t("readerFullscreen"))}</button>
       </span>
     </div>
-    ${preload}
     ${imgHtml}
     ${navHtml}`;
+}
+
+// Warm the HTTP cache for the pages the reader is about to show.
+function preloadReaderPages(id, page, total, mode) {
+  const step = mode.startsWith("double") ? 4 : 3;
+  for (let i = 1; i <= step && page + i < total; i++) {
+    const pre = new Image();
+    pre.src = `/api/galleries/${id}/pages/${page + i}`;
+  }
 }
 
 async function renderReader() {
@@ -259,13 +262,16 @@ async function renderReader() {
     readerTouchCleanup = null;
   }
   if (typeof cleanupWebtoon === "function") cleanupWebtoon();
-  const token = beginViewRender();
-  const id = app.params.id;
-  const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const mode = getReaderMode();
   if (mode === "webtoon") {
     return renderWebtoonReader();
   }
+  return withViewRender("reader", app.params.id, ctx => readerViewBody(ctx, mode));
+}
+
+async function readerViewBody({ api: viewApi, stale }, mode) {
+  const id = app.params.id;
+  const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   const isDoubleMode = mode.startsWith("double");
   const page = isDoubleMode && rawPage > 0 && rawPage % 2 === 0 ? rawPage - 1 : rawPage;
   if (page !== rawPage) {
@@ -278,8 +284,8 @@ async function renderReader() {
   try {
     let g = app.readerGallery;
     if (!g || String(g.id) !== String(id)) {
-      g = await api("GET", `/api/galleries/${id}`);
-      if (isStaleViewRender(token, "reader", id)) return;
+      g = await viewApi("GET", `/api/galleries/${id}`);
+      if (stale()) return;
       app.readerGallery = g;
     }
     const total = (g && g.page_count) || 0;
@@ -302,15 +308,16 @@ async function renderReader() {
     }
 
     initReaderGestures();
+    preloadReaderPages(id, safePage, total, mode);
     if (total > 0) {
       queueProgressWrite(id, safePage, total, { immediate: true });
     }
     const ssSec = parseInt(app.query && app.query.slideshow, 10);
-    if (ssSec > 0 && !isStaleViewRender(token, "reader", id)) {
+    if (ssSec > 0 && !stale()) {
       startSlideshow(ssSec);
     }
   } catch (e) {
-    if (isStaleViewRender(token, "reader", id)) return;
+    if (stale() || isAbortError(e)) return;
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }

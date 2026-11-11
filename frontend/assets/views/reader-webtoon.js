@@ -77,14 +77,17 @@ async function renderWebtoonReader() {
     readerTouchCleanup = null;
   }
   cleanupWebtoon();
-  const token = beginViewRender();
+  return withViewRender("reader", app.params.id, ctx => webtoonReaderViewBody(ctx));
+}
+
+async function webtoonReaderViewBody({ api: viewApi, stale }) {
   const id = app.params.id;
   const rawPage = Math.max(0, parseInt(app.params.page || "0", 10) || 0);
   try {
     let g = app.readerGallery;
     if (!g || String(g.id) !== String(id)) {
-      g = await api("GET", `/api/galleries/${id}`);
-      if (isStaleViewRender(token, "reader", id)) return;
+      g = await viewApi("GET", `/api/galleries/${id}`);
+      if (stale()) return;
       app.readerGallery = g;
     }
     const total = g.page_count;
@@ -125,7 +128,7 @@ async function renderWebtoonReader() {
       $view().innerHTML = `<div class="reader reader-webtoon">${innerHtml}</div>`;
     }
     requestAnimationFrame(() => {
-      if (isStaleViewRender(token, "reader", id)) return;
+      if (stale()) return;
       const target = document.querySelector(`.webtoon-strip img[data-page="${page}"]`);
       if (target) target.scrollIntoView({ block: "start" });
       bindWebtoonObserver(id, total);
@@ -133,7 +136,7 @@ async function renderWebtoonReader() {
       if (total > 0) queueProgressWrite(id, page, total, { immediate: true });
     });
   } catch (e) {
-    if (isStaleViewRender(token, "reader", id)) return;
+    if (stale() || isAbortError(e)) return;
     $view().innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }

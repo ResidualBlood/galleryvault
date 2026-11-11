@@ -4,7 +4,10 @@
 // renderBrowse moved from app.js
 
 async function renderBrowse() {
-  const token = beginViewRender();
+  return withViewRender("browse", undefined, ctx => browseViewBody(ctx));
+}
+
+async function browseViewBody({ seq, signal, api: viewApi, stale }) {
   renderView(`
     <header><p class="eyebrow">GALLERYVAULT</p><h1>${esc(t("browse"))}</h1></header>
     <form class="toolbar" data-action="browse-search">
@@ -29,17 +32,16 @@ async function renderBrowse() {
   let tagData = null;
   let historyData = null;
   const [dataResult, tagDataResult, historyResult] = await Promise.allSettled([
-    galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() }),
-    api("GET", "/api/tags/search?page=1&page_size=1"),
-    api("GET", "/api/history?page=1&page_size=8"),
+    galleryGrid("browse-grid", app.query.page || "1", { page_size: prefPageSize() }, { signal }),
+    viewApi("GET", "/api/tags/search?page=1&page_size=1"),
+    viewApi("GET", "/api/history?page=1&page_size=8"),
   ]);
   // Stale response: the user already navigated away; never write into the new view.
-  if (isStaleViewRender(token, "browse")) return;
+  if (stale()) return;
   if (dataResult.status === "fulfilled") {
     data = dataResult.value;
-  } else {
-    const el = document.getElementById("browse-grid");
-    if (el) el.innerHTML = renderError(dataResult.reason?.message || "Failed to load");
+  } else if (!isAbortError(dataResult.reason)) {
+    renderErrorInto("browse-grid", dataResult.reason && dataResult.reason.message || "Failed to load");
   }
   if (tagDataResult.status === "fulfilled") {
     tagData = tagDataResult.value;
@@ -56,7 +58,7 @@ async function renderBrowse() {
     if (totalEl && data) totalEl.textContent = `· ${data.total}`;
     if (data) {
       gridPager("browse-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
-      startInfinite("browse-grid", p => galleryGrid(null, p, { page_size: prefPageSize() }), galleryCard);
+      startInfinite("browse-grid", p => galleryGrid(null, p, { page_size: prefPageSize() }), galleryCard, undefined, { ownerSeq: seq });
     }
     const strip = document.getElementById("browse-ns");
     if (strip && tagData) {

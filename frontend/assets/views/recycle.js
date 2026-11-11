@@ -21,6 +21,10 @@ function updateRecycleButtons() {
 }
 
 async function renderRecycle() {
+  return withViewRender("recycle", undefined, ctx => recycleViewBody(ctx));
+}
+
+async function recycleViewBody({ api: viewApi, stale }) {
   const tab = app.query.tab || "trash";
   const page = app.query.page || "1";
   if (window._recycleLastTab && window._recycleLastTab !== tab) {
@@ -44,8 +48,10 @@ async function renderRecycle() {
     <div class="pages pager" id="recycle-pager"></div>`);
   try {
     const endpoint = tab === "expunged" ? "/api/galleries/expunged" : "/api/galleries/trash";
-    const data = await api("GET", `${endpoint}?page=${encodeURIComponent(page)}&page_size=${prefPageSize()}`);
+    const data = await viewApi("GET", `${endpoint}?page=${encodeURIComponent(page)}&page_size=${prefPageSize()}`);
+    if (stale()) return;
     const el = document.getElementById("recycle-grid");
+    if (!el) return;
     if (!data.items.length) el.innerHTML = renderEmpty(t("noGalleries"));
     else {
       el.innerHTML = `<div class="grid gc-grid">` + data.items.map(g => {
@@ -71,7 +77,10 @@ async function renderRecycle() {
       });
     }
     gridPager("recycle-pager", data, p => ({ tab, ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
-  } catch (e) { document.getElementById("recycle-grid").innerHTML = renderError(e.message); }
+  } catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("recycle-grid", e.message);
+  }
 }
 
 async function recycleRestore() {

@@ -1,6 +1,10 @@
 "use strict";
 
 async function renderIntegrity() {
+  return withViewRender("integrity", undefined, ctx => integrityViewBody(ctx));
+}
+
+async function integrityViewBody({ api: viewApi, stale }) {
   const page = app.query.page || "1";
   const n = window.selIntegrity ? window.selIntegrity.size : 0;
   const suffix = n ? ` (${n})` : "";
@@ -22,8 +26,10 @@ async function renderIntegrity() {
     <div id="integrity-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="integrity-pager"></div>`);
   try {
-    const data = await api("GET", `/api/galleries/integrity?page=${encodeURIComponent(page)}&page_size=${prefPageSize()}`);
+    const data = await viewApi("GET", `/api/galleries/integrity?page=${encodeURIComponent(page)}&page_size=${prefPageSize()}`);
+    if (stale()) return;
     const el = document.getElementById("integrity-grid");
+    if (!el) return;
     if (!data.items.length) el.innerHTML = `<p>${esc(t("noGalleries"))} — ${esc(t("noData"))}</p>`;
     else {
       el.innerHTML = `<div class="grid gc-grid">` + data.items.map(g => {
@@ -50,7 +56,10 @@ async function renderIntegrity() {
       });
     }
     gridPager("integrity-pager", data, p => ({ ...(p > 1 ? { page: p } : {}), page_size: prefPageSize() }));
-  } catch (e) { document.getElementById("integrity-grid").innerHTML = renderError(e.message); }
+  } catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("integrity-grid", e.message);
+  }
 }
 
 async function integrityScan() {

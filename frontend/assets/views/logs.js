@@ -43,6 +43,10 @@ function bindSyslogEvents() {
 }
 
 async function renderLogs() {
+  return withViewRender("logs", undefined, () => logsViewBody());
+}
+
+async function logsViewBody() {
   const tab = app.query.tab || currentLogsTab;
   currentLogsTab = tab;
   lastRenderedLogId = null;

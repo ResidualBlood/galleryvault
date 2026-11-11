@@ -3,6 +3,10 @@
 // views/archive.js — Cold storage archive view
 
 async function renderArchive() {
+  return withViewRender("archive", undefined, ctx => archiveViewBody(ctx));
+}
+
+async function archiveViewBody() {
   currentViewCleanup = () => {
     if (timers.archive) {
       clearInterval(timers.archive);

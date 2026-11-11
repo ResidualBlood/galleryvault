@@ -235,6 +235,10 @@ async function renderSeries() {
   if (typeof currentViewCleanup !== "undefined") {
     currentViewCleanup = cleanupSeriesView;
   }
+  return withViewRender("series", undefined, ctx => seriesViewBody(ctx));
+}
+
+async function seriesViewBody({ api: viewApi, stale }) {
   const showAll = app.query.show_all === "1";
   const showAllClass = showAll ? "btn btn-primary" : "btn btn-secondary";
   const showAllLabel = t("favStateAll") || "Show all";
@@ -272,12 +276,14 @@ async function renderSeries() {
     </div>
   `);
 
-  await loadSeriesList();
+  await loadSeriesList({ api: viewApi, stale });
 }
 
-async function loadSeriesList() {
+async function loadSeriesList(guard) {
   const container = document.getElementById("series-list");
   if (!container) return;
+  const viewApi = guard && typeof guard.api === "function" ? guard.api : api;
+  const isStale = () => !!(guard && typeof guard.stale === "function" && guard.stale());
 
   const showAll = app.query.show_all === "1";
   const page = Math.max(1, parseInt(app.query.page, 10) || 1);
@@ -289,7 +295,8 @@ async function loadSeriesList() {
   if (showAll) qs.set("show_all", "1");
 
   try {
-    const data = await api("GET", `/api/series?${qs.toString()}`);
+    const data = await viewApi("GET", `/api/series?${qs.toString()}`);
+    if (isStale()) return;
     const items = (data && data.items) || [];
     const total = (data && typeof data.total === "number") ? data.total : items.length;
     const statsEl = document.getElementById("series-stats");
@@ -353,6 +360,7 @@ async function loadSeriesList() {
     renderCardCheckboxes();
     updateSeriesToolbarButtons();
   } catch (err) {
+    if (isStale() || isAbortError(err)) return;
     if (container) container.innerHTML = renderError(err.message || String(err));
   }
 }
