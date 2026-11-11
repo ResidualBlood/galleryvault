@@ -23,6 +23,7 @@ class FavoriteRepository(Protocol):
     async def existing_gallery_gids(self, gids: list[int]) -> set[int]: ...
     async def remember(self, favcat: int, item: FavoriteData) -> None: ...
     async def remember_many(self, favcat: int, items: list[FavoriteData]) -> None: ...
+    async def forget(self, favcat: int, gids: list[int]) -> int: ...
     async def prune(
         self, favcat: int, current_gids: set[int], allow_empty: bool = False
     ) -> int: ...
@@ -191,7 +192,16 @@ class FavoritesService:
                         except TypeError:
                             accepted = await queue.enqueue(item)
                     if accepted is False:
-                        raise RuntimeError("download task was not created")
+                        # The queue refuses a duplicate: an active
+                        # pending/downloading task already exists for this gid
+                        # (DownloadRepository.create returns None).  The
+                        # gallery is being handled, so this is benign rather
+                        # than a failure — treating it as one would make force
+                        # checks spin forever on the same gid.
+                        logger.debug(
+                            "favorite download already queued",
+                            extra=log_extra(favcat=favcat, gid=item.gid),
+                        )
                 downloaded += 1
             except Exception as exc:  # noqa: BLE001
                 failed += 1
@@ -204,6 +214,17 @@ class FavoritesService:
                     await self.notifier.send_message(
                         favorites_enqueue_failed(favcat, cat_name, item.gid, lang)
                     )
+        # A gid whose enqueue failed must not stay recorded as seen: the row
+        # would filter it out of every later incremental candidate set (force
+        # re-offers it, incremental does not).  Drop the "seen" row so the next
+        # incremental check offers the gid again and retries the download.
+        previously_known = failed_gids & known
+        if previously_known:
+            await repo.forget(favcat, sorted(previously_known))
+            logger.info(
+                "favorites enqueue failures forgotten",
+                extra=log_extra(favcat=favcat, forgotten=len(previously_known)),
+            )
         # Record the folder items as seen only after the enqueue pass: a gid
         # whose enqueue failed must stay absent from ``known`` so the next
         # incremental check offers it again instead of silently skipping it.
