@@ -1,15 +1,18 @@
-"""Fast, dependency-free media duration probes.
+"""Fast media duration probes.
 
 Pure helpers used by the gallery page-meta endpoint. They intentionally avoid
 FastAPI/SQLAlchemy imports so they can be imported and unit-tested in isolation;
-``galleries`` re-exports them for existing callers.
+``galleries`` re-exports them for existing callers. Pillow is only needed for the
+slow path of ``_inspect_image_meta``.
 """
 
 from __future__ import annotations
 
 import io
 import logging
-from typing import BinaryIO
+from typing import Any, BinaryIO
+
+from PIL import Image, ImageSequence
 
 # Keep the pre-split logger name so log records stay attributed to the router.
 logger = logging.getLogger("galleryvault.app.routers.galleries")
@@ -142,3 +145,123 @@ def _fast_parse_gif_duration(stream: BinaryIO) -> int | None:
                 stream.seek(0)
             except (OSError, AttributeError, io.UnsupportedOperation):
                 pass
+
+
+def _fast_parse_webp_duration(stream: BinaryIO) -> int | None:
+    try:
+        start_pos = stream.tell()
+    except (OSError, AttributeError, io.UnsupportedOperation):
+        start_pos = 0
+
+    try:
+        header = stream.read(12)
+        if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WEBP":
+            return None
+
+        total_duration = 0
+        anmf_count = 0
+
+        while True:
+            chunk_header = stream.read(8)
+            if len(chunk_header) < 8:
+                break
+            fourcc = chunk_header[:4]
+            chunk_size = int.from_bytes(chunk_header[4:8], "little")
+            padding = chunk_size % 2
+
+            if fourcc == b"ANMF":
+                if chunk_size < 16:
+                    return None
+                payload_head = stream.read(16)
+                if len(payload_head) < 16:
+                    return None
+                dur = int.from_bytes(payload_head[12:15], "little")
+                if dur <= 0:
+                    dur = 100
+                total_duration += dur
+                anmf_count += 1
+                skip = (chunk_size - 16) + padding
+            else:
+                skip = chunk_size + padding
+
+            if not _skip_stream_bytes(stream, skip):
+                break
+
+        if anmf_count > 0:
+            return min(total_duration, 120000)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Fast WebP parsing failed: %s", exc)
+        return None
+    finally:
+        try:
+            stream.seek(start_pos)
+        except (OSError, AttributeError, io.UnsupportedOperation):
+            try:
+                stream.seek(0)
+            except (OSError, AttributeError, io.UnsupportedOperation):
+                pass
+
+
+def _inspect_image_meta(stream: BinaryIO) -> dict[str, Any]:
+    try:
+        start_pos = 0
+        try:
+            start_pos = stream.tell()
+        except (OSError, AttributeError, io.UnsupportedOperation):
+            start_pos = 0
+
+        try:
+            fast_duration = _fast_parse_webp_duration(stream)
+            if fast_duration is not None:
+                return {"animated": True, "duration_ms": min(fast_duration, 120000)}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Fast WebP parsing failed, fallback to GIF: %s", exc)
+        finally:
+            try:
+                stream.seek(start_pos)
+            except (OSError, AttributeError, io.UnsupportedOperation):
+                try:
+                    stream.seek(0)
+                except (OSError, AttributeError, io.UnsupportedOperation):
+                    pass
+
+        try:
+            fast_duration = _fast_parse_gif_duration(stream)
+            if fast_duration is not None:
+                return {"animated": True, "duration_ms": min(fast_duration, 120000)}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Fast GIF parsing failed, fallback to Pillow: %s", exc)
+        finally:
+            try:
+                stream.seek(start_pos)
+            except (OSError, AttributeError, io.UnsupportedOperation):
+                try:
+                    stream.seek(0)
+                except (OSError, AttributeError, io.UnsupportedOperation):
+                    pass
+
+        with Image.open(stream) as img:
+            is_animated = bool(getattr(img, "is_animated", False))
+            if not is_animated:
+                return {"animated": False, "duration_ms": 0}
+            is_webp = getattr(img, "format", "") == "WEBP"
+            total_duration = 0
+            for frame_count, frame in enumerate(ImageSequence.Iterator(img)):
+                if frame_count >= 50:
+                    break
+                if is_webp:
+                    frame.load()
+                dur = frame.info.get("duration", 100)
+                if not isinstance(dur, (int, float)) or dur <= 0:
+                    dur = 100
+                total_duration += int(dur)
+            return {"animated": True, "duration_ms": min(total_duration, 120000)}
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to inspect image meta: %s", exc)
+        return {"animated": False, "duration_ms": 0}
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
