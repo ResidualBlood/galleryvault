@@ -406,11 +406,15 @@ async def delete_download_task(
                 raise HTTPException(status_code=404, detail="Download task not found")
             gid = row.gid
             was_downloading = row.status == "downloading"
-            if not await DownloadRepository(session).delete(task_id):
-                raise HTTPException(status_code=404, detail="Download task not found")
+            # Fail linked update rows *before* deleting the task. The FK is
+            # ON DELETE SET NULL, so deleting first (with autoflush) would clear
+            # gallery_updates.download_task_id and the follow-up UPDATE would
+            # match zero rows, leaving the update stuck in "downloading".
             await GalleryUpdatesRepository(session).mark_failed_by_task(
                 task_id, "download task removed"
             )
+            if not await DownloadRepository(session).delete(task_id):
+                raise HTTPException(status_code=404, detail="Download task not found")
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
