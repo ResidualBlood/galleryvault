@@ -616,6 +616,31 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
                 result.setdefault(int(gallery_id), []).append((namespace, name))
         return result
 
+    async def artist_tags_for_gallery_ids(
+        self, gallery_ids: list[int]
+    ) -> dict[int, list[tuple[str, str]]]:
+        """Artist-only tag map; cross-gid dedup reads no other namespace.
+
+        The generic ``tags_for_gallery_ids`` loads every namespace (hundreds of
+        megabytes on large libraries) while clustering only looks at
+        ``artist``.
+        """
+        if not gallery_ids:
+            return {}
+        result: dict[int, list[tuple[str, str]]] = {}
+        for chunk in _chunked(list(dict.fromkeys(gallery_ids))):
+            rows = await self.session.execute(
+                select(GalleryTag.gallery_id, Tag.name)
+                .join(Tag, Tag.id == GalleryTag.tag_id)
+                .where(
+                    GalleryTag.gallery_id.in_(chunk),
+                    Tag.namespace == "artist",
+                )
+            )
+            for gallery_id, name in rows:
+                result.setdefault(int(gallery_id), []).append(("artist", name))
+        return result
+
     async def remove_gids(self, gids: list[int]) -> int:
         if not gids:
             return 0
