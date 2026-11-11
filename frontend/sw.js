@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE = "gv-shell-v11";
+const CACHE = "gv-shell-v12";
 const SHELL = [
   "/",
   "/index.html",
@@ -76,21 +76,33 @@ self.addEventListener("fetch", (event) => {
   const put = (res) => {
     if (res && res.ok && res.type === "basic") {
       const copy = res.clone();
-      caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
+      // The write must be tied to the event: otherwise the worker can be
+      // terminated before cache.put() finishes and the entry is lost.
+      event.waitUntil(
+        caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {})
+      );
     }
     return res;
   };
+  // ignoreSearch: dynamic imports (e.g. locales/en.js) omit the ?v= query
+  // string used by the SHELL entries, so match by path.
   if (isAsset) {
     event.respondWith(
-      fetch(req).then(put).catch(() => caches.match(req))
+      fetch(req).then(put).catch(() =>
+        caches.match(req, {ignoreSearch: true})
+      )
     );
     return;
   }
   // Documents (and the manifest): network-first so a new deploy is picked up
-  // immediately. Fall back to the cached shell only when the network fails.
+  // immediately. cache:"no-store" bypasses the HTTP cache, otherwise the
+  // browser could answer this "network-first" request from its own cache.
+  // Fall back to the cached shell only when the network fails.
   event.respondWith(
-    fetch(req).then(put).catch(() =>
-      caches.match(req).then((hit) => hit || caches.match("/index.html"))
+    fetch(req, {cache: "no-store"}).then(put).catch(() =>
+      caches.match(req, {ignoreSearch: true}).then((hit) =>
+        hit || caches.match("/index.html", {ignoreSearch: true})
+      )
     )
   );
 });
