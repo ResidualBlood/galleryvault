@@ -11,6 +11,8 @@ FastAPI + PostgreSQL JSON API for GalleryVault.
 
 Run the full stack (frontend :8000, backend :8001, PostgreSQL) with `docker-compose.yml` in the repository root, or run development hot-reload with `docker-compose.dev.yml`.
 
+Cross-gallery duplicate detection uses the [`gallery-dedup`](https://pypi.org/project/gallery-dedup/) library (`>=0.2.0`).
+
 ## Default password
 
 On a fresh install (no `AUTH_PASSWORD_HASH` configured) the built-in default
