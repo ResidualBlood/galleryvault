@@ -393,6 +393,25 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         )
         return result.rowcount or 0
 
+    async def forget(self, favcat: int, gids: list[int]) -> int:
+        """Drop recorded rows for ``gids`` because they were not handled.
+
+        A favourite whose download could not be enqueued must not stay marked
+        as "seen": the recorded row removes it from every later incremental
+        candidate set, so the retry never happens.  Deleting the row puts the
+        gid back into the cloud-only state and the next check offers it again.
+        """
+        removed = 0
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            result = await self.session.execute(
+                delete(FavoriteItem).where(
+                    FavoriteItem.favcat == favcat,
+                    FavoriteItem.gid.in_(chunk),
+                )
+            )
+            removed += result.rowcount or 0
+        return removed
+
     async def log_check(
         self, favcat: int, gids: list[int], attempts: int, success: bool, error: str | None = None
     ) -> None:

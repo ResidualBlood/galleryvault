@@ -69,6 +69,9 @@ class FavoritesRepositoryProxy:
     async def remember_many(self, favcat: int, items: list[Any]) -> Any:
         return await self._call("remember_many", favcat, items)
 
+    async def forget(self, favcat: int, gids: list[int]) -> Any:
+        return await self._call("forget", favcat, gids)
+
     async def prune(
         self, favcat: int, current_gids: set[int], allow_empty: bool = False
     ) -> Any:
@@ -429,8 +432,14 @@ def favorites_skip_decision(
     known: int,
     first_page_known: bool,
     last_full_check: datetime | None,
+    mode: str = "incremental",
     now: datetime | None = None,
 ) -> bool:
+    if mode == "force":
+        # A force folder must re-offer every cloud gid on each check.  Skipping
+        # it because the local rows happen to match the live count would hide
+        # gids whose earlier enqueue failed and was therefore never recorded.
+        return False
     if not scheduled or not category_ready or live_count <= 0 or known != live_count:
         return False
     if not first_page_known:
@@ -743,10 +752,18 @@ async def _run_favorites_check_inner(
                             extra=log_extra(favcat=favcat, error=type(exc).__name__),
                         )
 
+            if category is None:
+                category_mode = "incremental"
+            elif not getattr(category, "enabled", True):
+                category_mode = "monitor_only"
+            else:
+                category_mode = getattr(category, "mode", "incremental") or "incremental"
+
             if (
                 scheduled
                 and category is not None
                 and getattr(category, "last_success_at", None) is not None
+                and category_mode != "force"
                 and live_count > 0
                 and len(known) == live_count
                 and not full_check_expired(last_full_check)
@@ -760,6 +777,7 @@ async def _run_favorites_check_inner(
                         known=len(known),
                         first_page_known=first_page_known,
                         last_full_check=last_full_check,
+                        mode=category_mode,
                     )
                 except Exception as exc:  # noqa: BLE001
                     should_skip = False
@@ -792,12 +810,10 @@ async def _run_favorites_check_inner(
             check_kwargs: dict[str, Any] = {
                 "progress": _progress,
             }
-            if category is not None and not getattr(category, "enabled", True):
+            if category_mode == "monitor_only":
                 check_kwargs["mode"] = "monitor_only"
             else:
-                check_kwargs["mode"] = (
-                    getattr(category, "mode", "incremental") if category else "incremental"
-                )
+                check_kwargs["mode"] = category_mode
                 check_kwargs["archive_enabled"] = archive_enabled
                 check_kwargs["archive_max_pages"] = archive_max_pages
                 check_kwargs["archive_quality"] = archive_quality

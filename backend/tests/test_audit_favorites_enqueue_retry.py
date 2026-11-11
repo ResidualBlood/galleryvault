@@ -38,6 +38,7 @@ class _Repo:
         self.known: set[int] = set()
         self.remembered: list[int] = []
         self.pruned: list[set[int]] = []
+        self.forgotten: list[set[int]] = []
 
     async def category(self, favcat: int) -> Any:
         return SimpleNamespace(name="Folder")
@@ -63,6 +64,13 @@ class _Repo:
         stale = self.known - set(current_gids)
         self.known -= stale
         return len(stale)
+
+    async def forget(self, favcat: int, gids: list[int]) -> int:
+        """Drop "seen" rows whose enqueue failed so incremental retries them."""
+        self.forgotten.append(set(gids))
+        removed = self.known & set(gids)
+        self.known -= removed
+        return len(removed)
 
     async def checked(self, favcat: int, success: bool) -> None:
         pass
@@ -126,6 +134,7 @@ async def test_only_successful_gids_are_remembered_in_a_mixed_batch() -> None:
     assert result.downloaded == 1 and result.failed == 1
     assert repo.remembered == [1]
     assert repo.known == {1}
+    assert repo.forgotten == [], "a gid that was never recorded needs no forget"
 
 
 # ---------------------------------------------------------------------------
