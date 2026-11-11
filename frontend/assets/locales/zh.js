@@ -145,6 +145,7 @@ window.GV_LOCALES.zh = {
   downloading: "下载中", perPage: "每页",
   readerFit: "适应", readerFullscreen: "全屏",
   readerMode: "模式", readerModeLtr: "顺序", readerModeRtl: "日漫 (RTL)", readerModeDouble: "双页", readerModeDoubleRtl: "双页 (RTL)", readerModeWebtoon: "条漫",
+  readerPageUnavailable: "第 {n} 页不可用",
   exportCbz: "导出 CBZ",
   notifications: "通知", notifEmpty: "暂无通知", notif_clear: "清空",
   notifDownloadOk: "下载完成", notifDownloadFail: "下载失败", notifDownloadUpdated: "改下新版",
