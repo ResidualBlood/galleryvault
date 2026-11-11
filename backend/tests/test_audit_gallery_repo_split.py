@@ -5,7 +5,9 @@ Batch 6 / R0 moved the module-level helpers of ``db.repositories.galleries`` to
 R15+R16 moved the eight reading progress/history methods to
 ``db.repositories.galleries_progress.GalleryProgressMixin`` and
 ``GalleryRepository`` now inherits it. Batch 8 moved the 41 read-only query
-methods to ``db.repositories.galleries_query.GalleryQueryMixin``.
+methods to ``db.repositories.galleries_query.GalleryQueryMixin``. Batch 9 moved
+the 18 metadata/tag methods to
+``db.repositories.galleries_metadata.GalleryMetadataMixin``.
 
 Asserted here:
 1. The full ``GalleryRepository`` method roster still exists on the class
@@ -35,11 +37,13 @@ from galleryvault.db.models import ReadingHistory, ReadingProgress
 from galleryvault.db.repositories import (
     galleries,
     galleries_common,
+    galleries_metadata,
     galleries_progress,
     galleries_query,
 )
 from galleryvault.db.repositories.base import BaseRepository
 from galleryvault.db.repositories.galleries import GalleryRepository
+from galleryvault.db.repositories.galleries_metadata import GalleryMetadataMixin
 from galleryvault.db.repositories.galleries_progress import GalleryProgressMixin
 from galleryvault.db.repositories.galleries_query import GalleryQueryMixin
 from galleryvault.services import tag_sync
@@ -199,15 +203,15 @@ def test_tag_sync_patch_path_still_resolves_through_galleries(monkeypatch) -> No
     assert "_upsert_uploader_tag" not in vars(tag_sync)
 
 
-@pytest.mark.parametrize("method", ["upsert_many", "apply_cached_metadata"])
+@pytest.mark.parametrize("method", ["upsert_many"])
 def test_repository_internal_calls_resolve_through_galleries(
     method: str, monkeypatch
 ) -> None:
-    """The class still lives in ``galleries``, so its helper lookups go through
-    that module's globals (the re-exported names). Patching
-    ``galleries._upsert_uploader_tag`` therefore still reaches internal calls -
-    the same behaviour as before the move. A later mixin split must re-check
-    this (documented risk in the plan)."""
+    """Methods that stayed in ``galleries`` resolve helpers through that
+    module's globals (the re-exported names), so patching
+    ``galleries._upsert_uploader_tag`` still reaches internal calls. The
+    metadata mixin is the documented exception - see
+    ``test_metadata_mixin_resolves_uploader_helper_through_common``."""
     func = getattr(GalleryRepository, method)
     assert inspect.isfunction(func)
     assert func.__globals__ is vars(galleries)
@@ -216,6 +220,20 @@ def test_repository_internal_calls_resolve_through_galleries(
     monkeypatch.setitem(func.__globals__, "_upsert_uploader_tag", sentinel)
     assert func.__globals__["_upsert_uploader_tag"] is sentinel
     assert galleries_common._upsert_uploader_tag is not sentinel
+
+
+def test_metadata_mixin_resolves_uploader_helper_through_common() -> None:
+    # Batch 9: ``apply_cached_metadata`` left ``galleries`` and now calls the
+    # shared helper through ``galleries_common`` directly. Patching
+    # ``galleries._upsert_uploader_tag`` no longer reaches it; the
+    # ``services.tag_sync`` call-time import from ``galleries`` is unaffected
+    # (covered by test_tag_sync_patch_path_still_resolves_through_galleries).
+    func = GalleryRepository.apply_cached_metadata
+    assert func.__globals__ is vars(galleries_metadata)
+    assert func.__globals__["galleries_common"] is galleries_common
+    source = inspect.getsource(func)
+    assert "galleries_common._upsert_uploader_tag(" in source
+    assert "\n            await _upsert_uploader_tag(" not in source
 
 
 def test_common_module_does_not_import_app_layer() -> None:
@@ -505,3 +523,120 @@ async def test_query_methods_run_on_session_only_double() -> None:
     # circuits on an empty id list before touching the session.
     repo = GalleryRepository(_FallbackSession())  # type: ignore[arg-type]
     assert await repo.find_by_gids([]) == []
+
+
+# --------------------------------------------------------------------------- #
+# Metadata mixin contract (batch 9)
+# --------------------------------------------------------------------------- #
+
+# splits.md section 2.1 "Metadata" - 18 methods, 691 lines at the time of the
+# move (the plan's 713 includes the module-level helpers counted separately).
+# Written out literally so the move cannot silently drop one.
+_METADATA_METHODS = (
+    "fetch_starred_and_custom_tag_metadata",
+    "upsert_metadata",
+    "seed_metadata_from_galleries",
+    "pending_image_quality_gids",
+    "null_image_quality_gids",
+    "set_image_qualities",
+    "apply_cached_metadata",
+    "apply_metadata_to_galleries",
+    "replace_tags",
+    "set_local_tags",
+    "update_titles",
+    "set_local_rating",
+    "update_gallery_fields",
+    "refresh_category",
+    "sync_categories_from_metadata",
+    "mark_tag_not_visible",
+    "resume_not_visible",
+    "mark_tag_synced",
+)
+
+
+def test_metadata_method_roster_is_exactly_the_18_methods() -> None:
+    assert len(_METADATA_METHODS) == len(set(_METADATA_METHODS)) == 18
+    for name in _METADATA_METHODS:
+        assert hasattr(GalleryRepository, name), name
+        assert callable(getattr(GalleryRepository, name)), name
+    # The four responsibilities stay disjoint.
+    assert set(_METADATA_METHODS) <= set(_EXPECTED_METHODS)
+    assert not set(_METADATA_METHODS) & set(_QUERY_METHODS)
+    assert not set(_METADATA_METHODS) & set(_PROGRESS_METHODS)
+
+
+def test_metadata_methods_are_defined_in_the_new_module() -> None:
+    for name in _METADATA_METHODS:
+        func = getattr(GalleryMetadataMixin, name)
+        assert inspect.isfunction(func), name
+        assert func.__module__ == galleries_metadata.__name__, name
+        assert inspect.getsourcefile(func) == galleries_metadata.__file__, name
+        assert func.__globals__ is vars(galleries_metadata), name
+        # Moved, not copied: neither the module nor the class re-defines them.
+        assert name not in vars(galleries), name
+        assert name not in vars(GalleryRepository), name
+        assert getattr(GalleryRepository, name) is func, name
+
+
+def test_metadata_mixin_sits_between_query_and_progress() -> None:
+    mro = GalleryRepository.__mro__
+    assert mro.index(GalleryQueryMixin) < mro.index(GalleryMetadataMixin)
+    assert mro.index(GalleryMetadataMixin) < mro.index(GalleryProgressMixin)
+    # Mixins must precede BaseRepository so their overrides win.
+    assert mro.index(GalleryMetadataMixin) < mro.index(BaseRepository)
+    assert GalleryMetadataMixin in GalleryRepository.__bases__
+    assert issubclass(GalleryRepository, GalleryMetadataMixin)
+
+
+def test_metadata_module_does_not_import_galleries_or_app_layer() -> None:
+    # No import cycle back into ``galleries`` and no app-layer dependency; the
+    # shared uploader helper is imported through ``galleries_common``.
+    assert "galleries" not in vars(galleries_metadata)
+    assert "GalleryRepository" not in vars(galleries_metadata)
+    assert galleries_metadata.galleries_common is galleries_common
+    for name in vars(galleries_metadata):
+        assert not name.startswith("galleryvault.app"), name
+
+
+@pytest.mark.parametrize("name", ["upsert_metadata", "replace_tags"])
+async def test_metadata_class_attribute_patch_dispatches_on_instances(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ``upsert_metadata`` / ``replace_tags`` are called as class attributes on
+    # ``uow.galleries``; that only works while GalleryRepository stays a single
+    # concrete class.
+    from galleryvault.app.core.uow import SqlAlchemyUnitOfWork
+
+    sentinel = object()
+    mock = AsyncMock(return_value=sentinel)
+    monkeypatch.setattr(GalleryRepository, name, mock)
+
+    session = _FallbackSession()
+    assert await getattr(GalleryRepository(session), name)() is sentinel  # type: ignore[arg-type]
+    assert mock.await_count == 1
+
+    uow = SqlAlchemyUnitOfWork()
+    uow._session = session  # type: ignore[assignment]
+    assert await getattr(uow.galleries, name)() is sentinel
+    assert mock.await_count == 2
+
+
+async def test_metadata_mixin_runs_on_session_only_double() -> None:
+    # ``apply_cached_metadata`` short-circuits on an explicit empty gallery
+    # sequence before touching the session, so the double needs no ``execute``.
+    repo = GalleryRepository(_FallbackSession())  # type: ignore[arg-type]
+    assert await repo.apply_cached_metadata(galleries=[]) == 0
+
+
+async def test_apply_metadata_to_galleries_delegates_through_the_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # apply_metadata_to_galleries stays a thin alias: it must dispatch through
+    # the class attribute so the documented favcat/limit mapping is the only
+    # behaviour it owns.
+    mock = AsyncMock(return_value=7)
+    monkeypatch.setattr(GalleryRepository, "apply_cached_metadata", mock)
+
+    repo = GalleryRepository(_FallbackSession())  # type: ignore[arg-type]
+    assert await repo.apply_metadata_to_galleries(3, limit=11) == 7
+    mock.assert_awaited_once_with(favcat=3, limit=11)
