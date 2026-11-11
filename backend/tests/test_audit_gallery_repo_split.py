@@ -7,7 +7,10 @@ R15+R16 moved the eight reading progress/history methods to
 ``GalleryRepository`` now inherits it. Batch 8 moved the 41 read-only query
 methods to ``db.repositories.galleries_query.GalleryQueryMixin``. Batch 9 moved
 the 18 metadata/tag methods to
-``db.repositories.galleries_metadata.GalleryMetadataMixin``.
+``db.repositories.galleries_metadata.GalleryMetadataMixin``. Batch 10 moved the
+15 ingest/dedup/recycle methods to
+``db.repositories.galleries_ingest.GalleryIngestMixin``; ``galleries`` is now
+only the assembled class, ``__init__`` and the helper re-exports.
 
 Asserted here:
 1. The full ``GalleryRepository`` method roster still exists on the class
@@ -16,13 +19,18 @@ Asserted here:
    ``galleries_common`` (re-export, not a copy) - including the title-sort cache.
 3. ``services.tag_sync`` still resolves ``_upsert_uploader_tag`` through
    ``galleries`` at call time, so the ``test_tag_sync`` patch path is intact.
-4. ``GalleryRepository`` still lives in ``galleries`` and resolves the helpers
-   through that module's globals today; the assertion pins it so the later
-   mixin split cannot change it silently.
-5. The progress mixin contract: it is in the MRO *before* ``BaseRepository``,
-   the eight methods are defined in the new module (not copied), class-attribute
-   monkeypatches (``GalleryRepository.clear_history`` ...) still dispatch, and
-   ``get_by_id`` keeps its mock-session fallback (mixins first).
+4. ``GalleryRepository`` still lives in ``galleries``; every mixin method is
+   defined in its own mixin module (``__module__`` / source file / globals), and
+   all four mixins precede ``BaseRepository`` in the MRO.
+5. The progress mixin contract: the eight methods are defined in the new module
+   (not copied), class-attribute monkeypatches (``GalleryRepository.clear_history``
+   ...) still dispatch, and ``get_by_id`` keeps its mock-session fallback
+   (mixins first).
+6. The ingest mixin contract: the fifteen methods are defined in
+   ``galleries_ingest``, resolve ``_upsert_uploader_tag`` through
+   ``galleries_common``, and the class-attribute patches used by
+   ``test_scan_worker`` (``existing_rows`` / ``expunge_missing``) still
+   dispatch through ``GalleryRepository``.
 """
 
 from __future__ import annotations
@@ -37,12 +45,14 @@ from galleryvault.db.models import ReadingHistory, ReadingProgress
 from galleryvault.db.repositories import (
     galleries,
     galleries_common,
+    galleries_ingest,
     galleries_metadata,
     galleries_progress,
     galleries_query,
 )
 from galleryvault.db.repositories.base import BaseRepository
 from galleryvault.db.repositories.galleries import GalleryRepository
+from galleryvault.db.repositories.galleries_ingest import GalleryIngestMixin
 from galleryvault.db.repositories.galleries_metadata import GalleryMetadataMixin
 from galleryvault.db.repositories.galleries_progress import GalleryProgressMixin
 from galleryvault.db.repositories.galleries_query import GalleryQueryMixin
@@ -201,25 +211,6 @@ def test_tag_sync_patch_path_still_resolves_through_galleries(monkeypatch) -> No
     # tag_sync must not have bound the helper at import time, otherwise the
     # module-attribute patch above would be invisible to it.
     assert "_upsert_uploader_tag" not in vars(tag_sync)
-
-
-@pytest.mark.parametrize("method", ["upsert_many"])
-def test_repository_internal_calls_resolve_through_galleries(
-    method: str, monkeypatch
-) -> None:
-    """Methods that stayed in ``galleries`` resolve helpers through that
-    module's globals (the re-exported names), so patching
-    ``galleries._upsert_uploader_tag`` still reaches internal calls. The
-    metadata mixin is the documented exception - see
-    ``test_metadata_mixin_resolves_uploader_helper_through_common``."""
-    func = getattr(GalleryRepository, method)
-    assert inspect.isfunction(func)
-    assert func.__globals__ is vars(galleries)
-
-    sentinel = object()
-    monkeypatch.setitem(func.__globals__, "_upsert_uploader_tag", sentinel)
-    assert func.__globals__["_upsert_uploader_tag"] is sentinel
-    assert galleries_common._upsert_uploader_tag is not sentinel
 
 
 def test_metadata_mixin_resolves_uploader_helper_through_common() -> None:
@@ -640,3 +631,135 @@ async def test_apply_metadata_to_galleries_delegates_through_the_class(
     repo = GalleryRepository(_FallbackSession())  # type: ignore[arg-type]
     assert await repo.apply_metadata_to_galleries(3, limit=11) == 7
     mock.assert_awaited_once_with(favcat=3, limit=11)
+
+
+# --------------------------------------------------------------------------- #
+# Ingest mixin contract (batch 10)
+# --------------------------------------------------------------------------- #
+
+# splits.md section 2.1 "Ingest" - 15 methods, 600 lines at the time of the
+# move (``upsert_many`` alone is 237). Written out literally so the move cannot
+# silently drop one.
+_INGEST_METHODS = (
+    "upsert_many",
+    "fetch_existing_rows_raw",
+    "parse_existing_rows",
+    "existing_rows",
+    "sync_duplicates",
+    "fetch_expunge_candidates",
+    "find_missing_ids",
+    "mark_expunged",
+    "expunge_missing",
+    "_mark_expunged",
+    "restore_galleries",
+    "purge_galleries",
+    "repair_deleted_misclassified",
+    "delete_ids",
+    "trash_galleries",
+)
+
+
+def test_ingest_method_roster_is_exactly_the_15_methods() -> None:
+    assert len(_INGEST_METHODS) == len(set(_INGEST_METHODS)) == 15
+    for name in _INGEST_METHODS:
+        assert hasattr(GalleryRepository, name), name
+        assert callable(getattr(GalleryRepository, name)), name
+    # The four responsibilities stay disjoint.
+    assert set(_INGEST_METHODS) <= set(_EXPECTED_METHODS)
+    assert not set(_INGEST_METHODS) & set(_QUERY_METHODS)
+    assert not set(_INGEST_METHODS) & set(_METADATA_METHODS)
+    assert not set(_INGEST_METHODS) & set(_PROGRESS_METHODS)
+
+
+def test_ingest_methods_are_defined_in_the_new_module() -> None:
+    for name in _INGEST_METHODS:
+        func = getattr(GalleryIngestMixin, name)
+        assert inspect.isfunction(func), name
+        assert func.__module__ == galleries_ingest.__name__, name
+        assert inspect.getsourcefile(func) == galleries_ingest.__file__, name
+        assert func.__globals__ is vars(galleries_ingest), name
+        # Moved, not copied: neither module nor class re-defines them.
+        assert name not in vars(galleries), name
+        assert name not in vars(GalleryRepository), name
+        assert getattr(GalleryRepository, name) is func, name
+
+
+def test_all_four_mixins_precede_base_repository() -> None:
+    mro = GalleryRepository.__mro__
+    expected = (
+        GalleryQueryMixin,
+        GalleryMetadataMixin,
+        GalleryIngestMixin,
+        GalleryProgressMixin,
+    )
+    for mixin in expected:
+        assert mixin in GalleryRepository.__bases__, mixin.__name__
+        assert mro.index(mixin) < mro.index(BaseRepository), mixin.__name__
+    # Declared order is stable: query, metadata, ingest, progress, base.
+    assert GalleryRepository.__bases__[:4] == expected
+    assert mro[mro.index(GalleryQueryMixin) : mro.index(BaseRepository)] == expected
+
+
+def test_ingest_module_does_not_import_galleries_or_app_layer() -> None:
+    # No import cycle back into ``galleries`` and no app-layer dependency; the
+    # shared uploader helper is imported through ``galleries_common``.
+    assert "galleries" not in vars(galleries_ingest)
+    assert "GalleryRepository" not in vars(galleries_ingest)
+    assert galleries_ingest.galleries_common is galleries_common
+    for name in vars(galleries_ingest):
+        assert not name.startswith("galleryvault.app"), name
+
+
+def test_ingest_mixin_resolves_uploader_helper_through_common() -> None:
+    # ``upsert_many`` left ``galleries`` and now calls the shared helper through
+    # ``galleries_common`` directly (same contract as the metadata mixin).
+    # ``services.tag_sync``'s call-time import from ``galleries`` is unaffected
+    # (covered by test_tag_sync_patch_path_still_resolves_through_galleries).
+    func = GalleryRepository.upsert_many
+    assert func.__globals__["galleries_common"] is galleries_common
+    source = inspect.getsource(func)
+    assert "galleries_common._upsert_uploader_tag(" in source
+    assert "\n            await _upsert_uploader_tag(" not in source
+
+
+def test_galleries_module_is_only_the_assembled_class() -> None:
+    # R17: ``galleries`` keeps the class, ``__init__`` and helper re-exports;
+    # every other method lives in its mixin module.
+    own = {
+        name
+        for name, value in vars(GalleryRepository).items()
+        if inspect.isfunction(value)
+    }
+    assert own == {"__init__"}
+    with open(galleries.__file__, encoding="utf-8") as handle:
+        assert sum(1 for _ in handle) < 200
+
+
+@pytest.mark.parametrize("name", ["existing_rows", "expunge_missing"])
+async def test_ingest_class_attribute_patch_dispatches_on_instances(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # test_scan_worker patches these two as class attributes; that only works
+    # while ``GalleryRepository`` stays a single concrete class.
+    from galleryvault.app.core.uow import SqlAlchemyUnitOfWork
+
+    sentinel = object()
+    mock = AsyncMock(return_value=sentinel)
+    monkeypatch.setattr(GalleryRepository, name, mock)
+
+    session = _FallbackSession()
+    assert await getattr(GalleryRepository(session), name)(["/srv"]) is sentinel  # type: ignore[arg-type]
+    assert mock.await_count == 1
+
+    uow = SqlAlchemyUnitOfWork()
+    uow._session = session  # type: ignore[assignment]
+    assert await getattr(uow.galleries, name)(["/srv"]) is sentinel
+    assert mock.await_count == 2
+
+
+async def test_ingest_mixin_runs_on_session_only_double() -> None:
+    # ``parse_existing_rows`` / ``find_missing_ids`` are pure staticmethods and
+    # short circuit on empty input before touching the session.
+    repo = GalleryRepository(_FallbackSession())  # type: ignore[arg-type]
+    assert repo.parse_existing_rows([], ["/srv"]) == {}
+    assert repo.find_missing_ids([], ["/srv"], set()) == []
