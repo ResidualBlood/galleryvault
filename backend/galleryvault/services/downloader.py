@@ -7,9 +7,11 @@ import inspect
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import struct
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -275,6 +277,87 @@ def _is_valid_image_magic(data: bytes) -> bool:
     return window.startswith(IMAGE_MAGIC_PREFIXES)
 
 
+def _verify_image_file(path: Path) -> bool:
+    """Return ``True`` when ``path`` looks like a complete, usable image.
+
+    Resume used to accept any file with a valid magic prefix, so a truncated
+    download (e.g. a 603-byte JPEG) was counted as done forever.  Large files
+    are checked structurally (JPEG EOI / GIF trailer / WebP payload length) and
+    then decoded with Pillow's ``verify()``.  Tiny legacy placeholders and
+    formats Pillow cannot identify fall back to the magic + size > 0 check.
+    """
+    try:
+        if not path.is_file():
+            return False
+        size = path.stat().st_size
+        if size <= 0:
+            return False
+        with path.open("rb") as fh:
+            head = fh.read(20)
+            tail = b""
+            if size > 512:
+                fh.seek(max(0, size - 1024))
+                tail = fh.read()
+    except OSError:
+        return False
+
+    if size > 512:
+        if head.startswith(b"\xff\xd8"):
+            if b"\xff\xd9" not in tail:
+                return False
+        elif head.startswith(b"GIF"):
+            if not tail.rstrip(b"\x00").endswith(b";"):
+                return False
+        elif head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+            expected_len = struct.unpack("<I", head[4:8])[0] + 8
+            if size < expected_len:
+                return False
+
+    try:
+        with PILImage.open(path) as image:
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                return False
+            image.verify()
+        return True
+    except PILImage.UnidentifiedImageError:
+        pass
+    except OSError:
+        # Tiny fixtures/placeholders may not decode; the download path only
+        # performs deep integrity checks for payloads larger than 512 bytes.
+        if size > 512:
+            return False
+    except Exception:  # noqa: BLE001 - any decode error means unusable
+        return False
+    return _is_valid_image_magic(head)
+
+
+def _write_page_atomic(dest: Path, data: bytes) -> None:
+    """Write ``data`` to ``dest`` through a unique ``.partial`` file.
+
+    The payload is written and fsynced to a sibling temp file, then moved into
+    place with :func:`os.replace`, so a crash or write error never leaves a
+    truncated page under the final name.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=dest.parent, prefix=f"{dest.name}.", suffix=".partial"
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, dest)
+    except BaseException:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
 def _existing_page_file(
     directory: Path, index: int, quality: str | None = None
 ) -> Path | None:
@@ -287,14 +370,8 @@ def _existing_page_file(
     for candidate in matches:
         if is_original and candidate.suffix.casefold() == ".webp":
             continue
-        try:
-            if candidate.is_file() and candidate.stat().st_size > 0:
-                with candidate.open("rb") as f:
-                    head = f.read(20)
-                if _is_valid_image_magic(head):
-                    return candidate
-        except OSError:
-            continue
+        if _verify_image_file(candidate):
+            return candidate
     return None
 
 
@@ -668,7 +745,9 @@ class Downloader:
                                 ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif",
                             }:
                                 extension = ".jpg"
-                            (temp / f"{index + 1:08d}{extension}").write_bytes(data)
+                            _write_page_atomic(
+                                temp / f"{index + 1:08d}{extension}", data
+                            )
                             downloaded.add(index)
                             pages[index] = current
                             gallery.pages[index] = current
