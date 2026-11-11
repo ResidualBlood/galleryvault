@@ -192,23 +192,19 @@ async function renderFavList() {
     };
     const params = new URLSearchParams(extra);
     const data = await api("GET", `/api/favorites/${favcat}/items?${params.toString()}`);
-    if (window.store && typeof window.store.setState === "function") {
-      window.store.setState({ favItems: data, favCat: favcat });
-    }
     const el = document.getElementById("fav-items");
     if (!data.items.length) { el.innerHTML = `<p>${esc(t("noGalleries"))}</p>`; }
     else {
-      const cardFn = window.GalleryCardComponent ? window.GalleryCardComponent.renderFavCard : favCard;
-      el.innerHTML = `<div class="grid gc-grid">` + data.items.map(cardFn).join("") + `</div>`;
+      el.innerHTML = `<div class="grid gc-grid">` + data.items.map(favCard).join("") + `</div>`;
       document.querySelectorAll('#fav-items input[data-fav-gid]').forEach(cb => {
         cb.checked = selFav.has(parseInt(cb.dataset.favGid, 10));
         cb.addEventListener("change", () => updateFavActionBar());
       });
-      renderCardCheckboxes();
+      renderCardCheckboxes({ pruneSelection: selectionScopeChanged() });
       startInfinite("fav-items", async (p) => {
         const pParams = new URLSearchParams({ ...extra, page: String(p) });
         return await api("GET", `/api/favorites/${favcat}/items?${pParams.toString()}`);
-      }, cardFn);
+      }, favCard);
     }
     bindTagSuggest();
     renderFavPager("favlist-pager", data, page);
@@ -217,9 +213,6 @@ async function renderFavList() {
 }
 
 function favCard(it) {
-  if (window.GalleryCardComponent && typeof window.GalleryCardComponent.renderFavCard === "function") {
-    return window.GalleryCardComponent.renderFavCard(it);
-  }
   const cat = it.category ? esc(catLabel(it.category)) : "";
   const cover = it.cover_url || it.cover_data || null;
   const inner = cover
@@ -285,17 +278,6 @@ function renderFavPager(elId, data, page) {
     ...(image_quality ? { image_quality } : {}),
     ...(min_local_rating ? { min_local_rating } : {}),
   });
-
-  if (window.PaginationComponent) {
-    new window.PaginationComponent(el, {
-      total,
-      page: cur,
-      pageSize,
-      pageSizeSelectKey: "favlist",
-      onPageChange: (p) => { location.hash = qp(p); },
-    }).render();
-    return;
-  }
 
   const parts = [];
   if (cur > 1) parts.push(`<a class="page-link" href="${qp(cur - 1)}">&lt;</a>`);

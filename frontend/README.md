@@ -10,13 +10,13 @@ dependency) for GalleryVault. Served by nginx on port 8000; nginx reverse-proxie
 
 - `index.html` — SPA entry shell
 - `assets/core.js` — routing, auth, HTTP client (`api`), render view hooks
-- `assets/state.js` — centralized reactive states, selections, timers, constants
+- `assets/state.js` — centralized state, selections, timer registry, constants
 - `assets/utils.js` — utility functions, formatting, pagination, infinite scroll
 - `assets/components.js` — UI components (cards, skeletons, status indicators, modal dialogs)
 - `assets/events.js` — global event delegations & keyboard shortcuts
 - `assets/i18n.js` & `assets/locales/` — on-demand dynamic multilingual loader & packs (EN/中文)
 - `assets/views/` — browse, library, discover, series, gallery, reader, favorites, downloads, tags, history, settings, logs, updates, duplicates, recycle, integrity, archive, welcome
-- `assets/app.js` — lightweight bootstrapping entrypoint (29 lines)
+- `assets/app.js` — lightweight bootstrapping entrypoint (53 lines)
 - `assets/styles.css` — design tokens, responsive layout, theme
 - `nginx.conf` — static serving + proxy config
 

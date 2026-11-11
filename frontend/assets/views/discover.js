@@ -156,7 +156,7 @@ async function renderDiscover() {
       return;
     }
     el.innerHTML = `<div class="grid gc-grid">` + data.items.map(discoverCard).join("") + `</div>`;
-    renderCardCheckboxes();
+    renderCardCheckboxes({ pruneSelection: selectionScopeChanged() });
     startInfinite("disc-grid", fetchDiscover, discoverCard, data.next);
   } catch (e) {
     const el = document.getElementById("disc-grid");

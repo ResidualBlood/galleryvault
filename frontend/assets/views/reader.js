@@ -210,7 +210,7 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
   } else {
     imgHtml = `
       <div class="reader-img-wrap">
-        <img id="reader-img" decoding="async" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-page="${page}" data-next="${page + 1 < total ? page + 1 : ""}">
+        <img id="reader-img" decoding="async" src="/api/galleries/${id}/pages/${page}" alt="Page ${page + 1}" data-page="${page}">
       </div>`;
   }
 
@@ -713,7 +713,6 @@ function readerSwapPage(id, target, onSwapComplete) {
     const img = document.getElementById("reader-img");
     if (img) {
       swapImageSmoothly(img, `/api/galleries/${id}/pages/${target}`, target, `Page ${target + 1}`, onSwapComplete);
-      img.dataset.next = target + 1 < total ? String(target + 1) : "";
     } else {
       if (typeof onSwapComplete === "function") onSwapComplete();
     }

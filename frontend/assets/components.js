@@ -1,9 +1,10 @@
 "use strict";
 
 // components.js — UI 组件 (galleryCard, renderCardCheckboxes, 以及未来 skeleton/pager/modal 等)
-// 保持原有函数签名
+// renderCardCheckboxes(opts) 选择裁剪由显式 pruneSelection 控制，默认不裁剪
 
-function renderCardCheckboxes() {
+function renderCardCheckboxes(opts = {}) {
+  const { pruneSelection = false } = opts;
   document.querySelectorAll(".gc-check input[data-gallery-id]").forEach(cb => {
     if (cb.dataset.bound) return;
     cb.dataset.bound = "1";
@@ -71,7 +72,7 @@ function renderCardCheckboxes() {
     });
   });
 
-  if (!document.querySelector(".inf-page")) {
+  if (pruneSelection) {
     const visibleGalleryIds = new Set(
       [...document.querySelectorAll(".gc-check input[data-gallery-id]")]
         .map(cb => parseInt(cb.getAttribute("data-gallery-id"), 10))
@@ -107,6 +108,19 @@ function renderCardCheckboxes() {
     const count = selGalleries.size;
     favBtn.textContent = count ? t("batchFavCount").replace("{count}", count) : t("batchFav");
   }
+}
+
+// 选择裁剪判定：仅当视图或筛选条件变化时返回 true；翻页与调整每页数量不算筛选变化，
+// 以便跨页选择得以保留（S4）。调用方把它作为 pruneSelection 显式传入 renderCardCheckboxes。
+let lastSelectionScope = null;
+function selectionScopeChanged() {
+  const query = { ...(app.query || {}) };
+  delete query.page;
+  delete query.page_size;
+  const key = JSON.stringify({ view: app.view, params: app.params || {}, query });
+  const changed = key !== lastSelectionScope;
+  lastSelectionScope = key;
+  return changed;
 }
 
 function currentFromPath() {
