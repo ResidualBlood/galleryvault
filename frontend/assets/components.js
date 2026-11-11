@@ -238,13 +238,17 @@ function renderSkeleton(count = 6) {
 function showArchiveDialog(gids, opts) {
   opts = opts || {};
   const lockTier = opts.lockTier || null;
+  // Preselect at render time: the radios must never show an unselected state
+  // while the preview request is in flight.
+  const defaultTier = lockTier || archiveDefaultTier(app.settings);
   return new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.className = "gv-overlay";
+    const tierLabel = tier => esc(t(tier === "original" ? "archiveTierOriginal" : "archiveTierResample"));
     const tiersHtml = lockTier
-      ? `<label><input type="radio" name="archive-tier" value="${lockTier}" checked> ${esc(t(lockTier === "original" ? "archiveTierOriginal" : "archiveTierResample"))}</label>`
-      : `<label><input type="radio" name="archive-tier" value="original"> ${esc(t("archiveTierOriginal"))}</label>
-        <label><input type="radio" name="archive-tier" value="resample"> ${esc(t("archiveTierResample"))}</label>`;
+      ? `<label><input type="radio" name="archive-tier" value="${esc(lockTier)}" checked> ${tierLabel(lockTier)}</label>`
+      : `<label><input type="radio" name="archive-tier" value="original"${defaultTier === "original" ? " checked" : ""}> ${tierLabel("original")}</label>
+        <label><input type="radio" name="archive-tier" value="resample"${defaultTier === "resample" ? " checked" : ""}> ${tierLabel("resample")}</label>`;
     overlay.innerHTML = `<div class="gv-modal" role="dialog" aria-modal="true" aria-labelledby="archive-title">
       <h3 id="archive-title">${esc(t("archiveTitle"))}</h3>
       <div class="gv-modal-body">${esc(t("loading"))}</div>
@@ -254,14 +258,31 @@ function showArchiveDialog(gids, opts) {
           ${tiersHtml}
         </span>
         <button class="btn btn-primary" data-archive-confirm disabled type="button">${esc(t("archiveConfirm"))}</button>
+        <button class="btn btn-secondary" data-archive-retry type="button" hidden>${esc(t("archiveRetry"))}</button>
         <button class="btn btn-secondary" data-archive-cancel type="button">${esc(t("cancel"))}</button>
       </div>
     </div>`;
     let settled = false;
     let cleanupFocus = null;
+    let ctrl = new AbortController();
+    let previewItems = null;
+    let previewFailed = false;
+    const bodyEl = overlay.querySelector(".gv-modal-body");
+    const confirmEl = overlay.querySelector("[data-archive-confirm]");
+    const retryEl = overlay.querySelector("[data-archive-retry]");
+    const setRadiosDisabled = disabled => {
+      overlay.querySelectorAll('input[name="archive-tier"]').forEach(r => { r.disabled = disabled; });
+    };
+    // Single source of truth for the confirm button, shared by every outcome.
+    const syncConfirm = () => {
+      if (!confirmEl) return;
+      confirmEl.disabled = !archiveConfirmEnabled({items: previewItems, lockTier, failed: previewFailed});
+    };
     const close = (value) => {
       if (settled) return;
       settled = true;
+      // Cancelling the dialog cancels the in-flight preview request.
+      try { ctrl.abort(); } catch (_) {}
       if (cleanupFocus) cleanupFocus();
       overlay.remove();
       resolve(value);
@@ -274,64 +295,83 @@ function showArchiveDialog(gids, opts) {
     });
     document.body.appendChild(overlay);
     cleanupFocus = trapModalFocus(overlay, close);
-    const previewBody = (opts.items && opts.items.length)
-      ? { gids, items: opts.items }
-      : { gids };
-    api("POST", "/api/archives/preview", previewBody)
-      .then(data => {
-        if (settled) return;
-        const bodyEl = overlay.querySelector(".gv-modal-body");
-        if (!bodyEl) return;
-        const items = data && data.items ? data.items : [];
-        if (!items.length) {
-          bodyEl.innerHTML = `<p>${esc(t("archiveNoItems"))}</p>`;
-          return;
-        }
-        const confirm = overlay.querySelector("[data-archive-confirm]");
-        if (lockTier === "original") {
-          const rows = items.map(it => {
-            if (it.error) {
-              return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="1"><span class="error">${esc(it.error)}</span></td></tr>`;
-            }
-            const orig = it.original_cost == null
-              ? `<span class="muted">N/A</span>`
-              : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
-            return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td></tr>`;
-          }).join("");
-          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
-          const first = items[0];
-          if (confirm) confirm.disabled = !!(first && !first.error && first.original_cost != null && !first.original_available);
-        } else {
-          const rows = items.map(it => {
-            if (it.error) {
-              return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="2"><span class="error">${esc(it.error)}</span></td></tr>`;
-            }
-            const orig = it.original_cost == null
-              ? `<span class="muted">N/A</span>`
-              : (it.original_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.original_cost + " GP · " + fmtSize(it.original_size);
-            const res = it.resample_cost == null
-              ? `<span class="muted">N/A</span>`
-              : (it.resample_available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + it.resample_cost + " GP · " + fmtSize(it.resample_size);
-            return `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${orig}</td><td>${res}</td></tr>`;
-          }).join("");
-          bodyEl.innerHTML = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th><th scope="col">${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
-          if (confirm) confirm.disabled = false;
-        }
-        if (data && data.funds != null) {
-          const fundsEl = overlay.querySelector(".archive-funds");
-          if (fundsEl) fundsEl.textContent = t("archiveFunds") + ": " + data.funds + " GP";
-        }
-        if (!lockTier) {
-          const defaultTier = app.settings && app.settings.archive_quality === "original" ? "original" : "resample";
-          const radio = overlay.querySelector(`input[name="archive-tier"][value="${defaultTier}"]`);
-          if (radio) radio.checked = true;
-        }
-      })
-      .catch(err => {
-        if (settled) return;
-        const bodyEl = overlay.querySelector(".gv-modal-body");
-        if (bodyEl) bodyEl.innerHTML = `<p class="error">${esc(err.message || t("archivePreviewFail"))}</p>`;
-      });
+
+    const errorRow = (it, colspan) =>
+      `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td colspan="${colspan}"><span class="error">${esc(it.error)}</span></td></tr>`;
+    const costCell = (cost, available, size) =>
+      cost == null
+        ? `<span class="muted">N/A</span>`
+        : (available ? "" : `<span class="error" title="${esc(t("archiveUnavailable"))}">⚠ </span>`) + cost + " GP · " + fmtSize(size);
+
+    const renderPreview = items => {
+      previewItems = items;
+      previewFailed = false;
+      const allFailed = items.length > 0 && items.every(it => it.error);
+      let html;
+      if (lockTier === "original") {
+        const rows = items.map(it => it.error
+          ? errorRow(it, 1)
+          : `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${costCell(it.original_cost, it.original_available, it.original_size)}</td></tr>`
+        ).join("");
+        html = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+      } else {
+        const rows = items.map(it => it.error
+          ? errorRow(it, 2)
+          : `<tr><td>${esc(it.title || ("gid " + it.gid))}</td><td>${costCell(it.original_cost, it.original_available, it.original_size)}</td><td>${costCell(it.resample_cost, it.resample_available, it.resample_size)}</td></tr>`
+        ).join("");
+        html = `<table class="table archive-table"><thead><tr><th scope="col">${esc(t("gallery"))}</th><th scope="col">${esc(t("archiveTierOriginal"))}</th><th scope="col">${esc(t("archiveTierResample"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }
+      if (allFailed) {
+        // Nothing can be archived: surface the first error above the table and
+        // keep the confirm button disabled.
+        const first = items.find(it => it.error);
+        html = `<p class="error">${esc(first.error)}</p>` + html;
+      }
+      if (bodyEl) bodyEl.innerHTML = html;
+      setRadiosDisabled(allFailed);
+      syncConfirm();
+    };
+
+    const loadPreview = () => {
+      previewItems = null;
+      previewFailed = false;
+      retryEl.hidden = true;
+      if (bodyEl) bodyEl.innerHTML = `<p>${esc(t("loading"))}</p>`;
+      syncConfirm();
+      ctrl = new AbortController();
+      const previewBody = (opts.items && opts.items.length)
+        ? { gids, items: opts.items }
+        : { gids };
+      api("POST", "/api/archives/preview", previewBody, {signal: ctrl.signal})
+        .then(data => {
+          if (settled) return;
+          const items = data && data.items ? data.items : [];
+          if (!items.length) {
+            previewItems = [];
+            setRadiosDisabled(false);
+            if (bodyEl) bodyEl.innerHTML = `<p>${esc(t("archiveNoItems"))}</p>`;
+            syncConfirm();
+            return;
+          }
+          if (data && data.funds != null) {
+            const fundsEl = overlay.querySelector(".archive-funds");
+            if (fundsEl) fundsEl.textContent = t("archiveFunds") + ": " + data.funds + " GP";
+          }
+          renderPreview(items);
+        })
+        .catch(err => {
+          if (settled) return;
+          // Closing the dialog aborts the request; that is not an error.
+          if (err && err.name === "AbortError") return;
+          previewFailed = true;
+          setRadiosDisabled(true);
+          retryEl.hidden = false;
+          if (bodyEl) bodyEl.innerHTML = `<p class="error">${esc((err && err.message) || t("archivePreviewFail"))}</p>`;
+          syncConfirm();
+        });
+    };
+    retryEl.addEventListener("click", loadPreview);
+    loadPreview();
   });
 }
 
