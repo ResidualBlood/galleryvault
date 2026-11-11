@@ -480,3 +480,27 @@ function coverSrc(v) {
   if (s.includes("\\")) return "";
   return /^(data:image\/(png|jpeg|gif|webp);base64,|https?:\/\/|\/(?!\/))/i.test(s) ? s : "";
 }
+
+// Archive dialog: the tier that should be preselected while the preview is
+// still loading, so the radios are never rendered in an unselected state.
+// `app.settings` is prefetched at startup; anything else means resample.
+function archiveDefaultTier(settings) {
+  return settings && settings.archive_quality === "original" ? "original" : "resample";
+}
+
+// Whether the archive confirm button may be clicked. `failed` means the
+// preview request itself failed (nothing to confirm); an empty list or a list
+// where every entry carries `error` has nothing sellable either. `lockTier`
+// keeps the single-tier callers (gallery original download) behaving as before.
+function archiveConfirmEnabled({ items, lockTier, failed } = {}) {
+  if (failed) return false;
+  const list = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!list.length) return false;
+  if (list.every(it => it.error)) return false;
+  if (lockTier === "original") {
+    const first = list.find(it => !it.error);
+    if (!first) return false;
+    return !!first.original_available && first.original_cost != null;
+  }
+  return true;
+}

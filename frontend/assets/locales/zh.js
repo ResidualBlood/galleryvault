@@ -78,7 +78,7 @@ window.GV_LOCALES.zh = {
   archiveSkip: "已跳过",
   archiveLogLabel: "冷库归档",
   archiveLogDesc: "正在归档画廊至冷存储",
-  archiveFunds: "可用 GP", archiveTierOriginal: "原图", archiveTierResample: "重采样", archiveCost: "费用", archiveSize: "大小", archiveUnavailable: "GP 不足", archiveConfirm: "开始归档下载", archiveNoItems: "所选画廊没有可用的归档。", archivePreviewFail: "归档预览失败", archiveQueued: "已加入归档下载", archiveUnsupported: "部分所选画廊已本地或缺少 token，已跳过。",
+  archiveFunds: "可用 GP", archiveTierOriginal: "原图", archiveTierResample: "重采样", archiveCost: "费用", archiveSize: "大小", archiveUnavailable: "GP 不足", archiveConfirm: "开始归档下载", archiveNoItems: "所选画廊没有可用的归档。", archivePreviewFail: "归档预览失败", archiveRetry: "重试", archiveQueued: "已加入归档下载", archiveUnsupported: "部分所选画廊已本地或缺少 token，已跳过。",
   dlBadgeArchive: "归档", dlBadgeArchiveFallback: "回退逐页", dlBadgePages: "逐页",
   dlAddTitle: "添加下载 / 粘贴链接",
   dlAddHint: "每行一条：画廊 URL 或 gid/token（如 123456/abcdef）",

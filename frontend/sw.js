@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE = "gv-shell-v13";
+const CACHE = "gv-shell-v14";
 const SHELL = [
   "/",
   "/index.html",

@@ -109,7 +109,7 @@ window.GV_LOCALES.en = {
   archiveSkip: "Skipped",
   archiveLogLabel: "Cold Archive",
   archiveLogDesc: "Archiving galleries to cold storage",
-  archiveFunds: "GP available", archiveTierOriginal: "Original", archiveTierResample: "Resample", archiveCost: "cost", archiveSize: "size", archiveUnavailable: "insufficient GP", archiveConfirm: "Start archive download", archiveNoItems: "No archives available for the selection.", archivePreviewFail: "Archive preview failed", archiveQueued: "Archive download queued", archiveUnsupported: "Some selected galleries are already local or lack a token and were skipped.",
+  archiveFunds: "GP available", archiveTierOriginal: "Original", archiveTierResample: "Resample", archiveCost: "cost", archiveSize: "size", archiveUnavailable: "insufficient GP", archiveConfirm: "Start archive download", archiveNoItems: "No archives available for the selection.", archivePreviewFail: "Archive preview failed", archiveRetry: "Retry", archiveQueued: "Archive download queued", archiveUnsupported: "Some selected galleries are already local or lack a token and were skipped.",
   dlBadgeArchive: "Archive", dlBadgeArchiveFallback: "Fallback pages", dlBadgePages: "Page-by-page",
   dlAddTitle: "Add to Queue / Paste URLs",
   dlAddHint: "One per line: gallery URL or gid/token (e.g. 123456/abcdef)",
