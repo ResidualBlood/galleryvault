@@ -5,8 +5,13 @@
 
 function renderCardCheckboxes(opts = {}) {
   const { pruneSelection = false } = opts;
+  // series 视图的本地勾选由 series.js 自己维护（selSeriesLocal）；这些卡片也带
+  // data-gallery-id，但绝不能写进画廊库的 selGalleries，否则从 series 切到
+  // library 会出现「series 里勾过的项在库视图仍选中」的幽灵选择。
+  const isLibrarySelectionBox = cb => !(cb && cb.closest && cb.closest("#series-list"));
   document.querySelectorAll(".gc-check input[data-gallery-id]").forEach(cb => {
     if (cb.dataset.bound) return;
+    if (!isLibrarySelectionBox(cb)) return;
     cb.dataset.bound = "1";
     cb.addEventListener("change", () => {
       const id = parseInt(cb.getAttribute("data-gallery-id"), 10);
@@ -75,6 +80,7 @@ function renderCardCheckboxes(opts = {}) {
   if (pruneSelection) {
     const visibleGalleryIds = new Set(
       [...document.querySelectorAll(".gc-check input[data-gallery-id]")]
+        .filter(isLibrarySelectionBox)
         .map(cb => parseInt(cb.getAttribute("data-gallery-id"), 10))
         .filter(n => !isNaN(n))
     );

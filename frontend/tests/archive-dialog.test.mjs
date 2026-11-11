@@ -148,3 +148,37 @@ test("archive: 新 i18n 键在 zh/en 同时存在", () => {
     assert.ok(loc.archiveRetry.length > 0, `${lang} archiveRetry 为空`);
   }
 });
+
+// --- series 视图勾选不得写入画廊库选择集合（r2-fe-misc-p3 回归） ---------------
+
+test("selection: components.js 的 data-gallery-id 绑定排除 #series-list", () => {
+  const checkboxesSrc = functionSource(componentsSrc, "renderCardCheckboxes");
+  assert.equal(
+    checkboxesSrc.includes("isLibrarySelectionBox"),
+    true,
+    "renderCardCheckboxes 未区分 series 视图的勾选框",
+  );
+  assert.equal(
+    checkboxesSrc.includes('cb.closest("#series-list")'),
+    true,
+    "未按 #series-list 容器排除 series 卡片",
+  );
+  const guardAt = checkboxesSrc.indexOf("if (!isLibrarySelectionBox(cb)) return;");
+  const addAt = checkboxesSrc.indexOf("selGalleries.add(id)");
+  assert.ok(guardAt >= 0 && addAt > guardAt, "series 排除守卫必须早于 selGalleries.add");
+  // 裁剪可见集合时同样只看库视图的勾选框，避免 series 的 id 混入
+  assert.equal(
+    /filter\(isLibrarySelectionBox\)/.test(checkboxesSrc),
+    true,
+    "pruneSelection 的 visibleGalleryIds 未排除 series 勾选框",
+  );
+});
+
+test("selection: series.js 只写 selSeriesLocal，不碰 selGalleries", () => {
+  const seriesSrc = fs.readFileSync(path.join(assetsDir, "views", "series.js"), "utf8");
+  const changeSrc = functionSource(seriesSrc, "onSeriesChange");
+  assert.equal(changeSrc.includes("selSeriesLocal.add"), true, "series 勾选未写入 selSeriesLocal");
+  assert.equal(changeSrc.includes("selGalleries"), false, "series 勾选仍写入 selGalleries");
+  assert.equal(seriesSrc.includes("selGalleries"), false, "series.js 全文件不应引用 selGalleries");
+  assert.equal(seriesSrc.includes('id="series-list"'), true, "series 容器 id 变了，components.js 的排除会失效");
+});
