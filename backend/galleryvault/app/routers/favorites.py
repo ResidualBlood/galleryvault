@@ -32,6 +32,13 @@ from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import EhClientError, FavoriteData, GalleryGoneError
 from ...services.favorite_service import FavoriteService
+from ...services.favorites_mutations import (
+    MutationDeps,
+    add_favorites,
+    move_favorites,
+    remove_favorites,
+    set_favorite_note,
+)
 from ...services.favorites_worker import (
     FavoriteDownloadQueue,
     _cover_cache_file,
@@ -628,71 +635,30 @@ async def favorites_remove(
     eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-    gids = list(dict.fromkeys(body.gids))
-    cloud_failed: list[int] = []
-    cloud_removed = 0
-    cloud_ok = True
     settings = get_current_settings()
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            cloud_failed = await client.remove_favorites(gids)
-        cloud_removed = len(gids) - len(cloud_failed)
-        cloud_ok = not cloud_failed
-    except Exception as exc:  # noqa: BLE001
-        cloud_ok = False
-        cloud_failed = list(gids)
-        logger.warning("cloud favorite removal failed", extra=log_extra(error=type(exc).__name__))
-
-    successful_gids = [g for g in gids if g not in set(cloud_failed)]
-    local_removed = 0
-    deleted_local_galleries = 0
-    failed_deletions: list[str] = []
-    try:
-        # Cloud failures (including a dead session that returns a 200 login page)
-        # remove the gid from ``successful_gids`` above, so a failed gid never
-        # reaches the local delete path.  The favorite rows and the local
-        # gallery/file removal share this single transaction scope.
-        async with safe_transaction(session):
-            if successful_gids:
-                local_removed = await FavoritesRepository(session).remove_gids(
-                    successful_gids
-                )
-
-            if successful_gids and (body.delete_local or body.delete_files):
-                mapping = await FavoritesRepository(session).galleries_for_gids(
-                    successful_gids
-                )
-                gallery_ids = [gid for gid in mapping.values() if gid is not None]
-
-                if gallery_ids:
-                    results = await delete_galleries_local(
-                        gallery_ids,
-                        delete_files=True,
-                        delete_all_copies=body.delete_all_copies,
-                    )
-                    deleted_local_galleries = sum(
-                        1 for r in results if r.get("db_removed")
-                    )
-                    for r in results:
-                        failed_deletions.extend(r.get("failed_paths", []))
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        release_session=release_session,
+        db_error=db_error,
+        logger=logger,
+    )
+    result = await remove_favorites(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
     if body.delete_local or body.delete_files:
         _record_favorites_remove_log(
-            gids, deleted_local_galleries, failed_deletions, cloud_failed
+            result["gids"],
+            result["deleted_local_galleries"],
+            result["failed_deletions"],
+            result["cloud_failed"],
         )
-    return {
-        "gids": gids,
-        "cloud_ok": cloud_ok,
-        "cloud_removed": cloud_removed,
-        "cloud_failed": cloud_failed,
-        "local_removed": local_removed,
-        "deleted_local_galleries": deleted_local_galleries,
-        "failed_deletions": failed_deletions,
-    }
+    return result
 
 
 @router.post("/api/favorites/move")
@@ -704,44 +670,29 @@ async def favorites_move(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
-    if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-    gids = list(dict.fromkeys(body.gids))
-    cloud_failed: list[int] = []
-    cloud_moved = 0
-    cloud_ok = True
     settings = get_current_settings()
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            cloud_failed = await client.move_favorites(gids, body.target_favcat)
-        cloud_moved = len(gids) - len(cloud_failed)
-        cloud_ok = not cloud_failed
-    except Exception as exc:  # noqa: BLE001
-        cloud_ok = False
-        cloud_failed = list(gids)
-        logger.warning("cloud favorite move failed", extra=log_extra(error=type(exc).__name__))
-
-    successful_gids = [g for g in gids if g not in set(cloud_failed)]
-    local_moved = 0
-    if successful_gids:
-        try:
-            async with safe_transaction(session):
-                local_moved = await FavoritesRepository(session).move_gids(
-                    successful_gids, body.target_favcat
-                )
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    _record_favorites_move_log(gids, body.target_favcat, cloud_failed, local_moved)
-
-    return {
-        "gids": gids,
-        "target_favcat": body.target_favcat,
-        "cloud_ok": cloud_ok,
-        "cloud_moved": cloud_moved,
-        "cloud_failed": cloud_failed,
-        "local_moved": local_moved,
-    }
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        release_session=release_session,
+        db_error=db_error,
+        logger=logger,
+    )
+    result = await move_favorites(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
+    _record_favorites_move_log(
+        result["gids"],
+        result["target_favcat"],
+        result["cloud_failed"],
+        result["local_moved"],
+    )
+    return result
 
 
 def _record_favorites_add_log(
@@ -780,151 +731,29 @@ async def favorites_add(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
-    if not body.items:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-
-    items_to_add: list[dict[str, Any]] = []
-    seen_gids: set[int] = set()
-    batch_note = body.note or ""
-    for item in body.items:
-        if isinstance(item, dict) and "gid" in item:
-            item_note = item.get("note") or ""
-            if item_note and item_note != batch_note:
-                # ExHentai applies one note per addfav call, so a per-item note
-                # can never round-trip: the cloud would get the batch note while
-                # the local cache stored the item note (dual-state divergence).
-                raise HTTPException(
-                    status_code=422,
-                    detail="per-item note is not supported; send note once for the whole batch",
-                )
-            try:
-                gid = int(item["gid"])
-                if gid not in seen_gids:
-                    seen_gids.add(gid)
-                    items_to_add.append(
-                        {
-                            "gid": gid,
-                            "token": item.get("token"),
-                            "title": item.get("title"),
-                            "note": batch_note,
-                        }
-                    )
-            except (ValueError, TypeError):
-                pass
-
-    if not items_to_add:
-        raise HTTPException(status_code=422, detail="no valid galleries selected")
-
-    missing_token_gids = [it["gid"] for it in items_to_add if not it.get("token")]
-    if missing_token_gids:
-        try:
-            gallery_repo = GalleryRepository(session)
-            galleries = await gallery_repo.find_by_gids(missing_token_gids)
-            g_map = {g.gid: g for g in galleries if g.gid is not None}
-
-            remaining = [g for g in missing_token_gids if g not in g_map]
-            gm_map: dict[int, Any] = {}
-            if remaining:
-                for rem_gid in remaining:
-                    meta_dict = await gallery_repo.metadata_for_gid(int(rem_gid))
-                    if meta_dict and meta_dict.get("gid"):
-                        gm_map[int(meta_dict["gid"])] = meta_dict
-
-            for it in items_to_add:
-                gid = it["gid"]
-                if gid in g_map:
-                    g = g_map[gid]
-                    if not it.get("token"):
-                        it["token"] = g.token
-                    if not it.get("title"):
-                        it["title"] = g.title
-                elif gid in gm_map:
-                    gm = gm_map[gid]
-                    if not it.get("token"):
-                        it["token"] = gm.get("token")
-                    if not it.get("title"):
-                        it["title"] = gm.get("title")
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    valid_pairs: list[tuple[int, str]] = []
-    missing_token_failed: list[int] = []
-    item_map = {it["gid"]: it for it in items_to_add}
-    for it in items_to_add:
-        if it.get("token"):
-            valid_pairs.append((it["gid"], str(it["token"])))
-        else:
-            missing_token_failed.append(it["gid"])
-
-    cloud_failed: list[int] = list(missing_token_failed)
-    cloud_added = 0
-    cloud_ok = True
     settings = get_current_settings()
-
-    if valid_pairs:
-        try:
-            async with eh_client_mgr.client_context(settings=settings) as client:
-                cf = await client.add_favorites(valid_pairs, body.target_favcat, note=body.note)
-            cloud_failed.extend(cf)
-            cloud_added = len(valid_pairs) - len(cf)
-            cloud_ok = not cloud_failed
-        except Exception as exc:  # noqa: BLE001
-            cloud_ok = False
-            logger.warning("cloud favorite add failed", extra=log_extra(error=type(exc).__name__))
-            failed_set = set(cloud_failed)
-            cloud_failed.extend(gid for gid, _ in valid_pairs if gid not in failed_set)
-            cloud_added = 0
-
-    successful_gids = [it["gid"] for it in items_to_add if it["gid"] not in set(cloud_failed)]
-    local_added = 0
-    if successful_gids:
-        base_url = str(
-            getattr(settings, "exhentai_base_url", "https://exhentai.org")
-            or "https://exhentai.org"
-        ).rstrip("/")
-        favorite_items_to_save = []
-        for gid in successful_gids:
-            it = item_map[gid]
-            title = it.get("title") or str(gid)
-            token = it.get("token") or ""
-            favorite_items_to_save.append(
-                    FavoriteData(
-                        gid=gid,
-                        token=token,
-                        title=title,
-                        url=f"{base_url}/g/{gid}/{token}/",
-                        thumb=None,
-                        note=batch_note or None,
-                    )
-            )
-        try:
-            async with safe_transaction(session):
-                await FavoritesRepository(session).remember_many(
-                    body.target_favcat, favorite_items_to_save
-                )
-                await FavoritesRepository(session).move_gids(
-                    successful_gids, body.target_favcat
-                )
-                local_added = len(favorite_items_to_save)
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    _record_favorites_add_log(
-        [it["gid"] for it in items_to_add],
-        body.target_favcat,
-        cloud_failed,
-        local_added,
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        release_session=release_session,
+        db_error=db_error,
+        logger=logger,
     )
-
-    return {
-        "gids": [it["gid"] for it in items_to_add],
-        "target_favcat": body.target_favcat,
-        "cloud_ok": cloud_ok,
-        "cloud_added": cloud_added,
-        "cloud_failed": cloud_failed,
-        "successful_gids": successful_gids,
-        "local_added": local_added,
-    }
+    result = await add_favorites(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
+    _record_favorites_add_log(
+        result["gids"],
+        body.target_favcat,
+        result["cloud_failed"],
+        result["local_added"],
+    )
+    return result
 
 
 @router.post("/api/favorites/note")
@@ -938,60 +767,42 @@ async def favorites_set_note(
     session = await resolve_session(session, fallback_dep=get_session)
     eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     settings = get_current_settings()
-    token = body.token
-    favcat = body.favcat
-    try:
-        item = await FavoritesRepository(session).item_for_gid(body.gid)
-        if item is not None:
-            token = token or item.token
-            if favcat is None:
-                favcat = item.favcat
-        if not token:
-            gallery = await GalleryRepository(session).get_by_gid(body.gid)
-            if gallery is not None:
-                token = gallery.token
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    if not token:
-        raise HTTPException(status_code=422, detail="token is required")
-    if favcat is None:
-        raise HTTPException(status_code=422, detail="not in favorites")
-    # Read phase finished: return the pooled connection before the cloud call.
-    await release_session(session)
-    cloud_ok = False
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            await client.add_favorite(body.gid, str(token), int(favcat), note=body.note)
-        cloud_ok = True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("cloud favorite note failed", extra=log_extra(error=type(exc).__name__))
-        cloud_ok = False
-    local_updated = 0
-    if cloud_ok:
-        try:
-            async with safe_transaction(session):
-                local_updated = await FavoritesRepository(session).update_note(
-                    body.gid, body.note, favcat=int(favcat)
-                )
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-    now = datetime.now(UTC).isoformat()
-    tm = get_task_manager()
-    tm.record_task(
-        "favorites-note",
-        now,
-        now,
-        "success" if cloud_ok else "failed",
-        reason=f"gid {body.gid}",
-        done=local_updated,
-        total=1,
+
+    def _record_note_task(gid: int, cloud_ok: bool, local_updated: int) -> None:
+        now = datetime.now(UTC).isoformat()
+        tm = get_task_manager()
+        tm.record_task(
+            "favorites-note",
+            now,
+            now,
+            "success" if cloud_ok else "failed",
+            reason=f"gid {gid}",
+            done=local_updated,
+            total=1,
+        )
+        spawn_task(tm.persist_history(), "persist task history")
+
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        record_task=_record_note_task,
+        release_session=release_session,
+        db_error=db_error,
+        logger=logger,
     )
-    spawn_task(tm.persist_history(), "persist task history")
+    result = await set_favorite_note(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
     return {
-        "gid": body.gid,
-        "cloud_ok": cloud_ok,
-        "local_updated": local_updated,
-        "note": body.note if cloud_ok else None,
+        "gid": result["gid"],
+        "cloud_ok": result["cloud_ok"],
+        "local_updated": result["local_updated"],
+        "note": result["note"],
     }
 
 

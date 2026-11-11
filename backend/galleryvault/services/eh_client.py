@@ -1924,77 +1924,106 @@ class EhClient:
                 # would be saved as a legit page.
                 if urlparse(url).path.rstrip("/").endswith(("/509.gif", "/509s.gif")):
                     raise EhImageSlowError("ExHentai rate limited (509 placeholder)")
-                async with self.client.stream(
-                    "GET",
-                    url,
-                    headers={"Referer": self.settings.exhentai_base_url.rstrip("/") + "/"},
-                    timeout=timeout,
-                ) as response:
-                    if response.status_code in (429, 509):
-                        raise EhClientError(
-                            f"ExHentai rate limited (HTTP {response.status_code})"
-                        )
-                    if response.status_code in (401, 403):
-                        raise EhClientError(
-                            "ExHentai authentication is required or expired"
-                        )
-                    response.raise_for_status()
-                    # Anti-hijack guard (Ehviewer_CN_SXJ mirrors this): if a
-                    # redirect or a MITM sent us to a host outside ExHentai's own
-                    # CDN/infra, the response is not the requested image.
-                    final_host = (urlparse(str(response.url)).hostname or "").lower()
-                    if (
-                        final_host != host
-                        and not final_host.endswith("hath.network")
-                        and not final_host.endswith(".ehgt.org")
-                        and final_host not in {"exhentai.org", "e-hentai.org"}
-                    ):
-                        raise EhClientError(
-                            f"image download redirected to unexpected host: {final_host}"
-                        )
-                    chunks: list[bytes] = []
-                    total = 0
-                    started = time.monotonic()
-                    # Watchdogs for a slow-but-alive H@H node: the 30s read
-                    # timeout only fires when no bytes arrive at all, so a node
-                    # trickling a few KB/s would otherwise hold the worker
-                    # indefinitely.  Enforce a total wall-clock budget plus a
-                    # minimum average throughput once past the warm-up window.
-                    budget = max(1, int(self.settings.image_download_timeout_seconds))
-                    warmup = max(1, int(self.settings.image_slow_warmup_seconds))
-                    min_speed = max(1, int(self.settings.image_min_speed_kb_s)) * 1024
-                    async for chunk in response.aiter_bytes():
-                        chunks.append(chunk)
-                        total += len(chunk)
-                        elapsed = time.monotonic() - started
-                        if elapsed > budget:
-                            raise EhImageSlowError(
-                                f"image download exceeded {budget}s budget "
-                                f"({total / max(elapsed, 1e-6) / 1024:.0f} KB/s)"
+                # ``image_download_timeout_seconds`` is an end-to-end deadline
+                # for the whole image transfer, not just a per-chunk budget:
+                # the httpx timeouts above only bound individual phases, so a
+                # node that never sends response headers (or trickles bytes
+                # just under the read watchdog) would otherwise hold the
+                # worker indefinitely.  Cancellation unwinds through the
+                # ``stream`` context manager, which closes the response.
+                deadline = float(self.settings.image_download_timeout_seconds)
+                try:
+                    async with asyncio.timeout(deadline):
+                        async with self.client.stream(
+                            "GET",
+                            url,
+                            headers={
+                                "Referer": self.settings.exhentai_base_url.rstrip("/") + "/"
+                            },
+                            timeout=timeout,
+                        ) as response:
+                            if response.status_code in (429, 509):
+                                raise EhClientError(
+                                    f"ExHentai rate limited (HTTP {response.status_code})"
+                                )
+                            if response.status_code in (401, 403):
+                                raise EhClientError(
+                                    "ExHentai authentication is required or expired"
+                                )
+                            response.raise_for_status()
+                            # Anti-hijack guard (Ehviewer_CN_SXJ mirrors this): if a
+                            # redirect or a MITM sent us to a host outside ExHentai's
+                            # own CDN/infra, the response is not the requested image.
+                            final_host = (
+                                urlparse(str(response.url)).hostname or ""
+                            ).lower()
+                            if (
+                                final_host != host
+                                and not final_host.endswith("hath.network")
+                                and not final_host.endswith(".ehgt.org")
+                                and final_host not in {"exhentai.org", "e-hentai.org"}
+                            ):
+                                raise EhClientError(
+                                    "image download redirected to unexpected host: "
+                                    f"{final_host}"
+                                )
+                            chunks: list[bytes] = []
+                            total = 0
+                            started = time.monotonic()
+                            # Watchdogs for a slow-but-alive H@H node: the 30s read
+                            # timeout only fires when no bytes arrive at all, so a node
+                            # trickling a few KB/s would otherwise hold the worker
+                            # indefinitely.  Enforce a total wall-clock budget plus a
+                            # minimum average throughput once past the warm-up window.
+                            budget = max(
+                                1, int(self.settings.image_download_timeout_seconds)
                             )
-                        if elapsed > warmup and total / elapsed < min_speed:
-                            raise EhImageSlowError(
-                                "H@H node throttled "
-                                f"({total / elapsed / 1024:.0f} KB/s < "
-                                f"{int(self.settings.image_min_speed_kb_s)} KB/s)"
+                            warmup = max(
+                                1, int(self.settings.image_slow_warmup_seconds)
                             )
-                    content_type = (
-                        response.headers.get("content-type", "")
-                        .split(";")[0]
-                        .strip()
-                    )
-                    if not chunks or content_type.lower().startswith("text/"):
-                        raise EhClientError("image response was not an image")
-                    content_length = response.headers.get("content-length")
-                    if (
-                        content_length is not None
-                        and content_length.isdigit()
-                        and total != int(content_length)
-                    ):
-                        # Truncated by a proxy or a server hiccup — surface it as
-                        # a retryable failure instead of writing a corrupt page.
-                        raise EhClientError("image download was incomplete")
-                    return b"".join(chunks), content_type
+                            min_speed = (
+                                max(1, int(self.settings.image_min_speed_kb_s)) * 1024
+                            )
+                            async for chunk in response.aiter_bytes():
+                                chunks.append(chunk)
+                                total += len(chunk)
+                                elapsed = time.monotonic() - started
+                                if elapsed > budget:
+                                    raise EhImageSlowError(
+                                        f"image download exceeded {budget}s budget "
+                                        f"({total / max(elapsed, 1e-6) / 1024:.0f} KB/s)"
+                                    )
+                                if elapsed > warmup and total / elapsed < min_speed:
+                                    raise EhImageSlowError(
+                                        "H@H node throttled "
+                                        f"({total / elapsed / 1024:.0f} KB/s < "
+                                        f"{int(self.settings.image_min_speed_kb_s)} KB/s)"
+                                    )
+                            content_type = (
+                                response.headers.get("content-type", "")
+                                .split(";")[0]
+                                .strip()
+                            )
+                            if not chunks or content_type.lower().startswith("text/"):
+                                raise EhClientError("image response was not an image")
+                            content_length = response.headers.get("content-length")
+                            if (
+                                content_length is not None
+                                and content_length.isdigit()
+                                and total != int(content_length)
+                            ):
+                                # Truncated by a proxy or a server hiccup — surface
+                                # it as a retryable failure instead of writing a
+                                # corrupt page.
+                                raise EhClientError("image download was incomplete")
+                            return b"".join(chunks), content_type
+                except TimeoutError as exc:
+                    # Same exception type as the in-loop budget check so callers
+                    # keep classifying this as a retryable slow node.
+                    raise EhImageSlowError(
+                        f"image download exceeded {deadline:g}s budget "
+                        "(end-to-end deadline)"
+                    ) from exc
         except httpx.RequestError as exc:
             logger.warning(
                 "image download request failed",

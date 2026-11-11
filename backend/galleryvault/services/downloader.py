@@ -389,7 +389,7 @@ class Downloader:
         root: str | Path,
         *,
         concurrency: int = 2,
-        page_concurrency: int = 8,
+        page_concurrency: int = 4,
     ) -> None:
         self._client_ref = client
         self.root = Path(root)

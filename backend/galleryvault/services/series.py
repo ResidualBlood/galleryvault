@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
+from gallery_dedup import is_noise_bracket
 from sqlalchemy import update
 
 from ..db.models import Series
@@ -47,12 +48,36 @@ _VOL_SUFFIX_RE = re.compile(
 _SUBTITLE_SUFFIX_RE = re.compile(
     r"\s*(?:催眠[編编]|前[編编]|[後后][編编]|中[編编]|完[結结][編编]|上[巻卷]|下[巻卷])\s*$"
 )
+# 单个成对括号段（含全角/方头括号），用于按段判断是否是版本/翻译噪声。
+_BRACKET_SEGMENT_RE = re.compile(r"[\(\[\{（【［][^\)\]\}）】］]*[\)\]\}）】］]")
+# 引导作者段：[] 或 【】。
+_ARTIST_LEAD_RE = re.compile(r"^\s*(?:\[([^\]]+)\]|【([^】]+)】)\s*")
+# A - B 拆分的左段最大长度（与 gallery-dedup 0.2.0 护栏一致）。
+_DASH_ARTIST_MAX_LEN = 24
+
+
+def _strip_noise_brackets(text: str) -> str:
+    """Replace version/translation noise bracket segments with a space."""
+
+    def repl(match: re.Match[str]) -> str:
+        segment = match.group(0)
+        return " " if is_noise_bracket(segment[1:-1]) else segment
+
+    return _BRACKET_SEGMENT_RE.sub(repl, text)
 
 
 def _core_effective_length(core: str) -> int:
-    """Calculate effective length where CJK characters count as 2 and ASCII counts as 1."""
+    """Calculate effective length where CJK/Hangul characters count as 2 and ASCII counts as 1."""
     return sum(
-        2 if ("\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff") else 1
+        2
+        if (
+            "\u3040" <= ch <= "\u30ff"
+            or "\u3400" <= ch <= "\u9fff"
+            or "\u1100" <= ch <= "\u11ff"
+            or "\u3130" <= ch <= "\u318f"
+            or "\uac00" <= ch <= "\ud7a3"
+        )
+        else 1
         for ch in core
     )
 
@@ -61,11 +86,13 @@ def extract_artist_and_stripped_title(raw: str) -> tuple[str, str]:
     """Parse raw title according to PLAN-系列匹配:
 
     1. Repeatedly strip leading ()/（） event prefixes.
-    2. Extract artist: inner of [Circle (Artist)] / [Artist]; else Artist - Title (-/–/—).
-       Skip if inner matches C\\d+. artist="" if not found.
-    3. Strip noise brackets whole-segment: 动态压缩版/动态版/无修/無修正/AI Generated/DL版.
-    4. Strip trailing volume numbers attached to end of title (do not strip internal numbers).
-    5. Strip trailing subtitle terms (e.g. 催眠編/前編/後編/中編/完結編/上巻/下巻).
+    2. Strip whole version/translation noise brackets ([DL版]/【無修正】/[中国翻訳]…).
+    3. Extract artist: inner of [Circle (Artist)] / [Artist] / 【Artist】; else
+       Artist - Title (-/–/—) when the left side is short enough and the right
+       side has a usable core. Skip C\\d+ and noise segments. artist="" if not found.
+    4. Strip remaining local noise brackets whole-segment.
+    5. Strip trailing volume numbers attached to end of title (do not strip internal numbers).
+    6. Strip trailing subtitle terms (e.g. 催眠編/前編/後編/中編/完結編/上巻/下巻).
     """
     cleaned = (raw or "").strip()
 
@@ -79,16 +106,19 @@ def extract_artist_and_stripped_title(raw: str) -> tuple[str, str]:
             break
         cleaned = rem
 
-    # 2. 作者
+    # 2. 先删噪声括号再取作者，否则 [DL版]/[English] 会被吃成作者
+    cleaned = _strip_noise_brackets(cleaned).strip()
+
+    # 3. 作者
     artist = ""
     while True:
-        m = re.match(r"^\s*\[([^\]]+)\]\s*", cleaned)
+        m = _ARTIST_LEAD_RE.match(cleaned)
         if not m:
             break
-        inner = m.group(1).strip()
+        inner = (m.group(1) or m.group(2) or "").strip()
         cleaned = cleaned[m.end() :].strip()
-        # 内层若是 C\d+ 则跳过再找
-        if re.fullmatch(r"[cC]\d+", inner):
+        # 内层若是 C\d+ 或噪声 token 则跳过再找
+        if re.fullmatch(r"[cC]\d+", inner) or is_noise_bracket(inner):
             continue
         sub = re.search(r"\(([^)]+)\)", inner)
         cand = sub.group(1).strip() if sub else inner
@@ -99,16 +129,30 @@ def extract_artist_and_stripped_title(raw: str) -> tuple[str, str]:
     if not artist:
         m_dash = re.match(r"^\s*([^-–—]+?)\s*[-–—]\s*(.+)$", cleaned)
         if m_dash:
-            artist = m_dash.group(1).strip().lower()
-            cleaned = m_dash.group(2).strip()
+            left = m_dash.group(1).strip()
+            right = m_dash.group(2).strip()
+            left_is_short = " " not in left and "\u3000" not in left
+            right_is_long = (
+                _core_effective_length(normalize_title(right))
+                >= CORE_MIN_EFFECTIVE_LEN
+            )
+            # 与 gallery-dedup 同款护栏：长左段（含空格且 >24 字）或过短右段不拆
+            if (
+                left
+                and right
+                and (left_is_short or len(left) <= _DASH_ARTIST_MAX_LEN)
+                and right_is_long
+            ):
+                artist = left.lower()
+                cleaned = right
 
-    # 3. 噪声括号整段删（宁少勿滥）
+    # 4. 噪声括号整段删（宁少勿滥）
     cleaned = _NOISE_BRACKETS_RE.sub(" ", cleaned).strip()
 
-    # 4. 卷号：删末尾及紧贴书名末字的卷号
+    # 5. 卷号：删末尾及紧贴书名末字的卷号
     cleaned = _VOL_SUFFIX_RE.sub("", cleaned).strip()
 
-    # 5. 核心末尾整词副标题（可无空格）
+    # 6. 核心末尾整词副标题（可无空格）
     cleaned = _SUBTITLE_SUFFIX_RE.sub("", cleaned).strip()
 
     # 若副标题移除后末尾显露出卷号，再清一次末尾卷号
@@ -545,6 +589,15 @@ async def rebuild_series_groups(
             repo = SeriesRepository(session)
             if auto_series_ids:
                 await repo.clear_auto_series_items(auto_series_ids)
+                # 两阶段写入：先把所有 auto 系列的旧 match_key 置空，再写新 key。
+                # 复用行改 key 时旧 key 可能仍被其它（稍后才删除/改写的）auto 行占用，
+                # 直接写新 key 会命中 series.match_key 唯一约束并整事务回滚。
+                if hasattr(session, "execute"):
+                    await session.execute(
+                        update(Series)
+                        .where(Series.id.in_(auto_series_ids))
+                        .values(match_key=None)
+                    )
 
             created_count = 0
             merged_count = 0

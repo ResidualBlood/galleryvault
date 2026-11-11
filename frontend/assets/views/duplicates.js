@@ -43,7 +43,7 @@ function dupGalThumb(c) {
   const src = c.gallery_id != null
     ? `/api/galleries/${c.gallery_id}/thumb/0`
     : `/api/scan/duplicates/thumb/${encodeURIComponent(c.key)}`;
-  return `<img class="dup-thumb" loading="lazy" src="${src}" alt="">`;
+  return `<img class="dup-thumb" loading="lazy" src="${esc(coverSrc(src))}" alt="">`;
 }
 let isPollingDupScan = false;
 
@@ -213,7 +213,8 @@ function dupThumbHtml(it) {
   const src = it.gallery_id != null
     ? `/api/galleries/${it.gallery_id}/thumb/0`
     : (it.cover_data || null);
-  return src ? `<img class="dup-thumb" loading="lazy" src="${src}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`;
+  const safe = esc(coverSrc(src));
+  return safe ? `<img class="dup-thumb" loading="lazy" src="${safe}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`;
 }
 
 function dupItemState(it) {
@@ -243,7 +244,7 @@ function renderDupGroups(st) {
       <div class="panel dup-group ${hidden ? "dup-hidden" : ""}" style="margin-top:14px">
         <div class="dup-group-head">
           <span class="dup-count">${esc(g.items.length)} ×</span>
-          <a class="dup-main-title" href="${esc(g.items[0].url)}" target="_blank" rel="noopener">${esc(g.items[0].display_title || g.items[0].title)}</a>
+          <a class="dup-main-title" href="${esc(safeHref(g.items[0].url))}" target="_blank" rel="noopener">${esc(g.items[0].display_title || g.items[0].title)}</a>
           ${g.artist ? `<span class="dup-artist">${esc(g.artist)}</span>` : ""}
           ${hidden ? `<span class="badge dup-ignored-badge">${esc(t("dupIgnored"))}</span>` : ""}
           <span class="dup-head-actions"><button class="secondary" data-action="dup-group-sel" data-gi="${gi}" type="button">${esc(t("select"))}</button></span>
@@ -254,7 +255,7 @@ function renderDupGroups(st) {
               <span class="dup-thumb-wrap">${dupThumbHtml(it)}</span>
               <span class="dup-body">
                 <span class="dup-title">
-                  <a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.display_title || it.title)}</a>
+                  <a href="${esc(safeHref(it.url))}" target="_blank" rel="noopener">${esc(it.display_title || it.title)}</a>
                 </span>
                 <span class="dup-meta">
                   ${it.gallery_id != null ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id }, { from: currentFromPath() })}">${esc(t("favLocal"))}</a>` : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`}
@@ -531,7 +532,7 @@ async function crossGidViewBody({ api: viewApi, stale }) {
     </div>
     <details class="panel" style="margin:12px 0 14px;padding:10px 14px;font-size:13px;border:1px solid var(--line);border-radius:6px;">
       <summary style="cursor:pointer;font-weight:600;color:var(--text);">${esc(t("dupXgidInfoSummary"))}</summary>
-      ${t("dupXgidInfoDetail")}
+      ${tHtml("dupXgidInfoDetail")}
     </details>
     <div id="dupxgid-groups"><p class="muted">${esc(t("loading"))}</p></div>`;
   if (dupXgidCache === null || !dupXgidReady) {
@@ -618,7 +619,7 @@ function renderCrossGidList() {
     const mainTitleHtml = firstItem.gallery_id != null
       ? `<a class="dup-main-title" href="${navHash("gallery", { id: firstItem.gallery_id }, { from: currentFromPath() })}">${esc(mainTitle)}</a>`
       : (firstItem.url
-        ? `<a class="dup-main-title" href="${esc(firstItem.url)}" target="_blank" rel="noopener">${esc(mainTitle)}</a>`
+        ? `<a class="dup-main-title" href="${esc(safeHref(firstItem.url))}" target="_blank" rel="noopener">${esc(mainTitle)}</a>`
         : `<span class="dup-main-title">${esc(mainTitle)}</span>`);
 
     return `
@@ -639,7 +640,7 @@ function renderCrossGidList() {
           const titleHtml = isLocal
             ? `<a href="${navHash("gallery", { id: it.gallery_id }, { from: currentFromPath() })}">${esc(titleText)}</a>`
             : (it.url
-              ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(titleText)}</a>`
+              ? `<a href="${esc(safeHref(it.url))}" target="_blank" rel="noopener">${esc(titleText)}</a>`
               : `<span>${esc(titleText)}</span>`);
           const badgeHtml = isLocal
             ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id }, { from: currentFromPath() })}">${esc(t("favLocal"))}</a>`
@@ -647,8 +648,9 @@ function renderCrossGidList() {
           const thumbSrc = isLocal
             ? `/api/galleries/${it.gallery_id}/thumb/0`
             : (it.cover_url || it.cover_data || null);
-          const thumbHtml = thumbSrc
-            ? `<img class="dup-thumb" loading="lazy" src="${thumbSrc}" alt="">`
+          const thumbSafe = esc(coverSrc(thumbSrc));
+          const thumbHtml = thumbSafe
+            ? `<img class="dup-thumb" loading="lazy" src="${thumbSafe}" alt="">`
             : `<span class="dup-thumb dup-thumb-empty"></span>`;
           const catText = it.category
             ? catLabel(it.category)

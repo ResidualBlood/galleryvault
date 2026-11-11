@@ -47,6 +47,13 @@ function t(key, params) {
   return res;
 }
 
+// Explicit "this locale value is trusted HTML" variant: returns t() verbatim
+// for insertion into innerHTML (no escaping). Only for keys whose text is
+// authored HTML — currently integrityInfoDetail / dupXgidInfoDetail.
+function tHtml(key, params) {
+  return t(key, params);
+}
+
 function nsLabel(ns) {
   const cur = I18N[app.lang];
   if (cur && cur.ns && cur.ns[ns]) return cur.ns[ns];

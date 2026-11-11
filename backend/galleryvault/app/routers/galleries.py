@@ -3,23 +3,13 @@
 from __future__ import annotations
 
 import inspect
-import io
 import logging
-import os
-import tempfile
-from collections.abc import Iterator
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any, BinaryIO
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
-from PIL import Image, ImageSequence
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.background import BackgroundTask
-from starlette.concurrency import run_in_threadpool
 
 from ...db.models import Gallery, GalleryPage
 from ...db.repository import (
@@ -31,18 +21,11 @@ from ...db.repository import (
 from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...metadata.sidecar import parse_datetime_utc
-from ...scanners import registry
-from ...scanners.base import CATEGORIES, GalleryMeta, PageInfo
+from ...scanners import registry  # noqa: F401  # tests patch galleries.registry.for_path
+from ...scanners.base import CATEGORIES
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import FavoriteData
-from ...services.export_cbz import (
-    UnsafeExportPath,
-    cbz_filename,
-    is_cbz_file,
-    pack_directory_cbz,
-)
-from ...services.favorites_worker import ensure_remote_cover
 from ...services.gallery_service import GalleryService
 from ...services.tag_sync import (
     GalleryGidMissing,
@@ -51,7 +34,7 @@ from ...services.tag_sync import (
     TagSyncService,
 )
 from ...services.tag_translation import translated_tag
-from ...services.thumbnails import JPEG_MIME, ThumbnailError, ThumbnailService
+from ...services.thumbnails import ThumbnailService
 from ..core.eh_client_manager import EhClientManager
 from ..dependencies import (
     db_error,
@@ -62,7 +45,6 @@ from ..dependencies import (
     get_gallery_service,
     get_session,
     get_task_manager,
-    image_content_type,
     release_session,
     resolve_session,
     spawn_task,
@@ -75,12 +57,17 @@ from ..schemas import (
     ProgressRequest,
 )
 from ..state import app_state
+from . import galleries_media
 from .downloads import _create_from_prepared
+
+from .media_probe import (  # noqa: F401  # isort: skip
+    _fast_parse_gif_duration, _fast_parse_webp_duration, _inspect_image_meta,
+    _skip_stream_bytes, _skip_subblocks,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_PAGE_STREAM_CHUNK = 256 * 1024
 _IMAGE_QUALITY = frozenset({"original", "resample"})
 
 
@@ -91,49 +78,6 @@ def _parse_posted(value: str | None) -> datetime | None:
     if dt is None:
         raise HTTPException(status_code=422, detail="invalid posted date")
     return dt
-
-
-def _page_media_type(ext: str) -> str:
-    """Map a page file extension to a standards-compliant media type."""
-    return {"jpg": "image/jpeg", "jpe": "image/jpeg", "jpeg": "image/jpeg"}.get(
-        (ext or "").lower(), f"image/{ext}"
-    )
-
-
-def _closing_stream(stream: BinaryIO) -> Iterator[bytes]:
-    """Yield a sync page stream in 256KB chunks, closing the file when exhausted."""
-    try:
-        while True:
-            chunk = stream.read(_PAGE_STREAM_CHUNK)
-            if not chunk:
-                break
-            yield chunk
-    finally:
-        try:
-            stream.close()
-        except OSError:
-            pass
-
-
-def _meta(row: Gallery, pages: list[GalleryPage]) -> GalleryMeta:
-    return GalleryMeta(
-        title=row.title,
-        path=Path(row.storage_path or ""),
-        storage_type=row.storage_type or "ehviewer_dir",
-        pages=[
-            PageInfo(
-                p.page_index,
-                p.member_name or f"{p.page_index:04d}",
-                p.media_type or "jpg",
-                (p.manifest or {}).get("size"),
-                (p.manifest or {}).get("mtime_ns"),
-            )
-            for p in pages
-        ],
-        gid=row.gid,
-        token=row.token,
-        storage_signature=row.storage_signature,
-    )
 
 
 async def _gallery_lookup(
@@ -1691,551 +1635,19 @@ async def sync_gallery_tags(
     }
 
 
-def _unlink_export(path: str) -> None:
-    Path(path).unlink(missing_ok=True)
+# Media endpoints live in ``galleries_media``; include them at the tail so the
+# original route registration order is unchanged.
+router.include_router(galleries_media.router)
 
-
-@router.get("/api/galleries/{identifier}/export.cbz")
-async def export_gallery_cbz(
-    identifier: int,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> FileResponse:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _invoke_gallery(identifier, session=session)
-    path = Path(row.storage_path or "")
-    now = datetime.now(UTC).isoformat()
-    filename = cbz_filename(getattr(row, "title", None), getattr(row, "gid", None), row.id)
-    total = len(pages)
-    page_pairs = [(p.page_index, p.member_name or "") for p in pages]
-
-    def _log(status: str, reason: str, done: int = 0) -> None:
-        tm = get_task_manager()
-        tm.record_task(
-            "export-cbz",
-            now,
-            datetime.now(UTC).isoformat(),
-            status,
-            reason=reason,
-            done=done,
-            total=total,
-        )
-        spawn_task(tm.persist_history(), "persist task history")
-
-    if not path.exists():
-        _log("failed", "missing files")
-        raise HTTPException(status_code=404, detail="Gallery files not found")
-    if is_cbz_file(path):
-        _log("success", path.name, total)
-        await release_session(session)
-        return FileResponse(path, filename=filename, media_type="application/zip")
-    if not path.is_dir() or not pages:
-        _log("failed", "not exportable")
-        raise HTTPException(status_code=404, detail="Gallery files not found")
-    settings = get_current_settings()
-    export_dir = Path(settings.download_root) / ".exports"
-    export_dir.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(suffix=".cbz", dir=export_dir)
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    await release_session(session)
-    try:
-        await run_in_threadpool(pack_directory_cbz, path, page_pairs, tmp_path)
-    except UnsafeExportPath as exc:
-        tmp_path.unlink(missing_ok=True)
-        _log("failed", "path escape")
-        raise HTTPException(
-            status_code=400, detail="Page path escapes gallery directory"
-        ) from exc
-    except FileNotFoundError as exc:
-        tmp_path.unlink(missing_ok=True)
-        _log("failed", "missing page")
-        raise HTTPException(status_code=404, detail="Page file not found") from exc
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
-    _log("success", filename, total)
-    return FileResponse(
-        tmp_path,
-        filename=filename,
-        media_type="application/zip",
-        background=BackgroundTask(_unlink_export, str(tmp_path)),
-    )
-
-
-@router.get("/api/galleries/{identifier}/pages/{page_index}")
-async def get_page(
-    identifier: int,
-    page_index: int,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> StreamingResponse:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _invoke_gallery(identifier, session=session)
-    page = next((p for p in pages if p.page_index == page_index), None)
-    if page is None:
-        raise HTTPException(status_code=404, detail="Page not found")
-    media_type = _page_media_type(page.media_type or "jpg")
-    page_info = PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg")
-    storage_path = Path(row.storage_path or "")
-    scanner = registry.for_path(storage_path)
-    if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
-    try:
-        stream = await run_in_threadpool(
-            scanner.open_page,
-            _meta(row, pages),
-            page_info,
-        )
-    except (ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    # Streaming starts after this coroutine returns; release the pooled
-    # connection now instead of when the response finishes.
-    await release_session(session)
-    return StreamingResponse(
-        _closing_stream(stream),
-        media_type=media_type,
-    )
-
-
-def _skip_stream_bytes(stream: BinaryIO, num_bytes: int) -> bool:
-    if num_bytes <= 0:
-        return True
-    try:
-        stream.seek(num_bytes, 1)
-        return True
-    except (OSError, AttributeError, io.UnsupportedOperation):
-        remaining = num_bytes
-        while remaining > 0:
-            chunk = stream.read(min(remaining, 65536))
-            if not chunk:
-                return False
-            remaining -= len(chunk)
-        return True
-
-
-def _skip_subblocks(stream: BinaryIO) -> bool:
-    subblock_count = 0
-    max_subblocks = 100_000
-    while subblock_count < max_subblocks:
-        subblock_count += 1
-        sub_len_b = stream.read(1)
-        if not sub_len_b:
-            return False
-        sub_len = sub_len_b[0]
-        if sub_len == 0:
-            return True
-        if not _skip_stream_bytes(stream, sub_len):
-            return False
-    return False
-
-
-def _fast_parse_gif_duration(stream: BinaryIO) -> int | None:
-    try:
-        start_pos = stream.tell()
-    except (OSError, AttributeError, io.UnsupportedOperation):
-        start_pos = 0
-
-    try:
-        header = stream.read(6)
-        if header not in (b"GIF87a", b"GIF89a"):
-            return None
-
-        lsd = stream.read(7)
-        if len(lsd) < 7:
-            return None
-
-        packed = lsd[4]
-        if packed & 0x80:
-            gct_size = 3 * (1 << ((packed & 0x07) + 1))
-            gct = stream.read(gct_size)
-            if len(gct) < gct_size:
-                return None
-
-        frame_count = 0
-        total_duration = 0
-        current_gce_delay: int | None = None
-        block_count = 0
-
-        while block_count < 10000:
-            block_count += 1
-            intro = stream.read(1)
-            if not intro or intro == b"\x3b":
-                break
-
-            if intro == b"\x00":
-                continue
-
-            if intro == b"\x21":
-                label = stream.read(1)
-                if not label:
-                    return None
-                if label == b"\xf9":
-                    size_b = stream.read(1)
-                    if not size_b:
-                        return None
-                    size = size_b[0]
-                    gce_data = stream.read(size)
-                    if len(gce_data) < size:
-                        return None
-                    if size >= 4:
-                        delay_cs = int.from_bytes(gce_data[1:3], "little")
-                        current_gce_delay = 100 if delay_cs <= 1 else delay_cs * 10
-                    if not _skip_subblocks(stream):
-                        return None
-                else:
-                    if not _skip_subblocks(stream):
-                        return None
-
-            elif intro == b"\x2c":
-                desc = stream.read(9)
-                if len(desc) < 9:
-                    return None
-                img_packed = desc[8]
-                if img_packed & 0x80:
-                    lct_size = 3 * (1 << ((img_packed & 0x07) + 1))
-                    lct = stream.read(lct_size)
-                    if len(lct) < lct_size:
-                        return None
-
-                lzw_min = stream.read(1)
-                if not lzw_min:
-                    return None
-
-                if not _skip_subblocks(stream):
-                    return None
-
-                frame_count += 1
-                total_duration += current_gce_delay if current_gce_delay is not None else 100
-                current_gce_delay = None
-            else:
-                return None
-
-        if frame_count >= 2:
-            return min(total_duration, 120000)
-        return None
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Fast GIF parsing failed: %s", exc)
-        return None
-    finally:
-        try:
-            stream.seek(start_pos)
-        except (OSError, AttributeError, io.UnsupportedOperation):
-            try:
-                stream.seek(0)
-            except (OSError, AttributeError, io.UnsupportedOperation):
-                pass
-
-
-def _fast_parse_webp_duration(stream: BinaryIO) -> int | None:
-    try:
-        start_pos = stream.tell()
-    except (OSError, AttributeError, io.UnsupportedOperation):
-        start_pos = 0
-
-    try:
-        header = stream.read(12)
-        if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WEBP":
-            return None
-
-        total_duration = 0
-        anmf_count = 0
-
-        while True:
-            chunk_header = stream.read(8)
-            if len(chunk_header) < 8:
-                break
-            fourcc = chunk_header[:4]
-            chunk_size = int.from_bytes(chunk_header[4:8], "little")
-            padding = chunk_size % 2
-
-            if fourcc == b"ANMF":
-                if chunk_size < 16:
-                    return None
-                payload_head = stream.read(16)
-                if len(payload_head) < 16:
-                    return None
-                dur = int.from_bytes(payload_head[12:15], "little")
-                if dur <= 0:
-                    dur = 100
-                total_duration += dur
-                anmf_count += 1
-                skip = (chunk_size - 16) + padding
-            else:
-                skip = chunk_size + padding
-
-            if not _skip_stream_bytes(stream, skip):
-                break
-
-        if anmf_count > 0:
-            return min(total_duration, 120000)
-        return None
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Fast WebP parsing failed: %s", exc)
-        return None
-    finally:
-        try:
-            stream.seek(start_pos)
-        except (OSError, AttributeError, io.UnsupportedOperation):
-            try:
-                stream.seek(0)
-            except (OSError, AttributeError, io.UnsupportedOperation):
-                pass
-
-
-def _inspect_image_meta(stream: BinaryIO) -> dict[str, Any]:
-    try:
-        start_pos = 0
-        try:
-            start_pos = stream.tell()
-        except (OSError, AttributeError, io.UnsupportedOperation):
-            start_pos = 0
-
-        try:
-            fast_duration = _fast_parse_webp_duration(stream)
-            if fast_duration is not None:
-                return {"animated": True, "duration_ms": min(fast_duration, 120000)}
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Fast WebP parsing failed, fallback to GIF: %s", exc)
-        finally:
-            try:
-                stream.seek(start_pos)
-            except (OSError, AttributeError, io.UnsupportedOperation):
-                try:
-                    stream.seek(0)
-                except (OSError, AttributeError, io.UnsupportedOperation):
-                    pass
-
-        try:
-            fast_duration = _fast_parse_gif_duration(stream)
-            if fast_duration is not None:
-                return {"animated": True, "duration_ms": min(fast_duration, 120000)}
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Fast GIF parsing failed, fallback to Pillow: %s", exc)
-        finally:
-            try:
-                stream.seek(start_pos)
-            except (OSError, AttributeError, io.UnsupportedOperation):
-                try:
-                    stream.seek(0)
-                except (OSError, AttributeError, io.UnsupportedOperation):
-                    pass
-
-        with Image.open(stream) as img:
-            is_animated = bool(getattr(img, "is_animated", False))
-            if not is_animated:
-                return {"animated": False, "duration_ms": 0}
-            is_webp = getattr(img, "format", "") == "WEBP"
-            total_duration = 0
-            for frame_count, frame in enumerate(ImageSequence.Iterator(img)):
-                if frame_count >= 50:
-                    break
-                if is_webp:
-                    frame.load()
-                dur = frame.info.get("duration", 100)
-                if not isinstance(dur, (int, float)) or dur <= 0:
-                    dur = 100
-                total_duration += int(dur)
-            return {"animated": True, "duration_ms": min(total_duration, 120000)}
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Failed to inspect image meta: %s", exc)
-        return {"animated": False, "duration_ms": 0}
-    finally:
-        try:
-            stream.close()
-        except OSError:
-            pass
-
-
-@router.get("/api/galleries/{identifier}/pages/{page_index}/meta")
-async def get_page_meta(
-    identifier: int,
-    page_index: int,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, Any]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _invoke_gallery(identifier, session=session)
-    page = next((p for p in pages if p.page_index == page_index), None)
-    if page is None:
-        raise HTTPException(status_code=404, detail="Page not found")
-    page_info = PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg")
-    storage_path = Path(row.storage_path or "")
-    scanner = registry.for_path(storage_path)
-    if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
-    # File access happens in a worker thread; the request no longer needs its
-    # DB transaction while the page is opened and inspected.
-    meta = _meta(row, pages)
-    await release_session(session)
-    try:
-        stream = await run_in_threadpool(scanner.open_page, meta, page_info)
-    except FileNotFoundError as exc:
-        logger.warning(
-            "Page meta file missing",
-            extra=log_extra(gallery_id=identifier, page=page_index, error=type(exc).__name__),
-        )
-        raise HTTPException(status_code=404, detail="Page file not found") from exc
-    except ValueError as exc:
-        logger.warning(
-            "Page meta path rejected",
-            extra=log_extra(gallery_id=identifier, page=page_index, error=type(exc).__name__),
-        )
-        raise HTTPException(status_code=400, detail="Invalid page path") from exc
-    except Exception as exc:
-        logger.warning(
-            "Failed to open page for meta",
-            extra=log_extra(gallery_id=identifier, page=page_index, error=type(exc).__name__),
-        )
-        raise HTTPException(status_code=500, detail="Page could not be read") from exc
-
-    return await run_in_threadpool(_inspect_image_meta, stream)
-
-
-def _thumb_file_response(
-    file_path: Path,
-    media_type: str,
-    cache_control: str,
-    gallery_id: int,
-    page_index: int,
-    request: Request | None,
-) -> Response:
-    try:
-        stat = file_path.stat()
-        etag = f'"{gallery_id}-{page_index}-{int(stat.st_mtime)}-{stat.st_size}"'
-    except OSError:
-        etag = None
-
-    headers: dict[str, str] = {"Cache-Control": cache_control}
-    if etag:
-        headers["ETag"] = etag
-        if request is not None:
-            if_none_match = request.headers.get("if-none-match")
-            if if_none_match:
-                tokens = [t.strip() for t in if_none_match.split(",")]
-                if "*" in tokens or etag in tokens or f"W/{etag}" in tokens:
-                    return Response(status_code=304, headers=headers)
-
-    return FileResponse(file_path, media_type=media_type, headers=headers)
-
-
-@router.get("/api/galleries/{identifier}/thumb/{page_index}")
-async def get_thumbnail(
-    identifier: int,
-    page_index: int,
-    request: Request = None,  # type: ignore[assignment]
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> Response:
-    if page_index < 0:
-        raise HTTPException(status_code=404, detail="Page not found")
-
-    pages: list[GalleryPage] | None = None
-    row: Gallery | None = None
-
-    if _gallery is not _default_gallery:
-        try:
-            resolved_session = await resolve_session(session, fallback_dep=get_session)
-        except HTTPException:
-            resolved_session = None
-        row, pages = await _invoke_gallery(identifier, session=resolved_session)
-    else:
-        session = await resolve_session(session, fallback_dep=get_session)
-        repo = GalleryRepository(session)
-        row = await repo.get_by_identifier(identifier)
-
-    if row is None:
-        raise HTTPException(status_code=404, detail="Gallery not found")
-
-    if row.page_count is not None and row.page_count > 0 and page_index >= row.page_count:
-        raise HTTPException(status_code=404, detail="Page allowance exceeded" if False else "Page not found")
-
-    service = _get_thumb_service()
-
-    is_fallback = False
-    if page_index == 0 and row.gid:
-        remote_cover = service.cached_remote_cover(row.gid)
-        if remote_cover is not None:
-            head = await run_in_threadpool(lambda: remote_cover.read_bytes()[:16])
-            media_type = image_content_type(head)
-            if media_type == "application/octet-stream":
-                media_type = JPEG_MIME
-            response = _thumb_file_response(
-                remote_cover,
-                media_type=media_type,
-                cache_control="public, max-age=86400",
-                gallery_id=row.id,
-                page_index=page_index,
-                request=request,
-            )
-            await release_session(session)
-            return response
-        spawn_task(
-            ensure_remote_cover(row.gid, row.token, cache_dir=service.remote_cover_dir()),
-            f"remote cover {row.gid}",
-        )
-        logger.info(
-            "cover fallback: gid=%s source=thumb0 event=fallback",
-            row.gid,
-            extra=log_extra(gid=row.gid, source="thumb0", event="fallback"),
-        )
-        is_fallback = True
-
-    cache_control = (
-        "no-cache"
-        if is_fallback
-        else ("public, max-age=31536000, immutable" if page_index > 0 else "public, max-age=86400")
-    )
-
-    cached = service.cached(row.id, page_index)
-    if cached is not None:
-        response = _thumb_file_response(
-            cached,
-            media_type=JPEG_MIME,
-            cache_control=cache_control,
-            gallery_id=row.id,
-            page_index=page_index,
-            request=request,
-        )
-        await release_session(session)
-        return response
-
-    if pages is None:
-        repo = GalleryRepository(session)
-        pages = list(await repo.get_pages(row.id))
-
-    page = next((p for p in pages if p.page_index == page_index), None)
-    if page is None:
-        raise HTTPException(status_code=404, detail="Page not found")
-
-    scanner = registry.for_path(Path(row.storage_path or ""))
-    if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
-    stream = await run_in_threadpool(
-        scanner.open_page,
-        _meta(row, pages),
-        PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
-    )
-    try:
-        data = await run_in_threadpool(stream.read)
-    finally:
-        try:
-            stream.close()
-        except OSError:
-            pass
-    try:
-        cached = await run_in_threadpool(
-            service.get_or_create, row.id, page.page_index, data
-        )
-    except ThumbnailError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    response = _thumb_file_response(
-        cached,
-        media_type=JPEG_MIME,
-        cache_control=cache_control,
-        gallery_id=row.id,
-        page_index=page_index,
-        request=request,
-    )
-    await release_session(session)
-    return response
-
+get_page = galleries_media.get_page
+get_page_meta = galleries_media.get_page_meta
+export_gallery_cbz = galleries_media.export_gallery_cbz
+_page_media_type = galleries_media._page_media_type
+_closing_stream = galleries_media._closing_stream
+_meta = galleries_media._meta
+_unlink_export = galleries_media._unlink_export
+_thumb_file_response = galleries_media._thumb_file_response
+get_thumbnail = galleries_media.get_thumbnail
 
 gallery_page = get_page
 gallery_page_meta = get_page_meta

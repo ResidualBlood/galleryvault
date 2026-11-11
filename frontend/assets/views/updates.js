@@ -306,7 +306,7 @@ async function favIgnoredViewBody({ api: viewApi, stale }) {
         <div class="dup-row">
           <span class="dup-thumb-wrap">${it.cover_url ? `<img class="dup-thumb" loading="lazy" src="${esc(it.cover_url)}" alt="">` : (it.cover_data ? `<img class="dup-thumb" loading="lazy" src="${esc(it.cover_data)}" alt="">` : `<span class="dup-thumb dup-thumb-empty"></span>`)}</span>
           <span class="dup-body">
-            <span class="dup-title"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></span>
+            <span class="dup-title"><a href="${esc(safeHref(it.url))}" target="_blank" rel="noopener">${esc(it.title)}</a></span>
             <span class="dup-meta">
               ${it.gallery_id != null ? `<a class="badge dup-badge-local" href="${navHash("gallery", { id: it.gallery_id }, { from: currentFromPath() })}">${esc(t("favLocal"))}</a>` : `<span class="badge dup-badge-cloud">${esc(t("favCloud"))}</span>`}
               <span class="badge">#${it.favcat}${favCatNames[it.favcat] ? " " + esc(favCatNames[it.favcat]) : ""}</span>

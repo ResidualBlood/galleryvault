@@ -225,6 +225,13 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .reader.reader-webtoon:fullscreen { justify-content: flex-start; overflow-y: auto; }
 .reader.reader-webtoon:fullscreen img { max-height: none; max-width: 100%; width: min(900px, 100%); height: auto; }
+.reader-page-missing {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 40vh; width: min(900px, 100%); padding: 24px;
+  text-align: center; color: var(--muted); font-size: 14px;
+  border: 1px dashed var(--line); border-radius: 4px;
+  background: var(--panel-2);
+}
 .notif-wrap { position: relative; }
 .notif-badge {
   position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px;

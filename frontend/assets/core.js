@@ -294,6 +294,19 @@ async function api(method, path, body, opts = {}) {
     }
     throw err;
   }
+  // 会话过期：立刻停掉视图轮询并回登录页，避免 refresh 轮询无限打 401。
+  // /api/auth/session 是登录态探针，/login 由 doLogin 直接 fetch，二者都不在这里处理。
+  if (res.status === 401 && path !== "/api/auth/session" && path !== "/login") {
+    app.authenticated = false;
+    clearViewTimers();
+    if (currentViewCleanup) {
+      try { currentViewCleanup(); } catch (_) {}
+      currentViewCleanup = null;
+    }
+    const topbar = $topbar();
+    if (topbar) topbar.hidden = true;
+    renderLogin();
+  }
   if (res.status === 204 || res.headers.get("content-length") === "0") return null;
   let text = "";
   try { text = await res.text(); } catch (_) {}
@@ -403,6 +416,12 @@ async function doLogout() {
   closeNotificationPanel();
   closeMorePanel();
   clearViewTimers();
+  // 登出也要跑视图 cleanup（gallery/series 的 observer + document 监听），
+  // 否则登录页背后仍留着上一视图的监听与轮询。
+  if (currentViewCleanup) {
+    try { currentViewCleanup(); } catch (_) {}
+    currentViewCleanup = null;
+  }
   await fetch("/logout", { method: "POST", credentials: "include" });
   app.authenticated = false;
   app.paused = false;
@@ -442,6 +461,19 @@ function parseHash() {
     const [k, v] = kv.split("=");
     try { app.query[decodeURIComponent(k)] = decodeURIComponent(v || ""); }
     catch (e) { app.query[k.replace(/%/g, "")] = (v || "").replace(/%/g, ""); }
+  }
+  // 非法/缺失的详情 id 直接回浏览页（否则会请求 /api/galleries/ 落 404 错误页）。
+  // series 列表页本身没有 id（#/series），只有带非法 id 段（#/series/x）时才回退。
+  if (app.view === "gallery" || app.view === "reader" || app.view === "series") {
+    const needsId = app.view !== "series" || parts[1] !== undefined;
+    if (needsId && !app.params.id) {
+      toast(t("invalidLink"));
+      app.view = "browse";
+      app.params = {};
+      app.query = {};
+      location.hash = "#/browse";
+      return;
+    }
   }
 }
 

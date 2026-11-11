@@ -4,6 +4,79 @@
 
 let readerTouchCleanup = null;
 
+// Zoom state lives at module scope: the gesture closure is re-created on every
+// re-render, so keeping the scale inside it made a page turn inherit the old
+// zoom level from the previous closure.
+let readerScale = 1;
+
+// Pages that failed to load are remembered briefly so neighbouring-page preloads
+// (and webtoon re-renders) stop hammering a known-broken page.
+const readerPageFailures = new Map();
+const READER_PAGE_FAILURE_TTL = 60000;
+
+// --- pure helpers (frontend/tests/reader-pure.test.mjs) ---
+
+// Key presses are rate-limited per burst: OS key-repeat is dropped entirely and
+// two distinct presses closer than `threshold` ms are collapsed. 80ms keeps fast
+// deliberate tapping (which used to be swallowed by the 150ms global guard).
+function shouldHandleReaderKey(now, last, repeat, threshold) {
+  if (repeat) return false;
+  const limit = typeof threshold === "number" ? threshold : 80;
+  if (!last) return true;
+  return now - last >= limit;
+}
+
+function clampReaderScale(cur, factor) {
+  return Math.min(3.5, Math.max(1, cur * factor));
+}
+
+function readerPageKey(id, page) {
+  return `${id}:${page}`;
+}
+
+function markPageFailed(map, key, now) {
+  if (!map || typeof map.set !== "function") return map;
+  map.set(String(key), typeof now === "number" ? now : Date.now());
+  return map;
+}
+
+function isPageFailed(map, key, now, ttl) {
+  if (!map || typeof map.get !== "function") return false;
+  const at = map.get(String(key));
+  if (typeof at !== "number") return false;
+  const limit = typeof ttl === "number" ? ttl : READER_PAGE_FAILURE_TTL;
+  const ts = typeof now === "number" ? now : Date.now();
+  const age = ts - at;
+  return age >= 0 && age < limit;
+}
+
+function pagePlaceholderHtml(n) {
+  const page = Math.max(0, parseInt(n, 10) || 0);
+  const num = page + 1;
+  const fallback = `Page ${num} unavailable`;
+  let label = fallback;
+  if (typeof t === "function") {
+    label = t("readerPageUnavailable", { n: num }) || fallback;
+  }
+  const safe = typeof esc === "function" ? esc(label) : label;
+  return `<div class="reader-page-missing" data-page="${page}">${safe}</div>`;
+}
+
+// Clear any zoom (scale + per-image transforms) left over from an earlier page.
+function resetReaderZoom() {
+  readerScale = 1;
+  const areas = document.querySelectorAll(".reader-spread, .reader-img-wrap, .webtoon-strip");
+  areas.forEach(area => {
+    area.classList.remove("zoomed");
+    area.style.transform = "";
+    area.style.transformOrigin = "";
+    area.querySelectorAll("img").forEach(img => {
+      img.style.transform = "";
+      img.style.transformOrigin = "";
+    });
+  });
+}
+
 // Reading progress writes are serialised per gallery: only one PUT is in flight
 // at a time and only the newest intent is kept as pending. This prevents late
 // responses (render first frame / debounce / webtoon observer) from overwriting
@@ -74,13 +147,22 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
       try { onSwapComplete(); } catch (_) {}
     }
   };
+  let notified = false;
+  const notifyOnce = () => {
+    if (notified) return;
+    notified = true;
+    notifyComplete();
+  };
 
   if (!img) {
-    notifyComplete();
+    notifyOnce();
     return;
   }
-  if (img.getAttribute("src") === src && img.dataset.page === String(page)) {
-    notifyComplete();
+  // Fast path only when the current image is actually shown: after a failed
+  // swap the old <img> is hidden behind an error placeholder, and returning to
+  // the same page must reload it rather than keep the placeholder.
+  if (img.getAttribute("src") === src && img.dataset.page === String(page) && img.style.display !== "none") {
+    notifyOnce();
     return;
   }
 
@@ -91,6 +173,36 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
   if (img.className) newImg.className = img.className;
   if (alt !== undefined) newImg.alt = alt;
   if (page !== undefined && page !== null) newImg.dataset.page = String(page);
+
+  let failed = false;
+  const failPage = () => {
+    if (failed) {
+      notifyOnce();
+      return;
+    }
+    failed = true;
+    if (img._swapReqId !== reqId) {
+      notifyOnce();
+      return;
+    }
+    const rawPage = (page !== undefined && page !== null)
+      ? Number(page)
+      : parseInt(newImg.dataset.page || "", 10);
+    const gid = (typeof app !== "undefined" && app.params && app.params.id) || "";
+    if (Number.isFinite(rawPage) && rawPage >= 0) {
+      markPageFailed(readerPageFailures, readerPageKey(gid, rawPage), Date.now());
+    }
+    // Keep the <img> node (hidden) so a later page turn can retry the same slot;
+    // the placeholder is a sibling that gets removed on the next successful swap.
+    if (img.parentNode) {
+      img.style.display = "none";
+      if (!img.parentNode.querySelector(".reader-page-missing")) {
+        img.parentNode.insertAdjacentHTML("beforeend", pagePlaceholderHtml(Number.isFinite(rawPage) ? rawPage : 0));
+      }
+    }
+    notifyOnce();
+  };
+  newImg.onerror = failPage;
   newImg.src = src;
 
   const finish = () => {
@@ -98,14 +210,23 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
       // A newer swap has superseded this one. Report completion anyway: the
       // caller (e.g. double-page pending counter / slideshow) must not stall
       // waiting for a swap that will never replace the DOM.
-      notifyComplete();
+      notifyOnce();
+      return;
+    }
+    // decode() rejection and the error event race; a complete image with
+    // naturalWidth 0 is a broken load, not a successful swap.
+    if (failed || (newImg.complete && newImg.naturalWidth === 0)) {
+      failPage();
       return;
     }
     if (img.parentNode) {
       newImg._swapReqId = reqId;
+      const wrap = img.parentNode;
       img.replaceWith(newImg);
+      const placeholder = wrap.querySelector(".reader-page-missing");
+      if (placeholder) placeholder.remove();
     }
-    notifyComplete();
+    notifyOnce();
   };
 
   if (typeof newImg.decode === "function") {
@@ -250,9 +371,12 @@ function buildReaderInnerHtml(id, page, total, mode, gallery) {
 // Warm the HTTP cache for the pages the reader is about to show.
 function preloadReaderPages(id, page, total, mode) {
   const step = mode.startsWith("double") ? 4 : 3;
+  const now = Date.now();
   for (let i = 1; i <= step && page + i < total; i++) {
+    const next = page + i;
+    if (isPageFailed(readerPageFailures, readerPageKey(id, next), now)) continue;
     const pre = new Image();
-    pre.src = `/api/galleries/${id}/pages/${page + i}`;
+    pre.src = `/api/galleries/${id}/pages/${next}`;
   }
 }
 
@@ -309,6 +433,10 @@ async function readerViewBody({ api: viewApi, stale }, mode) {
 
     initReaderGestures();
     preloadReaderPages(id, safePage, total, mode);
+    // The reader renderer is exempt from core.js beforeRender's scroll reset
+    // (this view has its own page positioning), so enter at the top here.
+    try { window.scrollTo({ top: 0, left: 0, behavior: "instant" }); }
+    catch (_) { window.scrollTo(0, 0); }
     if (total > 0) {
       queueProgressWrite(id, safePage, total, { immediate: true });
     }
@@ -421,7 +549,9 @@ function bindReaderKeys() {
   readerKeyHandler = (e) => {
     if (e.type === "keydown") {
       const now = Date.now();
-      if (now - lastKeyTime < 150) return;
+      // Drop OS key-repeat and collapse bursts under 80ms: fast arrow taps used
+      // to be swallowed wholesale by the old 150ms global guard.
+      if (!shouldHandleReaderKey(now, lastKeyTime, e.repeat, 80)) return;
       lastKeyTime = now;
     }
 
@@ -511,30 +641,40 @@ function initReaderGestures() {
     readerTouchCleanup = null;
   }
 
-  const container = document.querySelector(".reader-spread") || document.querySelector(".reader-img-wrap");
+  const container = document.querySelector(".reader-spread")
+    || document.querySelector(".reader-img-wrap")
+    || document.querySelector(".webtoon-strip");
   if (!container) return;
+
+  // Webtoon strips are tall: zoom the strip itself rather than every <img>
+  // (thousands of nodes), while spreads/wraps keep the per-image behaviour.
+  const isStrip = container.classList.contains("webtoon-strip");
+  const zoomTargets = () => (isStrip ? [container] : Array.from(container.querySelectorAll("img")));
+
+  // A fresh gesture surface always starts unzoomed, even if the previous
+  // closure left a scale behind.
+  readerScale = 1;
 
   let lastTap = 0;
   let lastTapX = 0;
   let lastTapY = 0;
   let initialDist = 0;
-  let currentScale = 1;
 
   const onTouchEnd = (e) => {
     if (e.touches.length === 0) {
       const now = Date.now();
       if (now - lastTap < 300) {
         e.preventDefault();
-        const imgs = container.querySelectorAll("img");
-        if (currentScale > 1.2) {
-          currentScale = 1;
+        const imgs = zoomTargets();
+        if (readerScale > 1.2) {
+          readerScale = 1;
           imgs.forEach(img => {
             img.style.transform = "";
             img.style.transformOrigin = "";
           });
           container.classList.remove("zoomed");
         } else {
-          currentScale = 2.2;
+          readerScale = 2.2;
           imgs.forEach(img => {
             const rect = img.getBoundingClientRect();
             const isTapped = rect.width > 0 && rect.height > 0 &&
@@ -547,15 +687,15 @@ function initReaderGestures() {
             } else {
               img.style.transformOrigin = "50% 50%";
             }
-            img.style.transform = `scale(${currentScale})`;
+            img.style.transform = `scale(${readerScale})`;
           });
           container.classList.add("zoomed");
         }
       }
       lastTap = now;
-      if (currentScale <= 1.05) {
-        currentScale = 1;
-        const imgs = container.querySelectorAll("img");
+      if (readerScale <= 1.05) {
+        readerScale = 1;
+        const imgs = zoomTargets();
         imgs.forEach(img => {
           img.style.transform = "";
           img.style.transformOrigin = "";
@@ -582,11 +722,11 @@ function initReaderGestures() {
       const t2 = e.touches[1];
       const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
       const factor = dist / initialDist;
-      currentScale = Math.min(3.5, Math.max(1, currentScale * factor));
+      readerScale = clampReaderScale(readerScale, factor);
       initialDist = dist;
-      const imgs = container.querySelectorAll("img");
-      imgs.forEach(img => { img.style.transform = `scale(${currentScale})`; });
-      if (currentScale > 1.2) container.classList.add("zoomed");
+      const imgs = zoomTargets();
+      imgs.forEach(img => { img.style.transform = `scale(${readerScale})`; });
+      if (readerScale > 1.2) container.classList.add("zoomed");
       else container.classList.remove("zoomed");
     }
   };
@@ -670,15 +810,9 @@ function readerSwapPage(id, target, onSwapComplete) {
 
   const spreadEl = document.querySelector(".reader-spread");
 
-  // Reset zoom if active
-  const readerArea = spreadEl || document.querySelector(".reader-img-wrap");
-  if (readerArea && readerArea.classList.contains("zoomed")) {
-    readerArea.classList.remove("zoomed");
-    readerArea.querySelectorAll("img").forEach(img => {
-      img.style.transform = "";
-      img.style.transformOrigin = "";
-    });
-  }
+  // Zoom never survives a page turn: both the DOM transforms and the module
+  // scale are reset so the next pinch starts from 1x.
+  resetReaderZoom();
 
   if (isDoubleMode && spreadEl) {
     const p1 = target;
@@ -765,8 +899,13 @@ function readerSwapPage(id, target, onSwapComplete) {
   }
 
   updateProgressDebounced(id, target, total);
-  if (target + 1 < total) { const pre = new Image(); pre.src = `/api/galleries/${id}/pages/${target + 1}`; }
-  if (isDoubleMode && target + 2 < total) { const pre2 = new Image(); pre2.src = `/api/galleries/${id}/pages/${target + 2}`; }
+  const preloadNow = Date.now();
+  if (target + 1 < total && !isPageFailed(readerPageFailures, readerPageKey(id, target + 1), preloadNow)) {
+    const pre = new Image(); pre.src = `/api/galleries/${id}/pages/${target + 1}`;
+  }
+  if (isDoubleMode && target + 2 < total && !isPageFailed(readerPageFailures, readerPageKey(id, target + 2), preloadNow)) {
+    const pre2 = new Image(); pre2.src = `/api/galleries/${id}/pages/${target + 2}`;
+  }
   syncReaderUrl();
 }
 

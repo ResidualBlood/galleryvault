@@ -460,3 +460,47 @@ async function galleryGrid(container, page, extraQuery, opts) {
   else { el.innerHTML = `<div class="grid gc-grid">` + data.items.map(galleryCard).join("") + `</div>`; }
   return data;
 }
+
+// Server-provided URLs land in `href`/`src`, so whitelist the scheme/shape
+// before escaping. Call as esc(safeHref(url)): judging after esc() would see
+// `&amp;` and mangle the URL.
+function safeHref(u) {
+  const s = String(u == null ? "" : u).trim();
+  // Backslashes are normalized to slashes by browsers, so `/\evil.com`
+  // would resolve to `//evil.com`; refuse them before the shape check.
+  if (s.includes("\\")) return "#";
+  return /^(https?:\/\/|#|\/(?!\/))/i.test(s) ? s : "#";
+}
+
+// Covers may be data URIs (server allowlist: png/jpeg/gif/webp + base64),
+// http(s) or root-relative paths. Everything else yields "", and callers
+// must skip the <img> instead of emitting src="".
+function coverSrc(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (s.includes("\\")) return "";
+  return /^(data:image\/(png|jpeg|gif|webp);base64,|https?:\/\/|\/(?!\/))/i.test(s) ? s : "";
+}
+
+// Archive dialog: the tier that should be preselected while the preview is
+// still loading, so the radios are never rendered in an unselected state.
+// `app.settings` is prefetched at startup; anything else means resample.
+function archiveDefaultTier(settings) {
+  return settings && settings.archive_quality === "original" ? "original" : "resample";
+}
+
+// Whether the archive confirm button may be clicked. `failed` means the
+// preview request itself failed (nothing to confirm); an empty list or a list
+// where every entry carries `error` has nothing sellable either. `lockTier`
+// keeps the single-tier callers (gallery original download) behaving as before.
+function archiveConfirmEnabled({ items, lockTier, failed } = {}) {
+  if (failed) return false;
+  const list = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!list.length) return false;
+  if (list.every(it => it.error)) return false;
+  if (lockTier === "original") {
+    const first = list.find(it => !it.error);
+    if (!first) return false;
+    return !!first.original_available && first.original_cost != null;
+  }
+  return true;
+}

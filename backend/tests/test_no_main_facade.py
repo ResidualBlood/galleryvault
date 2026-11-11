@@ -31,9 +31,15 @@ def _check_ast_for_main_import(file_path: Path) -> list[str]:
             for alias in node.names:
                 if alias.name.endswith(".main") or alias.name == "main":
                     violations.append(f"{file_path}:{node.lineno}: import {alias.name}")
-        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("getattr", "setattr"):
-            if node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "main":
-                violations.append(f"{file_path}:{node.lineno}: {node.func.id}(main, ...)")
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("getattr", "setattr")
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "main"
+        ):
+            violations.append(f"{file_path}:{node.lineno}: {node.func.id}(main, ...)")
     return violations
 
 

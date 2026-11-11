@@ -11,6 +11,8 @@
 4. ``FavoritesRepository.list_items`` must end every ORDER BY with the unique
    ``favorite_items.id`` key, otherwise ties (a batch shares one
    ``last_seen_at``) can repeat or skip rows across pages.
+5. ``POST /api/favorites/add`` resolves missing tokens with a single
+   ``GalleryRepository.metadata_map`` batch instead of one query per gid.
 """
 
 from __future__ import annotations
@@ -331,6 +333,89 @@ async def test_add_without_any_note_stores_none_locally(
 
     assert result["successful_gids"] == [11]
     assert [item.note for item in _RecordingFavoritesRepo.remembered] == [None]
+
+
+class _RecordingGalleryRepo:
+    """GalleryRepository stand-in that counts metadata lookups."""
+
+    instances: ClassVar[list[_RecordingGalleryRepo]] = []
+    metadata_map_calls: ClassVar[list[list[int]]] = []
+    metadata_for_gid_calls: ClassVar[list[int]] = []
+    metadata: ClassVar[dict[int, dict[str, Any]]] = {}
+    local_galleries: ClassVar[list[Any]] = []
+
+    def __init__(self, session: Any) -> None:
+        self.session = session
+        _RecordingGalleryRepo.instances.append(self)
+
+    async def find_by_gids(self, gids: list[int]) -> list[Any]:
+        return [g for g in _RecordingGalleryRepo.local_galleries if g.gid in gids]
+
+    async def metadata_map(self, gids: list[int]) -> dict[int, dict[str, Any]]:
+        _RecordingGalleryRepo.metadata_map_calls.append([int(gid) for gid in gids])
+        return {
+            int(gid): _RecordingGalleryRepo.metadata[int(gid)]
+            for gid in gids
+            if int(gid) in _RecordingGalleryRepo.metadata
+        }
+
+    async def metadata_for_gid(self, gid: int) -> dict[str, Any] | None:
+        _RecordingGalleryRepo.metadata_for_gid_calls.append(int(gid))
+        raise AssertionError("metadata_for_gid must not be called per gid")
+
+
+@pytest.mark.asyncio
+async def test_add_missing_token_uses_single_metadata_map(
+    monkeypatch: pytest.MonkeyPatch,
+    _quiet_task_manager: None,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    _RecordingGalleryRepo.instances = []
+    _RecordingGalleryRepo.metadata_map_calls = []
+    _RecordingGalleryRepo.metadata_for_gid_calls = []
+    _RecordingGalleryRepo.local_galleries = []
+    _RecordingGalleryRepo.metadata = {
+        101: {"gid": 101, "token": "tok101", "title": "Cached 101"},
+        102: {"gid": 102, "token": "tok102", "title": None},
+        # 103 has no metadata row at all -> must still be judged a failure.
+    }
+
+    cloud_calls: list[Any] = []
+
+    class FakeClient:
+        async def add_favorites(
+            self, pairs: Any, target_favcat: int, note: str = ""
+        ) -> list[int]:
+            cloud_calls.append(list(pairs))
+            return []
+
+    original_client = _patch_add_deps(monkeypatch, FakeClient())
+    monkeypatch.setattr(fav_mod, "GalleryRepository", _RecordingGalleryRepo)
+    try:
+        result = await fav_mod.favorites_add(
+            FavoritesAddRequest(
+                target_favcat=3,
+                items=[
+                    {"gid": 101},
+                    {"gid": 102, "title": "client-title"},
+                    {"gid": 103},
+                ],
+            )
+        )
+    finally:
+        app_state.eh_client = original_client
+
+    # One batched lookup for every gid still missing a token.
+    assert _RecordingGalleryRepo.metadata_map_calls == [[101, 102, 103]]
+    assert _RecordingGalleryRepo.metadata_for_gid_calls == []
+    # Same token/title resolution the old per-gid loop produced.
+    assert cloud_calls == [[(101, "tok101"), (102, "tok102")]]
+    assert result["successful_gids"] == [101, 102]
+    assert result["cloud_failed"] == [103]
+    remembered = {item.gid: item for item in _RecordingFavoritesRepo.remembered}
+    assert remembered[101].title == "Cached 101"  # backfilled from metadata
+    assert remembered[102].title == "client-title"  # client title wins
 
 
 # ---------------------------------------------------------------------------

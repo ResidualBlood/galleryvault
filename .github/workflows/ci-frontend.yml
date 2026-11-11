@@ -36,7 +36,7 @@ jobs:
           if [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -q '^0\+$'; then
             if files=$(git diff --name-only "$BEFORE" "$SHA"); then
               echo "$files"
-              if ! echo "$files" | grep -qE '^(frontend/Dockerfile|frontend/nginx.conf|frontend/index.html|frontend/assets/|frontend/\.dockerignore|\.github/workflows/ci-frontend\.yml)'; then
+              if ! echo "$files" | grep -qE '^(frontend/Dockerfile|frontend/nginx.conf|frontend/index.html|frontend/sw.js|frontend/manifest.webmanifest|frontend/assets/|frontend/\.dockerignore|\.github/workflows/ci-frontend\.yml)'; then
                 image=false
               fi
             fi
@@ -62,6 +62,11 @@ jobs:
       - name: JS syntax check
         working-directory: frontend
         run: for f in assets/*.js assets/locales/*.js assets/views/*.js; do node --check "$f"; done
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: node --test tests/*.mjs
+      - name: nginx config test
+        run: docker run --rm -v "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
 
   build:
     needs: [detect-image]

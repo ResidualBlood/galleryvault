@@ -3,6 +3,7 @@ import hashlib
 import inspect
 import os
 import warnings
+from typing import Any
 
 os.environ.setdefault("GALLERYVAULT_ENABLE_WORKERS", "0")
 
@@ -42,6 +43,7 @@ import pytest
 
 from galleryvault.app.main import app
 from galleryvault.app.state import app_state
+from galleryvault.services.tasks import default_task_manager
 
 
 @pytest.fixture(autouse=True)
@@ -72,6 +74,21 @@ def _isolate_app_state():
     orig_downloader = app_state.downloader
     orig_extra = dict(app_state.extra)
 
+    # ``TaskManager.task_history`` is mutated in place by ``record_task`` /
+    # ``persist_history`` / ``load_history``, and the default manager is a
+    # process singleton. Snapshot and clear it so records written by one test
+    # cannot leak into the next one (and cannot depend on test ordering).
+    task_managers = [default_task_manager]
+    if app_state.task_manager is not None and app_state.task_manager is not default_task_manager:
+        task_managers.append(app_state.task_manager)
+    history_snapshots: list[tuple[Any, list[dict[str, Any]]]] = []
+    for manager in task_managers:
+        history = getattr(manager, "task_history", None)
+        if isinstance(history, list):
+            history_snapshots.append((manager, history))
+            history.clear()
+            manager.task_history = history
+
     # 单元测试默认隔离 worker 连接池，避免跨 loop 污染及打到真实 DB
     if app_state.worker_engine is not None:
         try:
@@ -91,6 +108,9 @@ def _isolate_app_state():
     app_state.task_manager = orig_task_manager
     app_state.downloader = orig_downloader
     app_state.extra = orig_extra
+    for manager, history in history_snapshots:
+        history.clear()
+        manager.task_history = history
     try:
         from galleryvault.app.main import app
 

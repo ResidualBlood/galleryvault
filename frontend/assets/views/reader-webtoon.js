@@ -16,6 +16,24 @@ function cleanupWebtoon() {
   webtoonLastPage = null;
 }
 
+// A broken page used to stay as the browser's broken-image icon and got retried
+// on every re-render. Record it (shared failure map from reader.js) and swap in
+// the same placeholder the paged reader uses.
+function onWebtoonPageError(e) {
+  const img = e.target;
+  if (!img || img.tagName !== "IMG") return;
+  const page = parseInt(img.getAttribute("data-page"), 10);
+  if (!Number.isFinite(page)) return;
+  const id = app.params.id;
+  markPageFailed(readerPageFailures, readerPageKey(id, page), Date.now());
+  if (img.dataset.placeholder === "1") return;
+  img.dataset.placeholder = "1";
+  img.style.display = "none";
+  if (typeof img.insertAdjacentHTML === "function") {
+    img.insertAdjacentHTML("afterend", pagePlaceholderHtml(page));
+  }
+}
+
 function jumpToWebtoonPage(targetPage) {
   const id = app.params.id;
   const total = app.readerTotal || 1;
@@ -99,7 +117,16 @@ async function webtoonReaderViewBody({ api: viewApi, stale }) {
       syncReaderUrl();
     }
     const imgs = [];
+    const now = Date.now();
     for (let i = 0; i < total; i++) {
+      if (isPageFailed(readerPageFailures, readerPageKey(id, i), now)) {
+        // Failed recently (TTL in reader.js): keep the data-page node for
+        // jump/observer bookkeeping but do not set src, so no request is re-sent.
+        imgs.push(
+          `<img loading="lazy" data-page="${i}" data-placeholder="1" style="display:none" alt="Page ${i + 1}">${pagePlaceholderHtml(i)}`
+        );
+        continue;
+      }
       imgs.push(
         `<img loading="lazy" data-page="${i}" src="/api/galleries/${id}/pages/${i}" alt="Page ${i + 1}">`
       );
@@ -129,8 +156,13 @@ async function webtoonReaderViewBody({ api: viewApi, stale }) {
     }
     requestAnimationFrame(() => {
       if (stale()) return;
+      const strip = document.querySelector(".webtoon-strip");
+      if (strip && strip.addEventListener) {
+        strip.addEventListener("error", onWebtoonPageError, true);
+      }
       const target = document.querySelector(`.webtoon-strip img[data-page="${page}"]`);
       if (target) target.scrollIntoView({ block: "start" });
+      initReaderGestures();
       bindWebtoonObserver(id, total);
       webtoonLastPage = page;
       if (total > 0) queueProgressWrite(id, page, total, { immediate: true });

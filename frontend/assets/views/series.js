@@ -3,9 +3,11 @@
 // views/series.js — 系列作品管理视图 (Series)
 
 const selSeriesCloud = new Set();
+// series 视图独立的本地画廊选择集合：不复用画廊库的选择集合（router 离开画廊库时会清空它）
+const selSeriesLocal = new Set();
 
 function updateSeriesToolbarButtons() {
-  const total = selGalleries.size + selSeriesCloud.size;
+  const total = selSeriesLocal.size + selSeriesCloud.size;
   document.querySelectorAll('[data-action="series-download"], [data-action="series-download-orig"], [data-action="series-archive"]').forEach(b => {
     const act = b.getAttribute("data-action");
     const base = act === "series-download" ? t("favDl")
@@ -27,9 +29,9 @@ function seriesMemberCard(it) {
     : `<span class="fav-state cloud">${esc(t("favCloud") || "Cloud")}</span>`;
   const link = isLocal
     ? `href="${navHash("gallery", { id: it.gallery_id || it.id }, { from: currentFromPath() })}"`
-    : `href="${esc(it.url || "#")}" target="_blank" rel="noopener"`;
+    : `href="${esc(safeHref(it.url))}" target="_blank" rel="noopener"`;
   const check = isLocal
-    ? `<label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-gallery-id="${it.gallery_id || it.id}" data-gid="${esc(it.gid || "")}"${selGalleries.has(it.gallery_id || it.id) ? " checked" : ""}></label>`
+    ? `<label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-gallery-id="${it.gallery_id || it.id}" data-gid="${esc(it.gid || "")}"${selSeriesLocal.has(it.gallery_id || it.id) ? " checked" : ""}></label>`
     : `<label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-series-gid="${it.gid}" data-favcat="${it.favcat != null ? it.favcat : ""}"${selSeriesCloud.has(it.gid) ? " checked" : ""}></label>`;
 
   return `<div class="gc-wrap" data-gid="${esc(it.gid || "")}" data-token="${esc(it.token || "")}">
@@ -71,7 +73,7 @@ function getSeriesSelected() {
 
 function clearSeriesSelection() {
   selSeriesCloud.clear();
-  selGalleries.clear();
+  selSeriesLocal.clear();
   document.querySelectorAll('#series-list input[type="checkbox"]').forEach(cb => { cb.checked = false; });
   updateSeriesToolbarButtons();
 }
@@ -168,6 +170,12 @@ function onSeriesChange(e) {
     if (!isNaN(gid)) {
       if (cb.checked) selSeriesCloud.add(gid); else selSeriesCloud.delete(gid);
     }
+  } else if (cb.hasAttribute("data-gallery-id")) {
+    // 本地画廊选择记录在独立集合，series 视图不再依赖画廊库的选择状态
+    const id = parseInt(cb.getAttribute("data-gallery-id"), 10);
+    if (!isNaN(id)) {
+      if (cb.checked) selSeriesLocal.add(id); else selSeriesLocal.delete(id);
+    }
   }
   updateSeriesToolbarButtons();
 }
@@ -250,7 +258,7 @@ async function seriesViewBody({ api: viewApi, stale }) {
   }
 
   selSeriesCloud.clear();
-  selGalleries.clear();
+  // selSeriesLocal 不在这里清空：切走再回 series 时本地选择要保留
 
   renderView(`
     <div id="series-view">
@@ -647,7 +655,7 @@ async function seriesRemoveItem(seriesId, galleryId) {
     try {
       if (localIds.length > 0) {
         await api("POST", `/api/series/${seriesId}/items/remove`, { gallery_ids: localIds });
-        for (const id of localIds) selGalleries.delete(id);
+        for (const id of localIds) selSeriesLocal.delete(id);
       }
       if (cloudGids.length > 0) {
         await api("POST", `/api/series/${seriesId}/cloud-items/remove`, { gids: cloudGids });
