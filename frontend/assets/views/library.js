@@ -6,6 +6,10 @@
 let batchInFlight = false;
 
 async function renderLibrary() {
+  return withViewRender("library", undefined, ctx => libraryViewBody(ctx));
+}
+
+async function libraryViewBody({ seq, signal, stale }) {
   const page = app.query.page || "1";
   const q = app.query.q || "";
   const category = app.query.category || "";
@@ -138,7 +142,8 @@ async function renderLibrary() {
     if (image_quality) extra.image_quality = image_quality;
     if (min_local_rating) extra.min_local_rating = min_local_rating;
     if (list_id) extra.list_id = list_id;
-    const data = await galleryGrid("lib-grid", page, extra);
+    const data = await galleryGrid("lib-grid", page, extra, { signal });
+    if (stale()) return;
     if (data && data.resolved && (data.q !== (app.query.q || "") || data.tags !== (app.query.tags || ""))) {
       location.hash = navHash("library", {}, {
         q: data.q,
@@ -196,10 +201,13 @@ async function renderLibrary() {
       page_size: prefPageSize()
     }));
     bindTagSuggest();
-    startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard);
+    startInfinite("lib-grid", p => galleryGrid(null, p, extra), galleryCard, undefined, { ownerSeq: seq });
     fillLibraryLists(list_id);
     fillSavedSearches();
-  } catch (e) { $view().innerHTML = renderError(e.message); }
+  } catch (e) {
+    if (stale() || isAbortError(e)) return;
+    if (!renderErrorInto("lib-grid", e.message)) $view().innerHTML = renderError(e.message);
+  }
 }
 
 async function deleteFiltered() {

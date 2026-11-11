@@ -39,7 +39,7 @@ function discoverStateMessage(state) {
   return renderError(t("discoverError"));
 }
 
-async function fetchDiscover(nextCursor) {
+async function fetchDiscover(nextCursor, opts) {
   const params = new URLSearchParams();
   if (app.query.q) params.set("q", app.query.q);
   if (app.query.category) params.set("category", app.query.category);
@@ -47,7 +47,7 @@ async function fetchDiscover(nextCursor) {
   if (app.query.list && app.query.list !== "search") params.set("list", app.query.list);
   if (app.query.list === "toplist") params.set("tl", app.query.tl || "15");
   if (nextCursor) params.set("next", nextCursor);
-  return await api("GET", "/api/eh/search?" + params.toString());
+  return await api("GET", "/api/eh/search?" + params.toString(), undefined, opts);
 }
 
 function discoverCard(it) {
@@ -95,6 +95,10 @@ function discoverCard(it) {
 }
 
 async function renderDiscover() {
+  return withViewRender("discover", undefined, ctx => discoverViewBody(ctx));
+}
+
+async function discoverViewBody({ seq, signal, stale }) {
   const q = app.query.q || "";
   const category = app.query.category || "";
   const min_rating = app.query.min_rating || "";
@@ -143,7 +147,8 @@ async function renderDiscover() {
     </form>
     <div id="disc-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>`);
   try {
-    const data = await fetchDiscover(null);
+    const data = await fetchDiscover(null, { signal });
+    if (stale()) return;
     const el = document.getElementById("disc-grid");
     if (!el) return;
     if (data.state === "not_logged_in" || data.state === "no_exhentai_access") refreshCookieHealth();
@@ -157,11 +162,12 @@ async function renderDiscover() {
     }
     el.innerHTML = `<div class="grid gc-grid">` + data.items.map(discoverCard).join("") + `</div>`;
     renderCardCheckboxes({ pruneSelection: selectionScopeChanged() });
-    startInfinite("disc-grid", fetchDiscover, discoverCard, data.next);
+    startInfinite("disc-grid", fetchDiscover, discoverCard, data.next, { ownerSeq: seq });
   } catch (e) {
-    const el = document.getElementById("disc-grid");
-    if (el) el.innerHTML = renderError(e.message || t("discoverError"));
-    else $view().innerHTML = renderError(e.message || t("discoverError"));
+    if (stale() || isAbortError(e)) return;
+    if (!renderErrorInto("disc-grid", e.message || t("discoverError"))) {
+      $view().innerHTML = renderError(e.message || t("discoverError"));
+    }
   }
 }
 

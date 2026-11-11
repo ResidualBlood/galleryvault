@@ -221,6 +221,16 @@ function renderError(msg) {
   return `<p class="error">${esc(msg || t("error"))}</p>`;
 }
 
+// Render an error into an existing container. Returns false (no-op) when the
+// node is gone — the view was replaced while the request was in flight.
+function renderErrorInto(containerId, msg) {
+  if (typeof document === "undefined" || !document.getElementById) return false;
+  const el = document.getElementById(containerId);
+  if (!el) return false;
+  el.innerHTML = renderError(msg);
+  return true;
+}
+
 function renderSkeleton(count = 6) {
   return Array.from({length: count}, () => `<div class="skeleton gc"></div>`).join("");
 }

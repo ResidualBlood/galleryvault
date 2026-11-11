@@ -7,7 +7,11 @@ function nsClass(ns) {
   return "nst-" + (ns && ["artist","character","parody","group","language","location","category","female","male","mixed","other","misc"].includes(ns) ? ns : "misc");
 }
 
-function stopInfinite() {
+function stopInfinite(opts) {
+  // Only the owning render (ownerSeq) or a router-level no-arg call may stop
+  // the current infinite scroller: a stale view must not kill a newer one.
+  const ownerSeq = opts && typeof opts === "object" ? opts.ownerSeq : undefined;
+  if (ownerSeq !== undefined && (!infiniteState || infiniteState.ownerSeq !== ownerSeq)) return;
   if (infiniteState) {
     try { infiniteState.observer && infiniteState.observer.disconnect(); } catch (_) {}
     try { infiniteState.controller && infiniteState.controller.abort(); } catch (_) {}
@@ -16,7 +20,7 @@ function stopInfinite() {
   infiniteState = null;
 }
 
-function startInfinite(containerId, fetchNext, buildItem, initialCursor = null) {
+function startInfinite(containerId, fetchNext, buildItem, initialCursor = null, opts = {}) {
   stopInfinite();
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -204,7 +208,7 @@ function startInfinite(containerId, fetchNext, buildItem, initialCursor = null) 
   }, { rootMargin: ROOT_MARGIN_PX + "px" });
 
   observer.observe(sentinel);
-  infiniteState = { observer, controller, sentinel };
+  infiniteState = { observer, controller, sentinel, ownerSeq: opts && opts.ownerSeq };
 }
 
 function pageSizeSelect(current, view) {
@@ -422,7 +426,7 @@ function catLabel(c) {
   return t(key) || c;
 }
 
-async function galleryGrid(container, page, extraQuery) {
+async function galleryGrid(container, page, extraQuery, opts) {
   const rawSize = extraQuery && extraQuery.page_size ? extraQuery.page_size : prefPageSize();
   const pageSize = Math.max(1, Math.min(500, parseInt(rawSize, 10) || 24));
   const q = Object.assign({ page, page_size: pageSize }, extraQuery || {});
@@ -430,13 +434,13 @@ async function galleryGrid(container, page, extraQuery) {
   const qs = Object.entries(q).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
   let data;
   try {
-    data = await api("GET", `/api/galleries?${qs}`);
+    data = await api("GET", `/api/galleries?${qs}`, undefined, opts);
   } catch (e) {
     // 422 from bad page_size should not white-screen; clamp and retry once
     if (String(e.message).includes("422") && pageSize !== 24) {
       q.page_size = 24;
       const retryQs = Object.entries(q).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
-      data = await api("GET", `/api/galleries?${retryQs}`);
+      data = await api("GET", `/api/galleries?${retryQs}`, undefined, opts);
     } else {
       throw e;
     }

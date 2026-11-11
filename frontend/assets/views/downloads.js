@@ -4,10 +4,15 @@
 // renderDownloads + dl helpers + actions consolidated here for slimming app.js
 
 async function renderDownloads() {
+  return withViewRender("downloads", undefined, ctx => downloadsViewBody(ctx));
+}
+
+async function downloadsViewBody({ api: viewApi, stale }) {
   const filter = app.query.filter || "all";
   // Fetch pause status and GP in background
   let pauseInfo = null;
-  try { pauseInfo = await api("GET", "/api/pause"); } catch (_) {}
+  try { pauseInfo = await viewApi("GET", "/api/pause"); } catch (_) {}
+  if (stale()) return;
   const isPaused = !!(pauseInfo && pauseInfo.paused);
   renderView(`
     <header><p class="eyebrow">DOWNLOADS</p><h1>${esc(t("downloads"))}</h1>

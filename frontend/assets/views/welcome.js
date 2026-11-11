@@ -4,8 +4,13 @@
 // renderWelcome, renderLogin moved from app.js
 
 async function renderWelcome() {
+  return withViewRender("welcome", undefined, ctx => welcomeViewBody(ctx));
+}
+
+async function welcomeViewBody({ api: viewApi, stale }) {
   let st = {};
-  try { st = await api("GET", "/api/onboarding/status"); } catch (_) {}
+  try { st = await viewApi("GET", "/api/onboarding/status"); } catch (_) {}
+  if (stale()) return;
   app.onboarding = st;
   const step = (done, body) => `
     <li class="wizard-step${done ? " done" : ""}">

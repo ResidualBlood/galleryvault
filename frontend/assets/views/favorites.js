@@ -4,6 +4,10 @@
 // renderFavorites, renderFavList, favCard, renderFavPager moved from app.js
 
 async function renderFavorites() {
+  return withViewRender("favorites", undefined, ctx => favoritesViewBody(ctx));
+}
+
+async function favoritesViewBody({ api: viewApi, stale }) {
   $view().innerHTML = `
     <header><p class="eyebrow">EXHENTAI FOLDERS</p><h1>${esc(t("favcatTitle"))}</h1>
     <p class="sub">${esc(t("favcatSub"))}</p></header>
@@ -16,7 +20,8 @@ async function renderFavorites() {
     </div>
     <div id="fav-list"><p>${esc(t("loading"))}</p></div>`;
   try {
-    const cats = await api("GET", "/api/favorites/categories");
+    const cats = await viewApi("GET", "/api/favorites/categories");
+    if (stale()) return;
     (Array.isArray(cats) ? cats : []).forEach(c => { favCatNames[c.favcat] = c.name || ""; });
     const rows = (Array.isArray(cats) ? cats : []).map(c => `
       <tr data-favcat="${c.favcat}">
@@ -34,7 +39,10 @@ async function renderFavorites() {
         <tbody>${rows || `<tr><td colspan="7">—</td></tr>`}</tbody>
       </table>`;
     pollFavoriteRings();
-  } catch (e) { document.getElementById("fav-list").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  } catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("fav-list", e.message);
+  }
 }
 
 // favTimer + selFav moved to state.js
