@@ -493,7 +493,10 @@ async def test_favorite_size_sync_applies_metadata_infers_quality_and_records_hi
         assert applied_calls == [200, 200]
         assert tm.task_history[0]["task"] == "metadata"
         assert tm.task_history[0]["status"] == "success"
-        assert len(tm.task_history) == before + 1
+        # History is capped (tasks._HISTORY_LIMIT); exactly one new entry, clamped at the cap.
+        from galleryvault.services.tasks import _HISTORY_LIMIT
+
+        assert len(tm.task_history) == min(before + 1, _HISTORY_LIMIT)
     finally:
         app_state.session_factory = orig_factory
         app_state.eh_client = orig_client
