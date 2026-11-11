@@ -796,7 +796,7 @@ async def list_categories(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        counts = await GalleryRepository(session).category_counts()
+        counts = dict(await GalleryRepository(session).category_counts())
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {
@@ -1190,7 +1190,11 @@ async def save_gallery_progress(
             row.id, current, total_pages
         )
         if advanced:
-            await repo.record_history(row.id, current, total_pages)
+            # History mirrors the persisted progress (same transaction), not the
+            # possibly stale page from this request.
+            await repo.record_history(
+                row.id, progress.current_page, progress.total_pages
+            )
     persisted = progress.current_page if progress else current
     return {
         "gallery_id": row.id,

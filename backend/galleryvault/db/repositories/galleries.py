@@ -63,6 +63,29 @@ def _is_valid_page_header(header: bytes) -> bool:
     return window.startswith(_IMAGE_MAGIC_PREFIXES)
 
 
+def _session_dialect(session: AsyncSession) -> str:
+    """Best-effort bind dialect name (PostgreSQL in prod, SQLite in tests)."""
+    try:
+        bind = session.get_bind()
+    except Exception:  # noqa: BLE001
+        return ""
+    return getattr(getattr(bind, "dialect", None), "name", "") or ""
+
+
+def _dialect_insert(session: AsyncSession, model: Any) -> tuple[Any, Any]:
+    """Return ``(insert_ctor, greatest)`` for the session's dialect.
+
+    The upserts below rely on ``INSERT .. ON CONFLICT DO UPDATE``.  PostgreSQL
+    exposes ``GREATEST``; SQLite (used by the unit-test suite) only has the
+    two-argument scalar ``max`` and needs its own insert flavour.
+    """
+    if _session_dialect(session) == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        return sqlite_insert(model), func.max
+    return pg_insert(model), func.greatest
+
+
 async def _upsert_uploader_tag(
     session: AsyncSession, pairs: Sequence[tuple[int, str | None]]
 ) -> None:
@@ -1026,6 +1049,24 @@ class GalleryRepository(BaseRepository[Gallery]):
             candidates.sort(key=lambda item: (-item[2], item[0]))
         return result
 
+    async def category_counts(self) -> list[tuple[str, int]]:
+        """Gallery counts per category for the category pills.
+
+        Only usable rows are counted (not expunged, not trashed) and rows with
+        no category are skipped instead of being bucketed under ``None``.
+        """
+        rows = await self.session.execute(
+            select(Gallery.category, func.count(Gallery.id))
+            .where(
+                Gallery.expunged.is_(False),
+                Gallery.trashed.is_(False),
+                Gallery.category.is_not(None),
+            )
+            .group_by(Gallery.category)
+            .order_by(func.count(Gallery.id).desc(), Gallery.category)
+        )
+        return [(category, int(count)) for category, count in rows]
+
     async def tag_facets(self) -> list[tuple[str, int]]:
         """Per-namespace gallery counts for the tag browser pills."""
         rows = await self.session.execute(
@@ -1222,8 +1263,62 @@ class GalleryRepository(BaseRepository[Gallery]):
 
         Late-arriving requests (debounced writer, first-render save, webtoon
         observer) can carry a page older than the stored one; keeping the
-        furthest page makes those writes harmless.  Returns the stored row and
-        whether the value actually advanced.
+        furthest page makes those writes harmless.  The write is one
+        ``INSERT .. ON CONFLICT DO UPDATE`` using ``GREATEST`` so two concurrent
+        requests cannot lose the furthest page the way read-then-write can.
+        Returns the persisted row and whether the caller's page was accepted.
+        """
+        if not callable(getattr(self.session, "execute", None)):
+            return await self._advance_progress_read_modify_write(
+                gallery_id, current_page, total_pages
+            )
+        insert_stmt, greatest = _dialect_insert(self.session, ReadingProgress)
+        insert_stmt = insert_stmt.values(
+            gallery_id=gallery_id,
+            current_page=current_page,
+            total_pages=total_pages,
+            updated_at=datetime.now(UTC),
+        )
+        advancing = insert_stmt.excluded.current_page > ReadingProgress.current_page
+        stmt = insert_stmt.on_conflict_do_update(
+            index_elements=[ReadingProgress.gallery_id],
+            set_={
+                "current_page": greatest(
+                    ReadingProgress.current_page, insert_stmt.excluded.current_page
+                ),
+                "total_pages": case(
+                    (advancing, insert_stmt.excluded.total_pages),
+                    else_=ReadingProgress.total_pages,
+                ),
+                "updated_at": case(
+                    (advancing, insert_stmt.excluded.updated_at),
+                    else_=ReadingProgress.updated_at,
+                ),
+            },
+        ).returning(
+            ReadingProgress.gallery_id,
+            ReadingProgress.current_page,
+            ReadingProgress.total_pages,
+            ReadingProgress.updated_at,
+        )
+        stored_gid, stored_page, stored_total, stored_updated = (
+            await self.session.execute(stmt)
+        ).one()
+        row = ReadingProgress(
+            gallery_id=stored_gid,
+            current_page=stored_page,
+            total_pages=stored_total,
+            updated_at=stored_updated,
+        )
+        return row, int(stored_page or 0) <= current_page
+
+    async def _advance_progress_read_modify_write(
+        self, gallery_id: int, current_page: int, total_pages: int | None
+    ) -> tuple[ReadingProgress, bool]:
+        """Fallback for fake sessions implementing only ``get``/``add``/``flush``.
+
+        Production sessions always expose ``execute`` and take the atomic path
+        above; this keeps the read-modify-write contract for unit-test doubles.
         """
         row = await self.session.get(ReadingProgress, gallery_id)
         advanced = False
@@ -1246,6 +1341,57 @@ class GalleryRepository(BaseRepository[Gallery]):
     async def record_history(
         self, gallery_id: int, current_page: int, total_pages: int | None
     ) -> ReadingHistory:
+        """Upsert the single history row for a gallery.
+
+        ``reading_history`` has a unique ``gallery_id`` constraint, so two
+        concurrent first saves used to race between the SELECT and the INSERT.
+        The upsert keeps that race in the same transaction as the progress
+        write (and never moves the recorded page backwards).
+        """
+        if not callable(getattr(self.session, "execute", None)):
+            return await self._record_history_read_modify_write(
+                gallery_id, current_page, total_pages
+            )
+        insert_stmt, greatest = _dialect_insert(self.session, ReadingHistory)
+        insert_stmt = insert_stmt.values(
+            gallery_id=gallery_id,
+            current_page=current_page,
+            total_pages=total_pages,
+            last_read_at=datetime.now(UTC),
+        )
+        advancing = insert_stmt.excluded.current_page > ReadingHistory.current_page
+        stmt = insert_stmt.on_conflict_do_update(
+            index_elements=[ReadingHistory.gallery_id],
+            set_={
+                "current_page": greatest(
+                    ReadingHistory.current_page, insert_stmt.excluded.current_page
+                ),
+                "total_pages": case(
+                    (advancing, insert_stmt.excluded.total_pages),
+                    else_=ReadingHistory.total_pages,
+                ),
+                "last_read_at": insert_stmt.excluded.last_read_at,
+            },
+        ).returning(
+            ReadingHistory.id,
+            ReadingHistory.gallery_id,
+            ReadingHistory.current_page,
+            ReadingHistory.total_pages,
+            ReadingHistory.last_read_at,
+        )
+        stored = (await self.session.execute(stmt)).one()
+        return ReadingHistory(
+            id=stored.id,
+            gallery_id=stored.gallery_id,
+            current_page=stored.current_page,
+            total_pages=stored.total_pages,
+            last_read_at=stored.last_read_at,
+        )
+
+    async def _record_history_read_modify_write(
+        self, gallery_id: int, current_page: int, total_pages: int | None
+    ) -> ReadingHistory:
+        """Fallback for fake sessions without ``execute`` (see above)."""
         row = await self.session.scalar(
             select(ReadingHistory).where(ReadingHistory.gallery_id == gallery_id)
         )
@@ -1488,6 +1634,24 @@ class GalleryRepository(BaseRepository[Gallery]):
         if row is not None:
             return row
         return await self.session.scalar(select(Gallery).where(Gallery.gid == identifier))
+
+    async def get_by_gid(self, gid: int) -> Gallery | None:
+        """Fetch a live gallery by ExHentai ``gid``.
+
+        ``gid`` is not unique in the schema (rescans may leave duplicate rows)
+        and trashed/expunged rows must not be served, so take the newest live
+        row explicitly instead of ``scalar_one_or_none``.
+        """
+        return await self.session.scalar(
+            select(Gallery)
+            .where(
+                Gallery.gid == gid,
+                Gallery.expunged.is_(False),
+                Gallery.trashed.is_(False),
+            )
+            .order_by(Gallery.id.desc())
+            .limit(1)
+        )
 
     async def delete_ids(self, ids: list[int]) -> int:
         """Bulk delete galleries by primary key; returns the number removed."""
