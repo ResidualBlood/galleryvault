@@ -49,6 +49,18 @@ def test_valid_page_file_is_accepted(tmp_path: Path) -> None:
     assert _existing_page_file(tmp_path, 0) == page
 
 
+def test_complete_partial_leftover_is_not_resumed_as_page(tmp_path: Path) -> None:
+    """Crash after fsync but before replace leaves a full ``.partial``; never a page."""
+    leftover = tmp_path / "00000001.jpg.abc123.partial"
+    leftover.write_bytes(_jpeg_bytes())
+
+    assert _existing_page_file(tmp_path, 0) is None
+
+    page = tmp_path / "00000001.jpg"
+    page.write_bytes(_jpeg_bytes())
+    assert _existing_page_file(tmp_path, 0) == page
+
+
 def test_write_page_atomic_round_trips_without_partial_leftover(
     tmp_path: Path,
 ) -> None:

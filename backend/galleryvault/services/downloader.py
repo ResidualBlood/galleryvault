@@ -369,7 +369,12 @@ def _existing_page_file(
     except OSError:
         return None
     is_original = (quality or "").lower() == "original"
+    stem = f"{index + 1:08d}"
     for candidate in matches:
+        # Only final page names (``00000001.jpg``); temp files from
+        # ``_write_page_atomic`` (``00000001.jpg.<rand>.partial``) are never pages.
+        if candidate.stem != stem or candidate.suffix.casefold() == ".partial":
+            continue
         if is_original and candidate.suffix.casefold() == ".webp":
             continue
         if _verify_image_file(candidate):
