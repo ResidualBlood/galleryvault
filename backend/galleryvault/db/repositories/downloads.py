@@ -160,6 +160,20 @@ class DownloadRepository:
             row.updated_at = row.started_at
         return row
 
+    async def next_retry_at(self) -> datetime | None:
+        """Earliest scheduled ``retry_at`` among pending tasks, if any.
+
+        Workers use this to bound their idle wait: a due retry must be claimed
+        even when nobody enqueues a new task or wakes the worker (report 01
+        P1-4). Returns ``None`` when no pending task has a retry scheduled.
+        """
+        return await self.session.scalar(
+            select(func.min(DownloadTask.retry_at)).where(
+                DownloadTask.status == "pending",
+                DownloadTask.retry_at.is_not(None),
+            )
+        )
+
     async def count_active(self) -> int:
         """Number of download tasks still pending or in progress."""
         return int(

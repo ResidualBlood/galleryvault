@@ -53,6 +53,12 @@ logger = logging.getLogger(__name__)
 _RETRY_BACKOFFS = (
     30, 120, 480, 1800, 3600, 7200, 10800, 14400, 18000, 21600,
 )
+# Idle workers must not depend on external events: the worker event is only an
+# early-wakeup hint, while a bounded timeout derived from the earliest scheduled
+# ``retry_at`` is the actual scheduler (report 01 P1-4). The upper bound doubles
+# as a safety-net poll when no retry is scheduled at all.
+_WORKER_POLL_MIN_SECONDS = 1.0
+_WORKER_POLL_MAX_SECONDS = 60.0
 _PROGRESS_FLUSH_STEP = 20
 _PROGRESS_FLUSH_INTERVAL = 5.0
 _TELEGRAM_FLUSH_INTERVAL = 60.0
@@ -75,6 +81,17 @@ def notify_new_task() -> None:
 def retry_backoff(retry_count: int) -> int:
     """Return the backoff delay (seconds) for the given failed attempt count."""
     return _RETRY_BACKOFFS[min(max(1, retry_count) - 1, len(_RETRY_BACKOFFS) - 1)]
+
+
+def _idle_poll_timeout(next_retry_at: datetime | None) -> float:
+    """Bounded idle wait: wake for the earliest scheduled retry, else poll."""
+    if next_retry_at is None:
+        return _WORKER_POLL_MAX_SECONDS
+    if next_retry_at.tzinfo is None:
+        # SQLite drops the timezone; retry_at is always stored as UTC.
+        next_retry_at = next_retry_at.replace(tzinfo=UTC)
+    remaining = (next_retry_at - datetime.now(UTC)).total_seconds()
+    return min(max(remaining, _WORKER_POLL_MIN_SECONDS), _WORKER_POLL_MAX_SECONDS)
 
 
 def infer_image_quality(
@@ -1327,12 +1344,16 @@ async def _download_worker() -> None:
                 except Exception:  # noqa: BLE001, S110
                     pass
                 row = None
+                poll_timeout = _WORKER_POLL_MAX_SECONDS
                 session_factory = _get_background_session_factory()
                 if not session_factory:
                     await asyncio.sleep(0.5)
                     continue
                 async with session_factory() as session, session.begin():
-                    row = await DownloadRepository(session).claim_pending()
+                    repo = DownloadRepository(session)
+                    row = await repo.claim_pending()
+                    if row is None:
+                        poll_timeout = _idle_poll_timeout(await repo.next_retry_at())
                     if row is not None:
                         task = DownloadTask(
                             row.gid,
@@ -1374,7 +1395,14 @@ async def _download_worker() -> None:
                             except Exception:  # noqa: BLE001, S110
                                 pass
                 else:
-                    await my_event.wait()
+                    # Bounded wait: the event only short-circuits the timeout, so
+                    # a retry whose retry_at becomes due is re-claimed without any
+                    # external wakeup (and with no retry scheduled we still poll
+                    # at least once per _WORKER_POLL_MAX_SECONDS).
+                    try:
+                        await asyncio.wait_for(my_event.wait(), timeout=poll_timeout)
+                    except TimeoutError:
+                        pass
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
