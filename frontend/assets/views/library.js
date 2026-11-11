@@ -174,7 +174,7 @@ async function renderLibrary() {
         return;
       }
     }
-    renderCardCheckboxes();
+    renderCardCheckboxes({ pruneSelection: selectionScopeChanged() });
     gridPager("lib-pager", data, p => ({
       ...(q ? { q } : {}),
       ...(category ? { category } : {}),

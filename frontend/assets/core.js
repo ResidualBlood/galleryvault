@@ -454,7 +454,9 @@ function clearViewTimers() {
   if (updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; }
   if (dlTimer) { clearInterval(dlTimer); dlTimer = null; }
   if (logTimer) { clearInterval(logTimer); logTimer = null; }
-  if (archiveTimer) { clearInterval(archiveTimer); archiveTimer = null; }
+  for (const key of Object.keys(timers)) {
+    if (timers[key]) { clearInterval(timers[key]); timers[key] = null; }
+  }
 }
 
 function router() {
@@ -474,7 +476,7 @@ function router() {
   if (app.view !== "updates" && app.view !== "updignored") { if (updatesTimer) { clearInterval(updatesTimer); updatesTimer = null; } }
   if (app.view !== "downloads") { if (dlTimer) { clearInterval(dlTimer); dlTimer = null; } }
   if (app.view !== "logs") { if (logTimer) { clearInterval(logTimer); logTimer = null; } }
-  if (app.view !== "archive") { if (archiveTimer) { clearInterval(archiveTimer); archiveTimer = null; } }
+  if (app.view !== "archive" && timers.archive) { clearInterval(timers.archive); timers.archive = null; }
   if (app.view !== "favlist") selFav.clear();
   if (app.view !== "recycle") selRecycle.clear();
   if (app.view !== "integrity") selIntegrity.clear();

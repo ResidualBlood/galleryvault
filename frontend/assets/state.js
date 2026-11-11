@@ -1,8 +1,8 @@
 "use strict";
 
 /**
- * state.js — 全局状态托管与向后兼容适配层
- * 将原有散落无序的全局状态注册接入 Store 统一托管，
+ * state.js — 全局状态与向后兼容适配层
+ * 统一登记初始状态与视图级 timer 注册表，
  * 同时维持原有全局变量名与 window.state 访问能力，保证历史视图无缝过渡。
  */
 
@@ -41,7 +41,7 @@ const UPD_STATUS_KEYS = {
 
 const DUPGAL_STATUSES = { open: "dupGalOpen", dismissed: "dupGalDismissed" };
 
-// 状态初始定义清单（统一注册接入 Store）
+// 状态初始定义清单
 const initialManagedState = {
   selGalleries: new Set(),
   selDiscover: new Set(),
@@ -76,34 +76,23 @@ const initialManagedState = {
   slideshowTimer: null,
 };
 
-// 获取或初始化 Store 实例
-const globalScope = typeof window !== "undefined" ? window : globalThis;
-const storeInstance = globalScope.store || (typeof Store !== "undefined" ? new Store() : null);
+// 视图级轮询 timer 注册表：视图写入（如 timers.archive），core.js 的 clearViewTimers 统一清理
+const timers = Object.create(null);
 
-if (storeInstance) {
-  for (const [key, val] of Object.entries(initialManagedState)) {
-    if (storeInstance.getState(key) === undefined) {
-      storeInstance.setState(key, val, { silent: true });
-    }
-  }
-}
+const globalScope = typeof window !== "undefined" ? window : globalThis;
 
 // 代理暴露 window.state
-globalScope.state = storeInstance ? storeInstance.state : initialManagedState;
+globalScope.state = initialManagedState;
 
 // 在全局作用域建立双向属性绑定，兼容历史脚本直接读写全局变量
 for (const key of Object.keys(initialManagedState)) {
   if (!(key in globalScope)) {
     Object.defineProperty(globalScope, key, {
       get() {
-        return storeInstance ? storeInstance.getState(key) : initialManagedState[key];
+        return initialManagedState[key];
       },
       set(val) {
-        if (storeInstance) {
-          storeInstance.setState(key, val);
-        } else {
-          initialManagedState[key] = val;
-        }
+        initialManagedState[key] = val;
       },
       configurable: true,
       enumerable: true,

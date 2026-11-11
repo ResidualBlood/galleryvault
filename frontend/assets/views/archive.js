@@ -2,13 +2,11 @@
 
 // views/archive.js — Cold storage archive view
 
-let archiveTimer = null;
-
 async function renderArchive() {
   currentViewCleanup = () => {
-    if (archiveTimer) {
-      clearInterval(archiveTimer);
-      archiveTimer = null;
+    if (timers.archive) {
+      clearInterval(timers.archive);
+      timers.archive = null;
     }
   };
 
@@ -134,12 +132,12 @@ async function updateArchiveState() {
 }
 
 async function pollArchive() {
-  if (archiveTimer) clearInterval(archiveTimer);
+  if (timers.archive) clearInterval(timers.archive);
   await updateArchiveState();
-  archiveTimer = setInterval(async () => {
+  timers.archive = setInterval(async () => {
     if (app.view !== "archive") {
-      if (archiveTimer) clearInterval(archiveTimer);
-      archiveTimer = null;
+      if (timers.archive) clearInterval(timers.archive);
+      timers.archive = null;
       return;
     }
     await updateArchiveState();
