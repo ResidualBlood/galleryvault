@@ -1,7 +1,7 @@
 """Audit: media helpers/endpoints live in their own modules and are re-exported.
 
 ``media_probe`` owns the pure duration probes; ``galleries_media`` owns the page
-streaming / page meta / CBZ export endpoints. Every pre-split caller (``galleries``
+streaming / page meta / CBZ export / thumbnail endpoints. Every pre-split caller (``galleries``
 itself and the endpoint tests) must keep working through those re-exports, and the
 moved handlers must keep resolving test-patched helpers from ``galleries`` at call
 time. ``media_probe`` must stay importable without FastAPI/SQLAlchemy.
@@ -86,16 +86,19 @@ _MEDIA_EXPORTS = (
     "get_page",
     "get_page_meta",
     "export_gallery_cbz",
+    "get_thumbnail",
     "_page_media_type",
     "_closing_stream",
     "_meta",
     "_unlink_export",
+    "_thumb_file_response",
 )
 
 _MEDIA_PATHS = {
     "/api/galleries/{identifier}/export.cbz",
     "/api/galleries/{identifier}/pages/{page_index}",
     "/api/galleries/{identifier}/pages/{page_index}/meta",
+    "/api/galleries/{identifier}/thumb/{page_index}",
 }
 
 
@@ -121,13 +124,14 @@ def test_media_reexports_are_the_same_objects() -> None:
 
 
 def test_handlers_are_defined_in_the_media_module() -> None:
-    for name in ("get_page", "get_page_meta", "export_gallery_cbz"):
+    for name in ("get_page", "get_page_meta", "export_gallery_cbz", "get_thumbnail"):
         assert getattr(galleries_media, name).__module__ == galleries_media.__name__
 
 
 def test_legacy_page_aliases_point_at_media_handlers() -> None:
     assert galleries.gallery_page is galleries_media.get_page
     assert galleries.gallery_page_meta is galleries_media.get_page_meta
+    assert galleries.gallery_thumbnail is galleries_media.get_thumbnail
 
 
 def test_media_router_paths_are_included_at_the_tail() -> None:
@@ -196,3 +200,78 @@ async def test_moved_endpoints_use_patched_gallery_lookup(
     assert calls == [11, 11, 11]
 
 
+
+def test_thumb_file_response_reuses_etag_for_conditional_requests(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    thumb = tmp_path / "0.jpg"
+    thumb.write_bytes(b"\xff\xd8\xff\xe0thumb")
+
+    response = galleries_media._thumb_file_response(
+        thumb,
+        media_type="image/jpeg",
+        cache_control="public, max-age=86400",
+        gallery_id=3,
+        page_index=0,
+        request=None,
+    )
+    assert response.status_code == 200
+    etag = response.headers["etag"]
+    assert response.headers["cache-control"] == "public, max-age=86400"
+
+    class _Request:
+        def __init__(self) -> None:
+            self.headers = {"if-none-match": f'W/{etag}'}
+
+    not_modified = galleries_media._thumb_file_response(
+        thumb,
+        media_type="image/jpeg",
+        cache_control="public, max-age=86400",
+        gallery_id=3,
+        page_index=0,
+        request=_Request(),
+    )
+    assert not_modified.status_code == 304
+
+
+async def test_moved_get_thumbnail_uses_runtime_gallery_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Patching ``galleries._gallery`` must flip the handler onto the lookup branch.
+
+    The identity check reads ``_gallery``/``_default_gallery`` from the
+    ``galleries`` module object at call time; a bound import would freeze it.
+    """
+    calls: list[int] = []
+
+    async def fake_gallery(identifier: int):
+        calls.append(identifier)
+        raise _Sentinel("patched _gallery reached")
+
+    monkeypatch.setattr(galleries, "_gallery", fake_gallery)
+    assert galleries_media.get_thumbnail.__module__ == galleries_media.__name__
+
+    with pytest.raises(_Sentinel):
+        await galleries_media.get_thumbnail(5, 0)
+    assert calls == [5]
+
+
+async def test_moved_get_thumbnail_default_branch_uses_patched_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+
+    class _Repo:
+        def __init__(self, session: object) -> None:
+            calls.append(id(session))
+
+        async def get_by_identifier(self, identifier: int):
+            raise _Sentinel("patched GalleryRepository reached")
+
+    monkeypatch.setattr(galleries, "GalleryRepository", _Repo)
+    monkeypatch.setattr(galleries, "_gallery", galleries._default_gallery)
+
+    session = object()
+    with pytest.raises(_Sentinel):
+        await galleries_media.get_thumbnail(6, 0, session=session)
+    assert calls == [id(session)]
