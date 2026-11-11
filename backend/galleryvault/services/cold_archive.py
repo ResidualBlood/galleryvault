@@ -346,15 +346,112 @@ def _validate_cold_destination(dest_path: Path) -> bool:
         return False
 
 
-def _check_physically_archived(gid: int, cold_roots: Sequence[Path]) -> bool:
-    """Check if a gallery GID physically exists in cold storage (cbz or dir)."""
+def _count_zip_image_pages(path: Path) -> int | None:
+    """Count image pages in a zip; ``None`` when unreadable or CRC-broken."""
+    try:
+        if not path.is_file() or path.stat().st_size <= 0:
+            return None
+        if not zipfile.is_zipfile(path):
+            return None
+        with zipfile.ZipFile(path, "r") as zf:
+            if zf.testzip() is not None:
+                return None
+            return sum(
+                1
+                for n in zf.namelist()
+                if not n.startswith(".")
+                and Path(n).suffix.lower() in IMAGE_EXTENSIONS
+                and Path(n).name.lower() not in _IGNORED_NAMES
+            )
+    except (OSError, zipfile.BadZipFile):
+        return None
+
+
+def _count_dir_image_pages(path: Path) -> int | None:
+    """Count image pages in a directory tree; ``None`` when unreadable."""
+    try:
+        if not path.is_dir():
+            return None
+        return sum(
+            1
+            for p in path.rglob("*")
+            if p.is_file()
+            and not p.name.startswith(".")
+            and p.suffix.lower() in IMAGE_EXTENSIONS
+            and p.name.lower() not in _IGNORED_NAMES
+        )
+    except OSError:
+        return None
+
+
+def _count_source_image_pages(source: Path) -> int | None:
+    """Count image pages in a source directory or cbz; ``None`` when unknown."""
+    try:
+        if source.is_dir():
+            return len(_collect_pages_from_dir(source))
+        if source.is_file() and source.suffix.lower() in {".cbz", ".zip"}:
+            return _count_zip_image_pages(source)
+    except OSError:
+        return None
+    return None
+
+
+def cold_copy_covers_source(source: Path, dest: Path) -> bool:
+    """Return True only when ``dest`` provably covers every ``source`` page.
+
+    Fail-closed guard shared by destination adoption and source purging: the cold
+    copy must exist and be readable, pass zip CRC checks, contain real image pages
+    (a metadata-only directory does not count), and have at least as many pages as
+    the source. Unknown page counts never authorize deleting the only source.
+    """
+    try:
+        if not dest.exists() or not os.access(dest, os.R_OK):
+            return False
+    except OSError:
+        return False
+
+    source_pages = _count_source_image_pages(source)
+    if source_pages is None or source_pages <= 0:
+        return False
+
+    if dest.is_file():
+        dest_pages = _count_zip_image_pages(dest)
+    else:
+        dest_pages = _count_dir_image_pages(dest)
+    if dest_pages is None or dest_pages <= 0:
+        return False
+    return dest_pages >= source_pages
+
+
+def _is_online_cold_root(root: Path) -> bool:
+    """Return True when a cold-storage root exists, is a directory and is readable."""
+    try:
+        return root.is_dir() and os.access(root, os.R_OK)
+    except OSError:
+        return False
+
+
+def _check_physically_archived(
+    gid: int,
+    cold_roots: Sequence[Path],
+    *,
+    source: Path | None = None,
+) -> bool:
+    """Check if a gallery GID physically exists in cold storage (cbz or dir).
+
+    When ``source`` is given, a candidate only counts when
+    :func:`cold_copy_covers_source` proves it covers the source pages.
+    """
     try:
         hh, ii = cold_partition(gid=gid)
     except Exception:  # noqa: BLE001
         return False
 
     def _is_matching_cbz(path: Path) -> bool:
-        if not path.is_file() or path.stat().st_size <= 0:
+        try:
+            if not path.is_file() or path.stat().st_size <= 0:
+                return False
+        except OSError:
             return False
         name = path.name
         if not (name == f"{gid}.cbz" or (name.startswith(f"{gid}-") and name.endswith(".cbz"))):
@@ -362,12 +459,14 @@ def _check_physically_archived(gid: int, cold_roots: Sequence[Path]) -> bool:
         return zipfile.is_zipfile(path)
 
     def _is_matching_dir(path: Path) -> bool:
-        if not path.is_dir():
-            return False
-        try:
-            return any(path.iterdir())
-        except OSError:
-            return False
+        # A directory with only metadata (e.g. ComicInfo.xml) is not a cold copy.
+        pages = _count_dir_image_pages(path)
+        return pages is not None and pages > 0
+
+    def _covers(path: Path) -> bool:
+        if source is None:
+            return True
+        return cold_copy_covers_source(source, path)
 
     for c_root in cold_roots:
         # 1. Standard partition path: cbz/hh/ii/{gid}-*.cbz or {gid}.cbz
@@ -375,14 +474,14 @@ def _check_physically_archived(gid: int, cold_roots: Sequence[Path]) -> bool:
         if cbz_part_dir.is_dir():
             try:
                 for f in cbz_part_dir.iterdir():
-                    if _is_matching_cbz(f):
+                    if _is_matching_cbz(f) and _covers(f):
                         return True
             except OSError:
                 pass
 
         # 2. Standard partition path: dir/hh/ii/{gid}
         dir_part_target = c_root / "dir" / hh / ii / str(gid)
-        if _is_matching_dir(dir_part_target):
+        if _is_matching_dir(dir_part_target) and _covers(dir_part_target):
             return True
 
         # 3. Direct fallback path: cbz/{gid}-*.cbz or cbz/{gid}.cbz
@@ -390,14 +489,14 @@ def _check_physically_archived(gid: int, cold_roots: Sequence[Path]) -> bool:
         if cbz_direct_dir.is_dir():
             try:
                 for f in cbz_direct_dir.iterdir():
-                    if _is_matching_cbz(f):
+                    if _is_matching_cbz(f) and _covers(f):
                         return True
             except OSError:
                 pass
 
         # 4. Direct fallback path: dir/{gid}
         dir_direct_target = c_root / "dir" / str(gid)
-        if _is_matching_dir(dir_direct_target):
+        if _is_matching_dir(dir_direct_target) and _covers(dir_direct_target):
             return True
 
     return False
@@ -907,13 +1006,22 @@ async def _do_archive_locked(
         logger.info("Skipping gallery %s: %s", gallery_id, exc)
         return None
     except ColdDestinationExistsError as exc:
-        if exc.dest_path and _validate_cold_destination(exc.dest_path):
+        if exc.dest_path and cold_copy_covers_source(source_path, exc.dest_path):
             logger.info(
                 "Adopting existing cold destination for gallery %s: %s",
                 gallery_id,
                 exc.dest_path,
             )
             dest_path = exc.dest_path
+        elif exc.dest_path is not None:
+            logger.warning(
+                "Refusing to adopt existing cold destination for gallery %s: %s "
+                "does not provably cover source %s; keeping source",
+                gallery_id,
+                exc.dest_path,
+                source_path,
+            )
+            return None
         else:
             logger.info("Skipping gallery %s: %s", gallery_id, exc)
             return None
@@ -1164,17 +1272,28 @@ async def purge_archived_sources_internal(
         active_paths_stmt = select(Gallery.storage_path).where(Gallery.storage_path.is_not(None))
         active_paths_raw = (await session.scalars(active_paths_stmt)).all()
 
-    archived_gids = {
-        gid
-        for gid, sp in archived_rows
-        if is_under_cold(sp, cold_roots)
-    }
+    archived_paths: dict[int, Path] = {}
+    for gid, sp in archived_rows:
+        if gid is None or not sp:
+            continue
+        if is_under_cold(sp, cold_roots) and gid not in archived_paths:
+            archived_paths[gid] = Path(sp)
+    archived_gids = set(archived_paths)
     active_gids = active_dl_gids | _active_gids
     active_paths = {
         Path(p).resolve() for p in active_paths_raw if p
     }
 
     if not archived_gids and not cold_roots:
+        return 0
+
+    online_cold_roots = [r for r in cold_roots if _is_online_cold_root(r)]
+    if cold_roots and not online_cold_roots:
+        logger.warning(
+            "Cold storage roots are offline or unreadable; skipping source purge "
+            "to avoid deleting sole sources: %s",
+            cold_roots,
+        )
         return 0
 
     dl_root_raw = getattr(settings, "download_root", None)
@@ -1320,9 +1439,24 @@ async def purge_archived_sources_internal(
                     if gid in active_gids:
                         continue
 
-                    # Check DB archived state or fallback to physical check in cold storage
-                    is_archived = (gid in archived_gids) or _check_physically_archived(gid, cold_roots)
-                    if is_archived:
+                    # Check DB archived state or fallback to physical check in cold storage.
+                    # A DB path alone is not enough: the cold copy must exist and
+                    # provably cover this source before the sole source may be deleted.
+                    dest = archived_paths.get(gid)
+                    has_covering_copy = dest is not None and cold_copy_covers_source(cur_dir, dest)
+                    if not has_covering_copy:
+                        has_covering_copy = _check_physically_archived(
+                            gid, online_cold_roots, source=cur_dir
+                        )
+                    if gid in archived_paths and not has_covering_copy:
+                        logger.warning(
+                            "Refusing to purge source directory for gallery %s: cold copy %s "
+                            "cannot be verified to cover %s",
+                            gid,
+                            archived_paths[gid],
+                            cur_dir,
+                        )
+                    if has_covering_copy:
                         is_dl = False
                         if dl_root:
                             try:
