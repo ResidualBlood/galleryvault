@@ -1,4 +1,4 @@
-"""Gallery page streaming and CBZ export endpoints.
+"""Gallery page streaming, page meta, CBZ export and thumbnail endpoints.
 
 The handlers were moved out of ``galleries`` verbatim; ``galleries`` re-exports
 them and includes this router at the end of its own router so URL paths,
@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
@@ -34,9 +34,12 @@ from ...services.export_cbz import (
     is_cbz_file,
     pack_directory_cbz,
 )
+from ...services.favorites_worker import ensure_remote_cover
+from ...services.thumbnails import JPEG_MIME, ThumbnailError
 from ..dependencies import (
     get_current_settings,
     get_session,
+    image_content_type,
     release_session,
     resolve_session,
 )
@@ -246,3 +249,154 @@ async def get_page_meta(
         raise HTTPException(status_code=500, detail="Page could not be read") from exc
 
     return await run_in_threadpool(_inspect_image_meta, stream)
+
+
+def _thumb_file_response(
+    file_path: Path,
+    media_type: str,
+    cache_control: str,
+    gallery_id: int,
+    page_index: int,
+    request: Request | None,
+) -> Response:
+    try:
+        stat = file_path.stat()
+        etag = f'"{gallery_id}-{page_index}-{int(stat.st_mtime)}-{stat.st_size}"'
+    except OSError:
+        etag = None
+
+    headers: dict[str, str] = {"Cache-Control": cache_control}
+    if etag:
+        headers["ETag"] = etag
+        if request is not None:
+            if_none_match = request.headers.get("if-none-match")
+            if if_none_match:
+                tokens = [t.strip() for t in if_none_match.split(",")]
+                if "*" in tokens or etag in tokens or f"W/{etag}" in tokens:
+                    return Response(status_code=304, headers=headers)
+
+    return FileResponse(file_path, media_type=media_type, headers=headers)
+
+
+@router.get("/api/galleries/{identifier}/thumb/{page_index}")
+async def get_thumbnail(
+    identifier: int,
+    page_index: int,
+    request: Request = None,  # type: ignore[assignment]
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> Response:
+    if page_index < 0:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    pages: list[GalleryPage] | None = None
+    row: Gallery | None = None
+
+    gal = _gal()
+    # Runtime identity comparison: tests patch ``galleries._gallery``, so this
+    # must be read from the module object on every call.
+    if gal._gallery is not gal._default_gallery:
+        try:
+            resolved_session = await resolve_session(session, fallback_dep=get_session)
+        except HTTPException:
+            resolved_session = None
+        row, pages = await gal._invoke_gallery(identifier, session=resolved_session)
+    else:
+        session = await resolve_session(session, fallback_dep=get_session)
+        repo = gal.GalleryRepository(session)
+        row = await repo.get_by_identifier(identifier)
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Gallery not found")
+
+    if row.page_count is not None and row.page_count > 0 and page_index >= row.page_count:
+        raise HTTPException(status_code=404, detail="Page allowance exceeded" if False else "Page not found")
+
+    service = gal._get_thumb_service()
+
+    is_fallback = False
+    if page_index == 0 and row.gid:
+        remote_cover = service.cached_remote_cover(row.gid)
+        if remote_cover is not None:
+            head = await run_in_threadpool(lambda: remote_cover.read_bytes()[:16])
+            media_type = image_content_type(head)
+            if media_type == "application/octet-stream":
+                media_type = JPEG_MIME
+            response = _thumb_file_response(
+                remote_cover,
+                media_type=media_type,
+                cache_control="public, max-age=86400",
+                gallery_id=row.id,
+                page_index=page_index,
+                request=request,
+            )
+            await release_session(session)
+            return response
+        gal.spawn_task(
+            ensure_remote_cover(row.gid, row.token, cache_dir=service.remote_cover_dir()),
+            f"remote cover {row.gid}",
+        )
+        logger.info(
+            "cover fallback: gid=%s source=thumb0 event=fallback",
+            row.gid,
+            extra=log_extra(gid=row.gid, source="thumb0", event="fallback"),
+        )
+        is_fallback = True
+
+    cache_control = (
+        "no-cache"
+        if is_fallback
+        else ("public, max-age=31536000, immutable" if page_index > 0 else "public, max-age=86400")
+    )
+
+    cached = service.cached(row.id, page_index)
+    if cached is not None:
+        response = _thumb_file_response(
+            cached,
+            media_type=JPEG_MIME,
+            cache_control=cache_control,
+            gallery_id=row.id,
+            page_index=page_index,
+            request=request,
+        )
+        await release_session(session)
+        return response
+
+    if pages is None:
+        repo = gal.GalleryRepository(session)
+        pages = list(await repo.get_pages(row.id))
+
+    page = next((p for p in pages if p.page_index == page_index), None)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    scanner = registry.for_path(Path(row.storage_path or ""))
+    if scanner is None:
+        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
+    stream = await run_in_threadpool(
+        scanner.open_page,
+        _meta(row, pages),
+        PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
+    )
+    try:
+        data = await run_in_threadpool(stream.read)
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+    try:
+        cached = await run_in_threadpool(
+            service.get_or_create, row.id, page.page_index, data
+        )
+    except ThumbnailError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    response = _thumb_file_response(
+        cached,
+        media_type=JPEG_MIME,
+        cache_control=cache_control,
+        gallery_id=row.id,
+        page_index=page_index,
+        request=request,
+    )
+    await release_session(session)
+    return response

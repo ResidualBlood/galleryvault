@@ -5,14 +5,11 @@ from __future__ import annotations
 import inspect
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from ...db.models import Gallery, GalleryPage
 from ...db.repository import (
@@ -24,12 +21,11 @@ from ...db.repository import (
 from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...metadata.sidecar import parse_datetime_utc
-from ...scanners import registry
-from ...scanners.base import CATEGORIES, PageInfo
+from ...scanners import registry  # noqa: F401  # tests patch galleries.registry.for_path
+from ...scanners.base import CATEGORIES
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import FavoriteData
-from ...services.favorites_worker import ensure_remote_cover
 from ...services.gallery_service import GalleryService
 from ...services.tag_sync import (
     GalleryGidMissing,
@@ -38,7 +34,7 @@ from ...services.tag_sync import (
     TagSyncService,
 )
 from ...services.tag_translation import translated_tag
-from ...services.thumbnails import JPEG_MIME, ThumbnailError, ThumbnailService
+from ...services.thumbnails import ThumbnailService
 from ..core.eh_client_manager import EhClientManager
 from ..dependencies import (
     db_error,
@@ -49,7 +45,6 @@ from ..dependencies import (
     get_gallery_service,
     get_session,
     get_task_manager,
-    image_content_type,
     release_session,
     resolve_session,
     spawn_task,
@@ -1640,154 +1635,6 @@ async def sync_gallery_tags(
     }
 
 
-def _thumb_file_response(
-    file_path: Path,
-    media_type: str,
-    cache_control: str,
-    gallery_id: int,
-    page_index: int,
-    request: Request | None,
-) -> Response:
-    try:
-        stat = file_path.stat()
-        etag = f'"{gallery_id}-{page_index}-{int(stat.st_mtime)}-{stat.st_size}"'
-    except OSError:
-        etag = None
-
-    headers: dict[str, str] = {"Cache-Control": cache_control}
-    if etag:
-        headers["ETag"] = etag
-        if request is not None:
-            if_none_match = request.headers.get("if-none-match")
-            if if_none_match:
-                tokens = [t.strip() for t in if_none_match.split(",")]
-                if "*" in tokens or etag in tokens or f"W/{etag}" in tokens:
-                    return Response(status_code=304, headers=headers)
-
-    return FileResponse(file_path, media_type=media_type, headers=headers)
-
-
-@router.get("/api/galleries/{identifier}/thumb/{page_index}")
-async def get_thumbnail(
-    identifier: int,
-    page_index: int,
-    request: Request = None,  # type: ignore[assignment]
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> Response:
-    if page_index < 0:
-        raise HTTPException(status_code=404, detail="Page not found")
-
-    pages: list[GalleryPage] | None = None
-    row: Gallery | None = None
-
-    if _gallery is not _default_gallery:
-        try:
-            resolved_session = await resolve_session(session, fallback_dep=get_session)
-        except HTTPException:
-            resolved_session = None
-        row, pages = await _invoke_gallery(identifier, session=resolved_session)
-    else:
-        session = await resolve_session(session, fallback_dep=get_session)
-        repo = GalleryRepository(session)
-        row = await repo.get_by_identifier(identifier)
-
-    if row is None:
-        raise HTTPException(status_code=404, detail="Gallery not found")
-
-    if row.page_count is not None and row.page_count > 0 and page_index >= row.page_count:
-        raise HTTPException(status_code=404, detail="Page allowance exceeded" if False else "Page not found")
-
-    service = _get_thumb_service()
-
-    is_fallback = False
-    if page_index == 0 and row.gid:
-        remote_cover = service.cached_remote_cover(row.gid)
-        if remote_cover is not None:
-            head = await run_in_threadpool(lambda: remote_cover.read_bytes()[:16])
-            media_type = image_content_type(head)
-            if media_type == "application/octet-stream":
-                media_type = JPEG_MIME
-            response = _thumb_file_response(
-                remote_cover,
-                media_type=media_type,
-                cache_control="public, max-age=86400",
-                gallery_id=row.id,
-                page_index=page_index,
-                request=request,
-            )
-            await release_session(session)
-            return response
-        spawn_task(
-            ensure_remote_cover(row.gid, row.token, cache_dir=service.remote_cover_dir()),
-            f"remote cover {row.gid}",
-        )
-        logger.info(
-            "cover fallback: gid=%s source=thumb0 event=fallback",
-            row.gid,
-            extra=log_extra(gid=row.gid, source="thumb0", event="fallback"),
-        )
-        is_fallback = True
-
-    cache_control = (
-        "no-cache"
-        if is_fallback
-        else ("public, max-age=31536000, immutable" if page_index > 0 else "public, max-age=86400")
-    )
-
-    cached = service.cached(row.id, page_index)
-    if cached is not None:
-        response = _thumb_file_response(
-            cached,
-            media_type=JPEG_MIME,
-            cache_control=cache_control,
-            gallery_id=row.id,
-            page_index=page_index,
-            request=request,
-        )
-        await release_session(session)
-        return response
-
-    if pages is None:
-        repo = GalleryRepository(session)
-        pages = list(await repo.get_pages(row.id))
-
-    page = next((p for p in pages if p.page_index == page_index), None)
-    if page is None:
-        raise HTTPException(status_code=404, detail="Page not found")
-
-    scanner = registry.for_path(Path(row.storage_path or ""))
-    if scanner is None:
-        raise HTTPException(status_code=500, detail="No scanner for gallery storage")
-    stream = await run_in_threadpool(
-        scanner.open_page,
-        _meta(row, pages),
-        PageInfo(page.page_index, page.member_name or "", page.media_type or "jpg"),
-    )
-    try:
-        data = await run_in_threadpool(stream.read)
-    finally:
-        try:
-            stream.close()
-        except OSError:
-            pass
-    try:
-        cached = await run_in_threadpool(
-            service.get_or_create, row.id, page.page_index, data
-        )
-    except ThumbnailError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    response = _thumb_file_response(
-        cached,
-        media_type=JPEG_MIME,
-        cache_control=cache_control,
-        gallery_id=row.id,
-        page_index=page_index,
-        request=request,
-    )
-    await release_session(session)
-    return response
-
-
 # Media endpoints live in ``galleries_media``; include them at the tail so the
 # original route registration order is unchanged.
 router.include_router(galleries_media.router)
@@ -1799,6 +1646,8 @@ _page_media_type = galleries_media._page_media_type
 _closing_stream = galleries_media._closing_stream
 _meta = galleries_media._meta
 _unlink_export = galleries_media._unlink_export
+_thumb_file_response = galleries_media._thumb_file_response
+get_thumbnail = galleries_media.get_thumbnail
 
 gallery_page = get_page
 gallery_page_meta = get_page_meta
