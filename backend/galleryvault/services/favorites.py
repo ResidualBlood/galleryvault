@@ -119,13 +119,10 @@ class FavoritesService:
             )
             if local_gids:
                 candidates = [item for item in candidates if item.gid not in local_gids]
-        # Record every folder item as seen (idempotent) so the per-folder count
-        # reflects the whole ExHentai folder, including galleries already local.
-        # Then drop rows for gids no longer in the folder (unfavorited /
-        # expunged galleries vanish from the listing) so the recorded set stays
-        # in sync with the cloud — otherwise the scheduled "count unchanged"
-        # skip never fires again and phantom cloud items linger in lists.
-        await repo.remember_many(favcat, list(unique.values()))
+        # Drop rows for gids no longer in the folder (unfavorited / expunged
+        # galleries vanish from the listing) so the recorded set stays in sync
+        # with the cloud — otherwise the scheduled "count unchanged" skip never
+        # fires again and phantom cloud items linger in lists.
         if getattr(items, "truncated", False):
             # The listing stopped short of the count in the page header; deleting
             # the recorded rows it did not mention would drop real favorites.
@@ -144,6 +141,7 @@ class FavoritesService:
         else:
             await repo.prune(favcat, set(unique))
         downloaded = failed = 0
+        failed_gids: set[int] = set()
         archive_mode = "favorite_archive" if archive_enabled else None
         archive_sizes: dict[int, int] = {}
         if archive_enabled and candidates:
@@ -197,6 +195,7 @@ class FavoritesService:
                 downloaded += 1
             except Exception as exc:  # noqa: BLE001
                 failed += 1
+                failed_gids.add(item.gid)
                 logger.warning(
                     "favorite download enqueue failed",
                     extra=log_extra(favcat=favcat, gid=item.gid, error=type(exc).__name__),
@@ -205,6 +204,14 @@ class FavoritesService:
                     await self.notifier.send_message(
                         favorites_enqueue_failed(favcat, cat_name, item.gid, lang)
                     )
+        # Record the folder items as seen only after the enqueue pass: a gid
+        # whose enqueue failed must stay absent from ``known`` so the next
+        # incremental check offers it again instead of silently skipping it.
+        # Galleries already local or in monitor-only mode never needed an
+        # enqueue and are recorded here as successfully handled.
+        seen = [item for item in unique.values() if item.gid not in failed_gids]
+        if seen:
+            await repo.remember_many(favcat, seen)
         if candidates and mode != "monitor_only":
             logger.info(
                 "favorite downloads queued",
