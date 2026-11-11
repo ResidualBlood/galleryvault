@@ -15,6 +15,7 @@ const SHELL = [
   "/assets/utils.js?v=v5",
   "/assets/components.js?v=v5",
   "/assets/events.js?v=v5",
+  "/assets/view-runtime.js?v=v5",
   "/assets/app.js?v=v5",
   "/assets/views/welcome.js?v=v5",
   "/assets/views/browse.js?v=v5",
