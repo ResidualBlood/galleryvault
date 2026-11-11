@@ -21,7 +21,7 @@ async function integrityViewBody({ api: viewApi, stale }) {
     </div>
     <details class="panel" style="margin:12px 0 14px;padding:10px 14px;font-size:13px;border:1px solid var(--line);border-radius:6px;">
       <summary style="cursor:pointer;font-weight:600;color:var(--text);">${esc(t("integrityInfoSummary"))}</summary>
-      ${t("integrityInfoDetail")}
+      ${tHtml("integrityInfoDetail")}
     </details>
     <div id="integrity-grid"><div class="grid gc-grid">${renderSkeleton(8)}</div></div>
     <div class="pages pager" id="integrity-pager"></div>`);
