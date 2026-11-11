@@ -341,14 +341,15 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
     try:
         app_state.session_factory = lambda: FakeSession()
         deleted = await purge_archived_sources_internal()
-        # 删除了 1001 (dl), 1002 (lib), 1003 (lib folder), 1004 (dl .gv-), 1005 (lib jhentai), 1006 (lib numeric)
-        assert deleted == 6
-        assert not g1_dir.exists()
-        assert not g2_dir.exists()
-        assert not g5_dir.exists()
-        assert not g6_dir.exists()
-        assert not g8_dir.exists()
-        assert not g9_dir.exists()
+        # DB 冷库路径全部不存在/不完整（cold_dir 为空），无法证明冷副本覆盖源，
+        # fail-closed：一个源目录都不删。
+        assert deleted == 0
+        assert g1_dir.exists()
+        assert g2_dir.exists()
+        assert g5_dir.exists()
+        assert g6_dir.exists()
+        assert g8_dir.exists()
+        assert g9_dir.exists()
 
         # 未归档与活跃下载中的必须保留！
         assert g3_dir.exists()
@@ -359,8 +360,9 @@ async def test_purge_archived_sources_internal(tmp_path: Path) -> None:
         assert not waste_log.exists()
         assert not waste_nomedia.exists()
 
-        assert storage_tracker.downloads.bytes < 10000
-        assert storage_tracker.library.bytes < 10000
+        # 没有删除源目录，存储统计不应扣减
+        assert storage_tracker.downloads.bytes == 10000
+        assert storage_tracker.library.bytes == 10000
     finally:
         app_state.session_factory = orig_factory
 
@@ -440,6 +442,7 @@ async def test_run_purge_archived_sources_task_flow(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_purge_archived_sources_no_truncation_and_safety_lock(tmp_path: Path) -> None:
     import json
+    import zipfile
     from typing import Any
 
     from galleryvault.services.cold_archive import purge_archived_sources_internal
@@ -476,6 +479,15 @@ async def test_purge_archived_sources_no_truncation_and_safety_lock(tmp_path: Pa
     jhentai_dir.mkdir()
     (jhentai_dir / "metadata").write_text(json.dumps({"gid": 4002}), encoding="utf-8")
     (jhentai_dir / "0001.jpg").write_bytes(b"data")
+
+    # 冷库中存在完整副本（页数覆盖源），才允许 purge 删除对应源。
+    cold_folder_4001 = cold_dir / "folder" / "4001"
+    cold_folder_4001.mkdir(parents=True)
+    (cold_folder_4001 / "0001.jpg").write_bytes(b"cold")
+    cold_cbz_4002 = cold_dir / "cbz" / "4002.cbz"
+    cold_cbz_4002.parent.mkdir(parents=True)
+    with zipfile.ZipFile(cold_cbz_4002, "w") as zf:
+        zf.writestr("0001.jpg", b"cold")
 
     class FakeResult:
         def __init__(self, data: list[Any]) -> None:
