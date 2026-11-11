@@ -4,7 +4,8 @@ Batch 6 / R0 moved the module-level helpers of ``db.repositories.galleries`` to
 ``db.repositories.galleries_common`` (``galleries`` re-exports them). Batch 7 /
 R15+R16 moved the eight reading progress/history methods to
 ``db.repositories.galleries_progress.GalleryProgressMixin`` and
-``GalleryRepository`` now inherits it.
+``GalleryRepository`` now inherits it. Batch 8 moved the 41 read-only query
+methods to ``db.repositories.galleries_query.GalleryQueryMixin``.
 
 Asserted here:
 1. The full ``GalleryRepository`` method roster still exists on the class
@@ -31,10 +32,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 from galleryvault.db.models import ReadingHistory, ReadingProgress
-from galleryvault.db.repositories import galleries, galleries_common, galleries_progress
+from galleryvault.db.repositories import (
+    galleries,
+    galleries_common,
+    galleries_progress,
+    galleries_query,
+)
 from galleryvault.db.repositories.base import BaseRepository
 from galleryvault.db.repositories.galleries import GalleryRepository
 from galleryvault.db.repositories.galleries_progress import GalleryProgressMixin
+from galleryvault.db.repositories.galleries_query import GalleryQueryMixin
 from galleryvault.services import tag_sync
 
 # Roster as of the split (82 names: 80 methods + parse_existing_rows /
@@ -260,9 +267,9 @@ def test_progress_mixin_is_in_mro_before_base_repository() -> None:
     assert GalleryProgressMixin in mro
     assert issubclass(GalleryRepository, GalleryProgressMixin)
     # Mixins must precede BaseRepository so their overrides win (``get_by_id``
-    # mock-session fallback in galleries.py is the documented case).
+    # mock-session fallback in galleries_query.py is the documented case).
     assert mro.index(GalleryProgressMixin) < mro.index(BaseRepository)
-    assert GalleryRepository.__bases__[0] is GalleryProgressMixin
+    assert GalleryProgressMixin in GalleryRepository.__bases__
 
 
 def test_progress_methods_are_defined_in_the_new_module() -> None:
@@ -327,11 +334,12 @@ async def test_class_attribute_patch_dispatches_on_instances(
 
 
 async def test_get_by_id_still_overrides_base_repository_fallback() -> None:
-    # ``GalleryRepository.get_by_id`` lives in ``galleries`` and must win over
-    # ``BaseRepository.get_by_id`` (which needs ``model_cls`` and would raise).
-    assert GalleryRepository.get_by_id.__module__ == galleries.__name__
+    # ``GalleryRepository.get_by_id`` now lives in ``galleries_query`` and must
+    # win over ``BaseRepository.get_by_id`` (which needs ``model_cls`` and would
+    # raise) thanks to the mixin-first MRO.
+    assert GalleryRepository.get_by_id.__module__ == galleries_query.__name__
     assert (
-        GalleryRepository.__mro__.index(galleries.GalleryRepository)
+        GalleryRepository.__mro__.index(GalleryQueryMixin)
         < GalleryRepository.__mro__.index(BaseRepository)
     )
 
@@ -346,3 +354,154 @@ async def test_get_by_id_still_overrides_base_repository_fallback() -> None:
     session = _ScalarOnlySession()
     assert await GalleryRepository(session).get_by_id(3) == "from-scalar"  # type: ignore[arg-type]
     assert session.selects == 1
+
+
+# --------------------------------------------------------------------------- #
+# Query mixin contract (batch 8)
+# --------------------------------------------------------------------------- #
+
+# splits.md section 2.1 "Query/读" - 41 methods, 795 lines at the time of the
+# inventory. Written out literally so the move cannot silently drop one.
+_QUERY_METHODS = (
+    "get_by_id",
+    "list_page",
+    "progress_for_galleries",
+    "next_gallery_id",
+    "resolve_exact_tags",
+    "search_tags",
+    "resolve_tag_names",
+    "category_counts",
+    "tag_facets",
+    "tags_for_galleries",
+    "tag_counts_for",
+    "random_id",
+    "list_trashed",
+    "list_expunged",
+    "list_integrity_issues",
+    "list_magic_scan_targets",
+    "progress",
+    "history_page",
+    "get",
+    "get_for_tag_sync",
+    "pending_category_refresh_ids",
+    "count_pending_category_refresh",
+    "get_by_identifier",
+    "get_by_gid",
+    "metadata_map",
+    "metadata_for_gid",
+    "cold_metadata_gids",
+    "storage_size_map",
+    "largest_by_storage",
+    "library_storage_sum",
+    "pending_tag_sync_ids",
+    "tag_sync_status_for_gids",
+    "get_gallery_with_pages",
+    "get_pages",
+    "tags_for_gallery",
+    "find_by_gids",
+    "find_by_ids",
+    "list_duplicates",
+    "set_duplicate_status",
+    "delete_duplicate",
+    "duplicate_copies_for_gid",
+)
+
+
+def test_query_method_roster_is_exactly_the_41_read_methods() -> None:
+    assert len(_QUERY_METHODS) == len(set(_QUERY_METHODS)) == 41
+    for name in _QUERY_METHODS:
+        assert hasattr(GalleryRepository, name), name
+    # The three responsibilities stay disjoint: no query name leaked into the
+    # roster of what stayed behind in ``galleries``.
+    assert set(_QUERY_METHODS) <= set(_EXPECTED_METHODS)
+
+
+def test_query_methods_are_defined_in_the_new_module() -> None:
+    for name in _QUERY_METHODS:
+        func = getattr(GalleryQueryMixin, name)
+        assert inspect.isfunction(func), name
+        assert func.__module__ == galleries_query.__name__, name
+        assert inspect.getsourcefile(func) == galleries_query.__file__, name
+        assert func.__globals__ is vars(galleries_query), name
+        # Moved, not copied: neither the module nor the class re-defines them.
+        assert name not in vars(galleries), name
+        assert name not in vars(GalleryRepository), name
+        assert getattr(GalleryRepository, name) is func, name
+
+
+def test_query_mixin_is_first_base_and_precedes_base_repository() -> None:
+    mro = GalleryRepository.__mro__
+    assert mro.index(GalleryQueryMixin) < mro.index(GalleryProgressMixin)
+    assert mro.index(GalleryQueryMixin) < mro.index(BaseRepository)
+    assert GalleryRepository.__bases__[0] is GalleryQueryMixin
+    assert issubclass(GalleryRepository, GalleryQueryMixin)
+
+
+def test_query_module_does_not_import_galleries_or_app_layer() -> None:
+    # No import cycle back into ``galleries`` and no app-layer dependency.
+    assert "galleries" not in vars(galleries_query)
+    assert "GalleryRepository" not in vars(galleries_query)
+    for name in vars(galleries_query):
+        assert not name.startswith("galleryvault.app"), name
+
+
+async def test_get_by_id_mock_session_branch_kept() -> None:
+    # ``get_by_id`` prefers a callable ``session.get`` (the test-double path)
+    # and only falls back to ``scalar`` otherwise.
+    assert GalleryRepository.get_by_id.__code__.co_filename == galleries_query.__file__
+
+    class _GetSession:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, object]] = []
+
+        async def get(self, model: object, key: object) -> str:
+            self.calls.append((model, key))
+            return "from-get"
+
+        async def scalar(self, _stmt: object) -> str:
+            raise AssertionError("scalar must not be used when session.get exists")
+
+    session = _GetSession()
+    assert await GalleryRepository(session).get_by_id(11) == "from-get"  # type: ignore[arg-type]
+    assert len(session.calls) == 1
+    assert session.calls[0][1] == 11
+    assert session.calls[0][0].__name__ == "Gallery"
+
+
+def test_list_integrity_issues_source_is_inspectable() -> None:
+    # test_pause_fix.py asserts on ``inspect.getsource`` of this method; the
+    # move must keep resolving the source text.
+    source = inspect.getsource(GalleryRepository.list_integrity_issues)
+    assert "def list_integrity_issues" in source
+    assert inspect.getsourcefile(GalleryRepository.list_integrity_issues) == (
+        galleries_query.__file__
+    )
+
+
+@pytest.mark.parametrize("name", ["list_page", "tags_for_galleries"])
+async def test_query_class_attribute_patch_dispatches_on_instances(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # test_auth patches these two as class attributes; that only works while
+    # ``GalleryRepository`` stays a single concrete class.
+    from galleryvault.app.core.uow import SqlAlchemyUnitOfWork
+
+    sentinel = object()
+    mock = AsyncMock(return_value=sentinel)
+    monkeypatch.setattr(GalleryRepository, name, mock)
+
+    session = _FallbackSession()
+    assert await getattr(GalleryRepository(session), name)() is sentinel  # type: ignore[arg-type]
+    assert mock.await_count == 1
+
+    uow = SqlAlchemyUnitOfWork()
+    uow._session = session  # type: ignore[assignment]
+    assert await getattr(uow.galleries, name)() is sentinel
+    assert mock.await_count == 2
+
+
+async def test_query_methods_run_on_session_only_double() -> None:
+    # The mixin needs nothing but ``self.session``: ``find_by_gids`` short
+    # circuits on an empty id list before touching the session.
+    repo = GalleryRepository(_FallbackSession())  # type: ignore[arg-type]
+    assert await repo.find_by_gids([]) == []
