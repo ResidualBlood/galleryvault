@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError
 
 from galleryvault.app.routers.series import (
     SeriesCloudItemsRequest,
@@ -427,6 +428,163 @@ async def test_rebuild_series_groups_name_manual_and_empty_cleanup() -> None:
         # s1 is NOT deleted because name_manual=True
         assert res["created"] == 0
         assert res["merged"] == 2
+
+
+class _UniqueKeySession:
+    """Minimal session that enforces the series.match_key unique constraint."""
+
+    def __init__(self, keys: dict[int, str | None]) -> None:
+        self.keys = dict(keys)
+        self.statements: list[tuple[set[int], str | None]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    def begin(self):
+        class Ctx:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        return Ctx()
+
+    async def execute(self, stmt):
+        params = stmt.compile().params
+        raw_ids = params["id_1"]
+        ids = {raw_ids} if isinstance(raw_ids, int) else set(raw_ids)
+        match_key = params["match_key"]
+        if match_key is not None:
+            occupied = {
+                sid
+                for sid, key in self.keys.items()
+                if key == match_key and sid not in ids
+            }
+            if occupied:
+                raise IntegrityError(
+                    "UPDATE series", {}, Exception("duplicate key value")
+                )
+        for sid in ids:
+            self.keys[sid] = match_key
+        self.statements.append((ids, match_key))
+
+
+@pytest.mark.asyncio
+async def test_rebuild_series_swaps_match_key_without_unique_conflict() -> None:
+    # Reused row s1 changes oldtitle -> newtitle while s2 still holds newtitle
+    # and is only deleted later in the same transaction.
+    reused = Series(id=1, name="Old Name", match_key="s::artist::oldtitle", name_manual=False)
+    occupying = Series(id=2, name="Will Be Deleted", match_key="s::artist::newtitle", name_manual=False)
+    g1 = MagicMock(spec=Gallery, id=10, title="[Artist] New Title 1", title_jpn=None, trashed=False)
+    g2 = MagicMock(spec=Gallery, id=11, title="[Artist] New Title 2", title_jpn=None, trashed=False)
+
+    class FakeRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_auto_series(self):
+            return [reused, occupying]
+
+        async def get_auto_series_gids(self, ids):
+            return {1: {10, 11}, 2: set()}
+
+        async def get_auto_series_cloud_gids(self, ids):
+            return {}
+
+        async def get_series_cloud_exclusions(self):
+            return {}
+
+        async def get_rebuild_candidate_galleries(self):
+            return [g1, g2]
+
+        async def get_tags_for_galleries(self, ids):
+            return {}
+
+        async def clear_auto_series_items(self, ids):
+            pass
+
+        async def add_items(self, sid, ids, source="auto"):
+            pass
+
+        async def delete_series(self, sid):
+            self.session.keys.pop(sid, None)
+
+        async def add_cloud_items(self, sid, gids):
+            pass
+
+    session = _UniqueKeySession({1: "s::artist::oldtitle", 2: "s::artist::newtitle"})
+
+    with patch("galleryvault.services.series.SeriesRepository", FakeRepo):
+        res = await rebuild_series_groups(session_factory=MagicMock(return_value=session))
+
+    # Phase one clears every auto key before phase two writes the new one.
+    assert session.statements[0] == ({1, 2}, None)
+    assert session.keys == {1: "s::artist::newtitle"}
+    assert reused.match_key == "s::artist::newtitle"
+    assert res["created"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rebuild_series_manual_named_dissolved_keeps_manual_shell() -> None:
+    renamed = Series(id=1, name="My Custom Series", match_key="s::artist::gone", name_manual=True)
+    g1 = MagicMock(spec=Gallery, id=20, title="[Other] Brand New Work 1", title_jpn=None, trashed=False)
+    g2 = MagicMock(spec=Gallery, id=21, title="[Other] Brand New Work 2", title_jpn=None, trashed=False)
+    created = Series(id=3, name="Brand New Work", match_key="s::other::brandnewwork", name_manual=False)
+
+    class FakeRepo:
+        def __init__(self, session):
+            self.session = session
+            self.deleted: list[int] = []
+
+        async def get_auto_series(self):
+            return [renamed]
+
+        async def get_auto_series_gids(self, ids):
+            return {1: {10, 11}}
+
+        async def get_auto_series_cloud_gids(self, ids):
+            return {}
+
+        async def get_series_cloud_exclusions(self):
+            return {}
+
+        async def get_rebuild_candidate_galleries(self):
+            return [g1, g2]
+
+        async def get_tags_for_galleries(self, ids):
+            return {}
+
+        async def clear_auto_series_items(self, ids):
+            pass
+
+        async def create(self, name, match_key=None, name_manual=False):
+            return created
+
+        async def add_items(self, sid, ids, source="auto"):
+            pass
+
+        async def delete_series(self, sid):
+            self.deleted.append(sid)
+
+        async def add_cloud_items(self, sid, gids):
+            pass
+
+    session = _UniqueKeySession({1: "s::artist::gone"})
+    fake_repo = FakeRepo(session)
+
+    with patch("galleryvault.services.series.SeriesRepository", return_value=fake_repo):
+        res = await rebuild_series_groups(session_factory=MagicMock(return_value=session))
+
+    # Cluster dissolved: the auto row was not deleted, it became a manual shell.
+    assert fake_repo.deleted == []
+    assert renamed.name == "My Custom Series"
+    assert renamed.match_key is None
+    assert session.keys == {1: None}
+    assert res["created"] == 1
 
 
 @pytest.mark.asyncio
