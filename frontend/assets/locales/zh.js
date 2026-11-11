@@ -44,6 +44,7 @@ window.GV_LOCALES.zh = {
   cancel: "取消", noTasks: "暂无下载任务。", noGalleries: "没有匹配的画廊，请点击扫描。",
   noHistory: "暂无阅读历史。", noTags: "未找到本地标签。", noCover: "无封面", clearAll: "清空标签", search: "搜索",
   openEh: "打开原站", ehLoginNote: "需浏览器已登录 ExHentai", custom: "自定义",
+  ehBaseExhentai: "ExHentai（里站）", ehBaseEhentai: "E-Hentai（外站）", invalidLink: "链接无效，已返回浏览页。",
   ehPublicNotice: "外站 E-Hentai：里站专属画廊会暂停标签同步（不会被误判为已删除），切回 exhentai.org 后自动恢复。",
   progress: "进度", loading: "加载中…", language: "EN", latest: "最新",
   enabled: "启用", mode: "模式", intervalMin: "间隔（分钟）",
