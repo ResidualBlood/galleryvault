@@ -6,7 +6,7 @@ const SHELL = [
   "/index.html",
   "/manifest.webmanifest?v=v8",
   "/assets/styles.css?v=v8",
-  "/assets/icon.svg?v=v7",
+  "/assets/icon.svg?v=v8",
   "/assets/i18n.js?v=v8",
   "/assets/locales/zh.js?v=v8",
   "/assets/locales/en.js?v=v8",
