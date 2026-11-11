@@ -1,8 +1,10 @@
-"""R2 split contract: gallery repository helper extraction (batch 6 / R0).
+"""R2 split contract: gallery repository helper + mixin extraction.
 
-The module-level helpers of ``db.repositories.galleries`` now live in
-``db.repositories.galleries_common``; ``galleries`` re-exports them so every
-existing import site and module-attribute monkeypatch keeps working.
+Batch 6 / R0 moved the module-level helpers of ``db.repositories.galleries`` to
+``db.repositories.galleries_common`` (``galleries`` re-exports them). Batch 7 /
+R15+R16 moved the eight reading progress/history methods to
+``db.repositories.galleries_progress.GalleryProgressMixin`` and
+``GalleryRepository`` now inherits it.
 
 Asserted here:
 1. The full ``GalleryRepository`` method roster still exists on the class
@@ -14,16 +16,25 @@ Asserted here:
 4. ``GalleryRepository`` still lives in ``galleries`` and resolves the helpers
    through that module's globals today; the assertion pins it so the later
    mixin split cannot change it silently.
+5. The progress mixin contract: it is in the MRO *before* ``BaseRepository``,
+   the eight methods are defined in the new module (not copied), class-attribute
+   monkeypatches (``GalleryRepository.clear_history`` ...) still dispatch, and
+   ``get_by_id`` keeps its mock-session fallback (mixins first).
 """
 
 from __future__ import annotations
 
 import inspect
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 
-from galleryvault.db.repositories import galleries, galleries_common
+from galleryvault.db.models import ReadingHistory, ReadingProgress
+from galleryvault.db.repositories import galleries, galleries_common, galleries_progress
+from galleryvault.db.repositories.base import BaseRepository
 from galleryvault.db.repositories.galleries import GalleryRepository
+from galleryvault.db.repositories.galleries_progress import GalleryProgressMixin
 from galleryvault.services import tag_sync
 
 # Roster as of the split (82 names: 80 methods + parse_existing_rows /
@@ -204,3 +215,134 @@ def test_common_module_does_not_import_app_layer() -> None:
     for name in vars(galleries_common):
         assert not name.startswith("galleryvault.app"), name
     assert "galleries" not in vars(galleries_common)
+
+
+# --------------------------------------------------------------------------- #
+# Progress mixin contract (batch 7 / R15+R16)
+# --------------------------------------------------------------------------- #
+
+_PROGRESS_METHODS = (
+    "upsert_progress",
+    "advance_progress",
+    "_advance_progress_read_modify_write",
+    "record_history",
+    "_record_history_read_modify_write",
+    "clear_history",
+    "clear_progress",
+    "delete_progress",
+)
+
+
+class _FallbackSession:
+    """Minimal session double: no ``execute`` (exercises the RMW fallbacks)."""
+
+    def __init__(self) -> None:
+        self.added: list[object] = []
+        self.flushes = 0
+        self.get_value: object | None = None
+        self.scalar_value: object | None = None
+
+    async def get(self, _model: object, _key: object) -> object | None:
+        return self.get_value
+
+    def add(self, row: object) -> None:
+        self.added.append(row)
+
+    async def flush(self) -> None:
+        self.flushes += 1
+
+    async def scalar(self, _stmt: object) -> object | None:
+        return self.scalar_value
+
+
+def test_progress_mixin_is_in_mro_before_base_repository() -> None:
+    mro = GalleryRepository.__mro__
+    assert GalleryProgressMixin in mro
+    assert issubclass(GalleryRepository, GalleryProgressMixin)
+    # Mixins must precede BaseRepository so their overrides win (``get_by_id``
+    # mock-session fallback in galleries.py is the documented case).
+    assert mro.index(GalleryProgressMixin) < mro.index(BaseRepository)
+    assert GalleryRepository.__bases__[0] is GalleryProgressMixin
+
+
+def test_progress_methods_are_defined_in_the_new_module() -> None:
+    for name in _PROGRESS_METHODS:
+        func = getattr(GalleryRepository, name)
+        assert inspect.isfunction(func), name
+        assert func.__module__ == galleries_progress.__name__, name
+        assert inspect.getsourcefile(func) == galleries_progress.__file__, name
+        assert func.__globals__ is vars(galleries_progress), name
+        # Moved, not copied: neither module nor class re-defines them.
+        assert name not in vars(galleries), name
+        assert name not in vars(GalleryRepository), name
+
+
+async def test_progress_fallbacks_run_on_session_only_double() -> None:
+    # The double has no ``model_cls`` and no ``execute``: the mixin must only
+    # need a session (and the RMW fallbacks cover the double's shape).
+    session = _FallbackSession()
+    repo = GalleryRepository(session)  # type: ignore[arg-type]
+
+    progress, advanced = await repo.advance_progress(1, 7, 20)
+    assert (progress.current_page, progress.total_pages) == (7, 20)
+    assert advanced is True
+
+    history = await repo.record_history(1, 7, 20)
+    assert (history.current_page, history.total_pages) == (7, 20)
+    assert session.flushes == 2
+
+    # Existing rows take the monotonic update branch and stamp the timestamp.
+    existing = _FallbackSession()
+    existing.get_value = ReadingProgress(gallery_id=1, current_page=3, total_pages=20)
+    existing.scalar_value = ReadingHistory(gallery_id=1, current_page=3, total_pages=20)
+    repo = GalleryRepository(existing)  # type: ignore[arg-type]
+
+    stored, advanced = await repo.advance_progress(1, 7, 20)
+    assert (stored.current_page, stored.total_pages, advanced) == (7, 20, True)
+    assert isinstance(stored.updated_at, datetime)
+    assert stored.updated_at.tzinfo is UTC
+
+    stale, advanced = await repo.advance_progress(1, 2, 20)
+    assert (stale.current_page, advanced) == (7, False)
+
+
+@pytest.mark.parametrize("name", ["clear_history", "clear_progress"])
+async def test_class_attribute_patch_dispatches_on_instances(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from galleryvault.app.core.uow import SqlAlchemyUnitOfWork
+
+    mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(GalleryRepository, name, mock)
+
+    session = _FallbackSession()
+    assert await getattr(GalleryRepository(session), name)() is None  # type: ignore[arg-type]
+    assert mock.await_count == 1
+
+    # Same dispatch through the repository assembled by the unit of work.
+    uow = SqlAlchemyUnitOfWork()
+    uow._session = session  # type: ignore[assignment]
+    assert await getattr(uow.galleries, name)() is None
+    assert mock.await_count == 2
+
+
+async def test_get_by_id_still_overrides_base_repository_fallback() -> None:
+    # ``GalleryRepository.get_by_id`` lives in ``galleries`` and must win over
+    # ``BaseRepository.get_by_id`` (which needs ``model_cls`` and would raise).
+    assert GalleryRepository.get_by_id.__module__ == galleries.__name__
+    assert (
+        GalleryRepository.__mro__.index(galleries.GalleryRepository)
+        < GalleryRepository.__mro__.index(BaseRepository)
+    )
+
+    class _ScalarOnlySession:
+        def __init__(self) -> None:
+            self.selects = 0
+
+        async def scalar(self, _stmt: object) -> str:
+            self.selects += 1
+            return "from-scalar"
+
+    session = _ScalarOnlySession()
+    assert await GalleryRepository(session).get_by_id(3) == "from-scalar"  # type: ignore[arg-type]
+    assert session.selects == 1
