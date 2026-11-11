@@ -34,7 +34,11 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-from galleryvault.app.schemas import FavoriteNoteRequest, FavoritesRemoveRequest
+from galleryvault.app.schemas import (
+    FavoriteNoteRequest,
+    FavoritesMoveRequest,
+    FavoritesRemoveRequest,
+)
 from galleryvault.services import favorites_mutations as fm
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +50,12 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_service_exports_only_public_api() -> None:
-    assert sorted(fm.__all__) == ["MutationDeps", "remove_favorites", "set_favorite_note"]
+    assert sorted(fm.__all__) == [
+        "MutationDeps",
+        "move_favorites",
+        "remove_favorites",
+        "set_favorite_note",
+    ]
 
 
 def _resolved_imports(path: Path) -> list[str]:
@@ -529,3 +538,62 @@ async def test_remove_empty_gids_is_422_before_any_cloud_call(
 
     assert excinfo.value.status_code == 422
     assert excinfo.value.detail == "no galleries selected"
+
+
+# ---------------------------------------------------------------------------
+# 5. move: one deduped gid list feeds both phases, log stays in the router
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_move_uses_patched_repository_and_records_move_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    moved: list[tuple[list[int], int]] = []
+
+    class Repo:
+        def __init__(self, session: Any) -> None:
+            self.session = session
+
+        async def move_gids(self, gids: list[int], target_favcat: int) -> int:
+            moved.append((list(gids), target_favcat))
+            return len(gids)
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[tuple[list[int], int]] = []
+
+        async def move_favorites(
+            self, gids: list[int], target_favcat: int
+        ) -> list[int]:
+            self.calls.append((list(gids), target_favcat))
+            return [200]
+
+    client = Client()
+    monkeypatch.setattr(fav_mod, "FavoritesRepository", Repo)
+    tm = _patch_task_manager(monkeypatch)
+
+    result = await fav_mod.favorites_move(
+        FavoritesMoveRequest(gids=[100, 200, 100, 200], target_favcat=3),
+        session=_FakeSession(),
+        eh_client_mgr=_manager(client),
+    )
+
+    assert result == {
+        "gids": [100, 200],
+        "target_favcat": 3,
+        "cloud_ok": False,
+        "cloud_moved": 1,
+        "cloud_failed": [200],
+        "local_moved": 1,
+    }
+    # Same deduped list for the cloud call and the local transaction, and the
+    # repository class comes from the router module (patch target stays valid).
+    assert client.calls == [([100, 200], 3)]
+    assert moved == [([100], 3)]
+    # The task log is still emitted by the router helper, fed by the result.
+    assert tm.recorded == [
+        {"kind": "favorites-move", "status": "failed", "done": 1, "total": 2}
+    ]

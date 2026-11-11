@@ -34,6 +34,7 @@ from ...services.eh_client import EhClientError, FavoriteData, GalleryGoneError
 from ...services.favorite_service import FavoriteService
 from ...services.favorites_mutations import (
     MutationDeps,
+    move_favorites,
     remove_favorites,
     set_favorite_note,
 )
@@ -668,44 +669,29 @@ async def favorites_move(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
-    if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-    gids = list(dict.fromkeys(body.gids))
-    cloud_failed: list[int] = []
-    cloud_moved = 0
-    cloud_ok = True
     settings = get_current_settings()
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            cloud_failed = await client.move_favorites(gids, body.target_favcat)
-        cloud_moved = len(gids) - len(cloud_failed)
-        cloud_ok = not cloud_failed
-    except Exception as exc:  # noqa: BLE001
-        cloud_ok = False
-        cloud_failed = list(gids)
-        logger.warning("cloud favorite move failed", extra=log_extra(error=type(exc).__name__))
-
-    successful_gids = [g for g in gids if g not in set(cloud_failed)]
-    local_moved = 0
-    if successful_gids:
-        try:
-            async with safe_transaction(session):
-                local_moved = await FavoritesRepository(session).move_gids(
-                    successful_gids, body.target_favcat
-                )
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    _record_favorites_move_log(gids, body.target_favcat, cloud_failed, local_moved)
-
-    return {
-        "gids": gids,
-        "target_favcat": body.target_favcat,
-        "cloud_ok": cloud_ok,
-        "cloud_moved": cloud_moved,
-        "cloud_failed": cloud_failed,
-        "local_moved": local_moved,
-    }
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        release_session=release_session,
+        db_error=db_error,
+        logger=logger,
+    )
+    result = await move_favorites(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
+    _record_favorites_move_log(
+        result["gids"],
+        result["target_favcat"],
+        result["cloud_failed"],
+        result["local_moved"],
+    )
+    return result
 
 
 def _record_favorites_add_log(

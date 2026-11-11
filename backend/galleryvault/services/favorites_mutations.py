@@ -23,7 +23,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..db.session import safe_transaction
 from ..logging import log_extra
 
-__all__ = ["MutationDeps", "remove_favorites", "set_favorite_note"]
+__all__ = [
+    "MutationDeps",
+    "move_favorites",
+    "remove_favorites",
+    "set_favorite_note",
+]
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,60 @@ async def set_favorite_note(
         "cloud_ok": cloud_ok,
         "local_updated": local_updated,
         "note": body.note if cloud_ok else None,
+    }
+
+
+async def move_favorites(
+    body: Any,
+    *,
+    session: Any,
+    eh_client_mgr: Any,
+    settings: Any,
+    deps: MutationDeps,
+) -> dict[str, Any]:
+    """Move favorites to another favcat: cloud first, then one short transaction.
+
+    Deduplication happens once, before the cloud call, and the same gid list is
+    used for ``move_gids``, so the two phases can never disagree on the set.
+    ``cloud_failed`` gids are excluded from the local move while still being
+    reported back for the router's ``_record_favorites_move_log``.
+    """
+    if not body.gids:
+        raise HTTPException(status_code=422, detail="no galleries selected")
+    gids = list(dict.fromkeys(body.gids))
+    cloud_failed: list[int] = []
+    cloud_moved = 0
+    cloud_ok = True
+    try:
+        async with eh_client_mgr.client_context(settings=settings) as client:
+            cloud_failed = await client.move_favorites(gids, body.target_favcat)
+        cloud_moved = len(gids) - len(cloud_failed)
+        cloud_ok = not cloud_failed
+    except Exception as exc:  # noqa: BLE001
+        cloud_ok = False
+        cloud_failed = list(gids)
+        deps.logger.warning(
+            "cloud favorite move failed", extra=log_extra(error=type(exc).__name__)
+        )
+
+    successful_gids = [g for g in gids if g not in set(cloud_failed)]
+    local_moved = 0
+    if successful_gids:
+        try:
+            async with safe_transaction(session):
+                local_moved = await deps.favorites_repo(session).move_gids(
+                    successful_gids, body.target_favcat
+                )
+        except SQLAlchemyError as exc:
+            raise deps.db_error(exc) from exc
+
+    return {
+        "gids": gids,
+        "target_favcat": body.target_favcat,
+        "cloud_ok": cloud_ok,
+        "cloud_moved": cloud_moved,
+        "cloud_failed": cloud_failed,
+        "local_moved": local_moved,
     }
 
 
