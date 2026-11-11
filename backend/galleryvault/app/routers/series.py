@@ -16,6 +16,9 @@ from ...db.repositories.galleries import GalleryRepository
 from ...db.repositories.series import SeriesRepository
 from ...db.session import safe_transaction
 from ...services.series import rebuild_series_groups, series_rebuild_state
+
+# Backward-compatible alias: same dict object shared with the scan worker.
+_series_rebuild_state = series_rebuild_state
 from ...services.tag_translation import translated_tag
 from ..core.task_dispatcher import TaskDispatcher
 from ..core.uow import UnitOfWork
