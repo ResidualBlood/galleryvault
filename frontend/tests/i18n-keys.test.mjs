@@ -71,7 +71,8 @@ const flat = Object.fromEntries(LOCALES.map(name => [name, flatKeys(locales[name
 
 // key -> ["relative/path:line", ...]
 const used = new Map();
-const RE_T = /\bt\(\s*(["'])((?:\\.|(?!\1).)*)\1/g;
+// `tHtml("key")` (trusted-HTML translations, i18n.js) references keys like `t()`.
+const RE_T = /\b(?:t|tHtml)\(\s*(["'])((?:\\.|(?!\1).)*)\1/g;
 const RE_I18N = /data-i18n(?:-text|-placeholder|-title|-aria-label)?\s*=\s*(["'])([A-Za-z0-9_.]+)\1/g;
 
 const scanFiles = walk(path.join(frontend, "assets")).concat([path.join(frontend, "index.html")]);
