@@ -325,6 +325,13 @@ async function checkAuth() {
     app.paused = false;
     $topbar().hidden = false;
     updateBanner();
+    // Prefetch settings so views reading app.settings (e.g. the archive
+    // dialog's default tier) don't depend on the settings page being opened.
+    if (!app.settings) {
+      api("GET", "/api/settings")
+        .then(s => { app.settings = s || {}; })
+        .catch(() => {});
+    }
     // Cookie health from session may be stale/"unknown" if startup probe
     // hasn't finished yet — fetch authoritative health once after login
     // and start periodic polling (every 10 min) while authenticated.
@@ -520,18 +527,27 @@ let currentViewCleanup = null;
 // Render ownership token: every router() / view render bumps the sequence.
 // Async views capture the token before awaiting and must discard results once
 // a newer render owns the view (avoids stale responses overwriting the DOM).
+// The shared sequence + in-flight AbortController live in view-runtime.js;
+// getSeq/setSeq keep the legacy viewRenderSeq global usable by older views.
 let viewRenderSeq = 0;
 
+const viewRuntime = window.GVViewRuntime.createViewRuntime({
+  getApp: () => app,
+  getSeq: () => viewRenderSeq,
+  setSeq: (n) => { viewRenderSeq = n; },
+});
+
 function beginViewRender() {
-  viewRenderSeq += 1;
-  return viewRenderSeq;
+  return viewRuntime.beginViewRender();
 }
 
 function isStaleViewRender(token, view, id) {
-  if (token !== viewRenderSeq) return true;
-  if (view !== undefined && app.view !== view) return true;
-  if (id !== undefined && id !== null && String(app.params && app.params.id || "") !== String(id)) return true;
-  return false;
+  return viewRuntime.isStale(token, view, id);
+}
+
+// New view entry point: token + abort signal + stale() + signal-bound api().
+function withViewRender(view, id, fn) {
+  return viewRuntime.withViewRender(view, id, fn);
 }
 
 function beforeRender(view) {

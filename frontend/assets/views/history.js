@@ -4,6 +4,10 @@
 // renderHistory moved from app.js
 
 async function renderHistory() {
+  return withViewRender("history", undefined, ctx => historyViewBody(ctx));
+}
+
+async function historyViewBody({ api: viewApi, stale }) {
   const page = app.query.page || "1";
   renderView(`
     <header><p class="eyebrow">READING LOG</p><h1>${esc(t("history"))}</h1>
@@ -15,8 +19,10 @@ async function renderHistory() {
     <div class="pages" id="hist-pages"></div>`);
   try {
     const pageSize = prefPageSize();
-    const data = await api("GET", `/api/history?page=${encodeURIComponent(page)}&page_size=${pageSize}`);
+    const data = await viewApi("GET", `/api/history?page=${encodeURIComponent(page)}&page_size=${pageSize}`);
+    if (stale()) return;
     const el = document.getElementById("hist-list");
+    if (!el) return;
     const items = (data && data.items) || [];
     if (!items.length) { el.innerHTML = renderEmpty(t("noHistory")); return; }
     el.innerHTML = `<div class="rows">` + items.map(h => {
@@ -44,7 +50,10 @@ async function renderHistory() {
       `${data.page > 1 ? `<a class="page-link" href="${qp(data.page - 1)}">&lt;</a>` : ""} ` +
       pages.join(" ") +
       ` ${pagerJump(data.page, last)} · ${esc(t("perPage"))} ${pageSizeSelect(data.page_size, "history")}`;
-  } catch (e) { document.getElementById("hist-list").innerHTML = renderError(e.message); }
+  } catch (e) {
+    if (stale() || isAbortError(e)) return;
+    renderErrorInto("hist-list", e.message);
+  }
 }
 
 async function clearHistory() {
