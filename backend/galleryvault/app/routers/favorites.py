@@ -32,6 +32,7 @@ from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import EhClientError, FavoriteData, GalleryGoneError
 from ...services.favorite_service import FavoriteService
+from ...services.favorites_mutations import MutationDeps, set_favorite_note
 from ...services.favorites_worker import (
     FavoriteDownloadQueue,
     _cover_cache_file,
@@ -935,60 +936,42 @@ async def favorites_set_note(
     session = await resolve_session(session, fallback_dep=get_session)
     eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     settings = get_current_settings()
-    token = body.token
-    favcat = body.favcat
-    try:
-        item = await FavoritesRepository(session).item_for_gid(body.gid)
-        if item is not None:
-            token = token or item.token
-            if favcat is None:
-                favcat = item.favcat
-        if not token:
-            gallery = await GalleryRepository(session).get_by_gid(body.gid)
-            if gallery is not None:
-                token = gallery.token
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    if not token:
-        raise HTTPException(status_code=422, detail="token is required")
-    if favcat is None:
-        raise HTTPException(status_code=422, detail="not in favorites")
-    # Read phase finished: return the pooled connection before the cloud call.
-    await release_session(session)
-    cloud_ok = False
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            await client.add_favorite(body.gid, str(token), int(favcat), note=body.note)
-        cloud_ok = True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("cloud favorite note failed", extra=log_extra(error=type(exc).__name__))
-        cloud_ok = False
-    local_updated = 0
-    if cloud_ok:
-        try:
-            async with safe_transaction(session):
-                local_updated = await FavoritesRepository(session).update_note(
-                    body.gid, body.note, favcat=int(favcat)
-                )
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-    now = datetime.now(UTC).isoformat()
-    tm = get_task_manager()
-    tm.record_task(
-        "favorites-note",
-        now,
-        now,
-        "success" if cloud_ok else "failed",
-        reason=f"gid {body.gid}",
-        done=local_updated,
-        total=1,
+
+    def _record_note_task(gid: int, cloud_ok: bool, local_updated: int) -> None:
+        now = datetime.now(UTC).isoformat()
+        tm = get_task_manager()
+        tm.record_task(
+            "favorites-note",
+            now,
+            now,
+            "success" if cloud_ok else "failed",
+            reason=f"gid {gid}",
+            done=local_updated,
+            total=1,
+        )
+        spawn_task(tm.persist_history(), "persist task history")
+
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        record_task=_record_note_task,
+        release_session=release_session,
+        db_error=db_error,
+        logger=logger,
     )
-    spawn_task(tm.persist_history(), "persist task history")
+    result = await set_favorite_note(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
     return {
-        "gid": body.gid,
-        "cloud_ok": cloud_ok,
-        "local_updated": local_updated,
-        "note": body.note if cloud_ok else None,
+        "gid": result["gid"],
+        "cloud_ok": result["cloud_ok"],
+        "local_updated": result["local_updated"],
+        "note": result["note"],
     }
 
 
