@@ -363,7 +363,9 @@ def _existing_page_file(
 ) -> Path | None:
     """Return the already-downloaded page file for ``index`` (0-based) if present."""
     try:
-        matches = list(directory.glob(f"{index + 1:08d}.*"))
+        # Sorted so a page present as both ``.jpg`` and ``.webp`` always resumes
+        # with the same file instead of depending on directory order.
+        matches = sorted(directory.glob(f"{index + 1:08d}.*"))
     except OSError:
         return None
     is_original = (quality or "").lower() == "original"
