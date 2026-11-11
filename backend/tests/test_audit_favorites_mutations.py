@@ -36,6 +36,7 @@ from fastapi import HTTPException
 
 from galleryvault.app.schemas import (
     FavoriteNoteRequest,
+    FavoritesAddRequest,
     FavoritesMoveRequest,
     FavoritesRemoveRequest,
 )
@@ -52,6 +53,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 def test_service_exports_only_public_api() -> None:
     assert sorted(fm.__all__) == [
         "MutationDeps",
+        "add_favorites",
         "move_favorites",
         "remove_favorites",
         "set_favorite_note",
@@ -596,4 +598,161 @@ async def test_move_uses_patched_repository_and_records_move_log(
     # The task log is still emitted by the router helper, fed by the result.
     assert tm.recorded == [
         {"kind": "favorites-move", "status": "failed", "done": 1, "total": 2}
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 6. add: per-item note 422 first, missing tokens fail without a cloud call
+# ---------------------------------------------------------------------------
+
+
+class _NoRepo:
+    def __init__(self, session: Any) -> None:
+        raise AssertionError("repository must not be constructed on a rejected body")
+
+
+@pytest.mark.asyncio
+async def test_add_per_item_note_mismatch_is_422_before_any_cloud_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    class Client:
+        async def add_favorites(self, *args: Any, **kwargs: Any) -> list[int]:
+            raise AssertionError("cloud must not be called")
+
+    class Manager:
+        @asynccontextmanager
+        async def client_context(self, settings: Any = None) -> AsyncIterator[Any]:
+            raise AssertionError("cloud must not be called")
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(fav_mod, "FavoritesRepository", _NoRepo)
+    monkeypatch.setattr(fav_mod, "GalleryRepository", _NoRepo)
+    tm = _patch_task_manager(monkeypatch)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await fav_mod.favorites_add(
+            FavoritesAddRequest(
+                target_favcat=3,
+                note="batch-note",
+                items=[{"gid": 7, "token": "tok7", "note": "item-note"}],
+            ),
+            session=_FakeSession(),
+            eh_client_mgr=Manager(),
+        )
+
+    assert excinfo.value.status_code == 422
+    assert "note" in str(excinfo.value.detail)
+    # No cloud call, no local write, no task log on a rejected body.
+    assert tm.recorded == []
+
+
+@pytest.mark.asyncio
+async def test_add_missing_token_is_a_failure_and_never_reaches_the_cloud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    remembered: list[Any] = []
+    moved: list[list[int]] = []
+    cloud_pairs: list[list[tuple[int, str]]] = []
+
+    class FavRepo:
+        def __init__(self, session: Any) -> None:
+            self.session = session
+
+        async def remember_many(self, favcat: int, items: list[Any]) -> None:
+            remembered.extend(items)
+
+        async def move_gids(self, gids: list[int], target_favcat: int) -> int:
+            moved.append(list(gids))
+            return len(gids)
+
+    class GalleryRepo:
+        def __init__(self, session: Any) -> None:
+            self.session = session
+
+        async def find_by_gids(self, gids: list[int]) -> list[Any]:
+            return [SimpleNamespace(gid=100, token="tok100", title="Local 100")]
+
+        async def metadata_map(self, gids: list[int]) -> dict[int, Any]:
+            # gid 101 has no metadata row at all -> unresolvable token.
+            return {}
+
+    class Client:
+        async def add_favorites(
+            self, pairs: Any, target_favcat: int, note: str = ""
+        ) -> list[int]:
+            cloud_pairs.append(list(pairs))
+            return []
+
+    monkeypatch.setattr(fav_mod, "FavoritesRepository", FavRepo)
+    monkeypatch.setattr(fav_mod, "GalleryRepository", GalleryRepo)
+    tm = _patch_task_manager(monkeypatch)
+
+    result = await fav_mod.favorites_add(
+        FavoritesAddRequest(target_favcat=2, items=[{"gid": 101}, {"gid": 100}]),
+        session=_FakeSession(),
+        eh_client_mgr=_manager(Client()),
+    )
+
+    # Only the resolvable token is sent to the cloud; the missing one is a
+    # pre-classified failure.
+    assert cloud_pairs == [[(100, "tok100")]]
+    assert result["cloud_failed"] == [101]
+    assert result["successful_gids"] == [100]
+    assert result["cloud_added"] == 1
+    assert result["local_added"] == 1
+    assert [item.gid for item in remembered] == [100]
+    assert moved == [[100]]
+    assert tm.recorded == [
+        {
+            "kind": "favorites-add",
+            "status": "failed",
+            "done": 1,
+            "total": 2,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_add_all_tokens_missing_skips_the_cloud_entirely(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from galleryvault.app.routers import favorites as fav_mod
+
+    class FavRepo:
+        def __init__(self, session: Any) -> None:
+            raise AssertionError("no local write without a cloud-confirmed gid")
+
+    class GalleryRepo:
+        def __init__(self, session: Any) -> None:
+            self.session = session
+
+        async def find_by_gids(self, gids: list[int]) -> list[Any]:
+            return []
+
+        async def metadata_map(self, gids: list[int]) -> dict[int, Any]:
+            return {}
+
+    monkeypatch.setattr(fav_mod, "FavoritesRepository", FavRepo)
+    monkeypatch.setattr(fav_mod, "GalleryRepository", GalleryRepo)
+    tm = _patch_task_manager(monkeypatch)
+
+    result = await fav_mod.favorites_add(
+        FavoritesAddRequest(target_favcat=1, items=[{"gid": 55}]),
+        session=_FakeSession(),
+        eh_client_mgr=_manager(AssertionError("cloud must not be called")),
+    )
+
+    # Existing behaviour: with no callable pair the cloud gate is never entered,
+    # so ``cloud_ok`` stays True while the gid is still reported failed.
+    assert result["cloud_ok"] is True
+    assert result["cloud_added"] == 0
+    assert result["cloud_failed"] == [55]
+    assert result["successful_gids"] == []
+    assert result["local_added"] == 0
+    assert tm.recorded == [
+        {"kind": "favorites-add", "status": "failed", "done": 0, "total": 1}
     ]

@@ -22,9 +22,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..db.session import safe_transaction
 from ..logging import log_extra
+from .eh_client import FavoriteData
 
 __all__ = [
     "MutationDeps",
+    "add_favorites",
     "move_favorites",
     "remove_favorites",
     "set_favorite_note",
@@ -112,6 +114,160 @@ async def set_favorite_note(
         "cloud_ok": cloud_ok,
         "local_updated": local_updated,
         "note": body.note if cloud_ok else None,
+    }
+
+
+async def add_favorites(
+    body: Any,
+    *,
+    session: Any,
+    eh_client_mgr: Any,
+    settings: Any,
+    deps: MutationDeps,
+) -> dict[str, Any]:
+    """Add favorites: validate, backfill tokens, cloud add, then local remember.
+
+    Order is part of the contract: the per-item note check (422) happens before
+    any cloud or local write, and gids without a resolvable token are reported
+    as failures instead of being sent to the cloud.
+    """
+    if not body.items:
+        raise HTTPException(status_code=422, detail="no galleries selected")
+
+    items_to_add: list[dict[str, Any]] = []
+    seen_gids: set[int] = set()
+    batch_note = body.note or ""
+    for item in body.items:
+        if isinstance(item, dict) and "gid" in item:
+            item_note = item.get("note") or ""
+            if item_note and item_note != batch_note:
+                # ExHentai applies one note per addfav call, so a per-item note
+                # can never round-trip: the cloud would get the batch note while
+                # the local cache stored the item note (dual-state divergence).
+                raise HTTPException(
+                    status_code=422,
+                    detail="per-item note is not supported; send note once for the whole batch",
+                )
+            try:
+                gid = int(item["gid"])
+                if gid not in seen_gids:
+                    seen_gids.add(gid)
+                    items_to_add.append(
+                        {
+                            "gid": gid,
+                            "token": item.get("token"),
+                            "title": item.get("title"),
+                            "note": batch_note,
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
+
+    if not items_to_add:
+        raise HTTPException(status_code=422, detail="no valid galleries selected")
+
+    missing_token_gids = [it["gid"] for it in items_to_add if not it.get("token")]
+    if missing_token_gids:
+        try:
+            gallery_repo = deps.gallery_repo(session)
+            galleries = await gallery_repo.find_by_gids(missing_token_gids)
+            g_map = {g.gid: g for g in galleries if g.gid is not None}
+
+            remaining = [g for g in missing_token_gids if g not in g_map]
+            gm_map: dict[int, Any] = {}
+            if remaining:
+                gm_map = await gallery_repo.metadata_map(remaining)
+
+            for it in items_to_add:
+                gid = it["gid"]
+                if gid in g_map:
+                    g = g_map[gid]
+                    if not it.get("token"):
+                        it["token"] = g.token
+                    if not it.get("title"):
+                        it["title"] = g.title
+                elif gid in gm_map:
+                    gm = gm_map[gid]
+                    if not it.get("token"):
+                        it["token"] = gm.get("token")
+                    if not it.get("title"):
+                        it["title"] = gm.get("title")
+        except SQLAlchemyError as exc:
+            raise deps.db_error(exc) from exc
+
+    valid_pairs: list[tuple[int, str]] = []
+    missing_token_failed: list[int] = []
+    item_map = {it["gid"]: it for it in items_to_add}
+    for it in items_to_add:
+        if it.get("token"):
+            valid_pairs.append((it["gid"], str(it["token"])))
+        else:
+            missing_token_failed.append(it["gid"])
+
+    cloud_failed: list[int] = list(missing_token_failed)
+    cloud_added = 0
+    cloud_ok = True
+
+    if valid_pairs:
+        try:
+            async with eh_client_mgr.client_context(settings=settings) as client:
+                cf = await client.add_favorites(
+                    valid_pairs, body.target_favcat, note=body.note
+                )
+            cloud_failed.extend(cf)
+            cloud_added = len(valid_pairs) - len(cf)
+            cloud_ok = not cloud_failed
+        except Exception as exc:  # noqa: BLE001
+            cloud_ok = False
+            deps.logger.warning(
+                "cloud favorite add failed", extra=log_extra(error=type(exc).__name__)
+            )
+            failed_set = set(cloud_failed)
+            cloud_failed.extend(gid for gid, _ in valid_pairs if gid not in failed_set)
+            cloud_added = 0
+
+    successful_gids = [it["gid"] for it in items_to_add if it["gid"] not in set(cloud_failed)]
+    local_added = 0
+    if successful_gids:
+        base_url = str(
+            getattr(settings, "exhentai_base_url", "https://exhentai.org")
+            or "https://exhentai.org"
+        ).rstrip("/")
+        favorite_items_to_save = []
+        for gid in successful_gids:
+            it = item_map[gid]
+            title = it.get("title") or str(gid)
+            token = it.get("token") or ""
+            favorite_items_to_save.append(
+                FavoriteData(
+                    gid=gid,
+                    token=token,
+                    title=title,
+                    url=f"{base_url}/g/{gid}/{token}/",
+                    thumb=None,
+                    note=batch_note or None,
+                )
+            )
+        try:
+            async with safe_transaction(session):
+                await deps.favorites_repo(session).remember_many(
+                    body.target_favcat, favorite_items_to_save
+                )
+                await deps.favorites_repo(session).move_gids(
+                    successful_gids, body.target_favcat
+                )
+                local_added = len(favorite_items_to_save)
+        except SQLAlchemyError as exc:
+            raise deps.db_error(exc) from exc
+
+    return {
+        "gids": [it["gid"] for it in items_to_add],
+        "target_favcat": body.target_favcat,
+        "cloud_ok": cloud_ok,
+        "cloud_added": cloud_added,
+        "cloud_failed": cloud_failed,
+        "successful_gids": successful_gids,
+        "local_added": local_added,
     }
 
 
