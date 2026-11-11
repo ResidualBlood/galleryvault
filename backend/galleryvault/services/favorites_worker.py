@@ -802,21 +802,35 @@ async def _run_favorites_check_inner(
                 check_kwargs["archive_max_pages"] = archive_max_pages
                 check_kwargs["archive_quality"] = archive_quality
 
-            await service.check_category(favcat, **check_kwargs)
-            entry["error"] = None
-            async with session_cm() as session, session.begin():
-                await FavoritesRepository(session).checked(favcat, True)
-            # Only a successful full listing refreshes the deadline; skipped
-            # runs must not extend it.  A failed write is logged, not retried as
-            # a failed check (the listing itself succeeded).
-            try:
-                async with session_cm() as session, session.begin():
-                    await FavoritesRepository(session).set_full_check_time(favcat)
-            except Exception as exc:  # noqa: BLE001
+            result = await service.check_category(favcat, **check_kwargs)
+            failed = int(getattr(result, "failed", 0) or 0)
+            if failed > 0:
+                # Keep the failure visible: a failed enqueue must not be
+                # reported as a successful check, and the full-check deadline
+                # must not move so the next poll retries the missing gids.
+                entry["error"] = f"{failed} favorite download(s) failed to enqueue"
+                tracker.update(last_error=entry["error"])
                 logger.warning(
-                    "could not persist favorites full-check timestamp",
-                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                    "favorites check finished with enqueue failures",
+                    extra=log_extra(favcat=favcat, failed=failed),
                 )
+                async with session_cm() as session, session.begin():
+                    await FavoritesRepository(session).checked(favcat, False)
+            else:
+                entry["error"] = None
+                async with session_cm() as session, session.begin():
+                    await FavoritesRepository(session).checked(favcat, True)
+                # Only a successful full listing refreshes the deadline; skipped
+                # runs must not extend it.  A failed write is logged, not retried as
+                # a failed check (the listing itself succeeded).
+                try:
+                    async with session_cm() as session, session.begin():
+                        await FavoritesRepository(session).set_full_check_time(favcat)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "could not persist favorites full-check timestamp",
+                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                    )
 
             from ..app.dependencies import spawn_task
 
