@@ -28,8 +28,9 @@ const TAG_NAMESPACES = [
 const DL_STATUSES = ["all", "pending", "downloading", "success", "failed", "cancelled"];
 
 const EH_BASE_URLS = [
-  { v: "https://exhentai.org", label: "ExHentai（里站）" },
-  { v: "https://e-hentai.org", label: "E-Hentai（外站）" },
+  // 标签延迟翻译：渲染时按当前语言取值（保留静态 t() 字面量以便 i18n 扫描）
+  { v: "https://exhentai.org", label: () => t("ehBaseExhentai") },
+  { v: "https://e-hentai.org", label: () => t("ehBaseEhentai") },
 ];
 const EH_CUSTOM = "__custom__";
 

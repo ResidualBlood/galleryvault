@@ -213,7 +213,6 @@ async function favListViewBody({ api: viewApi, stale, seq }, favcat) {
       el.innerHTML = `<div class="grid gc-grid">` + data.items.map(favCard).join("") + `</div>`;
       document.querySelectorAll('#fav-items input[data-fav-gid]').forEach(cb => {
         cb.checked = selFav.has(parseInt(cb.dataset.favGid, 10));
-        cb.addEventListener("change", () => updateFavActionBar());
       });
       renderCardCheckboxes({ pruneSelection: selectionScopeChanged() });
       startInfinite("fav-items", async (p) => {

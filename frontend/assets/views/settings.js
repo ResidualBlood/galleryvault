@@ -10,7 +10,7 @@ function field(label, inputHtml) {
 function ehBaseUrlControl(value, prefix) {
   const fixed = EH_BASE_URLS.some(o => o.v === value);
   const options = EH_BASE_URLS.map(o =>
-    `<option value="${o.v}"${value === o.v ? " selected" : ""}>${o.label}</option>`
+    `<option value="${o.v}"${value === o.v ? " selected" : ""}>${esc(o.label())}</option>`
   ).join("") + `<option value="${EH_CUSTOM}"${fixed ? "" : " selected"}>${esc(t("custom"))}</option>`;
   return `<select name="${prefix}exhentai_base_url" data-eh-select>${options}</select>
   <input name="${prefix}exhentai_base_url_custom" data-eh-custom value="${fixed ? "" : esc(value || "")}" placeholder="https://proxy.exhentai.org"${fixed ? " hidden" : ""}>`;
