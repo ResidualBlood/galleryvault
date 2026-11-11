@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -783,8 +785,18 @@ async def favorites_add(
 
     items_to_add: list[dict[str, Any]] = []
     seen_gids: set[int] = set()
+    batch_note = body.note or ""
     for item in body.items:
         if isinstance(item, dict) and "gid" in item:
+            item_note = item.get("note") or ""
+            if item_note and item_note != batch_note:
+                # ExHentai applies one note per addfav call, so a per-item note
+                # can never round-trip: the cloud would get the batch note while
+                # the local cache stored the item note (dual-state divergence).
+                raise HTTPException(
+                    status_code=422,
+                    detail="per-item note is not supported; send note once for the whole batch",
+                )
             try:
                 gid = int(item["gid"])
                 if gid not in seen_gids:
@@ -794,7 +806,7 @@ async def favorites_add(
                             "gid": gid,
                             "token": item.get("token"),
                             "title": item.get("title"),
-                            "note": item.get("note", body.note),
+                            "note": batch_note,
                         }
                     )
             except (ValueError, TypeError):
@@ -882,7 +894,7 @@ async def favorites_add(
                         title=title,
                         url=f"{base_url}/g/{gid}/{token}/",
                         thumb=None,
-                        note=it.get("note") or body.note or None,
+                        note=batch_note or None,
                     )
             )
         try:
@@ -924,6 +936,7 @@ async def favorites_set_note(
 ) -> dict[str, object]:
     """Update a favorite note via ExHentai applyfav; write local only on success."""
     session = await resolve_session(session, fallback_dep=get_session)
+    eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     settings = get_current_settings()
     token = body.token
     favcat = body.favcat
@@ -1099,6 +1112,25 @@ async def duplicates_unignore(
     return {"ok": True, "key": key.strip()}
 
 
+def _write_cover_atomic(path: Path, data: bytes) -> None:
+    """Write a cover image in one rename, with a per-call unique temp file.
+
+    Two concurrent cache misses for the same gid must not share a temp path:
+    the loser would then ``replace()`` a file the winner already moved away.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f"{path.stem}.", suffix=".tmp", dir=str(path.parent)
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 @router.get("/api/favorites/cover")
 async def favorite_cover(
     gid: int,
@@ -1149,13 +1181,7 @@ async def favorite_cover(
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
         path = cache_dir / f"{int(gid)}.img"
 
-        def _write_atomic() -> None:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(path)
-
-        await run_in_threadpool(_write_atomic)
+        await run_in_threadpool(_write_cover_atomic, path, data)
     # Infer content-type from first bytes without loading whole file twice.
     head: bytes = await run_in_threadpool(lambda: path.read_bytes()[:16])
     await release_session(session)

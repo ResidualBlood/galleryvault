@@ -555,7 +555,14 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
                 FavoriteItem.last_seen_at.desc(),
             ],
         }
-        order_clauses = order_map.get(order_by, [FavoriteItem.last_seen_at.desc()])
+        # ``FavoriteItem.id`` is the only unique column in play here.  Without a
+        # unique tiebreaker Postgres is free to order rows with equal sort keys
+        # differently for each page, so offset pagination can repeat or skip
+        # items (remember_many stores one identical ``last_seen_at`` per batch).
+        order_clauses = [
+            *order_map.get(order_by, [FavoriteItem.last_seen_at.desc()]),
+            FavoriteItem.id.desc(),
+        ]
         rows = (
             await self.session.execute(
                 query.order_by(*order_clauses)
