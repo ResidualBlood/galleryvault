@@ -23,6 +23,20 @@ from ..logging import bind_log_context, log_extra
 
 logger = logging.getLogger(__name__)
 
+#: Consecutive finalize checks a ``downloading`` update may wait for its new
+#: version to be ingested before it is marked ``failed``.  The finalize loop
+#: ticks every 30s, so 48 checks is roughly 24 minutes of tolerance.
+FINALIZE_WAIT_LIMIT = 48
+
+#: Prefix of the ``error_message`` written while a finalize is postponed.
+_WAIT_PREFIX = "waiting for ingest"
+
+#: Storage types whose copies live in the (possibly offline) cold archive.
+_COLD_STORAGE_TYPES = {"cold", "cold_archive"}
+
+#: In-process counter of consecutive ingest waits, keyed by gallery-update id.
+_finalize_wait_counts: dict[int, int] = {}
+
 _UPDATE_TITLE_VARIANTS = (
     "中国翻訳", "中国翻译", "中文翻譯", "中文翻译", "中文", "中国語", "汉化", "漢化",
     "汉化组", "漢化組", "翻译", "翻訳", "english", "chinese", "dl版", "無修正", "无修正",
@@ -115,13 +129,60 @@ def record_gallery_update_log(results: list[dict[str, Any]]) -> None:
         spawn_task(tm.persist_history(), "persist task history")
 
 
-async def finalize_gallery_update(row: Any) -> None:
+def _is_cold_storage(gallery: Gallery) -> bool:
+    """True when the gallery copy lives in the (possibly offline) cold archive."""
+    if (getattr(gallery, "storage_type", None) or "") in _COLD_STORAGE_TYPES:
+        return True
+    storage_path = getattr(gallery, "storage_path", None)
+    if not storage_path:
+        return False
+    try:
+        from .cold_archive import is_under_cold
+
+        return is_under_cold(Path(storage_path))
+    except (ImportError, OSError, TypeError, ValueError):
+        # Cold-archive roots unavailable: treat the copy as local.
+        return False
+
+
+def _ingest_pending_reason(new_gid: int | None, new_gallery: Gallery | None) -> str | None:
+    """Why the new version is not ingested yet, or ``None`` when finalize is safe.
+
+    Finalizing deletes the old gallery row and its files, so it may only run
+    once the replacement is actually stored.  The download task reaching
+    ``success`` is not evidence of that: ``download_worker`` commits it before
+    ingest runs, and ingest may still fail afterwards.
+    """
+    if new_gid is None:
+        return f"{_WAIT_PREFIX}: new gid unknown"
+    if new_gallery is None:
+        return f"{_WAIT_PREFIX}: new gallery not stored yet"
+    if _is_cold_storage(new_gallery):
+        return None
+    storage_path = getattr(new_gallery, "storage_path", None)
+    if not storage_path:
+        # No managed local copy to verify (legacy row); nothing to check here.
+        return None
+    if not Path(storage_path).exists():
+        return f"{_WAIT_PREFIX}: new gallery files missing"
+    return None
+
+
+async def finalize_gallery_update(row: Any) -> str | None:
+    """Finalize one gallery update, replacing the old gallery with the new version.
+
+    Returns the reason the finalize was postponed (the update stays
+    ``downloading`` and nothing is deleted), or ``None`` once the old gallery
+    was removed.  A successful download task alone is not enough to finalize:
+    ``download_worker`` marks it ``success`` independently of ingest, so the
+    replacement must already exist locally with its files on disk.
+    """
     session_cm = app_state.session_factory
     if session_cm is None:
-        return
+        return None
     gallery_id = getattr(row, "gallery_id", None)
     if gallery_id is None:
-        return
+        return None
 
     update_id = getattr(row, "id", None)
     repo_cls = GalleryUpdatesRepository
@@ -133,7 +194,7 @@ async def finalize_gallery_update(row: Any) -> None:
             uow = UnitOfWork(session)
             old_gallery = await uow.session.get(Gallery, gallery_id)
             if old_gallery is None:
-                return
+                return None
 
             old_storage_path = old_gallery.storage_path
             old_gid = old_gallery.gid
@@ -150,7 +211,7 @@ async def finalize_gallery_update(row: Any) -> None:
             if new_gid is None and update_row is not None:
                 new_gid = update_row.new_gid
 
-            # 新画廊关联与旧版本信息转移
+            new_gallery: Gallery | None = None
             if new_gid is not None:
                 new_gallery = await uow.session.scalar(
                     select(Gallery).where(
@@ -159,15 +220,35 @@ async def finalize_gallery_update(row: Any) -> None:
                         Gallery.trashed.is_(False),
                     )
                 )
-                if new_gallery is not None:
-                    # 转移旧画廊用户数据（本地评分与备注、分类）
-                    if old_gallery.local_rating is not None and new_gallery.local_rating is None:
-                        new_gallery.local_rating = old_gallery.local_rating
-                    if old_gallery.local_note and not new_gallery.local_note:
-                        new_gallery.local_note = old_gallery.local_note
-                    if old_gallery.category and not new_gallery.category:
-                        new_gallery.category = old_gallery.category
-                    new_gallery.updated_at = datetime.now(UTC)
+
+            pending_reason = _ingest_pending_reason(new_gid, new_gallery)
+            if pending_reason is not None:
+                # The replacement is not stored yet: keep the old gallery (and
+                # its files) until a later finalize pass sees a complete copy.
+                if update_row is not None:
+                    update_row.status = "downloading"
+                    update_row.error_message = pending_reason
+                    update_row.updated_at = datetime.now(UTC)
+                logger.info(
+                    "gallery update finalize postponed",
+                    extra=log_extra(
+                        update_id=update_id,
+                        gallery_id=gallery_id,
+                        new_gid=new_gid,
+                        reason=pending_reason,
+                    ),
+                )
+                return pending_reason
+
+            # 转移旧画廊用户数据（本地评分与备注、分类）
+            if new_gallery is not None:
+                if old_gallery.local_rating is not None and new_gallery.local_rating is None:
+                    new_gallery.local_rating = old_gallery.local_rating
+                if old_gallery.local_note and not new_gallery.local_note:
+                    new_gallery.local_note = old_gallery.local_note
+                if old_gallery.category and not new_gallery.category:
+                    new_gallery.category = old_gallery.category
+                new_gallery.updated_at = datetime.now(UTC)
 
             # 标记状态完结并在级联下删除旧版本画廊
             if update_row is not None:
@@ -489,14 +570,33 @@ async def gallery_updates_finalize_loop() -> None:
                 async with session_cm() as session:
                     task = await session.get(DownloadTaskModel, row.download_task_id)
                 if task is None:
+                    _finalize_wait_counts.pop(row.id, None)
                     async with session_cm() as session, session.begin():
                         await repo_cls(session).mark_failed(
                             row.id, "download task removed"
                         )
                     continue
                 if task.status == "success":
-                    await finalize_gallery_update(row)
+                    pending_reason = await finalize_gallery_update(row)
+                    if pending_reason is None:
+                        _finalize_wait_counts.pop(row.id, None)
+                        continue
+                    waits = _finalize_wait_counts.get(row.id, 0) + 1
+                    _finalize_wait_counts[row.id] = waits
+                    if waits >= FINALIZE_WAIT_LIMIT:
+                        _finalize_wait_counts.pop(row.id, None)
+                        message = (
+                            f"gave up waiting for ingest after {waits} checks: "
+                            f"{pending_reason}; old copy kept"
+                        )
+                        logger.warning(
+                            "gallery update ingest never completed, marking failed",
+                            extra=log_extra(update_id=row.id, new_gid=row.new_gid),
+                        )
+                        async with session_cm() as session, session.begin():
+                            await repo_cls(session).mark_failed(row.id, message)
                 elif task.status in {"failed", "cancelled"}:
+                    _finalize_wait_counts.pop(row.id, None)
                     async with session_cm() as session, session.begin():
                         await repo_cls(session).mark_failed(
                             row.id, task.error_message
