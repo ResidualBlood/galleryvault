@@ -224,7 +224,7 @@ async function galleryViewBody({ seq: token, api: viewApi }) {
           <a class="btn btn-primary" href="${navHash("reader", { id, page: progress.current_page }, galleryCtx)}" style="padding:8px 14px;border-radius:4px">${esc(t("readNow"))}</a>
           ${esc(t("slideshowInterval"))} <input type="number" id="gallery-slideshow-sec" class="form-control form-control-sm" style="min-width: 0 !important; width: 3.5rem; display: inline-block; margin-right: 0.5rem;" value="${ssSec}" min="1" title="${esc(t("slideshowInterval"))}">
           <button class="btn btn-sm btn-secondary" data-action="gallery-slideshow" data-id="${id}" type="button">▶ ${esc(t("slideshow"))}</button>
-          ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(g.eh_url)}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
+          ${g.eh_url ? `<a class="btn btn-secondary" href="${esc(safeHref(g.eh_url))}" target="_blank" rel="noopener" title="${esc(t("ehLoginNote"))}">${esc(t("openEh"))}</a>` : ""}
           <button class="btn btn-secondary" data-action="sync-tags" data-id="${id}" type="button">${esc(t("syncTags"))}</button>
           <button class="btn btn-secondary" data-action="favorite-gallery" data-id="${id}" data-gid="${g.gid || ""}" data-token="${g.token || ""}" data-title="${esc(g.title || "")}" type="button" hidden>⭐ ${esc(t("addToFavorites"))}</button>
           <button class="btn btn-secondary" data-action="move-gallery-favorite" data-id="${id}" data-gid="${g.gid || ""}" type="button" hidden>${esc(t("changeFavCategory"))}</button>

@@ -460,3 +460,23 @@ async function galleryGrid(container, page, extraQuery, opts) {
   else { el.innerHTML = `<div class="grid gc-grid">` + data.items.map(galleryCard).join("") + `</div>`; }
   return data;
 }
+
+// Server-provided URLs land in `href`/`src`, so whitelist the scheme/shape
+// before escaping. Call as esc(safeHref(url)): judging after esc() would see
+// `&amp;` and mangle the URL.
+function safeHref(u) {
+  const s = String(u == null ? "" : u).trim();
+  // Backslashes are normalized to slashes by browsers, so `/\evil.com`
+  // would resolve to `//evil.com`; refuse them before the shape check.
+  if (s.includes("\\")) return "#";
+  return /^(https?:\/\/|#|\/(?!\/))/i.test(s) ? s : "#";
+}
+
+// Covers may be data URIs (server allowlist: png/jpeg/gif/webp + base64),
+// http(s) or root-relative paths. Everything else yields "", and callers
+// must skip the <img> instead of emitting src="".
+function coverSrc(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (s.includes("\\")) return "";
+  return /^(data:image\/(png|jpeg|gif|webp);base64,|https?:\/\/|\/(?!\/))/i.test(s) ? s : "";
+}

@@ -27,7 +27,7 @@ function seriesMemberCard(it) {
     : `<span class="fav-state cloud">${esc(t("favCloud") || "Cloud")}</span>`;
   const link = isLocal
     ? `href="${navHash("gallery", { id: it.gallery_id || it.id }, { from: currentFromPath() })}"`
-    : `href="${esc(it.url || "#")}" target="_blank" rel="noopener"`;
+    : `href="${esc(safeHref(it.url))}" target="_blank" rel="noopener"`;
   const check = isLocal
     ? `<label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-gallery-id="${it.gallery_id || it.id}" data-gid="${esc(it.gid || "")}"${selGalleries.has(it.gallery_id || it.id) ? " checked" : ""}></label>`
     : `<label class="gc-check" title="${esc(t("select"))}"><input type="checkbox" data-series-gid="${it.gid}" data-favcat="${it.favcat != null ? it.favcat : ""}"${selSeriesCloud.has(it.gid) ? " checked" : ""}></label>`;
