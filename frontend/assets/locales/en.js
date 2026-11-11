@@ -176,6 +176,7 @@ window.GV_LOCALES.en = {
   downloading: "downloading", perPage: "per page",
   readerFit: "Fit", readerFullscreen: "Fullscreen",
   readerMode: "Mode", readerModeLtr: "LTR", readerModeRtl: "Manga (RTL)", readerModeDouble: "Double", readerModeDoubleRtl: "Double (RTL)", readerModeWebtoon: "Webtoon",
+  readerPageUnavailable: "Page {n} unavailable",
   exportCbz: "Export CBZ",
   notifications: "Notifications", notifEmpty: "No notifications", notif_clear: "Clear",
   notifDownloadOk: "Download complete", notifDownloadFail: "Download failed", notifDownloadUpdated: "Switched to newer version",
