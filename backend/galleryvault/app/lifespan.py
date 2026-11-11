@@ -89,23 +89,31 @@ async def warmup_database_pool(session_factory: Any) -> None:
 
 
 async def cleanup_partial_downloads(download_root: str | Path, session_factory: Any) -> None:
-    """Sweep temporary partial download folders (.gv-*) that are no longer active."""
+    """Sweep temporary partial download folders (.gv-*) that are no longer active.
+
+    Fail closed: when the set of active downloads cannot be determined (no
+    session factory, or the query raises), skip the sweep entirely. A transient
+    DB outage at startup must not delete resumable partial downloads.
+    """
+    if not session_factory:
+        logger.warning("partial download cleanup skipped; no database session factory")
+        return
     try:
-        keep_gids: set[int] = set()
-        if session_factory:
-            try:
-                async with session_factory() as session:
-                    rows = await session.execute(
-                        select(DownloadTaskModel.gid).where(
-                            DownloadTaskModel.status.in_(["pending", "downloading"])
-                        )
-                    )
-                    keep_gids = {int(row[0]) for row in rows}
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "could not read active downloads for temp sweep",
-                    extra=log_extra(error=type(exc).__name__),
+        async with session_factory() as session:
+            rows = await session.execute(
+                select(DownloadTaskModel.gid).where(
+                    DownloadTaskModel.status.in_(["pending", "downloading"])
                 )
+            )
+            keep_gids = {int(row[0]) for row in rows}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "partial download cleanup skipped; could not read active downloads",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        return
+
+    try:
         root = Path(download_root)
         if not root.exists():
             return
