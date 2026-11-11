@@ -4,4 +4,6 @@ COPY index.html /usr/share/nginx/html/index.html
 COPY manifest.webmanifest /usr/share/nginx/html/manifest.webmanifest
 COPY sw.js /usr/share/nginx/html/sw.js
 COPY assets /usr/share/nginx/html/assets
+# Fail the build early on an invalid nginx config.
+RUN nginx -t
 EXPOSE 80
