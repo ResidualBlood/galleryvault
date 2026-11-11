@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
+import tempfile
 import time as _time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -156,10 +158,22 @@ def _cover_cache_write_path(cache_dir: Path, gid: int) -> Path:
 
 
 def _write_cover_file(path: Path, raw: bytes) -> None:
+    """Write a cover image in one rename, with a per-call unique temp file.
+
+    Two concurrent cache fillers for the same gid must not share a temp path:
+    the loser would then ``replace()`` a file the winner already moved away.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(raw)
-    tmp.replace(path)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f"{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
     storage_tracker.record_cache_delta(len(raw))
 
 
