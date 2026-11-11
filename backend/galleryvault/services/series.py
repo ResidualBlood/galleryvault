@@ -343,6 +343,32 @@ def determine_group_name(galleries: list[Any]) -> str:
     return cleaned or shortest
 
 
+# Shared between the HTTP rebuild route and the scan-worker tail so the two
+# entry points cannot stack full-library scoring passes.  Plain dict (not an
+# ``asyncio.Lock``) because both callers are coroutines on the same loop and
+# only need check-and-set atomicity, which a dict provides between awaits.
+series_rebuild_state: dict[str, bool] = {"running": False}
+
+
+async def rebuild_series_groups_guarded(
+    session_factory: async_sessionmaker | None = None,
+) -> dict[str, int] | None:
+    """Run :func:`rebuild_series_groups` unless a rebuild is already running.
+
+    Returns ``None`` when the guard is held (HTTP route in flight or another
+    scan tail), so background callers can log a skip instead of queueing a
+    redundant pass.  Exceptions from the rebuild itself propagate; the guard
+    is always released.
+    """
+    if series_rebuild_state["running"]:
+        return None
+    series_rebuild_state["running"] = True
+    try:
+        return await rebuild_series_groups(session_factory)
+    finally:
+        series_rebuild_state["running"] = False
+
+
 async def rebuild_series_groups(
     session_factory: async_sessionmaker | None = None,
 ) -> dict[str, int]:

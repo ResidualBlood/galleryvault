@@ -405,7 +405,9 @@ class SeriesRepository(BaseRepository[Series]):
         return list(
             (
                 await self.session.scalars(
-                    select(Series).where(Series.match_key.is_not(None))
+                    select(Series)
+                    .where(Series.match_key.is_not(None))
+                    .order_by(Series.id.asc())
                 )
             ).all()
         )

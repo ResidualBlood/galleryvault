@@ -405,10 +405,39 @@ async def run_scan() -> None:
                         }
                         tracker.update(last=last_dict)
                         logger.info("library scan persisted", extra=log_extra(**last_dict))
-                        await __import__("galleryvault.services.series", fromlist=["rebuild_series_groups"]).rebuild_series_groups()
+                        # Series rebuild is best-effort: a failure (or a rebuild
+                        # already running from the HTTP route) must not skip the
+                        # cross-gid dedup scan below, and must not turn the scan
+                        # result into an error.
+                        try:
+                            series_module = __import__(
+                                "galleryvault.services.series",
+                                fromlist=["rebuild_series_groups_guarded"],
+                            )
+                            series_stats = await series_module.rebuild_series_groups_guarded(
+                                session_factory
+                            )
+                            if series_stats is None:
+                                logger.info(
+                                    "series rebuild skipped",
+                                    extra=log_extra(reason="rebuild_already_running"),
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "series rebuild failed",
+                                extra=log_extra(
+                                    error=type(exc).__name__, message=str(exc)
+                                ),
+                            )
                         if not tm.is_cancelled("scan"):
                             try:
-                                await __import__("galleryvault.services.duplicates", fromlist=["scan_library_cross_gid_duplicates"]).scan_library_cross_gid_duplicates(session_factory=session_factory)
+                                duplicates_module = __import__(
+                                    "galleryvault.services.duplicates",
+                                    fromlist=["scan_library_cross_gid_duplicates_locked"],
+                                )
+                                await duplicates_module.scan_library_cross_gid_duplicates_locked(
+                                    session_factory=session_factory, wait=True
+                                )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning(
                                     "cross-gid duplicates scan failed",

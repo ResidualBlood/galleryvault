@@ -15,7 +15,7 @@ from ...db.models import Gallery
 from ...db.repositories.galleries import GalleryRepository
 from ...db.repositories.series import SeriesRepository
 from ...db.session import safe_transaction
-from ...services.series import rebuild_series_groups
+from ...services.series import rebuild_series_groups, series_rebuild_state
 from ...services.tag_translation import translated_tag
 from ..core.task_dispatcher import TaskDispatcher
 from ..core.uow import UnitOfWork
@@ -432,7 +432,7 @@ async def remove_series_items(
 
 
 # Guard so repeated rebuild clicks cannot stack full-library scoring passes.
-_series_rebuild_state: dict[str, bool] = {"running": False}
+# The state lives in the service layer so the scan tail honours it too.
 
 
 def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
@@ -445,12 +445,12 @@ def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
 async def rebuild_series(
     dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
 ) -> dict[str, object]:
-    if _series_rebuild_state["running"]:
+    if series_rebuild_state["running"]:
         raise HTTPException(status_code=409, detail="series rebuild already running")
     disp = _resolve_dispatcher(dispatcher)
     tm = disp.task_manager if getattr(disp, "task_manager", None) is not None else get_task_manager()
     started_at = datetime.now(UTC).isoformat()
-    _series_rebuild_state["running"] = True
+    series_rebuild_state["running"] = True
     try:
         stats = await rebuild_series_groups()
     except Exception as exc:
@@ -468,7 +468,7 @@ async def rebuild_series(
             disp.spawn(tm.persist_history(), "persist task history")
         raise
     finally:
-        _series_rebuild_state["running"] = False
+        series_rebuild_state["running"] = False
 
     completed_at = datetime.now(UTC).isoformat()
     created = int(stats.get("created", 0) or 0)
