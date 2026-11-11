@@ -117,7 +117,16 @@ async function webtoonReaderViewBody({ api: viewApi, stale }) {
       syncReaderUrl();
     }
     const imgs = [];
+    const now = Date.now();
     for (let i = 0; i < total; i++) {
+      if (isPageFailed(readerPageFailures, readerPageKey(id, i), now)) {
+        // Failed recently (TTL in reader.js): keep the data-page node for
+        // jump/observer bookkeeping but do not set src, so no request is re-sent.
+        imgs.push(
+          `<img loading="lazy" data-page="${i}" data-placeholder="1" style="display:none" alt="Page ${i + 1}">${pagePlaceholderHtml(i)}`
+        );
+        continue;
+      }
       imgs.push(
         `<img loading="lazy" data-page="${i}" src="/api/galleries/${id}/pages/${i}" alt="Page ${i + 1}">`
       );

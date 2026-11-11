@@ -138,6 +138,41 @@ test("webtoon：复用手势并给坏页挂占位", () => {
   assert.ok(webtoonSrc.includes("pagePlaceholderHtml("), "webtoon 未显示占位");
 });
 
+test("swapImageSmoothly: 失败后隐藏的同页图片不走快速路径（返回原页会重新加载）", () => {
+  const swap = globalThis.swapImageSmoothly;
+  assert.equal(typeof swap, "function");
+  const created = [];
+  const prevDocument = globalThis.document;
+  globalThis.document = {
+    createElement() {
+      const el = { dataset: {}, style: {}, decode: () => new Promise(() => {}) };
+      created.push(el);
+      return el;
+    },
+  };
+  try {
+    const mkImg = (display) => ({
+      dataset: { page: "0" },
+      style: { display },
+      getAttribute: (k) => (k === "src" ? "/api/galleries/7/pages/0" : null),
+      parentNode: null,
+    });
+    let done = 0;
+    swap(mkImg(""), "/api/galleries/7/pages/0", 0, () => { done += 1; });
+    assert.equal(created.length, 0, "可见同页应走快速路径");
+    assert.equal(done, 1);
+    swap(mkImg("none"), "/api/galleries/7/pages/0", 0, () => {});
+    assert.equal(created.length, 1, "隐藏（失败占位）同页必须重新加载");
+  } finally {
+    globalThis.document = prevDocument;
+  }
+});
+
+test("webtoon：TTL 内失败页不再设置 src", () => {
+  const body = webtoonSrc.slice(webtoonSrc.indexOf("async function webtoonReaderViewBody("));
+  assert.ok(body.includes("isPageFailed(readerPageFailures"), "webtoon 渲染未读取失败缓存");
+});
+
 test("locales：zh/en 均有 readerPageUnavailable", () => {
   function locale(file) {
     const ctx = { window: {} };

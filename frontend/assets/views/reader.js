@@ -158,7 +158,10 @@ function swapImageSmoothly(img, src, page, alt, onSwapComplete) {
     notifyOnce();
     return;
   }
-  if (img.getAttribute("src") === src && img.dataset.page === String(page)) {
+  // Fast path only when the current image is actually shown: after a failed
+  // swap the old <img> is hidden behind an error placeholder, and returning to
+  // the same page must reload it rather than keep the placeholder.
+  if (img.getAttribute("src") === src && img.dataset.page === String(page) && img.style.display !== "none") {
     notifyOnce();
     return;
   }
