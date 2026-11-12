@@ -4,7 +4,10 @@ dist
 
 # Test and tooling artifacts (not needed by `npm run build`)
 e2e
-parity
+# `src/views/settings/schema.ts` imports the parity map at build time, so keep
+# that one file while dropping the rest of the snapshot.
+parity/*
+!parity/settings-map.json
 docs
 scripts
 playwright-report

@@ -1,5 +1,4 @@
 import { fileURLToPath, URL } from "node:url";
-import { existsSync } from "node:fs";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 import VueI18nPlugin from "@intlify/unplugin-vue-i18n/vite";
@@ -57,26 +56,6 @@ function pwaEntryScript(): Plugin {
   };
 }
 
-/**
- * `src/views/settings/schema.ts` imports the parity map. The production image
- * excludes `parity/` (test artifacts), so fall back to the copy under
- * `src/pwa/` only when the real file is absent (i.e. inside `docker build`).
- */
-function settingsMapFallback(): Plugin {
-  const original = fileURLToPath(new URL("./parity/settings-map.json", import.meta.url));
-  const fallback = fileURLToPath(
-    new URL("./src/pwa/settings-map.fallback.json", import.meta.url),
-  );
-  return {
-    name: "gv-settings-map-fallback",
-    enforce: "pre",
-    resolveId(source) {
-      if (!source.endsWith("parity/settings-map.json")) return null;
-      return existsSync(original) ? null : fallback;
-    },
-  };
-}
-
 export default defineConfig(({ mode }) => {
   // Development-only bridge to the FastAPI backend.
   // Production serves the built SPA and proxies the same paths from nginx.
@@ -91,7 +70,6 @@ export default defineConfig(({ mode }) => {
   return {
     base: "/",
     plugins: [
-      settingsMapFallback(),
       vue(),
       VueI18nPlugin({
         include: [fileURLToPath(new URL("./src/locales/**", import.meta.url))],

@@ -30,6 +30,27 @@ test("updates archive uses the shared preview dialog @gaps", async ({ page }) =>
     .toMatchObject({ ids: [1], archive: true, quality: "original" });
 });
 
+test("archive dialog default follows the archive_quality setting @gaps", async ({ page }) => {
+  const state = await installGapsMock(page, { archiveQuality: "original" });
+  await page.goto("/#/updates");
+  await expect(page.getByTestId("updates-view")).toBeVisible();
+
+  await page.getByTestId("updates-select-1").check();
+  await page.getByTestId("updates-archive").click();
+
+  const dialog = page.getByTestId("archive-dialog");
+  await expect(dialog).toBeVisible();
+  // The shared dialog reads GET /api/settings instead of hard-coding resample.
+  await expect(dialog.locator("select")).toHaveValue("original");
+  await expect.poll(() => state.settingsCalls).toBeGreaterThan(0);
+
+  await page.getByTestId("archive-dialog-confirm").click();
+
+  await expect
+    .poll(() => state.updateBodies.at(-1))
+    .toMatchObject({ ids: [1], archive: true, quality: "original" });
+});
+
 test("favorites archive uses the shared preview dialog @gaps", async ({ page }) => {
   const state = await installGapsMock(page);
   await page.goto("/#/favorites/0");

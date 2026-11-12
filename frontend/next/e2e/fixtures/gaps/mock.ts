@@ -14,6 +14,7 @@ import {
 } from "@/api/galleries";
 import { listsEp, savedSearchesEp } from "@/api/library";
 import { readerGalleryEp } from "@/api/reader";
+import { settingsEp } from "@/api/settings";
 import { updatesEp, updatesStatusEp, updatesUpdateEp } from "@/api/updates";
 
 export interface GapsState {
@@ -28,6 +29,8 @@ export interface GapsState {
   favoriteChecks: number[];
   onlineSearches: URLSearchParams[];
   onlineStatusCalls: number;
+  archiveQuality: "resample" | "original";
+  settingsCalls: number;
   batchFavoriteCloudFailed: Set<number>;
 }
 
@@ -135,7 +138,15 @@ export const GAP_READER_GALLERY_ID = 77;
  * Mock for the batch-17 gap coverage. Unhandled `/api/**` calls fall through to
  * the shell fixture so the session/notification probes keep working.
  */
-export async function installGapsMock(page: Page): Promise<GapsState> {
+export interface GapsOptions {
+  /** Value served by GET /api/settings for the archive dialog default. */
+  archiveQuality?: "resample" | "original";
+}
+
+export async function installGapsMock(
+  page: Page,
+  options: GapsOptions = {},
+): Promise<GapsState> {
   const state: GapsState = {
     galleryCalls: [],
     deleted: new Set(),
@@ -148,6 +159,8 @@ export async function installGapsMock(page: Page): Promise<GapsState> {
     favoriteChecks: [],
     onlineSearches: [],
     onlineStatusCalls: 0,
+    archiveQuality: options.archiveQuality ?? "resample",
+    settingsCalls: 0,
     batchFavoriteCloudFailed: new Set(),
   };
 
@@ -163,6 +176,15 @@ export async function installGapsMock(page: Page): Promise<GapsState> {
         return null;
       }
     })();
+
+    if (path === settingsEp.path && method === "GET") {
+      state.settingsCalls += 1;
+      await json(route, {
+        download_quality: "resample",
+        archive_quality: state.archiveQuality,
+      });
+      return;
+    }
 
     if (path === ehSearchEp.path && method === "GET") {
       state.onlineSearches.push(url.searchParams);

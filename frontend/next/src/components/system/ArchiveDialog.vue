@@ -9,9 +9,18 @@ import {
   type ArchivePreview,
   type ArchivePreviewItem,
 } from "@/api/archive";
+import { fetchSettings } from "@/api/settings";
 import "./messages";
 
 type Quality = "resample" | "original";
+
+/** Backend default (`config.py: archive_quality`) when the read fails. */
+const FALLBACK_QUALITY: Quality = "resample";
+
+function normalizeQuality(value: unknown): Quality {
+  return value === "original" || value === "resample" ? value : FALLBACK_QUALITY;
+}
+
 type TierItem = Pick<
   ArchivePreviewItem,
   | "resample_cost"
@@ -22,16 +31,16 @@ type TierItem = Pick<
   | "original_available"
 >;
 
-const props = withDefaults(
-  defineProps<{
-    open: boolean;
-    gids: number[];
-    defaultQuality?: Quality;
-  }>(),
-  {
-    defaultQuality: "resample",
-  },
-);
+/**
+ * `defaultQuality` is an explicit caller override (used by the settings
+ * harness); without it the dialog follows the backend `archive_quality`
+ * setting, so a shared dialog no longer hard-codes resample.
+ */
+const props = defineProps<{
+  open: boolean;
+  gids: number[];
+  defaultQuality?: Quality;
+}>();
 
 const emit = defineEmits<{
   close: [];
@@ -40,10 +49,12 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const preview = ref<ArchivePreview | null>(null);
-const quality = ref<Quality>("resample");
+const quality = ref<Quality>(FALLBACK_QUALITY);
 const loading = ref(false);
 const error = ref("");
 let seq = 0;
+let settingsSeq = 0;
+let qualityPicked = false;
 let controller: AbortController | null = null;
 
 const qualityOptions = computed(() => [
@@ -136,14 +147,38 @@ async function load(): Promise<void> {
   }
 }
 
+/**
+ * Read `archive_quality` from GET /api/settings. The preview request runs in
+ * parallel; a selection made while the read is in flight wins, so the answer
+ * cannot overwrite the user's own choice.
+ */
+async function applyConfiguredQuality(): Promise<void> {
+  if (props.defaultQuality) return;
+  const token = ++settingsSeq;
+  try {
+    const settings = await fetchSettings();
+    if (token !== settingsSeq || qualityPicked) return;
+    quality.value = normalizeQuality(settings.archive_quality);
+  } catch {
+    if (token === settingsSeq && !qualityPicked) quality.value = FALLBACK_QUALITY;
+  }
+}
+
+function onQualityChange(): void {
+  qualityPicked = true;
+}
+
 watch(
   () => [props.open, props.gids] as const,
   ([open]) => {
     if (open && props.gids.length > 0) {
-      quality.value = props.defaultQuality;
+      qualityPicked = false;
+      quality.value = props.defaultQuality ?? FALLBACK_QUALITY;
+      void applyConfiguredQuality();
       void load();
       return;
     }
+    settingsSeq += 1;
     seq += 1;
     abortPreview();
     preview.value = null;
@@ -194,7 +229,12 @@ function confirm(): void {
           </span>
         </div>
 
-        <Select v-model="quality" :options="qualityOptions" :label="t('system.archiveDialog.quality')" />
+        <Select
+          v-model="quality"
+          :options="qualityOptions"
+          :label="t('system.archiveDialog.quality')"
+          @change="onQualityChange"
+        />
 
         <p v-if="!items.length" class="archive-dialog__empty">
           {{ t('system.archiveDialog.noItems') }}
