@@ -1,0 +1,222 @@
+{
+  "source": "PLAN-frontend-rewrite.md「旧版功能对齐清单（切换验收）」",
+  "generated": "2026-11-12",
+  "items": [
+    {
+      "id": "G-01",
+      "domain": "shell",
+      "blocking": true,
+      "title": "登录 / 会话 / 首次引导"
+    },
+    {
+      "id": "G-02",
+      "domain": "shell",
+      "blocking": true,
+      "title": "顶栏搜索与标签建议"
+    },
+    {
+      "id": "G-03",
+      "domain": "shell",
+      "blocking": true,
+      "title": "随机打开一本"
+    },
+    {
+      "id": "G-04",
+      "domain": "shell",
+      "blocking": true,
+      "title": "通知面板"
+    },
+    {
+      "id": "G-05",
+      "domain": "shell",
+      "blocking": true,
+      "title": "全局控制"
+    },
+    {
+      "id": "G-06",
+      "domain": "shell",
+      "blocking": true,
+      "title": "外观与语言（旧 localStorage 键）"
+    },
+    {
+      "id": "G-07",
+      "domain": "shell",
+      "blocking": true,
+      "title": "Cookie 健康横幅"
+    },
+    {
+      "id": "G-08",
+      "domain": "shell",
+      "blocking": true,
+      "title": "归档对话框与收藏夹选择框"
+    },
+    {
+      "id": "G-09",
+      "domain": "pwa",
+      "blocking": true,
+      "title": "PWA 可安装与旧壳升级"
+    },
+    {
+      "id": "G-10",
+      "domain": "shell",
+      "blocking": true,
+      "title": "旧书签 hash 路由"
+    },
+    {
+      "id": "V-01",
+      "domain": "browse",
+      "blocking": true,
+      "title": "最近入库 / 继续阅读 / 标签概览 / 随机"
+    },
+    {
+      "id": "V-02",
+      "domain": "library",
+      "blocking": true,
+      "title": "库搜索 / 筛选 / 排序 / 分页 / 保存搜索 / 清单 / 批量"
+    },
+    {
+      "id": "V-03",
+      "domain": "gallery",
+      "blocking": true,
+      "title": "画廊详情：元数据 / 标签 / 缩略图 / 收藏 / 本地字段"
+    },
+    {
+      "id": "V-04",
+      "domain": "reader",
+      "blocking": true,
+      "title": "阅读器：五种模式 / 键盘 / 预载 / 进度 / 轮播"
+    },
+    {
+      "id": "V-05",
+      "domain": "online",
+      "blocking": true,
+      "title": "在线浏览：搜索 / 分类 / 评分 / 列表类型 / 快捷操作"
+    },
+    {
+      "id": "V-06",
+      "domain": "series",
+      "blocking": true,
+      "title": "系列：列表 / 新建 / 改名 / 删除 / 云端候选"
+    },
+    {
+      "id": "V-07",
+      "domain": "tags",
+      "blocking": true,
+      "title": "标签：namespace / 搜索 / 重载 / 同步"
+    },
+    {
+      "id": "V-08",
+      "domain": "history",
+      "blocking": true,
+      "title": "历史：列表 / 清空 / 清空进度 / 删除单本进度"
+    },
+    {
+      "id": "V-09",
+      "domain": "downloads",
+      "blocking": true,
+      "title": "下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量"
+    },
+    {
+      "id": "V-10",
+      "domain": "logs",
+      "blocking": true,
+      "title": "日志：任务日志 / 系统日志 / 筛选 / 下载 / 清空"
+    },
+    {
+      "id": "V-11",
+      "domain": "settings",
+      "blocking": true,
+      "title": "设置：全部设置项 / 存储 / 标签 / 测试入口"
+    },
+    {
+      "id": "V-12",
+      "domain": "favorites",
+      "blocking": true,
+      "title": "收藏夹表与每夹配置保存"
+    },
+    {
+      "id": "V-13",
+      "domain": "favorites",
+      "blocking": true,
+      "title": "单收藏夹：15 个筛选 / 下载 / 移动 / 移除"
+    },
+    {
+      "id": "V-14",
+      "domain": "maintenance",
+      "blocking": true,
+      "title": "收藏查重"
+    },
+    {
+      "id": "V-15",
+      "domain": "maintenance",
+      "blocking": true,
+      "title": "重复组与跨 gid 重复"
+    },
+    {
+      "id": "V-16",
+      "domain": "maintenance",
+      "blocking": true,
+      "title": "更新与忽略列表"
+    },
+    {
+      "id": "V-17",
+      "domain": "maintenance",
+      "blocking": true,
+      "title": "回收站与已清除列表"
+    },
+    {
+      "id": "V-18",
+      "domain": "maintenance",
+      "blocking": true,
+      "title": "完整性检查列表"
+    },
+    {
+      "id": "V-19",
+      "domain": "maintenance",
+      "blocking": true,
+      "title": "归档列表与发起 / 取消 / 清理"
+    },
+    {
+      "id": "N-01",
+      "domain": "online",
+      "blocking": true,
+      "title": "在线详情"
+    },
+    {
+      "id": "N-02",
+      "domain": "online-reader",
+      "blocking": true,
+      "title": "在线阅读（直连）"
+    },
+    {
+      "id": "N-03",
+      "domain": "quick-actions",
+      "blocking": true,
+      "title": "快捷操作"
+    },
+    {
+      "id": "N-04",
+      "domain": "online-reader",
+      "blocking": true,
+      "title": "在线阅读回退（服务器代理）"
+    },
+    {
+      "id": "N-05",
+      "domain": "settings",
+      "blocking": true,
+      "title": "设置分组"
+    },
+    {
+      "id": "N-06",
+      "domain": "design",
+      "blocking": true,
+      "title": "设计一致性"
+    },
+    {
+      "id": "N-07",
+      "domain": "userscript",
+      "blocking": false,
+      "title": "伴侣脚本与 API token（不阻塞切换）"
+    }
+  ]
+}

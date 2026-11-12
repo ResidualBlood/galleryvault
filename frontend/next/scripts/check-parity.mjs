@@ -21,7 +21,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(HERE, "..");
 const LEGACY_ROOT = resolve(PROJECT_ROOT, "../assets");
 const SNAPSHOT = join(PROJECT_ROOT, "parity/legacy-endpoints.json");
+const CHECKLIST = join(PROJECT_ROOT, "parity/checklist.json");
+const WAIVERS = join(PROJECT_ROOT, "parity/waivers.json");
 const NEW_API_ROOT = join(PROJECT_ROOT, "src/api");
+const E2E_REAL_ROOT = join(PROJECT_ROOT, "e2e/real");
+
+/** The only route waiver approved by PLAN §旧版功能对齐清单. */
+const PLAN_WAIVER_PATHS = new Set(["/series/{id}"]);
 
 const argv = process.argv.slice(2);
 const mode = argv.includes("--strict")
@@ -51,6 +57,50 @@ function walk(dir, out = []) {
     else if (entry.name.endsWith(".js")) out.push(full);
   }
   return out;
+}
+
+function walkTs(dir, out = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) walkTs(full, out);
+    else if (entry.name.endsWith(".ts")) out.push(full);
+  }
+  return out;
+}
+
+function loadChecklist() {
+  const doc = JSON.parse(readFileSync(CHECKLIST, "utf8"));
+  const items = Array.isArray(doc) ? doc : doc.items;
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error(`${CHECKLIST}: items[] missing or empty`);
+  }
+  for (const item of items) {
+    if (!item || typeof item.id !== "string" || !/^[A-Z]-\d{2}$/.test(item.id)) {
+      throw new Error(`${CHECKLIST}: malformed item ${JSON.stringify(item)}`);
+    }
+  }
+  return items;
+}
+
+function loadWaivers() {
+  const doc = JSON.parse(readFileSync(WAIVERS, "utf8"));
+  return Array.isArray(doc.routes) ? doc.routes : [];
+}
+
+/** `test("ID … @parity", …)` titles are the executable checklist. */
+function extractParityTitles() {
+  const titles = [];
+  for (const file of walkTs(E2E_REAL_ROOT)) {
+    const source = readFileSync(file, "utf8");
+    const TEST_RE = /\btest(?:\.\w+)?\(\s*(["'`])([^"'`]*)\1/g;
+    let match;
+    while ((match = TEST_RE.exec(source))) titles.push(match[2].trim());
+  }
+  return titles;
+}
+
+function startsWithId(title, id) {
+  return new RegExp(`^${id}(?:\\s|:|：|$)`).test(title);
 }
 
 function extractLegacy() {
@@ -204,18 +254,96 @@ for (const [path, methods] of legacy.paths) {
 
 const { signatures: newSignatures, constants, wrappers } = extractNew();
 const consumed = extractConsumed(constants, wrappers);
-const uncovered = [...snapshotSignatures].filter((sig) => !consumed.has(sig));
+
+/**
+ * Legacy endpoints that the product UI no longer calls (for example the old
+ * slideshow `/meta` probe) may still be covered by an explicit real parity
+ * test. Only `@parity` files count, and the endpoint must be imported from the
+ * API catalogue, so this cannot be satisfied by a comment or a bare string.
+ */
+function extractE2EConsumed() {
+  const covered = new Set();
+  let files = [];
+  try {
+    files = walkTs(E2E_REAL_ROOT);
+  } catch {
+    return covered;
+  }
+  const IMPORT_RE = /import\s*\{([^}]*)\}\s*from\s*["'][^"']+["']/g;
+  for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    if (!source.includes("@parity")) continue;
+    let match;
+    while ((match = IMPORT_RE.exec(source))) {
+      for (const part of match[1].split(",")) {
+        const name = part.trim().split(/\s+as\s+/)[0]?.trim();
+        if (!name) continue;
+        const signature = constants.get(name);
+        if (signature) covered.add(signature);
+        for (const wrapped of wrappers.get(name) ?? []) covered.add(wrapped);
+      }
+    }
+  }
+  return covered;
+}
+
+const e2eConsumed = extractE2EConsumed();
+const coveredSignatures = new Set([...consumed, ...e2eConsumed]);
+const uncovered = [...snapshotSignatures].filter((sig) => !coveredSignatures.has(sig));
 
 const viewNames = new Set();
 for (const views of snapshotPaths.values()) for (const view of views) viewNames.add(view);
+
+let checklist = [];
+let parityTitles = [];
+try {
+  checklist = loadChecklist();
+  parityTitles = extractParityTitles();
+} catch (error) {
+  errors.push(error instanceof Error ? error.message : String(error));
+}
+
+const duplicateIds = checklist
+  .map((item) => item.id)
+  .filter((id, index, all) => all.indexOf(id) !== index);
+if (duplicateIds.length) {
+  errors.push(`checklist has duplicate IDs: ${[...new Set(duplicateIds)].join(", ")}`);
+}
+
+const missingParity = checklist
+  .filter(
+    (item) =>
+      !parityTitles.some(
+        (title) => startsWithId(title, item.id) && title.includes("@parity"),
+      ),
+  )
+  .map((item) => `${item.id} (${String(item.title ?? "")})`);
+if (missingParity.length) {
+  errors.push(
+    `checklist IDs without a real @parity E2E case: ${missingParity.join(", ")}`,
+  );
+}
+
+const unplannedWaivers = loadWaivers()
+  .filter((waiver) => !PLAN_WAIVER_PATHS.has(String(waiver?.path ?? "")))
+  .map((waiver) => String(waiver?.path ?? "?"));
+if (unplannedWaivers.length) {
+  errors.push(
+    `waivers.json contains route(s) not pre-approved by PLAN: ${unplannedWaivers.join(", ")}`,
+  );
+}
 
 console.log(`[parity] snapshot: ${snapshot.length} entries / ${snapshotPaths.size} unique paths`);
 console.log(`[parity] legacy grep: ${legacy.known.size} method+path signatures`);
 console.log(`[parity] new endpoint declarations: ${newSignatures.size}`);
 console.log(`[parity] consumed by non-API source: ${consumed.size}`);
+console.log(`[parity] consumed via @parity E2E: ${e2eConsumed.size}`);
 console.log(`[parity] uncovered old endpoints: ${uncovered.length}`);
 console.log(
   `[parity] 自检: grep 命中但未收录 = ${grepMissing} (${legacy.paths.size} paths checked)`,
+);
+console.log(
+  `[parity] checklist: ${checklist.length} IDs / ${parityTitles.filter((title) => title.includes("@parity")).length} @parity cases`,
 );
 
 if (mode === "views") {
@@ -225,7 +353,7 @@ if (mode === "views") {
     const covered = paths.filter(([path]) =>
       [...snapshotSignatures]
         .filter((sig) => sig.endsWith(` ${path}`))
-        .some((sig) => consumed.has(sig)),
+        .some((sig) => coveredSignatures.has(sig)),
     ).length;
     rows.push({ view, total: paths.length, covered, missing: paths.length - covered });
   }
