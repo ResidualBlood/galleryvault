@@ -1,5 +1,6 @@
 import type { RouteRecordRaw } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
+import GalleryDetailView from "@/views/gallery/GalleryDetailView.vue";
 import LoginView from "@/views/LoginView.vue";
 import PlaceholderView from "@/views/PlaceholderView.vue";
 
@@ -56,7 +57,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "gallery/:id",
         name: "gallery",
-        component: PlaceholderView,
+        component: GalleryDetailView,
         meta: { title: "app.nav.library" },
       },
       {
