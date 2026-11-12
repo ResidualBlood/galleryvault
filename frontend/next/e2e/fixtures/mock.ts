@@ -19,7 +19,7 @@ const SESSION = {
   cookie_health: { state: "ok" },
 };
 
-async function installMockBackend(page: Page, state: MockState): Promise<void> {
+export async function installMockBackend(page: Page, state: MockState): Promise<void> {
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (state.expired) {

@@ -12,6 +12,10 @@ test("G-01 登录 / 会话 / 首次引导 @parity", async ({ app, browser }) => 
   const anonymous = await browser.newContext({
     baseURL: BASE_URL,
     viewport: { width: 1280, height: 900 },
+    // The real harness sets `use.storageState` from its globalSetup, and a new
+    // context inherits it. Anonymous means anonymous: clear it explicitly so
+    // the login card is reachable.
+    storageState: { cookies: [], origins: [] },
   });
   const page = await anonymous.newPage();
 
