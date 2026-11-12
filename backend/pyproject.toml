@@ -38,3 +38,6 @@ line-length = 100
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+  "e2e: real-backend end-to-end test, runs only with explicit E2E_PASSWORD/E2E_BASE_URL opt-in",
+]
