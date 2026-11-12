@@ -45,7 +45,12 @@ export interface FavDlMockState {
 interface MockOptions {
   totalFavorites?: number;
   totalHistory?: number;
+  /** Legacy DB rows can carry a display-only mode; the real backend rejects it on save. */
+  legacyFavoriteMode?: boolean;
 }
+
+/** Mirrors the backend validation in app/routers/settings.py. */
+const ALLOWED_FAVORITE_MODES = new Set(["monitor_only", "incremental", "force"]);
 
 const CATEGORIES = [
   {
@@ -285,6 +290,9 @@ export async function mockFavDlBackend(
 ): Promise<FavDlMockState> {
   const totalFavorites = options.totalFavorites ?? 40;
   const totalHistory = options.totalHistory ?? 12;
+  const categories = options.legacyFavoriteMode
+    ? CATEGORIES.map((item) => (item.favcat === 0 ? { ...item, mode: "gallery" } : item))
+    : CATEGORIES;
   const state: FavDlMockState = {
     writes: [],
     favoriteItemRequests: [],
@@ -300,7 +308,7 @@ export async function mockFavDlBackend(
 
     /* --------------------------------------------------------- favorites */
     if (method === "GET" && path === favoriteCategoriesEp.path) {
-      await fulfillJson(route, CATEGORIES);
+      await fulfillJson(route, categories);
       return;
     }
     if (method === "GET" && path === favoriteCheckStatusEp.path) {
@@ -394,7 +402,22 @@ export async function mockFavDlBackend(
         return;
       }
       if (path === saveSettingsEp.path) {
-        state.writes.push(write(route, path, bodyJson(route)));
+        const body = bodyJson(route) as
+          | { favorites?: Array<Record<string, unknown>> }
+          | null;
+        state.writes.push(write(route, path, body));
+        const favorites = body?.favorites;
+        const invalid =
+          Array.isArray(favorites) &&
+          favorites.some(
+            (item) =>
+              !item ||
+              !ALLOWED_FAVORITE_MODES.has(String(item.mode ?? "")),
+          );
+        if (invalid) {
+          await fulfillJson(route, { detail: "invalid favorites configuration" }, 422);
+          return;
+        }
         await fulfillJson(route, { ok: true });
         return;
       }

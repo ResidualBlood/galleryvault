@@ -620,9 +620,18 @@ interface GestureState {
 const pointers = new Map<number, Point>();
 let gesture: GestureState | null = null;
 
+function isZoneTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  if (!element || typeof element.closest !== "function") return false;
+  return Boolean(element.closest(".reader__zones"));
+}
+
 function isControlTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
   if (!element || typeof element.closest !== "function") return false;
+  // Tap zones are transparent gesture surfaces: they must stay hit-testable for
+  // click-to-toggle but never swallow pinch/pan/swipe or double-click zoom.
+  if (isZoneTarget(element)) return false;
   return Boolean(
     element.closest(
       "input, a, button, .reader-topbar, .reader-bottombar, .reader-settings, [data-no-gesture]",
@@ -811,6 +820,8 @@ function onZoneClick(zone: "left" | "center" | "right", event: MouseEvent): void
 
 function onStageClick(event: MouseEvent): void {
   if (suppressClick || isControlTarget(event.target)) return;
+  // The zone buttons already dispatched this click; avoid queueing it twice.
+  if (isZoneTarget(event.target)) return;
   const rect = stageRef.value?.getBoundingClientRect();
   if (!rect) return;
   const ratio = (event.clientX - rect.left) / rect.width;
@@ -1160,9 +1171,13 @@ defineExpose({
 .reader__stage {
   position: absolute;
   inset: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
+  /* The transparent tap zones sit below the stage (z-index 2). Pages must not
+     intercept their clicks, while real controls (retry) re-enable events. */
+  pointer-events: none;
   will-change: transform;
 }
 
@@ -1226,7 +1241,7 @@ defineExpose({
   padding: 0;
   border: 0;
   background: transparent;
-  pointer-events: none;
+  pointer-events: auto;
   cursor: pointer;
 }
 

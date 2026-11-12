@@ -9,7 +9,12 @@ const { t } = useI18n();
 const health = ref<CookieHealth | null>(null);
 const dismissed = ref(false);
 
-const PROBLEM_STATES = new Set(["not_logged_in", "no_exhentai_access", "ip_banned"]);
+const PROBLEM_STATES = new Set([
+  "not_configured",
+  "not_logged_in",
+  "no_exhentai_access",
+  "ip_banned",
+]);
 
 const state = computed(() => String(health.value?.state ?? "").toLowerCase());
 const visible = computed(() => !dismissed.value && PROBLEM_STATES.has(state.value));

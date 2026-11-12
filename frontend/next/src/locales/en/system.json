@@ -112,6 +112,7 @@
     "pauseFailed": "Could not update the pause state.",
     "cookie": {
       "title": "E-Hentai cookie problem",
+      "not_configured": "No E-Hentai cookie is configured, so online browsing and downloads are unavailable.",
       "not_logged_in": "The cookie is missing or expired; online browsing and downloads are unavailable.",
       "no_exhentai_access": "This account has no private-site access, so ExHentai content is unavailable.",
       "ip_banned": "This egress IP is temporarily banned by E-Hentai. Try again later.",

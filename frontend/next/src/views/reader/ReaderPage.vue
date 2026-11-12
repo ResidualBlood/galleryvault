@@ -144,6 +144,7 @@ function onLoad(event: Event): void {
 }
 
 .reader-page__retry {
+  pointer-events: auto;
   min-width: var(--gv-size-touch);
   min-height: var(--gv-size-touch);
   padding: 0 var(--gv-space-4);
