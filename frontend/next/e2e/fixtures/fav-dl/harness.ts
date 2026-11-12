@@ -13,6 +13,7 @@ import FavoritesView from "@/views/favorites/FavoritesView.vue";
 import FavListView from "@/views/favorites/FavListView.vue";
 import DownloadsView from "@/views/downloads/DownloadsView.vue";
 import HistoryView from "@/views/history/local/HistoryView.vue";
+import Toast from "@/components/ui/Toast.vue";
 import { i18n, setLocale } from "@/i18n";
 import "@/styles/tokens.css";
 import "@/styles/base.css";
@@ -53,7 +54,8 @@ await router.push(target);
 await router.isReady();
 
 const app = createApp({
-  render: () => h("div", { class: "harness", "data-testid": "harness" }, [h(RouterView)]),
+  render: () =>
+    h("div", { class: "harness", "data-testid": "harness" }, [h(RouterView), h(Toast)]),
 });
 
 app.use(createPinia());

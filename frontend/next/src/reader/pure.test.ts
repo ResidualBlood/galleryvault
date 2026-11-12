@@ -6,6 +6,7 @@ import {
   computeWebtoonWindow,
   getReaderNav,
   isPageFailed,
+  isReaderPageKey,
   markPageFailed,
   normalizeReaderPage,
   pagePlaceholderLabel,
@@ -45,6 +46,21 @@ describe("keyboard throttling", () => {
     expect(shouldHandleReaderKey(1000, 920, false, 80)).toBe(true);
     expect(shouldHandleReaderKey(1000, 950, false)).toBe(false);
     expect(shouldHandleReaderKey(1000, 920, false)).toBe(true);
+  });
+});
+
+describe("reader page keys", () => {
+  it("only page-turn keys feed the 80 ms throttle", () => {
+    for (const mode of ["ltr", "rtl", "double", "double-rtl"] as const) {
+      expect(isReaderPageKey("ArrowLeft", mode)).toBe(true);
+      expect(isReaderPageKey("ArrowRight", mode)).toBe(true);
+      expect(isReaderPageKey("PageDown", mode)).toBe(true);
+      expect(isReaderPageKey("ArrowDown", mode)).toBe(false);
+    }
+    expect(isReaderPageKey("ArrowDown", "webtoon")).toBe(true);
+    expect(isReaderPageKey("ArrowUp", "webtoon")).toBe(true);
+    expect(isReaderPageKey("Escape", "ltr")).toBe(false);
+    expect(isReaderPageKey("f", "ltr")).toBe(false);
   });
 });
 

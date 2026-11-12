@@ -277,7 +277,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'history'"
       :title="t('legacy.clearHistory')"
-      data-testid="history-clear-dialog"
+      testid="history-clear-dialog"
       @close="dialog = ''"
     >
       <p>{{ t("legacy.confirmClearHistory") }}</p>
@@ -292,7 +292,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'progress'"
       :title="t('legacy.clearProgress')"
-      data-testid="history-clear-progress-dialog"
+      testid="history-clear-progress-dialog"
       @close="dialog = ''"
     >
       <p>{{ t("legacy.confirmClearProgress") }}</p>

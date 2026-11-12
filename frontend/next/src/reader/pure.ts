@@ -34,6 +34,29 @@ export function shouldHandleReaderKey(
   return now - last >= threshold;
 }
 
+/**
+ * Keys that turn pages in the current mode. Only these keys feed the 80 ms
+ * throttle: closing the settings sheet with Escape must not swallow an
+ * immediately following page turn.
+ */
+export function isReaderPageKey(key: string, mode: ReaderMode): boolean {
+  switch (key) {
+    case "ArrowLeft":
+    case "ArrowRight":
+    case " ":
+    case "PageDown":
+    case "PageUp":
+    case "Home":
+    case "End":
+      return true;
+    case "ArrowUp":
+    case "ArrowDown":
+      return mode === "webtoon";
+    default:
+      return false;
+  }
+}
+
 export function clampReaderScale(current: number, factor: number): number {
   return Math.min(3.5, Math.max(1, current * factor));
 }

@@ -155,3 +155,63 @@ test.describe("C3 gate fixes @c3fix", () => {
     await expect(banner).toContainText("E-Hentai Cookie");
   });
 });
+
+test.describe("C3 round 2 fixes @c3r2", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/src/**", (route) => route.continue());
+  });
+
+  test("G-08/V-09 dialogs expose their testid and empty archive input is rejected @c3r2", async ({
+    page,
+  }) => {
+    await mockFavDlBackend(page);
+    await page.goto(harnessUrl("fav-dl", { view: "downloads" }));
+    await expect(page.getByTestId("downloads-view")).toBeVisible();
+
+    // An empty batch must be rejected with the locale hint, not open a dialog.
+    // DownloadsView passes these ids as the Dialog `testid` prop; the root is a
+    // Teleport target, so a plain `data-testid` attribute never reaches the DOM.
+    await page.getByTestId("downloads-add-archive").click();
+    await expect(page.getByRole("status").filter({ hasText: "没有识别到画廊链接" })).toBeVisible();
+    await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
+
+    await page.getByTestId("downloads-urls").fill("123456/abcdef");
+    await page.getByTestId("downloads-add-archive").click();
+    const archive = page.getByTestId("downloads-archive-dialog");
+    await expect(archive).toBeVisible();
+    await expect(archive).toHaveAttribute("role", "dialog");
+    await page.keyboard.press("Escape");
+    await expect(archive).toHaveCount(0);
+
+    await page.getByTestId("downloads-retry-all").click();
+    await expect(page.getByTestId("downloads-retry-all-dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("downloads-retry-all-dialog")).toHaveCount(0);
+  });
+
+  test("V-04 Escape close does not swallow an immediate ArrowRight page turn @c3r2", async ({
+    page,
+  }) => {
+    await mockReaderPages(page, 12);
+    await page.goto(harnessUrl("reader", { total: "12", page: "0", mode: "ltr" }));
+
+    const shell = page.getByTestId("reader-shell");
+    await expect(shell).toBeVisible();
+    await expect(page.getByTestId("reader-loading")).toHaveCount(0);
+    await page.getByTestId("reader-zone-center").click();
+    await page.getByTestId("reader-settings").click();
+    await expect(page.getByTestId("reader-settings-panel")).toBeVisible();
+    await expect(shell).toHaveAttribute("data-page", "0");
+
+    // Dispatch both keydowns in the same task so the 80 ms window is exercised
+    // deterministically: Escape must not refresh the page-turn timestamp.
+    await page.evaluate(() => {
+      for (const key of ["Escape", "ArrowRight"]) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      }
+    });
+
+    await expect(page.getByTestId("reader-settings-panel")).toHaveCount(0);
+    await expect(shell).toHaveAttribute("data-page", "1");
+  });
+});

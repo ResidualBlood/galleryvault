@@ -17,6 +17,7 @@ import {
   getReaderNav,
   isDoubleMode,
   isPageFailed,
+  isReaderPageKey,
   isRtlMode,
   markPageFailed,
   normalizeReaderPage,
@@ -856,9 +857,15 @@ function onKeyDown(event: KeyboardEvent): void {
     if (event.key === "Escape") (event.target as HTMLElement).blur();
     return;
   }
+  if (event.repeat) return;
   const now = Date.now();
-  if (!shouldHandleReaderKey(now, lastKeyAt, event.repeat)) return;
-  lastKeyAt = now;
+  // Only page-turn keys participate in the 80 ms throttle. Escape (close the
+  // settings sheet) and other controls must not reset it, otherwise the next
+  // ArrowRight is dropped while the panel is still closing.
+  if (isReaderPageKey(event.key, mode.value)) {
+    if (!shouldHandleReaderKey(now, lastKeyAt, false)) return;
+    lastKeyAt = now;
+  }
 
   const rtl = isRtlMode(mode.value);
   let handled = true;

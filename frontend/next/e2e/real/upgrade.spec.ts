@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { chromium, expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 /**
  * C3 upgrade / rollback drill.
@@ -48,23 +48,43 @@ test.describe("service worker upgrade @upgrade", () => {
 
     // The legacy shell (frontend/assets) has no data-testid at all, so the
     // login/shell readiness probes cover both shells: testids for the new
-    // build, the plain login form plus #topbar for the legacy build.
+    // build, the plain login form plus #topbar for the legacy build. Each probe
+    // may match several nodes in the legacy DOM (e.g. #topbar and the login
+    // form), so visibility is checked per element instead of with `.or()`,
+    // which raises a strict-mode violation as soon as two nodes match.
     const loginCard = page.getByTestId("login-card");
     const legacyLogin = page.locator('form[data-action="login"]');
     const newShell = page.getByTestId("content");
     const legacyShell = page.locator("#topbar");
-    await expect(loginCard.or(legacyLogin).or(newShell).or(legacyShell)).toBeVisible({
-      timeout: 30_000,
-    });
 
-    if (await loginCard.isVisible().catch(() => false)) {
+    async function anyVisible(locator: Locator): Promise<boolean> {
+      const count = await locator.count();
+      for (let index = 0; index < count; index += 1) {
+        if (await locator.nth(index).isVisible().catch(() => false)) return true;
+      }
+      return false;
+    }
+
+    const ready = async (): Promise<boolean> =>
+      (await anyVisible(loginCard)) ||
+      (await anyVisible(legacyLogin)) ||
+      (await anyVisible(newShell)) ||
+      (await anyVisible(legacyShell));
+    await expect.poll(ready, { timeout: 30_000 }).toBe(true);
+
+    if (await anyVisible(loginCard)) {
       await page.getByLabel(/密码|Password/).fill(PASSWORD as string);
       await page.getByTestId("login-submit").click();
-    } else if (await legacyLogin.isVisible().catch(() => false)) {
-      await legacyLogin.locator('input[name="password"]').fill(PASSWORD as string);
-      await legacyLogin.locator('button[type="submit"]').click();
+    } else if (await anyVisible(legacyLogin)) {
+      const form = legacyLogin.first();
+      await form.locator('input[name="password"]').fill(PASSWORD as string);
+      await form.locator('button[type="submit"]').click();
     }
-    await expect(newShell.or(legacyShell)).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(async () => (await anyVisible(newShell)) || (await anyVisible(legacyShell)), {
+        timeout: 30_000,
+      })
+      .toBe(true);
     return page;
   }
 

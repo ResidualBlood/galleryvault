@@ -896,7 +896,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'move'"
       :title="t('legacy.favMoveTitle')"
-      data-testid="favlist-move-dialog"
+      testid="favlist-move-dialog"
       @close="dialog = ''"
     >
       <Select
@@ -916,7 +916,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'remove'"
       :title="t('legacy.favRemove')"
-      data-testid="favlist-remove-dialog"
+      testid="favlist-remove-dialog"
       @close="dialog = ''"
     >
       <p>{{ t("legacy.confirmFavRemove") }} ({{ selected.length }})</p>

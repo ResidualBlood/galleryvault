@@ -84,9 +84,23 @@ test("V-09 下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量对话框
   await page.getByTestId("downloads-clear-success").click();
   await expect(page.getByTestId("downloads-clear-confirm")).toBeVisible();
   await page.keyboard.press("Escape");
+
+  // Empty input is rejected in place; only a parsed link opens the archive
+  // dialog. The dialog is confirmed only after the test types a valid link, and
+  // even then it is dismissed without queueing anything.
+  await page.getByTestId("downloads-add-archive").click();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: /没有识别到画廊链接|No gallery links recognised/ }),
+  ).toBeVisible();
+  await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
+
+  await page.getByTestId("downloads-urls").fill("123456/abcdef");
   await page.getByTestId("downloads-add-archive").click();
   await expect(page.getByTestId("downloads-archive-dialog")).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
 
   // The cancel button only exists for live tasks; terminal tasks show retry
   // instead. Assert the per-row contract rather than requiring a cancellable

@@ -9,6 +9,7 @@ import {
   type Page,
   type PlaywrightWorkerArgs,
 } from "@playwright/test";
+import { REAL_BASE_URL, REAL_STORAGE_STATE, requireRealPassword } from "./storage";
 
 /**
  * Shared real-environment harness for the C3 parity gate.
@@ -18,7 +19,8 @@ import {
  * `GV_E2E_PASSWORD`; a missing value is a hard failure (never a skip), so a
  * misconfigured CI job cannot silently produce a green gate.
  */
-export const BASE_URL = process.env.GV_E2E_BASE || "http://127.0.0.1:8200/";
+export const BASE_URL = REAL_BASE_URL;
+export { requireRealPassword as requirePassword };
 export const SHOT_DIR =
   process.env.GV_SHOTS || "/tmp/opencode/gv-frontend-rewrite/shots/real-b7/parity";
 
@@ -51,16 +53,6 @@ export interface App {
   api: JsonApi;
   /** Screenshot to `$GV_SHOTS/<id>.png` (checked by the C3 report). */
   shot(id: string, options?: { fullPage?: boolean }): Promise<void>;
-}
-
-export function requirePassword(): string {
-  const password = process.env.GV_E2E_PASSWORD;
-  if (!password) {
-    throw new Error(
-      "GV_E2E_PASSWORD is required for real parity E2E (it is never read from a file or committed)",
-    );
-  }
-  return password;
 }
 
 export function uniqueName(prefix: string): string {
@@ -114,7 +106,7 @@ function jsonApi(context: BrowserContext): JsonApi {
 
 /** Sign in through the real form endpoint and fail loudly if the session is not usable. */
 export async function apiLogin(context: BrowserContext): Promise<void> {
-  const password = requirePassword();
+  const password = requireRealPassword();
   const login = await context.request.post("/login", {
     form: { password },
     failOnStatusCode: false,
@@ -130,6 +122,21 @@ export async function apiLogin(context: BrowserContext): Promise<void> {
   if (!body.authenticated) {
     throw new Error("real E2E login did not produce an authenticated session");
   }
+}
+
+/**
+ * Reuse the session captured by global-setup. Only a genuinely expired/absent
+ * session triggers POST /login, so nginx's 10r/m login limit is not at risk.
+ */
+export async function ensureSession(context: BrowserContext): Promise<void> {
+  const session = await context.request.get("/api/auth/session", {
+    failOnStatusCode: false,
+  });
+  if (session.ok()) {
+    const body = (await session.json().catch(() => ({}))) as { authenticated?: boolean };
+    if (body.authenticated) return;
+  }
+  await apiLogin(context);
 }
 
 export async function firstGallery(api: JsonApi): Promise<GalleryRow | null> {
@@ -150,7 +157,7 @@ export function annotateUnverified(description: string): void {
 
 export const test = base.extend<{ app: App }>({
   app: async ({ page, context }, use) => {
-    await apiLogin(context);
+    await ensureSession(context);
     await page.goto("/");
     await expect(page.getByTestId("content")).toBeVisible({ timeout: 20_000 });
     await use({
@@ -168,9 +175,17 @@ export { expect };
 export async function newApiContext(
   playwright: PlaywrightWorkerArgs["playwright"],
 ): Promise<APIRequestContext> {
-  const context = await playwright.request.newContext({ baseURL: BASE_URL });
+  const context = await playwright.request.newContext({
+    baseURL: BASE_URL,
+    storageState: REAL_STORAGE_STATE,
+  });
+  const session = await context.get("/api/auth/session", { failOnStatusCode: false });
+  if (session.ok()) {
+    const body = (await session.json().catch(() => ({}))) as { authenticated?: boolean };
+    if (body.authenticated) return context;
+  }
   const login = await context.post("/login", {
-    form: { password: requirePassword() },
+    form: { password: requireRealPassword() },
     failOnStatusCode: false,
   });
   if (!login.ok()) throw new Error(`sample-context login failed with ${login.status()}`);

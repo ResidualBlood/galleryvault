@@ -757,7 +757,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'delete' || dialog === 'delete-selected'"
       :title="t('legacy.deleteDl')"
-      data-testid="downloads-delete-dialog"
+      testid="downloads-delete-dialog"
       @close="dialog = ''"
     >
       <p v-if="dialog === 'delete-selected'">
@@ -775,7 +775,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'clear-success'"
       :title="t('legacy.clearSuccessDl')"
-      data-testid="downloads-clear-dialog"
+      testid="downloads-clear-dialog"
       @close="dialog = ''"
     >
       <p>{{ t("legacy.confirmClearSuccessDl") }}</p>
@@ -790,7 +790,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'retry-all'"
       :title="t('legacy.retryAll')"
-      data-testid="downloads-retry-all-dialog"
+      testid="downloads-retry-all-dialog"
       @close="dialog = ''"
     >
       <p>{{ t("legacy.retryAllConfirm") }}</p>
@@ -805,7 +805,7 @@ onBeforeUnmount(() => {
     <Dialog
       :open="dialog === 'archive'"
       :title="t('legacy.dlAddArchive')"
-      data-testid="downloads-archive-dialog"
+      testid="downloads-archive-dialog"
       @close="dialog = ''"
     >
       <Select
