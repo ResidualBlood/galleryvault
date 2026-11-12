@@ -126,7 +126,7 @@ test.describe("service worker upgrade @upgrade", () => {
     expect(state.controlled).toBe(true);
   });
 
-  test("@upgrade-b new worker replaces the legacy one in the same profile", async () => {
+  test("@upgrade-b new worker replaces the legacy one on the first start", async () => {
     const page = await openProfile();
     await page.waitForFunction(
       () => navigator.serviceWorker.getRegistration().then((reg) => Boolean(reg?.active)),
@@ -134,10 +134,12 @@ test.describe("service worker upgrade @upgrade", () => {
       { timeout: 30_000 },
     );
 
-    // A new build installed behind the legacy worker waits for the prompt.
-    const prompt = page.getByTestId("pwa-update");
-    await expect(prompt).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("pwa-update-apply").click();
+    // The legacy worker may answer the first document from `gv-shell-v14`.
+    // The new worker must detect that legacy state, take over without a
+    // prompt, and reload the window onto the new shell by itself: a waiting
+    // worker here is the reported white screen (stale document, assets 404).
+    await expect(page.getByTestId("content")).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId("pwa-update")).toBeHidden();
 
     const keys = await waitForCaches(
       page,
