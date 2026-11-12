@@ -1,7 +1,7 @@
 /**
  * Unit tests for the GalleryVault companion userscript.
  *
- * Run: `npm --prefix frontend/next run test:unit -- userscript`
+ * Run: `npm --prefix frontend run test:unit -- userscript`
  *
  * The pure helpers are imported straight from `companion.mjs` (the source of
  * truth of the built file), and the generated userscript is checked for drift,

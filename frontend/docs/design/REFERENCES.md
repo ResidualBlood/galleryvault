@@ -98,5 +98,5 @@
 
 1. **EhViewer 主线与 Overhauled fork**：`https://github.com/FooIbar/EhViewer`、`https://github.com/Ehviewer-Overhauled/Ehviewer` 均返回 HTTP 451（DMCA），无法核实。不引用其源码、截图或配色；EH 分类/收藏配色改用 JHenTai 常量。
 2. **Kavita（GPL-3.0）**：只可借鉴交互与布局思路，不得复制 SCSS / HTML / TS 片段，不得把其代码并入本仓。
-3. **截图与图标**：以上截图链接仅作为评审时的外部证据；仓库内 `frontend/next/docs/design/` 不放任何第三方 PNG/JPG/WebP/SVG。`check-design` 的验收会检查该目录无位图文件。
+3. **截图与图标**：以上截图链接仅作为评审时的外部证据；仓库内 `frontend/docs/design/` 不放任何第三方 PNG/JPG/WebP/SVG。`check-design` 的验收会检查该目录无位图文件。
 4. **链接维护**：参考对象或链接失效时，先报告并更新本清单，不得自行替换为未核实来源。

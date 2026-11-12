@@ -716,32 +716,32 @@ def test_series_acceptance_constraints() -> None:
     assert "series" not in CATEGORIES
     assert "series" not in [c.lower() for c in CATEGORIES]
 
-    # 2. Check frontend index.html has series topbar link and script inclusion (if frontend dir present)
+    # 2. The Vue SPA still exposes the series page: router entry and shell nav
+    #    link (post-cutover Vue layout under frontend/src).
     root = Path(__file__).resolve().parents[2]
     frontend_dir = root / "frontend"
     if frontend_dir.exists():
-        index_html = (frontend_dir / "index.html").read_text(encoding="utf-8")
-        assert 'href="#/series"' in index_html
-        assert 'data-i18n="series"' in index_html
+        import json
         import re
 
-        assert re.search(
-            r'<script\s+src=["\']/assets/views/series\.js(?:\?[^"\']*)?["\']></script>',
-            index_html,
+        routes_ts = (frontend_dir / "src" / "router" / "routes.ts").read_text(encoding="utf-8")
+        assert re.search(r'path:\s*"series"', routes_ts)
+        assert re.search(r'name:\s*"series"', routes_ts)
+
+        shell_vue = (frontend_dir / "src" / "components" / "AppShell.vue").read_text(encoding="utf-8")
+        assert '{ to: "/series", labelKey: "app.nav.series"' in shell_vue
+
+        # 3. Check locales
+        zh = json.loads(
+            (frontend_dir / "src" / "locales" / "zh" / "legacy.json").read_text(encoding="utf-8")
         )
-
-        # 3. Check core.js routes
-        core_js = (frontend_dir / "assets" / "core.js").read_text(encoding="utf-8")
-        assert 'case "series": renderSeries(); break;' in core_js
-        assert 'targetSelector = \'.topbar .links a[href="#/series"]\'' in core_js
-
-        # 4. Check locales
-        zh_js = (frontend_dir / "assets" / "locales" / "zh.js").read_text(encoding="utf-8")
-        en_js = (frontend_dir / "assets" / "locales" / "en.js").read_text(encoding="utf-8")
-        assert 'series: "系列作品"' in zh_js
-        assert 'series: "Series"' in en_js
-        assert 'seriesTitle:' in zh_js
-        assert 'seriesTitle:' in en_js
+        en = json.loads(
+            (frontend_dir / "src" / "locales" / "en" / "legacy.json").read_text(encoding="utf-8")
+        )
+        assert zh["series"] == "系列作品"
+        assert en["series"] == "Series"
+        assert "seriesTitle" in zh
+        assert "seriesTitle" in en
 
 
 def test_strip_leading_events_and_ts_akira_grouping() -> None:

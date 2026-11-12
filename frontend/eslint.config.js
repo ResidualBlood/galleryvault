@@ -84,4 +84,15 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // Plain-JS service worker fixture (legacy worker stand-in): runs in a
+    // worker scope, so it needs browser + serviceworker globals.
+    files: ["e2e/**/*.js"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.serviceworker,
+      },
+    },
+  },
 );

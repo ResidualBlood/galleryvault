@@ -7,9 +7,6 @@ services:
     container_name: galleryvault-dev-frontend
     restart: unless-stopped
     ports: ["${DEV_FRONTEND_PORT:-8200}:80"]
-    volumes:
-      - ./frontend/assets:/usr/share/nginx/html/assets:ro
-      - ./frontend/index.html:/usr/share/nginx/html/index.html:ro
     depends_on:
       - backend
 

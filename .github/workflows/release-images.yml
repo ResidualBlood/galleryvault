@@ -80,9 +80,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: JS syntax check
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
         working-directory: frontend
-        run: for f in assets/*.js assets/locales/*.js assets/views/*.js; do node --check "$f"; done
+        run: npm ci
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Bundle guard (CSP / no eval)
+        run: node frontend/scripts/check-dist.mjs
+      - name: Design guard
+        run: node frontend/scripts/check-design.mjs
+      - name: Legacy parity guard
+        run: node frontend/scripts/check-parity.mjs --strict
+      - name: nginx config test
+        run: docker run --rm -v "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
 
   build-backend:
     runs-on: ${{ matrix.runner }}

@@ -1,6 +1,6 @@
 """Structured 409 contract for the filtered-delete confirmation guard.
 
-The frontend (``frontend/assets/views/library.js``) recognises a large delete by
+The frontend (``frontend/src/views/library/manage/LibraryManageBar.vue``) recognises a large delete by
 ``detail.code == "CONFIRM_REQUIRED"`` and resends the same payload with
 ``confirm=true`` and ``match_count=<matched>``.  These tests pin that contract
 plus the other 409 paths that must keep their plain-string detail.
