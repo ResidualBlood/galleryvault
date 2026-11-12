@@ -22,7 +22,16 @@ import httpx
 import pytest
 
 E2E_BASE_URL = os.getenv("E2E_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
-E2E_PASSWORD = os.getenv("E2E_PASSWORD", os.getenv("LOGIN_PASSWORD", "password"))
+# 该套件会登录并读写真实测试后端（画廊进度、settings 等），因此默认不随 pytest 运行：
+# 只有显式设置 E2E_PASSWORD 或 E2E_BASE_URL 时才视为 opt-in。口令只从环境读取，
+# 不提供写死的默认值（LOGIN_PASSWORD 仅作为口令来源兼容，不单独触发 opt-in）。
+E2E_OPT_IN = bool(os.getenv("E2E_PASSWORD") or os.getenv("E2E_BASE_URL"))
+E2E_PASSWORD = os.getenv("E2E_PASSWORD") or os.getenv("LOGIN_PASSWORD") or ""
+
+pytestmark = pytest.mark.skipif(
+    not E2E_OPT_IN,
+    reason="real-backend E2E is opt-in: set E2E_PASSWORD or E2E_BASE_URL to run",
+)
 
 
 def check_e2e_prerequisites(base_url: str) -> None:
