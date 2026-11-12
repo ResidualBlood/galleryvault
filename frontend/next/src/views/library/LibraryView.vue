@@ -9,6 +9,10 @@ import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
 import TagSuggest from "./TagSuggest.vue";
 import VirtualGrid from "@/components/gallery/VirtualGrid.vue";
+import GalleryCard from "@/components/gallery/GalleryCard.vue";
+import LibraryManageBar from "./manage/LibraryManageBar.vue";
+import { useGallerySelection } from "./manage/useSelection";
+import { ensureLibraryManageMessages } from "./manage/messages";
 import { ensureLibraryMessages } from "./messages";
 import {
   clampPageSize,
@@ -19,12 +23,36 @@ import type { GalleryQuery, TagSuggestion } from "@/api/library";
 import { useSettingsStore } from "@/stores/settings";
 
 ensureLibraryMessages();
+ensureLibraryManageMessages();
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const store = useLibraryStore();
 const settings = useSettingsStore();
+const selection = useGallerySelection();
+
+const selectedItems = computed(() => store.items.filter((item) => selection.has(item.id)));
+const manageQuery = computed(() => store.currentQuery);
+
+function toggleSelected(id: number, event: Event): void {
+  selection.toggle(id, (event.target as HTMLInputElement).checked);
+}
+
+/** Drop deleted rows locally; the server already confirmed the deletion. */
+function onRemoved(ids: number[], deleted: number): void {
+  const removed = new Set(ids);
+  store.items = store.items.filter((item) => !removed.has(item.id));
+  store.total = Math.max(0, store.total - deleted);
+}
+
+/** Reflect cloud-confirmed favourites on the visible cards. */
+function onFavorited(gids: number[]): void {
+  const added = new Set(gids);
+  for (const item of store.items) {
+    if (item.gid && added.has(item.gid)) item.favorite = true;
+  }
+}
 
 function first(value: unknown): string {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -189,7 +217,10 @@ function restoreScrollSoon(): void {
 
 watch(
   () => route.query,
-  () => syncFromRoute(),
+  () => {
+    selection.clear();
+    syncFromRoute();
+  },
   { deep: true },
 );
 
@@ -262,6 +293,15 @@ onBeforeUnmount(() => {
       />
     </div>
 
+    <LibraryManageBar
+      :query="manageQuery"
+      :selected="selectedItems"
+      :total="store.total"
+      @clear="selection.clear()"
+      @removed="onRemoved"
+      @favorited="onFavorited"
+    />
+
     <div v-if="activeTags.length" class="library__tags" :aria-label="t('library.page.activeTagsLabel')">
       <span v-for="tag in activeTags" :key="tag" class="library__tag">
         {{ tag }}
@@ -306,7 +346,25 @@ onBeforeUnmount(() => {
       data-testid="library-grid"
       @load-more="store.loadMore"
       @retry="store.retry"
-    />
+    >
+      <template #card="{ item }">
+        <div
+          class="library-card"
+          :class="{ 'library-card--selected': selection.has(item.id) }"
+          data-testid="library-card"
+        >
+          <label class="library-card__check" :title="t('libraryManage.select')">
+            <input
+              type="checkbox"
+              :checked="selection.has(item.id)"
+              :aria-label="`${t('libraryManage.select')} ${item.title}`"
+              @change="toggleSelected(item.id, $event)"
+            />
+          </label>
+          <GalleryCard :item="item" />
+        </div>
+      </template>
+    </VirtualGrid>
   </section>
 </template>
 
@@ -405,6 +463,40 @@ onBeforeUnmount(() => {
 
 .library__tag-remove:hover {
   background: var(--gv-color-surface-container-highest);
+}
+
+.library-card {
+  position: relative;
+}
+
+.library-card--selected {
+  outline: 2px solid var(--gv-color-primary);
+  outline-offset: 2px;
+  border-radius: var(--gv-radius-md);
+}
+
+.library-card__check {
+  position: absolute;
+  top: var(--gv-space-2);
+  right: var(--gv-space-2);
+  z-index: 5;
+  scroll-margin-top: calc(var(--gv-size-topbar) + var(--gv-space-4));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--gv-size-touch);
+  height: var(--gv-size-touch);
+  border-radius: var(--gv-radius-full);
+  background: var(--gv-color-surface-container-highest);
+  box-shadow: var(--gv-elev-2);
+  cursor: pointer;
+}
+
+.library-card__check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--gv-color-primary);
+  cursor: pointer;
 }
 
 .library__skeletons {

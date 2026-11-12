@@ -14,6 +14,7 @@ import {
 import Button from "@/components/ui/Button.vue";
 import GalleryActions from "@/components/actions/GalleryActions.vue";
 import GalleryDetailLayout from "@/components/gallery/GalleryDetailLayout.vue";
+import GalleryManageSection from "./extra/GalleryManageSection.vue";
 import TagGroups from "@/components/gallery/TagGroups.vue";
 import ThumbGrid from "@/components/gallery/ThumbGrid.vue";
 import { useViewRequest } from "@/composables/useViewRequest";
@@ -292,6 +293,10 @@ onBeforeUnmount(() => {
         </div>
         <TagGroups :tags="gallery.tags ?? []" @select="selectTag" />
       </div>
+    </template>
+
+    <template #extra>
+      <GalleryManageSection v-if="gallery" :gallery="gallery" @refresh="load" />
     </template>
 
     <template #thumbs>

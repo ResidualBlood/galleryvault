@@ -1,5 +1,16 @@
-import { request, type Endpoint, type RequestOptions } from "./client";
-import { galleryEp, galleryProgressEp } from "./galleries";
+import { request, type Endpoint, type HttpMethod, type RequestOptions } from "./client";
+import {
+  deleteGalleryEp,
+  downloadGalleryOriginalEp,
+  exportGalleryCbzEp,
+  galleryEp,
+  galleryFavoriteEp,
+  galleryProgressEp,
+  galleryThumbEp,
+  patchGalleryLocalEp,
+  redownloadGalleryEp,
+} from "./galleries";
+import { favoriteNoteEp } from "./favorites";
 
 export interface GalleryTag {
   namespace: string;
@@ -57,7 +68,7 @@ export type GalleryRequestOptions = Omit<RequestOptions, "signal"> & {
   signal?: AbortSignal;
 };
 
-function withId(endpoint: Endpoint<"GET">, id: number): Endpoint<"GET"> {
+function withId<M extends HttpMethod>(endpoint: Endpoint<M>, id: number): Endpoint<M> {
   return {
     method: endpoint.method,
     path: endpoint.path.replace("{id}", String(id)),
@@ -82,4 +93,112 @@ export function getGalleryProgress(
   options: GalleryRequestOptions = {},
 ): Promise<GalleryProgress> {
   return request<GalleryProgress>(withId(galleryProgressEp, id), options);
+}
+
+/* --------------------------------------------------------- manage actions */
+
+export interface GalleryFavoriteInfo {
+  gid: number | null;
+  token: string | null;
+  favorite: boolean;
+  favcats: number[];
+  favcat_names: Array<{ favcat: number; name: string }>;
+  note: string | null;
+}
+
+export interface GalleryLocalInput {
+  local_rating?: number | null;
+  local_note?: string | null;
+  local_tags?: string[];
+}
+
+export interface GalleryLocalResult {
+  id?: number;
+  local_rating?: number | null;
+  local_note?: string | null;
+  tags?: GalleryTag[];
+}
+
+/** Page thumbnail URL (kept out of views so they never build `/api/` paths). */
+export function galleryThumbPath(galleryId: number, index: number): string {
+  return galleryThumbEp.path
+    .replace("{id}", String(galleryId))
+    .replace("{id}", String(index));
+}
+
+export function getGalleryFavorite(
+  id: number,
+  options: GalleryRequestOptions = {},
+): Promise<GalleryFavoriteInfo> {
+  return request<GalleryFavoriteInfo>(withId(galleryFavoriteEp, id), options);
+}
+
+export function patchGalleryLocal(
+  id: number,
+  input: GalleryLocalInput,
+  options: GalleryRequestOptions = {},
+): Promise<GalleryLocalResult> {
+  return request<GalleryLocalResult>(withId(patchGalleryLocalEp, id), {
+    ...options,
+    body: input,
+  });
+}
+
+export function deleteGallery(
+  id: number,
+  deleteFiles: boolean,
+  options: GalleryRequestOptions = {},
+): Promise<{ deleted?: boolean }> {
+  const endpoint = withId(deleteGalleryEp, id);
+  const separator = endpoint.path.includes("?") ? "&" : "?";
+  return request<{ deleted?: boolean }>(
+    { method: endpoint.method, path: `${endpoint.path}${separator}delete_files=${deleteFiles ? "true" : "false"}` },
+    options,
+  );
+}
+
+export function redownloadGallery(
+  id: number,
+  options: GalleryRequestOptions = {},
+): Promise<{ status?: string; queued?: boolean }> {
+  return request<{ status?: string; queued?: boolean }>(withId(redownloadGalleryEp, id), options);
+}
+
+export function downloadGalleryOriginal(
+  id: number,
+  archive: boolean,
+  options: GalleryRequestOptions = {},
+): Promise<{ status?: string; queued?: boolean }> {
+  return request<{ status?: string; queued?: boolean }>(withId(downloadGalleryOriginalEp, id), {
+    ...options,
+    body: { archive },
+  });
+}
+
+export interface FavoriteNoteInput {
+  gid: number;
+  token?: string | null;
+  favcat?: number | null;
+  note: string;
+}
+
+/** Cloud-first favourite note; only `cloud_ok` updates the local copy. */
+export function setGalleryFavoriteNote(
+  input: FavoriteNoteInput,
+  options: GalleryRequestOptions = {},
+): Promise<{ gid: number; cloud_ok: boolean; local_updated?: number; note?: string | null }> {
+  return request<{ gid: number; cloud_ok: boolean; local_updated?: number; note?: string | null }>(favoriteNoteEp, {
+    ...options,
+    body: {
+      gid: input.gid,
+      token: input.token ?? "",
+      favcat: input.favcat ?? 0,
+      note: input.note,
+    },
+  });
+}
+
+/** Direct download link for the CBZ export (rendered as an `<a download>`). */
+export function galleryExportCbzUrl(id: number): string {
+  return exportGalleryCbzEp.path.replace("{id}", String(id));
 }

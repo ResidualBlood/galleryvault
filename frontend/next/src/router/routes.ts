@@ -9,6 +9,8 @@ import OnlineDetailView from "@/views/online/detail/OnlineDetailView.vue";
 import OnlineListView from "@/views/online/list/OnlineListView.vue";
 import OnlineReaderView from "@/views/online/reader/OnlineReaderView.vue";
 import ReaderView from "@/views/reader/ReaderView.vue";
+import SeriesView from "@/views/series/SeriesView.vue";
+import TagsView from "@/views/tags/TagsView.vue";
 
 /**
  * Hash-mode route table (legacy bookmarks keep working).
@@ -75,7 +77,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "series",
         name: "series",
-        component: PlaceholderView,
+        component: SeriesView,
         meta: { title: "app.nav.series" },
       },
       {
@@ -85,7 +87,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "tags",
         name: "tags",
-        component: PlaceholderView,
+        component: TagsView,
         meta: { title: "app.nav.tags" },
       },
       {
