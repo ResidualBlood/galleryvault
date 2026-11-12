@@ -1,3 +1,5 @@
+import { galleryThumbEp } from "@/api/galleries";
+
 /** Shared maintenance helpers: the legacy frontend whitelisted every
  * server-provided URL before it reached `href` / `src` (inv-frontend.md §8.1);
  * the rewrite keeps the same rule in one place. */
@@ -19,5 +21,7 @@ export function coverSrc(value: unknown): string {
 }
 
 export function galleryThumbUrl(galleryId: number, page = 0): string {
-  return `/api/galleries/${galleryId}/thumb/${page}`;
+  return galleryThumbEp.path
+    .replace("{id}", String(galleryId))
+    .replace("{id}", String(page));
 }

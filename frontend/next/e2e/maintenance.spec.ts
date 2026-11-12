@@ -5,6 +5,24 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 import { installMaintenanceMock } from "./fixtures/maintenance/mock";
+import {
+  duplicateStatusEp,
+  ignoreFavoriteDuplicateEp,
+  refreshCrossGidDuplicatesEp,
+  resolveDuplicateEp,
+} from "@/api/duplicates";
+import { scanIntegrityEp } from "@/api/integrity";
+import {
+  purgeGalleriesEp,
+  redownloadExpungedEp,
+  restoreGalleriesEp,
+} from "@/api/recycle";
+import {
+  updatesDeleteEp,
+  updatesIgnoreEp,
+  updatesUnignoreEp,
+  updatesUpdateEp,
+} from "@/api/updates";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -62,17 +80,24 @@ test.describe("maintenance @maintenance", () => {
     await vite?.close();
   });
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, baseURL }) => {
+    const origin = baseURL ?? "http://127.0.0.1";
     await page.context().addCookies([
       { name: "galleryvault_csrf", value: "test-csrf", url: HARNESS },
+      { name: "galleryvault_csrf", value: "test-csrf", url: origin },
     ]);
   });
 
-  test("updates: list, status, update, ignore and confirmed delete", async ({ page }) => {
+  test("updates on the real app route: list, status, update, ignore and confirmed delete", async ({
+    page,
+  }) => {
     const csp = watchConsole(page);
     const state = await installMaintenanceMock(page);
 
-    await page.goto(viewUrl("/updates"));
+    // Routed app (not the harness): AppShell + router guard + route table must
+    // all resolve `#/updates` to the migrated view.
+    await page.goto("/#/updates");
+    await expect(page.getByTestId("content")).toBeVisible();
     await expect(page.getByTestId("updates-view")).toBeVisible();
     await expect(page.getByTestId("updates-row-1")).toContainText("Updated Alpha");
     await expect(page.getByTestId("updates-status")).toContainText("3");
@@ -84,7 +109,7 @@ test.describe("maintenance @maintenance", () => {
         () =>
           state.requests.filter(
             (request) =>
-              request.method === "POST" && request.path === "/api/updates/update",
+              request.method === "POST" && request.path === updatesUpdateEp.path,
           ).at(-1)?.body,
       )
       .toMatchObject({ ids: [1] });
@@ -96,7 +121,7 @@ test.describe("maintenance @maintenance", () => {
         () =>
           state.requests.filter(
             (request) =>
-              request.method === "POST" && request.path === "/api/updates/ignore",
+              request.method === "POST" && request.path === updatesIgnoreEp.path,
           ).length,
       )
       .toBe(1);
@@ -113,7 +138,7 @@ test.describe("maintenance @maintenance", () => {
         () =>
           state.requests.filter(
             (request) =>
-              request.method === "POST" && request.path === "/api/updates/delete",
+              request.method === "POST" && request.path === updatesDeleteEp.path,
           ).at(-1)?.body,
       )
       .toMatchObject({ ids: [3] });
@@ -138,7 +163,7 @@ test.describe("maintenance @maintenance", () => {
         () =>
           state.requests.filter(
             (request) =>
-              request.method === "POST" && request.path === "/api/updates/unignore",
+              request.method === "POST" && request.path === updatesUnignoreEp.path,
           ).at(-1)?.body,
       )
       .toMatchObject({ ids: [4] });
@@ -161,7 +186,7 @@ test.describe("maintenance @maintenance", () => {
           state.requests.filter(
             (request) =>
               request.method === "POST" &&
-              request.path === "/api/scan/duplicates/9001/resolve",
+              request.path === resolveDuplicateEp.path.replace("{gid}", "9001"),
           ).at(-1)?.body,
       )
       .toMatchObject({ path: "/library/alpha.cbz", delete_others: true });
@@ -173,7 +198,7 @@ test.describe("maintenance @maintenance", () => {
           state.requests.filter(
             (request) =>
               request.method === "POST" &&
-              request.path === "/api/scan/duplicates/9002/open",
+              request.path === duplicateStatusEp.path.replace("{gid}", "9002").replace("{status}", "open"),
           ).length,
       )
       .toBe(1);
@@ -209,7 +234,7 @@ test.describe("maintenance @maintenance", () => {
           state.requests.filter(
             (request) =>
               request.method === "POST" &&
-              request.path === "/api/favorites/duplicates/ignore",
+              request.path === ignoreFavoriteDuplicateEp.path,
           ).at(-1)?.body,
       )
       .toMatchObject({ key: "fav-group-1" });
@@ -232,7 +257,7 @@ test.describe("maintenance @maintenance", () => {
           state.requests.filter(
             (request) =>
               request.method === "DELETE" &&
-              request.path === "/api/favorites/duplicates/ignore",
+              request.path === ignoreFavoriteDuplicateEp.path,
           ).at(-1)?.query.get("key"),
       )
       .toBe("ignored-fav-1");
@@ -266,7 +291,7 @@ test.describe("maintenance @maintenance", () => {
           state.requests.filter(
             (request) =>
               request.method === "POST" &&
-              request.path === "/api/library/duplicates/cross-gid/refresh",
+              request.path === refreshCrossGidDuplicatesEp.path,
           ).length,
       )
       .toBe(1);
@@ -291,7 +316,7 @@ test.describe("maintenance @maintenance", () => {
         () =>
           state.requests.filter(
             (request) =>
-              request.method === "POST" && request.path === "/api/galleries/restore",
+              request.method === "POST" && request.path === restoreGalleriesEp.path,
           ).at(-1)?.body,
       )
       .toMatchObject({ ids: [21] });
@@ -306,7 +331,7 @@ test.describe("maintenance @maintenance", () => {
         () =>
           state.requests.filter(
             (request) =>
-              request.method === "POST" && request.path === "/api/galleries/purge",
+              request.method === "POST" && request.path === purgeGalleriesEp.path,
           ).at(-1)?.body,
       )
       .toMatchObject({ ids: [22], delete_files: true });
@@ -322,7 +347,7 @@ test.describe("maintenance @maintenance", () => {
           state.requests.filter(
             (request) =>
               request.method === "POST" &&
-              request.path === "/api/galleries/expunged/redownload",
+              request.path === redownloadExpungedEp.path,
           ).at(-1)?.body,
       )
       .toMatchObject({ ids: [31] });
@@ -358,7 +383,7 @@ test.describe("maintenance @maintenance", () => {
           state.requests.filter(
             (request) =>
               request.method === "POST" &&
-              request.path === "/api/galleries/integrity/scan",
+              request.path === scanIntegrityEp.path,
           ).length,
       )
       .toBe(1);

@@ -1,4 +1,62 @@
 import type { Page, Route } from "@playwright/test";
+import { sessionEp } from "@/api/auth";
+import { notificationsEp } from "@/api/system";
+import { galleryThumbEp } from "@/api/galleries";
+import {
+  crossGidDuplicatesEp,
+  duplicateStatusEp,
+  favoriteDuplicatesStatusEp,
+  ignoreFavoriteDuplicateEp,
+  ignoredFavoriteDuplicatesEp,
+  libraryDuplicatesEp,
+  libraryScanEp,
+  refreshCrossGidDuplicatesEp,
+  removeFavoritesEp,
+  resolveDuplicateEp,
+  scanFavoriteDuplicatesEp,
+} from "@/api/duplicates";
+import {
+  expungedGalleriesEp,
+  purgeGalleriesEp,
+  redownloadExpungedEp,
+  restoreGalleriesEp,
+  trashGalleriesEp,
+} from "@/api/recycle";
+import {
+  integrityGalleriesEp,
+  redownloadGalleryEp,
+  scanIntegrityEp,
+} from "@/api/integrity";
+import {
+  updatesDeleteEp,
+  updatesIgnoreEp,
+  updatesIgnoredEp,
+  updatesScanEp,
+  updatesStatusEp,
+  updatesUnignoreEp,
+  updatesUpdateEp,
+  updatesEp,
+} from "@/api/updates";
+
+/** Prefix shared by every mocked backend route (the `/api` literal itself is allowed). */
+const API_ROOT = "/api";
+
+/** Mock cover URLs must point at the real thumbnail endpoint. */
+function thumb(gid: number, page = 0): string {
+  return galleryThumbEp.path.replace("{id}", String(gid)).replace("{id}", String(page));
+}
+
+/** Turn an endpoint pattern like `/api/x/{id}/y` into a matcher for numeric ids. */
+function pathMatcher(pattern: string): RegExp {
+  const parts = pattern.split(/\{[^}]+\}/g);
+  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^${escaped.join("\\d+")}$`);
+}
+
+const RE_THUMB = pathMatcher(galleryThumbEp.path);
+const RE_RESOLVE = pathMatcher(resolveDuplicateEp.path);
+const RE_DUPLICATE_STATUS = pathMatcher(duplicateStatusEp.path);
+const RE_REDOWNLOAD = pathMatcher(redownloadGalleryEp.path);
 
 export interface RecordedRequest {
   method: string;
@@ -27,7 +85,7 @@ const UPDATES = [
     error_message: null,
     detected_at: "2026-11-01T10:00:00Z",
     updated_at: "2026-11-01T10:00:00Z",
-    cover_url: "/api/galleries/11/thumb/0",
+    cover_url: thumb(11),
   },
   {
     id: 2,
@@ -41,7 +99,7 @@ const UPDATES = [
     error_message: null,
     detected_at: "2026-11-02T10:00:00Z",
     updated_at: "2026-11-02T10:00:00Z",
-    cover_url: "/api/galleries/12/thumb/0",
+    cover_url: thumb(12),
   },
   {
     id: 3,
@@ -55,7 +113,7 @@ const UPDATES = [
     error_message: "network timeout",
     detected_at: "2026-11-03T10:00:00Z",
     updated_at: "2026-11-03T10:00:00Z",
-    cover_url: "/api/galleries/13/thumb/0",
+    cover_url: thumb(13),
   },
 ];
 
@@ -72,7 +130,7 @@ const IGNORED_UPDATES = [
     error_message: null,
     detected_at: "2026-11-04T10:00:00Z",
     updated_at: "2026-11-04T10:00:00Z",
-    cover_url: "/api/galleries/14/thumb/0",
+    cover_url: thumb(14),
   },
 ];
 
@@ -171,7 +229,7 @@ const FAVORITE_DUPLICATES = [
         favorited: true,
         token: "abcdef012345",
         url: "https://e-hentai.org/g/3002/abcdef012345/",
-        cover_url: "/api/galleries/3002/thumb/0",
+        cover_url: thumb(3002),
         file_size: 1024 * 1024 * 18,
         posted_at: "2025-02-02T00:00:00Z",
         tags: [{ namespace: "language", name: "english", display: "English" }],
@@ -194,7 +252,7 @@ const IGNORED_FAVORITES = [
         favcat: 1,
         token: "aaaabbbbcccc",
         url: "https://e-hentai.org/g/4001/aaaabbbbcccc/",
-        cover_url: "/api/galleries/4001/thumb/0",
+        cover_url: thumb(4001),
         file_size: 1024 * 1024 * 9,
       },
     ],
@@ -226,7 +284,7 @@ const CROSS_GID = [
         category: "doujinshi",
         page_count: 22,
         file_size: 1024 * 1024 * 38,
-        cover_url: "/api/galleries/5002/thumb/0",
+        cover_url: thumb(5002),
       },
     ],
   },
@@ -240,7 +298,7 @@ const TRASH = [
     title: "Trash One",
     category: "manga",
     page_count: 18,
-    cover_url: "/api/galleries/21/thumb/0",
+    cover_url: thumb(21),
     trashed_at: "2026-10-01T00:00:00Z",
     storage_path: "/library/trash-one",
     tags: [],
@@ -252,7 +310,7 @@ const TRASH = [
     title: "Trash Two",
     category: "doujinshi",
     page_count: 24,
-    cover_url: "/api/galleries/22/thumb/0",
+    cover_url: thumb(22),
     trashed_at: "2026-10-02T00:00:00Z",
     storage_path: "/library/trash-two",
     tags: [],
@@ -266,7 +324,7 @@ const EXPUNGED = [
     token: "aaaabbbbcccc",
     title: "Expunged One",
     page_count: 30,
-    cover_url: "/api/galleries/31/thumb/0",
+    cover_url: thumb(31),
     updated_at: "2026-09-01T00:00:00Z",
     storage_path: "/library/expunged-one",
     tags: [],
@@ -281,7 +339,7 @@ const INTEGRITY = [
     page_count: 20,
     actual_pages: 17,
     file_count: 18,
-    cover_url: "/api/galleries/41/thumb/0",
+    cover_url: thumb(41),
     storage_path: "/library/integrity-one",
     tags: [{ namespace: "language", name: "chinese", display: "中文" }],
   },
@@ -292,7 +350,7 @@ const INTEGRITY = [
     page_count: 12,
     actual_pages: 9,
     file_count: 9,
-    cover_url: "/api/galleries/42/thumb/0",
+    cover_url: thumb(42),
     storage_path: "/library/integrity-two",
     tags: [],
   },
@@ -355,7 +413,7 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
   };
 
   await page.route(
-    (url) => url.pathname.startsWith("/api/"),
+    (url) => url.pathname.startsWith(`${API_ROOT}/`),
     async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -369,16 +427,32 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
     }
     state.requests.push({ method, path, query: url.searchParams, body });
 
-    if (method === "GET" && /^\/api\/galleries\/\d+\/thumb\/0$/.test(path)) {
+    // Real-app routes run behind AppShell, so the auth probe and the topbar
+    // notification probe must work here as well (the harness never asks).
+    if (path === sessionEp.path && method === "GET") {
+      await json(route, {
+        authenticated: true,
+        auth_required: true,
+        must_change_password: false,
+        cookie_health: { state: "ok" },
+      });
+      return;
+    }
+    if (path === notificationsEp.path && method === "GET") {
+      await json(route, { items: [], unread: 0 });
+      return;
+    }
+
+    if (method === "GET" && RE_THUMB.test(path)) {
       await route.fulfill({ status: 200, contentType: "image/svg+xml", body: PLACEHOLDER });
       return;
     }
 
-    if (path === "/api/updates" && method === "GET") {
+    if (path === updatesEp.path && method === "GET") {
       await json(route, updateList(url.searchParams.get("state") ?? "active"));
       return;
     }
-    if (path === "/api/updates/ignored" && method === "GET") {
+    if (path === updatesIgnoredEp.path && method === "GET") {
       await json(route, {
         total: IGNORED_UPDATES.length,
         page: 1,
@@ -388,7 +462,7 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
       });
       return;
     }
-    if (path === "/api/updates/status" && method === "GET") {
+    if (path === updatesStatusEp.path && method === "GET") {
       await json(route, {
         detecting: false,
         last_detected_at: "2026-11-10T08:00:00Z",
@@ -399,13 +473,13 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
       });
       return;
     }
-    if (path === "/api/updates/scan" && method === "POST") {
+    if (path === updatesScanEp.path && method === "POST") {
       await json(route, { status: "started" }, 202);
       return;
     }
     if (
       method === "POST" &&
-      ["/api/updates/update", "/api/updates/ignore", "/api/updates/unignore", "/api/updates/delete"].includes(
+      [updatesUpdateEp.path, updatesIgnoreEp.path, updatesUnignoreEp.path, updatesDeleteEp.path].includes(
         path,
       )
     ) {
@@ -414,38 +488,38 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
       return;
     }
 
-    if (path === "/api/scan" && method === "POST") {
+    if (path === libraryScanEp.path && method === "POST") {
       state.libraryScans += 1;
       await json(route, { status: "started" }, 202);
       return;
     }
-    if (path === "/api/scan" && method === "GET") {
+    if (path === libraryScanEp.path && method === "GET") {
       await json(route, { running: false });
       return;
     }
-    if (path === "/api/scan/duplicates" && method === "GET") {
+    if (path === libraryDuplicatesEp.path && method === "GET") {
       await json(route, { groups: LIBRARY_DUPLICATES, count: LIBRARY_DUPLICATES.length });
       return;
     }
-    if (/^\/api\/scan\/duplicates\/\d+\/resolve$/.test(path) && method === "POST") {
+    if (RE_RESOLVE.test(path) && method === "POST") {
       await json(route, { groups: LIBRARY_DUPLICATES.slice(1), count: LIBRARY_DUPLICATES.length - 1, failed_paths: [] });
       return;
     }
-    if (/^\/api\/scan\/duplicates\/\d+\/(open|dismissed)$/.test(path) && method === "POST") {
+    if (RE_DUPLICATE_STATUS.test(path) && ["open", "dismissed"].includes(path.split("/").pop() ?? "") && method === "POST") {
       await json(route, { status: path.split("/").pop() });
       return;
     }
 
-    if (path === "/api/library/duplicates/cross-gid" && method === "GET") {
+    if (path === crossGidDuplicatesEp.path && method === "GET") {
       await json(route, { ready: true, count: CROSS_GID.length, groups: CROSS_GID });
       return;
     }
-    if (path === "/api/library/duplicates/cross-gid/refresh" && method === "POST") {
+    if (path === refreshCrossGidDuplicatesEp.path && method === "POST") {
       await json(route, { ready: true, count: CROSS_GID.length, groups: CROSS_GID });
       return;
     }
 
-    if (path === "/api/favorites/duplicates/status" && method === "GET") {
+    if (path === favoriteDuplicatesStatusEp.path && method === "GET") {
       await json(route, {
         running: false,
         stage: "done",
@@ -459,24 +533,24 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
       });
       return;
     }
-    if (path === "/api/favorites/duplicates/scan" && method === "POST") {
+    if (path === scanFavoriteDuplicatesEp.path && method === "POST") {
       state.favoriteScans += 1;
       await json(route, { started: true }, 202);
       return;
     }
-    if (path === "/api/favorites/duplicates/ignore" && method === "POST") {
+    if (path === ignoreFavoriteDuplicateEp.path && method === "POST") {
       await json(route, { ok: true, key: String(body?.key ?? "") });
       return;
     }
-    if (path === "/api/favorites/duplicates/ignore" && method === "DELETE") {
+    if (path === ignoreFavoriteDuplicateEp.path && method === "DELETE") {
       await json(route, { ok: true, key: url.searchParams.get("key") ?? "" });
       return;
     }
-    if (path === "/api/favorites/duplicates/ignored" && method === "GET") {
+    if (path === ignoredFavoriteDuplicatesEp.path && method === "GET") {
       await json(route, IGNORED_FAVORITES);
       return;
     }
-    if (path === "/api/favorites/remove" && method === "POST") {
+    if (path === removeFavoritesEp.path && method === "POST") {
       const gids = Array.isArray(body?.gids) ? (body.gids as number[]) : [];
       const deleteLocal = Boolean(body?.delete_local);
       state.removals.push({ gids, deleteLocal });
@@ -491,42 +565,42 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
       return;
     }
 
-    if (path === "/api/galleries/trash" && method === "GET") {
+    if (path === trashGalleriesEp.path && method === "GET") {
       await json(route, pageOf(TRASH, Number(url.searchParams.get("page") ?? 1), 24));
       return;
     }
-    if (path === "/api/galleries/expunged" && method === "GET") {
+    if (path === expungedGalleriesEp.path && method === "GET") {
       await json(route, pageOf(EXPUNGED, Number(url.searchParams.get("page") ?? 1), 24));
       return;
     }
-    if (path === "/api/galleries/restore" && method === "POST") {
+    if (path === restoreGalleriesEp.path && method === "POST") {
       const ids = Array.isArray(body?.ids) ? body.ids : [];
       await json(route, { restored: ids.length });
       return;
     }
-    if (path === "/api/galleries/purge" && method === "POST") {
+    if (path === purgeGalleriesEp.path && method === "POST") {
       const ids = Array.isArray(body?.ids) ? body.ids : [];
       await json(route, { purged: ids.length, failed_deletions: [], results: [] });
       return;
     }
-    if (path === "/api/galleries/expunged/redownload" && method === "POST") {
+    if (path === redownloadExpungedEp.path && method === "POST") {
       const ids = Array.isArray(body?.ids) ? body.ids : [];
       await json(route, { queued: ids.length, skipped_no_gid: 0, skipped_no_token: 0 });
       return;
     }
 
-    if (path === "/api/galleries/integrity" && method === "GET") {
+    if (path === integrityGalleriesEp.path && method === "GET") {
       await json(route, {
         ...pageOf(INTEGRITY, Number(url.searchParams.get("page") ?? 1), 24),
         magic_scan: SCAN_SUMMARY,
       });
       return;
     }
-    if (path === "/api/galleries/integrity/scan" && method === "POST") {
+    if (path === scanIntegrityEp.path && method === "POST") {
       await json(route, SCAN_SUMMARY, 202);
       return;
     }
-    if (/^\/api\/galleries\/\d+\/redownload$/.test(path) && method === "POST") {
+    if (RE_REDOWNLOAD.test(path) && method === "POST") {
       await json(route, { status: "queued" });
       return;
     }

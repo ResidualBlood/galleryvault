@@ -4,6 +4,14 @@ import GalleryDetailView from "@/views/gallery/GalleryDetailView.vue";
 import LoginView from "@/views/LoginView.vue";
 import PlaceholderView from "@/views/PlaceholderView.vue";
 import BrowseView from "@/views/browse/BrowseView.vue";
+import DuplicatesView from "@/views/duplicates/DuplicatesView.vue";
+import CrossGidView from "@/views/duplicates/CrossGidView.vue";
+import FavoriteDuplicatesView from "@/views/duplicates/FavoriteDuplicatesView.vue";
+import FavoriteDuplicatesIgnoredView from "@/views/duplicates/FavoriteDuplicatesIgnoredView.vue";
+import IntegrityView from "@/views/integrity/IntegrityView.vue";
+import RecycleView from "@/views/recycle/RecycleView.vue";
+import UpdatesView from "@/views/updates/UpdatesView.vue";
+import UpdatesIgnoredView from "@/views/updates/UpdatesIgnoredView.vue";
 import LibraryView from "@/views/library/LibraryView.vue";
 import OnlineDetailView from "@/views/online/detail/OnlineDetailView.vue";
 import OnlineListView from "@/views/online/list/OnlineListView.vue";
@@ -122,13 +130,13 @@ export const routes: RouteRecordRaw[] = [
         path: "favorites/manage",
         alias: ["/duplicates/favorites"],
         name: "favorites-manage",
-        component: PlaceholderView,
+        component: FavoriteDuplicatesView,
         meta: { title: "app.nav.favorites" },
       },
       {
         path: "favorites/ignored",
         name: "favorites-ignored",
-        component: PlaceholderView,
+        component: FavoriteDuplicatesIgnoredView,
         meta: { title: "app.nav.favorites" },
       },
       {
@@ -140,37 +148,37 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "duplicates",
         name: "duplicates",
-        component: PlaceholderView,
+        component: DuplicatesView,
         meta: { title: "app.nav.duplicates" },
       },
       {
         path: "duplicates/cross-gid",
         name: "duplicates-cross-gid",
-        component: PlaceholderView,
+        component: CrossGidView,
         meta: { title: "app.nav.duplicates" },
       },
       {
         path: "updates",
         name: "updates",
-        component: PlaceholderView,
+        component: UpdatesView,
         meta: { title: "app.nav.updates" },
       },
       {
         path: "updates/ignored",
         name: "updates-ignored",
-        component: PlaceholderView,
+        component: UpdatesIgnoredView,
         meta: { title: "app.nav.updates" },
       },
       {
         path: "recycle",
         name: "recycle",
-        component: PlaceholderView,
+        component: RecycleView,
         meta: { title: "app.nav.recycle" },
       },
       {
         path: "integrity",
         name: "integrity",
-        component: PlaceholderView,
+        component: IntegrityView,
         meta: { title: "app.nav.integrity" },
       },
       {
