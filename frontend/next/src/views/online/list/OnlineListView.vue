@@ -10,9 +10,12 @@ import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
 import VirtualGrid from "@/components/gallery/VirtualGrid.vue";
 import GalleryCard from "@/components/gallery/GalleryCard.vue";
+import GalleryActions from "@/components/actions/GalleryActions.vue";
 import type { GalleryBadge } from "@/components/gallery/BadgeStrip.vue";
 import type { GalleryItem } from "@/api/library";
-import type { OnlineListType, OnlineSearchItem } from "@/api/eh";
+import type { OnlineListType } from "@/api/eh";
+import { useFavoritesStore } from "@/stores/favorites";
+import { useDownloadsStore } from "@/stores/downloads";
 import {
   DEFAULT_ONLINE_FILTERS,
   ONLINE_CATEGORIES,
@@ -38,6 +41,8 @@ ensureOnlineMessages();
 const route = useRoute();
 const router = useRouter();
 const store = useOnlineStore();
+const favorites = useFavoritesStore();
+const downloads = useDownloadsStore();
 const { t } = useI18n();
 
 const filters = reactive<OnlineFilters>({ ...DEFAULT_ONLINE_FILTERS });
@@ -76,40 +81,45 @@ const minRatingValue = computed({
 const selectedCats = computed(() => new Set(enabledCategories(filters.category)));
 
 const cards = computed<GalleryItem[]>(() =>
-  store.items.map((item) => ({
-    id: item.gid,
-    gid: item.gid,
-    token: item.token,
-    title: item.title,
-    category: item.category,
-    page_count: item.pages,
-    cover_url: item.thumb ?? null,
-    tags: [],
-    uploader: null,
-    posted_at: null,
-    file_size: null,
-    rating: item.rating ?? null,
-    favorite: Boolean(item.favorited),
-    favorite_category: item.favcat ?? null,
-  })),
+  store.items.map((item) => {
+    const favorite = favorites.entries[item.gid];
+    const download = downloads.entries[item.gid];
+    return {
+      id: item.gid,
+      gid: item.gid,
+      token: item.token,
+      title: item.title,
+      category: item.category,
+      page_count: item.pages,
+      cover_url: item.thumb ?? null,
+      tags: [],
+      uploader: null,
+      posted_at: null,
+      file_size: null,
+      rating: item.rating ?? null,
+      // Store state wins so favourites / downloads stay in sync across the
+      // card, detail and reader without a list refetch.
+      favorite: favorite ? favorite.favorited : Boolean(item.favorited),
+      favorite_category: favorite ? favorite.favcat : (item.favcat ?? null),
+      in_library: download ? download.inLibrary : Boolean(item.in_library),
+      download_status:
+        download && download.status !== "idle" ? download.status : (item.download_status ?? null),
+    };
+  }),
 );
 
-const rawByGid = computed(() => new Map(store.items.map((item) => [item.gid, item])));
-
 function badgesFor(card: GalleryItem): GalleryBadge[] {
-  const raw = card.gid ? rawByGid.value.get(card.gid) : undefined;
-  return buildBadges(raw);
+  return buildBadges(card);
 }
 
-function buildBadges(raw: OnlineSearchItem | undefined): GalleryBadge[] {
-  if (!raw) return [];
+function buildBadges(card: GalleryItem): GalleryBadge[] {
   const badges: GalleryBadge[] = [
-    categoryBadge(raw.category, t(`online.categories.${raw.category}`, t("online.categories.misc"))),
+    categoryBadge(card.category, t(`online.categories.${card.category}`, t("online.categories.misc"))),
   ];
-  if (raw.in_library) {
+  if (card.in_library) {
     badges.push({ label: t("online.badges.inLibrary"), tone: "success" });
   }
-  const download = mergeDownloadBadge(raw.download_status);
+  const download = mergeDownloadBadge(card.download_status);
   if (download) {
     const label =
       download.key === "downloading"
@@ -118,7 +128,7 @@ function buildBadges(raw: OnlineSearchItem | undefined): GalleryBadge[] {
           ? t("online.badges.queued")
           : t("online.badges.failed");
     badges.push({ label, tone: download.tone });
-  } else if (raw.favorited) {
+  } else if (card.favorite) {
     badges.push({ label: "♥", tone: "primary", title: t("online.badges.favorited") });
   }
   return badges;
@@ -134,6 +144,15 @@ function categoryChipStyle(name: OnlineCategory): Record<string, string> {
 
 function categoryLabel(name: OnlineCategory): string {
   return t(`online.categories.${name}`);
+}
+
+/** Card quick action: jump straight into the online reader at page 1. */
+function readFromCard(card: GalleryItem): void {
+  if (!card.gid || !card.token) return;
+  void router.push({
+    name: "online-reader",
+    params: { gid: card.gid, token: card.token, page: 0 },
+  });
 }
 
 function routeFilters(): OnlineFilters {
@@ -372,7 +391,23 @@ onBeforeUnmount(() => {
           variant="list"
           source="online"
           :badges="badgesFor(item)"
-        />
+        >
+          <template #actions>
+            <GalleryActions
+              v-if="item.gid && item.token"
+              :gid="item.gid"
+              :token="item.token"
+              :title="item.title"
+              source="online"
+              density="card"
+              :favorited="Boolean(item.favorite)"
+              :favcat="item.favorite_category ?? null"
+              :in-library="Boolean(item.in_library)"
+              :download-status="item.download_status ?? null"
+              @read="readFromCard(item)"
+            />
+          </template>
+        </GalleryCard>
       </template>
     </VirtualGrid>
   </section>

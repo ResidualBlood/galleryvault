@@ -53,8 +53,6 @@ const props = withDefaults(
 const emit = defineEmits<{
   close: [];
   pageChange: [page: number];
-  download: [];
-  favorite: [];
 }>();
 
 const { tr } = useOnlineReaderI18n();
@@ -326,9 +324,18 @@ void boot();
           {{ tr(`imageMode.${mode}`) }}
         </button>
         <GalleryActions
-          :disabled="false"
-          @favorite="emit('favorite')"
-          @download="emit('download')"
+          :gid="props.gid"
+          :token="props.token"
+          :title="gallery?.title ?? ''"
+          source="online"
+          density="toolbar"
+          :show-read="false"
+          :favorited="gallery?.favorited ?? false"
+          :favcat="gallery?.favcat ?? null"
+          :in-library="gallery?.in_library ?? false"
+          :download-status="gallery?.download?.status ?? null"
+          :download-current-page="gallery?.download?.current_page ?? 0"
+          :download-total-pages="gallery?.download?.total_pages ?? null"
         />
       </div>
 
@@ -424,14 +431,20 @@ void boot();
       >
         <p class="online-reader__end-title">{{ tr("end.title") }}</p>
         <div class="online-reader__end-actions">
-          <Button
-            variant="filled"
-            size="compact"
-            data-testid="online-reader-download"
-            @click="emit('download')"
-          >
-            {{ tr("end.download") }}
-          </Button>
+          <GalleryActions
+            :gid="props.gid"
+            :token="props.token"
+            :title="gallery?.title ?? ''"
+            source="online"
+            density="detail"
+            :show-read="false"
+            :favorited="gallery?.favorited ?? false"
+            :favcat="gallery?.favcat ?? null"
+            :in-library="gallery?.in_library ?? false"
+            :download-status="gallery?.download?.status ?? null"
+            :download-current-page="gallery?.download?.current_page ?? 0"
+            :download-total-pages="gallery?.download?.total_pages ?? null"
+          />
           <Button
             variant="outlined"
             size="compact"
@@ -484,12 +497,6 @@ void boot();
   border-radius: var(--gv-radius-full);
   background: color-mix(in srgb, var(--gv-color-surface-container-high) 94%, transparent);
   box-shadow: var(--gv-elev-3);
-}
-
-/* ReaderShell's action row also renders a "read" CTA; inside the reader the
-   only meaningful actions are favorite / download. */
-.online-reader__actions :deep(.gallery-actions > button:first-child) {
-  display: none;
 }
 
 .online-reader__mode {

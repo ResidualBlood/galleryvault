@@ -93,6 +93,9 @@ export interface GalleryItem {
   image_quality?: string | null;
   local_rating?: number | null;
   local_note?: string | null;
+  /** Online cards only: quick-action seed state (merged with the stores). */
+  in_library?: boolean;
+  download_status?: string | null;
 }
 
 export interface GalleryPage {

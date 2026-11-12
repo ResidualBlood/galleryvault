@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { sessionEp } from "../../../src/api/auth";
-import { ehSearchEp } from "../../../src/api/eh";
+import { ehSearchEp, ehStatusEp } from "../../../src/api/eh";
 import {
   detailResponse,
   pagesResponse,
@@ -39,6 +39,16 @@ export async function mockOnlineBackend(page: Page): Promise<void> {
       });
       return;
     }
+    // Cards mount the quick actions; answer their status poll locally so this
+    // suite never proxies to a dev backend.
+    if (url.pathname === ehStatusEp.path) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [] }),
+      });
+      return;
+    }
     const detail = url.pathname.match(/^\/api\/eh\/galleries\/(\d+)\/([^/]+)$/);
     if (detail) {
       await route.fulfill({
@@ -59,6 +69,14 @@ export async function mockOnlineBackend(page: Page): Promise<void> {
       return;
     }
     await route.fallback();
+  });
+
+  await page.route("**/api/downloads*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ total: 0, page: 1, page_size: 500, items: [] }),
+    });
   });
 
   await page.route("https://ehgt.org/**", async (route) => {

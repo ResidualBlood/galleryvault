@@ -10,6 +10,7 @@
  */
 import { createApp, h } from "vue";
 import { createRouter, createWebHashHistory } from "vue-router";
+import { createPinia } from "pinia";
 import OnlineReaderShell from "@/views/online/reader/OnlineReaderShell.vue";
 import OnlineContinue from "@/views/history/online/OnlineContinue.vue";
 import { i18n, setLocale } from "@/i18n";
@@ -47,8 +48,6 @@ try {
 interface HarnessState {
   close?: boolean;
   page?: number;
-  download?: boolean;
-  favorite?: boolean;
 }
 declare global {
   interface Window {
@@ -71,12 +70,6 @@ const app = createApp({
       onPageChange: (page: number) => {
         state.page = page;
       },
-      onDownload: () => {
-        state.download = true;
-      },
-      onFavorite: () => {
-        state.favorite = true;
-      },
     });
   },
 });
@@ -96,5 +89,6 @@ if (view === "continue") {
   app.use(router);
 }
 
+app.use(createPinia());
 app.use(i18n);
 app.mount("#app");

@@ -18,6 +18,12 @@ export interface ActionsMockOptions {
   /** Per-call /api/eh/status phases; the last entry repeats. */
   statusSequence?: MockStatusPhase[];
   progress?: { current: number; total: number };
+  /**
+   * Hand unmatched `/api/**` calls to the next (earlier registered) handler
+   * instead of answering `{}`. Required when composing with another backend
+   * mock (online list / reader / gallery fixtures).
+   */
+  fallbackUnknown?: boolean;
 }
 
 export interface RecordedWrite {
@@ -206,6 +212,10 @@ export async function mockActionsBackend(
       return;
     }
 
+    if (options.fallbackUnknown) {
+      await route.fallback();
+      return;
+    }
     await json(route, 200, {});
   });
 

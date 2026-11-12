@@ -98,6 +98,16 @@ export async function mockOnlineReaderBackend(
     });
   });
 
+  // The reader toolbar mounts the quick actions; keep their status poll
+  // entirely local instead of proxying to the dev backend.
+  await page.route("**/api/eh/status*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [] }),
+    });
+  });
+
   await page.route("**/api/quota", async (route) => {
     metrics.quotaRequests += 1;
     await route.fulfill({

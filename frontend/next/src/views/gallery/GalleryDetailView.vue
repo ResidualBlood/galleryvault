@@ -12,6 +12,7 @@ import {
   type GalleryTag,
 } from "@/api/gallery";
 import Button from "@/components/ui/Button.vue";
+import GalleryActions from "@/components/actions/GalleryActions.vue";
 import GalleryDetailLayout from "@/components/gallery/GalleryDetailLayout.vue";
 import TagGroups from "@/components/gallery/TagGroups.vue";
 import ThumbGrid from "@/components/gallery/ThumbGrid.vue";
@@ -268,6 +269,19 @@ onBeforeUnmount(() => {
         >
           {{ t("gallery.restart") }}
         </Button>
+        <GalleryActions
+          v-if="gallery.gid && gallery.token"
+          :gid="gallery.gid"
+          :token="gallery.token"
+          :title="gallery.title"
+          source="local"
+          density="detail"
+          :show-read="false"
+          :favorited="Boolean(gallery.favorite)"
+          :favcat="gallery.favorite_category ?? null"
+          :in-library="true"
+          download-status="success"
+        />
       </div>
     </template>
 

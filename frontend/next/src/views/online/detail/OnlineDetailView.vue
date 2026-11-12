@@ -12,10 +12,13 @@ import {
   type OnlineTag,
 } from "@/api/eh";
 import Button from "@/components/ui/Button.vue";
+import GalleryActions from "@/components/actions/GalleryActions.vue";
 import GalleryDetailLayout from "@/components/gallery/GalleryDetailLayout.vue";
 import TagGroups from "@/components/gallery/TagGroups.vue";
 import { useViewRequest } from "@/composables/useViewRequest";
 import { formatBytes, formatDate } from "@/stores/library";
+import { useFavoritesStore } from "@/stores/favorites";
+import { useDownloadsStore } from "@/stores/downloads";
 import { useUiStore } from "@/stores/ui";
 import { categoryToken } from "@/views/online/list/category";
 import OnlineStateNotice from "@/views/online/list/OnlineStateNotice.vue";
@@ -28,6 +31,8 @@ ensureOnlineMessages();
 const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
+const favorites = useFavoritesStore();
+const downloads = useDownloadsStore();
 const request = useViewRequest();
 const { t, te } = useI18n();
 
@@ -77,6 +82,19 @@ const categoryStyle = computed<Record<string, string>>(() => ({
 
 const officialUrl = computed(() =>
   gallery.value ? officialGalleryUrl(gallery.value.gid, gallery.value.token) : "",
+);
+
+/* Quick-action stores win over the load-time snapshot so a favourite / download
+   started here keeps the header, badges and reader consistent. */
+const favoriteEntry = computed(() => favorites.entries[gallery.value?.gid ?? 0]);
+const favorited = computed(
+  () => favoriteEntry.value?.favorited ?? Boolean(gallery.value?.favorited),
+);
+const favcat = computed(
+  () => favoriteEntry.value?.favcat ?? gallery.value?.favcat ?? null,
+);
+const inLibrary = computed(
+  () => downloads.entries[gallery.value?.gid ?? 0]?.inLibrary ?? Boolean(gallery.value?.in_library),
 );
 
 function read(): void {
@@ -230,9 +248,9 @@ onBeforeUnmount(() => {
                 <dt>{{ t("online.detail.rating") }}</dt>
                 <dd>{{ rating || t("online.detail.unknown") }}</dd>
               </div>
-              <div v-if="gallery.favorited" class="online-header__meta-item">
+              <div v-if="favorited" class="online-header__meta-item">
                 <dt>{{ t("online.detail.favorite") }}</dt>
-                <dd>{{ t("online.detail.favcat", { cat: gallery.favcat ?? 0 }) }}</dd>
+                <dd>{{ t("online.detail.favcat", { cat: favcat ?? 0 }) }}</dd>
               </div>
             </dl>
 
@@ -248,7 +266,7 @@ onBeforeUnmount(() => {
               ⤴ {{ t("online.detail.newer") }}
             </RouterLink>
 
-            <p v-if="gallery.in_library" class="online-header__in-library" data-testid="online-in-library">
+            <p v-if="inLibrary" class="online-header__in-library" data-testid="online-in-library">
               {{ t("online.detail.inLibrary") }}
             </p>
           </div>
@@ -260,6 +278,20 @@ onBeforeUnmount(() => {
           <Button variant="filled" data-testid="online-read" @click="read">
             {{ t("online.detail.read") }}
           </Button>
+          <GalleryActions
+            :gid="gallery.gid"
+            :token="gallery.token"
+            :title="gallery.title"
+            source="online"
+            density="detail"
+            :show-read="false"
+            :favorited="favorited"
+            :favcat="favcat"
+            :in-library="inLibrary"
+            :download-status="gallery.download?.status ?? null"
+            :download-current-page="gallery.download?.current_page ?? 0"
+            :download-total-pages="gallery.download?.total_pages ?? null"
+          />
           <RouterLink
             v-if="gallery.in_library && gallery.gallery_id"
             class="online-actions__link"

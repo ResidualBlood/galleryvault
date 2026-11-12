@@ -37,6 +37,8 @@ const props = withDefaults(
     downloadCurrentPage?: number | null;
     downloadTotalPages?: number | null;
     disabled?: boolean;
+    /** Hosts that own their own read CTA (reader toolbar, detail rows) pass false. */
+    showRead?: boolean;
   }>(),
   {
     title: "",
@@ -49,6 +51,7 @@ const props = withDefaults(
     downloadCurrentPage: 0,
     downloadTotalPages: null,
     disabled: false,
+    showRead: true,
   },
 );
 
@@ -139,7 +142,7 @@ onBeforeUnmount(clearPress);
     @click.capture="captureClick"
   >
     <Button
-      v-if="density === 'detail'"
+      v-if="showRead && density === 'detail'"
       variant="filled"
       size="compact"
       :disabled="disabled"
@@ -149,7 +152,7 @@ onBeforeUnmount(clearPress);
       {{ t("actions.read") }}
     </Button>
     <button
-      v-else
+      v-else-if="showRead"
       type="button"
       class="gallery-actions__read"
       :aria-label="t('actions.read')"
@@ -208,7 +211,7 @@ onBeforeUnmount(clearPress);
       @close="sheetOpen = false"
     >
       <div class="gallery-actions__sheet">
-        <Button variant="filled" :disabled="disabled" data-testid="sheet-read" @click="read">
+        <Button v-if="showRead" variant="filled" :disabled="disabled" data-testid="sheet-read" @click="read">
           {{ t("actions.read") }}
         </Button>
         <div class="gallery-actions__sheet-row">

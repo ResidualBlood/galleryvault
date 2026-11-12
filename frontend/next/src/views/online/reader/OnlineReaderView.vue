@@ -57,11 +57,8 @@ function onPageChange(page: number): void {
   });
 }
 
-/* Favorite / download are performed by GalleryActions (fe-quick-actions); the
-   reader only provides the toolbar slot and forwards the intents. */
-function onFavorite(): void {}
-
-function onDownload(): void {}
+/* Favorite / download are owned by GalleryActions (fe-quick-actions) inside the
+   shell; the route wrapper only adapts params, progress and navigation. */
 </script>
 
 <template>
@@ -72,8 +69,6 @@ function onDownload(): void {}
     :initial-page="initialPage"
     @close="openDetail"
     @page-change="onPageChange"
-    @favorite="onFavorite"
-    @download="onDownload"
   />
   <p v-else class="online-reader-invalid" data-testid="online-reader-invalid">
     {{ $t("onlineReader.loadFailed") }}
