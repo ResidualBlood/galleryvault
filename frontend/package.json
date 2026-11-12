@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "GalleryVault Vue 3 + Vite + TypeScript frontend (development location: frontend/next)",
+  "description": "GalleryVault Vue 3 + Vite + TypeScript frontend (project root: frontend/)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -1,12 +1,12 @@
 # GalleryVault 前端设计规范
 
 - 版本：1.0（Batch 1，2026-11-12）
-- 适用：`frontend/next/` 全部 UI（在线浏览、本机库、详情、阅读器、收藏/下载、设置、管理页）
-- Token 单一来源：`frontend/next/src/styles/tokens.css`
-- 必备清单：`frontend/next/docs/design/tokens.required.json`
-- 静态样张：`frontend/next/docs/design/specimen.html`
-- 检查脚本：`frontend/next/scripts/check-design.mjs`
-- 参考清单：`frontend/next/docs/design/REFERENCES.md`
+- 适用：`frontend/` 全部 UI（在线浏览、本机库、详情、阅读器、收藏/下载、设置、管理页）
+- Token 单一来源：`frontend/src/styles/tokens.css`
+- 必备清单：`frontend/docs/design/tokens.required.json`
+- 静态样张：`frontend/docs/design/specimen.html`
+- 检查脚本：`frontend/scripts/check-design.mjs`
+- 参考清单：`frontend/docs/design/REFERENCES.md`
 - 取证报告：`/tmp/opencode/gv-frontend-rewrite/inv-design-refs.md`（链接均经实际打开核实）
 
 本规范只借参考对象的布局与交互模式，**不复制第三方代码、图标、截图**；Kavita 为 GPL-3.0，只取设计模式。EhViewer 因仓库 HTTP 451 无法核实，不作为参考对象。
@@ -18,7 +18,7 @@
 每个 UI 批次必须同时满足：
 
 1. 只使用 `--gv-*` token；`src/**/*.{vue,css,ts}` 内不得出现裸色值、`font-size` 字面量、非 token 圆角。
-2. 运行 `node frontend/next/scripts/check-design.mjs`，退出码 0。
+2. 运行 `node frontend/scripts/check-design.mjs`，退出码 0。
 3. 亮 / 暗 × 桌面 1280 / 手机 390 四张截图，截图放在树外；验收回执列出对照的 `DESIGN.md` 章节。
 4. 组件结构、尺寸、状态按第 4 节执行；偏离须在回执中说明理由与替代方案。
 5. 设计走查报告由 reviewer 依据截图与本文件产出，存树外。
@@ -26,7 +26,7 @@
 常用命令：
 
 ```bash
-cd frontend/next
+cd frontend
 node scripts/check-design.mjs --tokens-only   # token 完整性 + 对比度
 node scripts/check-design.mjs                 # 额外扫描 src/
 ```
@@ -38,7 +38,7 @@ mkdir -p /tmp/opencode/gv-frontend-rewrite/shots/<batch>
 for s in dark light; do
   for v in 1280,900 390,844; do
     playwright screenshot -b chromium --full-page --viewport-size "$v" \
-      --color-scheme "$s" "file://$PWD/frontend/next/docs/design/specimen.html" \
+      --color-scheme "$s" "file://$PWD/frontend/docs/design/specimen.html" \
       "/tmp/opencode/gv-frontend-rewrite/shots/<batch>/specimen-$s-${v%%,*}.png"
   done
 done

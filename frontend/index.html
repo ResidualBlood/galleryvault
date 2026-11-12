@@ -1,98 +1,14 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GalleryVault</title>
-  <meta name="theme-color" content="#0c0e0f">
-  <link rel="manifest" href="/manifest.webmanifest?v=v8">
-  <link rel="icon" href="/assets/icon.svg?v=v8" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/assets/icon.svg?v=v8">
-  <link rel="stylesheet" href="/assets/styles.css?v=v8">
-  <style>
-    fieldset details summary { cursor: pointer; color: var(--accent); font-size: .85rem; font-weight: 600; letter-spacing: .08em; }
-    fieldset details summary:hover { opacity: .85; }
-    fieldset details[open] summary { margin-bottom: 12px; }
-  </style>
-</head>
-<body>
-  <div id="app">
-    <nav class="topbar" id="topbar" role="navigation" aria-label="Main navigation" hidden>
-      <a class="brand" href="#/browse">GalleryVault</a>
-      <form class="top-search" data-action="search" role="search" aria-label="Search library">
-        <div class="search-box search-box-top">
-          <input id="global-search" name="q" placeholder="Search library..." aria-label="Search library" autocomplete="off">
-          <div id="tag-suggest-top" class="tag-suggest" hidden></div>
-        </div>
-        <button type="submit" aria-label="Search">⌕</button>
-      </form>
-      <button class="btn btn-ghost icon-button" data-action="random" title="Random" aria-label="Random">🎲</button>
-      <div id="notif-wrap" class="notif-wrap">
-        <button class="btn btn-ghost icon-button" data-action="toggle-notifications" title="Notifications" aria-label="Notifications">🔔<span id="notif-badge" class="notif-badge" hidden></span></button>
-        <div id="notif-panel" class="notif-panel" hidden>
-          <div class="notif-head" style="display:flex;justify-content:space-between;align-items:center;">
-            <span data-i18n="notifications">Notifications</span>
-            <button type="button" class="btn btn-ghost" data-action="clear-notifications" data-i18n="notif_clear" style="font-size:0.75rem;cursor:pointer;">Clear</button>
-          </div>
-          <div id="notif-list" class="notif-list"></div>
-        </div>
-      </div>
-      <button class="btn btn-ghost hamburger" data-action="toggle-nav" aria-label="Toggle menu" aria-expanded="false">☰</button>
-      <div class="links">
-        <a href="#/browse" data-i18n="browse">Browse</a>
-        <a href="#/discover" data-i18n="discover">Discover</a>
-        <a href="#/library" data-i18n="library">Library</a>
-        <a href="#/series" data-i18n="series">Series</a>
-        <a href="#/tags" data-i18n="tags">Tags</a>
-        <a href="#/downloads" data-i18n="downloads">Downloads</a>
-        <a href="#/favorites" data-i18n="favorites">Favorites</a>
-        <a href="#/recycle" data-i18n="navManage">Manage</a>
-        <div id="nav-more" class="more-wrap">
-          <button class="btn btn-ghost link-button nav-more-btn" data-action="toggle-more" aria-expanded="false" aria-haspopup="true"><span data-i18n="navMore">More</span> ▾</button>
-          <div id="more-panel" class="more-panel" hidden>
-            <a href="#/history" data-i18n="history">History</a>
-            <a href="#/settings" data-i18n="settings">Settings</a>
-            <a href="#/logs" data-i18n="logs">Logs</a>
-          </div>
-        </div>
-        <button class="btn btn-ghost link-button" data-action="toggle-theme" title="Theme">◐</button>
-        <button class="btn btn-ghost link-button" data-action="toggle-lang">中文</button>
-        <button class="btn btn-ghost link-button" data-action="logout" data-i18n="logout">Logout</button>
-      </div>
-    </nav>
-    <div id="banner" class="banner" hidden></div>
-    <main id="view"></main>
-    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-  </div>
-  <script src="/assets/i18n.js?v=v8"></script>
-  <script src="/assets/locales/zh.js?v=v8"></script>
-  <script src="/assets/view-runtime.js?v=v8"></script>
-  <script src="/assets/core.js?v=v8"></script>
-  <script src="/assets/state.js?v=v8"></script>
-  <script src="/assets/utils.js?v=v8"></script>
-  <script src="/assets/components.js?v=v8"></script>
-  <script src="/assets/events.js?v=v8"></script>
-  <script src="/assets/views/welcome.js?v=v8"></script>
-  <script src="/assets/views/browse.js?v=v8"></script>
-  <script src="/assets/views/library.js?v=v8"></script>
-  <script src="/assets/views/discover.js?v=v8"></script>
-  <script src="/assets/views/gallery.js?v=v8"></script>
-  <script src="/assets/views/reader.js?v=v8"></script>
-  <script src="/assets/views/reader-webtoon.js?v=v8"></script>
-  <script src="/assets/views/favorites.js?v=v8"></script>
-  <script src="/assets/views/downloads.js?v=v8"></script>
-  <script src="/assets/views/tags.js?v=v8"></script>
-  <script src="/assets/views/history.js?v=v8"></script>
-  <script src="/assets/views/settings.js?v=v8"></script>
-  <script src="/assets/views/logs.js?v=v8"></script>
-  <script src="/assets/views/updates.js?v=v8"></script>
-  <script src="/assets/views/duplicates.js?v=v8"></script>
-  <script src="/assets/views/recycle.js?v=v8"></script>
-  <script src="/assets/views/integrity.js?v=v8"></script>
-  <script src="/assets/views/series.js?v=v8"></script>
-  <script src="/assets/views/archive.js?v=v8"></script>
-  <!-- Phase 1: more views in /assets/views/ ; renderView + hooks ; Phase 3: i18n split + virtual + eslint -->
-  <!-- Vanilla global order: core->state->utils->components->events->views->app. GV namespace exposed in app.js for future type=module. -->
-  <script src="/assets/app.js?v=v8"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <title>GalleryVault</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>

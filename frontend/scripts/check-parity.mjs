@@ -13,7 +13,7 @@
  * ("grep 命中但未收录 = 0").
  */
 
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -110,6 +110,9 @@ function extractLegacy() {
     if (!paths.has(path)) paths.set(path, new Set());
     if (method) paths.get(path).add(method);
   };
+  // The legacy frontend (frontend/assets) is deleted by the cutover batch, so
+  // there is nothing left to re-grep; the snapshot stays authoritative.
+  if (!existsSync(LEGACY_ROOT)) return { known, paths };
   for (const file of walk(LEGACY_ROOT)) {
     const source = readFileSync(file, "utf8");
     const rel = relative(LEGACY_ROOT, file).split(sep).join("/");

@@ -131,8 +131,8 @@ def test_i18n_keys_present() -> None:
 
     import pytest
 
-    zh_path = Path(__file__).parents[2] / "frontend" / "assets" / "locales" / "zh.js"
-    en_path = Path(__file__).parents[2] / "frontend" / "assets" / "locales" / "en.js"
+    zh_path = Path(__file__).parents[2] / "frontend" / "src" / "locales" / "zh" / "legacy.json"
+    en_path = Path(__file__).parents[2] / "frontend" / "src" / "locales" / "en" / "legacy.json"
 
     if not zh_path.exists() or not en_path.exists():
         pytest.skip("frontend locale files not available in test environment")

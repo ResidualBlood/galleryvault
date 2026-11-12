@@ -3,8 +3,8 @@
 # test frontend container.
 #
 # Run by the tester only, after building on the host:
-#   npm --prefix frontend/next ci && npm --prefix frontend/next run build
-#   bash frontend/next/scripts/test-stack-sync.sh
+#   npm --prefix frontend ci && npm --prefix frontend run build
+#   bash frontend/scripts/test-stack-sync.sh
 #
 # Writers must not touch the test containers; acquire the `device:gv-test`
 # lease before running this. Never pass credentials: the script takes no

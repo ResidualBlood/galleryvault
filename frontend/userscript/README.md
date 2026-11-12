@@ -52,7 +52,7 @@
 ## 开发
 
 ```
-frontend/next/
+frontend/
 ├── userscript/
 │   ├── companion.mjs        # 唯一实现（纯函数 + 面板），单元测试直接 import
 │   ├── build.mjs            # 生成 public/galleryvault-companion.user.js
