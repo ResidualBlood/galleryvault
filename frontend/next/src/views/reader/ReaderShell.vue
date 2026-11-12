@@ -74,6 +74,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   close: [];
   next: [galleryId: number];
+  pageChange: [page: number];
 }>();
 
 const { tr } = useReaderI18n();
@@ -365,6 +366,16 @@ watch(currentPage, (page) => {
     });
   }
   if (slideshowOn.value) scheduleSlide();
+});
+
+/**
+ * The shell stays router-agnostic (the E2E harness mounts it standalone), so
+ * the routed wrapper mirrors every committed page into `#/reader/:id/:page`
+ * with a history-replacing navigation. Legacy `syncReaderUrl` did the same.
+ */
+watch(currentPage, (page) => {
+  if (total.value <= 0) return;
+  emit("pageChange", page);
 });
 
 watch(mode, (value) => {

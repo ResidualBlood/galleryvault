@@ -365,6 +365,51 @@ test("detail thumbnail opens the routed reader at that page @reader", async ({ p
   await expect(page).toHaveURL(new RegExp(`#/gallery/${SMALL_GALLERY_ID}$`));
 });
 
+test("reader page turns mirror the URL and reload resumes in place @reader", async ({ page }) => {
+  await mockGalleryBackend(page);
+  const pageBase = readerPagePath(SMALL_GALLERY_ID, 0).replace(/\/0$/, "");
+  await page.route(new RegExp(`${pageBase}/\\d+(?:\\?.*)?$`), async (route) => {
+    const match = new URL(route.request().url()).pathname.match(/\/pages\/(\d+)/);
+    await route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: svgPage(Number(match?.[1] ?? 0), 600, 900),
+    });
+  });
+
+  await page.goto(`/#/gallery/${SMALL_GALLERY_ID}`);
+  await expect(page.getByTestId("gallery-detail")).toBeVisible();
+  await page.locator('[data-testid="thumb"]').nth(0).click();
+  await expect(page).toHaveURL(new RegExp(`#/reader/${SMALL_GALLERY_ID}/0$`));
+  const shell = page.getByTestId("reader-shell");
+  await expect(shell).toHaveAttribute("data-page", "0");
+  // Router.replace must update the URL without remounting the reader shell.
+  await shell.evaluate((el) => el.setAttribute("data-e2e-marker", "keep"));
+
+  const historyBefore = await page.evaluate(() => history.length);
+  for (let index = 0; index < 3; index += 1) {
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(100);
+  }
+
+  await expect(shell).toHaveAttribute("data-page", "3");
+  await expect(page).toHaveURL(new RegExp(`#/reader/${SMALL_GALLERY_ID}/3$`));
+  await expect(shell).toHaveAttribute("data-e2e-marker", "keep");
+  // History-replacing sync: page turns must not stack history entries.
+  expect(await page.evaluate(() => history.length)).toBe(historyBefore);
+
+  await page.reload();
+  await expect(page.getByTestId("reader-loading")).toHaveCount(0);
+  await expect(page.getByTestId("reader-shell")).toHaveAttribute("data-page", "3");
+  await expect(page.getByTestId("reader-shell")).toHaveAttribute("data-total", "12");
+  await expect(page.getByTestId("reader-page-label")).toContainText("4");
+
+  // Back goes straight to the detail view instead of walking pages backwards.
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`#/gallery/${SMALL_GALLERY_ID}$`));
+  await expect(page.getByTestId("gallery-detail")).toBeVisible();
+});
+
 test("five modes have dark/light desktop/mobile screenshots @reader", async ({ page }) => {
   const viewports = [
     { width: 1280, height: 900, label: "desktop" },
