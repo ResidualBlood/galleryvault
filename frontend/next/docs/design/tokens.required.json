@@ -1,0 +1,414 @@
+{
+  "version": 1,
+  "description": "Required GalleryVault design tokens. check-design.mjs --tokens-only fails when a listed token is missing from its theme block, when light theme duplicates disagree, or when a contrast pair is below its minimum.",
+  "themes": [
+    "dark",
+    "light"
+  ],
+  "required": {
+    "global": [
+      "--gv-type-family-brand",
+      "--gv-type-family-plain",
+      "--gv-type-display-large-size",
+      "--gv-type-display-large-line",
+      "--gv-type-display-large-weight",
+      "--gv-type-display-large-tracking",
+      "--gv-type-display-large",
+      "--gv-type-display-medium-size",
+      "--gv-type-display-medium-line",
+      "--gv-type-display-medium-weight",
+      "--gv-type-display-medium-tracking",
+      "--gv-type-display-medium",
+      "--gv-type-display-small-size",
+      "--gv-type-display-small-line",
+      "--gv-type-display-small-weight",
+      "--gv-type-display-small-tracking",
+      "--gv-type-display-small",
+      "--gv-type-headline-large-size",
+      "--gv-type-headline-large-line",
+      "--gv-type-headline-large-weight",
+      "--gv-type-headline-large-tracking",
+      "--gv-type-headline-large",
+      "--gv-type-headline-medium-size",
+      "--gv-type-headline-medium-line",
+      "--gv-type-headline-medium-weight",
+      "--gv-type-headline-medium-tracking",
+      "--gv-type-headline-medium",
+      "--gv-type-headline-small-size",
+      "--gv-type-headline-small-line",
+      "--gv-type-headline-small-weight",
+      "--gv-type-headline-small-tracking",
+      "--gv-type-headline-small",
+      "--gv-type-title-large-size",
+      "--gv-type-title-large-line",
+      "--gv-type-title-large-weight",
+      "--gv-type-title-large-tracking",
+      "--gv-type-title-large",
+      "--gv-type-title-medium-size",
+      "--gv-type-title-medium-line",
+      "--gv-type-title-medium-weight",
+      "--gv-type-title-medium-tracking",
+      "--gv-type-title-medium",
+      "--gv-type-title-small-size",
+      "--gv-type-title-small-line",
+      "--gv-type-title-small-weight",
+      "--gv-type-title-small-tracking",
+      "--gv-type-title-small",
+      "--gv-type-body-large-size",
+      "--gv-type-body-large-line",
+      "--gv-type-body-large-weight",
+      "--gv-type-body-large-tracking",
+      "--gv-type-body-large",
+      "--gv-type-body-medium-size",
+      "--gv-type-body-medium-line",
+      "--gv-type-body-medium-weight",
+      "--gv-type-body-medium-tracking",
+      "--gv-type-body-medium",
+      "--gv-type-body-small-size",
+      "--gv-type-body-small-line",
+      "--gv-type-body-small-weight",
+      "--gv-type-body-small-tracking",
+      "--gv-type-body-small",
+      "--gv-type-label-large-size",
+      "--gv-type-label-large-line",
+      "--gv-type-label-large-weight",
+      "--gv-type-label-large-tracking",
+      "--gv-type-label-large",
+      "--gv-type-label-medium-size",
+      "--gv-type-label-medium-line",
+      "--gv-type-label-medium-weight",
+      "--gv-type-label-medium-tracking",
+      "--gv-type-label-medium",
+      "--gv-type-label-small-size",
+      "--gv-type-label-small-line",
+      "--gv-type-label-small-weight",
+      "--gv-type-label-small-tracking",
+      "--gv-type-label-small",
+      "--gv-space-0",
+      "--gv-space-1",
+      "--gv-space-2",
+      "--gv-space-3",
+      "--gv-space-4",
+      "--gv-space-5",
+      "--gv-space-6",
+      "--gv-space-7",
+      "--gv-space-8",
+      "--gv-space-xs",
+      "--gv-space-sm",
+      "--gv-space-md",
+      "--gv-space-lg",
+      "--gv-space-xl",
+      "--gv-space-2xl",
+      "--gv-space-3xl",
+      "--gv-radius-none",
+      "--gv-radius-xs",
+      "--gv-radius-sm",
+      "--gv-radius-md",
+      "--gv-radius-lg",
+      "--gv-radius-xl",
+      "--gv-radius-full",
+      "--gv-elev-0",
+      "--gv-elev-1",
+      "--gv-elev-2",
+      "--gv-elev-3",
+      "--gv-elev-4",
+      "--gv-elev-5",
+      "--gv-state-hover",
+      "--gv-state-focus",
+      "--gv-state-pressed",
+      "--gv-state-dragged",
+      "--gv-state-disabled",
+      "--gv-state-disabled-container",
+      "--gv-state-focus-ring-width",
+      "--gv-state-focus-ring-offset",
+      "--gv-motion-duration-short",
+      "--gv-motion-duration-medium",
+      "--gv-motion-duration-long",
+      "--gv-motion-ease-standard",
+      "--gv-motion-ease-emphasized",
+      "--gv-motion-ease-decelerate",
+      "--gv-motion-ease-accelerate",
+      "--gv-bp-compact",
+      "--gv-bp-medium",
+      "--gv-bp-expanded",
+      "--gv-bp-large",
+      "--gv-size-topbar",
+      "--gv-size-navbar",
+      "--gv-size-rail-width",
+      "--gv-size-drawer-width",
+      "--gv-size-content-max",
+      "--gv-size-icon-sm",
+      "--gv-size-icon-md",
+      "--gv-size-icon-lg",
+      "--gv-size-touch",
+      "--gv-size-reader-bar",
+      "--gv-size-card-cover-aspect",
+      "--gv-cat-doujinshi",
+      "--gv-cat-doujinshi-ink",
+      "--gv-cat-manga",
+      "--gv-cat-manga-ink",
+      "--gv-cat-artistcg",
+      "--gv-cat-artistcg-ink",
+      "--gv-cat-gamecg",
+      "--gv-cat-gamecg-ink",
+      "--gv-cat-western",
+      "--gv-cat-western-ink",
+      "--gv-cat-nonh",
+      "--gv-cat-nonh-ink",
+      "--gv-cat-imageset",
+      "--gv-cat-imageset-ink",
+      "--gv-cat-cosplay",
+      "--gv-cat-cosplay-ink",
+      "--gv-cat-asianporn",
+      "--gv-cat-asianporn-ink",
+      "--gv-cat-misc",
+      "--gv-cat-misc-ink",
+      "--gv-cat-private",
+      "--gv-cat-private-ink",
+      "--gv-cat-other",
+      "--gv-cat-other-ink",
+      "--gv-favcat-0",
+      "--gv-favcat-1",
+      "--gv-favcat-2",
+      "--gv-favcat-3",
+      "--gv-favcat-4",
+      "--gv-favcat-5",
+      "--gv-favcat-6",
+      "--gv-favcat-7",
+      "--gv-favcat-8",
+      "--gv-favcat-9"
+    ],
+    "themed": [
+      "--gv-color-primary",
+      "--gv-color-primary-text",
+      "--gv-color-on-primary",
+      "--gv-color-primary-container",
+      "--gv-color-on-primary-container",
+      "--gv-color-secondary",
+      "--gv-color-on-secondary",
+      "--gv-color-secondary-container",
+      "--gv-color-on-secondary-container",
+      "--gv-color-tertiary",
+      "--gv-color-on-tertiary",
+      "--gv-color-tertiary-container",
+      "--gv-color-on-tertiary-container",
+      "--gv-color-error",
+      "--gv-color-on-error",
+      "--gv-color-error-container",
+      "--gv-color-on-error-container",
+      "--gv-color-success",
+      "--gv-color-on-success",
+      "--gv-color-success-container",
+      "--gv-color-on-success-container",
+      "--gv-color-warning",
+      "--gv-color-on-warning",
+      "--gv-color-warning-container",
+      "--gv-color-on-warning-container",
+      "--gv-color-surface",
+      "--gv-color-on-surface",
+      "--gv-color-surface-variant",
+      "--gv-color-on-surface-variant",
+      "--gv-color-surface-dim",
+      "--gv-color-surface-bright",
+      "--gv-color-surface-container-lowest",
+      "--gv-color-surface-container-low",
+      "--gv-color-surface-container",
+      "--gv-color-surface-container-high",
+      "--gv-color-surface-container-highest",
+      "--gv-color-outline",
+      "--gv-color-outline-variant",
+      "--gv-color-inverse-surface",
+      "--gv-color-inverse-on-surface",
+      "--gv-color-inverse-primary",
+      "--gv-color-scrim",
+      "--gv-color-shadow",
+      "--gv-color-focus-ring",
+      "--gv-color-background",
+      "--gv-color-on-background",
+      "--gv-color-reader-surface",
+      "--gv-color-reader-on-surface"
+    ]
+  },
+  "contrast": [
+    {
+      "fg": "--gv-color-on-primary",
+      "bg": "--gv-color-primary",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-primary-text",
+      "bg": "--gv-color-surface",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-primary-text",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-primary-container",
+      "bg": "--gv-color-primary-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-secondary",
+      "bg": "--gv-color-secondary",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-secondary-container",
+      "bg": "--gv-color-secondary-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-tertiary",
+      "bg": "--gv-color-tertiary",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-tertiary-container",
+      "bg": "--gv-color-tertiary-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-error",
+      "bg": "--gv-color-error",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-error-container",
+      "bg": "--gv-color-error-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-success",
+      "bg": "--gv-color-success",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-success-container",
+      "bg": "--gv-color-success-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-warning",
+      "bg": "--gv-color-warning",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-warning-container",
+      "bg": "--gv-color-warning-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-surface",
+      "bg": "--gv-color-surface",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-surface",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-surface",
+      "bg": "--gv-color-surface-container-high",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-surface",
+      "bg": "--gv-color-surface-container-highest",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-surface-variant",
+      "bg": "--gv-color-surface-variant",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-on-background",
+      "bg": "--gv-color-background",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-inverse-on-surface",
+      "bg": "--gv-color-inverse-surface",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-color-reader-on-surface",
+      "bg": "--gv-color-reader-surface",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-doujinshi-ink",
+      "bg": "--gv-cat-doujinshi",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-manga-ink",
+      "bg": "--gv-cat-manga",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-artistcg-ink",
+      "bg": "--gv-cat-artistcg",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-gamecg-ink",
+      "bg": "--gv-cat-gamecg",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-western-ink",
+      "bg": "--gv-cat-western",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-nonh-ink",
+      "bg": "--gv-cat-nonh",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-imageset-ink",
+      "bg": "--gv-cat-imageset",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-cosplay-ink",
+      "bg": "--gv-cat-cosplay",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-asianporn-ink",
+      "bg": "--gv-cat-asianporn",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-misc-ink",
+      "bg": "--gv-cat-misc",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-private-ink",
+      "bg": "--gv-cat-private",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-cat-other-ink",
+      "bg": "--gv-cat-other",
+      "min": 4.5
+    }
+  ],
+  "scan": {
+    "include": [
+      "src/**/*.vue",
+      "src/**/*.css",
+      "src/**/*.ts"
+    ],
+    "exclude": [
+      "src/styles/tokens.css"
+    ]
+  }
+}
