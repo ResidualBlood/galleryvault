@@ -1,0 +1,98 @@
+{
+  "title": "Online",
+  "subtitle": "Search ExHentai, or browse popular, watched and toplist galleries",
+  "searchLabel": "Search",
+  "searchPlaceholder": "Title, tag or keyword",
+  "search": "Search",
+  "reset": "Reset",
+  "listLabel": "List type",
+  "list": {
+    "search": "Search",
+    "popular": "Popular",
+    "watched": "Watched",
+    "toplist": "Toplist"
+  },
+  "toplist": {
+    "label": "Toplist period",
+    "11": "Yesterday",
+    "12": "This month",
+    "13": "This year",
+    "15": "All time"
+  },
+  "minRating": "Minimum rating",
+  "ratingAny": "Any rating",
+  "ratingAtLeast": "≥ {value}",
+  "categoriesLabel": "Categories",
+  "categoriesAll": "All categories",
+  "categories": {
+    "doujinshi": "Doujinshi",
+    "manga": "Manga",
+    "artistcg": "Artist CG",
+    "gamecg": "Game CG",
+    "western": "Western",
+    "non-h": "Non-H",
+    "image_set": "Image set",
+    "cosplay": "Cosplay",
+    "asianporn": "Asian porn",
+    "misc": "Misc"
+  },
+  "mask": "Disabled category bitmask: {mask}",
+  "loadFailed": "Failed to load online galleries",
+  "emptyTitle": "No matching galleries",
+  "emptyBody": "Try a different keyword, category or rating.",
+  "retry": "Retry",
+  "goSettings": "Open settings",
+  "badges": {
+    "inLibrary": "In library",
+    "favorited": "Favorited",
+    "downloading": "Downloading",
+    "queued": "Queued",
+    "failed": "Download failed"
+  },
+  "state": {
+    "auth": {
+      "title": "ExHentai login required",
+      "body": "The current cookie is not logged in or lacks ExHentai access. Update the cookie in settings and retry."
+    },
+    "challenge": {
+      "title": "Captcha challenge required",
+      "body": "ExHentai requested a human verification. Check the cookie state in settings, finish the challenge on the official page, then retry."
+    },
+    "banned": {
+      "title": "ExHentai banned this IP",
+      "body": "The site reports excessive requests or an IP ban. Wait for the ban to expire or change the network egress, then retry."
+    },
+    "error": {
+      "title": "Online service unavailable",
+      "body": "The ExHentai request failed. Please retry later."
+    }
+  },
+  "detail": {
+    "invalid": "Invalid online gallery address",
+    "loadFailed": "Failed to load online gallery",
+    "coverAlt": "Cover of {title}",
+    "coverMissing": "Cover unavailable",
+    "uploader": "Uploader",
+    "posted": "Posted",
+    "pages": "Pages",
+    "size": "Size",
+    "rating": "Rating",
+    "unknown": "Unknown",
+    "favorite": "Favorite",
+    "favcat": "Favorited (category {cat})",
+    "newer": "Newer version available",
+    "inLibrary": "This gallery is already in your library",
+    "read": "Read",
+    "openLocal": "Open local copy",
+    "openOfficial": "Open on official page",
+    "tags": "Tags",
+    "thumbs": "Thumbnails",
+    "pagesCount": "{count} pages",
+    "openPage": "Read page {page}",
+    "thumbAlt": "Thumbnail for page {page}",
+    "pageOnly": "Page only",
+    "thumbsFailed": "Failed to load thumbnails",
+    "thumbsLoading": "Loading more thumbnails…",
+    "thumbsEnd": "All thumbnails loaded"
+  }
+}
