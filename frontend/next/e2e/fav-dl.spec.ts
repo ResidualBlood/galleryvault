@@ -26,6 +26,8 @@ import {
   clearGalleryProgressEp,
   clearHistoryEp,
 } from "@/api/history";
+import { sessionEp } from "@/api/auth";
+import { notificationsEp } from "@/api/system";
 import { mockFavDlBackend, type FavDlMockState } from "./fixtures/fav-dl/mock";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -78,6 +80,51 @@ function harnessUrl(options: {
   return `${HARNESS}?${params.toString()}`;
 }
 
+/**
+ * Minimal shell backend for the real-route test. The shared e2e fixture glob
+ * also matches the Vite dev-server path `/src/api/*.ts` and breaks the harness,
+ * so this matcher only accepts real API paths (second path segment = "api").
+ */
+async function installShellMock(page: Page): Promise<void> {
+  // Registered first so it is the lowest-priority API route; the fav-dl mock
+  // (registered later) can `fallback()` into it for unrelated endpoints.
+  await page.route(
+    (url) => url.pathname.split("/")[1] === "api",
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "{}",
+      });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === notificationsEp.path,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], unread: 0 }),
+      });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === sessionEp.path,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          authenticated: true,
+          auth_required: true,
+          must_change_password: false,
+          cookie_health: { state: "ok" },
+        }),
+      });
+    },
+  );
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true });
 }
@@ -104,9 +151,12 @@ test.afterAll(async () => {
   await vite?.close();
 });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, baseURL }) => {
   await page.context().addCookies([
     { name: "galleryvault_csrf", value: "test-csrf", url: HARNESS },
+    ...(baseURL
+      ? [{ name: "galleryvault_csrf", value: "test-csrf", url: baseURL }]
+      : []),
   ]);
 });
 
@@ -386,6 +436,32 @@ test.describe("favourites / downloads / history @fav-dl", () => {
 
     expect(csp).toEqual([]);
   });
+
+  test("real app routes mount the migrated favourites / favlist / downloads / history views @fav-dl",
+    async ({ page }) => {
+      const csp = watchConsole(page);
+      await installShellMock(page);
+      await mockFavDlBackend(page);
+
+      await page.goto("/#/favorites");
+      await expect(page.getByTestId("favorites-view")).toBeVisible();
+      await expect(page.getByTestId("favorites-table")).toBeVisible();
+      await expect(page.getByTestId("favcat-row")).toHaveCount(3);
+
+      await page.goto("/#/favorites/1?page_size=12");
+      await expect(page.getByTestId("favlist-view")).toBeVisible();
+      await expect(page.getByTestId("favlist-grid")).toBeVisible();
+
+      await page.goto("/#/downloads");
+      await expect(page.getByTestId("downloads-view")).toBeVisible();
+      await expect(page.locator(".download-item")).toHaveCount(6);
+
+      await page.goto("/#/history");
+      await expect(page.getByTestId("history-view")).toBeVisible();
+      await expect(page.locator(".history-row")).toHaveCount(12);
+
+      expect(csp).toEqual([]);
+    });
 
   test("screenshots: favourites / favlist / downloads / history in dark and light, desktop and mobile @fav-dl",
     async ({ page }) => {
