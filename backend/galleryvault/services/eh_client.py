@@ -53,6 +53,8 @@ from .eh_parsers import (  # noqa: F401 - re-exported for backwards compatibilit
     VIEWER_HREF_RE,
     ArchiveExpiredError,
     ArchiveInfo,
+    EhAuthRequiredError,
+    EhBannedError,
     EhChallengeError,
     EhClientError,
     EhImageSlowError,
@@ -65,6 +67,10 @@ from .eh_parsers import (  # noqa: F401 - re-exported for backwards compatibilit
     GalleryGoneError,
     GalleryPageData,
     GalleryReplacedError,
+    OnlineGalleryDetail,
+    PageThumb,
+    PreviewItem,
+    PreviewPage,
     SearchGallery,
     ShowkeyState,
     _content_range_total,
@@ -100,9 +106,11 @@ from .eh_parsers import (  # noqa: F401 - re-exported for backwards compatibilit
     classify_search_body,
     get_fixed_preview_thumb_url,
     parse_favorite_note,
+    parse_gallery_preview,
     parse_gallery_url,
     parse_login_state,
     parse_newer_gallery,
+    parse_online_gallery,
     parse_search_page,
 )
 
@@ -133,6 +141,8 @@ __all__ = [
     "VIEWER_HREF_RE",
     "ArchiveExpiredError",
     "ArchiveInfo",
+    "EhAuthRequiredError",
+    "EhBannedError",
     "EhChallengeError",
     "EhClient",
     "EhClientError",
@@ -146,6 +156,10 @@ __all__ = [
     "GalleryGoneError",
     "GalleryPageData",
     "GalleryReplacedError",
+    "OnlineGalleryDetail",
+    "PageThumb",
+    "PreviewItem",
+    "PreviewPage",
     "SearchGallery",
     "ShowkeyState",
     "classify_search_body",
@@ -153,9 +167,11 @@ __all__ = [
     "cookie_health_loop",
     "get_fixed_preview_thumb_url",
     "parse_favorite_note",
+    "parse_gallery_preview",
     "parse_gallery_url",
     "parse_login_state",
     "parse_newer_gallery",
+    "parse_online_gallery",
     "parse_search_page",
     "probe_cookie_health",
 ]
@@ -576,6 +592,71 @@ class EhClient:
             int(gid), token, title, [], tags, _parse_category(body), title_jpn,
             _parse_file_size(body), newer,
         )
+
+    async def _fetch_gallery_html(
+        self, gid: int, token: str, *, page: int | None = None
+    ) -> httpx.Response:
+        """Fetch a gallery page (optionally ``?p=N``) and classify its state.
+
+        Unlike :meth:`_get`, this raises the *distinguishable* auth/banned
+        exceptions so online endpoints can pass ``state`` through verbatim.
+        """
+        base = f"/g/{int(gid)}/{token}/"
+        kwargs: dict[str, Any] = {}
+        if page is not None:
+            kwargs["params"] = {"p": int(page)}
+        try:
+            response = await self._request("GET", base, **kwargs)
+            await response.aread()
+        except httpx.RequestError as exc:
+            logger.warning(
+                "ExHentai gallery fetch failed", extra=log_extra(error=type(exc).__name__)
+            )
+            raise EhClientError("ExHentai request failed") from exc
+        if response.status_code in (401, 403) or "login" in str(response.url).lower():
+            raise EhAuthRequiredError("ExHentai authentication is required or expired")
+        if response.status_code in (429, 509):
+            raise _quota_exceeded_error(response)
+        body = response.text
+        if _is_ip_banned_page(body):
+            raise EhBannedError("ExHentai IP address is banned")
+        if _is_auth_failure_page(body):
+            raise EhAuthRequiredError("ExHentai authentication is required or expired")
+        if response.status_code >= 400:
+            self._raise_for_status(response, gallery_404=True)
+        # ExHentai's remoteapi.php anti-bot challenge 302s to the site root.
+        if not str(response.url.path).startswith("/g/"):
+            raise EhChallengeError("ExHentai is challenging this client (temporary anti-abuse)")
+        if not body.strip():
+            raise EhClientError("ExHentai returned empty gallery page (temporary anti-abuse)")
+        return response
+
+    async def fetch_online_gallery(self, gid: int, token: str) -> OnlineGalleryDetail:
+        """One online-detail payload: gallery HTML plus best-effort gdata.
+
+        The HTML page is authoritative (and the only required request); gdata
+        is a typed-value enrichment, so a failed gdata chunk must not turn a
+        readable detail page into an error.
+        """
+        response = await self._fetch_gallery_html(int(gid), token)
+        gdata: dict[str, Any] = {}
+        try:
+            fetched = await self.fetch_gmetadata([(int(gid), token)])
+        except EhClientError as exc:
+            logger.warning(
+                "ExHentai gdata lookup failed for online detail",
+                extra=log_extra(error=str(exc)),
+            )
+        else:
+            gdata = fetched.get(int(gid)) or {}
+        return parse_online_gallery(response.text, int(gid), token, gdata=gdata)
+
+    async def fetch_gallery_preview_page(
+        self, gid: int, token: str, page: int = 0
+    ) -> PreviewPage:
+        """Fetch one ``?p=`` preview page (page indices + sprite thumbnails)."""
+        response = await self._fetch_gallery_html(int(gid), token, page=page)
+        return parse_gallery_preview(response.text, int(gid))
 
     async def fetch_gallery(
         self,
