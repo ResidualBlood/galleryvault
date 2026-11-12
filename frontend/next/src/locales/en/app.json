@@ -1,0 +1,44 @@
+{
+  "title": "GalleryVault",
+  "nav": {
+    "browse": "Browse",
+    "online": "Online",
+    "library": "Library",
+    "favorites": "Favorites",
+    "downloads": "Downloads",
+    "series": "Series",
+    "tags": "Tags",
+    "history": "History",
+    "more": "More",
+    "manage": "Manage",
+    "updates": "Updates",
+    "duplicates": "Duplicates",
+    "recycle": "Recycle bin",
+    "integrity": "Integrity",
+    "archive": "Archive",
+    "settings": "Settings",
+    "logs": "Logs"
+  },
+  "actions": {
+    "theme": "Theme",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeSystem": "System",
+    "language": "Language",
+    "logout": "Log out",
+    "notifications": "Notifications",
+    "read": "Read",
+    "close": "Close",
+    "menu": "Menu"
+  },
+  "placeholder": {
+    "badge": "Not migrated",
+    "title": "This page is not migrated yet",
+    "body": "The new shell is ready; business views are migrated page by page in later batches against the parity checklist.",
+    "route": "Route"
+  },
+  "toast": {
+    "notificationsRefreshed": "Notifications refreshed",
+    "notificationsFailed": "Could not load notifications"
+  }
+}

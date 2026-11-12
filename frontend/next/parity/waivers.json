@@ -1,0 +1,10 @@
+{
+  "routes": [
+    {
+      "path": "/series/{id}",
+      "redirect": "/series",
+      "reason": "Old parseHash() accepts #/series/{id}, but views/series.js never reads params.id; it is a dead route. The new router redirects it to the series list so old bookmarks stay usable.",
+      "evidence": "inv-frontend.md §2.1 (grep app.params in views/series.js), §11-6; PLAN §4.1"
+    }
+  ]
+}

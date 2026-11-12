@@ -1,0 +1,44 @@
+{
+  "title": "GalleryVault",
+  "nav": {
+    "browse": "浏览",
+    "online": "在线",
+    "library": "本机库",
+    "favorites": "收藏",
+    "downloads": "下载",
+    "series": "系列",
+    "tags": "标签",
+    "history": "历史",
+    "more": "更多",
+    "manage": "管理",
+    "updates": "更新",
+    "duplicates": "查重",
+    "recycle": "回收站",
+    "integrity": "完整性",
+    "archive": "归档",
+    "settings": "设置",
+    "logs": "日志"
+  },
+  "actions": {
+    "theme": "主题",
+    "themeDark": "深色",
+    "themeLight": "浅色",
+    "themeSystem": "跟随系统",
+    "language": "语言",
+    "logout": "退出",
+    "notifications": "通知",
+    "read": "阅读",
+    "close": "关闭",
+    "menu": "菜单"
+  },
+  "placeholder": {
+    "badge": "未迁移",
+    "title": "此页面尚未迁移",
+    "body": "前端骨架已就绪，业务视图会在后续批次按对齐清单逐页迁移。",
+    "route": "路由"
+  },
+  "toast": {
+    "notificationsRefreshed": "通知已刷新",
+    "notificationsFailed": "通知加载失败"
+  }
+}

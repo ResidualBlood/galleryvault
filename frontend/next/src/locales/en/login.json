@@ -1,0 +1,10 @@
+{
+  "subtitle": "Password required to access the local library.",
+  "password": "Password",
+  "submit": "Log in",
+  "submitting": "Signing in…",
+  "error": "Wrong password, please try again.",
+  "networkError": "Cannot reach the server. Check your network.",
+  "defaultPassword": "The default password is in use. Change it right after signing in.",
+  "sessionExpired": "Your session expired. Please log in again."
+}

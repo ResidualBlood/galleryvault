@@ -1,0 +1,12 @@
+{
+  "cancel": "取消",
+  "save": "保存",
+  "close": "关闭",
+  "retry": "重试",
+  "loading": "加载中…",
+  "emptyTitle": "这里还没有内容",
+  "emptyBody": "数据出现后会显示在这里。",
+  "errorTitle": "加载失败",
+  "errorBody": "请稍后重试。",
+  "notAvailable": "暂不可用"
+}

@@ -1,0 +1,31 @@
+{
+  "source": "frontend/assets/core.js parseHash() + inv-frontend.md §2.1/§2.3",
+  "routes": [
+    { "path": "/", "view": "browse", "note": "empty hash defaults to browse" },
+    { "path": "/browse", "view": "browse" },
+    { "path": "/discover", "view": "discover", "aliasOf": "/online" },
+    { "path": "/library", "view": "library" },
+    { "path": "/series", "view": "series" },
+    { "path": "/series/{id}", "view": "series", "waiver": "series/{id} is parsed by the old router but never used by views/series.js" },
+    { "path": "/gallery/{id}", "view": "gallery" },
+    { "path": "/reader/{id}/{page}", "view": "reader" },
+    { "path": "/tags", "view": "tags" },
+    { "path": "/history", "view": "history" },
+    { "path": "/downloads", "view": "downloads" },
+    { "path": "/logs", "view": "logs" },
+    { "path": "/settings", "view": "settings" },
+    { "path": "/favorites", "view": "favorites" },
+    { "path": "/favorites/{id}", "view": "favlist" },
+    { "path": "/favorites/manage", "view": "favmanage" },
+    { "path": "/favorites/ignored", "view": "favignored" },
+    { "path": "/duplicates", "view": "duplicates" },
+    { "path": "/duplicates/favorites", "view": "favmanage", "aliasOf": "/favorites/manage" },
+    { "path": "/duplicates/cross-gid", "view": "dupxgid" },
+    { "path": "/updates", "view": "updates" },
+    { "path": "/updates/ignored", "view": "updignored" },
+    { "path": "/recycle", "view": "recycle" },
+    { "path": "/integrity", "view": "integrity" },
+    { "path": "/archive", "view": "archive" },
+    { "path": "/welcome", "view": "welcome" }
+  ]
+}

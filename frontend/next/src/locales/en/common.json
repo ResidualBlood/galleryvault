@@ -1,0 +1,12 @@
+{
+  "cancel": "Cancel",
+  "save": "Save",
+  "close": "Close",
+  "retry": "Retry",
+  "loading": "Loading…",
+  "emptyTitle": "Nothing here yet",
+  "emptyBody": "Content will appear here once available.",
+  "errorTitle": "Could not load",
+  "errorBody": "Please try again shortly.",
+  "notAvailable": "Not available"
+}

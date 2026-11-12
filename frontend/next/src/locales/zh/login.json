@@ -1,0 +1,10 @@
+{
+  "subtitle": "需要密码才能访问本地画廊。",
+  "password": "密码",
+  "submit": "登录",
+  "submitting": "正在登录…",
+  "error": "密码错误，请重试。",
+  "networkError": "无法连接到服务器，请检查网络。",
+  "defaultPassword": "正在使用默认密码，登录后请立即修改。",
+  "sessionExpired": "会话已过期，请重新登录。"
+}
