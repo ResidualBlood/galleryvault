@@ -5,8 +5,8 @@ import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
-import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import ArchiveDialog from "@/components/system/ArchiveDialog.vue";
 import {
   deleteUpdates,
   fetchUpdates,
@@ -46,7 +46,6 @@ const status = ref<UpdatesStatus | null>(null);
 const selected = ref<number[]>([]);
 const deleteOpen = ref(false);
 const archiveOpen = ref(false);
-const archiveTier = ref<"resample" | "original">("resample");
 let seq = 0;
 
 function first(value: unknown): string {
@@ -68,6 +67,13 @@ const pageSize = computed(() => {
 });
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const selectedCount = computed(() => selected.value.length);
+/** Legacy previews the newer gid (data-new-gid) for each selected update. */
+const archiveGids = computed(() =>
+  items.value
+    .filter((item) => selected.value.includes(item.id))
+    .map((item) => item.new_gid)
+    .filter((gid) => Number.isFinite(gid) && gid > 0),
+);
 const stateButtons = computed(() =>
   STATES.map((value) => ({
     value,
@@ -192,11 +198,11 @@ async function update(quality?: "original"): Promise<void> {
   }
 }
 
-async function archive(): Promise<void> {
+async function archive(payload: { gids: number[]; quality: "resample" | "original" }): Promise<void> {
   const ids = requireSelection();
   if (!ids) return;
   try {
-    const result = await runUpdates(ids, { archive: true, quality: archiveTier.value });
+    const result = await runUpdates(ids, { archive: true, quality: payload.quality });
     ui.success(
       t("maintenance.updates.message.updated", { n: result.started ?? ids.length }) +
         (result.skipped
@@ -249,11 +255,6 @@ async function retryOne(item: GalleryUpdate): Promise<void> {
     ui.error(cause instanceof Error ? cause.message : String(cause));
   }
 }
-
-const archiveOptions = computed(() => [
-  { value: "resample", label: t("maintenance.updates.archiveTierResample") },
-  { value: "original", label: t("maintenance.updates.archiveTierOriginal") },
-]);
 
 watch(
   () => [state.value, page.value, pageSize.value] as const,
@@ -467,22 +468,12 @@ onBeforeUnmount(() => poller.stop());
       @cancel="deleteOpen = false"
     />
 
-    <ConfirmDialog
+    <ArchiveDialog
       :open="archiveOpen"
-      :title="t('maintenance.updates.archiveTitle')"
-      :body="t('maintenance.updates.archiveBody')"
-      :confirm-label="t('maintenance.updates.action.archive')"
-      testid="updates-archive-dialog"
+      :gids="archiveGids"
+      @close="archiveOpen = false"
       @confirm="archive"
-      @cancel="archiveOpen = false"
-    >
-      <Select
-        v-model="archiveTier"
-        class="updates__archive-select"
-        :options="archiveOptions"
-        :label="t('maintenance.updates.archiveTitle')"
-      />
-    </ConfirmDialog>
+    />
   </section>
 </template>
 
@@ -648,10 +639,6 @@ onBeforeUnmount(() => poller.stop());
   margin: var(--gv-space-1) 0 0;
   color: var(--gv-color-error);
   font: var(--gv-type-body-small);
-}
-
-.updates__archive-select {
-  margin-top: var(--gv-space-3);
 }
 
 @media (max-width: 599px) {

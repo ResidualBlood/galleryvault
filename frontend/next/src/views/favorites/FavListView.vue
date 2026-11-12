@@ -9,6 +9,7 @@ import ErrorState from "@/components/ui/ErrorState.vue";
 import Input from "@/components/ui/Input.vue";
 import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import ArchiveDialog from "@/components/system/ArchiveDialog.vue";
 import { PAGE_SIZES, clampPageSize, formatBytes } from "@/stores/library";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
@@ -57,7 +58,6 @@ const selected = ref<number[]>([]);
 const sentinel = ref<HTMLElement | null>(null);
 const dialog = ref<"" | "move" | "remove" | "archive">("");
 const moveTarget = ref("");
-const archiveQuality = ref<"original" | "resample">("resample");
 const busy = ref(false);
 let requestSeq = 0;
 let observer: IntersectionObserver | null = null;
@@ -338,8 +338,11 @@ function clearSelection(): void {
   selected.value = [];
 }
 
-async function queueSelected(quality?: "original" | "resample", archive = false): Promise<void> {
-  if (!hasSelection.value || busy.value) return;
+async function queueSelected(
+  quality?: "original" | "resample",
+  archive = false,
+): Promise<boolean> {
+  if (!hasSelection.value || busy.value) return false;
   busy.value = true;
   try {
     const result = await downloadSelectedFavorites(selected.value, { quality, archive });
@@ -347,8 +350,10 @@ async function queueSelected(quality?: "original" | "resample", archive = false)
     if (result.skipped) parts.push(`${t("legacy.favDlSkip")}: ${result.skipped}`);
     ui.success(parts.join(" · "));
     clearSelection();
+    return true;
   } catch (cause) {
     ui.error(cause instanceof Error ? cause.message : t("legacy.error"));
+    return false;
   } finally {
     busy.value = false;
   }
@@ -425,8 +430,16 @@ function openArchive(): void {
     ui.info(t("legacy.select"));
     return;
   }
-  archiveQuality.value = "resample";
   dialog.value = "archive";
+}
+
+/** Close the preview first so clearing the selection cannot re-trigger it. */
+async function confirmArchive(payload: {
+  gids: number[];
+  quality: "original" | "resample";
+}): Promise<void> {
+  dialog.value = "";
+  await queueSelected(payload.quality, true);
 }
 
 function bindObserver(): void {
@@ -668,7 +681,13 @@ onBeforeUnmount(() => {
       >
         {{ t("legacy.favDlOrig") }}{{ hasSelection ? ` (${selected.length})` : "" }}
       </Button>
-      <Button variant="outlined" size="compact" type="button" @click="openArchive">
+      <Button
+        variant="outlined"
+        size="compact"
+        type="button"
+        data-testid="favlist-archive"
+        @click="openArchive"
+      >
         {{ t("legacy.favDlArchive") }}{{ hasSelection ? ` (${selected.length})` : "" }}
       </Button>
       <Button variant="outlined" size="compact" type="button" data-testid="favlist-move" @click="openMove">
@@ -881,31 +900,12 @@ onBeforeUnmount(() => {
       </template>
     </Dialog>
 
-    <Dialog
+    <ArchiveDialog
       :open="dialog === 'archive'"
-      :title="t('legacy.favDlArchive')"
-      data-testid="favlist-archive-dialog"
+      :gids="selected"
       @close="dialog = ''"
-    >
-      <Select
-        v-model="archiveQuality"
-        :options="[
-          { value: 'resample', label: t('legacy.archiveTierResample') },
-          { value: 'original', label: t('legacy.archiveTierOriginal') },
-        ]"
-        :label="t('favorites.list.archiveTier')"
-      />
-      <template #footer>
-        <Button variant="text" @click="dialog = ''">{{ t("common.cancel") }}</Button>
-        <Button
-          :loading="busy"
-          data-testid="favlist-archive-confirm"
-          @click="queueSelected(archiveQuality, true).then(() => (dialog = ''))"
-        >
-          {{ t("legacy.favDlArchive") }}
-        </Button>
-      </template>
-    </Dialog>
+      @confirm="confirmArchive"
+    />
   </section>
 </template>
 

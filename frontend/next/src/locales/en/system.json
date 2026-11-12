@@ -148,7 +148,9 @@
     "loading": "Reading archive information…",
     "loadFailed": "Could not read archive information.",
     "noSelection": "No galleries selected.",
-    "total": "{count} galleries"
+    "total": "{count} galleries",
+    "noItems": "Nothing can be archived.",
+    "retry": "Retry"
   },
   "common": {
     "cancel": "Cancel",

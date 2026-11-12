@@ -201,6 +201,15 @@ async function submitSaveSearch(): Promise<void> {
   error.value = "";
   try {
     const query = buildGalleryQuery(props.query);
+    // The list store holds API bytes; the library route (and legacy saved
+    // searches) use MB, so convert before persisting to avoid double scaling
+    // when the saved search is applied again.
+    for (const key of ["size_min", "size_max"] as const) {
+      const bytes = Number(query[key]);
+      if (query[key] && Number.isFinite(bytes)) {
+        query[key] = String(Number((bytes / 1048576).toFixed(3)));
+      }
+    }
     await createSavedSearch(name, query);
     ui.success(t("libraryManage.saveSearch"));
     saveSearchOpen.value = false;

@@ -5,8 +5,10 @@ import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import Input from "@/components/ui/Input.vue";
 import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import GalleryActions from "@/components/actions/GalleryActions.vue";
 import TagSuggest from "./TagSuggest.vue";
 import VirtualGrid from "@/components/gallery/VirtualGrid.vue";
 import GalleryCard from "@/components/gallery/GalleryCard.vue";
@@ -19,7 +21,9 @@ import {
   PAGE_SIZES,
   useLibraryStore,
 } from "@/stores/library";
+import { fetchLists, type GalleryList } from "@/api/lists";
 import type { GalleryQuery, TagSuggestion } from "@/api/library";
+import { useFavoritesStore } from "@/stores/favorites";
 import { useSettingsStore } from "@/stores/settings";
 
 ensureLibraryMessages();
@@ -30,20 +34,31 @@ const route = useRoute();
 const router = useRouter();
 const store = useLibraryStore();
 const settings = useSettingsStore();
+const favorites = useFavoritesStore();
 const selection = useGallerySelection();
 
 const selectedItems = computed(() => store.items.filter((item) => selection.has(item.id)));
 const manageQuery = computed(() => store.currentQuery);
 
+function isFavorited(item: {
+  gid: number | null;
+  favorite?: boolean;
+  favorite_category?: number | null;
+}): boolean {
+  if (!item.gid) return Boolean(item.favorite);
+  return favorites.ensure(item.gid, {
+    favorited: Boolean(item.favorite),
+    favcat: item.favorite_category ?? null,
+  }).favorited;
+}
+
 function toggleSelected(id: number, event: Event): void {
   selection.toggle(id, (event.target as HTMLInputElement).checked);
 }
 
-/** Drop deleted rows locally; the server already confirmed the deletion. */
-function onRemoved(ids: number[], deleted: number): void {
-  const removed = new Set(ids);
-  store.items = store.items.filter((item) => !removed.has(item.id));
-  store.total = Math.max(0, store.total - deleted);
+/** Re-read the page from the server so deleted rows and totals stay honest. */
+function onRemoved(): void {
+  void store.reload();
 }
 
 /** Reflect cloud-confirmed favourites on the visible cards. */
@@ -66,6 +81,22 @@ const orderBy = ref("id_desc");
 const readStatus = ref("");
 const pageSize = ref(settings.pageSize);
 
+/* Advanced filters mirror the legacy library form. Sizes stay in MB in the URL
+ * (as the old frontend did) and are converted to bytes for GET /api/galleries. */
+const advancedOpen = ref(false);
+const pageMin = ref("");
+const pageMax = ref("");
+const minRating = ref("");
+const sizeMin = ref("");
+const sizeMax = ref("");
+const postedFrom = ref("");
+const postedTo = ref("");
+const uploader = ref("");
+const imageQuality = ref("");
+const minLocalRating = ref("");
+const listId = ref("");
+const lists = ref<GalleryList[]>([]);
+
 const activeTags = computed(() =>
   tags.value
     .split(",")
@@ -87,6 +118,7 @@ const categoryOptions = computed(() => [
   ...["doujinshi", "manga", "artistcg", "gamecg", "western", "non-h", "image_set", "cosplay", "asianporn", "misc", "deleted"].map(
     (value) => ({ value, label: categoryLabel(value) }),
   ),
+  { value: "__not_fav__", label: t("legacy.notFavorited") },
 ]);
 
 const orderOptions = computed(() => [
@@ -104,6 +136,53 @@ const readStatusOptions = computed(() => [
   { value: "reading", label: t("legacy.readStatusReading") },
   { value: "completed", label: t("legacy.readStatusCompleted") },
 ]);
+
+const ratingOptions = computed(() => [
+  { value: "", label: t("legacy.minRating") },
+  { value: "2", label: "≥2" },
+  { value: "3", label: "≥3" },
+  { value: "4", label: "≥4" },
+  { value: "4.5", label: "≥4.5" },
+]);
+
+const qualityOptions = computed(() => [
+  { value: "", label: t("legacy.qualityAll") },
+  { value: "original", label: t("legacy.qualityOriginal") },
+  { value: "resample", label: t("legacy.qualityResample") },
+]);
+
+const localRatingOptions = computed(() => [
+  { value: "", label: t("legacy.localRatingMin") },
+  ...[1, 2, 3, 4, 5].map((value) => ({ value: String(value), label: `≥${value}★` })),
+]);
+
+const listOptions = computed(() => [
+  { value: "", label: t("legacy.listAll") },
+  ...lists.value.map((item) => ({
+    value: String(item.id),
+    label: `${item.name} (${item.count ?? 0})`,
+  })),
+]);
+
+/** Legacy counts order/read and every advanced field, not q/tags/category. */
+const activeAdvancedCount = computed(
+  () =>
+    [
+      orderBy.value !== "id_desc",
+      Boolean(readStatus.value),
+      Boolean(pageMin.value),
+      Boolean(pageMax.value),
+      Boolean(minRating.value),
+      Boolean(sizeMin.value),
+      Boolean(sizeMax.value),
+      Boolean(postedFrom.value),
+      Boolean(postedTo.value),
+      Boolean(uploader.value.trim()),
+      Boolean(imageQuality.value),
+      Boolean(minLocalRating.value),
+      Boolean(listId.value),
+    ].filter(Boolean).length,
+);
 
 const totalLabel = computed(() => t("library.page.totalBooks", { n: store.total }));
 
@@ -124,6 +203,27 @@ function categoryLabel(value: string): string {
   return t(`legacy.${keys[value] ?? "catMisc"}`);
 }
 
+const language = computed(() => {
+  const tag = activeTags.value.find((item) => item.startsWith("language:"));
+  return tag ? tag.slice("language:".length) : "";
+});
+
+function positiveInt(value: string): number | undefined {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : undefined;
+}
+
+function floatValue(value: string): number | undefined {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+/** Legacy size inputs are MB; the API expects bytes. */
+function megabytes(value: string): number | undefined {
+  const mb = floatValue(value);
+  return mb === undefined ? undefined : Math.round(mb * 1048576);
+}
+
 function syncFromRoute(): void {
   term.value = first(route.query.q);
   tags.value = first(route.query.tags);
@@ -134,6 +234,18 @@ function syncFromRoute(): void {
     first(route.query.page_size) || settings.pageSize,
     settings.pageSize,
   );
+  pageMin.value = first(route.query.page_min) || first(route.query.min_pages);
+  pageMax.value = first(route.query.page_max) || first(route.query.max_pages);
+  minRating.value = first(route.query.min_rating);
+  sizeMin.value = first(route.query.size_min);
+  sizeMax.value = first(route.query.size_max);
+  postedFrom.value = first(route.query.posted_from);
+  postedTo.value = first(route.query.posted_to);
+  uploader.value = first(route.query.uploader);
+  imageQuality.value = first(route.query.image_quality);
+  minLocalRating.value = first(route.query.min_local_rating);
+  listId.value = first(route.query.list_id);
+  if (activeAdvancedCount.value > 0) advancedOpen.value = true;
 
   const query: GalleryQuery = {
     q: term.value.trim(),
@@ -141,6 +253,17 @@ function syncFromRoute(): void {
     category: category.value,
     order_by: orderBy.value,
     read_status: readStatus.value,
+    min_rating: floatValue(minRating.value),
+    page_min: positiveInt(pageMin.value),
+    page_max: positiveInt(pageMax.value),
+    size_min: megabytes(sizeMin.value),
+    size_max: megabytes(sizeMax.value),
+    posted_from: postedFrom.value,
+    posted_to: postedTo.value,
+    uploader: uploader.value.trim(),
+    image_quality: imageQuality.value,
+    min_local_rating: positiveInt(minLocalRating.value),
+    list_id: positiveInt(listId.value),
     page_size: pageSize.value,
   };
   store.start(query, settings.pageSize);
@@ -151,9 +274,22 @@ function pushQuery(patch: Record<string, string> = {}): void {
   const merged: Record<string, string> = {
     q: term.value.trim(),
     tags: tags.value,
+    tag_mode: first(route.query.tag_mode),
+    tag_match: first(route.query.tag_match),
     category: category.value,
     order_by: orderBy.value,
     read_status: readStatus.value,
+    min_rating: minRating.value,
+    page_min: pageMin.value,
+    page_max: pageMax.value,
+    size_min: sizeMin.value,
+    size_max: sizeMax.value,
+    posted_from: postedFrom.value,
+    posted_to: postedTo.value,
+    uploader: uploader.value.trim(),
+    image_quality: imageQuality.value,
+    min_local_rating: minLocalRating.value,
+    list_id: listId.value,
     page_size: String(pageSize.value),
     ...patch,
   };
@@ -166,6 +302,15 @@ function pushQuery(patch: Record<string, string> = {}): void {
 
 function onSearch(): void {
   pushQuery({ q: term.value.trim() });
+}
+
+function onLanguageChange(value: string): void {
+  const rest = activeTags.value.filter(
+    (tag) => !tag.startsWith("language:") && !tag.startsWith("-language:"),
+  );
+  if (value) rest.push(`language:${value}`);
+  tags.value = rest.join(",");
+  pushQuery({ tags: tags.value });
 }
 
 function onSelectTag(tag: TagSuggestion): void {
@@ -188,12 +333,36 @@ function clearFilters(): void {
   category.value = "";
   readStatus.value = "";
   orderBy.value = "id_desc";
+  pageMin.value = "";
+  pageMax.value = "";
+  minRating.value = "";
+  sizeMin.value = "";
+  sizeMax.value = "";
+  postedFrom.value = "";
+  postedTo.value = "";
+  uploader.value = "";
+  imageQuality.value = "";
+  minLocalRating.value = "";
+  listId.value = "";
   pushQuery({
     q: "",
     tags: "",
+    tag_mode: "",
+    tag_match: "",
     category: "",
     read_status: "",
     order_by: "id_desc",
+    min_rating: "",
+    page_min: "",
+    page_max: "",
+    size_min: "",
+    size_max: "",
+    posted_from: "",
+    posted_to: "",
+    uploader: "",
+    image_quality: "",
+    min_local_rating: "",
+    list_id: "",
   });
 }
 
@@ -224,8 +393,17 @@ watch(
   { deep: true },
 );
 
+async function loadLists(): Promise<void> {
+  try {
+    lists.value = await fetchLists();
+  } catch {
+    lists.value = [];
+  }
+}
+
 onMounted(() => {
   syncFromRoute();
+  void loadLists();
 });
 
 onBeforeRouteLeave(() => {
@@ -254,7 +432,9 @@ onBeforeUnmount(() => {
         :placeholder="t('library.page.searchPlaceholder')"
         @select="onSelectTag"
       />
-      <Button type="submit" variant="filled">{{ t("library.page.search") }}</Button>
+      <Button type="submit" variant="filled" data-testid="library-search-submit">
+        {{ t("library.page.search") }}
+      </Button>
       <Button type="button" variant="outlined" @click="clearFilters">
         {{ t("library.page.clearFilters") }}
       </Button>
@@ -291,7 +471,130 @@ onBeforeUnmount(() => {
         :label="t('library.page.pageSizeLabel')"
         @update:model-value="onPageSize"
       />
+      <Button
+        variant="text"
+        size="compact"
+        type="button"
+        data-testid="advanced-toggle"
+        :aria-expanded="advancedOpen"
+        aria-controls="library-advanced-filters"
+        @click="advancedOpen = !advancedOpen"
+      >
+        {{ t("legacy.library_filters_advanced") }}
+        <template v-if="activeAdvancedCount">({{ activeAdvancedCount }})</template>
+      </Button>
     </div>
+
+    <section
+      v-if="advancedOpen"
+      id="library-advanced-filters"
+      class="library__advanced"
+      data-testid="advanced-filters"
+      :aria-label="t('legacy.library_filters_advanced')"
+    >
+      <Input
+        v-model="pageMin"
+        class="library__filter"
+        type="number"
+        :label="t('legacy.pageMin')"
+        data-testid="page-min"
+        @change="pushQuery()"
+      />
+      <Input
+        v-model="pageMax"
+        class="library__filter"
+        type="number"
+        :label="t('legacy.pageMax')"
+        data-testid="page-max"
+        @change="pushQuery()"
+      />
+      <Select
+        class="library__filter"
+        data-testid="min-rating"
+        :model-value="minRating"
+        :options="ratingOptions"
+        :label="t('legacy.minRating')"
+        @update:model-value="minRating = $event; pushQuery()"
+      />
+      <Input
+        v-model="sizeMin"
+        class="library__filter"
+        type="number"
+        :label="t('legacy.sizeMin')"
+        data-testid="size-min"
+        @change="pushQuery()"
+      />
+      <Input
+        v-model="sizeMax"
+        class="library__filter"
+        type="number"
+        :label="t('legacy.sizeMax')"
+        data-testid="size-max"
+        @change="pushQuery()"
+      />
+      <Input
+        v-model="postedFrom"
+        class="library__filter"
+        type="date"
+        :label="t('legacy.postedFrom')"
+        data-testid="posted-from"
+        @change="pushQuery()"
+      />
+      <Input
+        v-model="postedTo"
+        class="library__filter"
+        type="date"
+        :label="t('legacy.postedTo')"
+        data-testid="posted-to"
+        @change="pushQuery()"
+      />
+      <Input
+        v-model="uploader"
+        class="library__filter"
+        :label="t('legacy.uploader')"
+        data-testid="uploader-filter"
+        @change="pushQuery()"
+      />
+      <Select
+        class="library__filter"
+        data-testid="image-quality"
+        :model-value="imageQuality"
+        :options="qualityOptions"
+        :label="t('legacy.quality')"
+        @update:model-value="imageQuality = $event; pushQuery()"
+      />
+      <Select
+        class="library__filter"
+        data-testid="language-filter"
+        :model-value="language"
+        :options="[
+          { value: '', label: t('legacy.languageAll') },
+          { value: 'chinese', label: t('legacy.langChinese') },
+          { value: 'english', label: t('legacy.langEnglish') },
+          { value: 'japanese', label: t('legacy.langJapanese') },
+          { value: 'korean', label: t('legacy.langKorean') },
+          { value: 'translated', label: t('legacy.langTranslated') },
+        ]"
+        :label="t('legacy.language')"
+        @update:model-value="onLanguageChange"
+      />
+      <Select
+        class="library__filter"
+        data-testid="min-local-rating"
+        :model-value="minLocalRating"
+        :options="localRatingOptions"
+        :label="t('legacy.localRatingMin')"
+        @update:model-value="minLocalRating = $event; pushQuery()"
+      />
+      <Select
+        class="library__filter"
+        data-testid="list-filter"
+        :model-value="listId"
+        :options="listOptions"
+        :label="t('legacy.listAll')"
+        @update:model-value="listId = $event; pushQuery()"
+      />
+    </section>
 
     <LibraryManageBar
       :query="manageQuery"
@@ -361,7 +664,21 @@ onBeforeUnmount(() => {
               @change="toggleSelected(item.id, $event)"
             />
           </label>
-          <GalleryCard :item="item" />
+          <GalleryCard :item="item" :favorited="isFavorited(item)">
+            <template #actions>
+              <GalleryActions
+                v-if="item.gid"
+                density="card"
+                :gid="item.gid"
+                :token="item.token ?? ''"
+                :title="item.title"
+                :favorited="isFavorited(item)"
+                :favcat="item.favorite_category ?? null"
+                :in-library="true"
+                :show-read="false"
+              />
+            </template>
+          </GalleryCard>
         </div>
       </template>
     </VirtualGrid>
@@ -426,6 +743,21 @@ onBeforeUnmount(() => {
 }
 
 .library__select--size {
+  min-width: 120px;
+}
+
+.library__advanced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gv-space-3);
+  padding: var(--gv-space-3);
+  border: 1px solid var(--gv-color-outline-variant);
+  border-radius: var(--gv-radius-md);
+  background: var(--gv-color-surface-container-low);
+}
+
+.library__filter {
   min-width: 120px;
 }
 
