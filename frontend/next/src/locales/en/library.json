@@ -1,0 +1,35 @@
+{
+  "home": {
+    "eyebrow": "GALLERYVAULT",
+    "title": "Browse",
+    "latest": "Recently added",
+    "random": "Random",
+    "randomFailed": "Could not open a random gallery. Try again later."
+  },
+  "continueReading": {
+    "title": "Continue reading",
+    "viewAll": "View all history",
+    "readNow": "Continue",
+    "progress": "Progress {current}/{total}"
+  },
+  "page": {
+    "eyebrow": "LOCAL LIBRARY",
+    "title": "Library",
+    "search": "Search",
+    "searchPlaceholder": "Search galleries or tags…",
+    "orderLabel": "Sort",
+    "categoryLabel": "Category",
+    "readStatusLabel": "Reading status",
+    "pageSizeLabel": "Page size",
+    "tagSuggestLabel": "Tag suggestions",
+    "tagSuggestEmpty": "No matching tags",
+    "activeTagsLabel": "Selected tags",
+    "removeTag": "Remove tag",
+    "emptyTitle": "No matching galleries",
+    "emptyBody": "Try another keyword or clear the filters.",
+    "totalBooks": "{n} galleries",
+    "loading": "Loading…",
+    "scrollRestored": "Restored your previous position",
+    "clearFilters": "Clear filters"
+  }
+}
