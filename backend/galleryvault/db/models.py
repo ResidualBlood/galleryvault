@@ -347,6 +347,27 @@ class ReadingProgress(Base):
     )
 
 
+class OnlineReadingProgress(Base):
+    """Reading progress for online galleries that have no ``galleries`` row.
+
+    Keyed by ExHentai ``gid`` (no foreign key: the gallery may never be
+    downloaded). ``thumb`` is the gallery thumbnail from EH metadata; resolved
+    page-image URLs are request-scoped and deliberately not persisted.
+    """
+
+    __tablename__ = "online_reading_progress"
+    gid: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    token: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str | None] = mapped_column(Text)
+    thumb: Mapped[str | None] = mapped_column(Text)
+    current_page: Mapped[int] = mapped_column(Integer, default=0)
+    total_pages: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    __table_args__ = (Index("idx_online_reading_progress_updated", "updated_at"),)
+
+
 class ReadingHistory(Base):
     __tablename__ = "reading_history"
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
