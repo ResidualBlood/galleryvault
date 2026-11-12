@@ -7,6 +7,7 @@ import BrowseView from "@/views/browse/BrowseView.vue";
 import LibraryView from "@/views/library/LibraryView.vue";
 import OnlineDetailView from "@/views/online/detail/OnlineDetailView.vue";
 import OnlineListView from "@/views/online/list/OnlineListView.vue";
+import OnlineReaderView from "@/views/online/reader/OnlineReaderView.vue";
 import ReaderView from "@/views/reader/ReaderView.vue";
 
 /**
@@ -50,7 +51,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "online/g/:gid/:token/read/:page",
         name: "online-reader",
-        component: PlaceholderView,
+        component: OnlineReaderView,
         meta: { title: "app.nav.online" },
       },
       {

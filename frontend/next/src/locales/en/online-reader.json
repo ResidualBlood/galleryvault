@@ -1,0 +1,46 @@
+{
+  "loading": "Opening the online gallery…",
+  "loadFailed": "Could not open this online gallery",
+  "empty": "This gallery has no readable pages",
+  "retry": "Retry",
+  "imageMode": {
+    "label": "Image source",
+    "direct": "Direct",
+    "proxy": "Server proxy",
+    "directHint": "Images load straight from the Hath node in this browser. The node sees your IP; no server image budget is used.",
+    "proxyHint": "Images go through the GalleryVault server and spend its image budget. Use only when this device cannot reach Hath."
+  },
+  "quota": {
+    "title": "Image limit reached",
+    "body": "E-Hentai's image limit is exhausted, so preloading is paused until it resets.",
+    "usage": "Current usage: {current} / {limit}",
+    "usageUnknown": "Quota details are unavailable right now.",
+    "proxy": "Use the server proxy on this device",
+    "official": "Open the official page",
+    "close": "Got it"
+  },
+  "blocked": {
+    "title": "This page's image failed to load",
+    "body": "Two automatic node retries failed. This device may not be able to reach the Hath node.",
+    "proxy": "Use the server proxy on this device",
+    "official": "Open the official page",
+    "retry": "Try again"
+  },
+  "end": {
+    "title": "You reached the last page",
+    "download": "Download this gallery",
+    "back": "Back to details"
+  },
+  "actions": {
+    "favorite": "Favorite",
+    "download": "Download"
+  },
+  "official": "Open the official page",
+  "continue": {
+    "title": "Continue reading online",
+    "subtitle": "Recently read online galleries",
+    "pageOf": "Page {page} / {total}",
+    "unknownTotal": "Page {page}",
+    "empty": "No online reading history yet"
+  }
+}

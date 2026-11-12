@@ -1,0 +1,46 @@
+{
+  "loading": "正在打开在线画廊…",
+  "loadFailed": "无法打开这个在线画廊",
+  "empty": "这个画廊没有可阅读的页面",
+  "retry": "重试",
+  "imageMode": {
+    "label": "图片来源",
+    "direct": "直连",
+    "proxy": "服务器代理",
+    "directHint": "图片由本机浏览器直接从 Hath 节点取回，节点会看到你的 IP，但不占用服务端图片额度。",
+    "proxyHint": "图片经 GalleryVault 服务端代理，占用服务端图片额度；仅在本机无法直连时使用。"
+  },
+  "quota": {
+    "title": "图库图片额度已用尽",
+    "body": "E-Hentai 图片额度到达上限，已暂停预载，稍后会自动恢复。",
+    "usage": "本次额度：{current} / {limit}",
+    "usageUnknown": "暂时读不到额度详情。",
+    "proxy": "本设备改用服务器代理",
+    "official": "在官方页打开",
+    "close": "知道了"
+  },
+  "blocked": {
+    "title": "这一页的图片加载失败",
+    "body": "已自动换节点重试 2 次仍失败，可能是本机到 Hath 节点的网络不通。",
+    "proxy": "本设备改用服务器代理",
+    "official": "在官方页打开",
+    "retry": "再试一次"
+  },
+  "end": {
+    "title": "已读完最后一页",
+    "download": "下载本画廊",
+    "back": "返回详情"
+  },
+  "actions": {
+    "favorite": "收藏",
+    "download": "下载"
+  },
+  "official": "在官方页打开",
+  "continue": {
+    "title": "在线继续阅读",
+    "subtitle": "最近读过的在线画廊",
+    "pageOf": "第 {page} / {total} 页",
+    "unknownTotal": "第 {page} 页",
+    "empty": "还没有在线阅读记录"
+  }
+}

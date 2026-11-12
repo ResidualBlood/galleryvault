@@ -38,7 +38,7 @@ import {
 import { ProgressWriter } from "@/reader/progress";
 import { PreloadPool } from "@/reader/preload";
 import { LocalPageSource } from "@/reader/local-source";
-import type { PageSource } from "@/reader/source";
+import type { PageProgress, PageSource } from "@/reader/source";
 import {
   getNextGallery,
   getReaderGallery,
@@ -55,6 +55,13 @@ const props = withDefaults(
     initialFit?: ReaderFit | null;
     initialSlideshow?: number | null;
     source?: PageSource | null;
+    /**
+     * Optional progress writer supplied by the host view. Online reading passes
+     * one so no request ever reaches `/api/galleries/{id}/progress` (an EH gid
+     * may collide with a local gallery id). Local reading uses
+     * `LocalPageSource.saveProgress` instead.
+     */
+    progressSender?: ((progress: PageProgress) => Promise<unknown>) | null;
     title?: string;
     fileSize?: number;
     pageCount?: number | null;
@@ -65,6 +72,7 @@ const props = withDefaults(
     initialFit: null,
     initialSlideshow: null,
     source: null,
+    progressSender: null,
     title: "",
     fileSize: 0,
     pageCount: null,
@@ -127,6 +135,14 @@ let mounted = false;
 const source = computed<PageSource>(
   () => props.source ?? new LocalPageSource(props.galleryId, total.value),
 );
+
+/** Progress sink: host callback › source-owned writer › local endpoint. */
+function sendProgress(payload: PageProgress): Promise<unknown> {
+  if (props.progressSender) return props.progressSender(payload);
+  const current = source.value;
+  if (current.saveProgress) return current.saveProgress(payload);
+  return saveReaderProgress(props.galleryId, payload);
+}
 
 const nav = computed(() => getReaderNav(currentPage.value, total.value, mode.value));
 const displayPages = computed<number[]>(() => {
@@ -197,9 +213,7 @@ async function loadGallery(): Promise<void> {
     resolving.clear();
 
     progress?.dispose();
-    progress = new ProgressWriter({
-      send: (payload) => saveReaderProgress(props.galleryId, payload),
-    });
+    progress = new ProgressWriter({ send: sendProgress });
     preloader?.dispose();
     preloader = new PreloadPool({
       limit: 2,

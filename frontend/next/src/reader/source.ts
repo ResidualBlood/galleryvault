@@ -18,6 +18,13 @@ export interface PageRef {
   meta?: Record<string, unknown>;
 }
 
+/** Reading-progress payload shared by the local and online writers. */
+export interface PageProgress {
+  /** Zero-based page index. */
+  current_page: number;
+  total_pages: number;
+}
+
 export interface PageSource {
   readonly kind: PageSourceKind;
   /** Total number of pages, or null while unknown. */
@@ -26,6 +33,15 @@ export interface PageSource {
   page(index: number): Promise<PageRef>;
   /** Absolute URL of the original official page, when available. */
   officialUrl(): string | null;
+  /**
+   * Optional progress writer owned by the source.
+   *
+   * `LocalPageSource` writes `/api/galleries/{id}/progress`. Online sources do
+   * not implement it: the online view passes `progressSender` to ReaderShell so
+   * an EH gid that collides with a local `gallery_id` can never write local
+   * progress.
+   */
+  saveProgress?(progress: PageProgress): Promise<unknown>;
 }
 
 export function isOnline(source: PageSource): boolean {

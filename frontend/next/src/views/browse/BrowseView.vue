@@ -8,6 +8,7 @@ import ErrorState from "@/components/ui/ErrorState.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
 import VirtualGrid from "@/components/gallery/VirtualGrid.vue";
 import TagSuggest from "@/views/library/TagSuggest.vue";
+import OnlineContinue from "@/views/history/online/OnlineContinue.vue";
 import { ensureLibraryMessages } from "@/views/library/messages";
 import { fetchHistory, fetchRandomGallery, galleryThumbUrl, type HistoryItem, type TagSuggestion } from "@/api/library";
 import { progressPercent, useLibraryStore } from "@/stores/library";
@@ -193,6 +194,8 @@ onBeforeUnmount(() => {
         </article>
       </div>
     </section>
+
+    <OnlineContinue class="browse__section" />
 
     <section class="browse__section">
       <div class="browse__section-head">
