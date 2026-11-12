@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from ..auth import ensure_runtime_auth_secret, verify_login_password, verify_session
 from ..logging import log_extra
+from ..services import api_token as api_token_service
 from .dependencies import get_current_settings
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,19 @@ CSRF_COOKIE = "galleryvault_csrf"
 BASIC_AUTH_REALM = 'Basic realm="GalleryVault OPDS"'
 _OPDS_PATH = "/api/opds"
 _EXPORT_CBZ_SUFFIX = "/export.cbz"
+
+# Companion-script Bearer tokens are limited to the read/write endpoints the
+# userscript needs.  Anything else (settings, password changes, token
+# management, arbitrary gallery mutation) must go through the cookie session.
+_BEARER_ALLOWED_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("GET", "/api/auth/session"),
+    ("GET", "/api/eh/status"),
+    ("GET", "/api/favorites/categories"),
+    ("POST", "/api/favorites/add"),
+    ("POST", "/api/favorites/remove"),
+    ("POST", "/api/downloads"),
+    ("GET", "/api/downloads"),
+})
 
 # Baseline response headers.  The SPA shell is served by nginx, which sets the
 # same values (frontend/nginx.conf); repeating them here covers direct API
@@ -97,6 +111,39 @@ def _verify_basic_auth(request: Request, settings: Any) -> bool:
     return valid_username and valid_password
 
 
+def _bearer_credential(request: Request) -> str | None:
+    """Return the Bearer credential, or ``None`` when no Bearer scheme is used.
+
+    An empty string means the client sent ``Authorization: Bearer`` without a
+    token; that is still treated as Bearer auth (and rejected) rather than
+    silently falling back to the cookie session.
+    """
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        return None
+    scheme, sep, param = auth_header.partition(" ")
+    if not sep or scheme.lower() != "bearer":
+        return None
+    return param.strip()
+
+
+def _is_bearer_allowed(request: Request) -> bool:
+    return (request.method.upper(), request.url.path) in _BEARER_ALLOWED_ROUTES
+
+
+async def _verify_bearer_token(token: str) -> bool:
+    if not token:
+        return False
+    try:
+        metadata = await api_token_service.load_token_metadata()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "api token lookup failed", extra=log_extra(error=type(exc).__name__)
+        )
+        return False
+    return api_token_service.token_matches(token, metadata.get("token_hash"))
+
+
 async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
     # Workers-disabled deployments never run the startup auth bootstrap; adopt
     # the DB-persisted session secret before the first authentication check.
@@ -140,11 +187,36 @@ async def _auth_and_csrf(request: Request, call_next: Any) -> Any:
     if not settings.auth_required:
         return await call_next(request)
 
-    authenticated = verify_session(
-        request.cookies.get(settings.auth_cookie_name), settings.auth_secret or ""
-    )
+    # OPDS/export.cbz keep their existing Basic-auth semantics: an
+    # ``Authorization: Bearer`` header there is still an invalid Basic attempt
+    # (401 + realm) rather than an API-token authentication.
+    bearer = None if _is_basic_auth_route(request) else _bearer_credential(request)
+    is_bearer = bearer is not None
+    if is_bearer:
+        if not await _verify_bearer_token(bearer or ""):
+            logger.info(
+                "authentication failed",
+                extra=log_extra(
+                    ip=request.client.host if request.client else "unknown",
+                    reason="invalid_bearer_token",
+                ),
+            )
+            return JSONResponse(
+                {"detail": "Authentication required"},
+                status_code=401,
+            )
+        if not _is_bearer_allowed(request):
+            return JSONResponse(
+                {"detail": "API token is not allowed for this endpoint"},
+                status_code=403,
+            )
+        authenticated = True
+    else:
+        authenticated = verify_session(
+            request.cookies.get(settings.auth_cookie_name), settings.auth_secret or ""
+        )
 
-    if not authenticated and _is_basic_auth_route(request):
+    if not authenticated and not is_bearer and _is_basic_auth_route(request):
         if _verify_basic_auth(request, settings):
             authenticated = True
         else:
@@ -174,8 +246,10 @@ async def _auth_and_csrf(request: Request, call_next: Any) -> Any:
             )
         return RedirectResponse("/login", status_code=303)
 
-    # CSRF / Origin protection for state-changing requests
-    if request.method in {"POST", "PUT", "DELETE", "PATCH"}:
+    # CSRF / Origin protection for state-changing requests.  Bearer API tokens
+    # are not cookies, so cross-site requests cannot carry them implicitly;
+    # the whitelist above is the boundary instead.
+    if not is_bearer and request.method in {"POST", "PUT", "DELETE", "PATCH"}:
         session_cookie = request.cookies.get(settings.auth_cookie_name)
         # API routes: Origin / Referer / Sec-Fetch-Site + optional X-CSRF-Token
         if request.url.path.startswith("/api/"):

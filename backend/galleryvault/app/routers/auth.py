@@ -29,12 +29,14 @@ from ...auth import (
     login_gate,
     login_succeeded,
     verify_login_password,
+    verify_session,
 )
 from ...db.models import Gallery
 from ...db.repository import SettingsRepository
 from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...secrets import encrypt, encryption_enabled
+from ...services import api_token as api_token_service
 from ..dependencies import db_error, get_current_settings, get_session, resolve_session
 from ..state import app_state
 
@@ -80,6 +82,23 @@ def _cookie_secure(request: Request, settings) -> bool:
     except Exception:  # noqa: BLE001, S110
         pass
     return False
+
+
+def _reject_bearer_management(request: Request) -> None:
+    """Token management is cookie-session only, never Bearer-authenticated."""
+    scheme = request.headers.get("authorization", "").partition(" ")[0].lower()
+    if scheme == "bearer":
+        raise HTTPException(status_code=403, detail="Bearer token cannot manage API tokens")
+
+
+def _require_session(request: Request) -> None:
+    settings = get_current_settings()
+    if not settings.auth_required:
+        return
+    if not verify_session(
+        request.cookies.get(settings.auth_cookie_name), settings.auth_secret or ""
+    ):
+        raise HTTPException(status_code=401, detail="Authentication required")
 
 
 @router.post("/login")
@@ -170,6 +189,56 @@ async def auth_session() -> dict[str, object]:
         "must_change_password": _must_change_password(),
         "cookie_health": app_state.extra.get("cookie_health", {"state": "unknown"}),
     }
+
+
+@router.post("/api/auth/api-token")
+async def create_api_token(
+    request: Request,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    """Generate the single companion-script token; plaintext is returned once."""
+    _reject_bearer_management(request)
+    _require_session(request)
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        token = await api_token_service.create_token(session)
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    logger.info("api token generated")
+    return {"token": token}
+
+
+@router.get("/api/auth/api-token")
+async def get_api_token(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    """Report whether a token exists; the token/hash is never returned."""
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        metadata = await api_token_service.load_token_metadata(session)
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {
+        "configured": bool(metadata["configured"]),
+        "created_at": metadata["created_at"],
+    }
+
+
+@router.delete("/api/auth/api-token", status_code=204)
+async def revoke_api_token(
+    request: Request,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> Response:
+    """Revoke the current token; a later request must use a newly generated one."""
+    _reject_bearer_management(request)
+    _require_session(request)
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        await api_token_service.revoke_token(session)
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    logger.info("api token revoked")
+    return Response(status_code=204)
 
 
 @router.get("/api/onboarding/status")
