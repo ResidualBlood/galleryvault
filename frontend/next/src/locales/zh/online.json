@@ -37,6 +37,8 @@
     "misc": "其他"
   },
   "mask": "分类过滤位掩码：{mask}",
+  "selectedCount": "已选择 {count} 项",
+  "selectItem": "选择 {title}",
   "loadFailed": "在线画廊加载失败",
   "emptyTitle": "没有匹配的画廊",
   "emptyBody": "调整关键词、分类或评分后再试。",

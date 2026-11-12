@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Dialog from "@/components/ui/Dialog.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
 import Input from "@/components/ui/Input.vue";
@@ -14,8 +15,14 @@ import GalleryActions from "@/components/actions/GalleryActions.vue";
 import type { GalleryBadge } from "@/components/gallery/BadgeStrip.vue";
 import type { GalleryItem } from "@/api/library";
 import type { OnlineListType } from "@/api/eh";
+import { createDownloadsBatch } from "@/api/downloads";
+import {
+  addFavoritesBatch,
+  type FavoriteCategory,
+} from "@/api/favorites";
 import { useFavoritesStore } from "@/stores/favorites";
-import { useDownloadsStore } from "@/stores/downloads";
+import { readDefaultQuality, useDownloadsStore } from "@/stores/downloads";
+import { useUiStore } from "@/stores/ui";
 import {
   DEFAULT_ONLINE_FILTERS,
   ONLINE_CATEGORIES,
@@ -43,11 +50,32 @@ const router = useRouter();
 const store = useOnlineStore();
 const favorites = useFavoritesStore();
 const downloads = useDownloadsStore();
+const ui = useUiStore();
 const { t } = useI18n();
 
 const filters = reactive<OnlineFilters>({ ...DEFAULT_ONLINE_FILTERS });
 const term = ref("");
 const skeletonCount = 6;
+
+/* --------------------------------------------------------- batch selection */
+
+/** Legacy `selDiscover`: gids survive infinite-scroll appends but reset when
+ * the filter scope or the route changes. */
+const selected = ref<number[]>([]);
+const batchBusy = ref(false);
+const batchFavoriteOpen = ref(false);
+const favoriteTarget = ref("0");
+const favoriteCategories = ref<FavoriteCategory[]>([]);
+const selectedCount = computed(() => selected.value.length);
+const favoriteOptions = computed(() => {
+  const source = favoriteCategories.value.length
+    ? favoriteCategories.value
+    : Array.from({ length: 10 }, (_, favcat) => ({ favcat, name: "" }));
+  return source.map((folder) => ({
+    value: String(folder.favcat),
+    label: folder.name ? `${folder.name} #${folder.favcat}` : `#${folder.favcat}`,
+  }));
+});
 
 const listOptions = computed<Array<{ value: OnlineListType; label: string }>>(() => [
   { value: "search", label: t("online.list.search") },
@@ -80,7 +108,9 @@ const minRatingValue = computed({
 
 const selectedCats = computed(() => new Set(enabledCategories(filters.category)));
 
-const cards = computed<GalleryItem[]>(() =>
+type OnlineCard = GalleryItem & { gid: number; token: string };
+
+const cards = computed<OnlineCard[]>(() =>
   store.items.map((item) => {
     const favorite = favorites.entries[item.gid];
     const download = downloads.entries[item.gid];
@@ -153,6 +183,119 @@ function readFromCard(card: GalleryItem): void {
     name: "online-reader",
     params: { gid: card.gid, token: card.token, page: 0 },
   });
+}
+
+function isSelected(gid: number): boolean {
+  return selected.value.includes(gid);
+}
+
+function toggleSelection(gid: number, event: Event): void {
+  const checked = (event.target as HTMLInputElement).checked;
+  if (checked) {
+    if (!isSelected(gid)) selected.value = [...selected.value, gid];
+  } else {
+    selected.value = selected.value.filter((value) => value !== gid);
+  }
+}
+
+function selectAllLoaded(): void {
+  selected.value = cards.value.map((card) => card.gid);
+}
+
+function clearSelection(): void {
+  selected.value = [];
+}
+
+function selectedCards(): OnlineCard[] {
+  const chosen = new Set(selected.value);
+  return cards.value.filter((card) => chosen.has(card.gid) && card.token);
+}
+
+async function batchDownload(): Promise<void> {
+  if (batchBusy.value) return;
+  const picked = selectedCards();
+  if (!picked.length) {
+    ui.info(t("legacy.select"));
+    return;
+  }
+  batchBusy.value = true;
+  try {
+    const result = await createDownloadsBatch({
+      items: picked.map((card) => ({
+        gid: card.gid,
+        token: card.token,
+        title: card.title,
+      })),
+      quality: readDefaultQuality(),
+    });
+    for (const item of result.items) {
+      if (!item.gid) continue;
+      if (item.status === "queued" || item.status === "updated") {
+        downloads.applySeed(item.gid, { status: "queued" });
+        downloads.watch(item.gid);
+      }
+    }
+    const parts = [t("legacy.dlQueuedCount", { count: result.queued })];
+    if (result.skipped) parts.push(t("legacy.dlSkippedCount", { count: result.skipped }));
+    if (result.gone) parts.push(t("legacy.dlGone"));
+    if (result.failed) parts.push(t("legacy.dlFailedCount", { count: result.failed }));
+    ui.success(parts.join(" · "));
+  } catch (cause) {
+    ui.error(cause instanceof Error ? cause.message : t("legacy.discoverError"));
+  } finally {
+    batchBusy.value = false;
+  }
+}
+
+async function openBatchFavorite(): Promise<void> {
+  if (!selectedCards().length) {
+    ui.info(t("legacy.select"));
+    return;
+  }
+  batchFavoriteOpen.value = true;
+  if (!favoriteCategories.value.length) {
+    try {
+      favoriteCategories.value = await favorites.loadCategories();
+    } catch {
+      favoriteCategories.value = [];
+    }
+  }
+  if (!favoriteOptions.value.some((option) => option.value === favoriteTarget.value)) {
+    favoriteTarget.value = favoriteOptions.value[0]?.value ?? "0";
+  }
+}
+
+async function submitBatchFavorite(): Promise<void> {
+  if (batchBusy.value) return;
+  const picked = selectedCards();
+  if (!picked.length) {
+    ui.info(t("legacy.select"));
+    return;
+  }
+  const target = Number.parseInt(favoriteTarget.value, 10);
+  if (!Number.isInteger(target) || target < 0 || target > 9) return;
+  batchBusy.value = true;
+  try {
+    const result = await addFavoritesBatch(
+      picked.map((card) => ({ gid: card.gid, token: card.token, title: card.title })),
+      target,
+    );
+    // Cloud-first: only gids confirmed by the backend update the ♥ badge.
+    for (const gid of result.successful_gids) {
+      favorites.applyFavorite(gid, target);
+    }
+    ui.success(
+      t("legacy.favAddBatch", {
+        count: result.successful_gids.length || result.local_added || 0,
+        failed: result.cloud_failed.length,
+      }),
+    );
+    batchFavoriteOpen.value = false;
+  } catch (cause) {
+    ui.error(cause instanceof Error ? cause.message : t("legacy.favAddFail"));
+  } finally {
+    batchBusy.value = false;
+  }
 }
 
 function routeFilters(): OnlineFilters {
@@ -243,12 +386,21 @@ watch(
   { immediate: true, deep: true },
 );
 
+// Filter/list changes start a new selection scope (legacy `selectionScopeChanged`).
+watch(
+  () => store.currentKey,
+  (key, previous) => {
+    if (previous && key !== previous) selected.value = [];
+  },
+);
+
 onMounted(() => {
   if (store.items.length > 0) restoreScrollSoon();
 });
 
 onBeforeRouteLeave(() => {
   store.saveScroll(window.scrollY);
+  selected.value = [];
 });
 
 onBeforeUnmount(() => {
@@ -340,6 +492,50 @@ onBeforeUnmount(() => {
           {{ categoryLabel(name) }}
         </button>
       </div>
+
+      <div class="online__row online__batch" role="group" :aria-label="t('legacy.discover')">
+        <span class="online__selected" data-testid="online-selected-count">
+          {{ t("online.selectedCount", { count: selectedCount }) }}
+        </span>
+        <Button
+          type="button"
+          variant="outlined"
+          size="compact"
+          data-testid="online-select-all"
+          @click="selectAllLoaded"
+        >
+          {{ t("legacy.selectAll") }}
+        </Button>
+        <Button
+          type="button"
+          variant="text"
+          size="compact"
+          data-testid="online-clear-selection"
+          @click="clearSelection"
+        >
+          {{ t("legacy.clearSel") }}
+        </Button>
+        <Button
+          type="button"
+          variant="outlined"
+          size="compact"
+          :loading="batchBusy"
+          data-testid="online-batch-download"
+          @click="batchDownload"
+        >
+          {{ t("legacy.discoverBatchDl") }}{{ selectedCount ? ` (${selectedCount})` : "" }}
+        </Button>
+        <Button
+          type="button"
+          variant="outlined"
+          size="compact"
+          :disabled="batchBusy"
+          data-testid="online-batch-favorite"
+          @click="openBatchFavorite"
+        >
+          {{ t("legacy.discoverBatchFav") }}{{ selectedCount ? ` (${selectedCount})` : "" }}
+        </Button>
+      </div>
     </form>
 
     <p v-if="filters.category > 0" class="online__mask" data-testid="online-mask">
@@ -386,30 +582,79 @@ onBeforeUnmount(() => {
       @retry="store.retry"
     >
       <template #card="{ item }">
-        <GalleryCard
-          :item="item"
-          variant="list"
-          source="online"
-          :badges="badgesFor(item)"
+        <div
+          class="online-card"
+          :class="{ 'online-card--selected': isSelected(item.gid ?? 0) }"
+          data-testid="online-card"
+          :data-gid="item.gid"
         >
-          <template #actions>
-            <GalleryActions
-              v-if="item.gid && item.token"
-              :gid="item.gid"
-              :token="item.token"
-              :title="item.title"
-              source="online"
-              density="card"
-              :favorited="Boolean(item.favorite)"
-              :favcat="item.favorite_category ?? null"
-              :in-library="Boolean(item.in_library)"
-              :download-status="item.download_status ?? null"
-              @read="readFromCard(item)"
+          <label class="online-card__check" :title="t('legacy.select')">
+            <input
+              type="checkbox"
+              :checked="isSelected(item.gid ?? 0)"
+              :aria-label="t('online.selectItem', { title: item.title })"
+              :data-gid="item.gid"
+              @change="toggleSelection(item.gid ?? 0, $event)"
             />
-          </template>
-        </GalleryCard>
+          </label>
+          <GalleryCard
+            :item="item"
+            variant="list"
+            source="online"
+            :badges="badgesFor(item)"
+          >
+            <template #actions>
+              <GalleryActions
+                v-if="item.gid && item.token"
+                :gid="item.gid"
+                :token="item.token"
+                :title="item.title"
+                source="online"
+                density="card"
+                :favorited="Boolean(item.favorite)"
+                :favcat="item.favorite_category ?? null"
+                :in-library="Boolean(item.in_library)"
+                :download-status="item.download_status ?? null"
+                @read="readFromCard(item)"
+              />
+            </template>
+          </GalleryCard>
+        </div>
       </template>
     </VirtualGrid>
+
+    <Dialog
+      :open="batchFavoriteOpen"
+      :title="t('legacy.favAddTitle')"
+      testid="online-batch-favorite-dialog"
+      @close="batchFavoriteOpen = false"
+    >
+      <div class="online__favorite-form">
+        <p class="online__favorite-count">
+          {{ t("online.selectedCount", { count: selectedCount }) }}
+        </p>
+        <Select
+          :model-value="favoriteTarget"
+          :options="favoriteOptions"
+          :label="t('legacy.favMoveTarget')"
+          data-testid="online-batch-favorite-target"
+          @update:model-value="favoriteTarget = $event"
+        />
+      </div>
+      <template #footer>
+        <Button variant="text" type="button" @click="batchFavoriteOpen = false">
+          {{ t("legacy.cancel") }}
+        </Button>
+        <Button
+          type="button"
+          :loading="batchBusy"
+          data-testid="online-batch-favorite-confirm"
+          @click="submitBatchFavorite"
+        >
+          {{ t("legacy.favAddConfirm") }}
+        </Button>
+      </template>
+    </Dialog>
   </section>
 </template>
 
@@ -484,6 +729,61 @@ onBeforeUnmount(() => {
   margin-right: var(--gv-space-1);
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-label-medium);
+}
+
+.online__batch {
+  align-items: center;
+  padding-top: var(--gv-space-2);
+  border-top: 1px solid var(--gv-color-outline-variant);
+}
+
+.online__selected {
+  margin-right: auto;
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-label-medium);
+}
+
+.online__favorite-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-3);
+}
+
+.online__favorite-count {
+  margin: 0;
+}
+
+.online-card {
+  position: relative;
+  height: 100%;
+}
+
+.online-card__check {
+  position: absolute;
+  top: var(--gv-space-2);
+  right: var(--gv-space-2);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--gv-size-touch);
+  height: var(--gv-size-touch);
+  border-radius: var(--gv-radius-full);
+  background: color-mix(in srgb, var(--gv-color-surface) 82%, transparent);
+  box-shadow: var(--gv-elev-1);
+  cursor: pointer;
+}
+
+.online-card__check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gv-color-primary);
+  cursor: pointer;
+}
+
+.online-card--selected :deep(.gallery-card) {
+  border-color: var(--gv-color-primary);
+  box-shadow: 0 0 0 2px var(--gv-color-primary);
 }
 
 .cat-chip {

@@ -24,6 +24,8 @@
     "moveFailed": "移动失败 {failed} 项",
     "total": "共 {n} 本",
     "language": "语言",
-    "clearFilters": "清空筛选"
+    "clearFilters": "清空筛选",
+    "checkFolder": "检查此收藏夹",
+    "checkFolderStarted": "已开始检查收藏夹"
   }
 }

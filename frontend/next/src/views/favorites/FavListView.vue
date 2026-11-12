@@ -14,6 +14,7 @@ import { PAGE_SIZES, clampPageSize, formatBytes } from "@/stores/library";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 import {
+  checkFavoriteCategory,
   downloadSelectedFavorites,
   fetchFavoriteCategories,
   fetchFavoriteItems,
@@ -59,6 +60,7 @@ const sentinel = ref<HTMLElement | null>(null);
 const dialog = ref<"" | "move" | "remove" | "archive">("");
 const moveTarget = ref("");
 const busy = ref(false);
+const checking = ref(false);
 let requestSeq = 0;
 let observer: IntersectionObserver | null = null;
 
@@ -336,6 +338,22 @@ function selectAllLoaded(): void {
 
 function clearSelection(): void {
   selected.value = [];
+}
+
+/** Legacy favorites.js `checkFavoriteCategory(favcat)`: start one folder scan. */
+async function checkFolder(): Promise<void> {
+  if (checking.value) return;
+  checking.value = true;
+  try {
+    await checkFavoriteCategory(favcat.value);
+    ui.success(
+      `${t("favorites.list.checkFolderStarted")} #${favcat.value}${folderName.value ? ` · ${folderName.value}` : ""}`,
+    );
+  } catch (cause) {
+    ui.error(cause instanceof Error ? cause.message : t("legacy.error"));
+  } finally {
+    checking.value = false;
+  }
 }
 
 async function queueSelected(
@@ -657,6 +675,16 @@ onBeforeUnmount(() => {
           {{ t(`legacy.favState${state === "all" ? "All" : state === "local" ? "Local" : "Cloud"}`) }}
         </button>
       </div>
+      <Button
+        variant="outlined"
+        size="compact"
+        type="button"
+        :loading="checking"
+        data-testid="favlist-check"
+        @click="checkFolder"
+      >
+        {{ t("favorites.list.checkFolder") }}
+      </Button>
       <Button variant="outlined" size="compact" type="button" @click="selectAllLoaded">
         {{ t("legacy.selectAll") }}
       </Button>

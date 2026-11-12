@@ -147,6 +147,19 @@ export interface AddFavoriteInput {
   note?: string;
 }
 
+export interface FavoriteAddBatchItem {
+  gid: number;
+  token: string;
+  title?: string;
+}
+
+export interface FavoriteAddBatchOptions {
+  /** ExHentai budget guard: the legacy discover flow used 25 per request. */
+  chunkSize?: number;
+  /** Pause between chunks so the backend Semaphore is not the only brake. */
+  delayMs?: number;
+}
+
 function gidListBody(gids: number[]): { gids: number[] } {
   return { gids: gids.map((gid) => Math.trunc(gid)).filter((gid) => gid > 0) };
 }
@@ -201,6 +214,74 @@ export async function addFavorite(
     cloud_failed: Array.isArray(data?.cloud_failed) ? data.cloud_failed : [],
     successful_gids: Array.isArray(data?.successful_gids) ? data.successful_gids : [],
     gids: Array.isArray(data?.gids) ? data.gids : [input.gid],
+  };
+}
+
+/**
+ * Add several galleries through `/api/favorites/add`.
+ *
+ * The backend applies one cloud call per request and caps concurrency with its
+ * own Semaphore; the legacy discover batch still sent 25 items per request with
+ * a short pause, so keep that cadence here. Local state follows the returned
+ * `successful_gids` only (never the request arguments).
+ */
+export async function addFavoritesBatch(
+  items: FavoriteAddBatchItem[],
+  targetFavcat: number,
+  options: FavoriteAddBatchOptions = {},
+  signal?: AbortSignal,
+): Promise<FavoriteMutationResult> {
+  const chunkSize = Math.max(1, Math.trunc(options.chunkSize ?? 25));
+  const delayMs = Math.max(0, Math.trunc(options.delayMs ?? 200));
+  const queued: FavoriteAddBatchItem[] = [];
+  const seen = new Set<number>();
+  for (const item of items) {
+    const gid = Math.trunc(item.gid);
+    if (!Number.isFinite(gid) || gid <= 0 || seen.has(gid)) continue;
+    seen.add(gid);
+    queued.push({ ...item, gid });
+  }
+
+  const cloudFailed: number[] = [];
+  const successful: number[] = [];
+  let localAdded = 0;
+  let cloudAdded = 0;
+  let cloudOk = true;
+
+  for (let index = 0; index < queued.length; index += chunkSize) {
+    const chunk = queued.slice(index, index + chunkSize);
+    const data = await request<FavoriteMutationResult>(addFavoritesEp, {
+      body: {
+        items: chunk.map((item) => {
+          const next: Record<string, unknown> = {
+            gid: item.gid,
+            token: item.token,
+          };
+          if (item.title) next.title = item.title;
+          return next;
+        }),
+        target_favcat: targetFavcat,
+      },
+      signal,
+    });
+    cloudOk = cloudOk && Boolean(data?.cloud_ok);
+    if (Array.isArray(data?.cloud_failed)) cloudFailed.push(...data.cloud_failed);
+    if (Array.isArray(data?.successful_gids)) successful.push(...data.successful_gids);
+    localAdded += Number(data?.local_added) || 0;
+    cloudAdded += Number(data?.cloud_added) || 0;
+    if (index + chunkSize < queued.length && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return {
+    gids: queued.map((item) => item.gid),
+    target_favcat: targetFavcat,
+    cloud_ok: cloudOk,
+    cloud_failed: cloudFailed,
+    successful_gids: successful,
+    cloud_added: cloudAdded,
+    local_added: localAdded,
   };
 }
 

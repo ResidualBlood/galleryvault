@@ -37,6 +37,8 @@
     "misc": "Misc"
   },
   "mask": "Disabled category bitmask: {mask}",
+  "selectedCount": "{count} selected",
+  "selectItem": "Select {title}",
   "loadFailed": "Failed to load online galleries",
   "emptyTitle": "No matching galleries",
   "emptyBody": "Try a different keyword, category or rating.",

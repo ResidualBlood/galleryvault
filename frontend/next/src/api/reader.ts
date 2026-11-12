@@ -32,6 +32,12 @@ export interface ReaderProgress {
   total_pages?: number | null;
 }
 
+export interface ReaderPageMeta {
+  animated: boolean;
+  /** Total animation duration in milliseconds, capped by the backend at 120000. */
+  duration_ms: number;
+}
+
 export const readerGalleryEp = ep("GET", "/api/galleries/{id}");
 export const readerProgressEp = ep("GET", "/api/galleries/{id}/progress");
 export const readerSaveProgressEp = ep("PUT", "/api/galleries/{id}/progress");
@@ -91,4 +97,34 @@ export function getNextGallery(
     { ...readerNextGalleryEp, path: fill(readerNextGalleryEp.path, { id: galleryId }) },
     options,
   );
+}
+
+/**
+ * Probe one local page for animation timing (GIF/WebP).
+ *
+ * `readerPageMetaEp.path` has two `{id}` placeholders; `fill` replaces every
+ * occurrence at once, so substitute gallery and page index one at a time.
+ */
+export async function getReaderPageMeta(
+  galleryId: number | string,
+  pageIndex: number,
+  options: RequestOptions = {},
+): Promise<ReaderPageMeta> {
+  if (!Number.isInteger(pageIndex) || pageIndex < 0) {
+    throw new RangeError(`invalid page index: ${pageIndex}`);
+  }
+  const path = readerPageMetaEp.path
+    .replace("{id}", encodeURIComponent(String(galleryId)))
+    .replace("{id}", encodeURIComponent(String(pageIndex)));
+  const data = await request<Partial<ReaderPageMeta>>(
+    { method: readerPageMetaEp.method, path },
+    options,
+  );
+  const duration = Number(data?.duration_ms);
+  return {
+    animated: Boolean(data?.animated),
+    duration_ms: Number.isFinite(duration)
+      ? Math.max(0, Math.min(120_000, duration))
+      : 0,
+  };
 }

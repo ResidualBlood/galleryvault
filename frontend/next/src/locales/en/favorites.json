@@ -24,6 +24,8 @@
     "moveFailed": "Move failed for {failed}",
     "total": "{n} total",
     "language": "Language",
-    "clearFilters": "Clear filters"
+    "clearFilters": "Clear filters",
+    "checkFolder": "Check this folder",
+    "checkFolderStarted": "Folder check started"
   }
 }

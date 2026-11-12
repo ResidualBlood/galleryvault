@@ -42,6 +42,7 @@ import type { PageProgress, PageSource } from "@/reader/source";
 import {
   getNextGallery,
   getReaderGallery,
+  getReaderPageMeta,
   saveReaderProgress,
   type ReaderGallery,
 } from "@/api/reader";
@@ -102,6 +103,7 @@ const barsVisible = ref(false);
 const settingsOpen = ref(false);
 const slideshowOn = ref(false);
 const slideshowInterval = ref(readSlideshowInterval());
+const slideDelayMs = ref(0);
 const nextUnavailable = ref(false);
 
 const urls = ref<Record<number, string>>({});
@@ -127,6 +129,7 @@ let progress: ProgressWriter | null = null;
 let preloader: PreloadPool | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let slideshowTimer: ReturnType<typeof setTimeout> | null = null;
+let slideToken = 0;
 let pendingTapTimer: ReturnType<typeof setTimeout> | null = null;
 let suppressClick = false;
 let lastKeyAt = 0;
@@ -471,6 +474,8 @@ function startSlideshow(): void {
 
 function stopSlideshow(): void {
   slideshowOn.value = false;
+  slideToken += 1;
+  slideDelayMs.value = 0;
   if (slideshowTimer !== null) clearTimeout(slideshowTimer);
   slideshowTimer = null;
 }
@@ -480,20 +485,63 @@ function toggleSlideshow(): void {
   else startSlideshow();
 }
 
+function pageMediaType(page: number): string {
+  const pages = gallery.value?.pages;
+  if (!Array.isArray(pages)) return "";
+  const entry =
+    pages.find((item) => (item.page_index ?? item.index) === page) ?? pages[page];
+  return typeof entry?.media_type === "string" ? entry.media_type.toLowerCase() : "";
+}
+
+/**
+ * Legacy `reader.js:scheduleNextSlide`: animated GIF/WebP pages stay visible
+ * for at least one full animation cycle (+150ms) while never shortening the
+ * user interval. Static pages and probe failures keep the plain interval.
+ */
+async function slideDelayFor(page: number): Promise<number> {
+  const base = slideshowInterval.value * 1_000;
+  const mediaType = pageMediaType(page);
+  if (!mediaType.includes("gif") && !mediaType.includes("webp")) return base;
+  try {
+    const meta = await getReaderPageMeta(props.galleryId, page);
+    if (meta.animated && meta.duration_ms > 0) {
+      return Math.max(base, meta.duration_ms + 150);
+    }
+  } catch {
+    /* missing meta / unsupported scanner: fall back to the user interval */
+  }
+  return base;
+}
+
 function scheduleSlide(): void {
   if (slideshowTimer !== null) clearTimeout(slideshowTimer);
   slideshowTimer = null;
-  if (!slideshowOn.value) return;
-  slideshowTimer = setTimeout(() => {
-    slideshowTimer = null;
-    if (!slideshowOn.value) return;
-    if (nav.value.nextPage !== null) {
-      goToPage(nav.value.nextPage, { immediate: true });
-    } else {
-      stopSlideshow();
-      void goNextGallery(true);
+  const token = ++slideToken;
+  if (!slideshowOn.value) {
+    slideDelayMs.value = 0;
+    return;
+  }
+  const page = currentPage.value;
+  void slideDelayFor(page).then((delay) => {
+    if (
+      token !== slideToken ||
+      !slideshowOn.value ||
+      page !== currentPage.value
+    ) {
+      return;
     }
-  }, slideshowInterval.value * 1_000);
+    slideDelayMs.value = delay;
+    slideshowTimer = setTimeout(() => {
+      slideshowTimer = null;
+      if (!slideshowOn.value) return;
+      if (nav.value.nextPage !== null) {
+        goToPage(nav.value.nextPage, { immediate: true });
+      } else {
+        stopSlideshow();
+        void goNextGallery(true);
+      }
+    }, delay);
+  });
 }
 
 function setSlideshowInterval(seconds: number): void {
@@ -922,6 +970,7 @@ defineExpose({
     :data-mode="mode"
     :data-fit="fit"
     :data-bars="barsVisible ? 'visible' : 'hidden'"
+    :data-slide-delay="slideDelayMs"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"

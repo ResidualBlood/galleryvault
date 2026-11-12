@@ -1,5 +1,8 @@
 import type { Page, Route } from "@playwright/test";
+import type { OnlineSearchResponse } from "@/api/eh";
+import { ehSearchEp, ehStatusEp } from "@/api/eh";
 import { previewArchiveEp } from "@/api/archive";
+import { createDownloadBatchEp } from "@/api/downloads";
 import {
   favoriteCategoriesEp,
   addFavoritesEp,
@@ -10,6 +13,7 @@ import {
   deleteGalleriesBulkEp,
 } from "@/api/galleries";
 import { listsEp, savedSearchesEp } from "@/api/library";
+import { readerGalleryEp } from "@/api/reader";
 import { updatesEp, updatesStatusEp, updatesUpdateEp } from "@/api/updates";
 
 export interface GapsState {
@@ -20,6 +24,11 @@ export interface GapsState {
   favoriteAdds: Array<{ items: Array<{ gid: number }> }>;
   favoriteDownloads: Array<Record<string, unknown>>;
   deletedBulk: Array<{ ids: number[]; delete_files?: boolean }>;
+  downloadBatches: Array<Record<string, unknown>>;
+  favoriteChecks: number[];
+  onlineSearches: URLSearchParams[];
+  onlineStatusCalls: number;
+  batchFavoriteCloudFailed: Set<number>;
 }
 
 function gallery(id: number) {
@@ -104,6 +113,24 @@ const FAVORITE_ITEMS = [800001, 800002].map((gid, index) => ({
   tags: [],
 }));
 
+export const GAP_ONLINE_ITEMS = [600001, 600002, 600003].map((gid, index) => ({
+  gid,
+  token: `online-token-${gid}`,
+  title: `Online Gap ${index + 1}`,
+  url: `https://exhentai.org/g/${gid}/${gid}/`,
+  thumb: null,
+  category: "doujinshi",
+  pages: 12,
+  rating: 4,
+  in_library: false,
+  gallery_id: null,
+  favorited: false,
+  favcat: null,
+  download_status: null,
+}));
+
+export const GAP_READER_GALLERY_ID = 77;
+
 /**
  * Mock for the batch-17 gap coverage. Unhandled `/api/**` calls fall through to
  * the shell fixture so the session/notification probes keep working.
@@ -117,6 +144,11 @@ export async function installGapsMock(page: Page): Promise<GapsState> {
     favoriteAdds: [],
     favoriteDownloads: [],
     deletedBulk: [],
+    downloadBatches: [],
+    favoriteChecks: [],
+    onlineSearches: [],
+    onlineStatusCalls: 0,
+    batchFavoriteCloudFailed: new Set(),
   };
 
   await page.route("**/api/**", async (route) => {
@@ -131,6 +163,61 @@ export async function installGapsMock(page: Page): Promise<GapsState> {
         return null;
       }
     })();
+
+    if (path === ehSearchEp.path && method === "GET") {
+      state.onlineSearches.push(url.searchParams);
+      const response: OnlineSearchResponse = {
+        state: "ok",
+        items: GAP_ONLINE_ITEMS,
+        next: null,
+        q: url.searchParams.get("q") ?? "",
+      };
+      await json(route, response);
+      return;
+    }
+
+    if (path === ehStatusEp.path && method === "GET") {
+      state.onlineStatusCalls += 1;
+      await json(route, { items: [] });
+      return;
+    }
+
+    if (path === createDownloadBatchEp.path && method === "POST") {
+      const items = (body?.items as Array<{ gid: number }>) ?? [];
+      state.downloadBatches.push(body ?? {});
+      await json(route, {
+        queued: items.length,
+        skipped: 0,
+        gone: 0,
+        updated: 0,
+        failed: 0,
+        items: items.map((item) => ({ gid: item.gid, status: "queued" })),
+      });
+      return;
+    }
+
+    if (
+      path === readerGalleryEp.path.replace("{id}", String(GAP_READER_GALLERY_ID)) &&
+      method === "GET"
+    ) {
+      await json(route, {
+        id: GAP_READER_GALLERY_ID,
+        gid: 770001,
+        token: "reader-token",
+        title: "Animated Reader Fixture",
+        category: "manga",
+        page_count: 2,
+        file_size: 2048,
+        favorite: false,
+        reading_progress: 0,
+        tags: [],
+        pages: [
+          { index: 0, page_index: 0, name: "001.gif", media_type: "image/gif" },
+          { index: 1, page_index: 1, name: "002.jpg", media_type: "image/jpeg" },
+        ],
+      });
+      return;
+    }
 
     if (path === galleriesEp.path && method === "GET") {
       const params = url.searchParams;
@@ -257,12 +344,25 @@ export async function installGapsMock(page: Page): Promise<GapsState> {
         (body?.items as Array<{ gid: number }>) ??
         (typeof body?.gid === "number" ? [{ gid: body.gid }] : []);
       state.favoriteAdds.push({ items });
+      const cloudFailed = items
+        .map((item) => item.gid)
+        .filter((gid) => state.batchFavoriteCloudFailed.has(gid));
+      const successful = items
+        .map((item) => item.gid)
+        .filter((gid) => !state.batchFavoriteCloudFailed.has(gid));
       await json(route, {
-        cloud_ok: true,
-        cloud_failed: [],
-        successful_gids: items.map((item) => item.gid),
-        local_added: items.length,
+        cloud_ok: cloudFailed.length === 0,
+        cloud_failed: cloudFailed,
+        successful_gids: successful,
+        local_added: successful.length,
       });
+      return;
+    }
+
+    const checkMatch = path.match(/^\/api\/favorites\/(\d+)\/check$/);
+    if (checkMatch && method === "POST") {
+      state.favoriteChecks.push(Number(checkMatch[1]));
+      await json(route, { status: "started", favcat: Number(checkMatch[1]) });
       return;
     }
 
