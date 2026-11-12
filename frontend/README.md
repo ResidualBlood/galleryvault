@@ -27,7 +27,6 @@ npm run e2e:real       # Playwright against GV_E2E_BASE (tester only)
 node scripts/check-design.mjs
 node scripts/check-dist.mjs
 node scripts/check-parity.mjs --report | --views | --strict
-node scripts/convert-locales.mjs [--check]
 ```
 
 `npm run e2e:mock -- --grep @shell` is the batch gate. Ports are derived from
@@ -87,10 +86,9 @@ declarations to measure coverage; `--report` also re-greps the old
 - Feature copy is split per feature: `src/locales/zh/<feature>.json` and
   `src/locales/en/<feature>.json`. Key sets must stay equal (unit test).
 - `legacy.json` is the flattened snapshot of the pre-cutover
-  `frontend/assets/locales/{zh,en}.js` bundles (763 leaf keys per language),
-  generated once by `scripts/convert-locales.mjs`. That tool needs the deleted
-  legacy sources and is kept for history only; `src/locales/**` is now edited
-  directly.
+  `frontend/assets/locales/{zh,en}.js` bundles (763 leaf keys per language).
+  The one-off converter is gone (its legacy sources were deleted); `src/locales/**`
+  is now edited directly.
 - vue-i18n treats `.` as a path separator. All **48** legacy keys containing a
   dot are therefore mapped to underscores; the mapping is deterministic and is
   checked for collisions. If a mapped name collided with an existing key the

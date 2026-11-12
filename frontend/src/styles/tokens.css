@@ -4,11 +4,11 @@
  * Structure follows Material Design 3 (color roles / type scale / shape /
  * elevation / state layers / window size classes) while the palette continues
  * this repository's warm-gold brand. Numeric evidence:
- * frontend/next/docs/design/DESIGN.md and REFERENCES.md.
+ * frontend/docs/design/DESIGN.md and REFERENCES.md.
  *
  * Rules for application code:
  *   - never write raw colors, font-size, or border-radius literals;
- *   - use --gv-* tokens only (frontend/next/scripts/check-design.mjs enforces
+ *   - use --gv-* tokens only (frontend/scripts/check-design.mjs enforces
  *     this for src/**\/*.{vue,css,ts}, excluding this file).
  *
  * Theme resolution:

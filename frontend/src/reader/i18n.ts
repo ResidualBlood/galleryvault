@@ -5,7 +5,7 @@ import enReader from "@/locales/en/reader.json";
 
 /**
  * Register the reader namespace on the shared i18n instance at import time.
- * `frontend/next/src/i18n/index.ts` is owned by the scaffold; merging here keeps
+ * `frontend/src/i18n/index.ts` is owned by the scaffold; merging here keeps
  * the reader copy in `locales/<lang>/reader.json` without editing that file.
  */
 i18n.global.mergeLocaleMessage("zh", { reader: zhReader });

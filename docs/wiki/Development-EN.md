@@ -35,7 +35,7 @@ frontend/
   docs/design/           # DESIGN.md, REFERENCES.md, tokens.required.json, specimen.html
   e2e/                   # Playwright specs and mocked backend
   parity/                # legacy route/endpoint snapshots and waivers
-  scripts/               # check-design / check-dist / check-parity / convert-locales
+  scripts/               # check-design / check-dist / check-parity
   userscript/            # companion userscript source, build, and unit tests
   public/                # icons, manifest, companion script artifact
   nginx.conf Dockerfile

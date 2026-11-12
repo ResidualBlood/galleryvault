@@ -35,7 +35,7 @@ frontend/
   docs/design/           # DESIGN.md、REFERENCES.md、tokens.required.json、specimen.html
   e2e/                   # Playwright 用例与 mock 后端
   parity/                # 旧路由 / 端点快照与豁免
-  scripts/               # check-design / check-dist / check-parity / convert-locales
+  scripts/               # check-design / check-dist / check-parity
   userscript/            # 伴侣用户脚本源码、构建与单测
   public/                # 图标、manifest、伴侣脚本产物
   nginx.conf Dockerfile
