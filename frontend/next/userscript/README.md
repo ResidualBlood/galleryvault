@@ -56,8 +56,7 @@ frontend/next/
 ├── userscript/
 │   ├── companion.mjs        # 唯一实现（纯函数 + 面板），单元测试直接 import
 │   ├── build.mjs            # 生成 public/galleryvault-companion.user.js
-│   ├── vitest.config.mjs    # 本目录测试的 vitest 配置
-│   └── userscript.test.ts   # 单测
+│   └── userscript.test.ts   # 单测（根 vitest.config.ts 的 include 已含本目录）
 ├── public/galleryvault-companion.user.js   # 构建产物（提交）
 └── e2e/
     ├── userscript.spec.ts
@@ -67,14 +66,9 @@ frontend/next/
 ```bash
 node userscript/build.mjs            # 重新生成 public/galleryvault-companion.user.js
 node userscript/build.mjs --check    # 校验产物未漂移（单测里也有一条）
-npx vitest run --config userscript/vitest.config.mjs   # 单个用户脚本单测
+npm run test:unit -- userscript   # 只跑用户脚本单测
 env GV_SHOTS=/tmp/gv-shots npm run e2e:mock -- --grep @userscript
 ```
-
-> 注意：根 `vitest.config.ts` 的 `include` 目前只有 `src/**/*.test.ts`，
-> 因此用户脚本单测要用上面的 `--config` 运行。把它加进根配置的 include
-> （`"userscript/**/*.test.ts"`）即可让 `npm run test:unit -- userscript`
-> 自动发现；该文件不在本批 scope 内，留给集成时合并。
 
 E2E 不访问真实 EH/ExHentai：页面来自 `e2e/fixtures/userscript/gallery.html`
 （裁剪脱敏样本），API 来自本地 HTTP mock，`page.exposeFunction` 代替扩展后台
