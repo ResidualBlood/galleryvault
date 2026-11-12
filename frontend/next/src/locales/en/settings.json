@@ -1,0 +1,410 @@
+{
+  "title": "Settings",
+  "subtitle": "Saved per group; only changed keys are submitted.",
+  "searchPlaceholder": "Search settings (key, label or help)",
+  "searchEmpty": "No matching setting.",
+  "searchResults": "Search results",
+  "back": "Back to groups",
+  "groups": "Groups",
+  "save": "Save group",
+  "saving": "Saving…",
+  "saved": "Saved",
+  "unsaved": "Unsaved changes",
+  "discard": "Discard changes",
+  "loadFailed": "Could not load settings.",
+  "retry": "Retry",
+  "securityBadge": "Security sensitive",
+  "securityHelp": "Changing this item requires the current password.",
+  "configured": "Configured",
+  "notConfigured": "Not configured",
+  "yes": "Yes",
+  "no": "No",
+  "none": "None",
+  "readonly": "Read only",
+  "envManaged": "Managed by environment",
+  "customBaseUrl": "Custom site URL",
+  "actions": "Actions",
+  "links": "Links",
+  "unsavedSecret": "A new value will be written (leave blank to keep it)",
+  "secretPlaceholder": "Leave blank to keep current value",
+  "group": {
+    "appearance": {
+      "title": "Appearance & language",
+      "description": "Theme, UI language, title display and page size."
+    },
+    "reader": {
+      "title": "Reader",
+      "description": "Reading mode, fit, slideshow interval and the online image channel."
+    },
+    "network": {
+      "title": "E-Hentai site & network",
+      "description": "Site URL, cookies, proxies and online concurrency budget."
+    },
+    "online": {
+      "title": "Online browsing & quick actions",
+      "description": "Default favourite folder and online list defaults."
+    },
+    "library": {
+      "title": "Library",
+      "description": "Library roots, duplicate policy and thumbnail generation."
+    },
+    "download": {
+      "title": "Downloads",
+      "description": "Download root, concurrency, quality and image retry thresholds."
+    },
+    "favorites": {
+      "title": "Favourites sync",
+      "description": "Favourite auto-download and archiving; per-folder config stays on the favourites page."
+    },
+    "archive": {
+      "title": "Archive & cold storage",
+      "description": "Cold storage roots, automatic archiving and archive quality."
+    },
+    "tags": {
+      "title": "Tags",
+      "description": "Tag sync, translation refresh and category repair."
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Telegram bot, chat IDs and notification level."
+    },
+    "account": {
+      "title": "Account & security",
+      "description": "Access control, password, API token and logout."
+    },
+    "integrations": {
+      "title": "Integrations",
+      "description": "Companion script, Comic Looms and the OPDS address."
+    },
+    "system": {
+      "title": "Storage & system",
+      "description": "Storage panel, largest galleries and the runtime log entry."
+    }
+  },
+  "field": {
+    "gv_theme": "Theme",
+    "gv_lang": "Interface language",
+    "title_display": "Title display",
+    "gv_page_size": "Page size",
+    "gv_reader_mode": "Reading mode",
+    "gv_reader_fit": "Image fit",
+    "gv_slideshow_interval": "Slideshow interval (s)",
+    "gv_online_image_mode": "Online image channel",
+    "exhentai_base_url": "Site URL",
+    "exhentai_cookie_configured": "EH cookie status",
+    "exhentai_cookie_names": "Configured cookie keys",
+    "ipb_member_id": "ipb_member_id",
+    "ipb_pass_hash": "ipb_pass_hash",
+    "igneous": "igneous",
+    "http_proxy": "HTTP proxy",
+    "socks5_proxy": "SOCKS5 proxy",
+    "use_hah": "Use H{'@'}H nodes",
+    "online_reader_concurrency": "Online concurrency",
+    "online_cache_max_mb": "Online cache limit (MB)",
+    "exhentai_max_concurrency": "EH page concurrency cap",
+    "gv_default_favcat": "Default favourite folder",
+    "gv_online_defaults": "Online list defaults",
+    "library_roots": "Library roots",
+    "library_root_warnings": "Root warnings",
+    "duplicate_policy": "Duplicate policy",
+    "generate_thumbnails": "Generate thumbnails",
+    "thumbnail_status": "Thumbnail task status",
+    "download_root": "Download root",
+    "download_concurrency": "Download concurrency",
+    "page_concurrency": "Page concurrency",
+    "download_quality": "Download quality",
+    "download_title": "Directory title",
+    "global_paused": "Global pause",
+    "image_download_timeout_seconds": "Image timeout (s)",
+    "image_slow_warmup_seconds": "Slow warm-up (s)",
+    "image_min_speed_kb_s": "Minimum speed (KB/s)",
+    "download_max_retries": "Max retries",
+    "download_favorites_enabled": "Download favourites",
+    "favorites_archive_enabled": "Archive favourites",
+    "favorites_archive_max_pages": "Archive page limit",
+    "favorites_categories": "Favourite folders",
+    "archive_roots": "Cold storage roots",
+    "cold_storage_root": "Current cold storage root",
+    "auto_archive_downloads": "Archive after download",
+    "archive_delete_source": "Delete source after archive",
+    "archive_quality": "Archive quality",
+    "archive_fallback_pages": "Archive fallback",
+    "auto_sync_tags": "Auto sync tags",
+    "tag_sync_interval_seconds": "Tag sync interval (s)",
+    "tag_sync_concurrency": "Tag sync concurrency",
+    "tag_translation_update_interval_minutes": "Translation interval (min)",
+    "translation_status": "Translation status",
+    "telegram_bot_configured": "Telegram bot status",
+    "telegram_bot_token": "Bot token",
+    "telegram_chat_ids": "Chat IDs",
+    "telegram_allowed_user_ids": "Allowed user IDs",
+    "telegram_notify_level": "Notification level",
+    "telegram_notify_lang": "Notification language",
+    "auth_required": "Require login",
+    "auth_hash_configured": "Password status",
+    "must_change_password": "Must change default password",
+    "integration_companion_script": "Companion script",
+    "integration_comic_looms": "Comic Looms",
+    "integration_opds_url": "OPDS address",
+    "thumbnail_cache_dir": "Thumbnail cache directory"
+  },
+  "option": {
+    "theme": {
+      "dark": "Dark",
+      "light": "Light",
+      "system": "Follow system"
+    },
+    "lang": {
+      "zh": "中文",
+      "en": "English"
+    },
+    "titleDisplay": {
+      "japanese": "Japanese title",
+      "english": "English title",
+      "directory": "Directory name"
+    },
+    "readerMode": {
+      "ltr": "Single ltr",
+      "rtl": "Single rtl",
+      "double": "Double page",
+      "doubleRtl": "Double page rtl",
+      "webtoon": "Webtoon"
+    },
+    "readerFit": {
+      "height": "Fit height",
+      "width": "Fit width",
+      "original": "Original"
+    },
+    "onlineImage": {
+      "direct": "Browser direct",
+      "proxy": "Server proxy"
+    },
+    "baseUrl": {
+      "exhentai": "ExHentai (private)",
+      "ehentai": "E-Hentai (public)",
+      "custom": "Custom URL"
+    },
+    "duplicate": {
+      "keep_first": "Keep first",
+      "prefer_more_pages": "Prefer more pages",
+      "prefer_newer": "Prefer newer",
+      "prefer_larger": "Prefer larger",
+      "prefer_smaller": "Prefer smaller",
+      "manual": "Manual"
+    },
+    "quality": {
+      "resample": "Resample",
+      "original": "Original"
+    },
+    "downloadTitle": {
+      "japanese": "Japanese",
+      "english": "English"
+    },
+    "notifyLevel": {
+      "summary": "Summary",
+      "immediate": "Immediate",
+      "failures_only": "Failures only",
+      "off": "Off"
+    },
+    "onlineList": {
+      "search": "Search",
+      "popular": "Popular",
+      "watched": "Watched",
+      "toplist": "Toplist"
+    },
+    "toplist": {
+      "11": "Toplist 11",
+      "12": "Toplist 12",
+      "13": "Toplist 13",
+      "15": "Toplist 15"
+    },
+    "rating": {
+      "any": "Any rating",
+      "atLeast": "≥ {value} stars"
+    }
+  },
+  "favcat": {
+    "0": "0 · Favorites",
+    "1": "1 · Folder 1",
+    "2": "2 · Folder 2",
+    "3": "3 · Folder 3",
+    "4": "4 · Folder 4",
+    "5": "5 · Folder 5",
+    "6": "6 · Folder 6",
+    "7": "7 · Folder 7",
+    "8": "8 · Folder 8",
+    "9": "9 · Folder 9"
+  },
+  "onlineDefaults": {
+    "list": "List type",
+    "tl": "Toplist",
+    "minRating": "Minimum rating"
+  },
+  "action": {
+    "ehTest": "Test EH connection",
+    "genThumbs": "Generate thumbnails",
+    "openDuplicates": "Open duplicates",
+    "openLogs": "Open logs",
+    "openFavorites": "Open favourites",
+    "purgeSources": "Purge archived sources",
+    "openArchive": "Open archive",
+    "syncAllTags": "Sync all tags",
+    "forceUpdateTranslation": "Force translation update",
+    "repairCategories": "Repair categories",
+    "testTelegram": "Test Telegram",
+    "changePassword": "Change password",
+    "apiToken": "API token",
+    "logout": "Log out"
+  },
+  "password": {
+    "title": "Change password",
+    "current": "Current password",
+    "next": "New password",
+    "confirm": "Confirm new password",
+    "submit": "Change password",
+    "changed": "Password changed",
+    "mismatch": "The new passwords do not match.",
+    "required": "Enter the current and new password."
+  },
+  "token": {
+    "title": "Companion script API token",
+    "description": "Only a hash is stored; the plaintext is shown once. Revoking invalidates the companion script until you configure a new token.",
+    "statusConfigured": "Generated ({date})",
+    "statusMissing": "Not generated yet",
+    "generate": "Generate token",
+    "regenerate": "Regenerate",
+    "revoke": "Revoke token",
+    "revokeConfirmTitle": "Revoke the API token?",
+    "revokeConfirmBody": "Any companion script using this token stops working immediately.",
+    "once": "This is the only time the plaintext is shown. Copy it now.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "hide": "Saved it, hide",
+    "generated": "API token generated"
+  },
+  "security": {
+    "title": "Confirm security-sensitive change",
+    "body": "This group contains security-sensitive settings ({keys}). Enter the current password to save.",
+    "password": "Current password",
+    "submit": "Confirm and save",
+    "cancel": "Cancel",
+    "wrong": "Confirmation failed: wrong password or the request was rejected."
+  },
+  "error": {
+    "number": "Enter a valid number.",
+    "range": "Value is outside the allowed range.",
+    "libraryRoots": "Library roots cannot be empty.",
+    "baseUrl": "Enter a valid URL.",
+    "baseUrlHost": "The site URL must belong to exhentai.org or e-hentai.org.",
+    "proxyConflict": "HTTP proxy and SOCKS5 proxy cannot both be set.",
+    "saveFailed": "Save failed.",
+    "pauseFailed": "Could not update the pause state."
+  },
+  "storage": {
+    "title": "Storage",
+    "library": "Library",
+    "cold": "Cold storage",
+    "downloads": "Downloads",
+    "cache": "Cache",
+    "path": "Path",
+    "items": "Items",
+    "images": "Images",
+    "used": "Used",
+    "available": "Available",
+    "status": "Status",
+    "computing": "Computing…",
+    "stale": "Data may be stale",
+    "largest": "Largest galleries (top 10)",
+    "largestEmpty": "No data yet.",
+    "refresh": "Refresh",
+    "loadFailed": "Could not load storage information.",
+    "purge": "Purge archived sources",
+    "purgeTitle": "Purge archived source directories?",
+    "purgeBody": "Deletes leftover source files of archived galleries from the download root. This cannot be undone.",
+    "purgeStarted": "Purge task started",
+    "purgeConfirm": "Purge"
+  },
+  "status": {
+    "running": "Running",
+    "thumbs": "{succeeded} succeeded / {failed} failed",
+    "translation": "{entries} entries",
+    "translationError": "Last refresh failed: {error}",
+    "favorites": "{enabled} of {total} folders enabled",
+    "never": "Never run",
+    "unknown": "Unknown"
+  },
+  "help": {
+    "field": {
+      "gv_theme": "Dark, light or follow the system.",
+      "gv_lang": "This device only.",
+      "title_display": "Show the Japanese title, English title or directory name in lists.",
+      "gv_page_size": "List pages keep their own quick page-size control.",
+      "gv_reader_mode": "The reader also keeps a quick toggle.",
+      "gv_reader_fit": "Fit height, fit width or original size.",
+      "gv_slideshow_interval": "Shared by the reader and the gallery page.",
+      "gv_online_image_mode": "Direct spends no server image budget; proxy is only for devices that cannot reach H{'@'}H.",
+      "exhentai_base_url": "e-hentai.org or exhentai.org; a custom URL must belong to one of these domains.",
+      "exhentai_cookie_configured": "Cookie values are write-only and never echoed.",
+      "exhentai_cookie_names": "Key names only; values are never returned.",
+      "ipb_member_id": "Not shown after saving; leave blank to keep the current value.",
+      "ipb_pass_hash": "Not shown after saving; leave blank to keep the current value.",
+      "igneous": "May stay blank without private-site access.",
+      "http_proxy": "Mutually exclusive with the SOCKS5 proxy.",
+      "socks5_proxy": "Mutually exclusive with the HTTP proxy.",
+      "use_hah": "Affects whether the original-image channel is reachable.",
+      "online_reader_concurrency": "Galleries resolved at once; default 3.",
+      "online_cache_max_mb": "Image cache limit for the server proxy fallback; default 512.",
+      "exhentai_max_concurrency": "Environment only; shown for reference.",
+      "gv_default_favcat": "One-click card favourites use this folder.",
+      "gv_online_defaults": "List type, toplist and minimum rating used when opening the online page.",
+      "library_roots": "One path per line; changing this requires the current password.",
+      "library_root_warnings": "Backend checks for the configured library roots.",
+      "duplicate_policy": "Default policy used by the duplicates page.",
+      "generate_thumbnails": "Create thumbnails when a gallery is indexed.",
+      "thumbnail_status": "Result of the most recent thumbnail task.",
+      "download_root": "Changing this requires the current password.",
+      "download_concurrency": "Galleries downloaded at once, 1–32.",
+      "page_concurrency": "Images downloaded at once per gallery, 1–16.",
+      "download_quality": "Default download tier.",
+      "download_title": "Title language used for on-disk directory names.",
+      "global_paused": "Pauses scans and downloads; the downloads page keeps the same switch.",
+      "image_download_timeout_seconds": "Timeout for a single image.",
+      "image_slow_warmup_seconds": "Grace period before enforcing the minimum speed.",
+      "image_min_speed_kb_s": "Slower images are treated as failed and retried.",
+      "download_max_retries": "Fixed backend value; read only.",
+      "download_favorites_enabled": "Download favourite galleries during checks.",
+      "favorites_archive_enabled": "Scheduled favourite scans use the zip archive channel.",
+      "favorites_archive_max_pages": "0 sends everything through the archive.",
+      "favorites_categories": "Enabled/mode/poll interval per folder live on the favourites page.",
+      "archive_roots": "One path per line; the first entry becomes cold_storage_root.",
+      "cold_storage_root": "Derived from the cold storage roots; read only.",
+      "auto_archive_downloads": "Move completed downloads to cold storage.",
+      "archive_delete_source": "Delete the download source directory after a successful archive.",
+      "archive_quality": "Default tier for the archive channel and the archive dialog.",
+      "archive_fallback_pages": "Fall back to per-page downloads when archiving fails.",
+      "auto_sync_tags": "Sync tags after a gallery is indexed.",
+      "tag_sync_interval_seconds": "The backend default is 1.5.",
+      "tag_sync_concurrency": "Concurrent tag requests, 1–32.",
+      "tag_translation_update_interval_minutes": "0 disables automatic translation updates.",
+      "translation_status": "Result of the most recent translation refresh.",
+      "telegram_bot_configured": "The token is write-only and never echoed.",
+      "telegram_bot_token": "Leave blank to keep the current value.",
+      "telegram_chat_ids": "Comma separated.",
+      "telegram_allowed_user_ids": "Comma separated; blank means unrestricted.",
+      "telegram_notify_level": "Summary, immediate, failures only or off.",
+      "telegram_notify_lang": "Language used in Telegram messages.",
+      "auth_required": "Turning this off leaves every request unauthenticated; changing it requires the current password.",
+      "auth_hash_configured": "Whether a non-default password is set.",
+      "must_change_password": "True while the first-run onboarding is incomplete.",
+      "integration_companion_script": "Injects download, favourite and library-state buttons on official gallery pages; authenticates with the API token.",
+      "integration_comic_looms": "Recommended official-page reader enhancement (MIT); this app does not ship its own script reader.",
+      "integration_opds_url": "OPDS 1.0 catalogue with HTTP Basic auth for third-party readers.",
+      "thumbnail_cache_dir": "Configured by the backend environment; read only."
+    },
+    "action": {
+      "ehTest": "Makes one EH request with the current cookies.",
+      "openFavorites": "Per-folder enabled, mode and poll interval are configured there.",
+      "purgeSources": "Deletes leftover source directories of archived galleries. Irreversible."
+    }
+  }
+}

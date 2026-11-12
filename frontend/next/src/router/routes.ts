@@ -2,7 +2,6 @@ import type { RouteRecordRaw } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import GalleryDetailView from "@/views/gallery/GalleryDetailView.vue";
 import LoginView from "@/views/LoginView.vue";
-import PlaceholderView from "@/views/PlaceholderView.vue";
 import BrowseView from "@/views/browse/BrowseView.vue";
 import DuplicatesView from "@/views/duplicates/DuplicatesView.vue";
 import CrossGidView from "@/views/duplicates/CrossGidView.vue";
@@ -28,7 +27,7 @@ import HistoryView from "@/views/history/local/HistoryView.vue";
  * Hash-mode route table (legacy bookmarks keep working).
  *
  * The old frontend parsed `#/view[/id[/page]][?k=v]`; aliases from core.js are
- * preserved here. Pages not migrated yet render PlaceholderView. `#/series/{id}`
+ * preserved here. `#/series/{id}`
  * is a dead legacy route and redirects to the series list (parity/waivers.json).
  */
 export const routes: RouteRecordRaw[] = [
@@ -117,13 +116,13 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "logs",
         name: "logs",
-        component: PlaceholderView,
+        component: () => import("@/views/logs/LogsView.vue"),
         meta: { title: "app.nav.logs" },
       },
       {
         path: "settings",
         name: "settings",
-        component: PlaceholderView,
+        component: () => import("@/views/settings/SettingsView.vue"),
         meta: { title: "app.nav.settings" },
       },
       {
@@ -190,13 +189,13 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "archive",
         name: "archive",
-        component: PlaceholderView,
+        component: () => import("@/views/archive/ArchiveView.vue"),
         meta: { title: "app.nav.archive" },
       },
       {
         path: "welcome",
         name: "welcome",
-        component: PlaceholderView,
+        component: () => import("@/views/welcome/WelcomeView.vue"),
         meta: { title: "app.title" },
       },
     ],

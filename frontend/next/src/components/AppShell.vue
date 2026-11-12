@@ -3,12 +3,18 @@ import { computed, ref } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import IconButton from "@/components/ui/IconButton.vue";
+import Popover from "@/components/ui/Popover.vue";
 import LangToggle from "@/components/LangToggle.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
-import { getNotifications } from "@/api/system";
-import { ApiError } from "@/api/client";
+import CookieHealthBanner from "@/components/system/CookieHealthBanner.vue";
+import GlobalControls from "@/components/system/GlobalControls.vue";
+import NotificationPanel from "@/components/system/NotificationPanel.vue";
+import { ensureSystemMessages } from "@/components/system/messages";
 import { useAuthStore } from "@/stores/auth";
-import { useUiStore } from "@/stores/ui";
+
+// The shell owns the notification / cookie / global widgets, so it registers
+// their `system` namespace on first mount (views do the same for standalone use).
+ensureSystemMessages();
 
 interface NavItem {
   to: string;
@@ -46,35 +52,22 @@ const fixed: NavItem[] = [
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
-const ui = useUiStore();
 const { t } = useI18n();
 const drawerOpen = ref(true);
-const notificationsBusy = ref(false);
+
+/**
+ * G-07: the session probe already reports the cookie state (same source as the
+ * legacy shell), so only ask for the detailed health when it is not `ok`.
+ */
+const showCookieBanner = computed(() => {
+  const state = auth.session?.cookie_health?.state;
+  return Boolean(state) && state !== "ok";
+});
 
 const pageTitle = computed(() => {
   const meta = route.meta.title;
   return t(typeof meta === "string" ? meta : "app.title");
 });
-
-async function refreshNotifications(): Promise<void> {
-  if (notificationsBusy.value) return;
-  notificationsBusy.value = true;
-  try {
-    const data = await getNotifications();
-    const unread = typeof data.unread === "number" ? data.unread : 0;
-    ui.success(
-      unread > 0
-        ? `${t("app.toast.notificationsRefreshed")} (${unread})`
-        : t("app.toast.notificationsRefreshed"),
-    );
-  } catch (error) {
-    if (!(error instanceof ApiError && error.status === 401)) {
-      ui.error(t("app.toast.notificationsFailed"));
-    }
-  } finally {
-    notificationsBusy.value = false;
-  }
-}
 
 async function signOut(): Promise<void> {
   await auth.logout();
@@ -84,6 +77,8 @@ async function signOut(): Promise<void> {
 
 <template>
   <div class="shell">
+    <CookieHealthBanner v-if="showCookieBanner" />
+
     <header class="shell__topbar">
       <IconButton
         class="shell__menu"
@@ -96,14 +91,25 @@ async function signOut(): Promise<void> {
       <RouterLink to="/browse" class="shell__brand">{{ t("app.title") }}</RouterLink>
       <span class="shell__page-title">{{ pageTitle }}</span>
       <span class="shell__spacer" />
-      <IconButton
-        :label="t('app.actions.notifications')"
-        :disabled="notificationsBusy"
-        data-testid="notifications"
-        @click="refreshNotifications"
-      >
-        <span aria-hidden="true">◔</span>
-      </IconButton>
+      <Popover align="end">
+        <template #trigger>
+          <IconButton :label="t('app.actions.notifications')" data-testid="notifications">
+            <span aria-hidden="true">◔</span>
+          </IconButton>
+        </template>
+        <NotificationPanel :poll-ms="0" />
+      </Popover>
+      <Popover align="end">
+        <template #trigger>
+          <IconButton
+            :label="t('system.global.controls')"
+            data-testid="global-controls-toggle"
+          >
+            <span aria-hidden="true">⏯</span>
+          </IconButton>
+        </template>
+        <GlobalControls class="shell__controls-popover" />
+      </Popover>
       <ThemeToggle />
       <LangToggle />
       <IconButton :label="t('app.actions.logout')" data-testid="logout" @click="signOut">
@@ -248,6 +254,10 @@ async function signOut(): Promise<void> {
 
 .shell__spacer {
   flex: 1;
+}
+
+.shell__controls-popover {
+  width: min(360px, calc(100vw - var(--gv-space-6)));
 }
 
 .shell__body {
