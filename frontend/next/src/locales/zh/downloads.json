@@ -1,0 +1,30 @@
+{
+  "quota": {
+    "cached": "缓存",
+    "error": "配额获取失败",
+    "near": "图片配额 {current}/{limit} — 将达上限"
+  },
+  "poll": {
+    "hidden": "页面隐藏时暂停刷新"
+  },
+  "progress": {
+    "speed": "速度",
+    "eta": "剩余",
+    "enumerating": "正在获取页数…",
+    "retryCount": "重试 {n} 次"
+  },
+  "batch": {
+    "summary": "已入队 {queued} · 跳过 {skipped} · 失效 {gone} · 失败 {failed}",
+    "empty": "没有识别到画廊链接",
+    "archiveTier": "归档画质"
+  },
+  "page": {
+    "eyebrow": "DOWNLOADS",
+    "selectTask": "选择任务 {title}",
+    "confirmDelete": "删除下载任务 #{id}？已下载的文件不会被删除。",
+    "confirmDeleteSelected": "删除所选的 {n} 个下载任务？已下载的文件不会被删除。",
+    "deletedCount": "已删除 {n} 个任务",
+    "retriedCount": "已重试 {n} 个任务",
+    "pauseFailed": "切换暂停状态失败"
+  }
+}

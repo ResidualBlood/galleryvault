@@ -1,0 +1,29 @@
+{
+  "page": {
+    "eyebrow": "EXHENTAI FOLDERS",
+    "checkStarted": "Favourite folder check started",
+    "syncStarted": "Syncing favourite folder names",
+    "saveFailed": "Save failed",
+    "dirty": "Unsaved changes",
+    "checkStatusError": "Could not read check status"
+  },
+  "list": {
+    "eyebrow": "FAVORITE FOLDER",
+    "stateLabel": "Show",
+    "loaded": "{n} loaded",
+    "loadMore": "Load more",
+    "allLoaded": "All loaded",
+    "noCover": "No cover",
+    "openEh": "Open on E-Hentai",
+    "selectItem": "Select {title}",
+    "empty": "No galleries match these filters.",
+    "archiveTier": "Archive quality",
+    "downloadQueued": "Queued {count}",
+    "downloadSkipped": "Skipped {count}",
+    "removePartial": "Cloud failed for {failed}; local rows follow the successful gids",
+    "moveFailed": "Move failed for {failed}",
+    "total": "{n} total",
+    "language": "Language",
+    "clearFilters": "Clear filters"
+  }
+}

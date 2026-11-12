@@ -19,6 +19,13 @@ export const setPauseEp = ep("POST", "/api/pause");
 
 export type DownloadQuality = "original" | "resample";
 
+export type DownloadStatus =
+  | "pending"
+  | "downloading"
+  | "success"
+  | "failed"
+  | "cancelled";
+
 export interface DownloadTask {
   id: number;
   gid: number;
@@ -31,8 +38,52 @@ export interface DownloadTask {
   error_message?: string | null;
   mode?: string | null;
   quality?: string | null;
+  archive_status?: string | null;
+  archive_error?: string | null;
+  archive_fallback?: boolean;
   speed?: number | null;
   eta_seconds?: number | null;
+}
+
+export interface DownloadBatchItem {
+  gid: number;
+  token: string;
+  title?: string;
+  quality?: DownloadQuality;
+}
+
+export interface DownloadBatchInput {
+  items: DownloadBatchItem[];
+  mode?: string;
+  quality?: DownloadQuality;
+  max_pages?: number;
+}
+
+export interface DownloadBatchResult {
+  queued: number;
+  skipped: number;
+  gone: number;
+  updated: number;
+  failed: number;
+  items: Array<{ gid?: number; status?: string }>;
+}
+
+export interface QuotaImageLimit {
+  current: number;
+  limit: number;
+}
+
+export interface QuotaInfo {
+  gp: number | null;
+  image_limit: QuotaImageLimit | null;
+  image_limits: QuotaImageLimit | null;
+  checked_at: string | null;
+  error: string | null;
+  cached: boolean;
+}
+
+export interface PauseState {
+  paused: boolean;
 }
 
 export interface DownloadPage {
@@ -109,4 +160,110 @@ export async function createDownload(
     title: typeof data?.title === "string" ? data.title : "",
     status: typeof data?.status === "string" ? data.status : "pending",
   };
+}
+
+export async function createDownloadsBatch(
+  input: DownloadBatchInput,
+  signal?: AbortSignal,
+): Promise<DownloadBatchResult> {
+  const body: Record<string, unknown> = {
+    items: input.items.map((item) => {
+      const next: Record<string, unknown> = {
+        gid: Math.trunc(item.gid),
+        token: item.token,
+      };
+      if (item.title) next.title = item.title;
+      if (item.quality) next.quality = item.quality;
+      return next;
+    }),
+  };
+  if (input.mode) body.mode = input.mode;
+  if (input.quality) body.quality = input.quality;
+  if (input.max_pages) body.max_pages = input.max_pages;
+  const data = await request<DownloadBatchResult>(createDownloadBatchEp, {
+    body,
+    signal,
+  });
+  return {
+    queued: Number(data?.queued) || 0,
+    skipped: Number(data?.skipped) || 0,
+    gone: Number(data?.gone) || 0,
+    updated: Number(data?.updated) || 0,
+    failed: Number(data?.failed) || 0,
+    items: Array.isArray(data?.items) ? data.items : [],
+  };
+}
+
+function downloadTaskPath(template: string, id: number): string {
+  return template.replace("{id}", String(id));
+}
+
+export async function cancelDownload(id: number, signal?: AbortSignal): Promise<void> {
+  await request(
+    { method: cancelDownloadEp.method, path: downloadTaskPath(cancelDownloadEp.path, id) },
+    { signal },
+  );
+}
+
+export async function retryDownload(id: number, signal?: AbortSignal): Promise<void> {
+  await request(
+    { method: retryDownloadEp.method, path: downloadTaskPath(retryDownloadEp.path, id) },
+    { signal },
+  );
+}
+
+export async function deleteDownloadTask(id: number, signal?: AbortSignal): Promise<void> {
+  await request(
+    { method: deleteDownloadEp.method, path: downloadTaskPath(deleteDownloadEp.path, id) },
+    { signal },
+  );
+}
+
+export async function clearSuccessfulDownloads(
+  signal?: AbortSignal,
+): Promise<number> {
+  const data = await request<{ deleted?: number }>(clearSuccessfulDownloadsEp, {
+    signal,
+  });
+  return Number(data?.deleted) || 0;
+}
+
+export async function retryAllDownloads(signal?: AbortSignal): Promise<number> {
+  const data = await request<{ retried_count?: number; count?: number }>(
+    retryAllDownloadsEp,
+    { signal },
+  );
+  return Number(data?.retried_count ?? data?.count) || 0;
+}
+
+export async function fetchQuota(signal?: AbortSignal): Promise<QuotaInfo> {
+  const data = await request<QuotaInfo>(quotaEp, { signal });
+  const limit = data?.image_limit ?? data?.image_limits ?? null;
+  return {
+    gp: typeof data?.gp === "number" ? data.gp : null,
+    image_limit:
+      limit && Number.isFinite(limit.current) && Number.isFinite(limit.limit)
+        ? { current: limit.current, limit: limit.limit }
+        : null,
+    image_limits: null,
+    checked_at: typeof data?.checked_at === "string" ? data.checked_at : null,
+    error: typeof data?.error === "string" ? data.error : null,
+    cached: Boolean(data?.cached),
+  };
+}
+
+export async function fetchPauseState(signal?: AbortSignal): Promise<boolean> {
+  const data = await request<PauseState>(pauseEp, { signal });
+  return Boolean(data?.paused);
+}
+
+export async function setPauseState(
+  paused: boolean,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const data = await request<PauseState>(setPauseEp, {
+    body: { paused },
+    signal,
+  });
+  return Boolean(data?.paused);
 }

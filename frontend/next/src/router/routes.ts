@@ -19,6 +19,10 @@ import OnlineReaderView from "@/views/online/reader/OnlineReaderView.vue";
 import ReaderView from "@/views/reader/ReaderView.vue";
 import SeriesView from "@/views/series/SeriesView.vue";
 import TagsView from "@/views/tags/TagsView.vue";
+import FavoritesView from "@/views/favorites/FavoritesView.vue";
+import FavListView from "@/views/favorites/FavListView.vue";
+import DownloadsView from "@/views/downloads/DownloadsView.vue";
+import HistoryView from "@/views/history/local/HistoryView.vue";
 
 /**
  * Hash-mode route table (legacy bookmarks keep working).
@@ -101,13 +105,13 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "history",
         name: "history",
-        component: PlaceholderView,
+        component: HistoryView,
         meta: { title: "app.nav.history" },
       },
       {
         path: "downloads",
         name: "downloads",
-        component: PlaceholderView,
+        component: DownloadsView,
         meta: { title: "app.nav.downloads" },
       },
       {
@@ -125,7 +129,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "favorites",
         name: "favorites",
-        component: PlaceholderView,
+        component: FavoritesView,
         meta: { title: "app.nav.favorites" },
       },
       {
@@ -144,7 +148,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "favorites/:id",
         name: "favorites-list",
-        component: PlaceholderView,
+        component: FavListView,
         meta: { title: "app.nav.favorites" },
       },
       {
