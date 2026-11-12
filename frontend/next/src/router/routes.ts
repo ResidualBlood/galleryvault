@@ -2,6 +2,8 @@ import type { RouteRecordRaw } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import LoginView from "@/views/LoginView.vue";
 import PlaceholderView from "@/views/PlaceholderView.vue";
+import BrowseView from "@/views/browse/BrowseView.vue";
+import LibraryView from "@/views/library/LibraryView.vue";
 
 /**
  * Hash-mode route table (legacy bookmarks keep working).
@@ -25,7 +27,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "browse",
         name: "browse",
-        component: PlaceholderView,
+        component: BrowseView,
         meta: { title: "app.nav.browse" },
       },
       {
@@ -50,7 +52,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "library",
         name: "library",
-        component: PlaceholderView,
+        component: LibraryView,
         meta: { title: "app.nav.library" },
       },
       {
