@@ -39,6 +39,18 @@ interface EditableFolder {
 const { t } = useI18n();
 const ui = useUiStore();
 
+// The backend only accepts these three modes. Legacy `favorites_monitor` rows
+// can hold a display-only value (e.g. `gallery`); the old frontend's <select>
+// silently fell back to the first option, which is what we reproduce here
+// instead of echoing an invalid mode back to POST /api/settings (422).
+const FAVORITE_MODES = ["incremental", "monitor_only", "force"] as const;
+
+function normalizeFavoriteMode(value: unknown): string {
+  return FAVORITE_MODES.includes(value as (typeof FAVORITE_MODES)[number])
+    ? String(value)
+    : "incremental";
+}
+
 const folders = ref<EditableFolder[]>([]);
 const loading = ref(true);
 const loadError = ref("");
@@ -63,7 +75,7 @@ function toEditable(item: FavoriteCategory): EditableFolder {
     cloud_size: item.cloud_size ?? 0,
     local_size: item.local_size ?? 0,
     enabled: Boolean(item.enabled),
-    mode: item.mode ?? "incremental",
+    mode: normalizeFavoriteMode(item.mode),
     poll_interval_minutes: Math.max(1, item.poll_interval_minutes ?? 720),
   };
 }

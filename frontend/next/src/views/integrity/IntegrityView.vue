@@ -163,7 +163,13 @@ watch(
       <p class="integrity__eyebrow">{{ t("maintenance.integrity.eyebrow") }}</p>
       <h1 class="integrity__title">{{ t("maintenance.integrity.title") }}</h1>
       <p class="integrity__subtitle">{{ t("maintenance.integrity.subtitle") }}</p>
-      <p v-if="summary" class="integrity__summary" data-testid="integrity-summary">
+      <!-- A scan summary describes the rendered rows: an empty list must show
+           the empty state alone instead of stacking both. -->
+      <p
+        v-if="summary && items.length"
+        class="integrity__summary"
+        data-testid="integrity-summary"
+      >
         {{
           t("maintenance.integrity.scanSummary", {
             scanned: summary.scanned,

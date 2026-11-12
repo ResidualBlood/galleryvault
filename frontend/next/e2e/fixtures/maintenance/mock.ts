@@ -404,7 +404,15 @@ function updateList(state: string) {
  * Hermetic backend for the maintenance views. Handles every endpoint the four
  * views call, including the image endpoints used by thumbnails.
  */
-export async function installMaintenanceMock(page: Page): Promise<MaintenanceMockState> {
+export interface MaintenanceMockOptions {
+  /** Serve an empty integrity list (with the scan summary still present). */
+  integrityEmpty?: boolean;
+}
+
+export async function installMaintenanceMock(
+  page: Page,
+  options: MaintenanceMockOptions = {},
+): Promise<MaintenanceMockState> {
   const state: MaintenanceMockState = {
     requests: [],
     favoriteScans: 0,
@@ -590,8 +598,9 @@ export async function installMaintenanceMock(page: Page): Promise<MaintenanceMoc
     }
 
     if (path === integrityGalleriesEp.path && method === "GET") {
+      const integrity = options.integrityEmpty ? [] : INTEGRITY;
       await json(route, {
-        ...pageOf(INTEGRITY, Number(url.searchParams.get("page") ?? 1), 24),
+        ...pageOf(integrity, Number(url.searchParams.get("page") ?? 1), 24),
         magic_scan: SCAN_SUMMARY,
       });
       return;
