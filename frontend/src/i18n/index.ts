@@ -12,8 +12,9 @@ export type Lang = "zh" | "en";
 export const LANGS: readonly Lang[] = ["zh", "en"];
 
 /**
- * Messages are split per feature. `legacy.json` is generated from
- * frontend/assets/locales/*.js by scripts/convert-locales.mjs and keeps the old
+ * Messages are split per feature. `legacy.json` is the frozen snapshot of the
+ * pre-cutover translations; the migration is complete and the legacy sources
+ * have been deleted, so it is read as static data. It keeps the old
  * translations available under the `legacy.` namespace for pages that are
  * migrated one by one.
  */

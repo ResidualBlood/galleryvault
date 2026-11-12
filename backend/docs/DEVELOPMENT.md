@@ -104,7 +104,7 @@ frontend/
   docs/design/         # DESIGN.md, REFERENCES.md, tokens.required.json, specimen.html
   e2e/                 # Playwright specs + mocked backend fixtures
   parity/              # legacy route/endpoint snapshots and waivers
-  scripts/             # check-design / check-dist / check-parity / convert-locales
+  scripts/             # check-design / check-dist / check-parity
   userscript/          # companion userscript source, build, and tests
   public/              # icons, manifest, companion script artifact
   nginx.conf           # static serving + /api proxy to backend:8001
