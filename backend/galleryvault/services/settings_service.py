@@ -383,6 +383,7 @@ def settings_public() -> dict[str, Any]:
         "auto_sync_tags": current.auto_sync_tags,
         "tag_sync_interval_seconds": current.tag_sync_interval_seconds,
         "tag_sync_concurrency": current.tag_sync_concurrency,
+        "tag_translation_update_interval_minutes": current.tag_translation_update_interval_minutes,
         "generate_thumbnails": current.generate_thumbnails,
         "duplicate_policy": current.duplicate_policy,
         "thumbnail_cache_dir": current.thumbnail_cache_dir,
