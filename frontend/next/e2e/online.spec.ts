@@ -1,9 +1,6 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { createServer, type ViteDevServer } from "vite";
 import { ehSearchEp } from "../src/api/eh";
 import { mockOnlineBackend } from "./fixtures/online/mock";
 import {
@@ -14,23 +11,7 @@ import {
   PAGE_CURSOR,
 } from "./fixtures/online/data";
 
-const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
-
-let vite: ViteDevServer;
-let HARNESS = "";
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 function watchConsole(page: Page): string[] {
   const issues: string[] = [];
@@ -50,37 +31,11 @@ function watchConsole(page: Page): string[] {
 }
 
 function detailUrl(gid = LIST_GID, token = LIST_TOKEN): string {
-  return `${HARNESS}#/online/g/${gid}/${token}`;
+  return `/#/online/g/${gid}/${token}`;
 }
 
-test.beforeAll(async () => {
+test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
-  const port = await freePort();
-  vite = await createServer({
-    root: PROJECT_ROOT,
-    logLevel: "error",
-    // Scan the harness as an entry so Vite pre-bundles every dependency up
-    // front; otherwise the first detail visit can trigger a dep re-optimise
-    // reload that races the assertions.
-    optimizeDeps: { entries: ["e2e/fixtures/online/harness.html"] },
-    server: {
-      host: "127.0.0.1",
-      port,
-      strictPort: true,
-      warmup: {
-        clientFiles: [
-          "e2e/fixtures/online/harness.ts",
-          "src/views/online/**/*.vue",
-        ],
-      },
-    },
-  });
-  await vite.listen();
-  HARNESS = `http://127.0.0.1:${port}/e2e/fixtures/online/harness.html`;
-});
-
-test.afterAll(async () => {
-  await vite?.close();
 });
 
 test.describe("online browse @online", () => {
@@ -88,7 +43,7 @@ test.describe("online browse @online", () => {
     const csp = watchConsole(page);
     await mockOnlineBackend(page);
 
-    await page.goto(`${HARNESS}#/online`);
+    await page.goto("/#/discover");
     await expect(page.getByTestId("online-view")).toBeVisible();
     await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
 
@@ -114,7 +69,7 @@ test.describe("online browse @online", () => {
       if (url.pathname === ehSearchEp.path) searches.push(url.search);
     });
 
-    await page.goto(`${HARNESS}#/online`);
+    await page.goto("/#/online");
     await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -170,10 +125,6 @@ test.describe("online browse @online", () => {
     await expect(page).toHaveURL(
       new RegExp(`#/online/g/${LIST_GID}/${LIST_TOKEN}/read/0$`),
     );
-    await expect(page.getByTestId("harness-stub")).toHaveAttribute(
-      "data-route",
-      "online-reader",
-    );
     expect(csp).toEqual([]);
   });
 
@@ -219,14 +170,14 @@ test.describe("online browse @online", () => {
     const csp = watchConsole(page);
     await mockOnlineBackend(page);
 
-    await page.goto(`${HARNESS}#/online?q=__auth__`);
+    await page.goto("/#/online?q=__auth__");
     const auth = page.getByTestId("online-state-auth");
     await expect(auth).toBeVisible();
     const settings = auth.getByTestId("online-state-settings");
     await expect(settings).toBeVisible();
     await expect(settings).toHaveAttribute("href", /#\/settings$/);
 
-    await page.goto(`${HARNESS}#/online?q=__banned__`);
+    await page.goto("/#/online?q=__banned__");
     const banned = page.getByTestId("online-state-banned");
     await expect(banned).toBeVisible();
     await expect(banned).toContainText("封禁");
@@ -246,7 +197,9 @@ test.describe("online browse @online", () => {
     for (const theme of themes) {
       for (const viewport of viewports) {
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
-        await page.goto(`${HARNESS}?theme=${theme}#/online`);
+        await page.goto("/#/online");
+        await page.evaluate((value) => localStorage.setItem("gv_theme", value), theme);
+        await page.reload();
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
         await page.screenshot({
@@ -254,7 +207,7 @@ test.describe("online browse @online", () => {
           fullPage: true,
         });
 
-        await page.goto(`${HARNESS}?theme=${theme}#/online/g/${LIST_GID}/${LIST_TOKEN}`);
+        await page.goto(detailUrl());
         await expect(page.getByTestId("online-title")).toBeVisible();
         await page.screenshot({
           path: join(SHOTS, `online-detail-${theme}-${viewport.label}.png`),

@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { sessionEp } from "../../../src/api/auth";
 import { ehSearchEp } from "../../../src/api/eh";
 import {
   detailResponse,
@@ -15,6 +16,19 @@ import {
  * local SVG so the mock suite never touches ExHentai / the public CDN.
  */
 export async function mockOnlineBackend(page: Page): Promise<void> {
+  await page.route(`**${sessionEp.path}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        authenticated: true,
+        auth_required: true,
+        must_change_password: false,
+        cookie_health: { state: "ok" },
+      }),
+    });
+  });
+
   await page.route("**/api/eh/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === ehSearchEp.path) {
