@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from galleryvault.app.lifespan import bootstrap_auth
 from galleryvault.app.main import app
 from galleryvault.app.middleware import auth_and_csrf_middleware
 from galleryvault.app.state import app_state
@@ -282,6 +283,57 @@ async def test_concurrent_password_change_cannot_resurrect_revoked_token(
     assert stored_hash is None
     assert not token_matches(KNOWN_TOKEN, stored_hash)
     assert token_store["runtime_auth"]["auth_password_hash"] == "new-hash"
+
+
+async def test_bootstrap_auth_after_revoke_does_not_restore_token(
+    auth_settings: dict[str, Any],
+) -> None:
+    token_store = auth_settings
+    await revoke_token(FakeSession(token_store))
+    assert token_store["runtime_auth"]["api_token_hash"] is None
+
+    app_state.session_factory = lambda: FakeSession(token_store)
+    await bootstrap_auth()
+
+    stored = token_store["runtime_auth"]
+    assert stored.get("api_token_hash") is None
+    assert not token_matches(KNOWN_TOKEN, stored.get("api_token_hash"))
+    # Bootstrap still fills the missing credential keys.
+    assert stored.get("auth_secret")
+    assert stored.get("auth_password_hash")
+
+
+async def test_bootstrap_auth_locks_runtime_auth_before_writing(
+    auth_settings: dict[str, Any],
+) -> None:
+    token_store = auth_settings
+    row_lock = asyncio.Lock()
+    bootstrap_flushed = asyncio.Event()
+    resume_bootstrap = asyncio.Event()
+
+    async def _pause_bootstrap_before_commit() -> None:
+        bootstrap_flushed.set()
+        await resume_bootstrap.wait()
+
+    app_state.session_factory = lambda: FakeSession(
+        token_store,
+        lock=row_lock,
+        isolated=True,
+        flush_hook=_pause_bootstrap_before_commit,
+    )
+    bootstrap_task = asyncio.create_task(bootstrap_auth())
+    await bootstrap_flushed.wait()
+
+    revoke_task = asyncio.create_task(
+        revoke_token(FakeSession(token_store, lock=row_lock, isolated=True))
+    )
+    await asyncio.sleep(0)
+    assert not revoke_task.done()  # bootstrap holds the row lock while writing
+
+    resume_bootstrap.set()
+    await asyncio.gather(bootstrap_task, revoke_task)
+
+    assert token_store["runtime_auth"].get("api_token_hash") is None
 
 
 @pytest.mark.parametrize(

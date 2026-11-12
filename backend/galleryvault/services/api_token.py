@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..db.models import AppConfig
 from ..db.repository import SettingsRepository
@@ -49,6 +50,13 @@ async def lock_runtime_auth(session: Any) -> None:
     if execute is None:
         # Lightweight test doubles may not implement session SQL at all.
         return
+    # Ensure the shared row exists first, then lock it.  The insert is a no-op
+    # when the row already exists and is inside the caller's transaction.
+    await execute(
+        pg_insert(AppConfig)
+        .values(key=SettingsRepository.EXTRA_KEY, value={})
+        .on_conflict_do_nothing(index_elements=[AppConfig.key])
+    )
     statement = (
         select(AppConfig)
         .where(AppConfig.key == SettingsRepository.EXTRA_KEY)
