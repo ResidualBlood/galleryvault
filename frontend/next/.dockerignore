@@ -1,0 +1,21 @@
+# Node / build output
+node_modules
+dist
+
+# Test and tooling artifacts (not needed by `npm run build`)
+e2e
+parity
+docs
+scripts
+playwright-report
+test-results
+blob-report
+coverage
+
+# VCS and local editor noise
+.git
+.gitignore
+.vscode
+.DS_Store
+*.local
+*.md
