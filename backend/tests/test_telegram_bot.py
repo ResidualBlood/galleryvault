@@ -388,6 +388,22 @@ async def test_admin_commands(monkeypatch) -> None:
         assert any("配额" in c[0] or "Quota" in c[0] or "50" in c[0] for c in notifier.calls)
 
         # /storage
+        # The real dashboard starts a fire-and-forget ``storage_tracker.calibrate()``
+        # task that walks the configured roots in a worker thread. That task outlives
+        # the test, so pytest-asyncio's loop teardown (and xdist worker shutdown)
+        # waits for the walk to finish. Stub the dashboard and keep the handler's
+        # formatting path covered without touching the filesystem.
+        async def fake_storage(*_args, **_kwargs):
+            return {
+                "library": {"bytes": 1024, "gallery_count": 3},
+                "downloads": {"bytes": 2048, "image_count": 5},
+                "cache": {"bytes": 512, "thumbnail_count": 7},
+                "cold": {"bytes": 0},
+            }
+
+        monkeypatch.setattr(
+            "galleryvault.app.routers.settings.system_storage", fake_storage
+        )
         await _update(bot, "/storage")
         assert any("存储" in c[0] or "Storage" in c[0] or "图库" in c[0] for c in notifier.calls)
 
