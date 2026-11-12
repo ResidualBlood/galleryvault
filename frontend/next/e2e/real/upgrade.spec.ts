@@ -45,14 +45,26 @@ test.describe("service worker upgrade @upgrade", () => {
     });
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto("/");
+
+    // The legacy shell (frontend/assets) has no data-testid at all, so the
+    // login/shell readiness probes cover both shells: testids for the new
+    // build, the plain login form plus #topbar for the legacy build.
     const loginCard = page.getByTestId("login-card");
-    const content = page.getByTestId("content");
-    await expect(loginCard.or(content)).toBeVisible({ timeout: 30_000 });
+    const legacyLogin = page.locator('form[data-action="login"]');
+    const newShell = page.getByTestId("content");
+    const legacyShell = page.locator("#topbar");
+    await expect(loginCard.or(legacyLogin).or(newShell).or(legacyShell)).toBeVisible({
+      timeout: 30_000,
+    });
+
     if (await loginCard.isVisible().catch(() => false)) {
       await page.getByLabel(/密码|Password/).fill(PASSWORD as string);
       await page.getByTestId("login-submit").click();
+    } else if (await legacyLogin.isVisible().catch(() => false)) {
+      await legacyLogin.locator('input[name="password"]').fill(PASSWORD as string);
+      await legacyLogin.locator('button[type="submit"]').click();
     }
-    await expect(content).toBeVisible({ timeout: 30_000 });
+    await expect(newShell.or(legacyShell)).toBeVisible({ timeout: 30_000 });
     return page;
   }
 

@@ -88,11 +88,34 @@ test("V-09 下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量对话框
   await expect(page.getByTestId("downloads-archive-dialog")).toBeVisible();
   await page.keyboard.press("Escape");
 
+  // The cancel button only exists for live tasks; terminal tasks show retry
+  // instead. Assert the per-row contract rather than requiring a cancellable
+  // task to already exist in the shared queue.
   const list = page.getByTestId("downloads-list");
   if (await list.isVisible().catch(() => false)) {
-    await expect(page.getByTestId("downloads-cancel").first()).toBeVisible();
-    await expect(page.getByTestId("downloads-delete").first()).toBeVisible();
-    annotateUnverified("cancel / retry / delete / clear / retry-all were not confirmed on shared tasks");
+    const rows = list.locator("li[data-task-id]");
+    const count = await rows.count();
+    expect(count).toBeGreaterThan(0);
+    let cancellable = 0;
+    for (let index = 0; index < count; index += 1) {
+      const row = rows.nth(index);
+      const status = await row.getAttribute("data-status");
+      await expect(row.getByTestId("downloads-delete")).toBeVisible();
+      if (status === "pending" || status === "downloading") {
+        cancellable += 1;
+        await expect(row.getByTestId("downloads-cancel")).toBeVisible();
+      } else {
+        await expect(row.getByTestId("downloads-cancel")).toHaveCount(0);
+        await expect(row.getByTestId("downloads-retry")).toBeVisible();
+      }
+    }
+    if (cancellable > 0) {
+      annotateUnverified("cancel / retry / delete / clear / retry-all were not confirmed on shared tasks");
+    } else {
+      annotateUnverified(
+        "all visible tasks are terminal; cancel is correctly absent and retry is shown instead",
+      );
+    }
   } else {
     annotateUnverified("download list is empty; task-level cancel/retry/delete controls were not rendered");
   }

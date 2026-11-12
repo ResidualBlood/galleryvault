@@ -167,9 +167,13 @@ test("N-06 设计一致性：亮 / 暗 × 桌面 / 手机截图与溢出检查 @
     ];
     for (const variant of variants) {
       await page.setViewportSize({ width: variant.width, height: variant.height });
-      await page.evaluate((theme) => localStorage.setItem("gv_theme", theme), variant.theme);
       for (const path of pages) {
         await page.goto(path);
+        await expect(page.getByTestId("content")).toBeVisible();
+        // Hash navigation does not reload the document, so the theme written to
+        // localStorage must be followed by a real reload to be applied.
+        await page.evaluate((theme) => localStorage.setItem("gv_theme", theme), variant.theme);
+        await page.reload();
         await expect(page.getByTestId("content")).toBeVisible();
         await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
         const overflow = await page.evaluate(
@@ -190,6 +194,8 @@ test("N-06 设计一致性：亮 / 暗 × 桌面 / 手机截图与溢出检查 @
       else localStorage.setItem("gv_theme", theme);
     }, original.theme);
     await page.setViewportSize({ width: 1280, height: 900 });
+    await page.reload();
+    await expect(page.getByTestId("content")).toBeVisible();
   }
   await app.shot("N-06");
 });

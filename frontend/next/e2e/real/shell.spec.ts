@@ -173,10 +173,22 @@ test("G-08 归档对话框与收藏夹选择框 @parity", async ({ app }) => {
 
   await page.goto("/#/downloads");
   await expect(page.getByTestId("downloads-view")).toBeVisible();
+  const archiveDialog = page.getByTestId("downloads-archive-dialog");
+  const archiveLinks = page.getByTestId("downloads-urls");
+
+  // By design `openArchive()` validates the pasted links first, so an empty
+  // form reports an error instead of opening the dialog.
+  await archiveLinks.fill("");
   await page.getByTestId("downloads-add-archive").click();
-  await expect(page.getByTestId("downloads-archive-dialog")).toBeVisible();
+  await expect(archiveDialog).toHaveCount(0);
+
+  // A valid gallery link is only parsed client-side; nothing is queued.
+  await archiveLinks.fill(`https://e-hentai.org/g/${gallery.gid}/${gallery.token}/`);
+  await page.getByTestId("downloads-add-archive").click();
+  await expect(archiveDialog).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
+  await expect(archiveDialog).toHaveCount(0);
+  await archiveLinks.fill("");
   await app.shot("G-08");
 });
 

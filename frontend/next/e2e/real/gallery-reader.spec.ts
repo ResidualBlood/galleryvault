@@ -56,7 +56,10 @@ test("V-03 画廊详情：元数据 / 标签 / 缩略图 / 收藏 / 本地字段
     // Local field editing: write a unique note, verify persistence, then restore
     // the captured tri-state in `finally`.
     const note = `parity-note-${Date.now().toString(36)}`;
-    await page.locator('[data-testid="local-note"] input').fill(note);
+    // `local-note` is the <textarea> itself (GalleryManageSection), not a field wrapper.
+    const noteField = page.getByTestId("local-note");
+    await expect(noteField).toHaveJSProperty("tagName", "TEXTAREA");
+    await noteField.fill(note);
     const patched = page.waitForResponse(
       (response) =>
         response.request().method() === "PATCH" &&
