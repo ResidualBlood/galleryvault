@@ -80,6 +80,15 @@ const EXTERNAL_CONNECTION_RE =
   /(?:fetch|WebSocket|EventSource|import)\s*\(\s*["'`](?:https?:)?\/\//;
 const XHR_EXTERNAL_RE = /\.open\s*\(\s*["'][A-Z]+["']\s*,\s*["'`](?:https?:)?\/\//;
 
+/**
+ * The companion userscript is not part of the SPA bundle: it is installed by
+ * the user in Tampermonkey/Violentmonkey and talks to a *user-configured*
+ * GalleryVault origin through GM_xmlhttpRequest (no page fetch/XHR, no fixed
+ * host). The external-connection heuristics therefore do not apply; it is
+ * still scanned for eval/new Function. Keep this list at exactly one entry.
+ */
+const USERSCRIPT_EXEMPT = new Set(["galleryvault-companion.user.js"]);
+
 let scanned = 0;
 for (const file of [...scriptFiles, ...files.filter((f) => f.endsWith(".mjs"))]) {
   if (!existsSync(file) || !statSync(file).isFile()) continue;
@@ -88,6 +97,10 @@ for (const file of [...scriptFiles, ...files.filter((f) => f.endsWith(".mjs"))])
   const where = rel(file);
   if (EVAL_RE.test(source)) errors.push(`${where}: eval() detected`);
   if (NEW_FUNCTION_RE.test(source)) errors.push(`${where}: new Function() detected`);
+  if (USERSCRIPT_EXEMPT.has(where)) {
+    notes.push(`exempt: ${where} (userscript, user-configured origin via GM_xmlhttpRequest)`);
+    continue;
+  }
   if (EXTERNAL_CONNECTION_RE.test(source)) {
     errors.push(`${where}: connection to an external origin detected`);
   }
