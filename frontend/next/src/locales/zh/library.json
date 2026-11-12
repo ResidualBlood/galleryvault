@@ -1,0 +1,35 @@
+{
+  "home": {
+    "eyebrow": "GALLERYVAULT",
+    "title": "浏览",
+    "latest": "最近入库",
+    "random": "随机一本",
+    "randomFailed": "随机打开失败，请稍后重试。"
+  },
+  "continueReading": {
+    "title": "继续阅读",
+    "viewAll": "查看全部历史",
+    "readNow": "继续阅读",
+    "progress": "进度 {current}/{total}"
+  },
+  "page": {
+    "eyebrow": "LOCAL LIBRARY",
+    "title": "本机库",
+    "search": "搜索",
+    "searchPlaceholder": "搜索画廊或标签…",
+    "orderLabel": "排序",
+    "categoryLabel": "分类",
+    "readStatusLabel": "阅读状态",
+    "pageSizeLabel": "每页数量",
+    "tagSuggestLabel": "标签建议",
+    "tagSuggestEmpty": "没有匹配的标签",
+    "activeTagsLabel": "已选标签",
+    "removeTag": "移除标签",
+    "emptyTitle": "没有匹配的画廊",
+    "emptyBody": "换个关键词，或清空筛选条件再试。",
+    "totalBooks": "共 {n} 本",
+    "loading": "加载中…",
+    "scrollRestored": "已恢复上次浏览位置",
+    "clearFilters": "清空筛选"
+  }
+}

@@ -17,10 +17,11 @@ const galleryId = computed(() => {
   return Number.isFinite(value) ? value : 0;
 });
 
+/** `page` is the legacy zero-based index used by gallery detail thumbnails. */
 const page = computed(() => {
   const raw = route.params.page;
   const value = Number.parseInt(String(Array.isArray(raw) ? raw[0] : raw), 10);
-  return Number.isFinite(value) && value > 0 ? value - 1 : 0;
+  return Number.isFinite(value) && value > 0 ? value : 0;
 });
 
 const slideshow = computed(() => {
@@ -34,7 +35,7 @@ function close(): void {
 }
 
 function next(id: number): void {
-  void router.push({ name: "reader", params: { id, page: 1 } });
+  void router.push({ name: "reader", params: { id, page: 0 } });
 }
 </script>
 

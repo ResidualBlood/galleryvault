@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 import { readerPagePath } from "../src/api/reader";
+import { mockGalleryBackend } from "./fixtures/gallery/mock";
+import { SMALL_GALLERY_ID } from "./fixtures/gallery/data";
 import { expect, test } from "./fixtures/mock";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -332,6 +334,35 @@ test("last page offers the next gallery @reader", async ({ page }) => {
   await expect(next).toBeVisible();
   await next.click();
   await expect.poll(() => page.evaluate(() => window.__readerHarness?.next)).toBe(88);
+});
+
+test("detail thumbnail opens the routed reader at that page @reader", async ({ page }) => {
+  await mockGalleryBackend(page);
+  const pageBase = readerPagePath(SMALL_GALLERY_ID, 0).replace(/\/0$/, "");
+  await page.route(new RegExp(`${pageBase}/\\d+(?:\\?.*)?$`), async (route) => {
+    const match = new URL(route.request().url()).pathname.match(/\/pages\/(\d+)/);
+    await route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: svgPage(Number(match?.[1] ?? 0), 600, 900),
+    });
+  });
+
+  await page.goto(`/#/gallery/${SMALL_GALLERY_ID}`);
+  await expect(page.getByTestId("gallery-detail")).toBeVisible();
+  await page.locator('[data-testid="thumb"]').nth(5).click();
+
+  await expect(page).toHaveURL(new RegExp(`#/reader/${SMALL_GALLERY_ID}/5$`));
+  const shell = page.getByTestId("reader-shell");
+  await expect(shell).toBeVisible();
+  await expect(shell).toHaveAttribute("data-total", "12");
+  await expect(shell).toHaveAttribute("data-page", "5");
+  await expect(page.getByTestId("reader-page-label")).toContainText("6");
+  await expect(page.locator('[data-testid="reader-page"] img').first()).toBeVisible();
+
+  await page.mouse.click(640, 450);
+  await page.getByTestId("reader-close").click();
+  await expect(page).toHaveURL(new RegExp(`#/gallery/${SMALL_GALLERY_ID}$`));
 });
 
 test("five modes have dark/light desktop/mobile screenshots @reader", async ({ page }) => {
