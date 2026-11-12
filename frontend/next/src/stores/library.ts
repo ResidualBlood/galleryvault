@@ -307,6 +307,61 @@ export const useLibraryStore = defineStore("library-list", () => {
     return loadPage(page.value + 1);
   }
 
+  /**
+   * Re-fetch the current page after a server-side mutation (batch delete).
+   *
+   * Unlike `loadPage` this always replaces the rows instead of appending, and
+   * when the current page became empty it falls back to the new last page —
+   * the same "delete the last row on page N" behavior as the legacy grid.
+   */
+  async function reload(): Promise<boolean> {
+    const key = currentKey.value;
+    if (!key) return false;
+    const seq = ++requestSeq;
+    controller?.abort();
+    controller = new AbortController();
+    loading.value = true;
+    error.value = null;
+    try {
+      let target = Math.max(1, page.value || 1);
+      let data = await fetchGalleries(
+        { ...currentQuery.value, page: target },
+        controller.signal,
+      );
+      if (seq !== requestSeq || key !== currentKey.value) return false;
+      if (!data.items.length && data.total > 0 && target > 1) {
+        const size = data.page_size || pageSize.value;
+        const lastPage = Math.max(1, Math.ceil(data.total / Math.max(1, size)));
+        if (lastPage !== target) {
+          target = lastPage;
+          data = await fetchGalleries(
+            { ...currentQuery.value, page: target },
+            controller.signal,
+          );
+          if (seq !== requestSeq || key !== currentKey.value) return false;
+        }
+      }
+      page.value = data.page;
+      total.value = data.total;
+      items.value = data.items;
+      exhausted.value =
+        data.items.length === 0 ||
+        items.value.length >= data.total ||
+        data.page * data.page_size >= data.total;
+      failures.value = 0;
+      remember();
+      return true;
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return false;
+      if (seq !== requestSeq) return false;
+      error.value = caught instanceof Error ? caught.message : String(caught);
+      failures.value += 1;
+      return false;
+    } finally {
+      if (seq === requestSeq) loading.value = false;
+    }
+  }
+
   /** Explicit "click to retry": resets the counter and retries the failed page. */
   async function retry(): Promise<boolean> {
     if (loading.value || !currentKey.value) return false;
@@ -341,6 +396,7 @@ export const useLibraryStore = defineStore("library-list", () => {
     start,
     loadMore,
     retry,
+    reload,
     saveScroll,
     savedScroll,
   };

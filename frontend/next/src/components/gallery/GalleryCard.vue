@@ -16,12 +16,15 @@ const props = withDefaults(
     badges?: GalleryBadge[];
     /** Hide meta line when the caller already renders it elsewhere. */
     showMeta?: boolean;
+    /** Live favourite state from the shared store, overriding the list payload. */
+    favorited?: boolean;
   }>(),
   {
     variant: "grid",
     source: "local",
     badges: undefined,
     showMeta: true,
+    favorited: undefined,
   },
 );
 
@@ -84,7 +87,7 @@ const categoryBadge = computed<GalleryBadge>(() => ({
 const startBadges = computed<GalleryBadge[]>(() => {
   if (props.badges) return props.badges;
   const badges: GalleryBadge[] = [categoryBadge.value];
-  if (props.item.favorite) {
+  if (props.favorited ?? props.item.favorite) {
     badges.push({ label: "♥", tone: "primary", title: t("legacy.favcatTag") });
   }
   return badges;

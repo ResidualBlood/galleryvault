@@ -4,14 +4,29 @@ import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Select from "@/components/ui/Select.vue";
-import { previewArchive, type ArchivePreview } from "@/api/archive";
+import {
+  previewArchive,
+  type ArchivePreview,
+  type ArchivePreviewItem,
+} from "@/api/archive";
 import "./messages";
+
+type Quality = "resample" | "original";
+type TierItem = Pick<
+  ArchivePreviewItem,
+  | "resample_cost"
+  | "resample_size"
+  | "original_cost"
+  | "original_size"
+  | "resample_available"
+  | "original_available"
+>;
 
 const props = withDefaults(
   defineProps<{
     open: boolean;
     gids: number[];
-    defaultQuality?: "resample" | "original";
+    defaultQuality?: Quality;
   }>(),
   {
     defaultQuality: "resample",
@@ -20,15 +35,16 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   close: [];
-  confirm: [payload: { gids: number[]; quality: "resample" | "original" }];
+  confirm: [payload: { gids: number[]; quality: Quality }];
 }>();
 
 const { t } = useI18n();
 const preview = ref<ArchivePreview | null>(null);
-const quality = ref<"resample" | "original">("resample");
+const quality = ref<Quality>("resample");
 const loading = ref(false);
 const error = ref("");
 let seq = 0;
+let controller: AbortController | null = null;
 
 const qualityOptions = computed(() => [
   { value: "resample", label: t("system.archiveDialog.resample") },
@@ -38,6 +54,20 @@ const qualityOptions = computed(() => [
 const items = computed(() => preview.value?.items ?? []);
 const funds = computed(() =>
   typeof preview.value?.funds === "number" ? preview.value.funds.toLocaleString() : "—",
+);
+
+/** Legacy disables confirmation when every preview row failed. */
+const allFailed = computed(
+  () => items.value.length > 0 && items.value.every((item) => Boolean(item.error)),
+);
+
+const confirmDisabled = computed(
+  () =>
+    loading.value ||
+    Boolean(error.value) ||
+    props.gids.length === 0 ||
+    items.value.length === 0 ||
+    allFailed.value,
 );
 
 function formatSize(value: number | null | undefined): string {
@@ -52,37 +82,55 @@ function formatSize(value: number | null | undefined): string {
   return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-function available(item: { resample_available?: boolean; original_available?: boolean }): boolean {
-  return quality.value === "original" ? Boolean(item.original_available) : Boolean(item.resample_available);
+function tierAvailable(item: TierItem, tier: Quality): boolean {
+  return tier === "original"
+    ? Boolean(item.original_available)
+    : Boolean(item.resample_available);
 }
 
-function cost(item: {
-  resample_cost?: number | null;
-  original_cost?: number | null;
-}): number | null {
-  return quality.value === "original" ? item.original_cost ?? null : item.resample_cost ?? null;
+function tierCost(item: TierItem, tier: Quality): number | null {
+  return tier === "original" ? item.original_cost ?? null : item.resample_cost ?? null;
 }
 
-function size(item: {
-  resample_size?: number | null;
-  original_size?: number | null;
-}): number | null {
-  return quality.value === "original" ? item.original_size ?? null : item.resample_size ?? null;
+function tierSize(item: TierItem, tier: Quality): number | null {
+  return tier === "original" ? item.original_size ?? null : item.resample_size ?? null;
+}
+
+function qualityLabel(tier: Quality): string {
+  return t(
+    tier === "original" ? "system.archiveDialog.original" : "system.archiveDialog.resample",
+  );
+}
+
+/** Same "GP · size" shape as the legacy archive table, prefixed when unaffordable. */
+function tierText(item: TierItem, tier: Quality): string {
+  const cost = tierCost(item, tier);
+  if (cost === null) return "N/A";
+  const prefix = tierAvailable(item, tier) ? "" : "⚠ ";
+  return `${prefix}${cost} GP · ${formatSize(tierSize(item, tier))}`;
+}
+
+function abortPreview(): void {
+  controller?.abort();
+  controller = null;
 }
 
 async function load(): Promise<void> {
   if (!props.open || props.gids.length === 0) return;
   const current = ++seq;
+  abortPreview();
+  controller = new AbortController();
   loading.value = true;
   error.value = "";
   preview.value = null;
   try {
-    const result = await previewArchive(props.gids);
+    const result = await previewArchive(props.gids, controller.signal);
     if (current === seq) preview.value = result;
   } catch (cause) {
-    if (current === seq) {
-      error.value = cause instanceof Error ? cause.message : t("system.archiveDialog.loadFailed");
-    }
+    if (current !== seq) return;
+    if (cause instanceof DOMException && cause.name === "AbortError") return;
+    error.value =
+      cause instanceof Error ? cause.message : t("system.archiveDialog.loadFailed");
   } finally {
     if (current === seq) loading.value = false;
   }
@@ -91,18 +139,22 @@ async function load(): Promise<void> {
 watch(
   () => [props.open, props.gids] as const,
   ([open]) => {
-    if (open) {
+    if (open && props.gids.length > 0) {
       quality.value = props.defaultQuality;
       void load();
-    } else {
-      seq += 1;
+      return;
     }
+    seq += 1;
+    abortPreview();
+    preview.value = null;
+    loading.value = false;
+    error.value = "";
   },
   { immediate: true },
 );
 
 function confirm(): void {
-  if (!props.gids.length || error.value) return;
+  if (confirmDisabled.value) return;
   emit("confirm", { gids: [...props.gids], quality: quality.value });
 }
 </script>
@@ -122,7 +174,17 @@ function confirm(): void {
 
     <template v-else>
       <p v-if="loading" class="archive-dialog__state">{{ t('system.archiveDialog.loading') }}</p>
-      <p v-else-if="error" class="archive-dialog__error" role="alert">{{ error }}</p>
+      <div v-else-if="error" class="archive-dialog__failure">
+        <p class="archive-dialog__error" role="alert">{{ error }}</p>
+        <Button
+          variant="outlined"
+          size="compact"
+          data-testid="archive-dialog-retry"
+          @click="load"
+        >
+          {{ t('system.archiveDialog.retry') }}
+        </Button>
+      </div>
 
       <div v-else class="archive-dialog__body">
         <div class="archive-dialog__row">
@@ -134,20 +196,27 @@ function confirm(): void {
 
         <Select v-model="quality" :options="qualityOptions" :label="t('system.archiveDialog.quality')" />
 
+        <p v-if="!items.length" class="archive-dialog__empty">
+          {{ t('system.archiveDialog.noItems') }}
+        </p>
+
+        <p v-else-if="allFailed" class="archive-dialog__error" role="alert">
+          {{ items.find((item) => item.error)?.error }}
+        </p>
+
         <ul class="archive-dialog__list">
           <li v-for="item in items" :key="item.gid" class="archive-dialog__item">
             <span class="archive-dialog__title">{{ item.title || item.gid }}</span>
             <span v-if="item.error" class="archive-dialog__unavailable">{{ item.error }}</span>
-            <span v-else-if="!available(item)" class="archive-dialog__unavailable">
-              {{ t('system.archiveDialog.unavailable') }}
-            </span>
-            <span v-else class="archive-dialog__cost">
-              {{
-                t('system.archiveDialog.cost', {
-                  cost: cost(item) ?? '—',
-                  size: formatSize(size(item)),
-                })
-              }}
+            <span v-else class="archive-dialog__costs">
+              <span
+                v-for="tier in (['original', 'resample'] as const)"
+                :key="tier"
+                class="archive-dialog__cost"
+                :class="{ 'archive-dialog__cost--unavailable': !tierAvailable(item, tier) }"
+              >
+                {{ qualityLabel(tier) }}: {{ tierText(item, tier) }}
+              </span>
             </span>
           </li>
         </ul>
@@ -157,7 +226,7 @@ function confirm(): void {
     <template #footer>
       <Button variant="text" @click="emit('close')">{{ t('system.archiveDialog.cancel') }}</Button>
       <Button
-        :disabled="loading || Boolean(error) || !gids.length"
+        :disabled="confirmDisabled"
         data-testid="archive-dialog-confirm"
         @click="confirm"
       >
@@ -186,6 +255,13 @@ function confirm(): void {
   padding: var(--gv-space-3);
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-medium);
+}
+
+.archive-dialog__failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gv-space-2);
 }
 
 .archive-dialog__error {
@@ -226,8 +302,8 @@ function confirm(): void {
 
 .archive-dialog__item {
   display: flex;
-  justify-content: space-between;
-  gap: var(--gv-space-2);
+  flex-direction: column;
+  gap: var(--gv-space-1);
   padding: var(--gv-space-2);
   border-radius: var(--gv-radius-sm);
   background: var(--gv-color-surface-container);
@@ -238,11 +314,22 @@ function confirm(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--gv-color-on-surface);
+}
+
+.archive-dialog__costs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gv-space-2);
 }
 
 .archive-dialog__cost {
   color: var(--gv-color-on-surface-variant);
   white-space: nowrap;
+}
+
+.archive-dialog__cost--unavailable {
+  color: var(--gv-color-error);
 }
 
 .archive-dialog__unavailable {

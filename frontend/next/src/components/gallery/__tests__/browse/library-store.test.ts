@@ -98,4 +98,39 @@ describe("library list store", () => {
     expect(store.items.map((item) => item.id)).toEqual([1, 2]);
     expect(store.exhausted).toBe(true);
   });
+
+  it("reload replaces the current page and falls back when it became empty", async () => {
+    const item = (id: number) => ({
+      id,
+      gid: id,
+      token: "t",
+      title: `Gallery ${id}`,
+      category: "manga",
+      page_count: 10,
+      cover_url: null,
+      tags: [],
+    });
+    mockedFetch
+      .mockResolvedValueOnce(
+        page({ total: 3, page: 2, page_size: 2, items: [item(3)] }),
+      )
+      .mockResolvedValueOnce(
+        page({ total: 2, page: 2, page_size: 2, items: [] }),
+      )
+      .mockResolvedValueOnce(
+        page({ total: 2, page: 1, page_size: 2, items: [item(1), item(2)] }),
+      );
+
+    const store = useLibraryStore();
+    store.start({ page: 2, page_size: 2 });
+    await vi.waitFor(() => expect(store.items.map((entry) => entry.id)).toEqual([3]));
+
+    expect(await store.reload()).toBe(true);
+    expect(mockedFetch.mock.calls[1]?.[0]).toMatchObject({ page: 2, page_size: 2 });
+    expect(mockedFetch).toHaveBeenLastCalledWith({ page: 1, page_size: 2 }, expect.anything());
+    expect(mockedFetch).toHaveBeenCalledTimes(3);
+    expect(store.page).toBe(1);
+    expect(store.total).toBe(2);
+    expect(store.items.map((entry) => entry.id)).toEqual([1, 2]);
+  });
 });

@@ -148,7 +148,9 @@
     "loading": "正在读取归档信息…",
     "loadFailed": "无法读取归档信息。",
     "noSelection": "没有选择画廊。",
-    "total": "{count} 本"
+    "total": "{count} 本",
+    "noItems": "没有可归档的画廊。",
+    "retry": "重试"
   },
   "common": {
     "cancel": "取消",
