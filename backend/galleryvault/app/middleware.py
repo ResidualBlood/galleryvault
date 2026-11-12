@@ -111,20 +111,22 @@ def _verify_basic_auth(request: Request, settings: Any) -> bool:
     return valid_username and valid_password
 
 
-def _bearer_credential(request: Request) -> str | None:
-    """Return the Bearer credential, or ``None`` when no Bearer scheme is used.
+def _bearer_credential(request: Request) -> tuple[bool, str]:
+    """Return ``(uses_bearer_scheme, token)`` for the Authorization header.
 
-    An empty string means the client sent ``Authorization: Bearer`` without a
-    token; that is still treated as Bearer auth (and rejected) rather than
-    silently falling back to the cookie session.
+    A bare ``Authorization: Bearer`` (no space or an empty credential) is still
+    the Bearer scheme with an empty token, so callers reject it as an invalid
+    Bearer credential instead of falling back to cookie authentication.
     """
     auth_header = request.headers.get("authorization")
     if not auth_header:
-        return None
-    scheme, sep, param = auth_header.partition(" ")
-    if not sep or scheme.lower() != "bearer":
-        return None
-    return param.strip()
+        return False, ""
+    parts = auth_header.split(None, 1)
+    if not parts or parts[0].lower() != "bearer":
+        return False, ""
+    if len(parts) == 1:
+        return True, ""
+    return True, parts[1].strip()
 
 
 def _is_bearer_allowed(request: Request) -> bool:
@@ -187,13 +189,28 @@ async def _auth_and_csrf(request: Request, call_next: Any) -> Any:
     if not settings.auth_required:
         return await call_next(request)
 
+    session_cookie = request.cookies.get(settings.auth_cookie_name)
     # OPDS/export.cbz keep their existing Basic-auth semantics: an
     # ``Authorization: Bearer`` header there is still an invalid Basic attempt
     # (401 + realm) rather than an API-token authentication.
-    bearer = None if _is_basic_auth_route(request) else _bearer_credential(request)
-    is_bearer = bearer is not None
+    bearer_used, bearer_token = (
+        (False, "") if _is_basic_auth_route(request) else _bearer_credential(request)
+    )
+    if bearer_used and not bearer_token:
+        logger.info(
+            "authentication failed",
+            extra=log_extra(
+                ip=request.client.host if request.client else "unknown",
+                reason="invalid_bearer_token",
+            ),
+        )
+        return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    # Mixed credentials must never inherit the Bearer CSRF exemption.  When a
+    # session cookie is present the Bearer header is ignored and the request is
+    # processed through the normal cookie path (including full CSRF checks).
+    is_bearer = bearer_used and session_cookie is None
     if is_bearer:
-        if not await _verify_bearer_token(bearer or ""):
+        if not await _verify_bearer_token(bearer_token):
             logger.info(
                 "authentication failed",
                 extra=log_extra(
@@ -212,9 +229,7 @@ async def _auth_and_csrf(request: Request, call_next: Any) -> Any:
             )
         authenticated = True
     else:
-        authenticated = verify_session(
-            request.cookies.get(settings.auth_cookie_name), settings.auth_secret or ""
-        )
+        authenticated = verify_session(session_cookie, settings.auth_secret or "")
 
     if not authenticated and not is_bearer and _is_basic_auth_route(request):
         if _verify_basic_auth(request, settings):

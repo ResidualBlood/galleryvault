@@ -13,6 +13,9 @@ import secrets
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
+
+from ..db.models import AppConfig
 from ..db.repository import SettingsRepository
 from ..db.session import safe_transaction
 
@@ -32,6 +35,40 @@ def token_matches(token: str, stored_hash: Any) -> bool:
     if not isinstance(stored_hash, str) or not stored_hash:
         return False
     return hmac.compare_digest(stored_hash, hash_token(token))
+
+
+async def lock_runtime_auth(session: Any) -> None:
+    """Lock the shared ``runtime_auth`` row before merging new values.
+
+    Token writes and password changes both read-modify-write the same JSONB
+    value.  Without a row lock a stale reader can write back an old token hash
+    after a revoke.  Every in-scope writer must call this inside the same
+    transaction as its ``save_extra``.
+    """
+    execute = getattr(session, "execute", None)
+    if execute is None:
+        # Lightweight test doubles may not implement session SQL at all.
+        return
+    statement = (
+        select(AppConfig)
+        .where(AppConfig.key == SettingsRepository.EXTRA_KEY)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    await execute(statement)
+
+
+async def save_runtime_auth(
+    session: Any,
+    values: dict[str, Any],
+    *,
+    repository: Any | None = None,
+) -> None:
+    """Merge ``values`` into ``runtime_auth`` while holding its row lock."""
+    async with safe_transaction(session):
+        await lock_runtime_auth(session)
+        repo = repository if repository is not None else SettingsRepository(session)
+        await repo.save_extra(values)
 
 
 async def _read_extra(session: Any | None = None) -> dict[str, Any]:
@@ -66,15 +103,13 @@ async def create_token(session: Any) -> str:
         TOKEN_HASH_KEY: hash_token(token),
         TOKEN_CREATED_AT_KEY: datetime.now(UTC).isoformat(),
     }
-    async with safe_transaction(session):
-        await SettingsRepository(session).save_extra(record)
+    await save_runtime_auth(session, record)
     return token
 
 
 async def revoke_token(session: Any) -> None:
     """Remove the token; ``save_extra`` merges, so clear the fields explicitly."""
-    async with safe_transaction(session):
-        await SettingsRepository(session).save_extra({
-            TOKEN_HASH_KEY: None,
-            TOKEN_CREATED_AT_KEY: None,
-        })
+    await save_runtime_auth(session, {
+        TOKEN_HASH_KEY: None,
+        TOKEN_CREATED_AT_KEY: None,
+    })

@@ -33,7 +33,6 @@ from ...auth import (
 )
 from ...db.models import Gallery
 from ...db.repository import SettingsRepository
-from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...secrets import encrypt, encryption_enabled
 from ...services import api_token as api_token_service
@@ -287,8 +286,9 @@ async def change_password(
     if encryption_enabled():
         stored = {k: encrypt(v) for k, v in stored.items()}
     try:
-        async with safe_transaction(session):
-            await SettingsRepository(session).save_extra(stored)
+        await api_token_service.save_runtime_auth(
+            session, stored, repository=SettingsRepository(session)
+        )
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 

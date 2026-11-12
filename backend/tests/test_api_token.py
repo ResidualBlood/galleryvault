@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Self
 
@@ -13,7 +14,12 @@ from galleryvault.app.main import app
 from galleryvault.app.middleware import auth_and_csrf_middleware
 from galleryvault.app.state import app_state
 from galleryvault.auth import create_session, hash_password
-from galleryvault.services.api_token import hash_token
+from galleryvault.services.api_token import (
+    hash_token,
+    revoke_token,
+    save_runtime_auth,
+    token_matches,
+)
 
 KNOWN_TOKEN = "known-companion-token"
 SESSION_SECRET = "unit-test-secret"
@@ -35,34 +41,77 @@ class _Row:
 
 
 class FakeSession:
-    """Minimal AsyncSession double for the ``runtime_auth`` settings row."""
+    """Minimal AsyncSession double for the ``runtime_auth`` settings row.
 
-    def __init__(self, store: dict[str, Any]) -> None:
-        self.store = store
+    ``lock`` models ``SELECT ... FOR UPDATE``: ``execute`` acquires it until
+    commit/rollback.  ``isolated`` gives each session a snapshot that is only
+    published on commit, so a stale read-modify-write can be reproduced.
+    """
+
+    def __init__(
+        self,
+        store: dict[str, Any],
+        *,
+        lock: asyncio.Lock | None = None,
+        flush_hook: Any = None,
+        isolated: bool = False,
+    ) -> None:
+        self._shared = store
+        self._local: dict[str, Any] | None = None
+        self._lock = lock
+        self._lock_held = False
+        self._flush_hook = flush_hook
+        self._isolated = isolated
+
+    def _active(self) -> dict[str, Any]:
+        return self._local if self._local is not None else self._shared
+
+    def _snapshot(self) -> None:
+        if self._isolated and self._local is None:
+            self._local = {
+                key: dict(value) if isinstance(value, dict) else value
+                for key, value in self._shared.items()
+            }
+
+    def _release(self, *, persist: bool) -> None:
+        if persist and self._isolated and self._local is not None:
+            self._shared.clear()
+            self._shared.update(self._local)
+        self._local = None
+        if self._lock_held:
+            self._lock.release()  # type: ignore[union-attr]
+            self._lock_held = False
 
     async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
+        self._release(persist=False)
         return False
 
     async def get(self, _model: object, key: str) -> _Row | None:
-        return _Row(self.store, key) if key in self.store else None
+        self._snapshot()
+        active = self._active()
+        return _Row(active, key) if key in active else None
 
     def add(self, obj: Any) -> None:
-        self.store[str(obj.key)] = obj.value
+        self._active()[str(obj.key)] = obj.value
 
     async def flush(self) -> None:
-        pass
+        if self._flush_hook is not None:
+            await self._flush_hook()
 
     async def commit(self) -> None:
-        pass
+        self._release(persist=True)
 
     async def rollback(self) -> None:
-        pass
+        self._release(persist=False)
 
     async def execute(self, *_args: object, **_kwargs: object) -> None:
-        return None
+        if self._lock is not None and not self._lock_held:
+            await self._lock.acquire()
+            self._lock_held = True
+        self._snapshot()
 
     def in_transaction(self) -> bool:
         return False
@@ -189,6 +238,52 @@ def test_regenerate_invalidates_previous_token(client: TestClient) -> None:
     assert client.get("/api/auth/session", headers=_bearer(second)).status_code == 200
 
 
+async def test_password_change_after_revoke_does_not_restore_token(
+    token_store: dict[str, Any],
+) -> None:
+    await revoke_token(FakeSession(token_store))
+    assert token_store["runtime_auth"]["api_token_hash"] is None
+
+    await save_runtime_auth(FakeSession(token_store), {"auth_password_hash": "new-hash"})
+    assert token_store["runtime_auth"]["api_token_hash"] is None
+    assert not token_matches(KNOWN_TOKEN, token_store["runtime_auth"]["api_token_hash"])
+
+
+async def test_concurrent_password_change_cannot_resurrect_revoked_token(
+    token_store: dict[str, Any],
+) -> None:
+    """A stale password write must wait for the revoke, not overwrite it."""
+    row_lock = asyncio.Lock()
+    password_flushed = asyncio.Event()
+    resume_password = asyncio.Event()
+
+    async def _pause_password_before_commit() -> None:
+        password_flushed.set()
+        await resume_password.wait()
+
+    password_session = FakeSession(
+        token_store, lock=row_lock, isolated=True, flush_hook=_pause_password_before_commit
+    )
+    password_task = asyncio.create_task(
+        save_runtime_auth(password_session, {"auth_password_hash": "new-hash"})
+    )
+    await password_flushed.wait()
+
+    revoke_task = asyncio.create_task(
+        revoke_token(FakeSession(token_store, lock=row_lock, isolated=True))
+    )
+    await asyncio.sleep(0)
+    assert not revoke_task.done()  # blocked on the runtime_auth row lock
+
+    resume_password.set()
+    await asyncio.gather(password_task, revoke_task)
+
+    stored_hash = token_store["runtime_auth"]["api_token_hash"]
+    assert stored_hash is None
+    assert not token_matches(KNOWN_TOKEN, stored_hash)
+    assert token_store["runtime_auth"]["auth_password_hash"] == "new-hash"
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [
@@ -221,6 +316,11 @@ def test_bearer_whitelisted_endpoints(
         ("GET", "/api/auth/api-token"),
         ("POST", "/api/auth/api-token"),
         ("GET", "/api/galleries"),
+        ("HEAD", "/api/downloads"),
+        ("OPTIONS", "/api/downloads"),
+        ("DELETE", "/api/downloads"),
+        ("GET", "/api/downloads/1"),
+        ("GET", "/api/favorites/categories/"),
     ],
 )
 def test_bearer_outside_whitelist_is_forbidden(
@@ -242,6 +342,84 @@ def test_missing_or_wrong_bearer_is_unauthorized(
         app_state.session_factory = lambda: FakeSession(auth_settings)
         headers = {} if not token else _bearer(token)
         assert mini_client.get("/api/auth/session", headers=headers).status_code == 401
+
+
+@pytest.mark.parametrize("header", ["Bearer", "Bearer ", "bearer", "Bearer    "])
+def test_empty_bearer_is_unauthorized_and_never_falls_back_to_cookie(
+    auth_settings: dict[str, Any], header: str
+) -> None:
+    mini = _mini_app()
+    with TestClient(mini) as mini_client:
+        app_state.session_factory = lambda: FakeSession(auth_settings)
+        mini_client.cookies.set(COOKIE_NAME, create_session(SESSION_SECRET, 60))
+        response = mini_client.get("/api/auth/session", headers={"Authorization": header})
+        assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "extra_headers",
+    [
+        {},
+        {"Origin": "http://evil.example", "Sec-Fetch-Site": "cross-site"},
+    ],
+)
+def test_mixed_cookie_and_valid_bearer_still_runs_cookie_csrf(
+    auth_settings: dict[str, Any], extra_headers: dict[str, str]
+) -> None:
+    """A valid Bearer header must not let a cookie session skip CSRF."""
+    mini = _mini_app()
+    with TestClient(
+        mini, client=("192.168.1.50", 50000), base_url="http://galleryvault.local"
+    ) as external:
+        app_state.session_factory = lambda: FakeSession(auth_settings)
+        external.cookies.set(COOKIE_NAME, create_session(SESSION_SECRET, 60))
+        response = external.post(
+            "/api/downloads",
+            headers={**_bearer(KNOWN_TOKEN), **extra_headers},
+            json={},
+        )
+        assert response.status_code == 403
+
+
+def test_mixed_cookie_and_valid_bearer_with_valid_csrf_is_allowed(
+    auth_settings: dict[str, Any],
+) -> None:
+    mini = _mini_app()
+    with TestClient(
+        mini, client=("192.168.1.50", 50000), base_url="http://galleryvault.local"
+    ) as external:
+        app_state.session_factory = lambda: FakeSession(auth_settings)
+        external.cookies.set(COOKIE_NAME, create_session(SESSION_SECRET, 60))
+        external.cookies.set("galleryvault_csrf", "csrf-value")
+        response = external.post(
+            "/api/downloads",
+            headers={**_bearer(KNOWN_TOKEN), "X-CSRF-Token": "csrf-value"},
+            json={},
+        )
+        assert response.status_code == 200
+
+
+def test_invalid_cookie_plus_valid_bearer_does_not_fall_back(
+    auth_settings: dict[str, Any],
+) -> None:
+    mini = _mini_app()
+    with TestClient(mini) as mini_client:
+        app_state.session_factory = lambda: FakeSession(auth_settings)
+        mini_client.cookies.set(COOKIE_NAME, "stale-invalid-session")
+        response = mini_client.get("/api/auth/session", headers=_bearer(KNOWN_TOKEN))
+        assert response.status_code == 401
+
+
+def test_token_lookup_failure_fails_closed(auth_settings: dict[str, Any]) -> None:
+    mini = _mini_app()
+
+    def _broken_factory() -> Any:
+        raise RuntimeError("database down")
+
+    with TestClient(mini) as mini_client:
+        app_state.session_factory = _broken_factory
+        response = mini_client.get("/api/auth/session", headers=_bearer(KNOWN_TOKEN))
+        assert response.status_code == 401
 
 
 def test_bearer_skips_csrf_and_origin_checks(auth_settings: dict[str, Any]) -> None:
