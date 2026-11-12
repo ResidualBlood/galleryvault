@@ -1,0 +1,816 @@
+{
+  "version": 1,
+  "source": "PLAN-frontend-rewrite.md §4.2 (旧位置 → 新分组 → 键)",
+  "storage": {
+    "us": "POST /api/settings (user_settings; partial payload keeps unsubmitted keys)",
+    "ls": "localStorage (per device)",
+    "readonly": "returned by the API, never written by this page",
+    "env": "environment / process only",
+    "none": "derived or external link"
+  },
+  "groups": [
+    {
+      "id": "appearance",
+      "order": 1,
+      "titleKey": "settings.group.appearance.title",
+      "descriptionKey": "settings.group.appearance.description",
+      "fields": [
+        {
+          "key": "gv_theme",
+          "storage": "ls",
+          "control": "select",
+          "default": "dark",
+          "labelKey": "settings.field.gv_theme",
+          "helpKey": "settings.help.field.gv_theme",
+          "options": [
+            { "value": "dark", "labelKey": "settings.option.theme.dark" },
+            { "value": "light", "labelKey": "settings.option.theme.light" },
+            { "value": "system", "labelKey": "settings.option.theme.system" }
+          ]
+        },
+        {
+          "key": "gv_lang",
+          "storage": "ls",
+          "control": "select",
+          "default": "zh",
+          "labelKey": "settings.field.gv_lang",
+          "helpKey": "settings.help.field.gv_lang",
+          "options": [
+            { "value": "zh", "labelKey": "settings.option.lang.zh" },
+            { "value": "en", "labelKey": "settings.option.lang.en" }
+          ]
+        },
+        {
+          "key": "title_display",
+          "storage": "us",
+          "control": "select",
+          "default": "japanese",
+          "labelKey": "settings.field.title_display",
+          "helpKey": "settings.help.field.title_display",
+          "options": [
+            { "value": "japanese", "labelKey": "settings.option.titleDisplay.japanese" },
+            { "value": "english", "labelKey": "settings.option.titleDisplay.english" },
+            { "value": "directory", "labelKey": "settings.option.titleDisplay.directory" }
+          ]
+        },
+        {
+          "key": "gv_page_size",
+          "storage": "ls",
+          "control": "number",
+          "default": 50,
+          "min": 1,
+          "max": 500,
+          "labelKey": "settings.field.gv_page_size",
+          "helpKey": "settings.help.field.gv_page_size"
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "reader",
+      "order": 2,
+      "titleKey": "settings.group.reader.title",
+      "descriptionKey": "settings.group.reader.description",
+      "fields": [
+        {
+          "key": "gv_reader_mode",
+          "storage": "ls",
+          "control": "select",
+          "default": "ltr",
+          "labelKey": "settings.field.gv_reader_mode",
+          "helpKey": "settings.help.field.gv_reader_mode",
+          "options": [
+            { "value": "ltr", "labelKey": "settings.option.readerMode.ltr" },
+            { "value": "rtl", "labelKey": "settings.option.readerMode.rtl" },
+            { "value": "double", "labelKey": "settings.option.readerMode.double" },
+            { "value": "double-rtl", "labelKey": "settings.option.readerMode.doubleRtl" },
+            { "value": "webtoon", "labelKey": "settings.option.readerMode.webtoon" }
+          ]
+        },
+        {
+          "key": "gv_reader_fit",
+          "storage": "ls",
+          "control": "select",
+          "default": "height",
+          "labelKey": "settings.field.gv_reader_fit",
+          "helpKey": "settings.help.field.gv_reader_fit",
+          "options": [
+            { "value": "height", "labelKey": "settings.option.readerFit.height" },
+            { "value": "width", "labelKey": "settings.option.readerFit.width" },
+            { "value": "original", "labelKey": "settings.option.readerFit.original" }
+          ]
+        },
+        {
+          "key": "gv_slideshow_interval",
+          "storage": "ls",
+          "control": "number",
+          "default": 5,
+          "min": 1,
+          "max": 600,
+          "labelKey": "settings.field.gv_slideshow_interval",
+          "helpKey": "settings.help.field.gv_slideshow_interval"
+        },
+        {
+          "key": "gv_online_image_mode",
+          "storage": "ls",
+          "control": "select",
+          "default": "direct",
+          "labelKey": "settings.field.gv_online_image_mode",
+          "helpKey": "settings.help.field.gv_online_image_mode",
+          "options": [
+            { "value": "direct", "labelKey": "settings.option.onlineImage.direct" },
+            { "value": "proxy", "labelKey": "settings.option.onlineImage.proxy" }
+          ]
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "network",
+      "order": 3,
+      "titleKey": "settings.group.network.title",
+      "descriptionKey": "settings.group.network.description",
+      "fields": [
+        {
+          "key": "exhentai_base_url",
+          "storage": "us",
+          "control": "baseurl",
+          "default": "https://exhentai.org",
+          "labelKey": "settings.field.exhentai_base_url",
+          "helpKey": "settings.help.field.exhentai_base_url",
+          "options": [
+            { "value": "https://exhentai.org", "labelKey": "settings.option.baseUrl.exhentai" },
+            { "value": "https://e-hentai.org", "labelKey": "settings.option.baseUrl.ehentai" },
+            { "value": "__custom__", "labelKey": "settings.option.baseUrl.custom" }
+          ]
+        },
+        {
+          "key": "exhentai_cookie_configured",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.exhentai_cookie_configured",
+          "helpKey": "settings.help.field.exhentai_cookie_configured"
+        },
+        {
+          "key": "exhentai_cookie_names",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.exhentai_cookie_names",
+          "helpKey": "settings.help.field.exhentai_cookie_names"
+        },
+        {
+          "key": "ipb_member_id",
+          "storage": "us",
+          "control": "secret",
+          "secret": true,
+          "labelKey": "settings.field.ipb_member_id",
+          "helpKey": "settings.help.field.ipb_member_id"
+        },
+        {
+          "key": "ipb_pass_hash",
+          "storage": "us",
+          "control": "secret",
+          "secret": true,
+          "labelKey": "settings.field.ipb_pass_hash",
+          "helpKey": "settings.help.field.ipb_pass_hash"
+        },
+        {
+          "key": "igneous",
+          "storage": "us",
+          "control": "secret",
+          "secret": true,
+          "labelKey": "settings.field.igneous",
+          "helpKey": "settings.help.field.igneous"
+        },
+        {
+          "key": "http_proxy",
+          "storage": "us",
+          "control": "text",
+          "default": "",
+          "labelKey": "settings.field.http_proxy",
+          "helpKey": "settings.help.field.http_proxy"
+        },
+        {
+          "key": "socks5_proxy",
+          "storage": "us",
+          "control": "text",
+          "default": "",
+          "labelKey": "settings.field.socks5_proxy",
+          "helpKey": "settings.help.field.socks5_proxy"
+        },
+        {
+          "key": "use_hah",
+          "storage": "us",
+          "control": "switch",
+          "default": true,
+          "labelKey": "settings.field.use_hah",
+          "helpKey": "settings.help.field.use_hah"
+        },
+        {
+          "key": "online_reader_concurrency",
+          "storage": "us",
+          "control": "number",
+          "default": 3,
+          "min": 1,
+          "max": 16,
+          "labelKey": "settings.field.online_reader_concurrency",
+          "helpKey": "settings.help.field.online_reader_concurrency"
+        },
+        {
+          "key": "online_cache_max_mb",
+          "storage": "us",
+          "control": "number",
+          "default": 512,
+          "min": 16,
+          "labelKey": "settings.field.online_cache_max_mb",
+          "helpKey": "settings.help.field.online_cache_max_mb"
+        },
+        {
+          "key": "exhentai_max_concurrency",
+          "storage": "env",
+          "control": "readonly",
+          "source": "env",
+          "labelKey": "settings.field.exhentai_max_concurrency",
+          "helpKey": "settings.help.field.exhentai_max_concurrency"
+        }
+      ],
+      "actions": [
+        {
+          "id": "eh-test",
+          "kind": "eh-test",
+          "labelKey": "settings.action.ehTest",
+          "helpKey": "settings.help.action.ehTest"
+        }
+      ]
+    },
+    {
+      "id": "online",
+      "order": 4,
+      "titleKey": "settings.group.online.title",
+      "descriptionKey": "settings.group.online.description",
+      "fields": [
+        {
+          "key": "gv_default_favcat",
+          "storage": "ls",
+          "control": "select",
+          "default": "0",
+          "labelKey": "settings.field.gv_default_favcat",
+          "helpKey": "settings.help.field.gv_default_favcat",
+          "options": [
+            { "value": "0", "labelKey": "settings.favcat.0" },
+            { "value": "1", "labelKey": "settings.favcat.1" },
+            { "value": "2", "labelKey": "settings.favcat.2" },
+            { "value": "3", "labelKey": "settings.favcat.3" },
+            { "value": "4", "labelKey": "settings.favcat.4" },
+            { "value": "5", "labelKey": "settings.favcat.5" },
+            { "value": "6", "labelKey": "settings.favcat.6" },
+            { "value": "7", "labelKey": "settings.favcat.7" },
+            { "value": "8", "labelKey": "settings.favcat.8" },
+            { "value": "9", "labelKey": "settings.favcat.9" }
+          ]
+        },
+        {
+          "key": "gv_online_defaults",
+          "storage": "ls",
+          "control": "online-defaults",
+          "labelKey": "settings.field.gv_online_defaults",
+          "helpKey": "settings.help.field.gv_online_defaults"
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "library",
+      "order": 5,
+      "titleKey": "settings.group.library.title",
+      "descriptionKey": "settings.group.library.description",
+      "fields": [
+        {
+          "key": "library_roots",
+          "storage": "us",
+          "control": "textarea",
+          "list": true,
+          "security": true,
+          "default": [],
+          "labelKey": "settings.field.library_roots",
+          "helpKey": "settings.help.field.library_roots"
+        },
+        {
+          "key": "library_root_warnings",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.library_root_warnings",
+          "helpKey": "settings.help.field.library_root_warnings"
+        },
+        {
+          "key": "duplicate_policy",
+          "storage": "us",
+          "control": "select",
+          "default": "keep_first",
+          "labelKey": "settings.field.duplicate_policy",
+          "helpKey": "settings.help.field.duplicate_policy",
+          "options": [
+            { "value": "keep_first", "labelKey": "settings.option.duplicate.keep_first" },
+            { "value": "prefer_more_pages", "labelKey": "settings.option.duplicate.prefer_more_pages" },
+            { "value": "prefer_newer", "labelKey": "settings.option.duplicate.prefer_newer" },
+            { "value": "prefer_larger", "labelKey": "settings.option.duplicate.prefer_larger" },
+            { "value": "prefer_smaller", "labelKey": "settings.option.duplicate.prefer_smaller" },
+            { "value": "manual", "labelKey": "settings.option.duplicate.manual" }
+          ]
+        },
+        {
+          "key": "generate_thumbnails",
+          "storage": "us",
+          "control": "switch",
+          "default": true,
+          "labelKey": "settings.field.generate_thumbnails",
+          "helpKey": "settings.help.field.generate_thumbnails"
+        },
+        {
+          "key": "thumbnail_status",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "aux",
+          "labelKey": "settings.field.thumbnail_status",
+          "helpKey": "settings.help.field.thumbnail_status"
+        }
+      ],
+      "actions": [
+        { "id": "gen-thumbs", "kind": "gen-thumbs", "labelKey": "settings.action.genThumbs" },
+        { "id": "open-duplicates", "kind": "link", "to": "/duplicates", "labelKey": "settings.action.openDuplicates" },
+        { "id": "open-logs-library", "kind": "link", "to": "/logs", "labelKey": "settings.action.openLogs" }
+      ]
+    },
+    {
+      "id": "download",
+      "order": 6,
+      "titleKey": "settings.group.download.title",
+      "descriptionKey": "settings.group.download.description",
+      "fields": [
+        {
+          "key": "download_root",
+          "storage": "us",
+          "control": "text",
+          "security": true,
+          "default": "",
+          "labelKey": "settings.field.download_root",
+          "helpKey": "settings.help.field.download_root"
+        },
+        {
+          "key": "download_concurrency",
+          "storage": "us",
+          "control": "number",
+          "default": 2,
+          "min": 1,
+          "max": 32,
+          "labelKey": "settings.field.download_concurrency",
+          "helpKey": "settings.help.field.download_concurrency"
+        },
+        {
+          "key": "page_concurrency",
+          "storage": "us",
+          "control": "number",
+          "default": 4,
+          "min": 1,
+          "max": 16,
+          "labelKey": "settings.field.page_concurrency",
+          "helpKey": "settings.help.field.page_concurrency"
+        },
+        {
+          "key": "download_quality",
+          "storage": "us",
+          "control": "select",
+          "default": "resample",
+          "labelKey": "settings.field.download_quality",
+          "helpKey": "settings.help.field.download_quality",
+          "options": [
+            { "value": "resample", "labelKey": "settings.option.quality.resample" },
+            { "value": "original", "labelKey": "settings.option.quality.original" }
+          ]
+        },
+        {
+          "key": "download_title",
+          "storage": "us",
+          "control": "select",
+          "default": "japanese",
+          "labelKey": "settings.field.download_title",
+          "helpKey": "settings.help.field.download_title",
+          "options": [
+            { "value": "japanese", "labelKey": "settings.option.downloadTitle.japanese" },
+            { "value": "english", "labelKey": "settings.option.downloadTitle.english" }
+          ]
+        },
+        {
+          "key": "global_paused",
+          "storage": "us",
+          "control": "switch",
+          "endpoint": "pause",
+          "default": false,
+          "labelKey": "settings.field.global_paused",
+          "helpKey": "settings.help.field.global_paused"
+        },
+        {
+          "key": "image_download_timeout_seconds",
+          "storage": "us",
+          "control": "number",
+          "default": 120,
+          "min": 1,
+          "labelKey": "settings.field.image_download_timeout_seconds",
+          "helpKey": "settings.help.field.image_download_timeout_seconds"
+        },
+        {
+          "key": "image_slow_warmup_seconds",
+          "storage": "us",
+          "control": "number",
+          "default": 30,
+          "min": 1,
+          "labelKey": "settings.field.image_slow_warmup_seconds",
+          "helpKey": "settings.help.field.image_slow_warmup_seconds"
+        },
+        {
+          "key": "image_min_speed_kb_s",
+          "storage": "us",
+          "control": "number",
+          "default": 10,
+          "min": 1,
+          "labelKey": "settings.field.image_min_speed_kb_s",
+          "helpKey": "settings.help.field.image_min_speed_kb_s"
+        },
+        {
+          "key": "download_max_retries",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.download_max_retries",
+          "helpKey": "settings.help.field.download_max_retries"
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "favorites",
+      "order": 7,
+      "titleKey": "settings.group.favorites.title",
+      "descriptionKey": "settings.group.favorites.description",
+      "fields": [
+        {
+          "key": "download_favorites_enabled",
+          "storage": "us",
+          "control": "switch",
+          "default": false,
+          "labelKey": "settings.field.download_favorites_enabled",
+          "helpKey": "settings.help.field.download_favorites_enabled"
+        },
+        {
+          "key": "favorites_archive_enabled",
+          "storage": "us",
+          "control": "switch",
+          "default": false,
+          "labelKey": "settings.field.favorites_archive_enabled",
+          "helpKey": "settings.help.field.favorites_archive_enabled"
+        },
+        {
+          "key": "favorites_archive_max_pages",
+          "storage": "us",
+          "control": "number",
+          "default": 0,
+          "min": 0,
+          "labelKey": "settings.field.favorites_archive_max_pages",
+          "helpKey": "settings.help.field.favorites_archive_max_pages"
+        },
+        {
+          "key": "favorites_categories",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "aux",
+          "labelKey": "settings.field.favorites_categories",
+          "helpKey": "settings.help.field.favorites_categories"
+        }
+      ],
+      "actions": [
+        {
+          "id": "open-favorites",
+          "kind": "link",
+          "to": "/favorites",
+          "labelKey": "settings.action.openFavorites",
+          "helpKey": "settings.help.action.openFavorites"
+        }
+      ]
+    },
+    {
+      "id": "archive",
+      "order": 8,
+      "titleKey": "settings.group.archive.title",
+      "descriptionKey": "settings.group.archive.description",
+      "fields": [
+        {
+          "key": "archive_roots",
+          "storage": "us",
+          "control": "textarea",
+          "list": true,
+          "default": [],
+          "labelKey": "settings.field.archive_roots",
+          "helpKey": "settings.help.field.archive_roots"
+        },
+        {
+          "key": "cold_storage_root",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.cold_storage_root",
+          "helpKey": "settings.help.field.cold_storage_root"
+        },
+        {
+          "key": "auto_archive_downloads",
+          "storage": "us",
+          "control": "switch",
+          "default": false,
+          "labelKey": "settings.field.auto_archive_downloads",
+          "helpKey": "settings.help.field.auto_archive_downloads"
+        },
+        {
+          "key": "archive_delete_source",
+          "storage": "us",
+          "control": "switch",
+          "default": false,
+          "labelKey": "settings.field.archive_delete_source",
+          "helpKey": "settings.help.field.archive_delete_source"
+        },
+        {
+          "key": "archive_quality",
+          "storage": "us",
+          "control": "select",
+          "default": "resample",
+          "labelKey": "settings.field.archive_quality",
+          "helpKey": "settings.help.field.archive_quality",
+          "options": [
+            { "value": "resample", "labelKey": "settings.option.quality.resample" },
+            { "value": "original", "labelKey": "settings.option.quality.original" }
+          ]
+        },
+        {
+          "key": "archive_fallback_pages",
+          "storage": "us",
+          "control": "switch",
+          "default": true,
+          "labelKey": "settings.field.archive_fallback_pages",
+          "helpKey": "settings.help.field.archive_fallback_pages"
+        }
+      ],
+      "actions": [
+        {
+          "id": "purge-sources",
+          "kind": "purge-sources",
+          "labelKey": "settings.action.purgeSources",
+          "helpKey": "settings.help.action.purgeSources"
+        },
+        { "id": "open-archive", "kind": "link", "to": "/archive", "labelKey": "settings.action.openArchive" }
+      ]
+    },
+    {
+      "id": "tags",
+      "order": 9,
+      "titleKey": "settings.group.tags.title",
+      "descriptionKey": "settings.group.tags.description",
+      "fields": [
+        {
+          "key": "auto_sync_tags",
+          "storage": "us",
+          "control": "switch",
+          "default": true,
+          "labelKey": "settings.field.auto_sync_tags",
+          "helpKey": "settings.help.field.auto_sync_tags"
+        },
+        {
+          "key": "tag_sync_interval_seconds",
+          "storage": "us",
+          "control": "number",
+          "default": 1.5,
+          "min": 0.1,
+          "step": 0.1,
+          "labelKey": "settings.field.tag_sync_interval_seconds",
+          "helpKey": "settings.help.field.tag_sync_interval_seconds"
+        },
+        {
+          "key": "tag_sync_concurrency",
+          "storage": "us",
+          "control": "number",
+          "default": 4,
+          "min": 1,
+          "max": 32,
+          "labelKey": "settings.field.tag_sync_concurrency",
+          "helpKey": "settings.help.field.tag_sync_concurrency"
+        },
+        {
+          "key": "tag_translation_update_interval_minutes",
+          "storage": "us",
+          "control": "number",
+          "default": 720,
+          "min": 0,
+          "labelKey": "settings.field.tag_translation_update_interval_minutes",
+          "helpKey": "settings.help.field.tag_translation_update_interval_minutes"
+        },
+        {
+          "key": "translation_status",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "aux",
+          "labelKey": "settings.field.translation_status",
+          "helpKey": "settings.help.field.translation_status"
+        }
+      ],
+      "actions": [
+        { "id": "sync-all-tags", "kind": "sync-all-tags", "labelKey": "settings.action.syncAllTags" },
+        { "id": "force-update-translation", "kind": "force-update-translation", "labelKey": "settings.action.forceUpdateTranslation" },
+        { "id": "repair-categories", "kind": "repair-categories", "labelKey": "settings.action.repairCategories" },
+        { "id": "open-logs-tags", "kind": "link", "to": "/logs", "labelKey": "settings.action.openLogs" }
+      ]
+    },
+    {
+      "id": "notifications",
+      "order": 10,
+      "titleKey": "settings.group.notifications.title",
+      "descriptionKey": "settings.group.notifications.description",
+      "fields": [
+        {
+          "key": "telegram_bot_configured",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.telegram_bot_configured",
+          "helpKey": "settings.help.field.telegram_bot_configured"
+        },
+        {
+          "key": "telegram_bot_token",
+          "storage": "us",
+          "control": "secret",
+          "secret": true,
+          "labelKey": "settings.field.telegram_bot_token",
+          "helpKey": "settings.help.field.telegram_bot_token"
+        },
+        {
+          "key": "telegram_chat_ids",
+          "storage": "us",
+          "control": "text",
+          "list": true,
+          "default": [],
+          "labelKey": "settings.field.telegram_chat_ids",
+          "helpKey": "settings.help.field.telegram_chat_ids"
+        },
+        {
+          "key": "telegram_allowed_user_ids",
+          "storage": "us",
+          "control": "text",
+          "list": true,
+          "default": [],
+          "labelKey": "settings.field.telegram_allowed_user_ids",
+          "helpKey": "settings.help.field.telegram_allowed_user_ids"
+        },
+        {
+          "key": "telegram_notify_level",
+          "storage": "us",
+          "control": "select",
+          "default": "summary",
+          "labelKey": "settings.field.telegram_notify_level",
+          "helpKey": "settings.help.field.telegram_notify_level",
+          "options": [
+            { "value": "summary", "labelKey": "settings.option.notifyLevel.summary" },
+            { "value": "immediate", "labelKey": "settings.option.notifyLevel.immediate" },
+            { "value": "failures_only", "labelKey": "settings.option.notifyLevel.failures_only" },
+            { "value": "off", "labelKey": "settings.option.notifyLevel.off" }
+          ]
+        },
+        {
+          "key": "telegram_notify_lang",
+          "storage": "us",
+          "control": "select",
+          "default": "zh",
+          "labelKey": "settings.field.telegram_notify_lang",
+          "helpKey": "settings.help.field.telegram_notify_lang",
+          "options": [
+            { "value": "zh", "labelKey": "settings.option.lang.zh" },
+            { "value": "en", "labelKey": "settings.option.lang.en" }
+          ]
+        }
+      ],
+      "actions": [
+        { "id": "test-telegram", "kind": "test-telegram", "labelKey": "settings.action.testTelegram" }
+      ]
+    },
+    {
+      "id": "account",
+      "order": 11,
+      "titleKey": "settings.group.account.title",
+      "descriptionKey": "settings.group.account.description",
+      "fields": [
+        {
+          "key": "auth_required",
+          "storage": "us",
+          "control": "switch",
+          "security": true,
+          "default": true,
+          "labelKey": "settings.field.auth_required",
+          "helpKey": "settings.help.field.auth_required"
+        },
+        {
+          "key": "auth_hash_configured",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.auth_hash_configured",
+          "helpKey": "settings.help.field.auth_hash_configured"
+        },
+        {
+          "key": "must_change_password",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.must_change_password",
+          "helpKey": "settings.help.field.must_change_password"
+        }
+      ],
+      "actions": [
+        { "id": "change-password", "kind": "change-password", "labelKey": "settings.action.changePassword" },
+        { "id": "api-token", "kind": "api-token", "labelKey": "settings.action.apiToken" },
+        { "id": "logout", "kind": "logout", "labelKey": "settings.action.logout" }
+      ]
+    },
+    {
+      "id": "integrations",
+      "order": 12,
+      "titleKey": "settings.group.integrations.title",
+      "descriptionKey": "settings.group.integrations.description",
+      "fields": [
+        {
+          "key": "integration_companion_script",
+          "storage": "none",
+          "control": "link",
+          "href": "/galleryvault-companion.user.js",
+          "download": true,
+          "labelKey": "settings.field.integration_companion_script",
+          "helpKey": "settings.help.field.integration_companion_script"
+        },
+        {
+          "key": "integration_comic_looms",
+          "storage": "none",
+          "control": "link",
+          "href": "https://github.com/MapoMagpie/comic-looms",
+          "external": true,
+          "labelKey": "settings.field.integration_comic_looms",
+          "helpKey": "settings.help.field.integration_comic_looms"
+        },
+        {
+          "key": "integration_opds_url",
+          "storage": "none",
+          "control": "readonly",
+          "source": "opds",
+          "labelKey": "settings.field.integration_opds_url",
+          "helpKey": "settings.help.field.integration_opds_url"
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "system",
+      "order": 13,
+      "titleKey": "settings.group.system.title",
+      "descriptionKey": "settings.group.system.description",
+      "fields": [
+        {
+          "key": "thumbnail_cache_dir",
+          "storage": "readonly",
+          "control": "readonly",
+          "source": "server",
+          "labelKey": "settings.field.thumbnail_cache_dir",
+          "helpKey": "settings.help.field.thumbnail_cache_dir"
+        }
+      ],
+      "actions": [
+        { "id": "open-logs-system", "kind": "link", "to": "/logs", "labelKey": "settings.action.openLogs" }
+      ]
+    }
+  ],
+  "notExposed": [
+    "thumbnail_workers",
+    "trusted_proxies",
+    "favorites_poll_interval_minutes",
+    "auth_secret",
+    "auth_secret_ephemeral",
+    "auth_password_hash",
+    "auth_password",
+    "database_url",
+    "database_pool_size",
+    "database_max_overflow",
+    "database_pool_timeout",
+    "log_level",
+    "log_json",
+    "log_file",
+    "log_max_bytes",
+    "log_backup_count",
+    "scan_batch_size"
+  ],
+  "securitySensitiveKeys": ["auth_required", "trusted_proxies", "download_root", "library_roots"]
+}

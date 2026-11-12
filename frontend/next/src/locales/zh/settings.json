@@ -1,0 +1,410 @@
+{
+  "title": "设置",
+  "subtitle": "按分组保存，只提交改动过的键。",
+  "searchPlaceholder": "搜索设置（键名、标题或说明）",
+  "searchEmpty": "没有匹配的设置。",
+  "searchResults": "搜索结果",
+  "back": "返回分组",
+  "groups": "分组",
+  "save": "保存本组",
+  "saving": "保存中…",
+  "saved": "已保存",
+  "unsaved": "有未保存的改动",
+  "discard": "放弃改动",
+  "loadFailed": "设置加载失败。",
+  "retry": "重试",
+  "securityBadge": "安全敏感",
+  "securityHelp": "改动此项需要输入当前密码确认。",
+  "configured": "已配置",
+  "notConfigured": "未配置",
+  "yes": "是",
+  "no": "否",
+  "none": "无",
+  "readonly": "只读",
+  "envManaged": "由环境变量管理",
+  "customBaseUrl": "自定义站点地址",
+  "actions": "操作",
+  "links": "入口",
+  "unsavedSecret": "将写入新值（留空表示不修改）",
+  "secretPlaceholder": "留空表示不修改",
+  "group": {
+    "appearance": {
+      "title": "外观与语言",
+      "description": "主题、界面语言、标题显示与列表分页。"
+    },
+    "reader": {
+      "title": "阅读器",
+      "description": "阅读模式、适配方式、幻灯片间隔与在线取图通道。"
+    },
+    "network": {
+      "title": "E-Hentai 站点与网络",
+      "description": "站点地址、Cookie、代理与在线并发预算。"
+    },
+    "online": {
+      "title": "在线浏览与快捷操作",
+      "description": "默认收藏夹与在线列表的默认筛选。"
+    },
+    "library": {
+      "title": "资料库",
+      "description": "库目录、查重策略与缩略图生成。"
+    },
+    "download": {
+      "title": "下载",
+      "description": "下载目录、并发、画质与图片重试阈值。"
+    },
+    "favorites": {
+      "title": "收藏夹同步",
+      "description": "收藏夹自动下载与归档；每个收藏夹的独立配置在收藏页。"
+    },
+    "archive": {
+      "title": "归档与冷存储",
+      "description": "冷存储目录、自动归档与归档画质。"
+    },
+    "tags": {
+      "title": "标签",
+      "description": "标签同步、翻译更新与分类修复。"
+    },
+    "notifications": {
+      "title": "通知",
+      "description": "Telegram 机器人、接收会话与通知级别。"
+    },
+    "account": {
+      "title": "账户与安全",
+      "description": "访问控制、密码、API token 与登出。"
+    },
+    "integrations": {
+      "title": "集成",
+      "description": "伴侣脚本、Comic Looms 与 OPDS 地址。"
+    },
+    "system": {
+      "title": "存储与系统",
+      "description": "存储面板、最大画廊与运行日志入口。"
+    }
+  },
+  "field": {
+    "gv_theme": "主题",
+    "gv_lang": "界面语言",
+    "title_display": "标题显示",
+    "gv_page_size": "每页条数",
+    "gv_reader_mode": "阅读模式",
+    "gv_reader_fit": "图片适配",
+    "gv_slideshow_interval": "幻灯片间隔（秒）",
+    "gv_online_image_mode": "在线取图通道",
+    "exhentai_base_url": "站点地址",
+    "exhentai_cookie_configured": "EH Cookie 状态",
+    "exhentai_cookie_names": "已配置的 Cookie 键",
+    "ipb_member_id": "ipb_member_id",
+    "ipb_pass_hash": "ipb_pass_hash",
+    "igneous": "igneous",
+    "http_proxy": "HTTP 代理",
+    "socks5_proxy": "SOCKS5 代理",
+    "use_hah": "使用 H{'@'}H 节点",
+    "online_reader_concurrency": "在线并发",
+    "online_cache_max_mb": "在线缓存上限（MB）",
+    "exhentai_max_concurrency": "EH 页面并发上限",
+    "gv_default_favcat": "默认收藏夹",
+    "gv_online_defaults": "在线列表默认筛选",
+    "library_roots": "资料库目录",
+    "library_root_warnings": "目录警告",
+    "duplicate_policy": "重复画廊策略",
+    "generate_thumbnails": "生成缩略图",
+    "thumbnail_status": "缩略图任务状态",
+    "download_root": "下载目录",
+    "download_concurrency": "下载并发",
+    "page_concurrency": "页并发",
+    "download_quality": "下载画质",
+    "download_title": "目录名标题",
+    "global_paused": "全局暂停",
+    "image_download_timeout_seconds": "图片超时（秒）",
+    "image_slow_warmup_seconds": "慢速预热（秒）",
+    "image_min_speed_kb_s": "最低速度（KB/s）",
+    "download_max_retries": "最大重试次数",
+    "download_favorites_enabled": "下载收藏夹",
+    "favorites_archive_enabled": "收藏夹走归档",
+    "favorites_archive_max_pages": "归档页数上限",
+    "favorites_categories": "收藏夹分类",
+    "archive_roots": "冷存储目录",
+    "cold_storage_root": "当前冷存储根",
+    "auto_archive_downloads": "下载后自动归档",
+    "archive_delete_source": "归档后删除源目录",
+    "archive_quality": "归档画质",
+    "archive_fallback_pages": "归档失败回退",
+    "auto_sync_tags": "自动同步标签",
+    "tag_sync_interval_seconds": "标签同步间隔（秒）",
+    "tag_sync_concurrency": "标签同步并发",
+    "tag_translation_update_interval_minutes": "翻译更新间隔（分钟）",
+    "translation_status": "翻译状态",
+    "telegram_bot_configured": "Telegram 机器人状态",
+    "telegram_bot_token": "机器人 Token",
+    "telegram_chat_ids": "接收会话 ID",
+    "telegram_allowed_user_ids": "允许的用户 ID",
+    "telegram_notify_level": "通知级别",
+    "telegram_notify_lang": "通知语言",
+    "auth_required": "需要登录",
+    "auth_hash_configured": "密码状态",
+    "must_change_password": "必须修改默认密码",
+    "integration_companion_script": "伴侣脚本",
+    "integration_comic_looms": "Comic Looms",
+    "integration_opds_url": "OPDS 地址",
+    "thumbnail_cache_dir": "缩略图缓存目录"
+  },
+  "option": {
+    "theme": {
+      "dark": "深色",
+      "light": "浅色",
+      "system": "跟随系统"
+    },
+    "lang": {
+      "zh": "中文",
+      "en": "English"
+    },
+    "titleDisplay": {
+      "japanese": "日文标题",
+      "english": "英文标题",
+      "directory": "目录名"
+    },
+    "readerMode": {
+      "ltr": "单页 左→右",
+      "rtl": "单页 右→左",
+      "double": "双页",
+      "doubleRtl": "双页 右→左",
+      "webtoon": "纵向滚动"
+    },
+    "readerFit": {
+      "height": "适高",
+      "width": "适宽",
+      "original": "原始尺寸"
+    },
+    "onlineImage": {
+      "direct": "浏览器直连",
+      "proxy": "服务器代理"
+    },
+    "baseUrl": {
+      "exhentai": "ExHentai（里站）",
+      "ehentai": "E-Hentai（表站）",
+      "custom": "自定义地址"
+    },
+    "duplicate": {
+      "keep_first": "保留最早",
+      "prefer_more_pages": "优先页数多",
+      "prefer_newer": "优先更新",
+      "prefer_larger": "优先体积大",
+      "prefer_smaller": "优先体积小",
+      "manual": "手动处理"
+    },
+    "quality": {
+      "resample": "重采样",
+      "original": "原图"
+    },
+    "downloadTitle": {
+      "japanese": "日文",
+      "english": "英文"
+    },
+    "notifyLevel": {
+      "summary": "摘要",
+      "immediate": "即时",
+      "failures_only": "仅失败",
+      "off": "关闭"
+    },
+    "onlineList": {
+      "search": "搜索",
+      "popular": "热门",
+      "watched": "关注",
+      "toplist": "榜单"
+    },
+    "toplist": {
+      "11": "Toplist 11",
+      "12": "Toplist 12",
+      "13": "Toplist 13",
+      "15": "Toplist 15"
+    },
+    "rating": {
+      "any": "不限评分",
+      "atLeast": "≥ {value} 星"
+    }
+  },
+  "favcat": {
+    "0": "0 · Favorites",
+    "1": "1 · 收藏夹 1",
+    "2": "2 · 收藏夹 2",
+    "3": "3 · 收藏夹 3",
+    "4": "4 · 收藏夹 4",
+    "5": "5 · 收藏夹 5",
+    "6": "6 · 收藏夹 6",
+    "7": "7 · 收藏夹 7",
+    "8": "8 · 收藏夹 8",
+    "9": "9 · 收藏夹 9"
+  },
+  "onlineDefaults": {
+    "list": "列表类型",
+    "tl": "榜单",
+    "minRating": "最低评分"
+  },
+  "action": {
+    "ehTest": "测试 EH 连接",
+    "genThumbs": "生成缩略图",
+    "openDuplicates": "打开查重页",
+    "openLogs": "打开日志",
+    "openFavorites": "打开收藏页",
+    "purgeSources": "清理已归档源目录",
+    "openArchive": "打开归档页",
+    "syncAllTags": "同步全部标签",
+    "forceUpdateTranslation": "强制更新翻译",
+    "repairCategories": "修复分类",
+    "testTelegram": "测试 Telegram",
+    "changePassword": "修改密码",
+    "apiToken": "API token",
+    "logout": "登出"
+  },
+  "password": {
+    "title": "修改密码",
+    "current": "当前密码",
+    "next": "新密码",
+    "confirm": "确认新密码",
+    "submit": "修改密码",
+    "changed": "密码已修改",
+    "mismatch": "两次输入的新密码不一致。",
+    "required": "请输入当前密码与新密码。"
+  },
+  "token": {
+    "title": "伴侣脚本 API token",
+    "description": "只保存哈希；明文只显示一次。撤销后伴侣脚本需重新配置。",
+    "statusConfigured": "已生成（{date}）",
+    "statusMissing": "尚未生成",
+    "generate": "生成 token",
+    "regenerate": "重新生成",
+    "revoke": "撤销 token",
+    "revokeConfirmTitle": "撤销 API token？",
+    "revokeConfirmBody": "撤销后正在使用该 token 的伴侣脚本会立即失效。",
+    "once": "这是唯一一次显示明文，请立即复制保存。",
+    "copy": "复制",
+    "copied": "已复制",
+    "hide": "我已保存，隐藏",
+    "generated": "API token 已生成"
+  },
+  "security": {
+    "title": "确认安全敏感改动",
+    "body": "本组包含安全敏感设置（{keys}）。请输入当前密码以继续保存。",
+    "password": "当前密码",
+    "submit": "确认保存",
+    "cancel": "取消",
+    "wrong": "确认失败：密码错误或请求被拒绝。"
+  },
+  "error": {
+    "number": "请输入有效数字。",
+    "range": "数值超出允许范围。",
+    "libraryRoots": "资料库目录不能为空。",
+    "baseUrl": "请输入有效 URL。",
+    "baseUrlHost": "站点地址必须属于 exhentai.org 或 e-hentai.org。",
+    "proxyConflict": "HTTP 代理与 SOCKS5 代理不能同时填写。",
+    "saveFailed": "保存失败。",
+    "pauseFailed": "暂停状态更新失败。"
+  },
+  "storage": {
+    "title": "存储",
+    "library": "资料库",
+    "cold": "冷存储",
+    "downloads": "下载目录",
+    "cache": "缓存",
+    "path": "路径",
+    "items": "条目",
+    "images": "图片",
+    "used": "已用",
+    "available": "可用",
+    "status": "状态",
+    "computing": "统计中…",
+    "stale": "数据可能过期",
+    "largest": "最大画廊 Top 10",
+    "largestEmpty": "暂无数据。",
+    "refresh": "刷新",
+    "loadFailed": "存储信息加载失败。",
+    "purge": "清理已归档源目录",
+    "purgeTitle": "清理已归档源目录？",
+    "purgeBody": "将删除已归档画廊在下载目录中的残留源文件。该操作不可撤销。",
+    "purgeStarted": "清理任务已启动",
+    "purgeConfirm": "确认清理"
+  },
+  "status": {
+    "running": "运行中",
+    "thumbs": "{succeeded} 成功 / {failed} 失败",
+    "translation": "{entries} 条记录",
+    "translationError": "上次更新失败：{error}",
+    "favorites": "已启用 {enabled} / 共 {total} 个收藏夹",
+    "never": "从未运行",
+    "unknown": "未知"
+  },
+  "help": {
+    "field": {
+      "gv_theme": "深色、浅色或跟随系统。",
+      "gv_lang": "只影响本设备。",
+      "title_display": "列表中显示日文标题、英文标题或目录名。",
+      "gv_page_size": "列表页仍保留自己的快捷分页。",
+      "gv_reader_mode": "阅读器内仍可快捷切换。",
+      "gv_reader_fit": "适高、适宽或原始尺寸。",
+      "gv_slideshow_interval": "阅读器与画廊页共用同一值。",
+      "gv_online_image_mode": "直连不占服务端图片额度；代理仅用于无法直连 H{'@'}H 的设备。",
+      "exhentai_base_url": "e-hentai.org 或 exhentai.org；自定义地址必须属于这两个域。",
+      "exhentai_cookie_configured": "Cookie 值只写不回显。",
+      "exhentai_cookie_names": "只显示键名，不显示值。",
+      "ipb_member_id": "写入后不显示；留空表示保留原值。",
+      "ipb_pass_hash": "写入后不显示；留空表示保留原值。",
+      "igneous": "无里站权限时可留空。",
+      "http_proxy": "与 SOCKS5 代理互斥。",
+      "socks5_proxy": "与 HTTP 代理互斥。",
+      "use_hah": "影响原图通道可达性。",
+      "online_reader_concurrency": "同时解析的在线画廊数，默认 3。",
+      "online_cache_max_mb": "服务端代理回退时的图片缓存上限，默认 512。",
+      "exhentai_max_concurrency": "仅由环境变量控制，页面只展示。",
+      "gv_default_favcat": "卡片一键收藏使用此收藏夹。",
+      "gv_online_defaults": "打开在线页时使用的列表类型、榜单与最低评分。",
+      "library_roots": "每行一个路径；改动需要当前密码确认。",
+      "library_root_warnings": "后端对库目录的检查结果。",
+      "duplicate_policy": "查重页处理重复项时使用的默认策略。",
+      "generate_thumbnails": "入库时生成缩略图。",
+      "thumbnail_status": "最近一次缩略图任务的结果。",
+      "download_root": "改动需要当前密码确认。",
+      "download_concurrency": "同时下载的画廊数，1–32。",
+      "page_concurrency": "单本同时下载的图片数，1–16。",
+      "download_quality": "默认下载档位。",
+      "download_title": "写入磁盘目录名时使用的标题语言。",
+      "global_paused": "暂停扫描与下载；下载页保留同一开关。",
+      "image_download_timeout_seconds": "单张图片的下载超时。",
+      "image_slow_warmup_seconds": "低于阈值速度时的等待时间。",
+      "image_min_speed_kb_s": "低于此速度视为失败并重试。",
+      "download_max_retries": "后端固定值，只读。",
+      "download_favorites_enabled": "收藏扫描时下载收藏夹内容。",
+      "favorites_archive_enabled": "定时收藏扫描使用 zip 归档通道。",
+      "favorites_archive_max_pages": "0 表示全部走归档。",
+      "favorites_categories": "每个收藏夹的启用与轮询配置在收藏页。",
+      "archive_roots": "每行一个路径；首项写入 cold_storage_root。",
+      "cold_storage_root": "由冷存储目录派生，只读。",
+      "auto_archive_downloads": "下载完成后自动转入冷存储。",
+      "archive_delete_source": "归档成功后删除下载目录中的源文件。",
+      "archive_quality": "归档通道与归档对话框的默认档位。",
+      "archive_fallback_pages": "归档失败时回退到逐页下载。",
+      "auto_sync_tags": "入库后自动同步标签。",
+      "tag_sync_interval_seconds": "默认为后端值 1.5。",
+      "tag_sync_concurrency": "同时同步的标签请求数，1–32。",
+      "tag_translation_update_interval_minutes": "0 表示不自动更新。",
+      "translation_status": "最近一次翻译更新结果。",
+      "telegram_bot_configured": "Token 只写不回显。",
+      "telegram_bot_token": "留空表示不修改。",
+      "telegram_chat_ids": "逗号分隔。",
+      "telegram_allowed_user_ids": "逗号分隔；留空表示不限制。",
+      "telegram_notify_level": "摘要、即时、仅失败或关闭。",
+      "telegram_notify_lang": "Telegram 消息使用的语言。",
+      "auth_required": "关闭会让所有请求无需认证；改动需要当前密码确认。",
+      "auth_hash_configured": "是否已设置非默认密码。",
+      "must_change_password": "首次引导期间为是。",
+      "integration_companion_script": "安装后在官方画廊页注入下载、收藏与库内状态按钮；使用 API token 认证。",
+      "integration_comic_looms": "推荐的官方页阅读增强脚本（MIT）；本应用不自研脚本阅读器。",
+      "integration_opds_url": "支持 HTTP Basic 的 OPDS 1.0 目录，用于第三方阅读器。",
+      "thumbnail_cache_dir": "由后端环境配置，只读。"
+    },
+    "action": {
+      "ehTest": "使用当前 Cookie 访问一次 EH。",
+      "openFavorites": "每个收藏夹的启用、模式与轮询间隔在这里配置。",
+      "purgeSources": "删除已归档画廊残留的源目录，不可撤销。"
+    }
+  }
+}
