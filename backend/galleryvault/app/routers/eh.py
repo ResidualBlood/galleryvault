@@ -7,11 +7,9 @@ import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db.models import FavoriteItem, Gallery
 from ...services.eh_client import EhClientError, EhSearchResult, SearchGallery
 from ..core.eh_client_manager import EhClientManager
 from ..core.uow import UnitOfWork
@@ -141,43 +139,24 @@ def _gallery_payload(item: SearchGallery) -> dict[str, Any]:
 async def attach_search_badges(
     session: Any, items: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """JOIN local ``galleries.gid`` / ``favorite_items.gid`` onto search rows."""
+    """JOIN local library / favorites / download task state onto search rows."""
     gids = [int(it["gid"]) for it in items if it.get("gid") is not None]
     if not gids:
         return items
-    gal_rows = (
-        await session.execute(
-            select(Gallery.gid, Gallery.id).where(
-                Gallery.gid.in_(gids),
-                Gallery.trashed.is_(False),
-            )
-        )
-    ).all()
-    library: dict[int, int] = {}
-    for gid, gallery_id in gal_rows:
-        if gid is None:
-            continue
-        library[int(gid)] = int(gallery_id)
-    fav_rows = (
-        await session.execute(
-            select(FavoriteItem.gid, FavoriteItem.favcat).where(FavoriteItem.gid.in_(gids))
-        )
-    ).all()
-    favs: dict[int, int] = {}
-    for gid, favcat in fav_rows:
-        if gid is None:
-            continue
-        gid_i = int(gid)
-        if gid_i not in favs:
-            favs[gid_i] = int(favcat)
+    # ``local_gallery_status`` is the single source of truth shared with
+    # ``/api/eh/status`` and the online detail endpoint.
+    from .eh_online import local_gallery_status
+
+    status = await local_gallery_status(session, gids)
     for it in items:
-        gid = int(it["gid"])
-        gallery_id = library.get(gid)
-        it["in_library"] = gallery_id is not None
-        it["gallery_id"] = gallery_id
-        it["favorited"] = gid in favs
-        it["favcat"] = favs.get(gid)
-        it["downloaded"] = gallery_id is not None
+        info = status.get(int(it["gid"]), {})
+        it["in_library"] = bool(info.get("in_library"))
+        it["gallery_id"] = info.get("gallery_id")
+        it["favorited"] = bool(info.get("favorited"))
+        it["favcat"] = info.get("favcat")
+        it["downloaded"] = it["in_library"]
+        download = info.get("download") or {}
+        it["download_status"] = download.get("status")
     return items
 
 
