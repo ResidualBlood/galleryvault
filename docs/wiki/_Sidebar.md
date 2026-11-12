@@ -9,6 +9,7 @@
 
 **使用**
 - [浏览与库](Library) · [Library](Library-EN)
+- [在线阅读](Online-Reading) · [Online Reading](Online-Reading-EN)
 - [阅读](Reading) · [Reading](Reading-EN)
 - [下载](Downloads) · [Downloads](Downloads-EN)
 - [收藏与更新](Favorites) · [Favorites](Favorites-EN)
@@ -20,3 +21,4 @@
 - [备份与恢复](Backup) · [Backup](Backup-EN)
 - [静态加密](Encryption) · [Encryption](Encryption-EN)
 - [常见问题](FAQ) · [FAQ](FAQ-EN)
+- [前端开发与构建](Development) · [Development](Development-EN)

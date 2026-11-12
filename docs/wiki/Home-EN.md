@@ -2,7 +2,7 @@
 
 > [中文](Home) · **English**
 
-GalleryVault is a self-hosted gallery library designed for Ehviewer export directories. Files, indexes, and favorite mappings remain on the local machine or NAS. The system scans `<gid>-title/` trees and SpiderInfo metadata. Without cookies configured, it operates as a local gallery library; configuring cookies unlocks online discovery, favorites synchronization, gallery downloads, and re-upload update detection. For complete feature details, see [Features](Features-EN).
+GalleryVault is a self-hosted gallery library designed for Ehviewer export directories. Files, indexes, and favorite mappings remain on the local machine or NAS. The system scans `<gid>-title/` trees and SpiderInfo metadata. Without cookies configured, it operates as a local gallery library; configuring cookies unlocks online browsing and reading (browser-direct H@H fetches with per-device proxy fallback), favorites synchronization, gallery downloads, and re-upload update detection. For complete feature details, see [Features](Features-EN).
 
 ---
 
@@ -71,7 +71,8 @@ Downloads are saved to `downloads/`; cold archives are saved to configured `arch
 
 ### Usage
 
-- **[Library](Library-EN)** — Gallery library browsing, Discover page, local list, advanced filtering, and reading history
+- **[Library](Library-EN)** — Gallery library browsing, online list, local list, advanced filtering, and reading history
+- **[Online Reading](Online-Reading-EN)** — Online browsing and reading, browser-direct / server-proxy channels, privacy notes, companion script, and API token
 - **[Reading](Reading-EN)** — Gallery detail view, tag synchronization, reader modes, shortcuts, and slideshow playback
 - **[Downloads](Downloads-EN)** — Download queue, status badges, retry mechanisms, and official Archive downloads
 - **[Favorites](Favorites-EN)** — Favorite folder management, synchronization modes, deduplication, and update detection
@@ -85,6 +86,7 @@ Downloads are saved to `downloads/`; cold archives are saved to configured `arch
 - **[Backup](Backup-EN)** — Database backup and restore, encryption key custody, archive backup, and operational notes
 - **[Encryption](Encryption-EN)** — AES-256-GCM field encryption principles, key responsibilities, and recovery after key loss
 - **[FAQ](FAQ-EN)** — Common troubleshooting questions, root causes, and resolution steps
+- **[Frontend Development & Build](Development-EN)** — Frontend architecture, development / build / test commands, and design-spec entry points
 
 Development and API documentation live in the repository at `backend/docs/API.md` and `backend/docs/DEVELOPMENT.md`.
 

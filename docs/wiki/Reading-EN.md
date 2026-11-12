@@ -57,6 +57,10 @@ The reader streams pages dynamically, offering multiple layout modes and control
 | **Double-Tap** | Quickly zooms to 2.2x magnification centered on tap coordinates; double-tap again resets to 1.0x | Ineffective in Webtoon mode |
 | **Pinch-to-Zoom** | Supports continuous smooth zoom from 1.0x to 3.5x | Automatically resets when pinched or double-tapped back near 1.0x; ineffective in Webtoon mode |
 
+### Online reading mode
+
+Online galleries (`#/online/g/<gid>/<token>/read/<page>`) reuse the same layouts, shortcuts, and gestures, but take images through one of two channels: browser direct (default, no server image quota) or server proxy (enabled per device only when direct fails). Progress is stored server-side, and the top bar keeps favorite / download actions. Channels, privacy, and quota behaviour: [Online Reading](Online-Reading-EN#reader-and-the-two-image-channels).
+
 ### Slideshow Auto-Play & Display Controls
 
 - **Start & Controls**: The toolbar provides a "▶" button and an interval input (default 5 seconds, persisted to `gv_slideshow_interval`). Clicking ▶ appends interval parameters to the URL (`?slideshow=<seconds>`), enters image fullscreen, and starts automatic cycling. Toolbars are hidden in fullscreen; pressing `Esc` or clicking fullscreen controls exits fullscreen and terminates playback.

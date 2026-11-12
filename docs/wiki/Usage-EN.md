@@ -7,7 +7,7 @@
 GalleryVault is a single-page application built on hash routing (for example, `#/library`, `#/gallery/7`). Page transitions and interactions are driven entirely by the frontend; page refreshes and browser forward/back navigation operate without requesting a new HTML document. Stale responses that arrive during a view transition are discarded and never overwrite the new view.
 
 **Main Navigation Entries**:
-- **Desktop Top Navigation**: Browse, Discover, Library, Series, Tags, Downloads, Favorites, and Manage.
+- **Desktop Top Navigation**: Browse, Online, Library, Series, Tags, Downloads, Favorites, and Manage.
 - **More Menu**: Groups History, Settings, and Logs.
 - **Manage Module**: Clicking "Manage" defaults to the Recycle Bin (`#/recycle`), with in-page tabs for Duplicate Copies (`#/duplicates`), Favorite Duplicates (`#/duplicates/favorites`), Cross-GID Duplicates (`#/duplicates/cross-gid`), Missing Pages / Integrity (`#/integrity`), and Cold Archive (`#/archive`). The legacy route `#/favorites/manage` automatically redirects to Favorite Duplicates for compatibility.
 - **Mobile**: Uses a flat hamburger menu displaying all navigation items.
@@ -75,7 +75,7 @@ For detailed instructions on each functional module, see the dedicated chapters:
 
 - **[Browsing & Library (Library)](Library-EN)**:
   - [Browse (#/browse)](Library-EN#browse-browse) — Default grid browsing, continue reading shelf, keyboard navigation, and global search; landscape card covers use blurred background padding to preserve aspect ratio. Prioritizes cloud remote cover cache, falling back to local first-page images with background fetching on cache miss.
-  - [Discover (#/discover)](Library-EN#discover-discover) — Online browsing of ExHentai, Popular, Watched, and Toplist feeds with cursor pagination.
+  - [Online Reading (#/online)](Online-Reading-EN) — Browse ExHentai, Popular, Watched, and Toplist; read online with browser-direct or server-proxy fallback channels, favorite and download. The legacy `#/discover` link still works.
   - [Series (#/series)](Library-EN#series-series) — Doujinshi and Manga filtering, prefix stripping, and title clustering; surfaces un-downloaded cloud favorites with badges and one-click queuing, supports manual series membership management, and rebuilds clusters automatically after library scans.
   - [Library (#/library)](Library-EN#library-library) — Multi-attribute sorting, mutually exclusive reading status filtering, AND/OR multi-tag filtering with `-tag` exclusions, batch favorite additions, and bulk deletion safety fuses.
   - [Local Lists (#/library)](Library-EN#local-lists-library) — Standalone local reading list lifecycle management decoupled from cloud favorites.
@@ -117,7 +117,7 @@ If you previously bookmarked section anchors from earlier versions of `Usage-EN.
 | Old Anchor | Target Document | New Section Anchor |
 | :--- | :--- | :--- |
 | `#browse-browse` | [Browsing & Library (Library)](Library-EN) | [Browse (#/browse)](Library-EN#browse-browse) |
-| `#discover-discover` | [Browsing & Library (Library)](Library-EN) | [Discover (#/discover)](Library-EN#discover-discover) |
+| `#discover-discover` | [Online Reading](Online-Reading-EN) | [Online Reading (#/online)](Online-Reading-EN) |
 | `#系列作品series` | [Browsing & Library (Library)](Library-EN) | [Series (#/series)](Library-EN#series-series) |
 | `#history-history` | [Browsing & Library (Library)](Library-EN) | [History (#/history)](Library-EN#history-history) |
 | `#first-run-wizard-welcome` | [Usage Guide (Usage)](Usage-EN) | [First-Run Wizard (#/welcome)](Usage-EN#first-run-wizard-welcome) |

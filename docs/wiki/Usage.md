@@ -7,7 +7,7 @@
 GalleryVault 是基于 hash 路由的单页应用（例如 `#/library`、`#/gallery/7`）。页面切换与交互由前端驱动，页面刷新与历史前进/后退操作无需重新请求 HTML。页面切换期间到达的过期响应会被丢弃，不会覆盖新视图内容。
 
 **主要导航入口**：
-- **桌面端顶栏**：包含 Browse（浏览）、Discover（发现）、Library（画廊库）、Series（系列）、Tags（标签）、Downloads（下载）、Favorites（收藏夹）以及「管理」。
+- **桌面端顶栏**：包含 Browse（浏览）、Online（在线）、Library（画廊库）、Series（系列）、Tags（标签）、Downloads（下载）、Favorites（收藏夹）以及「管理」。
 - **更多菜单**：收纳 History（历史）、Settings（设置）与 Logs（日志）。
 - **管理模块**：点击「管理」默认进入回收站（`#/recycle`），支持在页内切换至重复副本（`#/duplicates`）、收藏夹重复（`#/duplicates/favorites`）、跨 GID 重复（`#/duplicates/cross-gid`）、缺页体检（`#/integrity`）与冷库归档（`#/archive`）。旧路由 `#/favorites/manage` 会重定向至收藏夹重复以保持兼容。
 - **移动端**：通过汉堡菜单平铺展示全部导航项。
@@ -75,7 +75,7 @@ GalleryVault 是基于 hash 路由的单页应用（例如 `#/library`、`#/gall
 
 - **[浏览与库 (Library)](Library)**：
   - [浏览（#/browse）](Library#浏览browse) — 默认网格浏览、继续阅读面板、键盘导航与全局检索；宽幅封面采用原图模糊衬底，保持完整构图。优先使用云端封面缓存，缺失时降级为本地首图并异步拉取。
-  - [发现（#/discover）](Library#发现discover) — 在线浏览 ExHentai、Popular、Watched 与 Toplist 热门榜单，支持游标翻页。
+  - [在线阅读（#/online）](Online-Reading) — 在线浏览 ExHentai、Popular、Watched 与 Toplist 榜单，并支持浏览器直连 / 服务器代理回退两种在线阅读通道、在线收藏与下载。旧链接 `#/discover` 仍可用。
   - [系列作品（#/series）](Library#系列作品series) — 同人与漫画分类过滤、前缀剥离与标题聚类；支持归集云端未入库收藏并展示角标与一键入队，支持手动管理系列成员，扫库后自动重建聚类。
   - [画廊库（#/library）](Library#画廊库library) — 多维度字段排序、阅读状态互斥筛选、AND/OR 多标签过滤与 `-tag` 排除语法，提供批量加入收藏与删除熔断保护。
   - [本地列表（#/library）](Library#本地列表library) — 独立于 EH 的本地自定义书单生命周期管理与分类归类。
@@ -117,7 +117,7 @@ GalleryVault 是基于 hash 路由的单页应用（例如 `#/library`、`#/gall
 | 旧锚点 (Old Anchor) | 对应新页面 | 对应新章节锚点 |
 | :--- | :--- | :--- |
 | `#浏览browse` | [浏览与库 (Library)](Library) | [浏览（#/browse）](Library#浏览browse) |
-| `#发现discover` | [浏览与库 (Library)](Library) | [发现（#/discover）](Library#发现discover) |
+| `#发现discover` | [在线阅读 (Online-Reading)](Online-Reading) | [在线阅读（#/online）](Online-Reading) |
 | `#系列作品series` | [浏览与库 (Library)](Library) | [系列作品（#/series）](Library#系列作品series) |
 | `#历史history` | [浏览与库 (Library)](Library) | [历史（#/history）](Library#历史history) |
 | `#首次运行向导welcome` | [使用指南 (Usage)](Usage) | [首次运行向导（#/welcome）](Usage#首次运行向导welcome) |

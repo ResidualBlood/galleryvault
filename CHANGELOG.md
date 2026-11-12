@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- 前端文档同步到 Vue 3 + Vite + TypeScript 新前端：新增「在线阅读」页面（在线浏览与详情、浏览器直连 / 服务器代理回退两种通道、隐私说明、伴侣脚本安装与 API token）与「前端开发与构建」页面（架构、开发 / 构建 / 测试命令、设计规范入口）。
+- Wiki 设置页按 13 个分组重写，补充分组保存规则、安全敏感确认、默认收藏夹、在线并发与缓存、API token 等新键；在线浏览入口由 `#/discover` 改为 `#/online`（旧链接保留为别名）。
+- `backend/docs/DEVELOPMENT.md` 的前端架构、目录、开发 / 构建 / 测试与标签显示说明更新为新前端。
+
 ## [1.13.4] - 2026-09-19
 
 ### Changed

@@ -16,13 +16,14 @@ Browse, Discover, Series, Library, local lists, tags, and reading history.
   - The gallery grid supports arrow key navigation: `←` / `→` / `↑` / `↓` to move focus, and `Enter` to open the detail page.
 - **Late responses**: After switching views or re-rendering, a response that arrives late from an earlier request is discarded and never overwrites the current view; the same applies to Browse, Tags, the gallery detail page, and the reader.
 
-## Discover (`#/discover`)
+## Online browsing (`#/online`)
 
-Browse and search online galleries on ExHentai.
+Browse, search, and read ExHentai galleries online. The legacy `#/discover` link opens the same page; the two image channels, privacy notes, and the companion script are covered in [Online Reading](Online-Reading-EN).
 
-- **Rankings & Views**: The toolbar provides Popular, Watched, and Toplist views (Yesterday / Month / Year / All-time, corresponding to site `tl=11/12/13/15`). Watched displays a Cookie configuration prompt when no login is present.
-- **Filter Criteria**: Supports keyword queries, category checkboxes (based on site category bitmasks), minimum rating filters, and download quality settings (resampled by default, original optional).
-- **Gallery Cards**: Displays cover, title, category, page count, and rating, with badges indicating "In Library", "Favorited", or "Not Downloaded" status.
+- **Rankings & Views**: The toolbar provides search, Popular, Watched, and Toplist views (Yesterday / Month / Year / All-time, corresponding to site `tl=11/12/13/15`). Watched displays a Cookie configuration prompt when no login is present.
+- **Filter Criteria**: Keyword queries, category checkboxes (site category bitmask), and minimum rating; the list defaults can be pinned in Settings.
+- **Gallery Cards**: Cover, title, category, page count, rating, plus badges for "In Library", "Favorited", and "Downloading / Queued / Failed".
+- **Quick actions**: Hover on desktop or long-press on mobile to read, favorite, or download directly; the online detail page is `#/online/g/<gid>/<token>`.
 - **Ingestion & Favorites**:
   - Click Download to enqueue download tasks; see [Downloads & Management](Downloads-EN).
   - Add to Favorites allows selecting folders 0–9; **local database records are updated only after cloud confirmation succeeds**.

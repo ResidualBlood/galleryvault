@@ -29,8 +29,8 @@ Key capabilities, prerequisites, and core constraints by module. The system cons
 - **Ten favorite folders**: Independently manages 10 site favorite folders. Each folder can be assigned an "Incremental download", "Watch only", or "Force download" mode with its own polling schedule, enqueuing galleries accordingly.
 - **Allowed domain constraints**: Restricts outbound API and gallery requests to `exhentai.org`, `e-hentai.org`, and their subdomains; all other hostnames return HTTP 422. Tag sync for ExHentai-exclusive galleries is paused when running in public site mode.
 - **Cookie health monitoring**: Checks cookie connectivity and permissions at startup and on background intervals, displaying warning alerts in the top navigation bar when cookies expire or fail.
-- **Discovery views**: Integrates Popular, Watched, and Toplist discovery views, supporting direct download enqueuing and adding to favorites.
-- **Detailed references**: See [Favorites Management](Favorites-EN) for favorite modes and synchronization rules; see [Library & Browsing](Library-EN) for discovery views.
+- **Online browsing**: Integrates search, Popular, Watched, and Toplist views, with direct favorite / download actions from the list and detail pages; see [Online Reading](Online-Reading-EN).
+- **Detailed references**: See [Favorites Management](Favorites-EN) for favorite modes and synchronization rules; see [Online Reading](Online-Reading-EN) and [Library & Browsing](Library-EN) for online browsing.
 
 ## 4. Downloads
 
@@ -50,7 +50,7 @@ Key capabilities, prerequisites, and core constraints by module. The system cons
 - **Advanced tag search**: Integrates the EhTagTranslation database; supports autocomplete suggestions, AND/OR logic, `-tag` exclusion syntax, and reverse search matching English tags from non-English queries.
 - **OPDS catalog feed**: Provides a `GET /api/opds` catalog endpoint and `GET/HEAD /api/galleries/{id}/export.cbz` acquisition endpoint, both accepting HTTP Basic authentication (unauthenticated requests return 401 with `WWW-Authenticate: Basic`); compatible with reader clients such as Tachiyomi, Mihon, and Panels.
 - **Safe deletion & recycle bin**: Deleted or missing galleries are moved to the recycle bin directory, supporting on-demand restoration or permanent removal.
-- **Detailed references**: See [Gallery Details & Reading](Reading-EN) for reader settings and shortcuts; see [Library & Browsing](Library-EN) for search syntax; see [Library Management & Maintenance](Manage-EN) for recycle bin operations.
+- **Detailed references**: See [Gallery Details & Reading](Reading-EN) for reader settings and shortcuts; see [Online Reading](Online-Reading-EN) for the two image channels and the companion script; see [Library & Browsing](Library-EN) for search syntax; see [Library Management & Maintenance](Manage-EN) for recycle bin operations.
 
 ## 6. Security and deployment
 
