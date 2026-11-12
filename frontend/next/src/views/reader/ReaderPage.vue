@@ -53,6 +53,7 @@ function onLoad(event: Event): void {
         :class="`reader-page__image reader-page__image--${fit}`"
         decoding="async"
         draggable="false"
+        referrerpolicy="no-referrer"
         @load="onLoad"
         @error="emit('error', page)"
       />

@@ -126,6 +126,9 @@ test("direct mode reads ten pages with zero server image requests @online-reader
   await expect(shell).toHaveAttribute("data-page", "9");
 
   expect(metrics.proxyImages).toEqual([]);
+  // Online reading must never touch the local progress endpoint.
+  expect(metrics.localProgressRequests).toBe(0);
+  await expect.poll(() => metrics.progressSaves.length).toBeGreaterThan(0);
   expect(metrics.resolves.length).toBeGreaterThanOrEqual(10);
   expect(metrics.maxInflightResolves).toBeLessThanOrEqual(2);
   expect(metrics.blockedExternal).toEqual([]);
@@ -280,6 +283,27 @@ test("continue-reading section links back to the stored page @online-reader", as
     /#\/online\/g\/910000\/tok910000\/read\/2$/,
   );
   await expect(page.getByTestId("online-continue-progress").first()).toContainText("3");
+  expect(csp).toEqual([]);
+});
+
+test("the routed reader writes online progress only @online-reader", async ({ page }) => {
+  const csp = watchConsole(page);
+  const metrics = await mockOnlineReaderBackend(page);
+  await page.goto(`/#/online/g/${READER_GID}/${READER_TOKEN}/read/0`);
+
+  const shell = page.getByTestId("reader-shell");
+  await expect(shell).toBeVisible();
+  await expect(shell).toHaveAttribute("data-total", "10");
+
+  await turn(page, 2);
+  await expect(shell).toHaveAttribute("data-page", "2");
+  await expect.poll(() => metrics.progressSaves.at(-1)?.page).toBe(3);
+  expect(metrics.progressSaves[0]).toMatchObject({
+    title: "Online Reader Fixture",
+  });
+  expect(metrics.localProgressRequests).toBe(0);
+  await expect(page).toHaveURL(new RegExp(`#/online/g/${READER_GID}/${READER_TOKEN}/read/2$`));
+  expect(await page.locator("iframe").count()).toBe(0);
   expect(csp).toEqual([]);
 });
 

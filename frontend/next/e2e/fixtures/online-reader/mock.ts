@@ -35,6 +35,8 @@ export interface ReaderMockMetrics {
   /** Resolve attempts observed after the 429 response (must stay 0). */
   resolvesAfterQuota: number;
   quotaRequests: number;
+  /** Requests to the local reader progress endpoint (must stay 0 online). */
+  localProgressRequests: number;
   progressSaves: Array<{
     page: number;
     total_pages?: number;
@@ -72,6 +74,7 @@ export async function mockOnlineReaderBackend(
     maxInflightResolves: 0,
     resolvesAfterQuota: 0,
     quotaRequests: 0,
+    localProgressRequests: 0,
     progressSaves: [],
     blockedExternal: [],
   };
@@ -113,6 +116,9 @@ export async function mockOnlineReaderBackend(
   // galleryId. It is out of this batch's scope; answer quickly so retries do
   // not stall the reader.
   await page.route("**/api/galleries/**", async (route) => {
+    if (/\/progress$/.test(new URL(route.request().url()).pathname)) {
+      metrics.localProgressRequests += 1;
+    }
     await route.fulfill({
       status: 404,
       contentType: "application/json",

@@ -68,6 +68,9 @@ describe("online image mode", () => {
     });
     expect(direct.kind).toBe("online-direct");
     expect(proxy.kind).toBe("online-proxy");
+    // Online sources never own the local progress writer.
+    expect(direct.saveProgress).toBeUndefined();
+    expect(proxy.saveProgress).toBeUndefined();
     expect(proxy.officialUrl()).toBe(
       `https://exhentai.org/g/${GID}/${TOKEN}/`,
     );

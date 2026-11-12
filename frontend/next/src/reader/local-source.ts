@@ -1,5 +1,5 @@
-import type { PageRef, PageSource, PageSourceKind } from "./source";
-import { readerPagePath } from "@/api/reader";
+import type { PageProgress, PageRef, PageSource, PageSourceKind } from "./source";
+import { readerPagePath, saveReaderProgress } from "@/api/reader";
 
 /** Pages served by the GalleryVault backend (`/api/galleries/{id}/pages/{n}`). */
 export class LocalPageSource implements PageSource {
@@ -25,5 +25,10 @@ export class LocalPageSource implements PageSource {
 
   officialUrl(): string | null {
     return null;
+  }
+
+  /** Local galleries persist to the local progress endpoint. */
+  saveProgress(progress: PageProgress): Promise<unknown> {
+    return saveReaderProgress(this.galleryId, progress);
   }
 }

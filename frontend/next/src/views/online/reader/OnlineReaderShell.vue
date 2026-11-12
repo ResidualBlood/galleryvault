@@ -5,10 +5,9 @@
  * ReaderShell owns modes, gestures and the paginated/webtoon rendering; this
  * component only supplies the PageSource, online progress, the persistent
  * action strip, the quota notice and the blocked-page fallbacks. It is router
- * agnostic so the E2E harness can mount it without the route table (which this
- * batch must not edit).
+ * agnostic so the E2E harness can mount it without the route table.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import ReaderShell from "@/views/reader/ReaderShell.vue";
 import Button from "@/components/ui/Button.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
@@ -28,8 +27,7 @@ import {
   saveOnlineProgress,
   type OnlineQuota,
 } from "@/api/eh-reader";
-import { ProgressWriter } from "@/reader/progress";
-import type { PageSource } from "@/reader/source";
+import type { PageProgress, PageSource } from "@/reader/source";
 import {
   OnlineDirectPageSource,
   createOnlinePageSource,
@@ -77,10 +75,6 @@ const quota = ref<OnlineQuota | null>(null);
 const quotaNotice = ref(false);
 const failure = ref<"image_failed" | "placeholder" | null>(null);
 const failurePage = ref<number | null>(null);
-
-let progress: ProgressWriter | null = null;
-let referrerMeta: HTMLMetaElement | null = null;
-let referrerMetaCreated = false;
 
 const source = computed<PageSource>(() => {
   // `reloadKey` is a dependency so switching mode/retrying rebuilds the source
@@ -166,17 +160,6 @@ async function boot(): Promise<void> {
           : 0;
     mountPage.value = currentPage.value;
 
-    progress?.dispose();
-    progress = new ProgressWriter({
-      send: (payload) =>
-        saveOnlineProgress(props.gid, props.token, {
-          page: payload.current_page + 1,
-          total_pages: payload.total_pages,
-          title: detail.gallery?.title ?? null,
-          thumb: detail.gallery?.thumb ?? null,
-        }).then(() => undefined),
-    });
-    progress.queue(currentPage.value, total.value, { immediate: true });
     ready.value = total.value > 0;
   } catch {
     loadError.value = true;
@@ -227,9 +210,21 @@ async function loadQuota(): Promise<void> {
 
 /* ---------------------------------------------------------------- navigation */
 
+/**
+ * ReaderShell owns the progress writer; this sender is the only sink for
+ * online reading. It never touches `/api/galleries/{id}/progress`.
+ */
+function sendProgress(payload: PageProgress): Promise<unknown> {
+  return saveOnlineProgress(props.gid, props.token, {
+    page: payload.current_page + 1,
+    total_pages: payload.total_pages,
+    title: gallery.value?.title ?? null,
+    thumb: gallery.value?.thumb ?? null,
+  }).then(() => undefined);
+}
+
 function onPageChange(page: number): void {
   currentPage.value = page;
-  progress?.queue(page, total.value);
   emit("pageChange", page);
 
   const current = source.value;
@@ -267,31 +262,8 @@ function toggleMode(): void {
   setMode(mode.value === "direct" ? "proxy" : "direct");
 }
 
-/* ------------------------------------------------------------------- privacy */
-
-onMounted(() => {
-  // A cross-origin H@H fetch must not leak the reader URL as a referrer. The
-  // site already sends `Referrer-Policy: same-origin`; this covers dev/preview
-  // hosts and any future policy change. `ReaderPage.vue` (fe-reader scope) owns
-  // the <img> element itself and is not edited by this batch.
-  if (document.querySelector('meta[name="referrer"]')) return;
-  referrerMeta = document.createElement("meta");
-  referrerMeta.name = "referrer";
-  referrerMeta.content = "no-referrer";
-  document.head.appendChild(referrerMeta);
-  referrerMetaCreated = true;
-});
-
 onBeforeUnmount(() => {
-  progress?.flushNow();
-  progress?.dispose();
-  progress = null;
   if (source.value instanceof OnlineDirectPageSource) source.value.dispose();
-  if (referrerMetaCreated && referrerMeta?.parentNode) {
-    referrerMeta.parentNode.removeChild(referrerMeta);
-  }
-  referrerMeta = null;
-  referrerMetaCreated = false;
 });
 
 void boot();
@@ -336,6 +308,7 @@ void boot();
         :initial-page="mountPage"
         :title="gallery?.title ?? ''"
         :source="source"
+        :progress-sender="sendProgress"
         @close="emit('close')"
         @page-change="onPageChange"
       />
