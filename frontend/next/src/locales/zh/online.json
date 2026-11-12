@@ -1,0 +1,98 @@
+{
+  "title": "在线浏览",
+  "subtitle": "搜索 ExHentai，或浏览热门、关注与排行",
+  "searchLabel": "搜索",
+  "searchPlaceholder": "标题、标签或关键词",
+  "search": "搜索",
+  "reset": "重置",
+  "listLabel": "列表类型",
+  "list": {
+    "search": "搜索",
+    "popular": "热门",
+    "watched": "关注",
+    "toplist": "排行"
+  },
+  "toplist": {
+    "label": "排行周期",
+    "11": "昨日",
+    "12": "本月",
+    "13": "年度",
+    "15": "全部"
+  },
+  "minRating": "最低评分",
+  "ratingAny": "不限评分",
+  "ratingAtLeast": "≥ {value}",
+  "categoriesLabel": "分类",
+  "categoriesAll": "全部分类",
+  "categories": {
+    "doujinshi": "同人志",
+    "manga": "漫画",
+    "artistcg": "画师 CG",
+    "gamecg": "游戏 CG",
+    "western": "西方",
+    "non-h": "非 H",
+    "image_set": "图集",
+    "cosplay": "Cosplay",
+    "asianporn": "亚洲",
+    "misc": "其他"
+  },
+  "mask": "分类过滤位掩码：{mask}",
+  "loadFailed": "在线画廊加载失败",
+  "emptyTitle": "没有匹配的画廊",
+  "emptyBody": "调整关键词、分类或评分后再试。",
+  "retry": "重试",
+  "goSettings": "去设置",
+  "badges": {
+    "inLibrary": "已在库",
+    "favorited": "已收藏",
+    "downloading": "下载中",
+    "queued": "排队中",
+    "failed": "下载失败"
+  },
+  "state": {
+    "auth": {
+      "title": "需要 ExHentai 登录",
+      "body": "当前 Cookie 未登录或没有 ExHentai 访问权限。请到设置更新 Cookie 后重试。"
+    },
+    "challenge": {
+      "title": "需要人机验证",
+      "body": "ExHentai 要求完成人机验证。请到设置检查 Cookie 状态，并在官方页完成验证后重试。"
+    },
+    "banned": {
+      "title": "ExHentai 已封禁当前出口 IP",
+      "body": "站点提示请求过于频繁或 IP 被封禁。请等待解封或更换网络出口后重试。"
+    },
+    "error": {
+      "title": "在线服务暂不可用",
+      "body": "请求 ExHentai 失败，请稍后重试。"
+    }
+  },
+  "detail": {
+    "invalid": "在线画廊地址无效",
+    "loadFailed": "在线画廊详情加载失败",
+    "coverAlt": "{title} 封面",
+    "coverMissing": "封面不可用",
+    "uploader": "上传者",
+    "posted": "发布时间",
+    "pages": "页数",
+    "size": "大小",
+    "rating": "评分",
+    "unknown": "未知",
+    "favorite": "收藏",
+    "favcat": "已收藏（分类 {cat}）",
+    "newer": "有新版本",
+    "inLibrary": "本机库已有该画廊",
+    "read": "阅读",
+    "openLocal": "打开本机版",
+    "openOfficial": "在官方页打开",
+    "tags": "标签",
+    "thumbs": "缩略图",
+    "pagesCount": "共 {count} 页",
+    "openPage": "阅读第 {page} 页",
+    "thumbAlt": "第 {page} 页缩略图",
+    "pageOnly": "仅页码",
+    "thumbsFailed": "缩略图加载失败",
+    "thumbsLoading": "正在加载更多缩略图…",
+    "thumbsEnd": "已加载全部缩略图"
+  }
+}

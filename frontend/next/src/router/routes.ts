@@ -5,6 +5,8 @@ import LoginView from "@/views/LoginView.vue";
 import PlaceholderView from "@/views/PlaceholderView.vue";
 import BrowseView from "@/views/browse/BrowseView.vue";
 import LibraryView from "@/views/library/LibraryView.vue";
+import OnlineDetailView from "@/views/online/detail/OnlineDetailView.vue";
+import OnlineListView from "@/views/online/list/OnlineListView.vue";
 import ReaderView from "@/views/reader/ReaderView.vue";
 
 /**
@@ -36,13 +38,13 @@ export const routes: RouteRecordRaw[] = [
         path: "online",
         alias: ["/discover"],
         name: "online",
-        component: PlaceholderView,
+        component: OnlineListView,
         meta: { title: "app.nav.online" },
       },
       {
         path: "online/g/:gid/:token",
         name: "online-detail",
-        component: PlaceholderView,
+        component: OnlineDetailView,
         meta: { title: "app.nav.online" },
       },
       {
