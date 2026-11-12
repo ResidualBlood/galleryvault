@@ -1,0 +1,30 @@
+{
+  "quota": {
+    "cached": "cached",
+    "error": "Quota unavailable",
+    "near": "Image limit {current}/{limit} — nearing the cap"
+  },
+  "poll": {
+    "hidden": "Refresh pauses while this page is hidden"
+  },
+  "progress": {
+    "speed": "Speed",
+    "eta": "ETA",
+    "enumerating": "Reading page count…",
+    "retryCount": "Retry {n}"
+  },
+  "batch": {
+    "summary": "Queued {queued} · skipped {skipped} · gone {gone} · failed {failed}",
+    "empty": "No gallery links recognised",
+    "archiveTier": "Archive quality"
+  },
+  "page": {
+    "eyebrow": "DOWNLOADS",
+    "selectTask": "Select task {title}",
+    "confirmDelete": "Delete download task #{id}? Files already downloaded are kept.",
+    "confirmDeleteSelected": "Delete the {n} selected download tasks? Files already downloaded are kept.",
+    "deletedCount": "Deleted {n} task(s)",
+    "retriedCount": "Retried {n} task(s)",
+    "pauseFailed": "Could not change the pause state"
+  }
+}

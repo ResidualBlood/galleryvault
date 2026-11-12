@@ -1,0 +1,29 @@
+{
+  "page": {
+    "eyebrow": "EXHENTAI FOLDERS",
+    "checkStarted": "已开始检查收藏夹",
+    "syncStarted": "正在同步收藏夹名称",
+    "saveFailed": "保存失败",
+    "dirty": "有未保存的修改",
+    "checkStatusError": "检查状态获取失败"
+  },
+  "list": {
+    "eyebrow": "FAVORITE FOLDER",
+    "stateLabel": "显示范围",
+    "loaded": "已加载 {n} 本",
+    "loadMore": "加载更多",
+    "allLoaded": "已全部加载",
+    "noCover": "无封面",
+    "openEh": "在 E-Hentai 打开",
+    "selectItem": "选择 {title}",
+    "empty": "没有符合筛选条件的画廊。",
+    "archiveTier": "归档画质",
+    "downloadQueued": "已加入下载 {count} 本",
+    "downloadSkipped": "跳过 {count} 本",
+    "removePartial": "云端失败 {failed} 项，本地已按成功项更新",
+    "moveFailed": "移动失败 {failed} 项",
+    "total": "共 {n} 本",
+    "language": "语言",
+    "clearFilters": "清空筛选"
+  }
+}
