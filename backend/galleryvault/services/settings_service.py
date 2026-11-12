@@ -149,6 +149,8 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         "trusted_proxies",
         "tag_translation_update_interval_minutes",
         "global_paused",
+        "online_reader_concurrency",
+        "online_cache_max_mb",
     }
     filtered = {k: v for k, v in values.items() if k in allowed and v is not None}
     if "exhentai_cookies" in filtered:
@@ -384,6 +386,8 @@ def settings_public() -> dict[str, Any]:
         "generate_thumbnails": current.generate_thumbnails,
         "duplicate_policy": current.duplicate_policy,
         "thumbnail_cache_dir": current.thumbnail_cache_dir,
+        "online_reader_concurrency": current.online_reader_concurrency,
+        "online_cache_max_mb": current.online_cache_max_mb,
         "auth_required": current.auth_required,
         "auth_hash_configured": auth_hash_configured,
         "must_change_password": must_change_password,

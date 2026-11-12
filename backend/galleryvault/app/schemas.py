@@ -267,6 +267,8 @@ class SettingsRequest(BaseModel):
     trusted_proxies: list[str] | None = None
     tag_translation_update_interval_minutes: int | None = Field(default=None, ge=0)
     global_paused: bool | None = None
+    online_reader_concurrency: int | None = Field(default=None, ge=1, le=16)
+    online_cache_max_mb: int | None = Field(default=None, ge=16)
 
     @model_validator(mode="after")
     def validate_values(self) -> SettingsRequest:

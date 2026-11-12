@@ -34,7 +34,9 @@ SECURITY_HEADERS: dict[str, str] = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
     "Content-Security-Policy": (
-        "default-src 'self'; img-src 'self' data: https://ehgt.org; "
+        "default-src 'self'; img-src 'self' data: https://ehgt.org "
+        "https://*.ehgt.org https://*.hath.network:* https://e-hentai.org "
+        "https://*.e-hentai.org https://exhentai.org https://*.exhentai.org; "
         "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
         "worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
         "frame-ancestors 'none'"

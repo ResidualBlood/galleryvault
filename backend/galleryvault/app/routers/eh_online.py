@@ -1,8 +1,10 @@
-"""Online gallery detail, lazy preview pages and local-only badge status.
+"""Online gallery detail, lazy preview pages and direct image-URL resolution.
 
-The online reader never resolves image URLs here: this module only exposes
-gallery metadata, the per-preview-page index plus H@H sprite thumbnails, and a
-local-library badge lookup that never talks to ExHentai.
+This module exposes gallery metadata, the per-preview-page index plus H@H
+sprite thumbnails, a local-library badge lookup that never talks to ExHentai,
+and the single-page resolve endpoint the online reader uses to fetch images
+straight from H@H.  Resolve is one ``showpage`` per page (never bytes and never
+the image semaphore); see :mod:`galleryvault.services.online_resolve`.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from ...services.eh_client import (
     OnlineGalleryDetail,
     PreviewPage,
 )
+from ...services.online_resolve import OnlineResolveError, resolve_online_page
 from ..core.eh_client_manager import EhClientManager
 from ..dependencies import (
     db_error,
@@ -375,6 +378,27 @@ async def eh_online_pages(
         "total": payload.get("total"),
         "items": items,
     }
+
+
+@router.get("/api/eh/galleries/{gid}/{token}/pages/{n}/resolve")
+async def eh_online_resolve_page(
+    gid: int,
+    token: str,
+    n: int,
+    retry: int = Query(default=0, ge=0, le=2),
+    client_mgr: Any = Depends(get_eh_client_manager),  # noqa: B008
+) -> dict[str, Any]:
+    """Resolve one page to a direct H@H image URL (browser fetches the bytes)."""
+    gid = _validate_gid(gid)
+    token = _validate_token(token)
+    if n <= 0:
+        raise HTTPException(status_code=404, detail={"code": "page_out_of_range"})
+    try:
+        return await resolve_online_page(client_mgr, gid, token, n, retry=retry)
+    except OnlineResolveError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail={"code": exc.code}
+        ) from exc
 
 
 def _parse_status_gids(raw: str) -> list[int]:

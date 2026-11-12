@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     # sync, downloads, favorites, covers). Kept low to avoid tripping
     # ExHentai's anti-abuse when several tasks run at once.
     exhentai_max_concurrency: int = Field(default=6, ge=1, le=32)
+    # Direct-connect reader self-limit. The browser fetches the image bytes from
+    # H@H; the server only resolves URLs, but still caps concurrent resolves so
+    # one reader cannot monopolise the shared ExHentai page budget.
+    online_reader_concurrency: int = Field(default=3, ge=1, le=16)
+    # Disk ceiling for the optional server-side online-image cache (proxy mode);
+    # kept here so both reader modes share one settings surface.
+    online_cache_max_mb: int = Field(default=512, ge=16)
     title_display: str = "japanese"
     auto_sync_tags: bool = True
     tag_sync_interval_seconds: float = 1.5
@@ -320,6 +327,8 @@ EDITABLE_SETTINGS = {
     "duplicate_policy",
     "trusted_proxies",
     "global_paused",
+    "online_reader_concurrency",
+    "online_cache_max_mb",
 }
 
 
