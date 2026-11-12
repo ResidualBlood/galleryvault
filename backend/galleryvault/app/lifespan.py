@@ -18,7 +18,7 @@ from ..config import get_settings
 from ..db.models import AppConfig
 from ..db.models import DownloadTask as DownloadTaskModel
 from ..db.repository import SettingsRepository
-from ..db.session import create_worker_database
+from ..db.session import create_worker_database, safe_transaction
 from ..logging import log_extra
 from ..secrets import (
     decrypt_or_plain,
@@ -27,6 +27,7 @@ from ..secrets import (
     encryption_enabled,
     is_encrypted,
 )
+from ..services.api_token import lock_runtime_auth
 from ..services.settings_service import (
     decrypt_user_settings,
     start_telegram_bot,
@@ -164,35 +165,28 @@ async def bootstrap_auth() -> None:
     if not app_state.session_factory:
         return
     settings = app_state.settings or get_settings()
-    async with app_state.session_factory() as session:
-        row = await session.get(AppConfig, "runtime_auth")
-        runtime = dict(row.value) if row and isinstance(row.value, dict) else {}
+    async with app_state.session_factory() as session, safe_transaction(session):
+        # Lock and re-read inside the transaction.  A snapshot captured before a
+        # concurrent token revoke/password change must never be written back.
+        await lock_runtime_auth(session)
+        repo = SettingsRepository(session)
+        runtime = await repo.get_extra()
 
-    updates_dict: dict[str, object] = {}
-    if not runtime.get("auth_secret"):
-        if settings.auth_secret:
-            updates_dict["auth_secret"] = settings.auth_secret
-        else:
-            updates_dict["auth_secret"] = secrets.token_urlsafe(32)
-    if settings.auth_password_hash and not runtime.get("auth_password_hash"):
-        updates_dict["auth_password_hash"] = settings.auth_password_hash
+        updates: dict[str, object] = {}
+        if not runtime.get("auth_secret"):
+            updates["auth_secret"] = settings.auth_secret or secrets.token_urlsafe(32)
+        if settings.auth_password_hash and not runtime.get("auth_password_hash"):
+            updates["auth_password_hash"] = settings.auth_password_hash
 
-    if updates_dict:
-        merged = {**runtime, **updates_dict}
+        # Only encrypt the values being added; existing (possibly already
+        # encrypted) fields stay untouched.
         if encryption_enabled():
-            for key in ("auth_secret", "auth_password_hash"):
-                if isinstance(merged.get(key), str):
-                    merged[key] = encrypt(merged[key])
-        async with app_state.session_factory() as session, session.begin():
-            row = await session.get(AppConfig, "runtime_auth")
-            if row is None:
-                session.add(AppConfig(key="runtime_auth", value=merged))
-            else:
-                row.value = merged
-
-    async with app_state.session_factory() as session:
-        row = await session.get(AppConfig, "runtime_auth")
-        final = dict(row.value) if row and isinstance(row.value, dict) else {}
+            for key, value in updates.items():
+                if isinstance(value, str):
+                    updates[key] = encrypt(value)
+        if updates:
+            await repo.save_extra(updates)
+        final = {**runtime, **updates}
 
     opts: dict[str, object] = {"auth_secret": decrypt_or_plain(final.get("auth_secret"))}
     if final.get("auth_password_hash"):
@@ -207,6 +201,8 @@ async def migrate_plaintext_secrets() -> None:
         return
     try:
         async with app_state.session_factory() as session, session.begin():
+            # Serialize with token/credential writers before re-reading.
+            await lock_runtime_auth(session)
             runtime_row = await session.get(AppConfig, "runtime_auth")
             if runtime_row is not None and isinstance(runtime_row.value, dict):
                 value = dict(runtime_row.value)
