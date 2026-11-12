@@ -1,0 +1,61 @@
+{
+  "invalidId": "Invalid gallery address; returned home",
+  "notFound": "This gallery does not exist or was removed",
+  "loadFailed": "Could not load this gallery. Please try again.",
+  "loading": "Loading gallery…",
+  "retry": "Retry",
+  "read": "Read",
+  "continueReading": "Continue reading",
+  "restart": "Read from start",
+  "coverAlt": "Cover of {title}",
+  "coverMissing": "No cover",
+  "meta": {
+    "uploader": "Uploader",
+    "posted": "Posted",
+    "pages": "Pages",
+    "size": "Size",
+    "rating": "Rating",
+    "quality": "Quality"
+  },
+  "quality": {
+    "original": "Original",
+    "resample": "Resampled"
+  },
+  "tags": "Tags",
+  "noTags": "No tag information",
+  "thumbs": "Pages",
+  "thumbsCount": "{count} pages",
+  "pageLabel": "Page {page}",
+  "current": "Last read",
+  "unknown": "Unknown",
+  "categories": {
+    "doujinshi": "Doujinshi",
+    "manga": "Manga",
+    "artistcg": "Artist CG",
+    "gamecg": "Game CG",
+    "western": "Western",
+    "nonh": "Non-H",
+    "imageset": "Image Set",
+    "cosplay": "Cosplay",
+    "asianporn": "Asian Porn",
+    "misc": "Misc",
+    "private": "Private",
+    "other": "Misc"
+  },
+  "namespaces": {
+    "artist": "Artist",
+    "character": "Character",
+    "parody": "Parody",
+    "group": "Group",
+    "language": "Language",
+    "location": "Location",
+    "category": "Category",
+    "misc": "Misc",
+    "other": "Other",
+    "female": "Female",
+    "male": "Male",
+    "mixed": "Mixed",
+    "local": "Local",
+    "uploader": "Uploader"
+  }
+}

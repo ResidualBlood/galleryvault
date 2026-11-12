@@ -1,0 +1,61 @@
+{
+  "invalidId": "画廊地址无效，已返回首页",
+  "notFound": "画廊不存在或已被删除",
+  "loadFailed": "画廊加载失败，请稍后重试",
+  "loading": "正在加载画廊…",
+  "retry": "重试",
+  "read": "阅读",
+  "continueReading": "继续阅读",
+  "restart": "从头阅读",
+  "coverAlt": "{title} 封面",
+  "coverMissing": "暂无封面",
+  "meta": {
+    "uploader": "上传者",
+    "posted": "上传时间",
+    "pages": "页数",
+    "size": "大小",
+    "rating": "评分",
+    "quality": "画质"
+  },
+  "quality": {
+    "original": "原图",
+    "resample": "重采样"
+  },
+  "tags": "标签",
+  "noTags": "没有标签信息",
+  "thumbs": "页面",
+  "thumbsCount": "共 {count} 页",
+  "pageLabel": "第 {page} 页",
+  "current": "上次读到",
+  "unknown": "未知",
+  "categories": {
+    "doujinshi": "同人志",
+    "manga": "漫画",
+    "artistcg": "画师CG",
+    "gamecg": "游戏CG",
+    "western": "西方",
+    "nonh": "非H",
+    "imageset": "图集",
+    "cosplay": "Cosplay",
+    "asianporn": "亚洲色情",
+    "misc": "杂项",
+    "private": "私有",
+    "other": "杂项"
+  },
+  "namespaces": {
+    "artist": "作者",
+    "character": "角色",
+    "parody": "原作",
+    "group": "社团",
+    "language": "语言",
+    "location": "地点",
+    "category": "分类",
+    "misc": "标签",
+    "other": "标签",
+    "female": "女性",
+    "male": "男性",
+    "mixed": "男女",
+    "local": "本地",
+    "uploader": "上传者"
+  }
+}
