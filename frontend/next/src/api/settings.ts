@@ -15,6 +15,7 @@ export const repairCategoriesEp = ep("POST", "/api/tag-sync/repair-categories");
 export const apiTokenEp = ep("GET", "/api/auth/api-token");
 export const createApiTokenEp = ep("POST", "/api/auth/api-token");
 export const revokeApiTokenEp = ep("DELETE", "/api/auth/api-token");
+export const opdsEp = ep("GET", "/api/opds");
 
 export type AppSettings = Record<string, unknown>;
 
@@ -90,8 +91,13 @@ export function saveSettings(
   });
 }
 
+/**
+ * The health probe is advisory: a 401 here must not send the user to the login
+ * page (the session probe owns that decision), otherwise the shell banner could
+ * log a signed-in user out on a transient backend hiccup.
+ */
 export function fetchCookieHealth(): Promise<CookieHealth> {
-  return request<CookieHealth>(cookieHealthEp);
+  return request<CookieHealth>(cookieHealthEp, { skipAuthRedirect: true });
 }
 
 export function testExhentai(): Promise<{ status?: string; message?: string }> {

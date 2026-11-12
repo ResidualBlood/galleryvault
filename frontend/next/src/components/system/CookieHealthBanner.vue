@@ -8,7 +8,6 @@ import "./messages";
 const { t } = useI18n();
 const health = ref<CookieHealth | null>(null);
 const dismissed = ref(false);
-const error = ref("");
 
 const PROBLEM_STATES = new Set(["not_logged_in", "no_exhentai_access", "ip_banned"]);
 
@@ -25,9 +24,9 @@ const body = computed(() => {
 async function load(): Promise<void> {
   try {
     health.value = await fetchCookieHealth();
-    error.value = "";
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : String(cause);
+  } catch {
+    // Advisory probe: stay silent so a failing endpoint never breaks the shell.
+    health.value = null;
   }
 }
 
@@ -53,7 +52,6 @@ onMounted(load);
       </Button>
     </div>
   </aside>
-  <p v-else-if="error" class="cookie-banner__error" role="alert">{{ error }}</p>
 </template>
 
 <style scoped>
@@ -94,13 +92,6 @@ onMounted(load);
   color: var(--gv-color-on-warning-container);
   font: var(--gv-type-label-large);
   text-decoration: underline;
-}
-
-.cookie-banner__error {
-  margin: 0;
-  padding: var(--gv-space-2) var(--gv-space-4);
-  color: var(--gv-color-error);
-  font: var(--gv-type-body-small);
 }
 
 @media (max-width: 599px) {

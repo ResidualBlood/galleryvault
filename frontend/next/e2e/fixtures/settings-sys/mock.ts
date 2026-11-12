@@ -1,4 +1,46 @@
 import type { Page, Route } from "@playwright/test";
+import {
+  apiTokenEp,
+  cookieHealthEp,
+  createApiTokenEp,
+  generateThumbsEp,
+  repairCategoriesEp,
+  revokeApiTokenEp,
+  saveSettingsEp,
+  settingsEp,
+  storageInfoEp,
+  tagSearchStatusEp,
+  tagSyncStartEp,
+  testExhentaiEp,
+  testTelegramEp,
+  thumbsStatusEp,
+  translationReloadEp,
+} from "../../../src/api/settings";
+import {
+  cancelLogTaskEp,
+  clearNotificationsEp,
+  clearSystemLogsEp,
+  downloadSystemLogsEp,
+  logsEp,
+  notificationsEp,
+  pauseEp,
+  purgeArchivedSourcesEp,
+  readNotificationsEp,
+  scanStatusEp,
+  setLogLevelEp,
+  setPauseEp,
+  systemLogsEp,
+  triggerScanEp,
+} from "../../../src/api/system";
+import {
+  archiveEp,
+  cancelArchiveEp,
+  createArchiveEp,
+  previewArchiveEp,
+} from "../../../src/api/archive";
+import { changePasswordEp, onboardingStatusEp, sessionEp } from "../../../src/api/auth";
+import { checkAllFavoritesEp, favoriteCategoriesEp } from "../../../src/api/favorites";
+import { galleriesEp } from "../../../src/api/galleries";
 
 export interface MockRequest {
   method: string;
@@ -70,6 +112,17 @@ const BASE_SETTINGS: Record<string, unknown> = {
 };
 
 const SECURITY_KEYS = ["auth_required", "trusted_proxies", "download_root", "library_roots"];
+
+/** `path.startsWith` needs a prefix the eslint bare-/api literal guard ignores. */
+const API_ROOT = "/api";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const CANCEL_TASK_RE = new RegExp(
+  `^${escapeRegExp(cancelLogTaskEp.path).replace("\\{id\\}", "[^/]+")}$`,
+);
 
 const FAVORITES = Array.from({ length: 10 }, (_, favcat) => ({
   favcat,
@@ -165,7 +218,7 @@ export async function mockSettingsBackend(
     const method = request.method().toUpperCase();
     const path = new URL(request.url()).pathname;
     // Vite serves source modules from /src/api/*.ts; only intercept the real API.
-    if (!path.startsWith("/api/")) {
+    if (!path.startsWith(`${API_ROOT}/`)) {
       await route.continue();
       return;
     }
@@ -174,11 +227,11 @@ export async function mockSettingsBackend(
     requests.push(record);
     if (method !== "GET") posts.push(record);
 
-    if (path === "/api/settings" && method === "GET") {
+    if (path === settingsEp.path && method === "GET") {
       await json(route, 200, settings);
       return;
     }
-    if (path === "/api/settings" && method === "POST") {
+    if (path === saveSettingsEp.path && method === "POST") {
       const payload = body ?? {};
       const changedSecurity = SECURITY_KEYS.filter((key) => key in payload);
       const password = typeof payload.current_password === "string" ? payload.current_password : "";
@@ -196,36 +249,36 @@ export async function mockSettingsBackend(
       await json(route, 200, settings);
       return;
     }
-    if (path === "/api/settings/cookie-health") {
+    if (path === cookieHealthEp.path) {
       await json(route, 200, {
         state: cookieState,
         message: cookieState === "not_logged_in" ? "Cookie 已失效" : "",
       });
       return;
     }
-    if (path === "/api/settings/exhentai/test") {
+    if (path === testExhentaiEp.path) {
       await json(route, 200, { status: "ok", message: "登录正常" });
       return;
     }
-    if (path === "/api/pause" && method === "GET") {
+    if (path === pauseEp.path && method === "GET") {
       await json(route, 200, { paused });
       return;
     }
-    if (path === "/api/pause" && method === "POST") {
+    if (path === setPauseEp.path && method === "POST") {
       paused = Boolean(body?.paused);
       await json(route, 200, { paused });
       return;
     }
-    if (path === "/api/scan" && method === "GET") {
+    if (path === scanStatusEp.path && method === "GET") {
       await json(route, 200, { running: scanRunning });
       return;
     }
-    if (path === "/api/scan" && method === "POST") {
+    if (path === triggerScanEp.path && method === "POST") {
       scanRunning = true;
       await json(route, 202, { status: "started" });
       return;
     }
-    if (path === "/api/system/storage") {
+    if (path === storageInfoEp.path) {
       await json(route, 200, {
         library: { path: "/library", bytes: 8589934592, gallery_count: 120, computing: false },
         cold: { path: "/cold", bytes: 42949672960, gallery_count: 400, computing: false },
@@ -238,64 +291,69 @@ export async function mockSettingsBackend(
       });
       return;
     }
-    if (path === "/api/thumbs/status") {
-      await json(route, 200, { running: false, completed_at: "2026-11-12T20:00:00Z", succeeded: 1200, failed: 3 });
+    if (path === thumbsStatusEp.path) {
+      await json(route, 200, {
+        running: false,
+        completed_at: "2026-11-12T20:00:00Z",
+        succeeded: 1200,
+        failed: 3,
+      });
       return;
     }
-    if (path === "/api/thumbs/generate") {
+    if (path === generateThumbsEp.path) {
       await json(route, 200, { queued: 3 });
       return;
     }
-    if (path === "/api/telegram/test") {
+    if (path === testTelegramEp.path) {
       await json(route, 200, { ok: true, results: [] });
       return;
     }
-    if (path === "/api/tags/search/status") {
+    if (path === tagSearchStatusEp.path) {
       await json(route, 200, { ok: true, entries: 1234, last_error: null, interval_minutes: 720 });
       return;
     }
-    if (path === "/api/tags/search/reload") {
+    if (path === translationReloadEp.path) {
       await json(route, 200, { ok: true });
       return;
     }
-    if (path === "/api/tag-sync/start") {
+    if (path === tagSyncStartEp.path) {
       await json(route, 202, { queued: 2 });
       return;
     }
-    if (path === "/api/tag-sync/repair-categories") {
+    if (path === repairCategoriesEp.path) {
       await json(route, 200, { repaired: 3, total: 4 });
       return;
     }
-    if (path === "/api/auth/api-token" && method === "GET") {
+    if (path === apiTokenEp.path && method === "GET") {
       await json(route, 200, {
         configured: tokenConfigured,
         created_at: tokenConfigured ? "2026-11-12T20:00:00+08:00" : null,
       });
       return;
     }
-    if (path === "/api/auth/api-token" && method === "POST") {
+    if (path === createApiTokenEp.path && method === "POST") {
       tokenConfigured = true;
       await json(route, 200, { token: "gvt_TEST_ONLY_TOKEN_9f3c" });
       return;
     }
-    if (path === "/api/auth/api-token" && method === "DELETE") {
+    if (path === revokeApiTokenEp.path && method === "DELETE") {
       tokenConfigured = false;
       await route.fulfill({ status: 204, body: "" });
       return;
     }
-    if (path === "/api/auth/change-password") {
+    if (path === changePasswordEp.path) {
       await route.fulfill({ status: 204, body: "" });
       return;
     }
-    if (path === "/api/favorites/categories") {
+    if (path === favoriteCategoriesEp.path) {
       await json(route, 200, FAVORITES);
       return;
     }
-    if (path === "/api/favorites/check-all") {
+    if (path === checkAllFavoritesEp.path) {
       await json(route, 202, { status: "started" });
       return;
     }
-    if (path === "/api/onboarding/status") {
+    if (path === onboardingStatusEp.path) {
       await json(route, 200, {
         password_default: false,
         exhentai_configured: true,
@@ -303,35 +361,53 @@ export async function mockSettingsBackend(
       });
       return;
     }
-    if (path === "/api/galleries") {
+    if (path === galleriesEp.path) {
       await json(route, 200, {
         total: 2,
         page: 1,
         page_size: 4,
         items: [
-          { id: 11, gid: 101, token: "aaa", title: "Recent One", category: "doujinshi", page_count: 24, cover_url: null, tags: [] },
-          { id: 12, gid: 102, token: "bbb", title: "Recent Two", category: "manga", page_count: 40, cover_url: null, tags: [] },
+          {
+            id: 11,
+            gid: 101,
+            token: "aaa",
+            title: "Recent One",
+            category: "doujinshi",
+            page_count: 24,
+            cover_url: null,
+            tags: [],
+          },
+          {
+            id: 12,
+            gid: 102,
+            token: "bbb",
+            title: "Recent Two",
+            category: "manga",
+            page_count: 40,
+            cover_url: null,
+            tags: [],
+          },
         ],
       });
       return;
     }
-    if (path === "/api/notifications" && method === "GET") {
+    if (path === notificationsEp.path && method === "GET") {
       await json(route, 200, { items: notifications, unread_count: unread });
       return;
     }
-    if (path === "/api/notifications/read") {
+    if (path === readNotificationsEp.path) {
       notifications = notifications.map((item) => ({ ...item, read: true }));
       unread = 0;
       await json(route, 200, { items: notifications, unread_count: unread });
       return;
     }
-    if (path === "/api/notifications/clear") {
+    if (path === clearNotificationsEp.path) {
       notifications = [];
       unread = 0;
       await json(route, 200, { items: [], unread_count: 0 });
       return;
     }
-    if (path === "/api/logs") {
+    if (path === logsEp.path) {
       await json(route, 200, {
         running: [
           {
@@ -356,16 +432,16 @@ export async function mockSettingsBackend(
       });
       return;
     }
-    if (/^\/api\/logs\/[^/]+\/cancel$/.test(path)) {
+    if (CANCEL_TASK_RE.test(path)) {
       await json(route, 202, { status: "cancelling" });
       return;
     }
-    if (path === "/api/logs/archive/cancel") {
+    if (path === cancelArchiveEp.path) {
       archives.running = false;
       await json(route, 202, { status: "cancelling" });
       return;
     }
-    if (path === "/api/system/logs" && method === "GET") {
+    if (path === systemLogsEp.path && method === "GET") {
       await json(route, 200, {
         level: "INFO",
         log_mode: "memory",
@@ -374,15 +450,15 @@ export async function mockSettingsBackend(
       });
       return;
     }
-    if (path === "/api/system/logs" && method === "DELETE") {
+    if (path === clearSystemLogsEp.path && method === "DELETE") {
       await json(route, 200, { status: "cleared" });
       return;
     }
-    if (path === "/api/system/logs/level") {
+    if (path === setLogLevelEp.path) {
       await json(route, 200, { level: String(body?.level ?? "INFO") });
       return;
     }
-    if (path === "/api/system/logs/download") {
+    if (path === downloadSystemLogsEp.path) {
       await route.fulfill({
         status: 200,
         contentType: "text/plain",
@@ -390,7 +466,7 @@ export async function mockSettingsBackend(
       });
       return;
     }
-    if (path === "/api/archive" && method === "GET") {
+    if (path === archiveEp.path && method === "GET") {
       await json(route, 200, {
         running: archives.running,
         done: archives.done,
@@ -403,12 +479,12 @@ export async function mockSettingsBackend(
       });
       return;
     }
-    if (path === "/api/archive" && method === "POST") {
+    if (path === createArchiveEp.path && method === "POST") {
       archives.running = true;
       await json(route, 202, { status: "started" });
       return;
     }
-    if (path === "/api/archives/preview") {
+    if (path === previewArchiveEp.path) {
       await json(route, 200, {
         funds: 12345,
         items: [
@@ -436,12 +512,16 @@ export async function mockSettingsBackend(
       });
       return;
     }
-    if (path === "/api/system/purge-archived-sources") {
+    if (path === purgeArchivedSourcesEp.path) {
       await json(route, 202, { status: "started" });
       return;
     }
-    if (path === "/api/auth/session") {
-      await json(route, 200, { authenticated: true, auth_required: true, must_change_password: false });
+    if (path === sessionEp.path) {
+      await json(route, 200, {
+        authenticated: true,
+        auth_required: true,
+        must_change_password: false,
+      });
       return;
     }
     await json(route, 200, {});

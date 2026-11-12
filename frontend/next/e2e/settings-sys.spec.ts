@@ -5,6 +5,22 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 
+import { saveSettingsEp } from "@/api/settings";
+import {
+  cancelLogTaskEp,
+  clearNotificationsEp,
+  clearSystemLogsEp,
+  purgeArchivedSourcesEp,
+  readNotificationsEp,
+  setLogLevelEp,
+  setPauseEp,
+  systemLogsDownloadUrl,
+  triggerScanEp,
+} from "@/api/system";
+import { cancelArchiveEp, createArchiveEp, previewArchiveEp } from "@/api/archive";
+import { changePasswordEp } from "@/api/auth";
+import { checkAllFavoritesEp } from "@/api/favorites";
+
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 const GROUPS = [
@@ -107,9 +123,10 @@ test.afterAll(async () => {
   await vite?.close();
 });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, baseURL }) => {
   await page.context().addCookies([
     { name: "galleryvault_csrf", value: "test-csrf", url: HARNESS },
+    { name: "galleryvault_csrf", value: "test-csrf", url: baseURL ?? "http://127.0.0.1" },
   ]);
 });
 
@@ -122,13 +139,13 @@ test.describe("settings & system @settings-sys", () => {
     await selectGroup(page, "download");
     await page.locator('[data-setting-key="download_concurrency"] input').fill("8");
     await page.getByTestId("settings-save").click();
-    await expect.poll(() => mock.posts.filter((entry) => entry.path === "/api/settings").length).toBe(1);
+    await expect.poll(() => mock.posts.filter((entry) => entry.path === saveSettingsEp.path).length).toBe(1);
     expect(mock.posts[0]?.body).toEqual({ download_concurrency: 8 });
 
     await selectGroup(page, "appearance");
     await page.locator('[data-setting-key="title_display"] select').selectOption("english");
     await page.getByTestId("settings-save").click();
-    await expect.poll(() => mock.posts.filter((entry) => entry.path === "/api/settings").length).toBe(2);
+    await expect.poll(() => mock.posts.filter((entry) => entry.path === saveSettingsEp.path).length).toBe(2);
     expect(mock.posts[1]?.body).toEqual({ title_display: "english" });
   });
 
@@ -142,14 +159,14 @@ test.describe("settings & system @settings-sys", () => {
     await page.getByTestId("settings-save").click();
 
     await expect(page.getByTestId("security-confirm")).toBeVisible();
-    expect(mock.posts.filter((entry) => entry.path === "/api/settings")).toHaveLength(0);
+    expect(mock.posts.filter((entry) => entry.path === saveSettingsEp.path)).toHaveLength(0);
 
     const dialog = page.getByTestId("security-confirm");
     await dialog.locator('input[type="password"]').fill("hunter2");
     await page.getByTestId("security-confirm-submit").click();
 
     await expect(page.getByTestId("security-confirm")).toBeHidden();
-    await expect.poll(() => mock.posts.filter((entry) => entry.path === "/api/settings").length).toBe(1);
+    await expect.poll(() => mock.posts.filter((entry) => entry.path === saveSettingsEp.path).length).toBe(1);
     expect(mock.posts[0]?.body).toMatchObject({
       download_root: "/srv/new-downloads",
       current_password: "hunter2",
@@ -299,29 +316,29 @@ test.describe("settings & system @settings-sys", () => {
 
     await page.getByTestId("logs-cancel").click();
     await expect
-      .poll(() => mock.posts.some((entry) => entry.path === "/api/logs/scan/cancel"))
+      .poll(() => mock.posts.some((entry) => entry.path === cancelLogTaskEp.path.replace("{id}", "scan")))
       .toBe(true);
 
     await page.getByTestId("logs-tab-system").click();
     await expect(page.locator('[data-testid="syslog-level"] select')).toHaveValue("INFO");
     await expect(page.locator('[data-testid="syslog-download"]')).toHaveAttribute(
       "href",
-      "/api/system/logs/download",
+      systemLogsDownloadUrl(),
     );
     await expect(page.locator('[data-testid="syslog-list"] [data-level="ERROR"]').first()).toBeVisible();
 
     await page.locator('[data-testid="syslog-level"] select').selectOption("DEBUG");
     await expect
-      .poll(() => mock.posts.filter((entry) => entry.path === "/api/system/logs/level").length)
+      .poll(() => mock.posts.filter((entry) => entry.path === setLogLevelEp.path).length)
       .toBe(1);
-    expect(mock.posts.find((entry) => entry.path === "/api/system/logs/level")?.body).toEqual({
+    expect(mock.posts.find((entry) => entry.path === setLogLevelEp.path)?.body).toEqual({
       level: "DEBUG",
     });
 
     await page.getByTestId("syslog-clear").click();
     await page.getByTestId("syslog-clear-confirm").click();
     await expect
-      .poll(() => mock.requests.some((entry) => entry.method === "DELETE" && entry.path === "/api/system/logs"))
+      .poll(() => mock.requests.some((entry) => entry.method === "DELETE" && entry.path === clearSystemLogsEp.path))
       .toBe(true);
   });
 
@@ -339,9 +356,9 @@ test.describe("settings & system @settings-sys", () => {
     await passwordInputs.nth(2).fill("new-password");
     await page.getByTestId("welcome-save-password").click();
     await expect
-      .poll(() => mock.posts.some((entry) => entry.path === "/api/auth/change-password"))
+      .poll(() => mock.posts.some((entry) => entry.path === changePasswordEp.path))
       .toBe(true);
-    expect(mock.posts.find((entry) => entry.path === "/api/auth/change-password")?.body).toEqual({
+    expect(mock.posts.find((entry) => entry.path === changePasswordEp.path)?.body).toEqual({
       current: "old-password",
       new: "new-password",
     });
@@ -351,19 +368,19 @@ test.describe("settings & system @settings-sys", () => {
     await siteInputs.nth(0).fill(SECRET_SENTINEL);
     await page.getByTestId("welcome-save-site").click();
     await expect
-      .poll(() => mock.posts.filter((entry) => entry.path === "/api/settings").length)
+      .poll(() => mock.posts.filter((entry) => entry.path === saveSettingsEp.path).length)
       .toBe(1);
-    expect(mock.posts.find((entry) => entry.path === "/api/settings")?.body).toEqual({
+    expect(mock.posts.find((entry) => entry.path === saveSettingsEp.path)?.body).toEqual({
       exhentai_base_url: "https://e-hentai.org",
       ipb_member_id: SECRET_SENTINEL,
     });
     await expect(siteInputs.nth(0)).toHaveValue("");
 
     await page.getByTestId("welcome-scan").click();
-    await expect.poll(() => mock.posts.some((entry) => entry.path === "/api/scan")).toBe(true);
+    await expect.poll(() => mock.posts.some((entry) => entry.path === triggerScanEp.path)).toBe(true);
     await page.getByTestId("welcome-check-favs").click();
     await expect
-      .poll(() => mock.posts.some((entry) => entry.path === "/api/favorites/check-all"))
+      .poll(() => mock.posts.some((entry) => entry.path === checkAllFavoritesEp.path))
       .toBe(true);
 
     expect(await page.locator("body").innerText()).not.toContain(SECRET_SENTINEL);
@@ -379,17 +396,17 @@ test.describe("settings & system @settings-sys", () => {
     await expect(page.getByTestId("archive-status")).toBeVisible();
 
     await page.getByTestId("archive-start").click();
-    await expect.poll(() => mock.posts.some((entry) => entry.path === "/api/archive")).toBe(true);
+    await expect.poll(() => mock.posts.some((entry) => entry.path === createArchiveEp.path)).toBe(true);
     await expect(page.getByTestId("archive-cancel")).toBeEnabled();
     await page.getByTestId("archive-cancel").click();
     await expect
-      .poll(() => mock.posts.some((entry) => entry.path === "/api/logs/archive/cancel"))
+      .poll(() => mock.posts.some((entry) => entry.path === cancelArchiveEp.path))
       .toBe(true);
 
     await page.getByTestId("archive-purge").click();
     await page.getByTestId("archive-purge-confirm").click();
     await expect
-      .poll(() => mock.posts.some((entry) => entry.path === "/api/system/purge-archived-sources"))
+      .poll(() => mock.posts.some((entry) => entry.path === purgeArchivedSourcesEp.path))
       .toBe(true);
   });
 
@@ -402,7 +419,7 @@ test.describe("settings & system @settings-sys", () => {
     await expect(dialog.locator("select")).toHaveValue("original");
     await expect(dialog.locator(".archive-dialog__item")).toHaveCount(2);
     await expect(dialog).toContainText("GP 余额");
-    expect(mock.posts.find((entry) => entry.path === "/api/archives/preview")?.body).toEqual({
+    expect(mock.posts.find((entry) => entry.path === previewArchiveEp.path)?.body).toEqual({
       gids: [101, 102],
     });
 
@@ -421,13 +438,13 @@ test.describe("settings & system @settings-sys", () => {
     await expect(panel.locator("[data-notification-id]")).toHaveCount(2);
 
     await panel.getByRole("button", { name: "全部已读" }).click();
-    await expect.poll(() => mock.posts.some((entry) => entry.path === "/api/notifications/read")).toBe(
+    await expect.poll(() => mock.posts.some((entry) => entry.path === readNotificationsEp.path)).toBe(
       true,
     );
     await expect(page.getByTestId("notification-badge")).toBeHidden();
 
     await panel.getByRole("button", { name: "清空" }).click();
-    await expect.poll(() => mock.posts.some((entry) => entry.path === "/api/notifications/clear")).toBe(
+    await expect.poll(() => mock.posts.some((entry) => entry.path === clearNotificationsEp.path)).toBe(
       true,
     );
     await expect(panel).toContainText("暂无通知");
@@ -457,19 +474,72 @@ test.describe("settings & system @settings-sys", () => {
     await expect(page.getByTestId("global-controls")).toBeVisible();
 
     await page.getByTestId("global-pause").click();
-    await expect.poll(() => mock.requests.some((entry) => entry.path === "/api/pause" && entry.method === "POST")).toBe(true);
+    await expect.poll(() => mock.requests.some((entry) => entry.path === setPauseEp.path && entry.method === "POST")).toBe(true);
     expect(
-      mock.requests.find((entry) => entry.path === "/api/pause" && entry.method === "POST")?.body,
+      mock.requests.find((entry) => entry.path === setPauseEp.path && entry.method === "POST")?.body,
     ).toEqual({ paused: true });
     await expect(page.getByTestId("global-paused")).toBeVisible();
 
     await page.getByTestId("global-scan").click();
-    await expect.poll(() => mock.posts.some((entry) => entry.path === "/api/scan")).toBe(true);
+    await expect.poll(() => mock.posts.some((entry) => entry.path === triggerScanEp.path)).toBe(true);
 
     await page.getByTestId("global-purge").click();
     await page.getByTestId("global-purge-confirm").click();
     await expect
-      .poll(() => mock.posts.some((entry) => entry.path === "/api/system/purge-archived-sources"))
+      .poll(() => mock.posts.some((entry) => entry.path === purgeArchivedSourcesEp.path))
       .toBe(true);
+  });
+
+  test("real app route: #/settings saves one group through AppShell", async ({ page }) => {
+    const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
+    const mock = await mockSettingsBackend(page);
+    const csp = watchConsole(page);
+
+    // Routed app, not the harness: the router guard, the route table and
+    // AppShell all have to resolve #/settings to the migrated SettingsView.
+    await page.goto("/#/settings");
+    await expect(page.getByTestId("content")).toBeVisible();
+    await expect(page.getByTestId("settings-page")).toBeVisible();
+    await expect(page.getByTestId("nav-drawer")).toBeVisible();
+
+    await selectGroup(page, "download");
+    await page.locator('[data-setting-key="download_concurrency"] input').fill("8");
+    await page.getByTestId("settings-save").click();
+
+    await expect
+      .poll(() => mock.posts.filter((entry) => entry.path === saveSettingsEp.path).length)
+      .toBe(1);
+    expect(mock.posts[0]?.body).toEqual({ download_concurrency: 8 });
+    expect(csp).toEqual([]);
+  });
+
+  test("real app shell: the notification panel opens, marks read and closes", async ({ page }) => {
+    const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
+    const mock = await mockSettingsBackend(page);
+
+    await page.goto("/#/settings");
+    await expect(page.getByTestId("settings-page")).toBeVisible();
+
+    const panel = page.getByTestId("notification-panel");
+    await expect(panel).toBeHidden();
+    await page.getByTestId("notifications").click();
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("notification-badge")).toHaveText("2");
+    await expect(panel.locator("[data-notification-id]")).toHaveCount(2);
+
+    await panel.getByRole("button", { name: "全部已读" }).click();
+    await expect
+      .poll(() => mock.posts.some((entry) => entry.path === readNotificationsEp.path))
+      .toBe(true);
+    await expect(page.getByTestId("notification-badge")).toBeHidden();
+
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+
+    // The global pause / scan controls live behind their own topbar popover.
+    await page.getByTestId("global-controls-toggle").click();
+    await expect(page.getByTestId("global-controls")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("global-controls")).toBeHidden();
   });
 });

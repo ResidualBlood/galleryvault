@@ -118,7 +118,8 @@
       "unknown": "无法确认 Cookie 状态。",
       "openSettings": "前往设置",
       "dismiss": "忽略"
-    }
+    },
+    "controls": "全局控制"
   },
   "notifications": {
     "title": "通知",

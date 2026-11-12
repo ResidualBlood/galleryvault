@@ -35,6 +35,7 @@ import {
   generateThumbnails,
   reloadTagTranslation,
   repairTagCategories,
+  opdsEp,
   saveSettings,
   startTagSync,
   testExhentai,
@@ -201,7 +202,7 @@ const display = computed<Record<string, string>>(() => {
     });
   }
   if (typeof window !== "undefined") {
-    out.integration_opds_url = `${window.location.origin}/api/opds`;
+    out.integration_opds_url = `${window.location.origin}${opdsEp.path}`;
   }
   return out;
 });

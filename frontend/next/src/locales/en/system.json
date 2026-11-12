@@ -118,7 +118,8 @@
       "unknown": "The cookie state could not be determined.",
       "openSettings": "Open settings",
       "dismiss": "Dismiss"
-    }
+    },
+    "controls": "Global controls"
   },
   "notifications": {
     "title": "Notifications",

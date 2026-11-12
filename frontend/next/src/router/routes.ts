@@ -103,13 +103,13 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "logs",
         name: "logs",
-        component: PlaceholderView,
+        component: () => import("@/views/logs/LogsView.vue"),
         meta: { title: "app.nav.logs" },
       },
       {
         path: "settings",
         name: "settings",
-        component: PlaceholderView,
+        component: () => import("@/views/settings/SettingsView.vue"),
         meta: { title: "app.nav.settings" },
       },
       {
@@ -176,13 +176,13 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "archive",
         name: "archive",
-        component: PlaceholderView,
+        component: () => import("@/views/archive/ArchiveView.vue"),
         meta: { title: "app.nav.archive" },
       },
       {
         path: "welcome",
         name: "welcome",
-        component: PlaceholderView,
+        component: () => import("@/views/welcome/WelcomeView.vue"),
         meta: { title: "app.title" },
       },
     ],
