@@ -55,6 +55,9 @@
     "female": "女性",
     "male": "男性",
     "mixed": "男女",
+    "cosplayer": "Coser",
+    "reclass": "重分类",
+    "temp": "临时",
     "local": "本地",
     "uploader": "上传者"
   }

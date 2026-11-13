@@ -1,8 +1,18 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { GalleryTag } from "@/api/gallery";
+import TagChip from "@/components/tags/TagChip.vue";
+import TagMenu from "@/components/tags/TagMenu.vue";
+import {
+  namespaceLabel,
+  tagKey,
+  tagLabel,
+  tagNamespace,
+  type TagMenuEvent,
+} from "@/components/tags/tag-utils";
+import type { TagSource } from "@/components/tags/useTagNavigation";
+import "@/components/tags/i18n";
 
 /** Canonical detail-page namespace order (legacy gallery view, then extras). */
 const NAMESPACE_ORDER = [
@@ -18,6 +28,9 @@ const NAMESPACE_ORDER = [
   "mixed",
   "misc",
   "other",
+  "cosplayer",
+  "reclass",
+  "temp",
   "local",
 ] as const;
 
@@ -38,40 +51,43 @@ interface TagGroupItem {
 const props = withDefaults(
   defineProps<{
     tags?: GalleryTag[];
+    source?: TagSource;
   }>(),
-  { tags: () => [] },
+  { tags: () => [], source: "local" },
 );
 
 const emit = defineEmits<{ select: [tag: GalleryTag] }>();
 const { t, te, locale } = useI18n();
 
-function tagText(tag: GalleryTag): string {
-  if (locale.value.startsWith("zh") && tag.display) return tag.display;
-  return tag.name;
-}
+const menu = ref<TagMenuEvent | null>(null);
 
-function namespaceLabel(namespace: string): string {
-  const key = `gallery.namespaces.${namespace}`;
-  return te(key) ? t(key) : namespace;
+function namespaceTitle(namespace: string): string {
+  return namespaceLabel(namespace, t);
 }
 
 const groups = computed<TagGroupItem[]>(() => {
   const byNamespace = new Map<string, Map<string, GalleryTag>>();
   for (const tag of props.tags ?? []) {
-    const namespace = tag.namespace || "misc";
+    const namespace = tagNamespace(tag);
+    // DESIGN C07: a namespace without an i18n title is not rendered at all
+    // (no raw key fallback in group headings).
+    if (!te(`gallery.namespaces.${namespace}`)) continue;
     let bucket = byNamespace.get(namespace);
     if (!bucket) {
       bucket = new Map<string, GalleryTag>();
       byNamespace.set(namespace, bucket);
     }
-    if (!bucket.has(tag.name)) bucket.set(tag.name, tag);
+    const key = tagKey(tag);
+    if (!bucket.has(key)) bucket.set(key, tag);
   }
 
   return [...byNamespace.entries()]
     .map(([namespace, bucket]) => ({
       namespace,
       tags: [...bucket.values()].sort((a, b) =>
-        tagText(a).localeCompare(tagText(b), locale.value, { sensitivity: "base" }),
+        tagLabel(a, locale.value).localeCompare(tagLabel(b, locale.value), locale.value, {
+          sensitivity: "base",
+        }),
       ),
     }))
     .sort(
@@ -80,6 +96,10 @@ const groups = computed<TagGroupItem[]>(() => {
         a.namespace.localeCompare(b.namespace),
     );
 });
+
+function onMenu(event: TagMenuEvent): void {
+  menu.value = event;
+}
 </script>
 
 <template>
@@ -91,18 +111,19 @@ const groups = computed<TagGroupItem[]>(() => {
       data-testid="tag-group"
       :data-ns="group.namespace"
     >
-      <h3 class="tag-group__title">{{ namespaceLabel(group.namespace) }}</h3>
+      <h3 class="tag-group__heading">
+        <span class="tag-group__title">{{ namespaceTitle(group.namespace) }}</span>
+        <span class="tag-group__count">{{ group.tags.length }}</span>
+      </h3>
       <ul class="tag-group__list">
-        <li v-for="tag in group.tags" :key="`${tag.namespace}:${tag.name}`">
-          <button
-            type="button"
-            class="tag-chip"
+        <li v-for="tag in group.tags" :key="tagKey(tag)">
+          <TagChip
+            :tag="tag"
+            :size="28"
             data-testid="tag-chip"
-            @click="emit('select', tag)"
-          >
-            <span class="tag-chip__namespace">{{ tag.namespace }}:</span>
-            <span class="tag-chip__name">{{ tagText(tag) }}</span>
-          </button>
+            @select="emit('select', tag)"
+            @menu="onMenu"
+          />
         </li>
       </ul>
     </div>
@@ -110,6 +131,15 @@ const groups = computed<TagGroupItem[]>(() => {
     <p v-if="groups.length === 0" class="tag-groups__empty" data-testid="tag-empty">
       {{ t("gallery.noTags") }}
     </p>
+
+    <TagMenu
+      v-if="menu"
+      :tag="menu.tag"
+      :x="menu.x"
+      :y="menu.y"
+      :source="source"
+      @close="menu = null"
+    />
   </div>
 </template>
 
@@ -120,10 +150,21 @@ const groups = computed<TagGroupItem[]>(() => {
   gap: var(--gv-space-3);
 }
 
-.tag-group__title {
+.tag-group__heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gv-space-2);
   margin: 0 0 var(--gv-space-1);
+}
+
+.tag-group__title {
   font: var(--gv-type-label-large);
   color: var(--gv-color-primary-text);
+}
+
+.tag-group__count {
+  font: var(--gv-type-label-small);
+  color: var(--gv-color-on-surface-variant);
 }
 
 .tag-group__list {
@@ -133,43 +174,6 @@ const groups = computed<TagGroupItem[]>(() => {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  height: 24px;
-  padding: 0 var(--gv-space-2);
-  border: 1px solid transparent;
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-variant);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-  cursor: pointer;
-  transition:
-    background-color var(--gv-motion-duration-short) var(--gv-motion-ease-standard),
-    color var(--gv-motion-duration-short) var(--gv-motion-ease-standard);
-}
-
-.tag-chip__namespace {
-  font-weight: 600;
-  color: var(--gv-color-on-surface);
-}
-
-.tag-chip__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tag-chip:hover {
-  background: var(--gv-color-surface-container-highest);
-}
-
-.tag-chip:focus-visible {
-  outline: var(--gv-state-focus-ring-width) solid var(--gv-color-focus-ring);
-  outline-offset: var(--gv-state-focus-ring-offset);
 }
 
 .tag-groups__empty {

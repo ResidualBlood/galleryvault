@@ -89,6 +89,8 @@ export interface GalleryItem {
   page_count: number;
   cover_url: string | null;
   tags: GalleryTag[];
+  /** Total tag count when the response was truncated by `tags_limit`. */
+  tag_count?: number | null;
   uploader?: string | null;
   posted_at?: string | null;
   file_size?: number | null;
