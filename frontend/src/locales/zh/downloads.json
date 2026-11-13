@@ -30,6 +30,7 @@
     "selected": "已选 {n} 项",
     "shown": "显示 {shown} / 共 {total} 条",
     "expand": "展开添加区",
-    "collapse": "收起添加区"
+    "collapse": "收起添加区",
+    "open": "打开"
   }
 }

@@ -1860,9 +1860,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Downloads Api Downloads Get"
+                  "$ref": "#/components/schemas/DownloadListResponse"
                 }
               }
             }
@@ -5807,6 +5805,37 @@
         ],
         "title": "DownloadBatchRequest"
       },
+      "DownloadListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DownloadTaskItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "page",
+          "page_size",
+          "items"
+        ],
+        "title": "DownloadListResponse"
+      },
       "DownloadOriginalRequest": {
         "properties": {
           "archive": {
@@ -5934,6 +5963,170 @@
           "gids"
         ],
         "title": "DownloadSelectedRequest"
+      },
+      "DownloadTaskItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "type": "integer",
+            "title": "Gid"
+          },
+          "gallery_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gallery Id"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "retry_count": {
+            "type": "integer",
+            "title": "Retry Count",
+            "default": 0
+          },
+          "max_retries": {
+            "type": "integer",
+            "title": "Max Retries",
+            "default": 10
+          },
+          "current_page": {
+            "type": "integer",
+            "title": "Current Page",
+            "default": 0
+          },
+          "total_pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Pages"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "archive_fallback": {
+            "type": "boolean",
+            "title": "Archive Fallback",
+            "default": false
+          },
+          "archive_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Status"
+          },
+          "archive_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Error"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "eta_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "gid",
+          "status"
+        ],
+        "title": "DownloadTaskItem"
       },
       "DuplicateIgnoreRequest": {
         "properties": {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startVisiblePolling, type VisibilitySource } from "../poll";
 import {
+  canOpenGallery,
   errorSummary,
   formatDuration,
   formatSpeed,
@@ -66,6 +67,13 @@ describe("downloads parsing and formatting", () => {
       { gid: 123456, token: "abcdef" },
       { gid: 987, token: "abc123" },
     ]);
+  });
+
+  it("only opens finished rows whose gid is already in the local library", () => {
+    expect(canOpenGallery({ status: "success", gallery_id: 12 })).toBe(true);
+    expect(canOpenGallery({ status: "pending", gallery_id: 12 })).toBe(false);
+    expect(canOpenGallery({ status: "success", gallery_id: null })).toBe(false);
+    expect(canOpenGallery({ status: "success" })).toBe(false);
   });
 
   it("formats speed, ETA, progress and gone errors", () => {

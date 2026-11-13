@@ -30,6 +30,7 @@
     "selected": "{n} selected",
     "shown": "Showing {shown} of {total}",
     "expand": "Expand the add panel",
-    "collapse": "Collapse the add panel"
+    "collapse": "Collapse the add panel",
+    "open": "Open"
   }
 }
