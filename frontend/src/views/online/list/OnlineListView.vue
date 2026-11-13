@@ -1,29 +1,42 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Online browse page (DESIGN C19, audit OL-01 … OL-13).
+ *
+ * PageHeader → one Toolbar row (search, filled search, filter, view toggle) →
+ * a single-height filter row (list type + rating + category chips) → the
+ * collection in grid / list / table, remembered per page. The list is the
+ * default view. Tag clicks append an ExHentai exact query (`ns:"name$"`) to the
+ * search box instead of issuing a second EH request.
+ */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Chip from "@/components/ui/Chip.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import FilterButton from "@/components/ui/FilterButton.vue";
 import Input from "@/components/ui/Input.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
+import SegmentedControl from "@/components/ui/SegmentedControl.vue";
+import SelectionBar from "@/components/ui/SelectionBar.vue";
 import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
-import VirtualGrid from "@/components/gallery/VirtualGrid.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
 import GalleryCard from "@/components/gallery/GalleryCard.vue";
-import GalleryActions from "@/components/actions/GalleryActions.vue";
-import type { GalleryBadge } from "@/components/gallery/BadgeStrip.vue";
+import GalleryCollection from "@/components/gallery/GalleryCollection.vue";
+import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
 import type { GalleryItem } from "@/api/library";
 import type { OnlineListType } from "@/api/eh";
+import type { TagLike } from "@/components/tags/tag-utils";
 import { createDownloadsBatch } from "@/api/downloads";
-import {
-  addFavoritesBatch,
-  type FavoriteCategory,
-} from "@/api/favorites";
+import { addFavoritesBatch, type FavoriteCategory } from "@/api/favorites";
 import { useFavoritesStore } from "@/stores/favorites";
 import { readDefaultQuality, useDownloadsStore } from "@/stores/downloads";
 import { useUiStore } from "@/stores/ui";
+import { useViewMode } from "@/composables/useViewMode";
 import {
   DEFAULT_ONLINE_FILTERS,
   ONLINE_CATEGORIES,
@@ -31,7 +44,6 @@ import {
   filtersToQuery,
   hasFilterQuery,
   loadOnlineDefaults,
-  mergeDownloadBadge,
   normalizeFilters,
   parseFiltersFromQuery,
   saveOnlineDefaults,
@@ -40,9 +52,16 @@ import {
   type OnlineCategory,
   type OnlineFilters,
 } from "@/stores/online";
+import OnlineListRow from "./OnlineListRow.vue";
 import OnlineStateNotice from "./OnlineStateNotice.vue";
-import { categoryBadge, categoryToken } from "./category";
+import { categoryToken } from "./category";
 import { ensureOnlineMessages } from "./messages";
+import {
+  ONLINE_TABLE_COLUMNS,
+  appendEhTagQuery,
+  normalizePosted,
+  withoutLanguageTags,
+} from "./helpers";
 
 ensureOnlineMessages();
 
@@ -54,20 +73,35 @@ const downloads = useDownloadsStore();
 const ui = useUiStore();
 const { t } = useI18n();
 
+const view = useViewMode("online", {
+  allowed: ["grid", "list", "table"] as const,
+  fallback: "list",
+});
+
 const filters = reactive<OnlineFilters>({ ...DEFAULT_ONLINE_FILTERS });
 const term = ref("");
+const filtersOpen = ref(true);
 const skeletonCount = 6;
 
-/* --------------------------------------------------------- batch selection */
+/* --------------------------------------------------------------- tag width */
 
-/** Legacy `selDiscover`: gids survive infinite-scroll appends but reset when
- * the filter scope or the route changes. */
+const tagMax = ref(4);
+let media: MediaQueryList | null = null;
+
+function syncCompact(event?: MediaQueryListEvent): void {
+  const compact = event ? event.matches : Boolean(media?.matches);
+  tagMax.value = compact ? 3 : 4;
+}
+
+/* ---------------------------------------------------------- batch selection */
+
 const selected = ref<number[]>([]);
 const batchBusy = ref(false);
 const batchFavoriteOpen = ref(false);
 const favoriteTarget = ref("0");
 const favoriteCategories = ref<FavoriteCategory[]>([]);
 const selectedCount = computed(() => selected.value.length);
+
 const favoriteOptions = computed(() => {
   const source = favoriteCategories.value.length
     ? favoriteCategories.value
@@ -77,6 +111,8 @@ const favoriteOptions = computed(() => {
     label: folder.name ? `${folder.name} #${folder.favcat}` : `#${folder.favcat}`,
   }));
 });
+
+/* -------------------------------------------------------------- filter model */
 
 const listOptions = computed<Array<{ value: OnlineListType; label: string }>>(() => [
   { value: "search", label: t("online.list.search") },
@@ -103,67 +139,19 @@ const ratingOptions = computed(() => [
 const minRatingValue = computed({
   get: () => (filters.min_rating === null ? "" : String(filters.min_rating)),
   set: (value: string) => {
-    filters.min_rating = value ? Number(value) : null;
+    apply({ min_rating: value ? Number(value) : null });
   },
 });
 
 const selectedCats = computed(() => new Set(enabledCategories(filters.category)));
+const allSelected = computed(() => filters.category === 0);
 
-type OnlineCard = GalleryItem & { gid: number; token: string };
-
-const cards = computed<OnlineCard[]>(() =>
-  store.items.map((item) => {
-    const favorite = favorites.entries[item.gid];
-    const download = downloads.entries[item.gid];
-    return {
-      id: item.gid,
-      gid: item.gid,
-      token: item.token,
-      title: item.title,
-      category: item.category,
-      page_count: item.pages,
-      cover_url: item.thumb ?? null,
-      tags: [],
-      uploader: null,
-      posted_at: null,
-      file_size: null,
-      rating: item.rating ?? null,
-      // Store state wins so favourites / downloads stay in sync across the
-      // card, detail and reader without a list refetch.
-      favorite: favorite ? favorite.favorited : Boolean(item.favorited),
-      favorite_category: favorite ? favorite.favcat : (item.favcat ?? null),
-      in_library: download ? download.inLibrary : Boolean(item.in_library),
-      download_status:
-        download && download.status !== "idle" ? download.status : (item.download_status ?? null),
-    };
-  }),
+const activeFilterCount = computed(
+  () =>
+    (filters.category > 0 ? 1 : 0) +
+    (filters.min_rating !== null ? 1 : 0) +
+    (filters.list !== "search" ? 1 : 0),
 );
-
-function badgesFor(card: GalleryItem): GalleryBadge[] {
-  return buildBadges(card);
-}
-
-function buildBadges(card: GalleryItem): GalleryBadge[] {
-  const badges: GalleryBadge[] = [
-    categoryBadge(card.category, t(`online.categories.${card.category}`, t("online.categories.misc"))),
-  ];
-  if (card.in_library) {
-    badges.push({ label: t("online.badges.inLibrary"), tone: "success" });
-  }
-  const download = mergeDownloadBadge(card.download_status);
-  if (download) {
-    const label =
-      download.key === "downloading"
-        ? t("online.badges.downloading")
-        : download.key === "queued"
-          ? t("online.badges.queued")
-          : t("online.badges.failed");
-    badges.push({ label, tone: download.tone });
-  } else if (card.favorite) {
-    badges.push({ label: "♥", tone: "primary", title: t("online.badges.favorited") });
-  }
-  return badges;
-}
 
 function categoryChipStyle(name: OnlineCategory): Record<string, string> {
   const token = categoryToken(name);
@@ -177,40 +165,192 @@ function categoryLabel(name: OnlineCategory): string {
   return t(`online.categories.${name}`);
 }
 
-/** Card quick action: jump straight into the online reader at page 1. */
-function readFromCard(card: GalleryItem): void {
-  if (!card.gid || !card.token) return;
-  void router.push({
-    name: "online-reader",
-    params: { gid: card.gid, token: card.token, page: 0 },
+/* --------------------------------------------------------------- card model */
+
+const cards = computed<GalleryItem[]>(() =>
+  store.items.map((item) => {
+    const favorite = favorites.entries[item.gid];
+    const download = downloads.entries[item.gid];
+    const tags = (item.tags ?? []).map((tag) => ({
+      namespace: tag.namespace,
+      name: tag.name,
+      display: tag.display ?? null,
+    }));
+    return {
+      id: item.gid,
+      gid: item.gid,
+      token: item.token,
+      title: item.title,
+      category: item.category,
+      page_count: item.pages,
+      cover_url: item.thumb ?? null,
+      tags,
+      tag_count: tags.length,
+      uploader: item.uploader?.trim() || null,
+      posted_at: normalizePosted(item.posted),
+      file_size: null,
+      rating: item.rating ?? null,
+      // Store state wins so favourites / downloads stay in sync across the
+      // card, detail and reader without a list refetch.
+      favorite: favorite ? favorite.favorited : Boolean(item.favorited),
+      favorite_category: favorite ? favorite.favcat : (item.favcat ?? null),
+      in_library: download ? download.inLibrary : Boolean(item.in_library),
+      download_status:
+        download && download.status !== "idle" ? download.status : (item.download_status ?? null),
+    };
+  }),
+);
+
+/** Table rows already have separate columns; drop language from their chips. */
+const collectionItems = computed<GalleryItem[]>(() => {
+  if (view.mode.value !== "table") return cards.value;
+  return cards.value.map((card) => {
+    const tags = withoutLanguageTags(card.tags);
+    return { ...card, tags, tag_count: tags.length };
   });
+});
+
+function isSelected(id: number): boolean {
+  return selected.value.includes(id);
 }
 
-function isSelected(gid: number): boolean {
-  return selected.value.includes(gid);
-}
-
-function toggleSelection(gid: number, event: Event): void {
-  const checked = (event.target as HTMLInputElement).checked;
-  if (checked) {
-    if (!isSelected(gid)) selected.value = [...selected.value, gid];
-  } else {
-    selected.value = selected.value.filter((value) => value !== gid);
+function onSelect(id: number, next: boolean): void {
+  if (next) {
+    if (!isSelected(id)) selected.value = [...selected.value, id];
+    return;
   }
+  selected.value = selected.value.filter((value) => value !== id);
 }
 
 function selectAllLoaded(): void {
-  selected.value = cards.value.map((card) => card.gid);
+  selected.value = cards.value
+    .filter((card) => card.token)
+    .map((card) => card.gid ?? card.id);
 }
 
 function clearSelection(): void {
   selected.value = [];
 }
 
-function selectedCards(): OnlineCard[] {
+function selectedCards(): GalleryItem[] {
   const chosen = new Set(selected.value);
-  return cards.value.filter((card) => chosen.has(card.gid) && card.token);
+  return cards.value.filter((card) => card.gid !== null && chosen.has(card.gid) && card.token);
 }
+
+/* ------------------------------------------------------------------- tags */
+
+function tagFromChip(chip: HTMLElement): TagLike | null {
+  const label = chip.getAttribute("aria-label") ?? chip.getAttribute("title") ?? "";
+  const marker = label.lastIndexOf("：");
+  const raw = (marker >= 0 ? label.slice(marker + 1) : label).trim();
+  const separator = raw.indexOf(":");
+  if (separator <= 0) return null;
+  return { namespace: raw.slice(0, separator), name: raw.slice(separator + 1) };
+}
+
+function onTagSelect(tag: TagLike): void {
+  const next = appendEhTagQuery(term.value || filters.q, tag);
+  term.value = next;
+  apply({ q: next });
+}
+
+/**
+ * Grid cards and table rows are shared collection components whose tag chips
+ * navigate with a replaced `q`. Capture the click before their handler so the
+ * page keeps the "append" contract for all three views.
+ */
+function onTagClickCapture(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const chip = target.closest<HTMLElement>(".tag-chip");
+  if (!chip || chip.closest(".online-row")) return;
+  const tag = tagFromChip(chip);
+  if (!tag) return;
+  event.preventDefault();
+  event.stopPropagation();
+  onTagSelect(tag);
+}
+
+/* --------------------------------------------------------------- navigation */
+
+function routeFilters(): OnlineFilters {
+  const fromQuery = parseFiltersFromQuery(route.query);
+  const base = hasFilterQuery(route.query) ? DEFAULT_ONLINE_FILTERS : loadOnlineDefaults();
+  return normalizeFilters({ ...base, ...fromQuery });
+}
+
+function assignFilters(next: OnlineFilters): void {
+  filters.q = next.q;
+  filters.category = next.category;
+  filters.min_rating = next.min_rating;
+  filters.list = next.list;
+  filters.tl = next.tl;
+  term.value = next.q;
+}
+
+function sameQuery(target: Record<string, string>): boolean {
+  for (const key of Object.keys(target)) {
+    const current = route.query[key];
+    if (String(Array.isArray(current) ? current[0] : (current ?? "")) !== target[key]) return false;
+  }
+  for (const key of Object.keys(route.query)) {
+    if (!(key in target) && route.query[key] !== undefined) return false;
+  }
+  return true;
+}
+
+function restoreScrollSoon(): void {
+  const target = store.savedScroll();
+  if (target <= 0) return;
+  void nextTick(() => {
+    window.requestAnimationFrame(() => window.scrollTo(0, target));
+  });
+}
+
+function startWith(next: OnlineFilters): void {
+  const resumed = store.start(next);
+  if (resumed) restoreScrollSoon();
+}
+
+function apply(custom?: Partial<OnlineFilters>): void {
+  const next = normalizeFilters({ ...filters, ...custom });
+  saveOnlineDefaults(next);
+  assignFilters(next);
+  const target = filtersToQuery(next);
+  if (!sameQuery(target)) {
+    void router.push({ name: "online", query: target });
+    return;
+  }
+  startWith(next);
+}
+
+function submit(): void {
+  apply({ q: term.value });
+}
+
+function reset(): void {
+  term.value = "";
+  filtersOpen.value = true;
+  apply({ ...DEFAULT_ONLINE_FILTERS });
+}
+
+function setList(list: OnlineListType): void {
+  apply({ list, tl: list === "toplist" ? filters.tl : 15 });
+}
+
+function onToplist(value: string): void {
+  apply({ tl: Number(value) });
+}
+
+function toggleCat(name: OnlineCategory): void {
+  apply({ category: toggleCategory(filters.category, name) });
+}
+
+function selectAllCats(): void {
+  apply({ category: 0 });
+}
+
+/* --------------------------------------------------------------- batch ops */
 
 async function batchDownload(): Promise<void> {
   if (batchBusy.value) return;
@@ -223,8 +363,8 @@ async function batchDownload(): Promise<void> {
   try {
     const result = await createDownloadsBatch({
       items: picked.map((card) => ({
-        gid: card.gid,
-        token: card.token,
+        gid: card.gid as number,
+        token: card.token as string,
         title: card.title,
       })),
       quality: readDefaultQuality(),
@@ -278,7 +418,11 @@ async function submitBatchFavorite(): Promise<void> {
   batchBusy.value = true;
   try {
     const result = await addFavoritesBatch(
-      picked.map((card) => ({ gid: card.gid, token: card.token, title: card.title })),
+      picked.map((card) => ({
+        gid: card.gid as number,
+        token: card.token as string,
+        title: card.title,
+      })),
       target,
     );
     // Cloud-first: only gids confirmed by the backend update the ♥ badge.
@@ -299,83 +443,7 @@ async function submitBatchFavorite(): Promise<void> {
   }
 }
 
-function routeFilters(): OnlineFilters {
-  const fromQuery = parseFiltersFromQuery(route.query);
-  const base = hasFilterQuery(route.query) ? DEFAULT_ONLINE_FILTERS : loadOnlineDefaults();
-  return normalizeFilters({ ...base, ...fromQuery });
-}
-
-function assignFilters(next: OnlineFilters): void {
-  filters.q = next.q;
-  filters.category = next.category;
-  filters.min_rating = next.min_rating;
-  filters.list = next.list;
-  filters.tl = next.tl;
-  term.value = next.q;
-}
-
-function sameQuery(target: Record<string, string>): boolean {
-  for (const key of Object.keys(target)) {
-    const current = route.query[key];
-    if (String(Array.isArray(current) ? current[0] : current ?? "") !== target[key]) return false;
-  }
-  for (const key of Object.keys(route.query)) {
-    if (!(key in target) && route.query[key] !== undefined) return false;
-  }
-  return true;
-}
-
-function restoreScrollSoon(): void {
-  const target = store.savedScroll();
-  if (target <= 0) return;
-  void nextTick(() => {
-    window.requestAnimationFrame(() => window.scrollTo(0, target));
-  });
-}
-
-function startWith(next: OnlineFilters): void {
-  const resumed = store.start(next);
-  if (resumed) restoreScrollSoon();
-}
-
-function apply(custom?: Partial<OnlineFilters>): void {
-  const next = normalizeFilters({ ...filters, ...custom });
-  saveOnlineDefaults(next);
-  assignFilters(next);
-  const target = filtersToQuery(next);
-  if (!sameQuery(target)) {
-    void router.push({ name: "online", query: target });
-    return;
-  }
-  startWith(next);
-}
-
-function submit(): void {
-  apply({ q: term.value });
-}
-
-function reset(): void {
-  term.value = "";
-  apply({ ...DEFAULT_ONLINE_FILTERS });
-}
-
-function setList(list: OnlineListType): void {
-  apply({ list, tl: list === "toplist" ? filters.tl : 15 });
-}
-
-function onToplist(value: string): void {
-  apply({ tl: Number(value) });
-}
-
-function toggleCat(name: OnlineCategory): void {
-  apply({ category: toggleCategory(filters.category, name) });
-}
-
-function selectAllCats(): void {
-  apply({ category: 0 });
-}
-
-const allSelected = computed(() => filters.category === 0);
+/* ------------------------------------------------------------------ watchers */
 
 watch(
   () => route.query,
@@ -396,6 +464,11 @@ watch(
 );
 
 onMounted(() => {
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    media = window.matchMedia("(max-width: 599px)");
+    syncCompact();
+    media.addEventListener?.("change", syncCompact);
+  }
   if (store.items.length > 0) restoreScrollSoon();
 });
 
@@ -405,143 +478,136 @@ onBeforeRouteLeave(() => {
 });
 
 onBeforeUnmount(() => {
+  media?.removeEventListener?.("change", syncCompact);
   store.saveScroll(window.scrollY);
 });
 </script>
 
 <template>
-  <section class="online" data-testid="online-view">
-    <header class="online__header">
-      <p class="online__eyebrow">EXHENTAI</p>
-      <h1 class="online__title">{{ t("online.title") }}</h1>
-      <p class="online__subtitle">{{ t("online.subtitle") }}</p>
-    </header>
+  <section class="online" data-testid="online-view" @click.capture="onTagClickCapture">
+    <PageHeader
+      :title="t('online.title')"
+      :subtitle="t('online.subtitle')"
+      testid="online-header"
+    />
 
-    <form class="online__toolbar" data-testid="online-filters" @submit.prevent="submit">
-      <div class="online__row">
+    <form class="online__search-form" role="search" @submit.prevent="submit">
+      <Toolbar testid="online-toolbar">
         <Input
           v-model="term"
           class="online__search"
-          :label="t('online.searchLabel')"
+          icon="search"
           :placeholder="t('online.searchPlaceholder')"
+          :aria-label="t('online.searchLabel')"
+          :clear-label="t('online.clearSearch')"
+          clearable
           data-testid="online-search"
           @enter="submit"
         />
         <Button type="submit" variant="filled" data-testid="online-submit">
           {{ t("online.search") }}
         </Button>
-        <Button type="button" variant="text" data-testid="online-reset" @click="reset">
-          {{ t("online.reset") }}
-        </Button>
-      </div>
-
-      <div class="online__row" role="group" :aria-label="t('online.listLabel')">
-        <Button
-          v-for="option in listOptions"
-          :key="option.value"
-          type="button"
-          :variant="filters.list === option.value ? 'filled' : 'outlined'"
-          size="compact"
-          :data-testid="`online-list-${option.value}`"
-          :aria-pressed="filters.list === option.value"
-          @click="setList(option.value)"
-        >
-          {{ option.label }}
-        </Button>
-        <Select
-          v-if="filters.list === 'toplist'"
-          class="online__select"
-          :model-value="String(filters.tl)"
-          :label="t('online.toplist.label')"
-          :options="toplistOptions"
-          data-testid="online-toplists"
-          @update:model-value="onToplist"
-        />
-        <Select
-          class="online__select"
-          :model-value="minRatingValue"
-          :label="t('online.minRating')"
-          :options="ratingOptions"
-          data-testid="online-min-rating"
-          @update:model-value="(value: string) => apply({ min_rating: value ? Number(value) : null })"
-        />
-      </div>
-
-      <div class="online__cats" role="group" :aria-label="t('online.categoriesLabel')">
-        <span class="online__cats-label">{{ t("online.categoriesLabel") }}</span>
-        <button
-          type="button"
-          class="cat-chip cat-chip--all"
-          :class="{ 'cat-chip--on': allSelected }"
-          :aria-pressed="allSelected"
-          data-testid="online-cat-all"
-          @click="selectAllCats"
-        >
-          {{ t("online.categoriesAll") }}
-        </button>
-        <button
-          v-for="name in ONLINE_CATEGORIES"
-          :key="name"
-          type="button"
-          class="cat-chip"
-          :class="{ 'cat-chip--on': selectedCats.has(name) }"
-          :style="categoryChipStyle(name)"
-          :aria-pressed="selectedCats.has(name)"
-          :data-testid="`online-cat-${name}`"
-          @click="toggleCat(name)"
-        >
-          {{ categoryLabel(name) }}
-        </button>
-      </div>
-
-      <div class="online__row online__batch" role="group" :aria-label="t('legacy.discover')">
-        <span class="online__selected" data-testid="online-selected-count">
-          {{ t("online.selectedCount", { count: selectedCount }) }}
-        </span>
-        <Button
-          type="button"
-          variant="outlined"
-          size="compact"
-          data-testid="online-select-all"
-          @click="selectAllLoaded"
-        >
-          {{ t("legacy.selectAll") }}
-        </Button>
-        <Button
-          type="button"
-          variant="text"
-          size="compact"
-          data-testid="online-clear-selection"
-          @click="clearSelection"
-        >
-          {{ t("legacy.clearSel") }}
-        </Button>
-        <Button
-          type="button"
-          variant="outlined"
-          size="compact"
-          :loading="batchBusy"
-          data-testid="online-batch-download"
-          @click="batchDownload"
-        >
-          {{ t("legacy.discoverBatchDl") }}{{ selectedCount ? ` (${selectedCount})` : "" }}
-        </Button>
-        <Button
-          type="button"
-          variant="outlined"
-          size="compact"
-          :disabled="batchBusy"
-          data-testid="online-batch-favorite"
-          @click="openBatchFavorite"
-        >
-          {{ t("legacy.discoverBatchFav") }}{{ selectedCount ? ` (${selectedCount})` : "" }}
-        </Button>
-      </div>
+        <ToolbarGroup end>
+          <FilterButton
+            :count="activeFilterCount"
+            :label="t('online.filter')"
+            :aria-expanded="filtersOpen"
+            data-testid="online-filter-button"
+            @click="filtersOpen = !filtersOpen"
+          />
+          <ViewModeToggle
+            :model-value="view.mode.value"
+            :options="view.available.value"
+            @update:model-value="view.setMode"
+          />
+        </ToolbarGroup>
+      </Toolbar>
     </form>
+
+    <div
+      v-show="filtersOpen"
+      class="online__filters"
+      role="group"
+      :aria-label="t('online.filtersLabel')"
+      data-testid="online-filters-row"
+    >
+      <SegmentedControl
+        :model-value="filters.list"
+        :options="listOptions"
+        :label="t('online.listLabel')"
+        testid="online-list-types"
+        @change="(value: string) => setList(value as OnlineListType)"
+      />
+      <Select
+        class="online__select"
+        size="sm"
+        :model-value="minRatingValue"
+        :options="ratingOptions"
+        :aria-label="t('online.minRating')"
+        data-testid="online-min-rating"
+        @update:model-value="(value: string) => apply({ min_rating: value ? Number(value) : null })"
+      />
+      <Select
+        v-if="filters.list === 'toplist'"
+        class="online__select"
+        size="sm"
+        :model-value="String(filters.tl)"
+        :options="toplistOptions"
+        :aria-label="t('online.toplist.label')"
+        data-testid="online-toplists"
+        @update:model-value="onToplist"
+      />
+      <Chip
+        class="online__cat-chip"
+        :label="t('online.categoriesAll')"
+        :selected="allSelected"
+        data-testid="online-cat-all"
+        @click="selectAllCats"
+      />
+      <Chip
+        v-for="name in ONLINE_CATEGORIES"
+        :key="name"
+        class="online__cat-chip"
+        :label="categoryLabel(name)"
+        :selected="selectedCats.has(name)"
+        :style="categoryChipStyle(name)"
+        :data-testid="`online-cat-${name}`"
+        @click="toggleCat(name)"
+      />
+    </div>
 
     <p v-if="filters.category > 0" class="online__mask" data-testid="online-mask">
       {{ t("online.mask", { mask: filters.category }) }}
     </p>
+
+    <SelectionBar
+      v-if="selectedCount > 0"
+      testid="online-selected-count"
+      :count="selectedCount"
+      :label="t('online.selectedCount', { count: selectedCount })"
+      :clear-label="t('online.clearSelection')"
+      @clear="clearSelection"
+    >
+      <Button variant="outlined" data-testid="online-select-all" @click="selectAllLoaded">
+        {{ t("legacy.selectAll") }}
+      </Button>
+      <Button
+        variant="outlined"
+        :loading="batchBusy"
+        data-testid="online-batch-download"
+        @click="batchDownload"
+      >
+        {{ t("legacy.discoverBatchDl") }}{{ selectedCount ? ` (${selectedCount})` : "" }}
+      </Button>
+      <Button
+        variant="outlined"
+        :disabled="batchBusy"
+        data-testid="online-batch-favorite"
+        @click="openBatchFavorite"
+      >
+        {{ t("legacy.discoverBatchFav") }}{{ selectedCount ? ` (${selectedCount})` : "" }}
+      </Button>
+    </SelectionBar>
 
     <div v-if="store.initialLoading" class="online__skeletons" aria-hidden="true">
       <Skeleton v-for="index in skeletonCount" :key="index" variant="list" />
@@ -562,67 +628,63 @@ onBeforeUnmount(() => {
       @retry="store.retry"
     />
 
-    <EmptyState
-      v-else-if="store.state === 'empty' || (store.items.length === 0 && !store.loading)"
-      :title="t('online.emptyTitle')"
-      :body="t('online.emptyBody')"
-      testid="online-empty"
-    />
+    <template v-else-if="store.state === 'empty' || (store.items.length === 0 && !store.loading)">
+      <GalleryCollection
+        v-if="view.mode.value === 'table'"
+        :items="[]"
+        mode="table"
+        :columns="ONLINE_TABLE_COLUMNS"
+        source="online"
+        testid="online-grid"
+      />
+      <EmptyState
+        :title="t('online.emptyTitle')"
+        :body="t('online.emptyBody')"
+        :action-label="t('online.reset')"
+        testid="online-empty"
+        @action="reset"
+      />
+    </template>
 
-    <VirtualGrid
+    <GalleryCollection
       v-else
-      :items="cards"
+      :items="collectionItems"
+      :mode="view.mode.value"
+      :columns="ONLINE_TABLE_COLUMNS"
+      source="online"
+      :selectable="true"
+      :selected="selected"
       :loading="store.loading"
       :has-more="store.hasMore"
       :error="store.error"
       :total="store.items.length"
-      variant="list"
-      source="online"
       testid="online-grid"
       @load-more="store.loadMore"
       @retry="store.retry"
+      @select="onSelect"
     >
       <template #card="{ item }">
-        <div
-          class="online-card"
-          :class="{ 'online-card--selected': isSelected(item.gid ?? 0) }"
-          data-testid="online-card"
-          :data-gid="item.gid"
-        >
-          <label class="online-card__check" :title="t('legacy.select')">
-            <input
-              type="checkbox"
-              :checked="isSelected(item.gid ?? 0)"
-              :aria-label="t('online.selectItem', { title: item.title })"
-              :data-gid="item.gid"
-              @change="toggleSelection(item.gid ?? 0, $event)"
-            />
-          </label>
-          <GalleryCard
+        <div class="online__card" data-testid="online-card" :data-gid="item.gid">
+          <OnlineListRow
+            v-if="view.mode.value === 'list'"
             :item="item"
-            variant="list"
+            :selected="isSelected(item.id)"
+            :tag-max="tagMax"
+            @select="onSelect"
+            @tag="onTagSelect"
+          />
+          <GalleryCard
+            v-else
+            :item="item"
+            variant="grid"
             source="online"
-            :badges="badgesFor(item)"
-          >
-            <template #actions>
-              <GalleryActions
-                v-if="item.gid && item.token"
-                :gid="item.gid"
-                :token="item.token"
-                :title="item.title"
-                source="online"
-                density="card"
-                :favorited="Boolean(item.favorite)"
-                :favcat="item.favorite_category ?? null"
-                :in-library="Boolean(item.in_library)"
-                :download-status="item.download_status ?? null"
-                @read="readFromCard(item)"
-              />
-            </template>
-          </GalleryCard>
+            :selectable="true"
+            :selected="isSelected(item.id)"
+            @select="onSelect"
+          />
         </div>
       </template>
-    </VirtualGrid>
+    </GalleryCollection>
 
     <Dialog
       :open="batchFavoriteOpen"
@@ -668,155 +730,33 @@ onBeforeUnmount(() => {
   margin: 0 auto;
 }
 
-.online__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.online__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.online__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.online__subtitle {
-  margin: 0;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-medium);
-}
-
-.online__toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-3);
-  padding: var(--gv-space-3);
-  border: 1px solid var(--gv-color-outline-variant);
-  border-radius: var(--gv-radius-lg);
-  background: var(--gv-color-surface-container);
-}
-
-.online__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--gv-space-2);
+.online__search-form {
+  display: block;
+  width: 100%;
 }
 
 .online__search {
   flex: 1 1 240px;
-  min-width: 200px;
+  min-width: 180px;
 }
 
-.online__select {
-  min-width: 132px;
-}
-
-.online__cats {
+.online__filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--gv-space-1);
+  gap: var(--gv-space-2);
 }
 
-.online__cats-label {
-  margin-right: var(--gv-space-1);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-medium);
+.online__select {
+  flex: none;
+  width: 150px;
 }
 
-.online__batch {
-  align-items: center;
-  padding-top: var(--gv-space-2);
-  border-top: 1px solid var(--gv-color-outline-variant);
-}
-
-.online__selected {
-  margin-right: auto;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-medium);
-}
-
-.online__favorite-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-3);
-}
-
-.online__favorite-count {
-  margin: 0;
-}
-
-.online-card {
-  position: relative;
-  height: 100%;
-}
-
-.online-card__check {
-  position: absolute;
-  top: var(--gv-space-2);
-  right: var(--gv-space-2);
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
-  border-radius: var(--gv-radius-full);
-  background: color-mix(in srgb, var(--gv-color-surface) 82%, transparent);
-  box-shadow: var(--gv-elev-1);
-  cursor: pointer;
-}
-
-.online-card__check input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--gv-color-primary);
-  cursor: pointer;
-}
-
-.online-card--selected :deep(.gallery-card) {
-  border-color: var(--gv-color-primary);
-  box-shadow: 0 0 0 2px var(--gv-color-primary);
-}
-
-.cat-chip {
-  height: 24px;
-  padding: 0 var(--gv-space-2);
-  border: 1px solid var(--gv-color-outline-variant);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-variant);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-  cursor: pointer;
-}
-
-.cat-chip--on {
-  border-color: var(--gv-color-primary);
+/* Category chips keep the per-category colour from --gv-cat-* (DESIGN C05). */
+.online__filters :deep(.chip--selected) {
+  border-color: transparent;
   background: var(--chip-bg, var(--gv-color-secondary-container));
   color: var(--chip-ink, var(--gv-color-on-secondary-container));
-  box-shadow: inset 0 0 0 1px var(--gv-color-primary);
-}
-
-.cat-chip--all.cat-chip--on {
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
-}
-
-.cat-chip:hover {
-  background: var(--gv-color-surface-container-highest);
-}
-
-.cat-chip:focus-visible {
-  outline: var(--gv-state-focus-ring-width) solid var(--gv-color-focus-ring);
-  outline-offset: var(--gv-state-focus-ring-offset);
 }
 
 .online__mask {
@@ -831,13 +771,35 @@ onBeforeUnmount(() => {
   gap: var(--gv-space-2);
 }
 
+.online__card {
+  height: 100%;
+  min-width: 0;
+}
+
+.online__favorite-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-3);
+}
+
+.online__favorite-count {
+  margin: 0;
+}
+
+@media (max-width: 599.98px) {
+  .online__search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .online__select {
+    width: 132px;
+  }
+}
+
 @media (min-width: 840px) {
   .online {
     gap: var(--gv-space-5);
-  }
-
-  .online__toolbar {
-    padding: var(--gv-space-4);
   }
 }
 </style>

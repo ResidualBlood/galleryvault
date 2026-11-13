@@ -5,6 +5,10 @@
   "searchPlaceholder": "标题、标签或关键词",
   "search": "搜索",
   "reset": "重置",
+  "filter": "筛选",
+  "filtersLabel": "搜索筛选",
+  "clearSearch": "清空搜索",
+  "clearSelection": "取消选择",
   "listLabel": "列表类型",
   "list": {
     "search": "搜索",

@@ -52,8 +52,9 @@ test("V-05 在线浏览：搜索 / 分类 / 评分 / 列表类型 / 徽标 / 快
   await expect(page.getByTestId("online-search")).toBeVisible();
   await expect(page.getByTestId("online-cat-all")).toBeVisible();
   await expect(page.getByTestId("online-min-rating")).toBeVisible();
+  const listTypes = page.getByTestId("online-list-types");
   for (const list of ["search", "popular", "watched", "toplist"]) {
-    await expect(page.getByTestId(`online-list-${list}`)).toBeVisible();
+    await expect(listTypes.locator(`[data-segmented-value="${list}"]`)).toBeVisible();
   }
 
   const cards = page.getByTestId("gallery-card");
@@ -69,12 +70,12 @@ test("V-05 在线浏览：搜索 / 分类 / 评分 / 列表类型 / 徽标 / 快
   await page.getByTestId("online-submit").click();
   await expect(page).toHaveURL(/[?&]q=a/);
   await expect(page.getByTestId("online-view")).toBeVisible();
-  await page.getByTestId("online-list-toplist").click();
+  await page.getByTestId("online-list-types").locator('[data-segmented-value="toplist"]').click();
   await expect(page).toHaveURL(/list=toplist/);
   await expect(page.getByTestId("online-toplists")).toBeVisible();
 
   annotateUnverified(
-    "online list has no batch selection; batch download / batch favourite are only available from library/favourites",
+    "online batch selection is covered by the mock gaps suite; this real pass keeps the EH budget to two searches",
   );
   await app.shot("V-05");
 });

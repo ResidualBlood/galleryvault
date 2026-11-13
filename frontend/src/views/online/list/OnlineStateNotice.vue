@@ -1,9 +1,10 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Icon from "@/components/icons/Icon.vue";
+import type { IconName } from "@/components/icons/registry";
 import type { OnlineState } from "@/api/eh";
 
 const props = defineProps<{ state: OnlineState }>();
@@ -28,12 +29,19 @@ const body = computed(() => {
   if (props.state === "banned") return t("online.state.banned.body");
   return t("online.state.error.body");
 });
+
+const icon = computed<IconName>(() => {
+  if (props.state === "auth") return "status-auth";
+  if (props.state === "challenge") return "status-challenge";
+  if (props.state === "banned") return "status-blocked";
+  return "status-warning";
+});
 </script>
 
 <template>
   <div class="online-state" :data-testid="`online-state-${state}`" :data-state="state">
     <span class="online-state__glyph" aria-hidden="true">
-      {{ state === "banned" ? "⛔" : state === "auth" ? "⚿" : state === "challenge" ? "⛨" : "!" }}
+      <Icon :name="icon" size="lg" />
     </span>
     <h2 class="online-state__title">{{ title }}</h2>
     <p class="online-state__body">{{ body }}</p>

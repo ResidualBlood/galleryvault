@@ -53,7 +53,8 @@ export interface OnlineSearchItem {
   rating?: number | null;
   /** Tags parsed from the list-page HTML (no extra EH request). */
   tags?: OnlineTag[] | null;
-  posted?: string | null;
+  /** UTC epoch seconds from the row's `posted_<gid>` node. */
+  posted?: string | number | null;
   uploader?: string | null;
   in_library?: boolean;
   gallery_id?: number | null;
