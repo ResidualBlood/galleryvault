@@ -14,12 +14,23 @@ test("V-14 收藏查重：状态 / 扫描 / 忽略 / 移除入口 @parity", asyn
   await page.goto("/#/favorites/manage");
   await expect(page.getByTestId("dupfav-view")).toBeVisible();
   await expect(page.getByTestId("dupfav-scan")).toBeVisible();
-  for (const filter of ["all", "local", "cloud"]) {
-    await expect(page.getByTestId(`dupfav-filter-${filter}`)).toBeVisible();
+  // The `all/local/cloud` filter is one SegmentedControl; each option is a
+  // radio button tagged with `data-segmented-value`.
+  const filterControl = page.getByTestId("dupfav-filter");
+  for (const value of ["all", "local", "cloud"]) {
+    await expect(filterControl.locator(`[data-segmented-value="${value}"]`)).toBeVisible();
   }
-  await expect(
-    page.getByTestId("dupfav-empty").or(page.getByTestId("dupfav-summary")),
-  ).toBeVisible({ timeout: 20_000 });
+  await expect(filterControl.locator('[data-segmented-value="all"]')).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await filterControl.locator('[data-segmented-value="local"]').click();
+  await expect(page).toHaveURL(/filter=local/);
+  await filterControl.locator('[data-segmented-value="all"]').click();
+  await expect(page).not.toHaveURL(/filter=local/);
+  // `dupfav-summary` renders in every state, so it cannot join an `.or()` with
+  // the empty state (that would make two locators match and break strict mode).
+  await expect(page.getByTestId("dupfav-summary")).toBeVisible({ timeout: 20_000 });
 
   // Batch actions only exist while something is selected (SelectionBar).
   const firstRow = page.locator('[data-testid^="dupfav-select-"] input').first();
@@ -45,21 +56,31 @@ test("V-15 重复组与跨 gid 重复 @parity", async ({ app }) => {
   await expect(page.getByTestId("duplicates-scan")).toBeVisible();
   await expect(page.getByTestId("duplicates-refresh")).toBeVisible();
   await page.getByTestId("duplicates-refresh").click();
+  // `duplicates-summary` is always rendered; the list/empty branch is separate.
+  await expect(page.getByTestId("duplicates-summary")).toBeVisible({ timeout: 20_000 });
   await expect(
-    page.getByTestId("duplicates-empty").or(page.getByTestId("duplicates-summary")),
-  ).toBeVisible({ timeout: 20_000 });
+    page
+      .getByTestId("duplicates-empty")
+      .or(page.locator('[data-testid^="duplicates-group-"]').first()),
+  ).toHaveCount(1, { timeout: 20_000 });
 
   await page.goto("/#/duplicates/cross-gid");
   await expect(page.getByTestId("dupxgid-view")).toBeVisible();
   await expect(page.getByTestId("dupxgid-recompute")).toBeVisible();
   await expect(page.getByTestId("dupxgid-refresh")).toBeVisible();
   await page.getByTestId("dupxgid-refresh").click();
+  // In the empty state `dupxgid-summary` ("0 groups · 0 items") and
+  // `dupxgid-hint` ("cross-GID never computed…") are both visible, so the old
+  // `.or()` chain matched two nodes and tripped strict mode. Assert the always
+  // rendered summary on its own, then require exactly one body branch: hint,
+  // empty result, or group cards.
+  await expect(page.getByTestId("dupxgid-summary")).toBeVisible({ timeout: 20_000 });
   await expect(
     page
-      .getByTestId("dupxgid-empty")
-      .or(page.getByTestId("dupxgid-hint"))
-      .or(page.getByTestId("dupxgid-summary")),
-  ).toBeVisible({ timeout: 20_000 });
+      .getByTestId("dupxgid-hint")
+      .or(page.getByTestId("dupxgid-empty"))
+      .or(page.locator('[data-testid^="dupxgid-group-"]').first()),
+  ).toHaveCount(1, { timeout: 20_000 });
   annotateUnverified("duplicate resolve / keep / dismiss / cross-gid recompute were not executed");
   await app.shot("V-15");
 });

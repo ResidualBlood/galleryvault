@@ -144,14 +144,46 @@ test("G-06 外观与语言沿用旧 localStorage 键 @parity", async ({ app }) =
 
 test("G-07 Cookie 健康横幅 @parity", async ({ app }) => {
   const { page } = app;
+  // The banner probes once on mount. Reload so that probe is observable and the
+  // banner state we assert below belongs to this test.
+  const probe = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/settings/cookie-health") &&
+      response.request().method() === "GET",
+    { timeout: 20_000 },
+  );
   await page.goto("/#/browse");
+  await page.reload();
+  const wanted = await probe;
+  await wanted.finished();
+  await expect(page.getByTestId("content")).toBeVisible({ timeout: 20_000 });
+
   const health = await app.api.get<{ state?: string }>("/api/settings/cookie-health");
+  const state = String(health.state ?? "").toLowerCase();
   const banner = page.getByTestId("cookie-health-banner");
-  if (health.state && health.state !== "ok") {
+  // Mirrors PROBLEM_STATES in CookieHealthBanner.vue (same contract as the old
+  // v1.13.5 core.js): only actionable problems raise the banner. "ok" and the
+  // advisory "failed" (probe error / anti-bot challenge page) stay silent.
+  const problemStates = [
+    "not_configured",
+    "not_logged_in",
+    "no_exhentai_access",
+    "ip_banned",
+  ];
+  if (problemStates.includes(state)) {
     await expect(banner).toBeVisible({ timeout: 15_000 });
+    await expect(banner).toHaveAttribute("data-cookie-state", state);
+    await expect(page.getByTestId("cookie-banner-settings")).toBeVisible();
+    await page.getByTestId("cookie-banner-dismiss").click();
+    await expect(banner).toHaveCount(0);
+    annotateUnverified(
+      `cookie banner rendered for state=${state}; the settings jump was not followed`,
+    );
   } else {
     await expect(banner).toHaveCount(0);
-    annotateUnverified("cookie health is currently ok; only the healthy branch is visible");
+    annotateUnverified(
+      `cookie health state=${state || "unknown"} is silent by design; the problem banner branch cannot be opened`,
+    );
   }
   await app.shot("G-07");
 });
