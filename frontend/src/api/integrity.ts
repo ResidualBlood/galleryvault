@@ -20,6 +20,8 @@ export interface IntegrityGallery {
   cover_url?: string | null;
   storage_path?: string | null;
   tags?: IntegrityTag[];
+  /** Total tag count when `tags` was truncated by the backend. */
+  tag_count?: number | null;
 }
 
 export interface IntegrityScanSummary {

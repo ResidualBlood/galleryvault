@@ -56,6 +56,7 @@ const router = createRouter({
     },
     { path: "/recycle", name: "recycle", component: RecycleView },
     { path: "/integrity", name: "integrity", component: IntegrityView },
+    { path: "/library", name: "library", component: Stub },
     { path: "/gallery/:id", name: "gallery", component: Stub },
     { path: "/favorites/:id", name: "favorites-list", component: Stub },
     { path: "/archive", name: "archive", component: Stub },
