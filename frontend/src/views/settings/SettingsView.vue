@@ -1,11 +1,12 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
+import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Input from "@/components/ui/Input.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
 import PasswordSection from "./PasswordSection.vue";
 import ApiTokenSection from "./ApiTokenSection.vue";
 import SettingsGroupPanel from "./SettingsGroupPanel.vue";
@@ -50,19 +51,36 @@ import { fetchPause, purgeArchivedSources, setPaused } from "@/api/system";
 import { ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
+import type { IconName } from "@/components/icons/registry";
+import type { SettingTone } from "./types";
 
 ensureSettingsMessages();
 
 const groups = SETTINGS_GROUPS;
 const BASE_URL_VALUES = ["https://exhentai.org", "https://e-hentai.org"];
 
+const GROUP_ICONS: Record<string, IconName> = {
+  appearance: "theme-dark",
+  reader: "reader-settings",
+  network: "language",
+  online: "online",
+  library: "library",
+  download: "downloads",
+  favorites: "favorites",
+  archive: "archive",
+  tags: "tags",
+  notifications: "notifications",
+  account: "status-auth",
+  integrations: "external-link",
+  system: "settings",
+};
+
 const { t } = useI18n();
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 const ui = useUiStore();
 
-const activeId = ref(groups[0].id);
-const mobileDetail = ref(false);
 const search = ref("");
 const server = ref<AppSettings>({});
 const baselines = ref<Record<string, Record<string, unknown>>>({});
@@ -82,9 +100,39 @@ const confirmError = ref("");
 const pendingPlan = ref<GroupSavePlan | null>(null);
 const purgeOpen = ref(false);
 const purgeBusy = ref(false);
+const logoutOpen = ref(false);
+const destructiveKey = ref("");
+const pendingScrollKey = ref("");
 
+const groupIds = new Set(groups.map((group) => group.id));
+
+/** `#/settings/:group?` is the single source of truth for the open group (ST00-07). */
+const routeGroup = computed(() => {
+  const raw = route.params.group;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" ? value : "";
+});
+const validGroupId = computed(() =>
+  routeGroup.value && groupIds.has(routeGroup.value) ? routeGroup.value : "",
+);
+const isGroupPage = computed(() => Boolean(validGroupId.value));
+const activeId = computed(() => validGroupId.value || groups[0].id);
 const activeGroup = computed(() => groups.find((group) => group.id === activeId.value) ?? groups[0]);
 const searchHits = computed(() => searchSettings(search.value));
+
+watch(
+  routeGroup,
+  (value) => {
+    saveError.value = "";
+    if (value && !groupIds.has(value)) void router.replace({ name: "settings" });
+  },
+  { immediate: true },
+);
+
+watch(validGroupId, async (value) => {
+  if (!value || !pendingScrollKey.value) return;
+  await scrollToKey(pendingScrollKey.value);
+});
 
 function readPreferences(): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -150,7 +198,17 @@ const plans = computed<Record<string, GroupSavePlan>>(() => {
 });
 
 const activePlan = computed<GroupSavePlan | undefined>(() => plans.value[activeId.value]);
-const activeDirty = computed(() => Boolean(activePlan.value?.changedKeys.length));
+const dirtyGroups = computed(() =>
+  groups.filter((group) => Boolean(plans.value[group.id]?.changedKeys.length)),
+);
+const dirtyCount = computed(() =>
+  dirtyGroups.value.reduce((total, group) => total + (plans.value[group.id]?.changedKeys.length ?? 0), 0),
+);
+/** With no group in the route the bar saves the only dirty group, if there is exactly one. */
+const saveBarPlan = computed<GroupSavePlan | undefined>(() => {
+  if (isGroupPage.value) return activePlan.value;
+  return dirtyGroups.value.length === 1 ? plans.value[dirtyGroups.value[0].id] : activePlan.value;
+});
 
 const configured = computed<Record<string, boolean>>(() => {
   const names = Array.isArray(server.value.exhentai_cookie_names)
@@ -208,6 +266,40 @@ const display = computed<Record<string, string>>(() => {
   return out;
 });
 
+/** Semantic colour for every read-only value slot (ST03-04, ST10-02, ST11-06). */
+const tones = computed<Record<string, SettingTone>>(() => {
+  const thumbs = aux.thumbnail_status as ThumbsStatus | undefined;
+  const translation = aux.translation_status as TagSearchStatus | undefined;
+  const categories = aux.favorites_categories;
+  const names = Array.isArray(server.value.exhentai_cookie_names)
+    ? (server.value.exhentai_cookie_names as unknown[])
+    : [];
+  const enabled =
+    Array.isArray(categories) &&
+    categories.some((entry) => entry && (entry as { enabled?: boolean }).enabled);
+  const warnings = server.value.library_root_warnings;
+  return {
+    exhentai_cookie_configured: server.value.exhentai_cookie_configured ? "success" : "warning",
+    exhentai_cookie_names: names.length ? "neutral" : "warning",
+    exhentai_max_concurrency: "neutral",
+    library_root_warnings: Array.isArray(warnings) && warnings.length ? "warning" : "success",
+    thumbnail_status: thumbs?.running
+      ? "neutral"
+      : thumbs && (thumbs.failed ?? 0) > 0
+        ? "error"
+        : thumbs
+          ? "success"
+          : "neutral",
+    translation_status: translation?.last_error ? "error" : translation ? "success" : "neutral",
+    favorites_categories: enabled ? "success" : "warning",
+    telegram_bot_configured: server.value.telegram_bot_configured ? "success" : "warning",
+    auth_hash_configured: server.value.auth_hash_configured ? "success" : "warning",
+    must_change_password: server.value.must_change_password ? "warning" : "success",
+    cold_storage_root: "neutral",
+    download_max_retries: "neutral",
+  };
+});
+
 async function loadAux(): Promise<void> {
   await Promise.allSettled([
     fetchThumbsStatus().then((value) => {
@@ -245,30 +337,36 @@ async function load(): Promise<void> {
 }
 
 onMounted(load);
+onBeforeUnmount(() => {
+  if (scrollTimer !== null) window.clearTimeout(scrollTimer);
+});
 
-function selectGroup(id: string): void {
-  activeId.value = id;
-  mobileDetail.value = true;
-  saveError.value = "";
-}
+let scrollTimer: number | null = null;
 
-function backToGroups(): void {
-  mobileDetail.value = false;
+async function scrollToKey(key: string): Promise<void> {
+  pendingScrollKey.value = "";
+  await nextTick();
+  const row = document.querySelector(`[data-setting-key="${key}"]`);
+  if (row instanceof HTMLElement) row.scrollIntoView({ block: "center" });
 }
 
 function openHit(groupId: string, key: string): void {
-  activeId.value = groupId;
-  mobileDetail.value = true;
   search.value = "";
-  void nextTick(() => {
-    const row = document.querySelector(`[data-setting-key="${key}"]`);
-    if (row instanceof HTMLElement) row.scrollIntoView({ block: "center" });
-  });
+  pendingScrollKey.value = key;
+  if (validGroupId.value === groupId) {
+    void scrollToKey(key);
+  } else {
+    void router.push({ name: "settings", params: { group: groupId } });
+  }
 }
 
 function onRowUpdate(key: string, value: unknown): void {
   if (key === "global_paused") {
     void togglePause(Boolean(value));
+    return;
+  }
+  if (key === "archive_delete_source" && value === true) {
+    destructiveKey.value = key;
     return;
   }
   onUpdate(key, value);
@@ -284,6 +382,12 @@ function onUpdate(key: string, value: unknown): void {
       /* storage may be blocked; the draft still drives this session */
     }
   }
+}
+
+function confirmDestructive(): void {
+  const key = destructiveKey.value;
+  destructiveKey.value = "";
+  if (key) onUpdate(key, true);
 }
 
 async function togglePause(next: boolean): Promise<void> {
@@ -307,7 +411,7 @@ function fieldError(plan: GroupSavePlan): string {
 }
 
 async function saveActive(): Promise<void> {
-  const plan = activePlan.value;
+  const plan = saveBarPlan.value;
   if (!plan) return;
   saveError.value = "";
   if (plan.errors.length) {
@@ -424,8 +528,7 @@ async function handleAction(actionId: string): Promise<void> {
         purgeOpen.value = true;
         break;
       case "logout":
-        await auth.logout();
-        await router.replace({ name: "login" });
+        logoutOpen.value = true;
         break;
       default:
         break;
@@ -433,6 +536,12 @@ async function handleAction(actionId: string): Promise<void> {
   } catch (cause) {
     saveError.value = cause instanceof Error ? cause.message : String(cause);
   }
+}
+
+async function confirmLogout(): Promise<void> {
+  logoutOpen.value = false;
+  await auth.logout();
+  await router.replace({ name: "login" });
 }
 
 async function confirmPurge(): Promise<void> {
@@ -453,18 +562,19 @@ defineExpose({ plans });
 
 <template>
   <div class="settings" data-testid="settings-page">
-    <header class="settings__header">
-      <div>
-        <h1 class="settings__title">{{ t('settings.title') }}</h1>
-        <p class="settings__subtitle">{{ t('settings.subtitle') }}</p>
-      </div>
-    </header>
+    <PageHeader
+      :title="t('settings.title')"
+      :subtitle="t('settings.subtitle')"
+      testid="settings-header"
+    />
 
     <div class="settings__search">
       <Input
         v-model="search"
         type="search"
+        icon="search"
         :placeholder="t('settings.searchPlaceholder')"
+        :aria-label="t('settings.searchPlaceholder')"
         data-testid="settings-search"
       />
     </div>
@@ -481,16 +591,16 @@ defineExpose({ plans });
       </p>
       <ul v-else class="settings__result-list">
         <li v-for="hit in searchHits" :key="`${hit.group.id}:${hit.field.key}`">
-          <button
-            type="button"
+          <RouterLink
             class="settings__result"
+            :to="{ name: 'settings', params: { group: hit.group.id } }"
             :data-result-key="hit.field.key"
             @click="openHit(hit.group.id, hit.field.key)"
           >
             <span class="settings__result-label">{{ t(hit.field.labelKey) }}</span>
             <span class="settings__result-group">{{ t(hit.group.titleKey) }}</span>
             <code class="settings__result-key">{{ hit.field.key }}</code>
-          </button>
+          </RouterLink>
         </li>
       </ul>
     </div>
@@ -498,38 +608,43 @@ defineExpose({ plans });
     <div v-else class="settings__layout">
       <nav
         class="settings__nav"
-        :class="{ 'settings__nav--hidden': mobileDetail }"
+        :class="{ 'settings__nav--hidden': isGroupPage }"
         data-testid="settings-nav"
       >
-        <p class="settings__nav-title">{{ t('settings.groups') }}</p>
-        <button
-          v-for="group in groups"
-          :key="group.id"
-          type="button"
-          class="settings__nav-item"
-          :class="{ 'settings__nav-item--active': group.id === activeId }"
-          :data-settings-nav="group.id"
-          :aria-current="group.id === activeId ? 'page' : undefined"
-          @click="selectGroup(group.id)"
-        >
-          <span>{{ t(group.titleKey) }}</span>
-          <span v-if="plans[group.id]?.changedKeys.length" class="settings__nav-dot" aria-hidden="true" />
-        </button>
+        <div class="settings__nav-head">
+          <p class="settings__nav-title">{{ t('settings.groups') }}</p>
+          <p class="settings__nav-count">{{ t('settings.groupCount', { count: groups.length }) }}</p>
+        </div>
+        <div class="settings__nav-list">
+          <RouterLink
+            v-for="group in groups"
+            :key="group.id"
+            class="settings__nav-item"
+            :class="{ 'settings__nav-item--active': group.id === activeId }"
+            :to="{ name: 'settings', params: { group: group.id } }"
+            :data-settings-nav="group.id"
+            :aria-current="group.id === activeId ? 'page' : undefined"
+          >
+            <Icon :name="GROUP_ICONS[group.id] ?? 'settings'" size="sm" aria-hidden="true" />
+            <span class="settings__nav-label">{{ t(group.titleKey) }}</span>
+            <span
+              v-if="plans[group.id]?.changedKeys.length"
+              class="settings__nav-dot"
+              aria-hidden="true"
+            />
+          </RouterLink>
+        </div>
       </nav>
 
       <main
         class="settings__content"
-        :class="{ 'settings__content--hidden': !mobileDetail }"
+        :class="{ 'settings__content--hidden': !isGroupPage }"
         data-testid="settings-content"
       >
-        <button
-          type="button"
-          class="settings__back"
-          data-testid="settings-back"
-          @click="backToGroups"
-        >
-          ← {{ t('settings.back') }}
-        </button>
+        <RouterLink class="settings__back" to="/settings" data-testid="settings-back">
+          <Icon name="back" size="sm" aria-hidden="true" />
+          {{ t('settings.back') }}
+        </RouterLink>
 
         <SettingsGroupPanel
           :group="activeGroup"
@@ -537,6 +652,7 @@ defineExpose({ plans });
           :custom-base-url="customBaseUrl"
           :configured="configured"
           :display="display"
+          :tones="tones"
           @update="onRowUpdate"
           @update:custom-base-url="customBaseUrl = $event"
           @action="handleAction"
@@ -552,23 +668,29 @@ defineExpose({ plans });
         <p v-if="saveError" class="settings__error" role="alert" data-testid="settings-error">
           {{ saveError }}
         </p>
-
-        <div v-if="activeDirty" class="settings__savebar" data-testid="settings-savebar">
-          <span class="settings__savebar-text">{{ t('settings.unsaved') }}</span>
-          <Button variant="text" size="compact" :disabled="saving" @click="discard">
-            {{ t('settings.discard') }}
-          </Button>
-          <Button
-            size="compact"
-            :loading="saving"
-            :disabled="saving"
-            data-testid="settings-save"
-            @click="saveActive"
-          >
-            {{ saving ? t('settings.saving') : t('settings.save') }}
-          </Button>
-        </div>
       </main>
+    </div>
+
+    <div
+      v-if="dirtyCount"
+      class="settings__savebar"
+      data-testid="settings-savebar"
+      :data-dirty-count="dirtyCount"
+    >
+      <span class="settings__savebar-text">
+        {{ t('settings.unsavedCount', { count: dirtyCount }) }}
+      </span>
+      <Button variant="text" :disabled="saving" @click="discard">
+        {{ t('settings.discard') }}
+      </Button>
+      <Button
+        :loading="saving"
+        :disabled="saving"
+        data-testid="settings-save"
+        @click="saveActive"
+      >
+        {{ saving ? t('settings.saving') : t('settings.save') }}
+      </Button>
     </div>
 
     <Dialog
@@ -615,6 +737,40 @@ defineExpose({ plans });
         </Button>
       </template>
     </Dialog>
+
+    <Dialog
+      :open="Boolean(destructiveKey)"
+      :title="t('settings.destructive.title')"
+      testid="destructive-confirm"
+      @close="destructiveKey = ''"
+    >
+      <p class="settings__dialog-body">{{ t('settings.destructive.body') }}</p>
+      <template #footer>
+        <Button variant="text" @click="destructiveKey = ''">
+          {{ t('settings.security.cancel') }}
+        </Button>
+        <Button danger data-testid="destructive-confirm-submit" @click="confirmDestructive">
+          {{ t('settings.destructive.confirm') }}
+        </Button>
+      </template>
+    </Dialog>
+
+    <Dialog
+      :open="logoutOpen"
+      :title="t('settings.logout.title')"
+      testid="logout-confirm"
+      @close="logoutOpen = false"
+    >
+      <p class="settings__dialog-body">{{ t('settings.logout.body') }}</p>
+      <template #footer>
+        <Button variant="text" @click="logoutOpen = false">
+          {{ t('settings.security.cancel') }}
+        </Button>
+        <Button danger data-testid="logout-confirm-submit" @click="confirmLogout">
+          {{ t('settings.logout.confirm') }}
+        </Button>
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -623,31 +779,14 @@ defineExpose({ plans });
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-4);
-  padding: var(--gv-space-4);
+  width: 100%;
   max-width: var(--gv-size-content-max);
   margin: 0 auto;
-}
-
-.settings__header {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--gv-space-4);
-}
-
-.settings__title {
-  margin: 0;
-  font: var(--gv-type-headline-medium);
-  color: var(--gv-color-on-surface);
-}
-
-.settings__subtitle {
-  margin: var(--gv-space-1) 0 0;
-  font: var(--gv-type-body-medium);
-  color: var(--gv-color-on-surface-variant);
+  min-width: 0;
 }
 
 .settings__search {
-  max-width: 520px;
+  width: 100%;
 }
 
 .settings__state {
@@ -675,17 +814,17 @@ defineExpose({ plans });
 
 .settings__result {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--gv-space-3);
   width: 100%;
-  min-height: var(--gv-size-touch);
-  padding: var(--gv-space-2) var(--gv-space-3);
+  height: var(--gv-size-touch);
+  padding: 0 var(--gv-space-3);
   border: 1px solid var(--gv-color-outline-variant);
   border-radius: var(--gv-radius-sm);
   background: var(--gv-color-surface-container);
   color: var(--gv-color-on-surface);
   text-align: left;
-  cursor: pointer;
+  text-decoration: none;
 }
 
 .settings__result:hover {
@@ -704,7 +843,8 @@ defineExpose({ plans });
 .settings__result-key {
   margin-left: auto;
   color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: var(--gv-type-body-small-size);
 }
 
 .settings__layout {
@@ -715,37 +855,54 @@ defineExpose({ plans });
 }
 
 .settings__nav {
+  position: sticky;
+  top: calc(var(--gv-size-topbar) + var(--gv-space-4));
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-3);
+  max-height: calc(100vh - var(--gv-size-topbar) - var(--gv-size-navbar));
+  overflow-y: auto;
+  padding: 0 var(--gv-space-3) var(--gv-space-3);
+  border-radius: var(--gv-radius-md);
+  background: var(--gv-color-surface-container-low);
+}
+
+/* Same 24px title line + 16px sub line as the group header, so both panes share a baseline (ST00-01). */
+.settings__nav-head {
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-1);
-  padding: var(--gv-space-2);
-  border-radius: var(--gv-radius-md);
-  background: var(--gv-color-surface-container-low);
-  position: sticky;
-  top: var(--gv-space-4);
+  padding: 0 var(--gv-space-2);
 }
 
 .settings__nav-title {
   margin: 0;
-  padding: var(--gv-space-1) var(--gv-space-2);
+  font: var(--gv-type-title-medium);
+  color: var(--gv-color-on-surface);
+}
+
+.settings__nav-count {
+  margin: 0;
   color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
+  font: var(--gv-type-body-small);
+}
+
+.settings__nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-1);
 }
 
 .settings__nav-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--gv-space-2);
   min-height: var(--gv-size-touch);
   padding: 0 var(--gv-space-3);
-  border: none;
   border-radius: var(--gv-radius-full);
-  background: transparent;
   color: var(--gv-color-on-surface);
   font: var(--gv-type-body-medium);
-  text-align: left;
-  cursor: pointer;
+  text-decoration: none;
 }
 
 .settings__nav-item:hover {
@@ -755,6 +912,14 @@ defineExpose({ plans });
 .settings__nav-item--active {
   background: var(--gv-color-secondary-container);
   color: var(--gv-color-on-secondary-container);
+}
+
+.settings__nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings__nav-dot {
@@ -773,14 +938,14 @@ defineExpose({ plans });
 
 .settings__back {
   display: none;
+  align-items: center;
+  gap: var(--gv-space-1);
   align-self: flex-start;
   min-height: var(--gv-size-touch);
   padding: 0 var(--gv-space-2);
-  border: none;
-  background: transparent;
   color: var(--gv-color-primary-text);
   font: var(--gv-type-label-large);
-  cursor: pointer;
+  text-decoration: none;
 }
 
 .settings__error {
@@ -789,13 +954,21 @@ defineExpose({ plans });
   font: var(--gv-type-body-small);
 }
 
+/* Fixed above the mobile nav bar and never under it (ST01-05). */
 .settings__savebar {
-  position: sticky;
-  bottom: var(--gv-space-2);
+  position: fixed;
+  right: var(--gv-space-4);
+  bottom: calc(var(--gv-size-navbar) + var(--gv-space-2));
+  left: var(--gv-space-4);
+  z-index: 21;
   display: flex;
   align-items: center;
-  gap: var(--gv-space-3);
-  padding: var(--gv-space-3) var(--gv-space-4);
+  gap: var(--gv-space-2);
+  width: auto;
+  max-width: var(--gv-size-content-max);
+  min-height: var(--gv-space-8);
+  margin: 0 auto;
+  padding: var(--gv-space-2) var(--gv-space-3);
   border: 1px solid var(--gv-color-outline-variant);
   border-radius: var(--gv-radius-lg);
   background: var(--gv-color-surface-container-highest);
@@ -804,6 +977,7 @@ defineExpose({ plans });
 
 .settings__savebar-text {
   flex: 1;
+  min-width: 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }
@@ -814,11 +988,15 @@ defineExpose({ plans });
   color: var(--gv-color-on-surface-variant);
 }
 
-@media (max-width: 839px) {
-  .settings {
-    padding: var(--gv-space-3);
+@media (min-width: 840px) {
+  .settings__savebar {
+    right: var(--gv-space-6);
+    bottom: var(--gv-space-4);
+    left: calc(var(--gv-size-drawer-width) + var(--gv-space-6));
   }
+}
 
+@media (max-width: 839px) {
   .settings__layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -833,7 +1011,6 @@ defineExpose({ plans });
 
   .settings__back {
     display: inline-flex;
-    align-items: center;
   }
 }
 </style>

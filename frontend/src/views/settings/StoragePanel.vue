@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -47,6 +46,10 @@ function items(row: StoragePathInfo): string {
   }
   return "—";
 }
+
+const hasStatus = computed(() =>
+  rows.value.some((row) => Boolean(row.value?.computing || row.value?.stale)),
+);
 
 function status(row: StoragePathInfo): string {
   if (row.computing) return t("settings.storage.computing");
@@ -101,7 +104,7 @@ onBeforeUnmount(() => {
   <section class="storage" data-settings-section="storage">
     <div class="storage__head">
       <h3 class="storage__title">{{ t('settings.storage.title') }}</h3>
-      <Button variant="text" size="compact" :disabled="loading" @click="load">
+      <Button variant="text" size="md" :disabled="loading" @click="load">
         {{ t('settings.storage.refresh') }}
       </Button>
     </div>
@@ -113,9 +116,9 @@ onBeforeUnmount(() => {
       <thead>
         <tr>
           <th>{{ t('settings.storage.path') }}</th>
-          <th>{{ t('settings.storage.items') }}</th>
-          <th>{{ t('settings.storage.used') }}</th>
-          <th>{{ t('settings.storage.status') }}</th>
+          <th class="storage__num">{{ t('settings.storage.items') }}</th>
+          <th class="storage__num">{{ t('settings.storage.used') }}</th>
+          <th v-if="hasStatus">{{ t('settings.storage.status') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -124,9 +127,9 @@ onBeforeUnmount(() => {
             <span class="storage__label">{{ row.label }}</span>
             <span class="storage__path">{{ row.value?.path || '—' }}</span>
           </td>
-          <td>{{ row.value ? items(row.value) : '—' }}</td>
-          <td>{{ bytes(row.value?.bytes) }}</td>
-          <td>{{ row.value ? status(row.value) : '—' }}</td>
+          <td class="storage__num">{{ row.value ? items(row.value) : '—' }}</td>
+          <td class="storage__num">{{ bytes(row.value?.bytes) }}</td>
+          <td v-if="hasStatus">{{ row.value ? status(row.value) : '—' }}</td>
         </tr>
       </tbody>
     </table>
@@ -143,7 +146,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="storage__actions">
-      <Button variant="outlined" data-testid="purge-sources" @click="purgeOpen = true">
+      <Button variant="outlined" size="md" danger data-testid="purge-sources" @click="purgeOpen = true">
         {{ t('settings.storage.purge') }}
       </Button>
     </div>
@@ -182,7 +185,7 @@ onBeforeUnmount(() => {
 
 .storage__title {
   margin: 0;
-  font: var(--gv-type-title-medium);
+  font: var(--gv-type-title-small);
   color: var(--gv-color-on-surface);
 }
 
@@ -213,6 +216,13 @@ onBeforeUnmount(() => {
   text-align: left;
 }
 
+.storage__table th.storage__num,
+.storage__table td.storage__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .storage__table td {
   padding: var(--gv-space-2);
   border-bottom: 1px solid var(--gv-color-outline-variant);
@@ -233,7 +243,13 @@ onBeforeUnmount(() => {
 .storage__subtitle {
   margin: 0 0 var(--gv-space-2);
   font: var(--gv-type-label-large);
-  color: var(--gv-color-on-surface-variant);
+  color: var(--gv-color-on-surface);
+}
+
+.storage__largest {
+  margin-top: var(--gv-space-2);
+  padding-top: var(--gv-space-5);
+  border-top: 1px solid var(--gv-color-outline-variant);
 }
 
 .storage__list {

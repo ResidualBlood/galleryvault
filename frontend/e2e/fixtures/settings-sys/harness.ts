@@ -1,6 +1,6 @@
 import { createApp, h, type Component } from "vue";
 import { createPinia } from "pinia";
-import { createMemoryHistory, createRouter } from "vue-router";
+import { createWebHashHistory, createRouter } from "vue-router";
 import { i18n, setLocale, type Lang } from "@/i18n";
 import "@/styles/tokens.css";
 import "@/styles/base.css";
@@ -21,7 +21,20 @@ declare global {
 
 const params = new URLSearchParams(window.location.search);
 const view = params.get("view") ?? "settings";
-const theme = params.get("theme") === "light" ? "light" : "dark";
+const storedTheme = (() => {
+  try {
+    return localStorage.getItem("gv_theme");
+  } catch {
+    return null;
+  }
+})();
+const themeParam = params.get("theme");
+const theme =
+  themeParam === "light" || themeParam === "dark"
+    ? themeParam
+    : storedTheme === "light"
+      ? "light"
+      : "dark";
 const lang = params.get("lang") === "en" ? "en" : "zh";
 const quality = params.get("quality") === "original" ? "original" : "resample";
 
@@ -36,21 +49,30 @@ i18n.global.locale.value = lang as Lang;
 
 const Stub = { template: '<div data-testid="stub-page">stub</div>' };
 const router = createRouter({
-  history: createMemoryHistory(),
+  history: createWebHashHistory(),
   routes: [
     { path: "/", redirect: "/browse" },
     { path: "/browse", name: "browse", component: Stub },
     { path: "/login", name: "login", component: Stub },
-    { path: "/settings", name: "settings", component: Stub },
+    { path: "/settings/:group?", name: "settings", component: Stub },
   ],
 });
 router.afterEach((to) => {
   document.body.dataset.route = String(to.name ?? "");
 });
-void router.push("/settings");
+const initialGroup = params.get("group");
+const hashPath = window.location.hash.replace(/^#/, "");
+const initialPath = initialGroup
+  ? `/settings/${initialGroup}`
+  : hashPath.startsWith("/settings")
+    ? hashPath
+    : "/settings";
+void router.isReady().then(() => router.push(initialPath));
 
 const wrappers: Record<string, () => Component> = {
-  settings: () => SettingsView,
+  settings: () => ({
+    render: () => h("div", { class: "harness" }, [h(SettingsView)]),
+  }),
   welcome: () => WelcomeView,
   logs: () => LogsView,
   archive: () => ArchiveView,

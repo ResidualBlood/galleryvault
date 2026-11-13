@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -162,7 +161,7 @@ async function revoke(): Promise<void> {
 
 .panel__title {
   margin: 0;
-  font: var(--gv-type-title-medium);
+  font: var(--gv-type-title-small);
   color: var(--gv-color-on-surface);
 }
 
@@ -186,6 +185,7 @@ async function revoke(): Promise<void> {
 .panel__actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--gv-space-2);
 }
 

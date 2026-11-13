@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -86,14 +85,14 @@ async function submit(): Promise<void> {
 
 .panel__title {
   margin: 0;
-  font: var(--gv-type-title-medium);
+  font: var(--gv-type-title-small);
   color: var(--gv-color-on-surface);
 }
 
 .panel__grid {
   display: grid;
   gap: var(--gv-space-3);
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .panel__error {
@@ -105,5 +104,11 @@ async function submit(): Promise<void> {
 .panel__actions {
   display: flex;
   justify-content: flex-end;
+}
+
+@media (max-width: 839px) {
+  .panel__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>
