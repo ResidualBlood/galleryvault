@@ -1,12 +1,20 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
+import Pager from "@/components/ui/Pager.vue";
+import SegmentedControl, { type SegmentedOption } from "@/components/ui/SegmentedControl.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
+import DuplicateBadge from "./components/DuplicateBadge.vue";
+import DuplicateCopyRow from "./components/DuplicateCopyRow.vue";
+import DuplicateGroupCard from "./components/DuplicateGroupCard.vue";
+import MaintenanceNav from "./components/MaintenanceNav.vue";
 import {
   duplicateThumbPath,
   fetchLibraryDuplicates,
@@ -20,10 +28,7 @@ import {
 import { useUiStore } from "@/stores/ui";
 import { formatBytes, formatDate } from "@/stores/library";
 import { galleryThumbUrl } from "@/views/updates/url";
-import GalleryThumb from "@/views/updates/components/GalleryThumb.vue";
 import ConfirmDialog from "@/views/updates/components/ConfirmDialog.vue";
-import PagerBar from "@/views/updates/components/PagerBar.vue";
-import MaintenanceTabs from "@/views/updates/components/MaintenanceTabs.vue";
 import { ensureMaintenanceMessages } from "@/views/updates/i18n";
 
 ensureMaintenanceMessages();
@@ -69,14 +74,48 @@ const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / 
 const pageGroups = computed(() =>
   filtered.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
 );
+const itemCount = computed(() =>
+  filtered.value.reduce((sum, group) => sum + group.copies.length, 0),
+);
 const openCount = computed(() => groups.value.filter((group) => group.status === "open").length);
-const emptyLabel = computed(() =>
+const summary = computed(() =>
+  t("maintenance.duplicates.library.found", {
+    groups: filtered.value.length,
+    items: itemCount.value,
+  }),
+);
+const filterOptions = computed<SegmentedOption[]>(() =>
+  FILTERS.map((item) => ({
+    value: item,
+    label:
+      item === "all"
+        ? t("maintenance.duplicates.library.filterAll")
+        : item === "open"
+          ? t("maintenance.duplicates.library.filterOpen")
+          : t("maintenance.duplicates.library.filterDismissed"),
+  })),
+);
+const emptyTitle = computed(() =>
   filter.value === "open"
     ? t("maintenance.duplicates.library.noneOpen")
     : filter.value === "dismissed"
       ? t("maintenance.duplicates.library.noneDismissed")
       : t("maintenance.duplicates.library.empty"),
 );
+const emptyAction = computed(() =>
+  filter.value === "all"
+    ? t("maintenance.duplicates.library.scan")
+    : t("maintenance.duplicates.library.showAll"),
+);
+const POLICY_KEYS = [
+  "keep_first",
+  "prefer_more_pages",
+  "prefer_newer",
+  "prefer_larger",
+  "prefer_smaller",
+  "manual",
+] as const;
+const STORAGE_KEYS = ["folder", "ehviewer_dir", "jhentai_dir", "cbz", "cbr", "pdf", "7z"] as const;
 
 function groupTitle(group: LibraryDuplicateGroup): string {
   const copy = group.copies[0];
@@ -97,13 +136,30 @@ function copySize(copy: LibraryDuplicateCopy): string {
   return formatBytes(copy.file_size);
 }
 
+function policyLabel(policy: string | null | undefined): string {
+  if (!policy || !POLICY_KEYS.includes(policy as (typeof POLICY_KEYS)[number])) return "";
+  return t(`maintenance.duplicates.library.policy.${policy}`);
+}
+
+function storageLabel(storage: string | null | undefined): string {
+  if (!storage || !STORAGE_KEYS.includes(storage as (typeof STORAGE_KEYS)[number])) return "";
+  return t(`maintenance.duplicates.storage.${storage}`);
+}
+
+function copyOrigin(copy: LibraryDuplicateCopy): string {
+  return copy.gallery_id != null
+    ? t("maintenance.duplicates.library.current")
+    : storageLabel(copy.storage_type);
+}
+
 function statusLabel(group: LibraryDuplicateGroup): string {
   return group.status === "dismissed"
     ? t("maintenance.duplicates.library.statusDismissed")
     : t("maintenance.duplicates.library.statusOpen");
 }
 
-function setFilter(next: Filter): void {
+function setFilter(next: string): void {
+  if (!FILTERS.includes(next as Filter)) return;
   void router.push({
     name: "duplicates",
     query: next === "all" ? {} : { filter: next },
@@ -230,38 +286,48 @@ onMounted(load);
 
 <template>
   <section class="dup" data-testid="duplicates-view">
-    <header class="dup__header">
-      <p class="dup__eyebrow">{{ t("maintenance.duplicates.library.eyebrow") }}</p>
-      <h1 class="dup__title">{{ t("maintenance.duplicates.library.title") }}</h1>
-      <p class="dup__subtitle">{{ t("maintenance.duplicates.library.subtitle") }}</p>
-    </header>
+    <PageHeader
+      :title="t('maintenance.duplicates.library.title')"
+      :count="filtered.length"
+      :count-label="summary"
+      :subtitle="t('maintenance.duplicates.library.subtitle')"
+      testid="duplicates-header"
+    />
 
-    <MaintenanceTabs active="duplicates" />
+    <MaintenanceNav />
 
-    <div class="dup__toolbar">
-      <Button data-testid="duplicates-scan" :loading="scanning" @click="scan">
-        {{ scanning ? t("maintenance.duplicates.library.scanning") : t("maintenance.duplicates.library.scan") }}
-      </Button>
-      <Button variant="outlined" data-testid="duplicates-refresh" @click="load">
-        {{ t("maintenance.duplicates.library.refresh") }}
-      </Button>
-      <Button
-        v-for="item in FILTERS"
-        :key="item"
-        size="compact"
-        :variant="filter === item ? 'tonal' : 'outlined'"
-        :data-testid="`duplicates-filter-${item}`"
-        @click="setFilter(item)"
-      >
-        {{
-          item === "all"
-            ? t("maintenance.duplicates.library.filterAll")
-            : item === "open"
-              ? t("maintenance.duplicates.library.filterOpen")
-              : t("maintenance.duplicates.library.filterDismissed")
-        }}
-      </Button>
-    </div>
+    <Toolbar class="dup__actions" testid="duplicates-toolbar">
+      <ToolbarGroup end>
+        <Button
+          icon="duplicates"
+          :loading="scanning"
+          data-testid="duplicates-scan"
+          @click="scan"
+        >
+          {{ scanning ? t("maintenance.duplicates.library.scanning") : t("maintenance.duplicates.library.scan") }}
+        </Button>
+        <Button variant="outlined" icon="retry" data-testid="duplicates-refresh" @click="load">
+          {{ t("maintenance.duplicates.library.refresh") }}
+        </Button>
+      </ToolbarGroup>
+    </Toolbar>
+
+    <Toolbar class="dup__filters" size="sm" testid="duplicates-filters">
+      <ToolbarGroup>
+        <SegmentedControl
+          :model-value="filter"
+          :options="filterOptions"
+          :label="t('maintenance.duplicates.library.filterAll')"
+          testid="duplicates-filter"
+          @update:model-value="setFilter"
+        />
+      </ToolbarGroup>
+    </Toolbar>
+
+    <p class="dup__summary" data-testid="duplicates-summary">
+      {{ summary }}
+      <span v-if="openCount"> · {{ openCount }} {{ t("maintenance.duplicates.library.filterOpen") }}</span>
+    </p>
 
     <div v-if="loading" class="dup__skeletons" aria-hidden="true">
       <Skeleton v-for="index in 4" :key="index" variant="list" />
@@ -277,118 +343,96 @@ onMounted(load);
 
     <EmptyState
       v-else-if="!filtered.length"
-      :title="emptyLabel"
+      icon="duplicates"
+      :title="emptyTitle"
+      :body="t('maintenance.duplicates.library.emptyBody')"
+      :action-label="emptyAction"
       testid="duplicates-empty"
+      @action="filter === 'all' ? scan() : setFilter('all')"
     />
 
     <template v-else>
-      <p class="dup__summary" data-testid="duplicates-summary">
-        {{
-          t("maintenance.duplicates.library.found", {
-            groups: filtered.length,
-            items: filtered.reduce((sum, group) => sum + group.copies.length, 0),
-          })
-        }}
-        <span v-if="openCount"> · {{ openCount }} {{ t("maintenance.duplicates.library.filterOpen") }}</span>
-      </p>
-
-      <article
+      <DuplicateGroupCard
         v-for="group in pageGroups"
         :key="group.gid"
-        class="dup__group"
-        :data-testid="`duplicates-group-${group.gid}`"
+        :gid="group.gid"
+        :title="groupTitle(group)"
+        :testid="`duplicates-group-${group.gid}`"
       >
-        <header class="dup__group-head">
-          <span class="dup__count">#{{ group.gid }}</span>
-          <span class="dup__group-title">{{ groupTitle(group) }}</span>
-          <span v-if="group.policy" class="dup__badge">{{ group.policy }}</span>
-          <span class="dup__badge">{{ statusLabel(group) }}</span>
-          <span class="dup__group-actions">
-            <Button
-              variant="outlined"
-              size="compact"
-              :data-testid="`duplicates-dismiss-${group.gid}`"
-              @click="setStatus(group, group.status === 'open' ? 'dismissed' : 'open')"
-            >
-              {{
-                group.status === "open"
-                  ? t("maintenance.duplicates.library.dismiss")
-                  : t("maintenance.duplicates.library.restore")
-              }}
-            </Button>
-          </span>
-        </header>
+        <template #badges>
+          <DuplicateBadge
+            v-if="policyLabel(group.policy)"
+            size="sm"
+            tone="primary"
+            icon="duplicates"
+          >
+            {{ policyLabel(group.policy) }}
+          </DuplicateBadge>
+          <DuplicateBadge size="sm" :tone="group.status === 'dismissed' ? 'warning' : 'neutral'">
+            {{ statusLabel(group) }}
+          </DuplicateBadge>
+          <DuplicateBadge size="sm">{{ group.copies.length }}</DuplicateBadge>
+        </template>
+        <template #actions>
+          <Button
+            variant="outlined"
+            size="sm"
+            :data-testid="`duplicates-dismiss-${group.gid}`"
+            @click="setStatus(group, group.status === 'open' ? 'dismissed' : 'open')"
+          >
+            {{
+              group.status === "open"
+                ? t("maintenance.duplicates.library.dismiss")
+                : t("maintenance.duplicates.library.restore")
+            }}
+          </Button>
+        </template>
 
-        <div
+        <DuplicateCopyRow
           v-for="copy in group.copies"
           :key="copy.key"
-          class="dup__row"
-          :data-testid="`duplicates-copy-${copy.key}`"
+          :title="copyTitle(copy)"
+          :thumb="copyThumb(copy)"
+          :to="copy.gallery_id != null ? { name: 'gallery', params: { id: copy.gallery_id } } : null"
+          :tags="copy.tags ?? []"
+          :testid="`duplicates-copy-${copy.key}`"
         >
-          <GalleryThumb :src="copyThumb(copy)" :alt="copyTitle(copy)" />
-          <div class="dup__body">
-            <component
-              :is="copy.gallery_id != null ? RouterLink : 'span'"
-              class="dup__copy-title"
-              :to="copy.gallery_id != null ? { name: 'gallery', params: { id: copy.gallery_id } } : undefined"
+          <template #meta>
+            <DuplicateBadge v-if="copyOrigin(copy)">{{ copyOrigin(copy) }}</DuplicateBadge>
+            <DuplicateBadge v-if="copy.page_count">
+              {{ t("maintenance.duplicates.library.pages", { n: copy.page_count }) }}
+            </DuplicateBadge>
+            <DuplicateBadge v-if="copySize(copy)">{{ copySize(copy) }}</DuplicateBadge>
+            <DuplicateBadge v-if="copy.posted_at">{{ formatDate(copy.posted_at) }}</DuplicateBadge>
+          </template>
+          <template #actions>
+            <Button
+              variant="tonal"
+              size="sm"
+              :data-testid="`duplicates-keep-${copy.key}`"
+              @click="askKeep(copy, group, false)"
             >
-              {{ copyTitle(copy) }}
-            </component>
-            <div class="dup__meta">
-              <span class="dup__badge">
-                {{
-                  copy.gallery_id != null
-                    ? t("maintenance.duplicates.library.current")
-                    : copy.storage_type || "—"
-                }}
-              </span>
-              <span v-if="copy.page_count" class="dup__badge">
-                {{ t("maintenance.duplicates.library.pages", { n: copy.page_count }) }}
-              </span>
-              <span v-if="copySize(copy)" class="dup__badge">{{ copySize(copy) }}</span>
-              <span v-if="copy.posted_at" class="dup__badge">
-                {{ formatDate(copy.posted_at) }}
-              </span>
-            </div>
-            <div v-if="copy.tags?.length" class="dup__tags">
-              <span
-                v-for="tag in copy.tags"
-                :key="`${tag.namespace}:${tag.name}`"
-                class="dup__tag"
-              >
-                {{ tag.display || tag.name }}
-              </span>
-            </div>
-            <div class="dup__copy-actions">
-              <Button
-                variant="outlined"
-                size="compact"
-                :data-testid="`duplicates-keep-${copy.key}`"
-                @click="askKeep(copy, group, false)"
-              >
-                {{ t("maintenance.duplicates.library.keep") }}
-              </Button>
-              <Button
-                variant="outlined"
-                size="compact"
-                class="dup__danger"
-                :data-testid="`duplicates-keep-delete-${copy.key}`"
-                @click="askKeep(copy, group, true)"
-              >
-                {{ t("maintenance.duplicates.library.keepDelete") }}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </article>
+              {{ t("maintenance.duplicates.library.keep") }}
+            </Button>
+            <Button
+              variant="outlined"
+              size="sm"
+              danger
+              :data-testid="`duplicates-keep-delete-${copy.key}`"
+              @click="askKeep(copy, group, true)"
+            >
+              {{ t("maintenance.duplicates.library.keepDelete") }}
+            </Button>
+          </template>
+        </DuplicateCopyRow>
+      </DuplicateGroupCard>
 
-      <PagerBar
+      <Pager
         v-if="filtered.length > PAGE_SIZE"
         :page="page"
-        :pages="totalPages"
-        :total="filtered.length"
+        :total-pages="totalPages"
         testid="duplicates-pager"
-        @change="goPage"
+        @update:page="goPage"
       />
     </template>
 
@@ -418,140 +462,23 @@ onMounted(load);
   margin: 0 auto;
 }
 
-.dup__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.dup__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.dup__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.dup__subtitle,
 .dup__summary {
   margin: 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }
 
-.dup__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-2);
+.dup__filters {
+  flex-wrap: nowrap;
+}
+
+.dup__filters :deep(.segmented) {
+  min-width: max-content;
 }
 
 .dup__skeletons {
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-2);
-}
-
-.dup__group {
-  padding: var(--gv-space-3);
-  border-radius: var(--gv-radius-md);
-  background: var(--gv-color-surface-container);
-  box-shadow: var(--gv-elev-1);
-}
-
-.dup__group-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-2);
-  padding-bottom: var(--gv-space-2);
-  border-bottom: 1px solid var(--gv-color-outline-variant);
-}
-
-.dup__count {
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-}
-
-.dup__group-title {
-  min-width: 0;
-  overflow: hidden;
-  flex: 1;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-title-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dup__group-actions {
-  display: flex;
-  gap: var(--gv-space-2);
-}
-
-.dup__row {
-  display: flex;
-  gap: var(--gv-space-3);
-  padding-top: var(--gv-space-3);
-}
-
-.dup__body {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.dup__copy-title {
-  overflow: hidden;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-title-small);
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dup__meta,
-.dup__tags,
-.dup__copy-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-1);
-}
-
-.dup__badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 var(--gv-space-2);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-variant);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-}
-
-.dup__tag {
-  padding: 0 var(--gv-space-1);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container-high);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-}
-
-.dup__danger {
-  border-color: var(--gv-color-error);
-  color: var(--gv-color-error);
-}
-
-@media (max-width: 599px) {
-  .dup__row {
-    flex-direction: column;
-  }
 }
 </style>

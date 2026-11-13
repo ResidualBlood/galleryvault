@@ -4,6 +4,7 @@ import GalleryDetailView from "@/views/gallery/GalleryDetailView.vue";
 import LoginView from "@/views/LoginView.vue";
 import BrowseView from "@/views/browse/BrowseView.vue";
 import DuplicatesView from "@/views/duplicates/DuplicatesView.vue";
+import DuplicatesLayout from "@/views/duplicates/components/DuplicatesLayout.vue";
 import CrossGidView from "@/views/duplicates/CrossGidView.vue";
 import FavoriteDuplicatesView from "@/views/duplicates/FavoriteDuplicatesView.vue";
 import FavoriteDuplicatesIgnoredView from "@/views/duplicates/FavoriteDuplicatesIgnoredView.vue";
@@ -154,15 +155,21 @@ export const routes: RouteRecordRaw[] = [
       },
       {
         path: "duplicates",
-        name: "duplicates",
-        component: DuplicatesView,
-        meta: { title: "app.nav.duplicates" },
-      },
-      {
-        path: "duplicates/cross-gid",
-        name: "duplicates-cross-gid",
-        component: CrossGidView,
-        meta: { title: "app.nav.duplicates" },
+        component: DuplicatesLayout,
+        children: [
+          {
+            path: "",
+            name: "duplicates",
+            component: DuplicatesView,
+            meta: { title: "app.nav.duplicates" },
+          },
+          {
+            path: "cross-gid",
+            name: "duplicates-cross-gid",
+            component: CrossGidView,
+            meta: { title: "app.nav.duplicates" },
+          },
+        ],
       },
       {
         path: "updates",

@@ -20,10 +20,21 @@ test("V-14 收藏查重：状态 / 扫描 / 忽略 / 移除入口 @parity", asyn
   await expect(
     page.getByTestId("dupfav-empty").or(page.getByTestId("dupfav-summary")),
   ).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("dupfav-unfav")).toBeVisible();
-  await expect(page.getByTestId("dupfav-unfav-delete")).toBeVisible();
-  await expect(page.getByTestId("dupfav-ignore")).toBeVisible();
-  annotateUnverified("favourite-duplicate scan / ignore / remove were not executed (shared favourite rows)");
+
+  // Batch actions only exist while something is selected (SelectionBar).
+  const firstRow = page.locator('[data-testid^="dupfav-select-"] input').first();
+  if (await firstRow.isVisible().catch(() => false)) {
+    await firstRow.check();
+    await expect(page.getByTestId("dupfav-selection")).toBeVisible();
+    await expect(page.getByTestId("dupfav-unfav")).toBeVisible();
+    await expect(page.getByTestId("dupfav-unfav-delete")).toBeVisible();
+    await expect(page.getByTestId("dupfav-ignore")).toBeVisible();
+    await page.getByTestId("gv-selection-clear").click();
+  } else {
+    await expect(page.getByTestId("dupfav-empty")).toBeVisible();
+    annotateUnverified("favourite duplicates are empty; SelectionBar actions cannot be opened");
+  }
+  annotateUnverified("duplicate scan / ignore / remove were not executed (shared favourite rows)");
   await app.shot("V-14");
 });
 
