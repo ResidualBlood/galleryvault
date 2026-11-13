@@ -27,7 +27,22 @@
     "empty": "No matching log entries.",
     "cleared": "Logs cleared",
     "levelChanged": "Runtime level set to {level}",
-    "loadSystemFailed": "Could not load system logs."
+    "loadSystemFailed": "Could not load system logs.",
+    "taskStatus": {
+      "success": "Success",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "running": "Running",
+      "unknown": "Unknown"
+    },
+    "filterAll": "All",
+    "filterFailed": "Failed only",
+    "actions": "Log actions",
+    "clearFinished": "Clear finished",
+    "clearedFinished": "Finished tasks cleared",
+    "noFinished": "No finished tasks yet",
+    "noFinishedBody": "Background tasks appear here once they complete.",
+    "duration": "took {duration}"
   },
   "welcome": {
     "title": "Welcome to GalleryVault",
@@ -100,7 +115,16 @@
     "startFailed": "Cannot start the archive: configure a cold storage root in settings first.",
     "started": "Archive started",
     "cancelled": "Archive cancellation requested",
-    "loadFailedRetry": "Retry"
+    "loadFailedRetry": "Retry",
+    "status": {
+      "running": "Archive running",
+      "failed": "Archive failed",
+      "done": "Archive complete",
+      "idle": "Idle"
+    },
+    "progressLabel": "Archive progress",
+    "emptyTitle": "No archive records yet",
+    "emptyBody": "Galleries moved from the download root to cold storage are counted here."
   },
   "global": {
     "pause": "Pause all tasks",
@@ -156,7 +180,8 @@
     "noSelection": "No galleries selected.",
     "total": "{count} galleries",
     "noItems": "Nothing can be archived.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "insufficient": "Not enough GP"
   },
   "common": {
     "cancel": "Cancel",

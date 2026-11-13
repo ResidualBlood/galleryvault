@@ -20,6 +20,7 @@ import {
 import { cancelArchiveEp, createArchiveEp, previewArchiveEp } from "@/api/archive";
 import { changePasswordEp } from "@/api/auth";
 import { checkAllFavoritesEp } from "@/api/favorites";
+import { expectControlHeights } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -313,18 +314,31 @@ test.describe("settings & system @settings-sys", () => {
     const mock = await mockSettingsBackend(page);
     await page.goto(harnessUrl("logs"));
     await expect(page.getByTestId("logs-page")).toBeVisible();
+    // Parity hook kept on the shared Tabs component.
+    await expect(page.getByTestId("logs-tab-activity")).toBeVisible();
 
     await page.getByTestId("logs-cancel").click();
     await expect
       .poll(() => mock.posts.some((entry) => entry.path === cancelLogTaskEp.path.replace("{id}", "scan")))
       .toBe(true);
 
-    await page.getByTestId("logs-tab-system").click();
+    const tabs = page.getByTestId("logs-tabs");
+    await tabs.getByRole("tab", { name: "系统日志" }).click();
+    await expect(page.getByTestId("logs-system")).toBeVisible();
     await expect(page.locator('[data-testid="syslog-level"] select')).toHaveValue("INFO");
-    await expect(page.locator('[data-testid="syslog-download"]')).toHaveAttribute(
-      "href",
-      systemLogsDownloadUrl(),
+
+    // LG2-10: every control in the system-log toolbar is one 32px ladder step.
+    const toolbar = page.getByTestId("syslog-toolbar");
+    await expectControlHeights(
+      toolbar.locator('select, input:not([type="hidden"]), button, [role="switch"]'),
+      32,
     );
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByTestId("syslog-download").click();
+    const download = await downloadPromise;
+    expect(new URL(download.url()).pathname).toBe(systemLogsDownloadUrl());
+
     await expect(page.locator('[data-testid="syslog-list"] [data-level="ERROR"]').first()).toBeVisible();
 
     await page.locator('[data-testid="syslog-level"] select').selectOption("DEBUG");
@@ -410,7 +424,7 @@ test.describe("settings & system @settings-sys", () => {
       .toBe(true);
   });
 
-  test("archive dialog previews with the configured default quality", async ({ page }) => {
+  test("archive dialog previews with the configured default quality @polish-archive-logs", async ({ page }) => {
     const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
     const mock = await mockSettingsBackend(page);
     await page.goto(harnessUrl("archive-dialog", { quality: "original" }));
@@ -419,6 +433,11 @@ test.describe("settings & system @settings-sys", () => {
     await expect(dialog.locator("select")).toHaveValue("original");
     await expect(dialog.locator(".archive-dialog__item")).toHaveCount(2);
     await expect(dialog).toContainText("GP 余额");
+    // AR: the dialog puts Select and Button on the same 40px ladder step.
+    await expectControlHeights(
+      dialog.locator('select, input:not([type="hidden"]), button'),
+      40,
+    );
     expect(mock.posts.find((entry) => entry.path === previewArchiveEp.path)?.body).toEqual({
       gids: [101, 102],
     });

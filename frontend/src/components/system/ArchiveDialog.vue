@@ -1,9 +1,9 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
+import Field from "@/components/ui/Field.vue";
 import Select from "@/components/ui/Select.vue";
 import {
   previewArchive,
@@ -118,7 +118,7 @@ function qualityLabel(tier: Quality): string {
 function tierText(item: TierItem, tier: Quality): string {
   const cost = tierCost(item, tier);
   if (cost === null) return "N/A";
-  const prefix = tierAvailable(item, tier) ? "" : "⚠ ";
+  const prefix = tierAvailable(item, tier) ? "" : `${t("system.archiveDialog.insufficient")} · `;
   return `${prefix}${cost} GP · ${formatSize(tierSize(item, tier))}`;
 }
 
@@ -214,7 +214,6 @@ function confirm(): void {
         <p class="archive-dialog__error" role="alert">{{ error }}</p>
         <Button
           variant="outlined"
-          size="compact"
           data-testid="archive-dialog-retry"
           @click="load"
         >
@@ -230,12 +229,16 @@ function confirm(): void {
           </span>
         </div>
 
-        <Select
-          v-model="quality"
-          :options="qualityOptions"
-          :label="t('system.archiveDialog.quality')"
-          @change="onQualityChange"
-        />
+        <Field :label="t('system.archiveDialog.quality')" label-for="archive-dialog-quality">
+          <Select
+            id="archive-dialog-quality"
+            v-model="quality"
+            :options="qualityOptions"
+            :aria-label="t('system.archiveDialog.quality')"
+            data-testid="archive-dialog-quality"
+            @change="onQualityChange"
+          />
+        </Field>
 
         <p v-if="!items.length" class="archive-dialog__empty">
           {{ t('system.archiveDialog.noItems') }}

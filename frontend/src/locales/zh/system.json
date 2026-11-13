@@ -27,7 +27,22 @@
     "empty": "没有匹配的日志。",
     "cleared": "日志已清空",
     "levelChanged": "运行级别已调整为 {level}",
-    "loadSystemFailed": "系统日志加载失败。"
+    "loadSystemFailed": "系统日志加载失败。",
+    "taskStatus": {
+      "success": "成功",
+      "failed": "失败",
+      "cancelled": "已取消",
+      "running": "运行中",
+      "unknown": "未知"
+    },
+    "filterAll": "全部",
+    "filterFailed": "仅看失败",
+    "actions": "日志操作",
+    "clearFinished": "清空已完成",
+    "clearedFinished": "已清空已完成任务",
+    "noFinished": "还没有已完成的任务",
+    "noFinishedBody": "后台任务完成后会显示在这里。",
+    "duration": "耗时 {duration}"
   },
   "welcome": {
     "title": "欢迎使用 GalleryVault",
@@ -100,7 +115,16 @@
     "startFailed": "无法启动归档：请先在设置中配置冷存储目录。",
     "started": "归档已启动",
     "cancelled": "归档取消请求已发送",
-    "loadFailedRetry": "重试"
+    "loadFailedRetry": "重试",
+    "status": {
+      "running": "归档进行中",
+      "failed": "归档失败",
+      "done": "归档完成",
+      "idle": "空闲"
+    },
+    "progressLabel": "归档进度",
+    "emptyTitle": "还没有归档记录",
+    "emptyBody": "把下载目录中的画廊转移到冷存储后，这里会显示进度与统计。"
   },
   "global": {
     "pause": "暂停全部任务",
@@ -156,7 +180,8 @@
     "noSelection": "没有选择画廊。",
     "total": "{count} 本",
     "noItems": "没有可归档的画廊。",
-    "retry": "重试"
+    "retry": "重试",
+    "insufficient": "额度不足"
   },
   "common": {
     "cancel": "取消",
