@@ -24,6 +24,7 @@ ExHentai favorite-folder sync, watch modes, favorite dedupe, and re-uploaded GID
   - **Search & Sorting**: Top toolbar provides real-time title filtering; supports multi-criteria sorting by first added date, last added date (default), posted date, title, and file size.
   - **Filtering**: Supports All, Local only, and Cloud only state filters; provides a collapsible advanced filter panel (local star rating, page count range, file size, posted date, uploader, image quality, language, and local lists).
   - **Select All & Move**: Toolbar provides "Select All" for currently rendered cards (scroll down to load new cards and click again to merge into selection); supports batch moving to other favorite folders (folders 0–9), syncing local records after ExHentai cloud confirmation succeeds.
+  - **Views and tags**: A favorite folder uses the same card, list-row, and table components as the Library, so it also offers grid / list / table switching with a per-page memory. Tag counts, click-to-filter (`tags=ns:name&tag_mode=and`), long-press / right-click "copy raw text", and UI-language switching follow the same rules as [Browsing & Library → Tag display and interaction](Library-EN#tag-display-and-interaction).
 - **Batch Download & Original Upgrade Rules**:
 
 | Action Button | Quality Rule | Uningested Gallery (Not in Library) | Ingested Gallery (Already Local) |

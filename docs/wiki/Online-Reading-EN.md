@@ -11,8 +11,11 @@ The legacy link `#/discover` opens the same page.
 - **List types**: Search, Popular, Watched, and Toplist (yesterday / month / year / all).
 - **Filters**: keyword, category checkboxes (the site category mask), minimum rating; the list defaults can be pinned in Settings.
 - **Cards**: cover, title, category, page count, rating, plus badges for “in library”, “favorited”, “downloading x/y / queued / failed”.
+- **Views and tags**: the Online list switches between grid / list / table in place, with the preference remembered per page (no table on narrow screens). List rows and table rows show the first 4 / 3 tags plus `+N`; grid cards hide tags by default and reveal them in an overlay on hover or focus. Clicking a tag re-runs the search with ExHentai's exact `ns:"name$"` syntax and refills the search box; long-press or right-click copies the raw `ns:name`. The Chinese UI shows the backend translation, the English UI the raw name.
+- **Where list tags come from**: tags on the Online list are parsed from the tag nodes of each row in the ExHentai listing HTML, so they cost **no extra EH request** and take no page / gdata / favorites concurrency slot. Whether tags appear depends on your **site listing display mode**: modes that render tags include them, while Minimal / Thumbnail-like modes return none — the card then shows an explicit “no tags” placeholder and never issues another request just to fill tags. The number of tags per row is likewise bounded by the site listing layout.
 - **Quick actions**: hover on desktop, long-press on mobile opens an action sheet for read / favorite / download without opening the detail page first.
 - **State messages**: no results, login required, human verification, banned IP, and exhausted image quota each get an inline explanation and a link to Settings; errors are never treated as an empty result and paged through.
+- **API fields**: each `GET /api/eh/search` result carries `tags[]` (each with `namespace` / `name` / `display`), `posted`, and `uploader` in addition to `gid` / `token` / `title` / `url` / `thumb` / `category` / `pages` / `rating` and the local badges. All of them come from the same listing parse with no extra EH request; `tags[]` may be empty for the reason above.
 
 ## Online detail (`#/online/g/<gid>/<token>`)
 

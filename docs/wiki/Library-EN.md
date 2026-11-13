@@ -50,6 +50,8 @@ The Library is used to browse and search all locally indexed galleries, supporti
 - **Title Display Fallback**: When Title Display is configured to Japanese, galleries with an empty Japanese title or a numeric-only GID automatically fall back to the English title, preventing blank titles or raw numeric IDs.
 - **Infinite Scroll & Pagination**: Automatically loads the next page when scrolling near the bottom (defaults to 24 items per page; options include 5, 30, 50, 100, 200, and 500 items). The bottom pager remains available as a fallback. The browser remembers the selected page size. If loading fails, a "Click to retry" button appears at the bottom of the list (in the UI language); clicking it retries that load.
 - **Cover Navigation**: Click a gallery cover to enter the detail page; see [Gallery Details & Reader](Reading-EN).
+- **Grid / List / Table views**: Browse-type pages (Browse, Library, Online list, favorite folder, Series, History, Recycle Bin, Integrity check) expose a view toggle at the right end of the toolbar and switch **in place**, without rebuilding the page. The preference is remembered per page (one key per page inside the browser's `gv_view_mode` local storage entry), so a reload or a later visit keeps the last choice; Browse and Library default to grid, the Online list and History default to list. Series, Recycle Bin, and Integrity check offer grid / list only. Below 600px the table is not offered: a saved table preference renders as a list temporarily and **is not overwritten**, so widening the window restores the table.
+- **Table view**: columns are title (primary) / category / tags / pages / rating / time / status / actions. Library header sorting maps to `order_by`; the Online list keeps fixed columns and offers no sorting (the ExHentai search itself does not support it). Narrow screens do not render the table, avoiding horizontal scrolling.
 
 ### Sorting & Reading Status
 
@@ -104,6 +106,27 @@ The Library is used to browse and search all locally indexed galleries, supporti
 - **Uploader Filtering & Matching**:
   - **Tag Syntax**: Enter `uploader:Username` to filter for a specific uploader, or `-uploader:Username` to exclude that uploader. The default matching mode (`tag_match=exact`) performs an exact match (matching exact case first, falling back to case-insensitive match); specifying `tag_match=fuzzy` performs substring fuzzy matching on the tag name.
   - **Advanced Filter Field**: The "Uploader" field in the Advanced Filters panel matches against the gallery uploader text column via case-insensitive substring search, functioning independently from tag filtering. For full details on uploader backfilling, see [Gallery Details & Reader](Reading-EN).
+
+### Tag display and interaction
+
+Cards, list rows, table rows, and the Online list all show tags. Where and how many:
+
+| Surface | Rule |
+| :--- | :--- |
+| Grid card | Hidden by default; hovering or focusing the card shows an overlay with the first 6 tags and `+N` |
+| List row | First 4 tags + `+N` (3 on narrow screens) |
+| Table row | First 3 tags + `+N` |
+| Online list row | First 4 tags + `+N` (3 on narrow screens); an explicit "no tags" placeholder when EH returned none |
+
+- **Chip content**: the tag body only, never the `namespace:` prefix. The namespace is conveyed by a colour dot on the left of the chip; the tooltip and accessible name read "namespace label: `namespace:name` raw text". Inline priority is female → male → mixed → character → parody → artist → group → cosplayer → other; `language` tags do not take an inline slot (language already has its own field).
+- **`+N`**: N is the total tag count minus the shown count; activating it opens the full tag list (overlay or sheet) without any network request. When the backend truncates the array via `tags_limit`, `tag_count` still reports the real total, so `+N` stays accurate.
+- **Follows the UI language**: in Chinese the chip shows the backend's Chinese `display` translation (falling back to the raw name); in English it shows the raw `name`. Both fields ship in the same list response, so switching language updates immediately with no refetch and no separate English translation table.
+- **Click behaviour**:
+  - Library, favorite folder, Series: navigate to the Library filtered by `tags=ns:name&tag_mode=and`; when already on the Library the tag is appended to the current criteria (AND). The query string comes from an idempotent helper, so repeated clicks never duplicate the token.
+  - Online list, online detail: re-run the search with ExHentai's exact `ns:"name$"` syntax and refill the search box.
+  - `Shift` / `Ctrl` / `Cmd` + click: add the tag as an exclusion in the Library filter (`-ns:name`).
+- **Long-press / context menu**: "Copy raw text" (copies `ns:name`), plus "Filter in Library", "Search online", and "Exclude"; tag blocking and subscriptions are not offered.
+- **API fields**: list endpoints (`GET /api/galleries`, recycle bin / expunged, favorite items, series members) accept a `tags_limit` query parameter — default 4 (preserving the old behaviour), `0` for all tags, upper bound 64 — and return `tag_count` (the gallery's real tag total). The app requests `tags_limit=0` and limits the inline row itself, so both `+N` and the overlay can show the complete list.
 
 ### Batch Operations & Safety Limits
 

@@ -93,6 +93,7 @@ npm run e2e:real      # Playwright against a real test environment (GV_E2E_BASE)
 | Design spec | `frontend/docs/design/DESIGN.md` |
 | Reference list and the aspect taken from each | `frontend/docs/design/REFERENCES.md` |
 | Required token list | `frontend/docs/design/tokens.required.json` |
+| Third-party icon and license notice | `frontend/THIRD_PARTY_NOTICES.md` |
 | Static specimen | `frontend/docs/design/specimen.html` |
 | Token definitions | `frontend/src/styles/tokens.css` |
 | Automated check | `node scripts/check-design.mjs` (`--tokens-only` checks tokens and contrast only) |
@@ -114,6 +115,18 @@ By default the server does not relay image bytes: the backend resolves a time-li
 - Settings → Account & security can generate / revoke the API token; plaintext is returned once and only a hash is stored. Revoking invalidates scripts using that token immediately.
 - The Bearer token is restricted to a whitelist: session state, `GET /api/eh/status`, favorite categories, add / remove favorite, create / query download tasks; everything else returns `403`. Requests with a session cookie still go through CSRF checks, and mixing Bearer with a cookie does not grant an exemption.
 - The script only injects a panel on official gallery pages and reads no EH cookies; address and token live in the script manager. Install and privacy notes: [Online Reading → Companion script](Online-Reading-EN#companion-script-optional-zero-server-quota).
+
+## Icons, base components, and design references
+
+- **Icon source**: every page writes `<Icon name="semantic-name" />`; the semantic name → Material Symbols Rounded path map lives in `frontend/src/components/icons/registry.ts`. Icons are compiled at **build time** into inline SVG Vue components by `unplugin-icons` + `@iconify-json/material-symbols`: no icon font, no runtime request, no style injection into `<svg>`, and unused icons never reach the bundle. Pages must not import `~icons/` directly and must not use Unicode characters or emoji as icons (`check-design` enforces both). Sizes come from the 16 / 18 / 20 / 24 tokens; 20 inside controls (18 for the 32px tier), 24 in navigation.
+- **Licenses**: Material Symbols and the Iconify icon data are **Apache-2.0**; `unplugin-icons` is **MIT**. Both npm packages are `devDependencies` only. The full notice (upstream, usage, license) is in `frontend/THIRD_PARTY_NOTICES.md`; selection and usage rules are in `frontend/docs/design/DESIGN.md` C16.
+- **Base components and size tiers**: Button / IconButton / TextField / Select / Switch / Checkbox / Field / TextArea / Slider / SegmentedControl / Chip / Toolbar / PageHeader / Pager / FilterButton / SelectionBar / EmptyState / ErrorState / TagChip / TagList / TagMenu / GalleryCollection / GalleryCard / GalleryListRow / GalleryTable / ViewModeToggle. Control heights only use `--gv-size-control-lg/md/sm` (40 / 36 / 32, +4 on touch); one toolbar uses a single tier and is vertically centred, icon-to-text gap 8, in-group gap 8 / between-group gap 16. Component rules are in `DESIGN.md` C12 and C17–C19; the browser-level specimen lives at `#/_kit` (not in navigation).
+- **Code entry points for view and tag rules**:
+  - `frontend/src/composables/useViewMode.ts`: in-page grid / list / table switching, preference stored per page key under `localStorage.gv_view_mode`; below 600px the table is not offered and a stored table preference falls back temporarily without being overwritten.
+  - `frontend/src/components/tags/tag-utils.ts`: language choice (`display` for zh, `name` otherwise), inline ordering with `language` skipped, `libraryTagQuery` (`tags=ns:name&tag_mode=and`, idempotent append / exclude), and `formatEhTagQuery` (`ns:"name$"`, idempotent).
+  - `frontend/src/components/tags/useTagNavigation.ts`, `TagChip.vue`, `TagList.vue`, `TagMenu.vue`: click navigation, Shift / Ctrl exclusion, long-press / right-click copy of the raw tag.
+  - `frontend/src/components/gallery/GalleryCollection.vue`: all three views share one item set and selection state.
+- **Design references**: reference projects, the aspect taken from each, links, and licenses are registered in `frontend/docs/design/REFERENCES.md`. The polish phase added **EhViewer_CN_SXJ** (GPL-3.0, local source `d129f20`) as the interaction reference for browse-page view switching, inline tags, click-to-search syntax, filter badges, and page jumping. Only behaviour and interaction patterns are borrowed — never its source, layout XML, assets, or strings. The three views and per-page memory are local extensions: that project only has a global list / grid setting and rebuilds the list when it changes.
 
 ## Deployment and security
 

@@ -6,8 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- 浏览类页面支持网格 / 列表 / 表格三种视图，在页面内切换并按页面记忆偏好（`localStorage.gv_view_mode`）；窗口小于 600px 时不提供表格，已存的表格偏好只临时回退为列表。
+- 卡片、列表行与表格行显示 tag：列表行前 4 条 +「+N」、表格前 3 条 +「+N」、网格卡片悬停 / 聚焦时浮层显示；点击 tag 按本机 / 收藏 / 系列 `tags=ns:name&tag_mode=and` 筛选，在线用 `ns:"name$"` 精确搜索，长按 / 右键可复制原文；中文界面显示译名、英文显示原文，切换语言即时生效。
+- 在线列表新增 tag（从列表页 HTML 同一响应的标签节点解析，零额外 EH 请求）、发布时间与上传者；本机列表接口新增 `tags_limit`（缺省 4，`0` 为全部，上限 64）与 `tag_count`（真实总数）。
+- 图标改用 Material Symbols Rounded：经 `unplugin-icons` + `@iconify-json/material-symbols` 在构建期编译为内联 SVG（Apache-2.0，`unplugin-icons` MIT，声明见 `frontend/THIRD_PARTY_NOTICES.md`）；控件统一 40 / 36 / 32 高度档位，并引入页头 / 工具栏 / 分页 / 视图切换等基础组件。
+
 ### Changed
 
+- Wiki 新增视图切换与 tag 显示 / 点击 / 语言切换说明，并在在线浏览页补充 tag 来源与「取决于 EH 列表显示模式」的限制；`backend/docs/DEVELOPMENT.md` 补充 `tags_limit` / `tag_count`、`/api/eh/search` 新字段与前端图标 / 基础组件约定入口。
+- 设计参考新增 EhViewer_CN_SXJ（GPL-3.0）：仅借鉴浏览与 tag 交互行为，不复制代码、资源或字符串。
 - 前端文档同步到 Vue 3 + Vite + TypeScript 新前端：新增「在线阅读」页面（在线浏览与详情、浏览器直连 / 服务器代理回退两种通道、隐私说明、伴侣脚本安装与 API token）与「前端开发与构建」页面（架构、开发 / 构建 / 测试命令、设计规范入口）。
 - Wiki 设置页按 13 个分组重写，补充分组保存规则、安全敏感确认、默认收藏夹、在线并发与缓存、API token 等新键；在线浏览入口由 `#/discover` 改为 `#/online`（旧链接保留为别名）。
 - `backend/docs/DEVELOPMENT.md` 的前端架构、目录、开发 / 构建 / 测试与标签显示说明更新为新前端。

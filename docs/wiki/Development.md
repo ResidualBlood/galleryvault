@@ -93,6 +93,7 @@ npm run e2e:real      # Playwright 打真实测试环境（GV_E2E_BASE）
 | 设计规范正文 | `frontend/docs/design/DESIGN.md` |
 | 参考对象与具体方面 | `frontend/docs/design/REFERENCES.md` |
 | token 必备清单 | `frontend/docs/design/tokens.required.json` |
+| 第三方图标与许可证声明 | `frontend/THIRD_PARTY_NOTICES.md` |
 | 静态样张 | `frontend/docs/design/specimen.html` |
 | token 定义 | `frontend/src/styles/tokens.css` |
 | 自动检查 | `node scripts/check-design.mjs`（`--tokens-only` 只校验 token 与对比度） |
@@ -114,6 +115,18 @@ npm run e2e:real      # Playwright 打真实测试环境（GV_E2E_BASE）
 - 设置页「账户与安全」提供生成 / 撤销 API token；明文只返回一次，数据库只存哈希。撤销后使用该 token 的脚本立即失效。
 - Bearer 只允许访问白名单端点：会话状态、`GET /api/eh/status`、收藏夹分类、添加 / 移除收藏、创建 / 查询下载任务；其余接口返回 `403`。带会话 Cookie 的请求仍走 CSRF 校验，Bearer 与 Cookie 混用不豁免。
 - 脚本只在官方画廊页注入面板，不读取 EH Cookie；地址与 token 通过脚本管理器存储。安装与隐私说明见 [在线阅读 → 伴侣脚本](Online-Reading#伴侣脚本可选增强零服务端额度)。
+
+## 图标、基础组件与设计参考
+
+- **图标来源**：全站图标统一写 `<Icon name="语义名" />`，语义名到 Material Symbols Rounded 路径的映射集中在 `frontend/src/components/icons/registry.ts`。图标经 `unplugin-icons` + `@iconify-json/material-symbols` 在**构建期**编译成内联 SVG Vue 组件：不引入图标字体、不在运行时请求、不给 `<svg>` 注入样式；未使用的图标不会进包。页面不得直接 import `~icons/`，也不得再用 Unicode 字符或 emoji 充当图标（`check-design` 强制）。尺寸取 16 / 18 / 20 / 24 四档 token，控件内默认 20（32 档用 18），导航 24。
+- **许可证**：Material Symbols 与 Iconify 图标数据为 **Apache-2.0**，`unplugin-icons` 为 **MIT**；两个 npm 包只进 `devDependencies`。完整声明（来源、用途、许可证）见 `frontend/THIRD_PARTY_NOTICES.md`，选型与用法约束见 `frontend/docs/design/DESIGN.md` C16。
+- **基础组件与尺寸档位**：Button / IconButton / TextField / Select / Switch / Checkbox / Field / TextArea / Slider / SegmentedControl / Chip / Toolbar / PageHeader / Pager / FilterButton / SelectionBar / EmptyState / ErrorState / TagChip / TagList / TagMenu / GalleryCollection / GalleryCard / GalleryListRow / GalleryTable / ViewModeToggle。控件高度只取 `--gv-size-control-lg/md/sm` 三档（40 / 36 / 32，触屏各 +4），同一工具栏只用一个档位并垂直居中；图标与文字间距 8，组内间距 8、组间 16。组件规范见 `DESIGN.md` C12、C17–C19，浏览器级样张在 `#/_kit`（不进导航）。
+- **视图与 tag 约定的代码入口**：
+  - `frontend/src/composables/useViewMode.ts`：页内网格 / 列表 / 表格切换，偏好按页面键写入 `localStorage.gv_view_mode`；<600px 不提供表格，已存的表格偏好只临时回退、不覆盖原值。
+  - `frontend/src/components/tags/tag-utils.ts`：语言选择（zh 用 `display`、其余用 `name`）、行内排序与 `language` 跳过、`libraryTagQuery`（`tags=ns:name&tag_mode=and`，幂等追加 / 排除）与 `formatEhTagQuery`（`ns:"name$"`，幂等）。
+  - `frontend/src/components/tags/useTagNavigation.ts`、`TagChip.vue`、`TagList.vue`、`TagMenu.vue`：点击跳转、Shift / Ctrl 排除、长按 / 右键复制原文。
+  - `frontend/src/components/gallery/GalleryCollection.vue`：三种视图共用同一份条目数据与选择状态。
+- **设计参考**：参考对象、参考方面、链接与许可证统一登记在 `frontend/docs/design/REFERENCES.md`。打磨阶段新增 **EhViewer_CN_SXJ**（GPL-3.0，本地源码 `d129f20`）作为浏览页视图切换、行内 tag、点击搜索语法、筛选角标与跳页的交互参考；只借鉴行为与交互，不复制其源码、布局 XML、资源或字符串。三视图与按页面记忆是本仓扩展——对方只有全局的列表 / 网格设置，改完需重建列表。
 
 ## 部署与安全
 

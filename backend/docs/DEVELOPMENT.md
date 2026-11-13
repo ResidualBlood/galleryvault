@@ -324,8 +324,32 @@ curl -L https://github.com/EhTagTranslation/Database/releases/latest/download/db
 docker compose up -d backend
 ```
 
-You can confirm loading in the container logs:
-`docker logs galleryvault-backend | grep "tag translations"`.
+**List payloads (`tags_limit` / `tag_count`)**:
+
+- Local list endpoints accept a `tags_limit` query parameter: omitted → 4
+  (preserves the historical payload size), `0` → every tag, allowed range
+  `0..64`. They also return `tag_count`, the gallery's real tag total, so a
+  truncated `tags[]` can still render an accurate `+N` badge.
+- Affected handlers: `GET /api/galleries`, `GET /api/galleries/trash`,
+  `GET /api/galleries/expunged`, favorite items (`GET /api/favorites/{favcat}`),
+  series detail, and series member lists. `galleryvault/app/routers/galleries.py`
+  `_tags_for_galleries` / `_tag_count`, `favorites.py` `_clip_tags` /
+  `_tag_count`, and `series.py` `_serialize_card` implement the same contract;
+  `backend/tests/test_list_tags.py` pins it.
+- Browse pages in the frontend request `tags_limit=0` and limit the inline row
+  themselves (4 in list rows, 3 in table rows, 6 in the grid overlay).
+
+**Online search tags (`GET /api/eh/search`)**:
+
+- Each item now also carries `tags[]` (`{namespace, name, display}` where
+  `display` is the Chinese translation), `posted`, and `uploader`. They are
+  parsed from the tag nodes of each listing row (`title="ns:name"` on
+  `.gt` / `.gtl`) in the same HTML response — **no additional EH request**, and
+  the parse stays under the global EH `Semaphore(6)`.
+- Whether a row has tags depends on the account's ExHentai listing display
+  mode: modes that render tags include them, Minimal / thumbnail-like modes
+  return an empty `tags[]`. The frontend shows an explicit "no tags" state and
+  never issues a gdata request to fill the gap.
 
 <a id="dev-compose"></a>
 ## Local Development
@@ -353,6 +377,26 @@ docker compose -f docker-compose.dev.yml up -d --build   # backend + database
   already scrubbed in `logging.py`.
 - Do not commit cookies, `.env`, `TEMP/*`, or `media/`. (There is no longer a
   `config.json`; settings persist in the database.)
+
+## Frontend conventions (entry points)
+
+The frontend owns its component and design rules; backend changes that touch
+list payloads or the API contract should read these first:
+
+- **Icons**: Material Symbols Rounded compiled at build time
+  (`unplugin-icons` + `@iconify-json/material-symbols`, Apache-2.0;
+  `unplugin-icons` MIT). Registry: `frontend/src/components/icons/registry.ts`;
+  license notice: `frontend/THIRD_PARTY_NOTICES.md`; rules:
+  `frontend/docs/design/DESIGN.md` §C16.
+- **Base components / control tiers / page skeleton**: `DESIGN.md` §C12 and
+  §C17–C19; components live in `frontend/src/components/ui/` and
+  `frontend/src/components/gallery/`. UI work must not add a UI library.
+- **Views and tags**: `frontend/src/composables/useViewMode.ts` (grid / list /
+  table per page) and `frontend/src/components/tags/` (`tag-utils.ts`,
+  `useTagNavigation.ts`, `TagChip` / `TagList` / `TagMenu`). User-facing rules
+  are documented in `docs/wiki/Library.md` and `docs/wiki/Online-Reading.md`.
+- **Design references**: `frontend/docs/design/REFERENCES.md`, including the
+  polish-phase addition EhViewer_CN_SXJ (GPL-3.0, interaction-only).
 
 ## Production Log Monitoring & Analysis Scripts
 
