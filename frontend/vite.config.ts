@@ -2,6 +2,7 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 import VueI18nPlugin from "@intlify/unplugin-vue-i18n/vite";
+import Icons from "unplugin-icons/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 const projectRoot = fileURLToPath(new URL("./", import.meta.url));
@@ -71,6 +72,7 @@ export default defineConfig(({ mode }) => {
     base: "/",
     plugins: [
       vue(),
+      Icons({ compiler: "vue3", scale: 1, defaultClass: "gv-icon" }),
       VueI18nPlugin({
         include: [fileURLToPath(new URL("./src/locales/**", import.meta.url))],
         runtimeOnly: true,
