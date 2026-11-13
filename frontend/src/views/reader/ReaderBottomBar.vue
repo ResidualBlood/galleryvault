@@ -1,12 +1,15 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed } from "vue";
+import IconButton from "@/components/ui/IconButton.vue";
+import Slider from "@/components/ui/Slider.vue";
 
 const props = defineProps<{
   page: number;
   total: number;
   pageLabel: string;
   firstLabel: string;
+  prevLabel: string;
+  nextPageLabel: string;
   lastLabel: string;
   settingsLabel: string;
   slideshowLabel: string;
@@ -17,6 +20,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   first: [];
+  prev: [];
+  nextPage: [];
   last: [];
   seek: [page: number];
   settings: [];
@@ -25,81 +30,92 @@ const emit = defineEmits<{
   interaction: [];
 }>();
 
-const progress = computed(() => {
-  if (props.total <= 1) return 0;
-  return (props.page / (props.total - 1)) * 100;
-});
+/** The slider speaks 1-based page numbers; the shell contract stays 0-based. */
+const sliderValue = computed(() => props.page + 1);
+const sliderMax = computed(() => Math.max(1, props.total));
 
-function onSeek(event: Event): void {
-  const value = Number.parseInt((event.target as HTMLInputElement).value, 10);
+function onSeek(value: number): void {
   if (Number.isFinite(value)) emit("seek", value - 1);
 }
 </script>
 
 <template>
-  <footer class="reader-bottombar" data-testid="reader-bottombar">
-    <button type="button" class="reader-bottombar__button" data-testid="reader-first" :title="firstLabel" @click="emit('first')">
-      <span aria-hidden="true">|◀</span>
-      <span class="sr-only">{{ firstLabel }}</span>
-    </button>
-    <div class="reader-bottombar__slider">
-      <input
-        class="reader-bottombar__range"
-        data-testid="reader-slider"
-        type="range"
-        min="1"
-        :max="Math.max(1, total)"
-        :value="page + 1"
-        :aria-label="pageLabel"
-        :style="{ '--reader-progress': `${progress}%` }"
-        @input="onSeek"
-        @pointerdown="emit('interaction')"
-      />
-      <span class="reader-bottombar__label" data-testid="reader-slider-label">{{ pageLabel }}</span>
-    </div>
-    <button type="button" class="reader-bottombar__button" data-testid="reader-last" :title="lastLabel" @click="emit('last')">
-      <span aria-hidden="true">▶|</span>
-      <span class="sr-only">{{ lastLabel }}</span>
-    </button>
-    <button
+  <footer class="reader-bottombar" data-testid="reader-bottombar" data-gv-toolbar>
+    <IconButton
+      name="first-page"
+      size="lg"
+      :label="firstLabel"
+      data-testid="reader-first"
+      @click="emit('first')"
+    />
+    <IconButton
+      name="chevron-left"
+      size="lg"
+      :label="prevLabel"
+      data-testid="reader-prev"
+      @click="emit('prev')"
+    />
+    <Slider
+      class="reader-bottombar__slider"
+      data-testid="reader-slider"
+      :model-value="sliderValue"
+      :min="1"
+      :max="sliderMax"
+      :aria-label="pageLabel"
+      @update:model-value="onSeek"
+      @pointerdown="emit('interaction')"
+    />
+    <IconButton
+      name="chevron-right"
+      size="lg"
+      :label="nextPageLabel"
+      data-testid="reader-next"
+      @click="emit('nextPage')"
+    />
+    <IconButton
+      name="last-page"
+      size="lg"
+      :label="lastLabel"
+      data-testid="reader-last"
+      @click="emit('last')"
+    />
+    <IconButton
       v-if="atEnd"
-      type="button"
-      class="reader-bottombar__button reader-bottombar__button--next"
+      name="next-chapter"
+      size="lg"
+      :label="nextLabel"
+      class="reader-bottombar__next"
       data-testid="reader-next-gallery"
-      :title="nextLabel"
       @click="emit('next')"
-    >
-      <span aria-hidden="true">⇥</span>
-      <span class="sr-only">{{ nextLabel }}</span>
-    </button>
-    <button
-      type="button"
-      class="reader-bottombar__button"
-      :class="{ 'reader-bottombar__button--active': slideshowOn }"
+    />
+    <IconButton
+      :name="slideshowOn ? 'pause' : 'play'"
+      size="lg"
+      :label="slideshowLabel"
+      :selected="slideshowOn"
+      :class="{ 'reader-bottombar__slideshow--active': slideshowOn }"
+      class="reader-bottombar__slideshow"
       data-testid="reader-slideshow"
-      :title="slideshowLabel"
       @click="emit('slideshow')"
-    >
-      <span aria-hidden="true">{{ slideshowOn ? '⏸' : '▶' }}</span>
-      <span class="sr-only">{{ slideshowLabel }}</span>
-    </button>
-    <button type="button" class="reader-bottombar__button" data-testid="reader-settings" :title="settingsLabel" @click="emit('settings')">
-      <span aria-hidden="true">⚙</span>
-      <span class="sr-only">{{ settingsLabel }}</span>
-    </button>
+    />
+    <IconButton
+      name="settings"
+      size="lg"
+      :label="settingsLabel"
+      data-testid="reader-settings"
+      @click="emit('settings')"
+    />
   </footer>
 </template>
 
 <style scoped>
 .reader-bottombar {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: auto 0 0;
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: var(--gv-space-1);
+  gap: var(--gv-space-2);
   height: var(--gv-size-reader-bar);
   padding: 0 var(--gv-space-3);
   border-top: 1px solid var(--gv-color-outline-variant);
@@ -110,114 +126,29 @@ function onSeek(event: Event): void {
   transition: transform var(--gv-motion-duration-medium) var(--gv-motion-ease-standard);
 }
 
-.reader-bottombar__button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 var(--gv-size-touch);
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
-  padding: 0;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
+/* One ladder step for the whole row: the shared slider is 44px tall by
+   default, so pin it to the lg step here (the thumb keeps its 20px size). */
+.reader-bottombar__slider {
+  flex: 1 1 auto;
+  min-width: 40px;
 }
 
-.reader-bottombar__button:hover,
-.reader-bottombar__button--active {
-  background: color-mix(in srgb, var(--gv-color-primary) 24%, transparent);
-  color: var(--gv-color-primary-text);
+.reader-bottombar :deep(.slider__input) {
+  height: var(--gv-size-control-lg);
 }
 
-.reader-bottombar__button:focus-visible {
-  outline: 2px solid var(--gv-color-focus-ring);
-  outline-offset: 2px;
-}
-
-.reader-bottombar__button--next {
+.reader-bottombar__next {
   color: var(--gv-color-warning);
 }
 
-.reader-bottombar__slider {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--gv-space-2);
-  min-width: 0;
+.reader-bottombar__slideshow--active {
+  color: var(--gv-color-primary-text);
 }
 
-.reader-bottombar__range {
-  flex: 1;
-  min-width: 40px;
-  height: var(--gv-size-touch);
-  margin: 0;
-  background: transparent;
-  accent-color: var(--gv-color-primary);
-  cursor: pointer;
-}
-
-.reader-bottombar__range::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: var(--gv-radius-full);
-  background: linear-gradient(
-    to right,
-    var(--gv-color-primary) var(--reader-progress, 0%),
-    var(--gv-color-surface-variant) var(--reader-progress, 0%)
-  );
-}
-
-.reader-bottombar__range::-moz-range-track {
-  height: 6px;
-  border-radius: var(--gv-radius-full);
-  background: var(--gv-color-surface-variant);
-}
-
-.reader-bottombar__range::-moz-range-progress {
-  height: 6px;
-  border-radius: var(--gv-radius-full);
-  background: var(--gv-color-primary);
-}
-
-.reader-bottombar__range::-webkit-slider-thumb {
-  width: 16px;
-  height: 16px;
-  margin-top: -5px;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: var(--gv-color-primary);
-  box-shadow: var(--gv-elev-1);
-  appearance: none;
-}
-
-.reader-bottombar__range::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: var(--gv-color-primary);
-}
-
-.reader-bottombar__label {
-  flex: 0 0 auto;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-small);
-  white-space: nowrap;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-@media (max-width: 599px) {
-  .reader-bottombar__label {
+@media (max-width: 599.98px) {
+  /* The slideshow lives in the settings sheet on a phone so the row keeps its
+     breathing room (RD-07 / OR-09). */
+  .reader-bottombar__slideshow {
     display: none;
   }
 }

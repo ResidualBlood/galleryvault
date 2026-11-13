@@ -302,11 +302,17 @@ test("mode and fit choices persist to localStorage @reader", async ({ page }) =>
   await page.getByTestId("reader-settings").click();
   const shell = page.getByTestId("reader-shell");
 
-  await page.locator('[data-fit="original"]').click();
+  await page
+    .getByTestId("reader-fit-control")
+    .locator('[data-segmented-value="original"]')
+    .click();
   await expect(shell).toHaveAttribute("data-fit", "original");
   expect(await page.evaluate(() => localStorage.getItem("gv_reader_fit"))).toBe("original");
 
-  await page.locator('[data-mode="double-rtl"]').click();
+  await page
+    .getByTestId("reader-mode-control")
+    .locator('[data-segmented-value="double-rtl"]')
+    .click();
   await expect(shell).toHaveAttribute("data-mode", "double-rtl");
   expect(await page.evaluate(() => localStorage.getItem("gv_reader_mode"))).toBe("double-rtl");
 });

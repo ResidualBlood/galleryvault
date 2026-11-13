@@ -127,6 +127,13 @@ test.describe("quick actions wired into the real routes @actions-wired", () => {
     await mockOnlineReaderBackend(page);
 
     await page.goto(`/#/online/g/${READER_GID}/${READER_TOKEN}/read/0`);
+    // The action strip rides with the bottom bar (OR-05), so call the bars up
+    // before touching favourite / download.
+    await expect(page.getByTestId("reader-shell")).toBeVisible();
+    await expect(page.getByTestId("reader-loading")).toHaveCount(0);
+    if ((await page.getByTestId("reader-shell").getAttribute("data-bars")) !== "visible") {
+      await page.getByTestId("reader-zone-center").click();
+    }
     const actions = page.getByTestId("online-reader-actions");
     await expect(actions).toBeVisible();
 

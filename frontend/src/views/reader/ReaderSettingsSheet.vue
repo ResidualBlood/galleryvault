@@ -1,5 +1,10 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+import { computed, ref, watch } from "vue";
+import Button from "@/components/ui/Button.vue";
+import IconButton from "@/components/ui/IconButton.vue";
+import Input from "@/components/ui/Input.vue";
+import SegmentedControl from "@/components/ui/SegmentedControl.vue";
+import type { IconName } from "@/components/icons/registry";
 import {
   READER_FITS,
   READER_MODES,
@@ -7,7 +12,7 @@ import {
   type ReaderMode,
 } from "@/reader/pure";
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   mode: ReaderMode;
   fit: ReaderFit;
@@ -18,6 +23,8 @@ defineProps<{
   fitLabel: string;
   slideshowLabel: string;
   intervalLabel: string;
+  intervalPlaceholder: string;
+  intervalUnit: string;
   closeLabel: string;
   shortcuts: string;
   modeNames: Record<ReaderMode, string>;
@@ -32,9 +39,49 @@ const emit = defineEmits<{
   slideshow: [];
 }>();
 
-function onInterval(event: Event): void {
-  const value = Number.parseInt((event.target as HTMLInputElement).value, 10);
-  if (Number.isFinite(value)) emit("interval", value);
+/** Two reading orders are visually identical to their single-page twin, so the
+ *  registry reuses the same glyph and the label carries the distinction. */
+const MODE_ICONS: Record<ReaderMode, IconName> = {
+  ltr: "forward",
+  rtl: "back",
+  double: "view-grid",
+  "double-rtl": "view-grid",
+  webtoon: "view-list",
+};
+
+const modeOptions = computed(() =>
+  READER_MODES.map((value) => ({
+    value,
+    label: props.modeNames[value],
+    icon: MODE_ICONS[value],
+  })),
+);
+
+const fitOptions = computed(() =>
+  READER_FITS.map((value) => ({ value, label: props.fitNames[value] })),
+);
+
+const intervalDraft = ref(String(props.interval));
+
+watch(
+  () => props.interval,
+  (value) => {
+    intervalDraft.value = String(value);
+  },
+);
+
+function onInterval(value: string): void {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isFinite(parsed)) emit("interval", parsed);
+  else intervalDraft.value = String(props.interval);
+}
+
+function onMode(value: string): void {
+  emit("mode", value as ReaderMode);
+}
+
+function onFit(value: string): void {
+  emit("fit", value as ReaderFit);
 }
 </script>
 
@@ -43,67 +90,65 @@ function onInterval(event: Event): void {
     <section class="reader-settings__sheet" role="dialog" aria-modal="true" :aria-label="title">
       <header class="reader-settings__header">
         <h2 class="reader-settings__title">{{ title }}</h2>
-        <button type="button" class="reader-settings__close" :aria-label="closeLabel" @click="emit('close')">
-          <span aria-hidden="true">✕</span>
-        </button>
+        <IconButton
+          name="close"
+          size="lg"
+          :label="closeLabel"
+          data-testid="reader-settings-close"
+          @click="emit('close')"
+        />
       </header>
 
-      <p class="reader-settings__label">{{ modeLabel }}</p>
-      <div class="reader-settings__options" role="group" :aria-label="modeLabel">
-        <button
-          v-for="value in READER_MODES"
-          :key="value"
-          type="button"
-          class="reader-settings__option"
-          :class="{ 'reader-settings__option--active': mode === value }"
-          :aria-pressed="mode === value"
-          :data-mode="value"
-          @click="emit('mode', value)"
-        >
-          {{ modeNames[value] }}
-        </button>
+      <div class="reader-settings__group">
+        <p class="reader-settings__label">{{ modeLabel }}</p>
+        <SegmentedControl
+          class="reader-settings__segmented"
+          testid="reader-mode-control"
+          :model-value="mode"
+          :options="modeOptions"
+          :label="modeLabel"
+          @change="onMode"
+        />
       </div>
 
-      <p class="reader-settings__label">{{ fitLabel }}</p>
-      <div class="reader-settings__options" role="group" :aria-label="fitLabel">
-        <button
-          v-for="value in READER_FITS"
-          :key="value"
-          type="button"
-          class="reader-settings__option"
-          :class="{ 'reader-settings__option--active': fit === value }"
-          :aria-pressed="fit === value"
-          :data-fit="value"
-          @click="emit('fit', value)"
-        >
-          {{ fitNames[value] }}
-        </button>
+      <div class="reader-settings__group">
+        <p class="reader-settings__label">{{ fitLabel }}</p>
+        <SegmentedControl
+          class="reader-settings__segmented"
+          testid="reader-fit-control"
+          :model-value="fit"
+          :options="fitOptions"
+          :label="fitLabel"
+          @change="onFit"
+        />
       </div>
 
-      <p class="reader-settings__label">{{ slideshowLabel }}</p>
-      <div class="reader-settings__row">
-        <label class="reader-settings__interval">
-          <span>{{ intervalLabel }}</span>
-          <input
-            class="reader-settings__input"
-            type="number"
-            min="1"
-            max="600"
-            step="1"
-            :value="interval"
-            @change="onInterval"
-          />
-        </label>
-        <button
-          type="button"
-          class="reader-settings__option reader-settings__option--slideshow"
-          :class="{ 'reader-settings__option--active': slideshowOn }"
-          :aria-pressed="slideshowOn"
-          data-testid="reader-settings-slideshow"
-          @click="emit('slideshow')"
-        >
-          {{ slideshowOn ? '⏸' : '▶' }} {{ slideshowLabel }}
-        </button>
+      <div class="reader-settings__group">
+        <p class="reader-settings__label">{{ slideshowLabel }}</p>
+        <div class="reader-settings__row" data-gv-toolbar>
+          <div class="reader-settings__interval">
+            <Input
+              v-model="intervalDraft"
+              type="number"
+              size="lg"
+              :unit="intervalUnit"
+              :placeholder="intervalPlaceholder"
+              :aria-label="intervalLabel"
+              data-testid="reader-settings-interval"
+              @change="onInterval"
+            />
+          </div>
+          <Button
+            :variant="slideshowOn ? 'tonal' : 'outlined'"
+            size="lg"
+            :icon="slideshowOn ? 'pause' : 'play'"
+            :aria-pressed="slideshowOn"
+            data-testid="reader-settings-slideshow"
+            @click="emit('slideshow')"
+          >
+            {{ slideshowLabel }}
+          </Button>
+        </div>
       </div>
 
       <p class="reader-settings__shortcuts">{{ shortcuts }}</p>
@@ -148,100 +193,59 @@ function onInterval(event: Event): void {
   font: var(--gv-type-title-medium);
 }
 
-.reader-settings__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
-  padding: 0;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-title-small);
-  cursor: pointer;
-}
-
-.reader-settings__close:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 8%, transparent);
+.reader-settings__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-2);
+  margin-bottom: var(--gv-space-3);
 }
 
 .reader-settings__label {
-  margin: var(--gv-space-3) 0 var(--gv-space-1);
+  margin: 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-label-large);
 }
 
-.reader-settings__options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-1);
+.reader-settings__segmented {
+  display: grid;
+  width: 100%;
 }
 
-.reader-settings__option {
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-4);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.reader-settings__option:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 8%, transparent);
-}
-
-.reader-settings__option--active {
-  border-color: var(--gv-color-primary);
-  background: var(--gv-color-primary-container);
-  color: var(--gv-color-on-primary-container);
-}
-
-.reader-settings__option:focus-visible,
-.reader-settings__close:focus-visible,
-.reader-settings__input:focus-visible {
-  outline: 2px solid var(--gv-color-focus-ring);
-  outline-offset: 2px;
+.reader-settings__segmented :deep(.segmented__item) {
+  padding: 0 var(--gv-space-2);
 }
 
 .reader-settings__row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: var(--gv-space-2);
 }
 
 .reader-settings__interval {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--gv-space-2);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-medium);
-}
-
-.reader-settings__input {
-  width: 5em;
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-2);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container-lowest);
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-medium);
-  text-align: center;
-}
-
-.reader-settings__option--slideshow {
-  min-width: 8em;
+  flex: none;
+  width: 104px;
 }
 
 .reader-settings__shortcuts {
-  margin: var(--gv-space-4) 0 0;
+  margin: var(--gv-space-3) 0 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
+}
+
+@media (max-width: 599.98px) {
+  /* Five segments have to share 334px: the icons step aside and the row wraps
+     into a 3-column grid so no label has to be truncated. */
+  .reader-settings__segmented {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .reader-settings__segmented :deep(.gv-icon) {
+    display: none;
+  }
+
+  .reader-settings__segmented :deep(.segmented__item) {
+    padding: 0 var(--gv-space-1);
+  }
 }
 </style>

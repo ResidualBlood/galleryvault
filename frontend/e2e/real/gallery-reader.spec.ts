@@ -121,13 +121,19 @@ test("V-04 阅读器：五种模式 / 键盘 / 预载 / 进度写回 / 轮播 @p
     await page.getByTestId("reader-settings").click();
     await expect(page.getByTestId("reader-settings-panel")).toBeVisible();
     for (const mode of ["rtl", "double", "double-rtl", "ltr"]) {
-      await page.locator(`[data-testid="reader-settings-panel"] [data-mode="${mode}"]`).click();
+      await page
+        .locator(`[data-testid="reader-mode-control"] [data-segmented-value="${mode}"]`)
+        .click();
       await expect(page.getByTestId("reader-shell")).toHaveAttribute("data-mode", mode);
     }
-    await page.locator('[data-testid="reader-settings-panel"] [data-mode="webtoon"]').click();
+    await page
+      .locator('[data-testid="reader-mode-control"] [data-segmented-value="webtoon"]')
+      .click();
     await expect(page.getByTestId("reader-shell")).toHaveAttribute("data-mode", "webtoon");
     await expect(page.getByTestId("webtoon-strip")).toBeVisible({ timeout: 20_000 });
-    await page.locator('[data-testid="reader-settings-panel"] [data-mode="ltr"]').click();
+    await page
+      .locator('[data-testid="reader-mode-control"] [data-segmented-value="ltr"]')
+      .click();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("reader-settings-panel")).toHaveCount(0);
 

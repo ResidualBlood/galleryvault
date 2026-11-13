@@ -24,9 +24,27 @@ const initialPage = Math.max(0, number("page", 0));
 const total = Math.max(0, number("total", 12));
 const mode = (params.get("mode") ?? "ltr") as ReaderMode;
 const fit = (params.get("fit") ?? "height") as ReaderFit;
-const theme = params.get("theme") ?? "dark";
+/*
+ * Theme precedence: explicit `?theme=` (reader specs) → persisted `gv_theme`
+ * (polish shotMatrix) → dark. `shotMatrix` can only vary the persisted key, so
+ * the harness has to honour it for four-variant screenshots.
+ */
+const storedTheme = (() => {
+  try {
+    return localStorage.getItem("gv_theme");
+  } catch {
+    return null;
+  }
+})();
+const theme = params.get("theme") ?? (storedTheme === "light" ? "light" : "dark");
 const lang = params.get("lang") === "en" ? "en" : "zh";
 const slideshow = number("slideshow", 0);
+/*
+ * `?meta=1` drops the page count so ReaderShell has to await
+ * `GET /api/galleries/{id}` — the only way to hold the loading state still for
+ * a screenshot (pageCount short-circuits the request).
+ */
+const pageCount = params.get("meta") === "1" ? null : total;
 const title = params.get("title") ?? "Harness Gallery";
 
 document.documentElement.dataset.theme = theme;
@@ -52,7 +70,7 @@ const app = createApp({
       initialMode: mode,
       initialFit: fit,
       initialSlideshow: slideshow > 0 ? slideshow : null,
-      pageCount: total,
+      pageCount,
       title,
       onNext: (id: number) => {
         state.next = id;
