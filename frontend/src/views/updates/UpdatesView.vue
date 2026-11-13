@@ -1,12 +1,20 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
+import Checkbox from "@/components/ui/Checkbox.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
+import Pager from "@/components/ui/Pager.vue";
+import SegmentedControl, {
+  type SegmentedOption,
+} from "@/components/ui/SegmentedControl.vue";
+import SelectionBar from "@/components/ui/SelectionBar.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
 import ArchiveDialog from "@/components/system/ArchiveDialog.vue";
 import {
   deleteUpdates,
@@ -26,7 +34,6 @@ import { formatDate } from "@/stores/library";
 import { galleryThumbUrl } from "@/views/updates/url";
 import GalleryThumb from "@/views/updates/components/GalleryThumb.vue";
 import ConfirmDialog from "@/views/updates/components/ConfirmDialog.vue";
-import PagerBar from "@/views/updates/components/PagerBar.vue";
 import { ensureMaintenanceMessages } from "@/views/updates/i18n";
 
 ensureMaintenanceMessages();
@@ -37,7 +44,8 @@ const settings = useSettingsStore();
 const ui = useUiStore();
 const { t, te } = useI18n();
 
-const STATES: UpdateState[] = ["active", "pending", "downloading", "failed", "all"];
+/** UP-08: "all" first, one meaning per label ("有更新" = the active bucket). */
+const STATES: UpdateState[] = ["all", "active", "pending", "downloading", "failed"];
 
 const items = ref<GalleryUpdate[]>([]);
 const total = ref(0);
@@ -68,6 +76,22 @@ const pageSize = computed(() => {
 });
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const selectedCount = computed(() => selected.value.length);
+const hasSelection = computed(() => selected.value.length > 0);
+const allSelected = computed(
+  () => items.value.length > 0 && selected.value.length === items.value.length,
+);
+const partialSelection = computed(() => hasSelection.value && !allSelected.value);
+const statusCount = computed(() => {
+  const counts = status.value?.counts;
+  return (counts?.pending ?? 0) + (counts?.downloading ?? 0) + (counts?.failed ?? 0);
+});
+const lastScan = computed(() =>
+  status.value?.last_detected_at
+    ? t("maintenance.updates.status.detectedAt", {
+        date: formatDate(status.value.last_detected_at),
+      })
+    : t("maintenance.updates.status.never"),
+);
 /** Legacy previews the newer gid (data-new-gid) for each selected update. */
 const archiveGids = computed(() =>
   items.value
@@ -75,12 +99,17 @@ const archiveGids = computed(() =>
     .map((item) => item.new_gid)
     .filter((gid) => Number.isFinite(gid) && gid > 0),
 );
-const stateButtons = computed(() =>
+const stateOptions = computed<SegmentedOption[]>(() =>
   STATES.map((value) => ({
     value,
     label: t(`maintenance.updates.state.${value}`),
   })),
 );
+/** Keep the user's saved page size as a valid option, sorted ascending. */
+const pageSizeChoices = computed(() => {
+  const values = new Set<number>([settings.pageSize, 24, 48, 96]);
+  return [...values].filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+});
 
 function statusLabel(value: string): string {
   const key = `maintenance.updates.state.${value}`;
@@ -144,10 +173,15 @@ function pushQuery(patch: Record<string, string | number | undefined>): void {
   void router.push({ name: "updates", query });
 }
 
-function setState(next: UpdateState): void {
+function setState(next: string): void {
   if (next === state.value) return;
   selected.value = [];
   pushQuery({ state: next, page: undefined });
+}
+
+function setPageSize(size: number): void {
+  selected.value = [];
+  pushQuery({ page: undefined, page_size: size });
 }
 
 function toggle(id: number): void {
@@ -157,10 +191,7 @@ function toggle(id: number): void {
 }
 
 function toggleAll(): void {
-  selected.value =
-    selected.value.length === items.value.length
-      ? []
-      : items.value.map((item) => item.id);
+  selected.value = allSelected.value ? [] : items.value.map((item) => item.id);
 }
 
 function requireSelection(): number[] | null {
@@ -276,94 +307,101 @@ onBeforeUnmount(() => poller.stop());
 
 <template>
   <section class="updates" data-testid="updates-view">
-    <header class="updates__header">
-      <p class="updates__eyebrow">{{ t("maintenance.updates.eyebrow") }}</p>
-      <h1 class="updates__title">{{ t("maintenance.updates.title") }}</h1>
-      <p class="updates__subtitle">{{ t("maintenance.updates.subtitle") }}</p>
+    <PageHeader
+      :title="t('maintenance.updates.title')"
+      :count="total"
+      :subtitle="t('maintenance.updates.subtitle')"
+      testid="updates-header"
+    >
+      <template #actions>
+        <Button
+          variant="text"
+          icon-end="chevron-right"
+          data-testid="updates-ignored-link"
+          @click="router.push({ name: 'updates-ignored' })"
+        >
+          {{ t("maintenance.updates.action.ignoredPage") }}
+        </Button>
+      </template>
+
       <p class="updates__status" data-testid="updates-status">
-        <template v-if="status">
-          <span v-if="status.detecting" class="updates__scanning">
-            {{ t("maintenance.updates.status.scanning") }}
-          </span>
-          <span v-if="status.last_detected_at">
-            {{ t("maintenance.updates.status.detectedAt", { date: formatDate(status.last_detected_at) }) }}
-          </span>
-          <span class="updates__count">
-            {{ t("maintenance.updates.status.total", { n: (status.counts.failed ?? 0) + (status.counts.pending ?? 0) + (status.counts.downloading ?? 0) }) }}
-          </span>
-          <span v-if="status.last_error" class="updates__error">
-            {{ t("maintenance.updates.status.error", { error: status.last_error }) }}
-          </span>
-        </template>
+        <span v-if="status?.detecting" class="updates__scanning">
+          <Icon name="retry" size="dense" aria-hidden="true" />
+          {{ t("maintenance.updates.status.scanning") }}
+        </span>
+        <span>{{ lastScan }}</span>
+        <span class="updates__counter">
+          {{ t("maintenance.updates.status.total", { n: statusCount }) }}
+        </span>
+        <span v-if="status?.last_error" class="updates__error">
+          {{ t("maintenance.updates.status.error", { error: status.last_error }) }}
+        </span>
       </p>
-    </header>
+    </PageHeader>
 
-    <div class="updates__filters" role="group" aria-label="state">
-      <Button
-        v-for="item in stateButtons"
-        :key="item.value"
-        :variant="state === item.value ? 'tonal' : 'outlined'"
-        size="compact"
-        :data-testid="`updates-state-${item.value}`"
-        @click="setState(item.value)"
-      >
-        {{ item.label }}
+    <Toolbar class="updates__toolbar" size="lg" testid="updates-toolbar">
+      <Button icon="updates" data-testid="updates-scan" @click="scan">
+        {{ t("maintenance.updates.action.scan") }}
       </Button>
-    </div>
+      <div class="updates__state-scroll">
+        <SegmentedControl
+          :model-value="state"
+          :options="stateOptions"
+          :label="t('maintenance.updates.filterLabel')"
+          testid="updates-state-filter"
+          @change="setState"
+        />
+      </div>
+    </Toolbar>
 
-    <div class="updates__toolbar">
-      <Button data-testid="updates-update" :disabled="!selectedCount" @click="update()">
+    <SelectionBar
+      :count="selectedCount"
+      :label="t('maintenance.shared.selected', { n: selectedCount })"
+      testid="updates-selection"
+      @clear="selected = []"
+    >
+      <Button variant="tonal" icon="downloads" data-testid="updates-update" @click="update()">
         {{ t("maintenance.updates.action.update") }}
-        <template v-if="selectedCount">({{ selectedCount }})</template>
       </Button>
       <Button
         variant="outlined"
         data-testid="updates-update-original"
-        :disabled="!selectedCount"
         @click="update('original')"
       >
         {{ t("maintenance.updates.action.updateOriginal") }}
       </Button>
       <Button
         variant="outlined"
+        icon="archive"
         data-testid="updates-archive"
-        :disabled="!selectedCount"
         @click="archiveOpen = true"
       >
         {{ t("maintenance.updates.action.archive") }}
       </Button>
       <Button
         variant="outlined"
+        icon="status-blocked"
         data-testid="updates-ignore"
-        :disabled="!selectedCount"
         @click="ignore"
       >
         {{ t("maintenance.updates.action.ignore") }}
       </Button>
-      <Button
-        v-if="state === 'failed'"
-        variant="outlined"
-        class="updates__danger"
-        data-testid="updates-delete"
-        :disabled="!selectedCount"
-        @click="deleteOpen = true"
-      >
-        {{ t("maintenance.updates.action.delete") }}
-      </Button>
-      <Button variant="outlined" data-testid="updates-scan" @click="scan">
-        {{ t("maintenance.updates.action.scan") }}
-      </Button>
-      <label class="updates__check">
-        <input type="checkbox" data-testid="updates-select-all" @change="toggleAll" />
-        {{ t("maintenance.shared.selectAll") }}
-      </label>
-      <RouterLink class="updates__link" :to="{ name: 'updates-ignored' }">
-        {{ t("maintenance.updates.action.ignoredPage") }}
-      </RouterLink>
-    </div>
+      <template #danger>
+        <Button
+          v-if="state === 'failed'"
+          variant="outlined"
+          danger
+          icon="delete"
+          data-testid="updates-delete"
+          @click="deleteOpen = true"
+        >
+          {{ t("maintenance.updates.action.delete") }}
+        </Button>
+      </template>
+    </SelectionBar>
 
     <div v-if="loading" class="updates__skeletons" aria-hidden="true">
-      <Skeleton v-for="index in 5" :key="index" variant="line" />
+      <Skeleton v-for="index in 5" :key="index" variant="list" />
     </div>
 
     <ErrorState
@@ -376,87 +414,121 @@ onBeforeUnmount(() => poller.stop());
 
     <EmptyState
       v-else-if="!items.length"
+      icon="updates"
       :title="t('maintenance.updates.empty')"
+      :body="t('maintenance.updates.emptyBody')"
+      :action-label="t('maintenance.updates.action.scan')"
       testid="updates-empty"
+      @action="scan"
     />
 
-    <div v-else class="updates__table-wrap">
-      <table class="updates__table">
-        <thead>
-          <tr>
-            <th scope="col"></th>
-            <th scope="col"></th>
-            <th scope="col">{{ t("maintenance.updates.column.gallery") }}</th>
-            <th scope="col">{{ t("maintenance.updates.column.gid") }}</th>
-            <th scope="col">{{ t("maintenance.updates.column.favorites") }}</th>
-            <th scope="col">{{ t("maintenance.updates.column.status") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in items" :key="item.id" :data-testid="`updates-row-${item.id}`">
-            <td>
-              <input
-                type="checkbox"
-                :aria-label="t('maintenance.shared.select')"
-                :checked="selected.includes(item.id)"
-                :data-testid="`updates-select-${item.id}`"
-                @change="toggle(item.id)"
-              />
-            </td>
-            <td>
-              <GalleryThumb :src="coverFor(item)" :alt="item.title" />
-            </td>
-            <td>
-              <RouterLink
-                class="updates__gallery-link"
-                :to="{ name: 'gallery', params: { id: item.gallery_id } }"
-              >
-                {{ item.title }}
-              </RouterLink>
-            </td>
-            <td class="updates__gid">
-              {{ item.old_gid }}
-              <span>{{ t("maintenance.updates.toNewer") }}</span>
-              {{ item.new_gid }}
-            </td>
-            <td>
-              <RouterLink
-                class="updates__badge"
-                :to="{ name: 'favorites-list', params: { id: item.favcat } }"
-              >
-                {{ favcatLabel(item) }}
-              </RouterLink>
-            </td>
-            <td>
-              <span class="updates__badge" :data-status="item.status">
-                {{ statusLabel(item.status) }}
-              </span>
-              <Button
-                v-if="item.status === 'failed'"
-                variant="text"
-                size="compact"
-                data-testid="updates-retry"
-                @click="retryOne(item)"
-              >
-                {{ t("maintenance.updates.action.retry") }}
-              </Button>
-              <p v-if="item.error_message" class="updates__row-error">
-                {{ item.error_message }}
-              </p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <template v-else>
+      <div class="updates__listbar" data-testid="updates-listbar">
+        <Checkbox
+          :model-value="allSelected"
+          :indeterminate="partialSelection"
+          :label="t('maintenance.shared.selectAll')"
+          data-testid="updates-select-all"
+          @change="toggleAll"
+        />
+        <span class="updates__listbar-count">
+          {{ t("maintenance.updates.listCount", { n: items.length, total }) }}
+        </span>
+      </div>
 
-    <PagerBar
-      v-if="total > pageSize"
-      :page="page"
-      :pages="pages"
-      :total="total"
-      testid="updates-pager"
-      @change="pushQuery({ page: $event })"
-    />
+      <div class="updates__table-wrap">
+        <table class="updates__table" data-testid="updates-table">
+          <thead>
+            <tr>
+              <th scope="col" class="updates__col-check">
+                <span class="sr-only">{{ t("maintenance.shared.selectAll") }}</span>
+              </th>
+              <th scope="col" class="updates__col-thumb">
+                <span class="sr-only">{{ t("maintenance.updates.column.cover") }}</span>
+              </th>
+              <th scope="col">{{ t("maintenance.updates.column.gallery") }}</th>
+              <th scope="col">{{ t("maintenance.updates.column.gid") }}</th>
+              <th scope="col">{{ t("maintenance.updates.column.favorites") }}</th>
+              <th scope="col">{{ t("maintenance.updates.column.status") }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="item in items"
+              :key="item.id"
+              :class="{ 'updates__row--selected': selected.includes(item.id) }"
+              :data-testid="`updates-row-${item.id}`"
+            >
+              <td class="updates__cell updates__cell--check">
+                <Checkbox
+                  :model-value="selected.includes(item.id)"
+                  :aria-label="t('maintenance.shared.select')"
+                  role="checkbox"
+                  :aria-checked="selected.includes(item.id)"
+                  :data-testid="`updates-select-${item.id}`"
+                  @change="toggle(item.id)"
+                />
+              </td>
+              <td class="updates__cell updates__cell--thumb">
+                <GalleryThumb :src="coverFor(item)" :alt="item.title" />
+              </td>
+              <td class="updates__cell updates__cell--title">
+                <RouterLink
+                  class="updates__gallery-link"
+                  :to="{ name: 'gallery', params: { id: item.gallery_id } }"
+                >
+                  {{ item.title }}
+                </RouterLink>
+              </td>
+              <td class="updates__cell updates__cell--gid">
+                <span class="updates__gid-old">{{ item.old_gid }}</span>
+                <Icon name="forward" size="dense" aria-hidden="true" />
+                <span class="sr-only">{{ t("maintenance.updates.toNewer") }}</span>
+                <span class="updates__gid-new">{{ item.new_gid }}</span>
+              </td>
+              <td class="updates__cell updates__cell--favcat">
+                <RouterLink
+                  class="updates__badge"
+                  :to="{ name: 'favorites-list', params: { id: item.favcat } }"
+                >
+                  {{ favcatLabel(item) }}
+                </RouterLink>
+              </td>
+              <td class="updates__cell updates__cell--status">
+                <span class="updates__badge" :data-status="item.status">
+                  {{ statusLabel(item.status) }}
+                </span>
+                <Button
+                  v-if="item.status === 'failed'"
+                  variant="text"
+                  size="sm"
+                  icon="retry"
+                  data-testid="updates-retry"
+                  @click="retryOne(item)"
+                >
+                  {{ t("maintenance.updates.action.retry") }}
+                </Button>
+                <p v-if="item.error_message" class="updates__row-error">
+                  {{ item.error_message }}
+                </p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="total > pageSize" class="updates__footer">
+        <Pager
+          :page="page"
+          :total-pages="pages"
+          :page-size="pageSize"
+          :page-size-options="pageSizeChoices"
+          testid="updates-pager"
+          @update:page="pushQuery({ page: $event })"
+          @update:page-size="setPageSize"
+        />
+      </div>
+    </template>
 
     <ConfirmDialog
       :open="deleteOpen"
@@ -487,76 +559,68 @@ onBeforeUnmount(() => poller.stop());
   margin: 0 auto;
 }
 
-.updates__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.updates__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.updates__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.updates__subtitle,
 .updates__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gv-space-2);
   margin: 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }
 
-.updates__status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-2);
-}
-
 .updates__scanning {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gv-space-1);
   color: var(--gv-color-primary-text);
 }
 
-.updates__count {
-  font-weight: var(--gv-type-label-large-weight);
+.updates__counter {
+  display: inline-flex;
+  align-items: center;
+  height: var(--gv-space-5);
+  padding: 0 var(--gv-space-2);
+  border-radius: var(--gv-radius-full);
+  background: var(--gv-color-secondary-container);
+  color: var(--gv-color-on-secondary-container);
+  font: var(--gv-type-label-small);
 }
 
 .updates__error {
   color: var(--gv-color-error);
 }
 
-.updates__filters,
 .updates__toolbar {
+  gap: var(--gv-space-3);
+}
+
+.updates__state-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
+}
+
+.updates__state-scroll :deep(.segmented) {
+  min-width: max-content;
+}
+
+.updates__listbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--gv-space-2);
+  justify-content: space-between;
+  gap: var(--gv-space-3);
+  min-height: var(--gv-size-control-lg);
 }
 
-.updates__check {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--gv-space-1);
-  padding: 0 var(--gv-space-2);
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-label-large);
-}
-
-.updates__link {
-  margin-left: auto;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-}
-
-.updates__danger {
-  border-color: var(--gv-color-error);
-  color: var(--gv-color-error);
+.updates__listbar-count {
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-body-small);
 }
 
 .updates__skeletons {
@@ -566,7 +630,7 @@ onBeforeUnmount(() => poller.stop());
 }
 
 .updates__table-wrap {
-  overflow-x: auto;
+  overflow: hidden;
   border-radius: var(--gv-radius-md);
   background: var(--gv-color-surface-container);
   box-shadow: var(--gv-elev-1);
@@ -588,16 +652,38 @@ onBeforeUnmount(() => poller.stop());
 }
 
 .updates__table th {
+  height: var(--gv-size-control-lg);
   color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-medium);
+  font: var(--gv-type-label-small);
+  letter-spacing: var(--gv-type-label-small-tracking);
+  white-space: nowrap;
 }
 
 .updates__table tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.updates__table tbody tr:hover {
+  background: var(--gv-color-surface-container-high);
+}
+
+.updates__row--selected {
+  background: var(--gv-color-secondary-container);
+}
+
+.updates__col-check,
+.updates__cell--check {
+  width: var(--gv-size-touch);
+}
+
+.updates__col-thumb,
+.updates__cell--thumb {
+  width: 72px;
+}
+
 .updates__gallery-link {
   color: var(--gv-color-on-surface);
+  font: var(--gv-type-title-small);
   text-decoration: none;
 }
 
@@ -605,25 +691,34 @@ onBeforeUnmount(() => poller.stop());
   color: var(--gv-color-primary-text);
 }
 
-.updates__gid {
+.updates__cell--gid {
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
+  white-space: nowrap;
 }
 
-.updates__gid span {
+.updates__cell--gid .gv-icon {
+  display: inline-block;
   margin: 0 var(--gv-space-1);
+  vertical-align: middle;
+}
+
+.updates__gid-new {
+  color: var(--gv-color-on-surface);
+  font-weight: var(--gv-type-label-large-weight);
 }
 
 .updates__badge {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: var(--gv-space-5);
   padding: 0 var(--gv-space-2);
   border-radius: var(--gv-radius-xs);
   background: var(--gv-color-surface-variant);
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-label-small);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .updates__badge[data-status="failed"] {
@@ -636,15 +731,131 @@ onBeforeUnmount(() => poller.stop());
   color: var(--gv-color-on-secondary-container);
 }
 
+.updates__cell--status {
+  white-space: nowrap;
+}
+
+.updates__cell--status .btn {
+  margin-inline-start: var(--gv-space-1);
+}
+
 .updates__row-error {
   margin: var(--gv-space-1) 0 0;
   color: var(--gv-color-error);
   font: var(--gv-type-body-small);
+  white-space: normal;
 }
 
-@media (max-width: 599px) {
-  .updates__link {
-    margin-left: 0;
+.updates__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 839.98px) {
+  .updates__state-scroll {
+    justify-content: flex-start;
+  }
+
+  .updates__table-wrap {
+    overflow: visible;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .updates__table,
+  .updates__table tbody,
+  .updates__table tr,
+  .updates__table td {
+    display: block;
+  }
+
+  .updates__table thead {
+    display: none;
+  }
+
+  .updates__table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gv-space-2);
+  }
+
+  .updates__table tbody tr {
+    display: grid;
+    grid-template-columns: var(--gv-size-touch) 56px minmax(0, 1fr);
+    grid-template-areas:
+      "check thumb title"
+      "check thumb status"
+      "check thumb gid"
+      "check thumb favcat";
+    column-gap: var(--gv-space-3);
+    row-gap: var(--gv-space-1);
+    padding: var(--gv-space-3);
+    border-radius: var(--gv-radius-md);
+    background: var(--gv-color-surface-container);
+    box-shadow: var(--gv-elev-1);
+  }
+
+  .updates__table tbody tr:hover {
+    background: var(--gv-color-surface-container);
+  }
+
+  .updates__table td {
+    width: auto;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .updates__cell--check {
+    grid-area: check;
+    align-self: start;
+  }
+
+  .updates__cell--thumb {
+    grid-area: thumb;
+  }
+
+  .updates__cell--title {
+    grid-area: title;
+    min-width: 0;
+  }
+
+  .updates__cell--title .updates__gallery-link {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    word-break: break-word;
+  }
+
+  .updates__cell--status {
+    display: flex;
+    grid-area: status;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--gv-space-1);
+    white-space: normal;
+  }
+
+  .updates__cell--status .btn {
+    margin-inline-start: 0;
+  }
+
+  .updates__cell--gid {
+    grid-area: gid;
+    padding-left: calc(var(--gv-space-1) * -1);
+  }
+
+  .updates__cell--favcat {
+    grid-area: favcat;
+  }
+
+  .updates__row-error {
+    flex-basis: 100%;
+  }
+
+  .updates__footer {
+    justify-content: flex-start;
   }
 }
 </style>

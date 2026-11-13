@@ -126,7 +126,7 @@ test.describe("maintenance @maintenance", () => {
       )
       .toBe(1);
 
-    await page.getByTestId("updates-state-failed").click();
+    await page.getByTestId("updates-state-filter").locator('[data-segmented-value="failed"]').click();
     await expect(page).toHaveURL(/state=failed/);
     await expect(page.getByTestId("updates-row-3")).toBeVisible();
     await page.getByTestId("updates-select-3").check();
@@ -143,6 +143,14 @@ test.describe("maintenance @maintenance", () => {
       )
       .toMatchObject({ ids: [3] });
 
+    // UI-03: `/updates/ignored` is a child route, so the drawer keeps the
+    // "更新" item active on the secondary view.
+    await page.goto("/#/updates/ignored");
+    await expect(page.getByTestId("updates-ignored-view")).toBeVisible();
+    await expect(
+      page.locator('[data-nav="app.nav.updates"]').first(),
+    ).toHaveClass(/router-link-active/);
+
     expect(csp).toEqual([]);
   });
 
@@ -150,7 +158,10 @@ test.describe("maintenance @maintenance", () => {
     const state = await installMaintenanceMock(page);
 
     await page.goto(viewUrl("/updates/ignored"));
-    await expect(page.getByTestId("updates-ignored-view")).toBeVisible();
+    // The first harness navigation in this file makes Vite transform every
+    // maintenance view, which exceeds the default 10s budget on a loaded CI
+    // machine; wait for the mount explicitly instead of racing the transpile.
+    await expect(page.getByTestId("updates-ignored-view")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("updates-ignored-4")).toContainText("Ignored Delta");
 
     await page

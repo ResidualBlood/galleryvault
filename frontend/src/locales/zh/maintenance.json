@@ -6,7 +6,8 @@
       "favorites": "收藏夹重复",
       "crossGid": "跨 GID 重复",
       "integrity": "缺页体检",
-      "archive": "归档"
+      "archive": "归档",
+      "label": "维护页面"
     },
     "loading": "加载中…",
     "loadFailed": "加载失败：{error}",
@@ -29,9 +30,9 @@
     "title": "更新画廊",
     "subtitle": "这些本地画廊被 ExHentai 重传（换了新 gid）。",
     "state": {
-      "active": "待处理",
+      "active": "有更新",
       "all": "全部",
-      "pending": "待更新",
+      "pending": "待下载",
       "downloading": "下载中",
       "failed": "失败",
       "ignored": "已忽略"
@@ -50,16 +51,18 @@
     "status": {
       "scanning": "正在检测更新",
       "detectedAt": "上次检测 {date}",
-      "total": "待处理 {n}",
+      "never": "上次检测：—",
+      "total": "共 {n} 项",
       "error": "检测失败：{error}"
     },
     "column": {
       "gallery": "画廊",
       "gid": "GID",
       "favorites": "收藏夹",
-      "status": "状态"
+      "status": "状态",
+      "cover": "封面"
     },
-    "toNewer": "→ 新 gid",
+    "toNewer": "新 gid",
     "favcat": "#{n} {name}",
     "empty": "没有检测到有更新的画廊。",
     "message": {
@@ -81,10 +84,16 @@
       "title": "已忽略的更新",
       "subtitle": "这些更新不会再出现在待处理列表。",
       "empty": "没有已忽略的更新。",
+      "emptyBody": "被忽略的更新不会再参与检测，可以随时恢复。",
+      "back": "返回更新画廊",
+      "count": "共 {n} 条",
       "unignore": "取消忽略",
       "unignoreSelected": "恢复选中",
       "unignored": "已恢复 {n} 项"
-    }
+    },
+    "filterLabel": "按状态筛选",
+    "emptyBody": "检测会遍历收藏夹中的画廊，找出在 ExHentai 换了新 gid 的本地副本。",
+    "listCount": "显示 {n} / 共 {total} 条"
   },
   "duplicates": {
     "library": {

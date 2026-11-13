@@ -22,8 +22,22 @@ import "@/styles/tokens.css";
 import "@/styles/base.css";
 
 const params = new URLSearchParams(location.search);
-document.documentElement.dataset.theme =
-  params.get("theme") === "light" ? "light" : "dark";
+// `shotMatrix` drives the theme through `localStorage.gv_theme`; the query
+// parameter remains the fallback for explicit loops.
+const storedTheme = (() => {
+  try {
+    return localStorage.getItem("gv_theme");
+  } catch {
+    return null;
+  }
+})();
+const theme =
+  storedTheme === "light" || storedTheme === "dark"
+    ? storedTheme
+    : params.get("theme") === "light"
+      ? "light"
+      : "dark";
+document.documentElement.dataset.theme = theme;
 setLocale(params.get("lang") === "en" ? "en" : "zh");
 
 const Stub = { render: () => h("div", { "data-testid": "stub" }) };
