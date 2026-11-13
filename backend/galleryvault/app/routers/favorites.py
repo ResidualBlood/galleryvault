@@ -664,6 +664,7 @@ async def favorites_remove(
     eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
+    eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     settings = get_current_settings()
     deps = MutationDeps(
         favorites_repo=FavoritesRepository,
