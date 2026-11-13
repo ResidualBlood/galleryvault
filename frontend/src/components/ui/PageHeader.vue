@@ -25,6 +25,12 @@ const props = withDefaults(
     back?: boolean;
     backLabel?: string;
     testid?: string;
+    /** Test hook for the h1 (detail pages keep their legacy title testid). */
+    titleTestid?: string;
+    /** Test hook for the subtitle paragraph. */
+    subtitleTestid?: string;
+    /** Test hook for the back IconButton. */
+    backTestid?: string;
   }>(),
   {
     count: undefined,
@@ -34,6 +40,9 @@ const props = withDefaults(
     back: false,
     backLabel: "",
     testid: "gv-page-header",
+    titleTestid: undefined,
+    subtitleTestid: undefined,
+    backTestid: undefined,
   },
 );
 
@@ -73,13 +82,14 @@ const countDescription = computed(() => {
           v-if="back"
           class="page-header__back"
           :label="backLabel || t('kit.pageHeader.back')"
+          :data-testid="backTestid"
           @click="$emit('back')"
         >
           <Icon name="back" />
         </IconButton>
         <div class="page-header__titles">
           <div class="page-header__heading">
-            <h1 class="page-header__title">{{ title }}</h1>
+            <h1 class="page-header__title" :data-testid="titleTestid">{{ title }}</h1>
             <span
               v-if="formattedCount"
               class="page-header__count"
@@ -88,7 +98,11 @@ const countDescription = computed(() => {
               {{ formattedCount }}
             </span>
           </div>
-          <p v-if="subtitle" class="page-header__subtitle">{{ subtitle }}</p>
+          <p
+            v-if="subtitle"
+            class="page-header__subtitle"
+            :data-testid="subtitleTestid"
+          >{{ subtitle }}</p>
         </div>
       </div>
       <div v-if="$slots.actions" class="page-header__actions">
@@ -168,6 +182,7 @@ const countDescription = computed(() => {
   margin: 0;
   color: var(--gv-color-on-surface);
   font: var(--gv-type-headline-small);
+  overflow-wrap: anywhere;
 }
 
 .page-header__count {

@@ -267,9 +267,6 @@ function onTagSelect(tag: TagLike): void {
             density="card"
           />
         </span>
-        <span v-if="item.favorite" class="online-row__fav-marker" aria-hidden="true">
-          &#x2665;
-        </span>
       </div>
     </div>
 
@@ -449,20 +446,6 @@ function onTagSelect(tag: TagLike): void {
   gap: var(--gv-space-1);
   margin-inline-start: auto;
   pointer-events: auto;
-}
-
-/* Compatibility marker for the legacy "already favourited" text; the actual
-   control is the always-visible SVG heart above. */
-.online-row__fav-marker {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
 }
 
 @media (max-width: 599.98px) {

@@ -124,7 +124,7 @@ async function expectLadderHeights(page: Page, scope: string): Promise<void> {
   const heights = await page.evaluate((selector) => {
     const nodes = [
       ...document.querySelectorAll<HTMLElement>(
-        `${selector} button, ${selector} select, ${selector} input:not([type="hidden"]), ${selector} [role="switch"]`,
+        `${selector} button:not([data-segmented-value]), ${selector} .segmented, ${selector} select, ${selector} input:not([type="hidden"]), ${selector} [role="switch"]`,
       ),
     ];
     return [

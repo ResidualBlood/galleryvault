@@ -74,11 +74,7 @@ test("@polish-online toolbar and filter row use one control step", async ({ page
   const csp = watchCsp(page);
   await openOnline(page);
 
-  // The legacy favourite marker is visually hidden; strip it before the glyph
-  // audit so only actual rendered icons are checked.
-  await page.evaluate(() =>
-    document.querySelectorAll(".online-row__fav-marker").forEach((node) => node.remove()),
-  );
+  // The legacy hidden ♥ marker is gone; only rendered icons remain.
   await expectNoGlyphIcons(page, { selector: "[data-testid='online-view']" });
 
   const toolbar = page.getByTestId("online-toolbar");
@@ -89,10 +85,18 @@ test("@polish-online toolbar and filter row use one control step", async ({ page
     tolerance: 1,
   });
 
-  // Filter row: segmented control, rating/toplist selects and category chips
-  // all use the 32px chip / sm step.
+  // Filter row: the segmented frame, rating/toplist selects and category chips
+  // all use the 32px sm step; the segments inside the frame are 4px shorter.
   const filters = page.getByTestId("online-filters-row");
-  await expectControlHeights(filters.locator("button, select"), 32);
+  await expectControlHeights(filters.locator("select, button:not([data-segmented-value])"), 32);
+  const listTypes = filters.getByTestId("online-list-types");
+  expect((await listTypes.boundingBox())!.height).toBeCloseTo(32, 0);
+  const smStep = await page.evaluate(() =>
+    Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--gv-size-control-sm"),
+    ),
+  );
+  await expectControlHeights(listTypes.locator("[data-segmented-value]"), smStep - 4);
   await expect(filters.getByTestId("online-min-rating")).toBeVisible();
   await expect(filters.getByTestId("online-cat-all")).toBeVisible();
 

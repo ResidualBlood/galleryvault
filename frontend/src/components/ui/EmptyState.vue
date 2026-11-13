@@ -64,8 +64,9 @@ defineEmits<{ action: []; secondary: [] }>();
   justify-content: center;
   gap: var(--gv-space-1);
   padding: var(--gv-space-6);
+  border: 1px solid var(--gv-color-outline-variant);
   border-radius: var(--gv-radius-lg);
-  background: var(--gv-color-surface-container-low);
+  background: var(--gv-color-surface-container);
   color: var(--gv-color-on-surface);
   text-align: center;
 }

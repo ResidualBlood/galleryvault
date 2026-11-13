@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import { i18n } from "@/i18n";
 import SettingsGroupPanel from "@/views/settings/SettingsGroupPanel.vue";
+import SettingsRow from "@/views/settings/SettingsRow.vue";
 import { ensureSettingsMessages } from "@/views/settings/messages";
 import {
   NOT_EXPOSED_KEYS,
@@ -219,5 +220,35 @@ describe("per-group save diff", () => {
       "settings.error.baseUrlHost",
     );
     expect(canSubmit(rejected, true)).toBe(false);
+  });
+});
+
+describe("settings row details", () => {
+  it("passes the map's numeric bounds and step to the input", () => {
+    const field = fieldByKey("gv_page_size");
+    expect(field).toBeTruthy();
+    const wrapper = mount(SettingsRow, {
+      props: { field: field!, value: 50 },
+      global: { plugins: [i18n] },
+    });
+    const input = wrapper.get('input[type="number"]');
+    expect(input.attributes("min")).toBe("1");
+    expect(input.attributes("max")).toBe("500");
+  });
+
+  it("renders the cold-storage root as help on the archive-roots row (ST08-02)", () => {
+    const group = groupById("archive")!;
+    expect(group.fields.some((field) => field.key === "cold_storage_root")).toBe(false);
+    const wrapper = mount(SettingsGroupPanel, {
+      props: {
+        group,
+        values: { archive_roots: ["/Archive"] },
+        derived: { archive_roots: "生效根目录：/Archive" },
+      },
+      global: { plugins: [i18n] },
+    });
+    const row = wrapper.get('[data-setting-key="archive_roots"]');
+    expect(row.get("[data-derived-value]").text()).toContain("/Archive");
+    expect(wrapper.find('[data-setting-key="cold_storage_root"]').exists()).toBe(false);
   });
 });

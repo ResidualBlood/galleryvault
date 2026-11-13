@@ -18,11 +18,11 @@ export interface DetailCrumb {
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Icon from "@/components/icons/Icon.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
-import IconButton from "@/components/ui/IconButton.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
 import "@/views/gallery/i18n";
 
@@ -153,41 +153,22 @@ function goBack(): void {
     />
 
     <template v-else>
-      <header class="detail__head">
-        <nav v-if="crumbs.length" class="detail__crumbs" :aria-label="t('gallery.breadcrumb')">
-          <template v-for="(crumb, index) in crumbs" :key="`${crumb.label}-${index}`">
-            <span v-if="index > 0" class="detail__crumb-sep" aria-hidden="true">/</span>
-            <RouterLink v-if="crumb.to" class="detail__crumb" :to="crumb.to">
-              {{ crumb.label }}
-            </RouterLink>
-            <span v-else class="detail__crumb detail__crumb--current">{{ crumb.label }}</span>
-          </template>
-        </nav>
-
-        <div class="detail__title-row">
-          <IconButton
-            class="detail__back"
-            :label="t('gallery.back')"
-            data-testid="detail-back"
-            @click="goBack"
-          >
-            <Icon name="back" size="md" />
-          </IconButton>
-          <div class="detail__titles">
-            <h1 class="detail__title" :data-testid="titleTestid">{{ title }}</h1>
-            <p
-              v-if="subtitle"
-              class="detail__subtitle"
-              :data-testid="subtitleTestid"
-            >
-              {{ subtitle }}
-            </p>
-          </div>
-          <div v-if="$slots['head-actions']" class="detail__head-actions">
-            <slot name="head-actions" />
-          </div>
-        </div>
-      </header>
+      <PageHeader
+        :title="title"
+        :subtitle="subtitle"
+        :crumbs="crumbs"
+        back
+        :back-label="t('gallery.back')"
+        testid="detail-header"
+        :title-testid="titleTestid"
+        :subtitle-testid="subtitleTestid"
+        back-testid="detail-back"
+        @back="goBack"
+      >
+        <template v-if="$slots['head-actions']" #actions>
+          <slot name="head-actions" />
+        </template>
+      </PageHeader>
 
       <article class="detail__hero" data-testid="detail-hero">
         <div class="detail__cover">
@@ -298,75 +279,6 @@ function goBack(): void {
 
 .detail__loading-actions {
   max-width: 320px;
-}
-
-.detail__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-2);
-  min-width: 0;
-}
-
-.detail__crumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-1);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-}
-
-.detail__crumb {
-  color: var(--gv-color-on-surface-variant);
-  text-decoration: none;
-}
-
-.detail__crumb:hover {
-  color: var(--gv-color-primary-text);
-}
-
-.detail__crumb--current {
-  color: var(--gv-color-on-surface);
-}
-
-.detail__crumb-sep {
-  color: var(--gv-color-outline);
-}
-
-.detail__title-row {
-  display: flex;
-  align-items: center;
-  gap: var(--gv-space-2);
-  min-width: 0;
-}
-
-.detail__titles {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-  min-width: 0;
-}
-
-.detail__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-  overflow-wrap: anywhere;
-}
-
-.detail__subtitle {
-  margin: 0;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-medium);
-  overflow-wrap: anywhere;
-}
-
-.detail__head-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--gv-space-2);
-  margin-inline-start: auto;
 }
 
 .detail__hero {
@@ -555,10 +467,6 @@ function goBack(): void {
 
   .detail__meta-item--wide {
     grid-column: 1 / -1;
-  }
-
-  .detail__title-row {
-    align-items: flex-start;
   }
 
   .detail__actions {

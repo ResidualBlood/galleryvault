@@ -34,8 +34,7 @@ import { redownloadGalleryEp, scanIntegrityEp } from "@/api/integrity";
  *   - IG-04 the native `<details>` arrow is a registry chevron button;
  *   - IG-05 select-all is disabled with no rows; IG-06 the scan summary is
  *     independent of the list and also reaches the empty state;
- *   - RC-06 / IG-08 (maintenance tabs wrapping at 390) are deferred to the
- *     shared `MaintenanceTabs` owner, see the closure file.
+ *   - RC-06 / IG-08 maintenance tabs stay on one scrollable line at 390.
  */
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -135,14 +134,6 @@ async function controlLadder(page: Page): Promise<number[]> {
   );
 }
 
-async function chipHeight(page: Page): Promise<number> {
-  return page.evaluate(() =>
-    Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--gv-size-chip"),
-    ),
-  );
-}
-
 async function labelFontSizes(page: Page, selector: string): Promise<number[]> {
   return page.evaluate(
     (target) =>
@@ -193,9 +184,14 @@ test("recycle toolbar, shared card, selection and tags are aligned @polish-recyc
   const segmented = page.getByTestId("recycle-tabs");
   await expect(segmented).toContainText("已删除 2");
   await expect(segmented).toContainText("已失踪 1");
-  const chip = await chipHeight(page);
+  const segmentHeight = await page.evaluate(() =>
+    Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--gv-size-control-md"),
+    ),
+  );
   const segmentedBox = await segmented.boundingBox();
-  expect(segmentedBox!.height).toBeCloseTo(chip + 6, 0);
+  expect(segmentedBox!.height).toBeCloseTo(40, 0);
+  await expectControlHeights(segmented.locator("[data-segmented-value]"), segmentHeight);
   const labelSizes = await labelFontSizes(page, '[data-testid="recycle-tabs"] .segmented__label');
   expect(labelSizes.length).toBeGreaterThan(0);
   expect(Math.min(...labelSizes)).toBeGreaterThan(11);
@@ -303,6 +299,32 @@ test("view mode is per page and 390 defaults to a list row @polish-recycle-integ
   await expect(page.locator('[data-testid="recycle-grid"] .gallery-card-list')).toHaveCount(2);
   await expect(page.locator('[data-testid="recycle-grid"] .gallery-card')).toHaveCount(0);
   await expect(page.locator('[data-testid="recycle-grid"] .gallery-list-row')).toHaveCount(2);
+});
+
+test("maintenance tabs stay on one scrollable line at 390 (RC-06/IG-08)", async ({
+  page,
+}) => {
+  await installMaintenanceMock(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [path, view] of [
+    ["/recycle", "recycle-view"],
+    ["/integrity", "integrity-view"],
+  ] as const) {
+    await page.goto(harnessUrl(path));
+    await expect(page.getByTestId(view)).toBeVisible();
+    const tabs = page.getByTestId("maintenance-tabs");
+    await expect(tabs.locator("[data-tab-value]")).toHaveCount(6);
+    const tops = await tabs
+      .locator("[data-tab-value]")
+      .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
+    expect(new Set(tops).size, `${path} tabs must not wrap`).toBe(1);
+    const height = await tabs.evaluate((node) => ({
+      scroll: node.scrollHeight,
+      client: node.clientHeight,
+    }));
+    // Allow the 1px underline overflow; a wrapped strip would add a whole row.
+    expect(height.scroll).toBeLessThanOrEqual(height.client + 2);
+  }
 });
 
 test("recycle empty state explains and offers an exit @polish-recycle-integrity", async ({

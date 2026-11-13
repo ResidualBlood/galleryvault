@@ -39,6 +39,9 @@ export interface TagSearchStatus {
   last_error?: string | null;
   interval_minutes?: number;
   entries?: number;
+  /** ISO timestamp of the last successful translation update (backend `last`). */
+  last?: string | null;
+  completed_at?: string | null;
   updated_at?: string | null;
 }
 

@@ -50,6 +50,22 @@ export interface ShotMatrixResult {
   files: string[];
 }
 
+let shotSeq = 0;
+
+/** Add/replace a deterministic cache-buster before the hash so every variant boots. */
+function withShotBuster(url: string, token: string): string {
+  const hashAt = url.indexOf("#");
+  const base = hashAt === -1 ? url : url.slice(0, hashAt);
+  const hash = hashAt === -1 ? "" : url.slice(hashAt);
+  const cleaned = base
+    .replace(/([?&])_gvshot=[^&]*&?/g, "$1")
+    .replace(/[?&]$/, "")
+    .replace(/&{2,}/g, "&")
+    .replace(/\?&/, "?");
+  const sep = cleaned.includes("?") ? "&" : "?";
+  return `${cleaned}${sep}_gvshot=${token}${hash}`;
+}
+
 /** Fail when visible text contains a character-icon glyph. */
 export async function expectNoGlyphIcons(
   page: Page,
@@ -130,7 +146,7 @@ export async function expectRowsAligned(
       for (const row of rows) {
         const controls = [
           ...row.querySelectorAll(
-            'button, input:not([type="hidden"]), select, textarea, [role="button"], [role="switch"], [data-gv-control]',
+            '.segmented, button:not([data-segmented-value]), input:not([type="hidden"]), select, textarea, [role="button"], [role="switch"], [data-gv-control]',
           ),
         ]
           .filter(visible)
@@ -307,10 +323,11 @@ export async function shotMatrix(
     await page.setViewportSize({ width: variant.width, height: variant.height });
     await page.emulateMedia({ colorScheme: variant.theme });
     await page.evaluate((theme) => localStorage.setItem("gv_theme", theme), variant.theme);
-    await page.goto(target);
-    // Same-URL hash navigation does not re-run app boot, so force a reload for
-    // the persisted theme to take effect.
-    await page.reload();
+    // A hash-only goto does not re-run app boot, and `reload()` can abort while
+    // a router guard replaces the hash route. A unique query parameter forces
+    // a fresh document (the persisted theme applies) without racing the guard.
+    shotSeq += 1;
+    await page.goto(withShotBuster(target, `${variant.theme}-${variant.width}-${shotSeq}`));
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(150);
     const file = join(dir, `${name}-${variant.theme}-${variant.width}.png`);

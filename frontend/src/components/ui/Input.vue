@@ -30,6 +30,10 @@ const props = withDefaults(
     clearLabel?: string;
     /** Trailing unit slot ("px", "%", "s"). */
     unit?: string;
+    /** Numeric bounds passed through to `<input type="number">`. */
+    min?: number;
+    max?: number;
+    step?: number;
     /** Accessible name when no visual label is rendered. */
     ariaLabel?: string;
   }>(),
@@ -48,6 +52,9 @@ const props = withDefaults(
     clearable: false,
     clearLabel: "Clear",
     unit: "",
+    min: undefined,
+    max: undefined,
+    step: undefined,
     ariaLabel: "",
   },
 );
@@ -108,6 +115,9 @@ function clear(): void {
         :value="modelValue"
         :placeholder="placeholder"
         :autocomplete="autocomplete"
+        :min="min"
+        :max="max"
+        :step="step"
         :disabled="disabled"
         :required="required"
         :aria-label="!label && ariaLabel ? ariaLabel : undefined"

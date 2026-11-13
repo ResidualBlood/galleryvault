@@ -87,11 +87,16 @@ test.describe("online browse @online", () => {
 
     await page.goBack();
     await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "18");
-    await expect
-      .poll(() => page.evaluate(() => Math.round(window.scrollY)))
-      .toBeGreaterThan(400);
-    const restored = await page.evaluate(() => Math.round(window.scrollY));
-    expect(Math.abs(restored - 700)).toBeLessThan(300);
+    // Wait for the cached list to finish its nextTick + rAF scroll restore,
+    // rather than racing the render with a fixed sleep.
+    await page.waitForFunction(
+      () => {
+        const y = Math.round(window.scrollY);
+        return y > 400 && Math.abs(y - 700) < 300;
+      },
+      null,
+      { timeout: 10_000, polling: 100 },
+    );
     expect(csp).toEqual([]);
   });
 

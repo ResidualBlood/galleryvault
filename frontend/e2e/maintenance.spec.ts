@@ -20,6 +20,7 @@ import {
 import {
   updatesDeleteEp,
   updatesIgnoreEp,
+  updatesIgnoredEp,
   updatesUnignoreEp,
   updatesUpdateEp,
 } from "@/api/updates";
@@ -157,11 +158,18 @@ test.describe("maintenance @maintenance", () => {
   test("updates ignored: restore selected and single rows", async ({ page }) => {
     const state = await installMaintenanceMock(page);
 
-    await page.goto(viewUrl("/updates/ignored"));
     // The first harness navigation in this file makes Vite transform every
-    // maintenance view, which exceeds the default 10s budget on a loaded CI
-    // machine; wait for the mount explicitly instead of racing the transpile.
-    await expect(page.getByTestId("updates-ignored-view")).toBeVisible({ timeout: 30_000 });
+    // maintenance view. Wait for the ignored-list response the view needs
+    // instead of racing the transpile with a longer visibility timeout.
+    const ignoredList = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === updatesIgnoredEp.path,
+      { timeout: 30_000 },
+    );
+    await page.goto(viewUrl("/updates/ignored"));
+    await ignoredList;
+    await expect(page.getByTestId("updates-ignored-view")).toBeVisible();
     await expect(page.getByTestId("updates-ignored-4")).toContainText("Ignored Delta");
 
     await page

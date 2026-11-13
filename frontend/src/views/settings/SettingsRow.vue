@@ -18,6 +18,8 @@ const props = withDefaults(
     configured?: boolean;
     display?: string;
     tone?: SettingTone;
+    /** Extra line for a value derived from another field (ST08-02). */
+    derived?: string;
     disabled?: boolean;
   }>(),
   {
@@ -25,6 +27,7 @@ const props = withDefaults(
     configured: false,
     display: "",
     tone: "neutral",
+    derived: "",
     disabled: false,
   },
 );
@@ -246,6 +249,7 @@ const copyLabel = computed(() => {
       <p v-if="showInternalKey" class="row__key">
         {{ t("settings.internalKey") }} <code>{{ field.key }}</code>
       </p>
+      <p v-if="derived" class="row__derived" data-derived-value>{{ derived }}</p>
       <p v-if="field.secret && configured" class="row__state">{{ t("settings.configured") }}</p>
     </div>
 
@@ -287,6 +291,9 @@ const copyLabel = computed(() => {
         class="row__number"
         :model-value="numericValue"
         type="number"
+        :min="field.min"
+        :max="field.max"
+        :step="field.step"
         :unit="unit"
         :disabled="disabled"
         :autocomplete="'off'"
@@ -450,6 +457,23 @@ const copyLabel = computed(() => {
   margin: 0;
   font: var(--gv-type-body-small);
   color: var(--gv-color-on-surface-variant);
+}
+
+.row__derived {
+  margin: 0;
+  font: var(--gv-type-body-small);
+  color: var(--gv-color-on-surface-variant);
+}
+
+.row__derived::before {
+  content: "";
+  display: inline-block;
+  width: var(--gv-space-1);
+  height: var(--gv-space-1);
+  margin-inline-end: var(--gv-space-1);
+  border-radius: var(--gv-radius-full);
+  background: var(--gv-color-outline);
+  vertical-align: middle;
 }
 
 .row__key code,

@@ -14,6 +14,7 @@ const props = withDefaults(
     customBaseUrl?: string;
     configured?: Record<string, boolean>;
     display?: Record<string, string>;
+    derived?: Record<string, string>;
     tones?: Record<string, SettingTone>;
     disabled?: boolean;
   }>(),
@@ -21,6 +22,7 @@ const props = withDefaults(
     customBaseUrl: "",
     configured: () => ({}),
     display: () => ({}),
+    derived: () => ({}),
     tones: () => ({}),
     disabled: false,
   },
@@ -77,6 +79,7 @@ function fieldValue(field: SettingField): unknown {
         :custom-base-url="customBaseUrl"
         :configured="Boolean(configured[field.key])"
         :display="display[field.key] ?? ''"
+        :derived="derived[field.key] ?? ''"
         :tone="tones[field.key] ?? 'neutral'"
         :disabled="disabled"
         @update:value="emit('update', field.key, $event)"

@@ -331,9 +331,11 @@
     "translationError": "上次更新失败：{error}",
     "favorites": "{enabled} 个启用 / 共 {total} 个",
     "never": "从未运行",
+    "updatedSuffix": "{text} · 更新于 {time}",
     "unknown": "未知"
   },
   "help": {
+    "effectiveArchiveRoot": "生效根目录：{path}",
     "field": {
       "gv_theme": "深色、浅色或跟随系统。",
       "gv_lang": "只影响本设备。",
@@ -376,8 +378,7 @@
       "favorites_archive_enabled": "定时收藏扫描使用 zip 归档通道。",
       "favorites_archive_max_pages": "0 表示全部走归档；填写每本最多抓取的页数。",
       "favorites_categories": "每个收藏夹的启用与轮询配置在收藏页。",
-      "archive_roots": "每行一个路径；第一项就是下方只读行显示的生效冷存储根。",
-      "cold_storage_root": "由冷存储目录派生，只读。",
+      "archive_roots": "每行一个路径；第一项就是生效的冷存储根。",
       "auto_archive_downloads": "下载完成后自动转入冷存储。",
       "archive_delete_source": "归档成功后删除下载目录中的源文件。",
       "archive_quality": "归档通道与归档对话框的默认档位。",

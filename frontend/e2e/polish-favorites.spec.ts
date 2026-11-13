@@ -287,20 +287,15 @@ test("single folder toolbar is one aligned row and hides bulk actions until sele
   expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
   expect(toolbar!.box.height).toBeLessThanOrEqual(56);
 
-  // Every field / button is on the lg step; the segmented control keeps the
-  // documented chip step and still shares the centre line (FL-02).
+  // Every field / button is on the lg step; the segmented wrapper is the same
+  // 40px step (C17) and shares the centre line (FL-02).
   await expectControlHeights(
     page.getByTestId("favlist-toolbar").locator("[data-gv-control]"),
     40,
   );
   expect(Math.max(...toolbar!.centers) - Math.min(...toolbar!.centers)).toBeLessThanOrEqual(1);
-  const chip = await page.evaluate(() =>
-    Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--gv-size-chip"),
-    ),
-  );
   const segmented = await page.getByTestId("favlist-state").boundingBox();
-  expect(segmented!.height).toBeCloseTo(chip + 6, 0);
+  expect(segmented!.height).toBeCloseTo(40, 0);
 
   // The persistent drawer eats 264px in the real shell: 1024 still fits one row.
   await page.setViewportSize({ width: 1024, height: 900 });

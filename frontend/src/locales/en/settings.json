@@ -331,9 +331,11 @@
     "translationError": "Last refresh failed: {error}",
     "favorites": "{enabled} enabled / {total} total",
     "never": "Never run",
+    "updatedSuffix": "{text} · updated {time}",
     "unknown": "Unknown"
   },
   "help": {
+    "effectiveArchiveRoot": "Effective root: {path}",
     "field": {
       "gv_theme": "Dark, light or follow the system.",
       "gv_lang": "This device only.",
@@ -376,8 +378,7 @@
       "favorites_archive_enabled": "Scheduled favourite scans use the zip archive channel.",
       "favorites_archive_max_pages": "0 sends everything through the archive; otherwise set the maximum pages per gallery.",
       "favorites_categories": "Enabled/mode/poll interval per folder live on the favourites page.",
-      "archive_roots": "One path per line; the first entry is the effective cold storage root shown in the read-only row below.",
-      "cold_storage_root": "Derived from the cold storage roots; read only.",
+      "archive_roots": "One path per line; the first entry is the effective cold storage root.",
       "auto_archive_downloads": "Move completed downloads to cold storage.",
       "archive_delete_source": "Delete the download source directory after a successful archive.",
       "archive_quality": "Default tier for the archive channel and the archive dialog.",

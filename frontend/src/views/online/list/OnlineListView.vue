@@ -425,7 +425,7 @@ async function submitBatchFavorite(): Promise<void> {
       })),
       target,
     );
-    // Cloud-first: only gids confirmed by the backend update the ♥ badge.
+    // Cloud-first: only gids confirmed by the backend update the heart state.
     for (const gid of result.successful_gids) {
       favorites.applyFavorite(gid, target);
     }
@@ -535,6 +535,7 @@ onBeforeUnmount(() => {
         :model-value="filters.list"
         :options="listOptions"
         :label="t('online.listLabel')"
+        size="sm"
         testid="online-list-types"
         @change="(value: string) => setList(value as OnlineListType)"
       />

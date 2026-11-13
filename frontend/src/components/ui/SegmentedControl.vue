@@ -10,6 +10,7 @@ export interface SegmentedOption {
 <script setup lang="ts">
 import { computed } from "vue";
 import Icon from "@/components/icons/Icon.vue";
+import { useControlSize, type ControlSizeProp } from "@/components/ui/control-size";
 
 const props = withDefaults(
   defineProps<{
@@ -18,9 +19,13 @@ const props = withDefaults(
     label: string;
     disabled?: boolean;
     testid?: string;
+    /** Control ladder step; the outer frame is exactly that step (40/36/32). */
+    size?: ControlSizeProp;
   }>(),
-  { disabled: false, testid: "gv-segmented" },
+  { disabled: false, testid: "gv-segmented", size: "default" },
 );
+
+const size = useControlSize(props.size);
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
@@ -65,7 +70,7 @@ function onKeydown(event: KeyboardEvent): void {
 <template>
   <div
     class="segmented"
-    :class="{ 'segmented--disabled': disabled }"
+    :class="[`segmented--${size}`, { 'segmented--disabled': disabled }]"
     role="radiogroup"
     :aria-label="label"
     :aria-disabled="disabled || undefined"
@@ -93,14 +98,33 @@ function onKeydown(event: KeyboardEvent): void {
 
 <style scoped>
 .segmented {
+  --segmented-height: var(--gv-size-control-lg);
+
   display: inline-grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   gap: 2px;
-  padding: 2px;
+  height: var(--segmented-height);
+  padding: 1px;
   border: 1px solid var(--gv-color-outline-variant);
   border-radius: var(--gv-radius-full);
   background: var(--gv-color-surface-container-low);
+}
+
+.segmented--xl {
+  --segmented-height: var(--gv-size-control-xl);
+}
+
+.segmented--lg {
+  --segmented-height: var(--gv-size-control-lg);
+}
+
+.segmented--md {
+  --segmented-height: var(--gv-size-control-md);
+}
+
+.segmented--sm {
+  --segmented-height: var(--gv-size-control-sm);
 }
 
 .segmented--disabled {
@@ -113,7 +137,7 @@ function onKeydown(event: KeyboardEvent): void {
   justify-content: center;
   gap: var(--gv-space-1);
   min-width: 0;
-  height: var(--gv-size-chip);
+  height: calc(var(--segmented-height) - 4px);
   padding: 0 var(--gv-space-3);
   border: 0;
   border-radius: var(--gv-radius-full);

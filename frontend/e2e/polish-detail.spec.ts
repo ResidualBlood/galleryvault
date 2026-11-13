@@ -204,7 +204,7 @@ async function expectHeaderContract(
   await expect(heading).toBeVisible();
   await expect(heading).toHaveJSProperty("tagName", "H1");
   await expect(page.getByTestId("detail-back")).toBeVisible();
-  await expect(page.locator(".detail__crumbs")).toContainText(crumbLabel);
+  await expect(page.locator(".page-header__crumbs")).toContainText(crumbLabel);
 }
 
 test.describe("polish: gallery detail pages @polish-detail", () => {
