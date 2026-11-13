@@ -504,11 +504,28 @@ async def test_ephemeral_secret_adopts_persisted_value(monkeypatch: pytest.Monke
         reset_runtime_auth_bootstrap()
 
 
+@pytest.mark.parametrize(
+    "encryption_key",
+    [None, "unit-test-key-0123456789abcdef0123456789"],
+    ids=["plaintext", "encrypted"],
+)
 @pytest.mark.asyncio
 async def test_ephemeral_secret_is_persisted_when_absent(
     monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str | None,
 ) -> None:
+    from galleryvault import secrets
     from galleryvault.auth import ensure_runtime_auth_secret
+
+    # The stored representation depends on ENCRYPTION_KEY: without a key the
+    # secret is persisted verbatim, with a key it is stored as ``enc:v1:...``.
+    # Pin the environment instead of inheriting whatever the test runner has,
+    # and drop the cached derived key so the change takes effect immediately.
+    if encryption_key is None:
+        monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+    else:
+        monkeypatch.setenv("ENCRYPTION_KEY", encryption_key)
+    secrets._key.cache_clear()
 
     reset_runtime_auth_bootstrap()
     store: dict = {}
@@ -522,13 +539,21 @@ async def test_ephemeral_secret_is_persisted_when_absent(
     try:
         await ensure_runtime_auth_secret()
 
-        assert store["runtime_auth"].value["auth_secret"] == "fresh-secret"
+        stored = store["runtime_auth"].value["auth_secret"]
+        if encryption_key is None:
+            assert stored == "fresh-secret"
+        else:
+            assert secrets.is_encrypted(stored)
+            assert stored != "fresh-secret"
+        # The in-memory secret is always usable plaintext.
+        assert secrets.decrypt(stored) == "fresh-secret"
         assert app_state.settings.auth_secret == "fresh-secret"
         assert app_state.settings.auth_secret_ephemeral is False
     finally:
         app_state.settings = original_settings
         app_state.session_factory = original_factory
         reset_runtime_auth_bootstrap()
+        secrets._key.cache_clear()
 
 
 @pytest.mark.asyncio
