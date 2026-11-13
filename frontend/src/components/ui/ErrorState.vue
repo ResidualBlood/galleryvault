@@ -1,12 +1,18 @@
 <script setup lang="ts">
+import type { IconName } from "@/components/icons/registry";
+import Icon from "@/components/icons/Icon.vue";
+import Button from "./Button.vue";
+
 withDefaults(
   defineProps<{
+    icon?: IconName;
     title?: string;
     body?: string;
     retryLabel?: string;
     testid?: string;
   }>(),
   {
+    icon: "status-error",
     title: "",
     body: "",
     retryLabel: "",
@@ -20,17 +26,19 @@ defineEmits<{ retry: [] }>();
 <template>
   <div class="error-state" :data-testid="testid" role="alert">
     <div class="error-state__icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor">
-        <circle cx="12" cy="12" r="9" stroke-width="1.5" />
-        <path d="M12 7.5v6" stroke-width="1.5" />
-        <circle cx="12" cy="16.6" r="1" fill="currentColor" stroke="none" />
-      </svg>
+      <Icon :name="icon" size="lg" />
     </div>
     <h2 v-if="title" class="error-state__title">{{ title }}</h2>
     <p v-if="body" class="error-state__body">{{ body }}</p>
-    <button v-if="retryLabel" class="error-state__retry" type="button" @click="$emit('retry')">
+    <Button
+      v-if="retryLabel"
+      class="error-state__retry"
+      variant="outlined"
+      :data-testid="`${testid}-retry`"
+      @click="$emit('retry')"
+    >
       {{ retryLabel }}
-    </button>
+    </Button>
   </div>
 </template>
 
@@ -51,6 +59,11 @@ defineEmits<{ retry: [] }>();
   color: var(--gv-color-error);
 }
 
+.error-state__icon :deep(.gv-icon) {
+  width: var(--gv-space-7);
+  height: var(--gv-space-7);
+}
+
 .error-state__title {
   margin: var(--gv-space-2) 0 0;
   font: var(--gv-type-title-medium);
@@ -65,14 +78,6 @@ defineEmits<{ retry: [] }>();
 }
 
 .error-state__retry {
-  min-height: var(--gv-size-touch);
   margin-top: var(--gv-space-4);
-  padding: 0 var(--gv-space-5);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
 }
 </style>

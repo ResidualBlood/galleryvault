@@ -1,6 +1,11 @@
 <script setup lang="ts">
+import type { IconName } from "@/components/icons/registry";
+import Icon from "@/components/icons/Icon.vue";
+import Button from "./Button.vue";
+
 withDefaults(
   defineProps<{
+    icon?: IconName;
     title?: string;
     body?: string;
     actionLabel?: string;
@@ -8,6 +13,7 @@ withDefaults(
     testid?: string;
   }>(),
   {
+    icon: "browse",
     title: "",
     body: "",
     actionLabel: "",
@@ -23,27 +29,29 @@ defineEmits<{ action: []; secondary: [] }>();
   <div class="state" :data-testid="testid">
     <div class="state__icon" aria-hidden="true">
       <slot name="icon">
-        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor">
-          <rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke-width="1.5" />
-          <path d="M3.5 16l5-5 4 4 3-3 5 5" stroke-width="1.5" />
-        </svg>
+        <Icon :name="icon" size="lg" />
       </slot>
     </div>
     <h2 v-if="title" class="state__title">{{ title }}</h2>
     <p v-if="body" class="state__body">{{ body }}</p>
     <div v-if="actionLabel || secondaryLabel || $slots.default" class="state__actions">
       <slot />
-      <button v-if="actionLabel" class="state__primary" type="button" @click="$emit('action')">
+      <Button
+        v-if="actionLabel"
+        variant="filled"
+        :data-testid="`${testid}-action`"
+        @click="$emit('action')"
+      >
         {{ actionLabel }}
-      </button>
-      <button
+      </Button>
+      <Button
         v-if="secondaryLabel"
-        class="state__secondary"
-        type="button"
+        variant="outlined"
+        :data-testid="`${testid}-secondary`"
         @click="$emit('secondary')"
       >
         {{ secondaryLabel }}
-      </button>
+      </Button>
     </div>
   </div>
 </template>
@@ -66,9 +74,12 @@ defineEmits<{ action: []; secondary: [] }>();
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--gv-color-on-surface-variant);
+}
+
+.state__icon :deep(.gv-icon) {
   width: var(--gv-space-7);
   height: var(--gv-space-7);
-  color: var(--gv-color-on-surface-variant);
 }
 
 .state__title {
@@ -85,29 +96,10 @@ defineEmits<{ action: []; secondary: [] }>();
 
 .state__actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--gv-space-2);
   margin-top: var(--gv-space-4);
-}
-
-.state__primary,
-.state__secondary {
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-5);
-  border-radius: var(--gv-radius-full);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.state__primary {
-  border: 1px solid var(--gv-color-primary);
-  background: var(--gv-color-primary);
-  color: var(--gv-color-on-primary);
-}
-
-.state__secondary {
-  border: 1px solid var(--gv-color-outline);
-  background: transparent;
-  color: var(--gv-color-primary-text);
 }
 
 @media (min-width: 840px) {

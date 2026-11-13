@@ -1,0 +1,44 @@
+{
+  "pageHeader": {
+    "back": "Back",
+    "breadcrumb": "Breadcrumb",
+    "count": "{count} items"
+  },
+  "toolbar": {
+    "more": "More",
+    "moreActions": "More actions"
+  },
+  "pager": {
+    "label": "Pagination",
+    "previous": "Previous page",
+    "next": "Next page",
+    "pageNumber": "Page {page}",
+    "jumpLabel": "Go to page N",
+    "jumpPlaceholder": "Page",
+    "jumpInvalid": "Page must be between 1 and {total}",
+    "pageSize": "Rows per page",
+    "dateJump": "Jump to date"
+  },
+  "selection": {
+    "selected": "{count} selected",
+    "clear": "Clear selection"
+  },
+  "filter": {
+    "label": "Filter",
+    "activeCount": "{count} filters active"
+  },
+  "tabs": {
+    "label": "Tabs"
+  },
+  "empty": {
+    "title": "Nothing here yet",
+    "body": "Content will appear here once data arrives.",
+    "primary": "Add",
+    "secondary": "Refresh"
+  },
+  "error": {
+    "title": "Failed to load",
+    "body": "Please try again later.",
+    "retry": "Retry"
+  }
+}
