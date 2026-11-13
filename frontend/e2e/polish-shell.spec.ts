@@ -4,6 +4,7 @@ import type { Locator } from "@playwright/test";
 import { expect, test } from "./fixtures/mock";
 import {
   expectControlHeights,
+  expectHitTargets,
   expectNoGlyphIcons,
   expectNoHorizontalOverflow,
   expectRowsAligned,
@@ -84,8 +85,13 @@ test("@polish-shell topbar and navigation use registry SVG icons", async ({ page
   );
   expect(await shellIcons.count()).toBeGreaterThanOrEqual(20);
 
-  // Every topbar action is the same 44px hit target on the touch ladder.
-  await expectControlHeights(topbar.locator("button"), 44);
+  // Topbar icon buttons keep the Material 3 icon-button visual: 40px on the
+  // `lg` ladder step (DESIGN.md C12/C16), all on one height.
+  await expectControlHeights(topbar.locator("button"), 40);
+  // The touch target still reaches >=44: IconButton expands the hit area with a
+  // pseudo-element instead of growing the box, and the expansion must not be
+  // covered by the neighbouring button.
+  await expectHitTargets(topbar.locator("button"), 44);
 });
 
 test("@polish-shell topbar brand and title are separated once", async ({ page }) => {

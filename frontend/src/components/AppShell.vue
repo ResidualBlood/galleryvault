@@ -323,7 +323,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex: none;
   align-items: center;
-  gap: var(--gv-space-1);
+  /* The 40px icon buttons expand their hit area to 44px (2px per side), so the
+     row gap must clear that overhang; otherwise the next button paints over the
+     touch target. 8px = DESIGN.md C12 组内间距 and leaves 4px between targets. */
+  gap: var(--gv-space-2);
 }
 
 .shell__divider--actions {
