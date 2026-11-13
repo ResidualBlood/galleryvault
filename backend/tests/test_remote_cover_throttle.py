@@ -70,6 +70,11 @@ def _fast_cover_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(fw, "REMOTE_COVER_MIN_INTERVAL", 0.0, raising=False)
     monkeypatch.setattr(fw, "REMOTE_COVER_NEG_TTL_TRANSIENT", 30 * 60.0, raising=False)
     monkeypatch.setattr(fw, "REMOTE_COVER_NEG_TTL_MISSING", 6 * 3600.0, raising=False)
+    # Isolate from whatever database the surrounding process happens to own: a
+    # real session factory would let ``_fill_remote_cover`` look up a stored
+    # token for ``GID`` and take the download+fetch_gallery_cover path, turning
+    # the single-upstream-call assertions into flaky double calls.
+    monkeypatch.setattr(fw, "_get_background_session_factory", lambda: None, raising=False)
 
 
 def _clock(monkeypatch: pytest.MonkeyPatch, start: float = 1_000.0) -> dict[str, float]:
