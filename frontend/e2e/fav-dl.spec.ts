@@ -211,8 +211,15 @@ test.describe("favourites / downloads / history @fav-dl", () => {
       );
       await expect(page.getByTestId("favlist-view")).toBeVisible();
       await expect(page.getByTestId("favlist-grid")).toBeVisible();
-      await expect(page.locator(".fav-card").first()).toBeVisible();
-      expect(await page.locator(".fav-card").count()).toBeGreaterThanOrEqual(12);
+      await expect(page.locator(".gallery-card").first()).toBeVisible();
+      await expect
+        .poll(async () =>
+          Number.parseInt(
+            (await page.getByTestId("favlist-grid").getAttribute("data-loaded")) ?? "0",
+            10,
+          ),
+        )
+        .toBeGreaterThanOrEqual(12);
 
       await page.getByTestId("favlist-advanced-toggle").click();
       await page.getByTestId("favlist-q").locator("input").fill("dragon");
@@ -247,7 +254,11 @@ test.describe("favourites / downloads / history @fav-dl", () => {
       await expect
         .poll(() => state.favoriteItemRequests.at(-1)?.get("order_by"))
         .toBe("posted_at_desc");
-      const params = state.favoriteItemRequests.at(-1);
+      // The grid keeps appending pages while the sentinel is in range, so the
+      // submitted search is the first request carrying the typed query.
+      const params = state.favoriteItemRequests.find(
+        (entry) => entry.get("q") === "dragon" && entry.get("read_status") === "unread",
+      );
       expect(params).toBeTruthy();
       expect(params?.get("q")).toBe("dragon");
       expect(params?.get("category")).toBe("manga");
@@ -266,7 +277,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
       expect(params?.get("tags")).toContain("language:chinese");
       expect(params?.get("page")).toBe("1");
 
-      const first = page.locator(".fav-card").first();
+      const first = page.locator(".gallery-card").first();
       await first.locator('input[type="checkbox"]').check();
       await expect(page.getByTestId("favlist-download")).toContainText("(1)");
       await page.getByTestId("favlist-download").click();

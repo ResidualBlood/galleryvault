@@ -5,11 +5,25 @@
     "syncStarted": "正在同步收藏夹名称",
     "saveFailed": "保存失败",
     "dirty": "有未保存的修改",
-    "checkStatusError": "检查状态获取失败"
+    "checkStatusError": "检查状态获取失败",
+    "interval": "检查间隔",
+    "minutesUnit": "分钟",
+    "countColumn": "画廊数",
+    "sizeColumn": "大小",
+    "cloudLocalHint": "云端 / 本地"
   },
   "list": {
     "eyebrow": "FAVORITE FOLDER",
     "stateLabel": "显示范围",
+    "stateAll": "全部",
+    "stateLocal": "仅本地",
+    "stateCloud": "仅云端",
+    "sort": "排序",
+    "category": "分类",
+    "fallbackName": "收藏夹 {n}",
+    "local": "本地",
+    "cloud": "云端",
+    "favcatBadge": "#{n}",
     "loaded": "已加载 {n} 本",
     "loadMore": "加载更多",
     "allLoaded": "已全部加载",
@@ -25,7 +39,10 @@
     "total": "共 {n} 本",
     "language": "语言",
     "clearFilters": "清空筛选",
+    "applyFilters": "应用",
     "checkFolder": "检查此收藏夹",
-    "checkFolderStarted": "已开始检查收藏夹"
+    "checkFolderStarted": "已开始检查收藏夹",
+    "selectAll": "全选本页",
+    "selectedCount": "已选 {n} 本"
   }
 }

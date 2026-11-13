@@ -91,6 +91,8 @@ describe("favorites filter constructor", () => {
     expect(params.get("order_by")).toBeNull();
     expect(params.get("q")).toBeNull();
     expect(params.get("tags")).toBeNull();
+    // The collection surface renders every tag, so truncation is disabled.
+    expect(params.get("tags_limit")).toBe("0");
     expect(activeFavFilterCount(emptyFavListFilters())).toBe(0);
   });
 

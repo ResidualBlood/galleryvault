@@ -5,11 +5,25 @@
     "syncStarted": "Syncing favourite folder names",
     "saveFailed": "Save failed",
     "dirty": "Unsaved changes",
-    "checkStatusError": "Could not read check status"
+    "checkStatusError": "Could not read check status",
+    "interval": "Check interval",
+    "minutesUnit": "min",
+    "countColumn": "Galleries",
+    "sizeColumn": "Size",
+    "cloudLocalHint": "Cloud / local"
   },
   "list": {
     "eyebrow": "FAVORITE FOLDER",
     "stateLabel": "Show",
+    "stateAll": "All",
+    "stateLocal": "Local only",
+    "stateCloud": "Cloud only",
+    "sort": "Sort",
+    "category": "Category",
+    "fallbackName": "Favourites {n}",
+    "local": "Local",
+    "cloud": "Cloud",
+    "favcatBadge": "#{n}",
     "loaded": "{n} loaded",
     "loadMore": "Load more",
     "allLoaded": "All loaded",
@@ -25,7 +39,10 @@
     "total": "{n} total",
     "language": "Language",
     "clearFilters": "Clear filters",
+    "applyFilters": "Apply",
     "checkFolder": "Check this folder",
-    "checkFolderStarted": "Folder check started"
+    "checkFolderStarted": "Folder check started",
+    "selectAll": "Select this page",
+    "selectedCount": "{n} selected"
   }
 }

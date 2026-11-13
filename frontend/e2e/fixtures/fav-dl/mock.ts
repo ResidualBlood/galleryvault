@@ -189,16 +189,22 @@ const DOWNLOAD_TASKS = [
   },
 ];
 
+/**
+ * 16x21 PNG covers. The shared GalleryCard only accepts real image payloads
+ * (base64 png/jpeg/gif/webp or http paths), so the fixture ships tiny PNGs
+ * instead of the old inline SVG data URL.
+ */
+const COVERS = [
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAVCAIAAADAXPmFAAAAH0lEQVR42mMoSAojCTGMaiBGg4eVHkloVMOohgHTAABn5RuQqvjj3gAAAABJRU5ErkJggg==",
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAVCAIAAADAXPmFAAAAH0lEQVR42mMISCoiCTGMaiBGg4aVF0loVMOohgHTAACLYBZQElAn+wAAAABJRU5ErkJggg==",
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAVCAIAAADAXPmFAAAAH0lEQVR42mOIKYgiCTGMaiBGg4mHEUloVMOohgHTAAABihjwmwkNyQAAAABJRU5ErkJggg==",
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAVCAIAAADAXPmFAAAAH0lEQVR42mMoiisjCTGMaiBGg5eZH0loVMOohgHTAABnlkLwWkn4FQAAAABJRU5ErkJggg==",
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAVCAIAAADAXPmFAAAAH0lEQVR42mMoi0ogCTGMaiBGg5+RBUloVMOohgHTAAB+ICYQVg3A5gAAAABJRU5ErkJggg==",
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAVCAIAAADAXPmFAAAAH0lEQVR42mPIywohCTGMaiBGg5uTDkloVMOohgHTAAD1myDQAPAXEQAAAABJRU5ErkJggg==",
+];
+
 function cover(index: number): string {
-  const hues = [18, 200, 96, 280, 340, 48];
-  const hue = hues[index % hues.length];
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="213" viewBox="0 0 160 213">` +
-    `<rect width="160" height="213" fill="hsl(${hue} 22% 30%)"/>` +
-    `<circle cx="118" cy="52" r="28" fill="hsl(${hue} 30% 46%)"/>` +
-    `<path d="M24 150h112M24 168h84M24 186h64" stroke="hsl(${hue} 18% 78%)" stroke-width="6" stroke-linecap="round"/>` +
-    `</svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  return COVERS[index % COVERS.length];
 }
 
 function favoriteItem(index: number, state: string) {

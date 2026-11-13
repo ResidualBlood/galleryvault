@@ -3,12 +3,12 @@
  *
  * The application route table is owned by another batch, so the e2e run mounts
  * the real views with the real Pinia stores, i18n, API client and design tokens
- * on a memory router. Screenshots therefore exercise the production components,
- * not a mock layout.
+ * on a hash router (so route pushes are observable, like the real app).
+ * Screenshots therefore exercise the production components, not a mock layout.
  */
 import { createApp, h } from "vue";
 import { createPinia } from "pinia";
-import { RouterView, createMemoryHistory, createRouter } from "vue-router";
+import { RouterView, createRouter, createWebHashHistory } from "vue-router";
 import FavoritesView from "@/views/favorites/FavoritesView.vue";
 import FavListView from "@/views/favorites/FavListView.vue";
 import DownloadsView from "@/views/downloads/DownloadsView.vue";
@@ -20,7 +20,21 @@ import "@/styles/base.css";
 
 const params = new URLSearchParams(location.search);
 const view = params.get("view") ?? "favorites";
-const theme = params.get("theme") === "light" ? "light" : "dark";
+// `shotMatrix` drives the theme through `localStorage.gv_theme`; the query
+// parameter remains the fallback for the explicit @fav-dl screenshot loop.
+const storedTheme = (() => {
+  try {
+    return localStorage.getItem("gv_theme");
+  } catch {
+    return null;
+  }
+})();
+const theme =
+  storedTheme === "light" || storedTheme === "dark"
+    ? storedTheme
+    : params.get("theme") === "light"
+      ? "light"
+      : "dark";
 const defaultPath: Record<string, string> = {
   favorites: "/favorites",
   favlist: "/favorites/1",
@@ -37,12 +51,13 @@ const Stub = {
 };
 
 const router = createRouter({
-  history: createMemoryHistory(),
+  history: createWebHashHistory(),
   routes: [
     { path: "/favorites", name: "favorites", component: FavoritesView },
     { path: "/favorites/:id", name: "favorites-list", component: FavListView },
     { path: "/downloads", name: "downloads", component: DownloadsView },
     { path: "/history", name: "history", component: HistoryView },
+    { path: "/library", name: "library", component: Stub },
     { path: "/updates", name: "updates", component: Stub },
     { path: "/gallery/:id", name: "gallery", component: Stub },
     { path: "/reader/:id/:page", name: "reader", component: Stub },
