@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";

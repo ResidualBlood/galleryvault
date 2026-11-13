@@ -143,6 +143,16 @@
       "--gv-size-touch",
       "--gv-size-reader-bar",
       "--gv-size-card-cover-aspect",
+      "--gv-size-control-xl",
+      "--gv-size-control-lg",
+      "--gv-size-control-md",
+      "--gv-size-control-sm",
+      "--gv-size-icon-dense",
+      "--gv-size-chip",
+      "--gv-size-tag",
+      "--gv-size-tag-lg",
+      "--gv-size-table-row",
+      "--gv-size-list-row",
       "--gv-cat-doujinshi",
       "--gv-cat-doujinshi-ink",
       "--gv-cat-manga",
@@ -226,7 +236,22 @@
       "--gv-color-background",
       "--gv-color-on-background",
       "--gv-color-reader-surface",
-      "--gv-color-reader-on-surface"
+      "--gv-color-reader-on-surface",
+      "--gv-tagns-female",
+      "--gv-tagns-male",
+      "--gv-tagns-mixed",
+      "--gv-tagns-artist",
+      "--gv-tagns-group",
+      "--gv-tagns-character",
+      "--gv-tagns-parody",
+      "--gv-tagns-language",
+      "--gv-tagns-cosplayer",
+      "--gv-tagns-other",
+      "--gv-tagns-reclass",
+      "--gv-tagns-location",
+      "--gv-tagns-temp",
+      "--gv-tagns-local",
+      "--gv-tagns-uploader"
     ]
   },
   "contrast": [
@@ -398,6 +423,81 @@
     {
       "fg": "--gv-cat-other-ink",
       "bg": "--gv-cat-other",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-female",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-male",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-mixed",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-artist",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-group",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-character",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-parody",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-language",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-cosplayer",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-other",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-reclass",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-location",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-temp",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-local",
+      "bg": "--gv-color-surface-container",
+      "min": 4.5
+    },
+    {
+      "fg": "--gv-tagns-uploader",
+      "bg": "--gv-color-surface-container",
       "min": 4.5
     }
   ],

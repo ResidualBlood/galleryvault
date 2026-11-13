@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script setup lang="ts">
 /**
  * Route-level wrapper for `#/online/g/:gid/:token/read/:page`.

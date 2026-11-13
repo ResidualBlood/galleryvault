@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";

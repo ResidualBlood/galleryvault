@@ -4,6 +4,7 @@
  *
  *   node scripts/check-design.mjs --tokens-only   # required tokens + contrast
  *   node scripts/check-design.mjs                 # tokens + src scan
+ *   node scripts/check-design.mjs --strict        # scan + no polish markers left
  *
  * Dependency-free. Exit 0 = clean, 1 = violations.
  *
@@ -17,6 +18,18 @@
  *   - no raw color literals (#hex / rgb() / hsl());
  *   - no literal font-size values;
  *   - no non-token border-radius values.
+ *
+ * Polish rules (files on the polish surface, i.e. src/views/** and
+ * src/components/{actions,system,gallery}/**, plus AppShell / ThemeToggle /
+ * LangToggle):
+ *   - no Unicode symbol-range characters used as icons (U+00D7, arrows,
+ *     misc technical, geometric shapes, dingbats, misc symbols and arrows);
+ *     "·" is whitelisted as a text separator;
+ *   - no native <button> / <input> / <select> / <textarea> in templates;
+ *   - `~icons/` imports only from src/components/icons/.
+ * A file whose first lines contain `<!-- gv-polish:pending -->` is exempt from
+ * the glyph / native-control rules until the owning task removes the marker.
+ * `--strict` fails while any marker remains (used by the final gate).
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
@@ -34,14 +47,19 @@ if (argv.includes("--help") || argv.includes("-h")) {
   console.log(`Usage:
   node scripts/check-design.mjs --tokens-only
   node scripts/check-design.mjs
+  node scripts/check-design.mjs --strict
 
 --tokens-only  validate tokens.required.json against tokens.css
-default        also scan src/**/*.{vue,css,ts} for raw design literals`);
+default        also scan src/**/*.{vue,css,ts} for raw design literals,
+               glyph icons and native form controls
+--strict       default scan + fail while any gv-polish:pending marker remains`);
   process.exit(0);
 }
 const tokensOnly = argv.includes("--tokens-only");
+const strict = argv.includes("--strict");
 const errors = [];
 const notes = [];
+let pendingFiles = 0;
 
 /* ------------------------------------------------------------------ CSS parse */
 
@@ -121,9 +139,13 @@ function parseFile(file, label) {
     if (block.selector.startsWith("@")) continue;
     if (block.body.includes("{")) continue;
     const theme = classifyTheme(block.stack);
+    // An @media override may legally change a global value (e.g. the coarse
+    // pointer control ladder). Themed duplicates must still agree in both the
+    // data-theme and prefers-color-scheme copies.
+    const isOverride = block.stack.some((entry) => /^@(media|supports)/.test(entry));
     for (const [name, value] of parseDeclarations(block.body)) {
       const prev = maps[theme].get(name);
-      if (prev !== undefined && prev !== value) {
+      if ((!isOverride || theme !== "global") && prev !== undefined && prev !== value) {
         errors.push(
           `${label}: ${name} defined twice in ${theme} theme with different values: "${prev}" vs "${value}"`,
         );
@@ -282,6 +304,104 @@ function checkTokens() {
 const COLOR_RE = /(?:^|[^\w-])(#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\()/;
 const CSS_WIDE = /^(inherit|initial|unset|revert|revert-layer)$/i;
 
+/* ----------------------------------------------------------- polish surface */
+
+const PENDING_MARKER = "gv-polish:pending";
+const PENDING_FILES = [
+  "src/components/AppShell.vue",
+  "src/components/ThemeToggle.vue",
+  "src/components/LangToggle.vue",
+];
+const POLISH_DIRS = [
+  "src/views/",
+  "src/components/actions/",
+  "src/components/system/",
+  "src/components/gallery/",
+];
+
+/** Where the polish rules apply (the surface being converted page by page). */
+function isPolishSurface(rel) {
+  return PENDING_FILES.includes(rel) || POLISH_DIRS.some((dir) => rel.startsWith(dir));
+}
+
+/** The marker lives in one of the first five lines of the file. */
+function hasPendingMarker(source) {
+  return source
+    .split(/\r?\n/, 5)
+    .some((line) => line.includes(PENDING_MARKER));
+}
+
+/**
+ * Character-icon detector. Ranges follow the audit's Unicode scan:
+ * multiplication sign, arrows, misc technical, geometric shapes, dingbats,
+ * misc symbols and arrows, plus the three technical/math glyphs that the old
+ * templates used (≡ ≣ ⧉). `·` stays legal as a text separator.
+ */
+const GLYPH_RE =
+  /[\u00D7\u2039\u203A\u2190-\u21FF\u2300-\u23FF\u25A0-\u27BF\u2900-\u2BFF\u2261\u2263\u29C9\u{1F300}-\u{1FAFF}]/u;
+const GLYPH_SEPARATORS = /[·•–—…]/g;
+
+function hasGlyphIcon(text) {
+  return GLYPH_RE.test(text.replace(GLYPH_SEPARATORS, ""));
+}
+
+/** Remove comments before reading .ts string literals (doc arrows are fine). */
+function stripTsComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
+    .split(/\r?\n/)
+    .map((line) => (line.trimStart().startsWith("//") ? " ".repeat(line.length) : line))
+    .join("\n");
+}
+
+function scanGlyphs(rel, source, isTypeScript) {
+  if (!isTypeScript) {
+    source.split(/\r?\n/).forEach((line, index) => {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
+      if (trimmed.startsWith("<!--")) return;
+      if (hasGlyphIcon(line)) {
+        errors.push(
+          `${rel}:${index + 1}: character icon "${line.trim().slice(0, 40)}" — use <Icon name="…"> from src/components/icons/`,
+        );
+      }
+    });
+    return;
+  }
+
+  const stripped = stripTsComments(source);
+  const literal = /(['"`])((?:\\.|(?!\1)[^\\])*)\1/g;
+  let match;
+  while ((match = literal.exec(stripped))) {
+    const value = match[2];
+    if (value.length > 400 || value.includes("\n")) continue;
+    if (!hasGlyphIcon(value)) continue;
+    const line = stripped.slice(0, match.index).split("\n").length;
+    errors.push(
+      `${rel}:${line}: character icon in string "${value.slice(0, 40)}" — use an Icon name, not a Unicode glyph`,
+    );
+  }
+}
+
+function scanNativeControls(rel, source) {
+  const start = source.indexOf("<template");
+  const end = source.lastIndexOf("</template>");
+  if (start < 0 || end <= start) return;
+  const body = source
+    .slice(start, end)
+    .replace(/<!--[\s\S]*?-->/g, (match) => match.replace(/[^\n]/g, " "));
+  body.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
+    const control = line.match(/<(button|input|select|textarea)(?=[\s/>])/);
+    if (!control) return;
+    const lineNumber = source.slice(0, start).split("\n").length + index;
+    errors.push(
+      `${rel}:${lineNumber}: native <${control[1]}> in template — use the shared control from src/components/ui/`,
+    );
+  });
+}
+
 function walk(dir, out) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -340,6 +460,22 @@ function scanFile(file) {
       }
     }
   });
+
+  /* ------------------------------------------------- polish rules (opt-out) */
+
+  if (/from\s+["']~icons\/|import\(\s*["']~icons\//.test(source) && !rel.startsWith("src/components/icons/")) {
+    errors.push(
+      `${rel}: imports from "~icons/" outside src/components/icons/ — register the icon in the registry instead`,
+    );
+  }
+
+  if (!isPolishSurface(rel)) return;
+  if (hasPendingMarker(source)) {
+    pendingFiles += 1;
+    return;
+  }
+  scanGlyphs(rel, source, rel.endsWith(".ts"));
+  if (rel.endsWith(".vue")) scanNativeControls(rel, source);
 }
 
 function scanSrc() {
@@ -364,6 +500,15 @@ function scanSrc() {
 
 checkTokens();
 if (!tokensOnly) scanSrc();
+
+if (!tokensOnly) {
+  notes.push(`polish: ${pendingFiles} file(s) still marked <!-- ${PENDING_MARKER} -->`);
+  if (strict && pendingFiles > 0) {
+    errors.push(
+      `${pendingFiles} file(s) still carry <!-- ${PENDING_MARKER} --> — --strict requires 0`,
+    );
+  }
+}
 
 for (const note of notes) console.log(`[design] ${note}`);
 if (errors.length) {

@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script setup lang="ts">
 /**
  * Online reader body (`online-direct` main path, `online-proxy` per device).

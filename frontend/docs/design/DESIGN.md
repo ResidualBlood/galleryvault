@@ -9,7 +9,7 @@
 - 参考清单：`frontend/docs/design/REFERENCES.md`
 - 取证报告：`/tmp/opencode/gv-frontend-rewrite/inv-design-refs.md`（链接均经实际打开核实）
 
-本规范只借参考对象的布局与交互模式，**不复制第三方代码、图标、截图**；Kavita 为 GPL-3.0，只取设计模式。EhViewer 因仓库 HTTP 451 无法核实，不作为参考对象。
+本规范只借参考对象的布局与交互模式，**不复制第三方代码、图标、截图**；Kavita / EhViewer_CN_SXJ 为 GPL-3.0，只取设计模式，不复制代码、资源或字符串。EhViewer_CN_SXJ（`xiaojieonly/Ehviewer_CN_SXJ`）的浏览与 tag 交互已按本地源码核实，作为浏览页、视图切换与 tag 呈现的参考；其 GPL-3.0 边界见 `REFERENCES.md`。
 
 ---
 
@@ -278,6 +278,18 @@ CSS 媒体查询不能引用自定义属性，组件内可写 `@media (min-width
 | `--gv-size-touch` | 44px | 最小点击目标 |
 | `--gv-size-reader-bar` | 56px | 阅读器上下栏 |
 | `--gv-size-card-cover-aspect` | `3 / 4` | 封面比例 |
+| `--gv-size-control-xl` | 48px | 仅登录 / 欢迎单列表单 |
+| `--gv-size-control-lg` | 40px（触屏 44） | 页面工具栏、表单、对话框 |
+| `--gv-size-control-md` | 36px（触屏 40） | 行内操作、分页、设置动作区 |
+| `--gv-size-control-sm` | 32px（触屏 36） | 卡片动作、筛选 Chip、表格行内 |
+| `--gv-size-icon-dense` | 18px | 32/36px 档控件内图标 |
+| `--gv-size-chip` | 32px | 筛选 Chip / SegmentedControl |
+| `--gv-size-tag` | 24px | 行内 / 卡片 TagChip |
+| `--gv-size-tag-lg` | 28px | 详情页 TagChip |
+| `--gv-size-table-row` | 56px | 表格视图行高 |
+| `--gv-size-list-row` | 152px（<600 为 132px） | 列表视图行高 |
+
+标签命名空间色 `--gv-tagns-<namespace>`（female / male / mixed / artist / group / character / parody / language / cosplayer / other / reclass / location / temp / local / uploader）是**主题色**：亮暗各一套，均按 `--gv-color-surface-container` 校验 ≥4.5:1，用于 namespace 色点与 chip 悬停描边，不改 `--gv-cat-*` / `--gv-favcat-*` 的固定色值。
 
 ---
 
@@ -413,15 +425,17 @@ background:
 
 ### C07 TagChip / TagGroups
 
-**结构**：按 namespace 分组：组标题 `namespace`（`label-large`，`primary`）→ `Wrap` 标签 chip。chip 内容 `namespace:tag`，namespace 加粗，tag 常规；整 chip 可点击进入搜索。
+**结构**：按 namespace 分组：组标题（`label-large`，`primary-text`）+ 计数 → `Wrap` 标签 chip。**chip 内只显示标签体**（`display` 优先，缺省回退 `name`），不带 `namespace:` 前缀；namespace 用 chip 左侧 6px 色点（`--gv-tagns-<namespace>`）区分，并在 tooltip 中给出「namespace 的 i18n 文案 + 原文 `namespace:name`」。组标题使用 `gallery.namespaces.*` 文案；缺译名时不渲染该 namespace 组（不回退原始键名）。
 
-**尺寸**：chip 高 24px，内边距 0 8px，圆角 `xs`，间距 4px；组间距 12px；组标题下间距 4px。
+**尺寸**：chip 高 24px（`--gv-size-tag`），详情页 28px（`--gv-size-tag-lg`），内边距 0 8px，圆角 `xs`，间距 4px；色点 6px、距文字 6px；组间距 12px，组标题下间距 4px。行内 / 表格展示时按 namespace 优先级取前 3–4 条，其余折叠为 `+N` chip（`+N` 的 tooltip 列出剩余数量，点击展开当前容器内的全部 tag，不做新请求）。
 
-**Token**：`--gv-color-surface-variant` 底、`--gv-color-on-surface-variant` 文字、`--gv-color-on-surface` 加粗 namespace、`--gv-color-primary-text` 组标题；hover 底 `--gv-color-surface-container-highest`；selected `--gv-color-secondary-container` / `--gv-color-on-secondary-container`。
+**Token**：`--gv-tagns-*`（色点 / 悬停描边）、`--gv-color-surface-variant`（底）、`--gv-color-on-surface-variant`（文字）、`--gv-color-on-surface`（选中的标签体）、`--gv-color-primary-text`（组标题）；hover 底 `--gv-color-surface-container-highest`；tooltip 用 `--gv-color-inverse-surface` / `--gv-color-inverse-on-surface`。
 
-**状态**：暗色主题不复用 JHenTai 浅色 pastel 底（会刺眼且对比不足），统一用 `surface-variant`；若需 namespace 色相，用 `color-mix(in srgb, var(--gv-cat-<x>) 12%, var(--gv-color-surface-variant))` 且文字仍用 `on-surface-variant`。
+**状态**：默认只读；hover / focus-visible 显示底色 + 1px `--gv-tagns-*` 描边；按下 12% 状态层；`+N` 与普通 chip 同高但用 `outline` 描边，不叠色点。
 
-参考：LANraragi（namespace:tag 搜索与分组）+ JHenTai（namespace 分组 chip）https://sugoi.gitbook.io/lanraragi/v/dev/basic-operations/searching ；https://github.com/jiangtian616/JHenTai/blob/master/lib/src/config/ui_config.dart#L66-L82
+**交互**：单击本机库 / 收藏 / 系列内的 tag → `tags=<ns>:<name>&tag_mode=and`；在线列表 / 在线详情 → `q=<ns>:"<name>$"`（`formatTagQuery` 必须幂等：已带引号或 `$` 时不重复包裹）。长按（触屏）或右键（桌面）打开同一菜单，仅提供「复制原文 `ns:name`」与「在官方页查看该 tag」（有外部链接时）；不做屏蔽、订阅。chip 点击必须 `@click.stop.prevent`，避免触发行跳转；焦点顺序按视觉顺序，`+N` 在末尾。
+
+参考 EhViewer SXJ `GalleryListScene.java:794-812`（chip 只显示标签体、按翻译开关切换）、`GalleryListScene.java:557-574`（`ns:"name$"` 包裹与幂等）、`GalleryListScene.java:828-873`（点击 tag 以 AND 追加筛选）。
 
 ### C08 GalleryDetailLayout
 
@@ -476,23 +490,34 @@ background:
 
 参考：Material 3（对话框/面板/菜单的层级与状态层）https://m3.material.io/components/navigation-drawer/overview ；https://m3.material.io/styles/elevation/overview
 
-### C12 Button / IconButton / Input / Select / Switch
+### C12 Button / IconButton / TextField / Select / Switch
 
 **结构**：
 
-- Button：`filled`（primary 填充）/ `tonal`（secondary-container）/ `outlined`（outline 描边 + primary-text 文字）/ `text`（primary-text，无底）；可带 18px 前置图标。
-- IconButton：44×44 点击区，40×40 视觉圆/方底；图标 20–24px。
-- Input：标签（外置或浮动）+ 输入区 + 辅助/错误文字；可选前置图标与清除按钮。
-- Select：与 Input 同构，右侧 chevron；展开用 Popover。
-- Switch：52×32 轨道 + 24px thumb。
+- Button：`filled`（primary 填充）/ `tonal`（secondary-container）/ `outlined`（outline 描边 + primary-text 文字）/ `text`（primary-text，无底）；可带 18/20px 前置图标（随档位）。按钮内图标 `display: block; flex: none`，图标与文字间距 8px。
+- IconButton：视觉为方形（边长 = 当前档位高度），命中区用伪元素扩到 ≥44×44；图标 20px（32/36px 档用 18px）。
+- TextField：标签（外置）+ 输入区 + 辅助/错误文字；可选前置图标与清除按钮。**工具栏内的输入不带上置标签**，用占位文字 + 前置图标 + `aria-label`；需要标签的表单使用 `Field`（标签在上）。
+- Select：与 TextField 同构，右侧 chevron（Icon，20px）居中；展开用 Popover。
+- Switch：52×32 轨道 + 24px thumb（不随档位缩放）。
 
-**尺寸**：Button 高 40px（紧凑 32px），左右内边距 16/24px，圆角 full，`label-large`；Input 高 48px（舒适 56px），圆角 `xs`，内边距 12px；Switch 轨道 52×32，thumb 24px，内边距 4px。
+**尺寸（统一三档，48 仅登录 / 欢迎）**：
 
-**Token**：`--gv-color-primary`、`--gv-color-primary-text`、`--gv-color-on-primary`、`--gv-color-secondary-container`、`--gv-color-on-secondary-container`、`--gv-color-outline`、`--gv-color-outline-variant`、`--gv-color-surface-container-lowest`、`--gv-color-error`、`--gv-radius-full/xs`、`--gv-state-*`、`--gv-size-touch`、`--gv-type-label-large`、`--gv-type-body-large`。
+| 档位 | token | 鼠标 | 触屏 | 用途 |
+| --- | --- | --- | --- | --- |
+| lg（默认） | `--gv-size-control-lg` | 40 | 44 | 页面工具栏、表单、对话框按钮 |
+| md | `--gv-size-control-md` | 36 | 40 | 行内操作、分页、设置动作区、密集工具栏 |
+| sm | `--gv-size-control-sm` | 32 | 36 | 卡片内操作、筛选 Chip、表格行内 |
+| xl | `--gv-size-control-xl` | 48 | 48 | 仅登录页与欢迎引导的单列表单 |
 
-**状态**：hover 8% / focus 12% + ring / pressed 12%；禁用文字 38%、容器 12%；Input focus 边框 2px `primary`，error 边框 `error` + 辅助文字 `error`；Switch 开启轨道 `primary` + thumb `on-primary`，关闭轨道 `surface-variant` + thumb `outline`；所有控件保留键盘可达与 `aria-*`。
+- Button / IconButton / TextField / Select / SegmentedControl **同档等高**；左右内边距 16px（sm 12px），圆角 full（字段用 `xs`）。
+- **同行对齐**：一个工具栏 / 一行只用一个档位，`align-items: center`，组内间距 8、组间 16；同一行要么都有外置标签、要么都没有。**禁止 `align-items: flex-end` 的底边对齐写法**，也禁止 40px 按钮挨着 48px 输入。
+- 工具栏按组换行，不按单个控件换行；<600 时把次要组收进「更多」。
 
-参考：Material 3（按钮/输入/开关的角色与状态层）+ Mihon（设置项控件写法）https://m3.material.io/styles/color/roles ；https://m3.material.io/foundations/interaction/states/state-layers
+**Token**：`--gv-size-control-*`、`--gv-size-icon-md`、`--gv-size-icon-dense`、`--gv-color-primary`、`--gv-color-primary-text`、`--gv-color-on-primary`、`--gv-color-secondary-container`、`--gv-color-on-secondary-container`、`--gv-color-outline`、`--gv-color-outline-variant`、`--gv-color-surface-container-lowest`、`--gv-color-error`、`--gv-radius-full/xs`、`--gv-state-*`、`--gv-type-label-large`、`--gv-type-body-large`。
+
+**状态**：hover 8% / focus 12% + ring / pressed 12%；**禁用态按容器 12% / 内容 38% 分层绘制，不整块 `opacity` 降透明**（否则暗色下文字对比会降到约 1:1）；Input focus 边框 2px `primary`，error 边框 `error` + 辅助文字 `error`；Switch 开启轨道 `primary` + thumb `on-primary`，关闭轨道 `surface-variant` + thumb `outline`；所有控件保留键盘可达与 `aria-*`。
+
+参考：Material 3（按钮/输入/开关的角色与状态层，https://m3.material.io/styles/color/roles ；https://m3.material.io/foundations/interaction/states/state-layers ）+ Mihon（设置项控件写法，https://github.com/mihonapp/mihon/blob/main/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsMainScreen.kt#L76-L160 ）。
 
 ### C13 DownloadItem
 
@@ -529,6 +554,76 @@ background:
 **状态**：1.2s 循环扫光；`prefers-reduced-motion: reduce` 时改为静态两层底色；加载超过 300ms 才显示（避免闪烁）；加载完成后淡出 120ms，不做位移。
 
 参考：Material 3（骨架屏沿用 surface 层级与 color roles）https://m3.material.io/styles/color/roles ；https://m3.material.io/foundations/design-tokens/overview
+
+### C16 Icon
+
+**结构**：全站图标统一走 `src/components/icons/`：语义名 → Material Symbols Rounded path 的注册表 + 单个 `Icon.vue`。Material Symbols 通过 `unplugin-icons` + `@iconify-json/material-symbols` 在**构建期**编译为内联 SVG（Apache-2.0），不引入图标字体、不在运行时请求、不给 `<svg>` 注入 style。页面只写 `<Icon name="语义名" />`，不直接 import `~icons/`（`check-design` 强制）。纯装饰图标 `aria-hidden="true"`；承担语义时由父级按钮的 `aria-label` 表达。同一行图标统一粗细；选中 / 已收藏用实心变体，其余用同一粗细的描边变体。
+
+**尺寸**：16 / 18 / 20 / 24px，对应 `--gv-size-icon-sm` / `--gv-size-icon-dense` / `--gv-size-icon-md` / `--gv-size-icon-lg`；控件内默认 20（`control-sm` / `control-md` 用 18），导航 24。图标 `display: block; flex: none`，消除行内基线偏移；图标与文字间距 8px。
+
+**Token**：`--gv-size-icon-*`、`--gv-color-on-surface`、`--gv-color-on-surface-variant`、`--gv-color-primary`；禁用态由父级容器 38% 内容色表达。
+
+**状态**：默认跟随 `currentColor`，不单独设色；hover / focus 由所在按钮的状态层表达；不得用 Unicode 字符或 emoji 代替图标，也不得在 `src/components/icons/` 之外 import `~icons/`。
+
+参考：Material Symbols（图标集与许可证，Apache-2.0，https://fonts.google.com/icons ；https://github.com/google/material-design-icons ）。
+
+### C17 PageHeader / Toolbar / SegmentedControl / Pager / SelectionBar
+
+**结构**：
+
+- PageHeader：返回 / 面包屑（可选）+ h1（`headline-small`）+ 计数 / 副标题 + 右侧操作；取消写死英文的 eyebrow。
+- Toolbar：左「搜索 / 筛选 / 排序」组 + 右「视图切换 / 主操作」组；内部控件继承同一档位（默认 lg）。
+- SegmentedControl：2–4 个等宽分段，选中段 `secondary-container`；用于视图切换与轻量筛选，取代各页自写的分段按钮。
+- Pager：上一页 / 页码 / 下一页 + 跳页输入；有总页数时校验范围，无总页数（按日期排序）时提供日期跳转槽。
+- SelectionBar：仅在有选中项时出现，显示「已选 N」+ 批量操作；破坏性操作放末尾或收进「更多」。
+- FilterButton：`outlined` 带生效条件数角标（0 时不显示角标）。
+
+**尺寸**：PageHeader 与内容同宽，h1 下间距 8px，操作区与标题基线居中；Toolbar 行高 = 当前档位（lg 40 / md 36），组内 gap 8、组间 16；SegmentedControl 高 `--gv-size-chip`（32），内边距 2px；Pager 控件用 md（36），跳页输入宽 72px；SelectionBar 高 56px，`secondary-container` 底。
+
+**Token**：`--gv-size-control-*`、`--gv-size-chip`、`--gv-color-secondary-container`、`--gv-color-on-secondary-container`、`--gv-color-surface-container`、`--gv-color-outline-variant`、`--gv-color-primary-text`、`--gv-type-headline-small`、`--gv-type-label-large`。
+
+**状态**：Toolbar 粘顶时加 1px `outline-variant` 分隔线；SegmentedControl 选中段 200ms 过渡、焦点环在整段内；FilterButton 角标 16px 圆点数字（9+ 显示 `9+`）；Pager 当前页 `primary` 文字 + `primary-container` 底；SelectionBar 出现 150ms 上移淡入，取消选择后立即消失。
+
+参考 EhViewer SXJ `GalleryListScene.java:1495-1543`（筛选角标 1–9 / 9+）、`GalleryListScene.java:1399-1461`（有页码时校验范围、无页码时日期跳转）。
+
+### C18 视图切换与表格列
+
+**结构**：浏览类页面（本机库 `library`、首页 `browse`、在线列表 `online`、收藏单夹、系列）在工具栏右端提供 `ViewModeToggle`（图标式分段：网格 / 列表 / 表格，带 `aria-label` 与 tooltip）。偏好按页面记忆：`localStorage.gv_view_mode = { <pageKey>: "grid" | "list" | "table" }`，不进设置页。`<600` 不提供表格；已存 table 偏好临时回退 list，**不覆盖原值**。默认：本机库 / 首页网格，在线列表列表。
+
+- 网格：封面 3:4 + 标题 2 行 + 类别角标；tag 默认不显示，卡片 hover 或 `:focus-within` 时用浮层展示前 4 条 + `+N`。
+- 列表：行高 `--gv-size-list-row`（152 / <600 132），左封面 2:3（约 96×144），右标题 2 行 + 元信息行 + 前 3–4 条 tag + `+N` + 行尾操作。
+- 表格：行高 `--gv-size-table-row`（56），列为 标题（主列）/ 类别 / tag（前 3 + `+N`）/ 页数 / 评分 / 时间 / 状态图标 / 操作；表头 `label-small`，数值右对齐；本机库表头映射 `order_by`，在线列表不可排序（EH 搜索不支持）。窄屏表格不渲染，避免横向滚动。
+
+**尺寸**：ViewModeToggle 高 `--gv-size-chip`（32），每段 32×32，图标 18；表格单元格内边距 0 12px，分隔线 1px `outline-variant`；列表行内 tag chip 24，表格行内 tag chip 24。
+
+**Token**：`--gv-size-list-row`、`--gv-size-table-row`、`--gv-size-tag`、`--gv-size-chip`、`--gv-color-surface-container`、`--gv-color-surface-variant`、`--gv-color-outline-variant`、`--gv-color-on-surface-variant`、`--gv-color-primary-text`、`--gv-color-secondary-container`。
+
+**状态**：切换 150ms 交叉淡入，不重建整页；偏好写入失败（隐私模式）时按默认视图工作，不报错；表格排序切换显示方向图标（Icon，18px）并保留滚动位置；空结果仍保留表头（仅表格视图）。
+
+参考 EhViewer SXJ `GalleryAdapterNew.java:60-68`（列表 / 网格两态的字段组合）、`Settings.java:445-450`（全局 list_mode 与重建；本仓改为按页面记忆并页内切换，不照搬全局设置）。
+
+### C19 页面骨架
+
+**结构**（浏览类页面统一）：
+
+```
+PageHeader
+Toolbar（搜索 / 筛选 / 排序 / 视图切换）
+生效筛选 Chip 行（有筛选时）
+SelectionBar（有选中项时）
+内容（网格 / 列表 / 表格）
+Pager
+```
+
+详情类页面：PageHeader（返回 + 来源面包屑）→ 封面 + 信息 → 操作行（同一档位）→ tag 分组 → 缩略图 → 次要操作。设置类页面按 C10。所有页面只从 AppShell 获得外边距，页面级不再叠加 padding；内容最大宽 `--gv-size-content-max`。
+
+**尺寸**：PageHeader 与内容同宽；区块间距 24（桌面）/ 16（<600）；操作行控件同档（默认 lg）；tag 分组按 C07；表格 / 列表行高按 C18。
+
+**Token**：`--gv-space-*`、`--gv-size-content-max`、`--gv-size-control-*`、`--gv-size-tag`、`--gv-color-outline-variant`。
+
+**状态**：加载用与最终布局同尺寸的 Skeleton；空态用 EmptyState 并给唯一主出口；错误态可重试；`+N`、视图切换、分页都不得触发额外网络请求（tag 已在列表响应内）。
+
+参考 EhViewer SXJ `GalleryListParser.java:461-473`（列表页 HTML 自带 tag，零额外请求）、`GalleryListScene.java:731-773`（条目内 tag 的聚焦呈现；本仓用行内 chip 与网格浮层替代弹层）。
 
 ---
 
@@ -572,3 +667,4 @@ background:
 2. 新组件：先补第 4 节（结构/尺寸/token/状态/参考）→ 再实现 → 跑默认检查与四张截图。
 3. 参考对象变更：必须先在 `REFERENCES.md` 增加可核实链接与许可证，再改本文件；不得凭空发明 URL 或替换参考对象。
 4. 与取证报告冲突：停下报告，不自行取舍。
+5. 打磨阶段修订（2026-11-13，batch 19）：C12 输入框默认高度 48 → 40，48 降为 `--gv-size-control-xl` 仅用于登录 / 欢迎单列表单；新增 C16–C19（Icon、PageHeader/Toolbar/Pager、视图切换、页面骨架）；`tokens.css` 新增 control ladder、`--gv-size-icon-dense`、chip / tag / table-row / list-row 与 `--gv-tagns-*` 主题色板。`check-design` 同时启用「字符图标 / 原生控件 / 待打磨标记」规则。

@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script setup lang="ts">
 /**
  * Unified read / favorite / download row for local and online galleries.
