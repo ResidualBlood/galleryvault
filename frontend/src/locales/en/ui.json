@@ -1,0 +1,53 @@
+{
+  "controls": {
+    "clear": "Clear",
+    "section": {
+      "title": "Controls",
+      "lede": "Button / IconButton / TextField / Select share one ladder; every row is equal-height and centre-aligned."
+    },
+    "size": {
+      "label": "Size",
+      "xl": "Extra large",
+      "lg": "Large",
+      "md": "Medium",
+      "sm": "Small"
+    },
+    "sample": {
+      "button": "Button",
+      "icon": "Search",
+      "field": "Search galleries",
+      "select": "Sort",
+      "switch": "Switch",
+      "checkbox": "Checkbox"
+    },
+    "alignment": "Three-step ladder and row alignment",
+    "override": "Explicit size overrides the inherited step",
+    "states": "Disabled / error / loading",
+    "disabled": "Disabled",
+    "error": "Error",
+    "loading": "Loading",
+    "field": {
+      "label": "Field label",
+      "helper": "Helper text",
+      "inline": "Inline label",
+      "error": "Enter a valid value"
+    },
+    "checkbox": {
+      "label": "Enabled",
+      "indeterminate": "Partially selected"
+    },
+    "textarea": {
+      "label": "Note",
+      "placeholder": "Write a note"
+    },
+    "slider": {
+      "label": "Page",
+      "value": "Page {value}"
+    },
+    "sort": {
+      "newest": "Newest",
+      "oldest": "Oldest"
+    },
+    "focus": "Keyboard focus"
+  }
+}
