@@ -146,6 +146,35 @@ def _reset_login_throttle_state():
         _clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_remote_cover_state():
+    """Keep the process-local remote-cover throttle from leaking across tests.
+
+    ``favorites_worker`` remembers per-gid cover failures and holds a
+    single-flight map plus a semaphore bound to the running event loop. Without
+    a reset a negative entry (or a stale loop-bound semaphore) written by one
+    test would change the next test's upstream call count.
+    """
+    def _clear() -> None:
+        from galleryvault.services import favorites_worker
+
+        clear = getattr(favorites_worker, "clear_remote_cover_negative", None)
+        if clear is not None:
+            clear()
+        inflight = getattr(favorites_worker, "_cover_inflight", None)
+        if isinstance(inflight, dict):
+            inflight.clear()
+        favorites_worker._cover_gate = None
+        favorites_worker._cover_gate_loop = None
+        favorites_worker._cover_next_slot = 0.0
+
+    _clear()
+    try:
+        yield
+    finally:
+        _clear()
+
+
 def bind_runtime(**kwargs):
     """测试唯一入口：写入 app_state，并镜像到 app.state（若已创建）。"""
     for k, v in kwargs.items():

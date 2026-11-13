@@ -324,7 +324,8 @@ async def get_thumbnail(
             response = _thumb_file_response(
                 remote_cover,
                 media_type=media_type,
-                cache_control="public, max-age=86400",
+                # Covers are immutable per gid: let browsers/proxies keep them.
+                cache_control="public, max-age=604800",
                 gallery_id=row.id,
                 page_index=page_index,
                 request=request,
@@ -343,7 +344,9 @@ async def get_thumbnail(
         is_fallback = True
 
     cache_control = (
-        "no-cache"
+        # Cover not ready yet: only a short cache so the browser retries soon
+        # instead of hammering the endpoint on every render.
+        "public, max-age=300"
         if is_fallback
         else ("public, max-age=31536000, immutable" if page_index > 0 else "public, max-age=86400")
     )
