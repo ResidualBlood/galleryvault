@@ -46,9 +46,9 @@ const { t } = useI18n();
 const ui = useUiStore();
 
 // The backend only accepts these three modes. Legacy `favorites_monitor` rows
-// can hold a display-only value (e.g. `gallery`); the old frontend's <select>
-// silently fell back to the first option, which is what we reproduce here
-// instead of echoing an invalid mode back to POST /api/settings (422).
+// can hold a display-only value (e.g. `gallery`); the old frontend's native
+// select silently fell back to the first option, which is what we reproduce
+// here instead of echoing an invalid mode back to POST /api/settings (422).
 const FAVORITE_MODES = ["incremental", "monitor_only", "force"] as const;
 
 function normalizeFavoriteMode(value: unknown): string {

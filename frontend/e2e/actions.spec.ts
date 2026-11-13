@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
@@ -7,6 +6,7 @@ import { createServer, type ViteDevServer } from "vite";
 import { addFavoritesEp } from "@/api/favorites";
 import { createDownloadEp } from "@/api/downloads";
 import { mockActionsBackend } from "./fixtures/actions/mock";
+import { freePort, watchCsp } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -14,34 +14,7 @@ const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 type Theme = "dark" | "light";
 
@@ -113,7 +86,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe("quick actions @actions", () => {
   test("card one-click favorite lands in favcat 3 with the slot colour", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const mock = await mockActionsBackend(page);
 
     await page.goto(harnessUrl({ density: "card", theme: "dark" }));
@@ -198,7 +171,7 @@ test.describe("quick actions @actions", () => {
   });
 
   test("screenshots: hover overlay, favcat picker, mobile long-press sheet", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockActionsBackend(page, { statusSequence: ["none"] });
 
     for (const theme of ["dark", "light"] as const) {

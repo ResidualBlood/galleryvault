@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "./fixtures/mock";
 import type { Page } from "@playwright/test";
+import { watchCsp } from "./support/polish";
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 const UPDATE_EVENT = "gv-pwa-update-available";
@@ -11,22 +12,6 @@ test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
 });
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function waitForServiceWorker(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -86,7 +71,7 @@ test("SW activates at /sw.js and deletes legacy gv-shell-* caches @pwa", async (
 });
 
 test("SW never caches /api/ or image requests, including cross-origin @pwa", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await page.goto("/");
   await expect(page.getByTestId("nav-drawer")).toBeVisible();
   await waitForServiceWorker(page);
@@ -161,7 +146,7 @@ test("screenshots cover dark/light x desktop/mobile @pwa", async ({ page }) => {
 });
 
 test("console has zero CSP violations @pwa", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 

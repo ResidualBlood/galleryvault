@@ -2,7 +2,6 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
-import Icon from "@/components/icons/Icon.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import NavLink from "./NavLink.vue";
 import { navFixed, navGroups } from "./navigation";
@@ -67,12 +66,11 @@ onBeforeUnmount(() => {
               {{ t("app.title") }}
             </RouterLink>
             <IconButton
+              name="close"
               :label="t('app.actions.close')"
               data-testid="nav-sheet-close"
               @click="close"
-            >
-              <Icon name="close" size="md" />
-            </IconButton>
+            />
           </header>
 
           <div class="nav-sheet__scroll">

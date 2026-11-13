@@ -142,14 +142,13 @@ function select(item: MenuItem): void {
       <template #trigger>
         <IconButton
           v-if="!showLabel"
+          :name="icon"
           :label="label"
           size="small"
           :data-testid="`${testid}-trigger`"
           @keydown="onTriggerKeydown"
           @click="onTriggerClick"
-        >
-          <Icon :name="icon" size="dense" />
-        </IconButton>
+        />
         <Button
           v-else
           variant="text"
@@ -187,13 +186,12 @@ function select(item: MenuItem): void {
     <template v-else>
       <IconButton
         v-if="!showLabel"
+        :name="icon"
         :label="label"
         size="small"
         :data-testid="`${testid}-trigger`"
         @click="openMenu"
-      >
-        <Icon :name="icon" size="dense" />
-      </IconButton>
+      />
       <Button
         v-else
         variant="text"

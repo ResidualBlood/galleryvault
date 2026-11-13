@@ -1,31 +1,15 @@
 import { expect, test } from "./fixtures/mock";
-import type { Page } from "@playwright/test";
 import {
   expectNoGlyphIcons,
   expectNoHorizontalOverflow,
   expectRowsAligned,
   shotMatrix,
+  watchCsp,
 } from "./support/polish";
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 test("layout kit keeps one control ladder per toolbar row @kit-layout", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await page.goto("/#/_kit");
 
   const layout = page.getByTestId("kit-layout");
@@ -94,7 +78,7 @@ test("layout kit keeps one control ladder per toolbar row @kit-layout", async ({
 });
 
 test("layout kit collapses groups into More at 390 @kit-layout", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#/_kit");
   await expect(page.getByTestId("kit-layout")).toBeVisible();

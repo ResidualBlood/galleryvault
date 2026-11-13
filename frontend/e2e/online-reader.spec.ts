@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
@@ -13,6 +12,7 @@ import {
   mockOnlineReaderBackend,
   type ReaderMockOptions,
 } from "./fixtures/online-reader/mock";
+import { freePort, watchCsp } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -20,17 +20,6 @@ const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true });
@@ -92,22 +81,6 @@ async function openReader(
   return { shell, metrics };
 }
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function turn(page: Page, times: number, key: "ArrowRight" | "ArrowLeft" = "ArrowRight") {
   for (let index = 0; index < times; index += 1) {
@@ -119,7 +92,7 @@ async function turn(page: Page, times: number, key: "ArrowRight" | "ArrowLeft" =
 test("direct mode reads ten pages with zero server image requests @online-reader", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const { shell, metrics } = await openReader(page);
 
   await turn(page, 9);
@@ -145,7 +118,7 @@ test("direct mode reads ten pages with zero server image requests @online-reader
 });
 
 test("a dead first image is re-resolved with retry=1 @online-reader", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const { metrics } = await openReader(page, { scenario: "retry" });
 
   await expect
@@ -167,7 +140,7 @@ test("a dead first image is re-resolved with retry=1 @online-reader", async ({ p
 test("exhausted retries offer the proxy and the official page @online-reader", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const { metrics } = await openReader(page, { scenario: "blocked" });
 
   const panel = page.getByTestId("online-reader-blocked");
@@ -209,7 +182,7 @@ test("exhausted retries offer the proxy and the official page @online-reader", a
 test("an expired page is resolved again when turned back to @online-reader", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const { metrics } = await openReader(page, { scenario: "expiry" });
 
   await expect
@@ -230,7 +203,7 @@ test("an expired page is resolved again when turned back to @online-reader", asy
 test("429 image_limit stops resolution and shows the quota @online-reader", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const { metrics } = await openReader(page, { scenario: "quota" });
 
   await turn(page, 6);
@@ -248,7 +221,7 @@ test("429 image_limit stops resolution and shows the quota @online-reader", asyn
 });
 
 test("reloading the reader resumes the stored page @online-reader", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const { shell, metrics } = await openReader(page);
 
   await turn(page, 3);
@@ -268,7 +241,7 @@ test("reloading the reader resumes the stored page @online-reader", async ({ pag
 test("continue-reading section links back to the stored page @online-reader", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await mockOnlineReaderBackend(page, { historyCount: 3 });
   await allowViteModules(page);
   await page.goto(harnessUrl({ view: "continue" }));
@@ -287,7 +260,7 @@ test("continue-reading section links back to the stored page @online-reader", as
 });
 
 test("the routed reader writes online progress only @online-reader", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const metrics = await mockOnlineReaderBackend(page);
   await page.goto(`/#/online/g/${READER_GID}/${READER_TOKEN}/read/0`);
 
@@ -308,7 +281,7 @@ test("the routed reader writes online progress only @online-reader", async ({ pa
 });
 
 test("screenshots cover dark/light x desktop/mobile @online-reader", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await mockOnlineReaderBackend(page);
   await allowViteModules(page);
   const themes = ["dark", "light"] as const;

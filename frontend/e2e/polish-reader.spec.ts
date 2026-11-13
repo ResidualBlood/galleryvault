@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
@@ -15,6 +14,8 @@ import {
   expectNoHorizontalOverflow,
   expectRowsAligned,
   shotMatrix,
+  freePort,
+  watchCsp,
 } from "./support/polish";
 
 /**
@@ -45,17 +46,6 @@ let vite: ViteDevServer;
 let READER_HARNESS = "";
 let ONLINE_HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true });
@@ -163,22 +153,6 @@ async function ladderStep(page: Page, token = "--gv-size-control-lg"): Promise<n
   return Number.parseFloat(raw);
 }
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 /**
  * Four-variant screenshots for states that need an interaction (`shotMatrix`
@@ -242,7 +216,7 @@ function boxCenters(page: Page, selector: string): Promise<number[]> {
 }
 
 test("@polish-reader bars use registry icons only (no character glyphs)", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await mockPages(page, { total: 12 });
   await openLocal(page);
   await showBars(page);
@@ -375,7 +349,7 @@ test("@polish-reader page indicator stands in while the bars are hidden", async 
 });
 
 test("@polish-reader settings sheet uses shared controls", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await mockPages(page, { total: 12 });
   await openLocal(page);
   await showBars(page);
@@ -416,7 +390,7 @@ test("@polish-reader settings sheet uses shared controls", async ({ page }) => {
 });
 
 test("@polish-reader online action strip rides with the bars", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await openOnline(page);
 
   const shell = page.getByTestId("reader-shell");

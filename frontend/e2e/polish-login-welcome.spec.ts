@@ -8,6 +8,7 @@ import {
   expectNoHorizontalOverflow,
   expectRowsAligned,
   shotMatrix,
+  watchCsp,
 } from "./support/polish";
 
 /**
@@ -27,22 +28,6 @@ import {
  */
 
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 /**
  * The shared mock fixture keeps the session authenticated so every shell route
@@ -69,7 +54,7 @@ mockTest.describe("@polish-login-welcome", () => {
   mockTest("login page is one xl step with aligned edges @polish-login-welcome", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await anonymousSession(page);
     await page.goto("/#/login");
 
@@ -148,7 +133,7 @@ mockTest.describe("@polish-login-welcome", () => {
   mockTest("welcome keeps the shared header and readable field labels @polish-login-welcome", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     // WL-07: seed the recent strip so the GalleryCard contract is measurable.
     await page.route(/\/api\/galleries\?page_size=4$/, async (route) => {
       await route.fulfill({

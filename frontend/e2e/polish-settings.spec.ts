@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { createServer as createTcpServer } from "node:net";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +10,8 @@ import {
   expectNoGlyphIcons,
   expectNoHorizontalOverflow,
   shotMatrix,
+  freePort,
+  watchCsp,
 } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -34,34 +35,7 @@ const GROUPS = [
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 function harnessUrl(options: { group?: string; theme?: "dark" | "light" } = {}): string {
   const params = new URLSearchParams({ view: "settings" });
@@ -226,7 +200,7 @@ test.describe("settings polish @polish-settings", () => {
     test.setTimeout(180_000);
     const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
     await mockSettingsBackend(page);
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await page.setViewportSize({ width: 1280, height: 900 });
 
     for (const group of GROUPS) {
@@ -260,7 +234,7 @@ test.describe("settings polish @polish-settings", () => {
     test.setTimeout(180_000);
     const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
     await mockSettingsBackend(page);
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await page.setViewportSize({ width: 390, height: 844 });
 
     for (const group of GROUPS) {

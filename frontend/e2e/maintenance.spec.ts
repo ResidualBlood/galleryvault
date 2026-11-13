@@ -1,8 +1,7 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 import { installMaintenanceMock } from "./fixtures/maintenance/mock";
 import {
@@ -24,6 +23,7 @@ import {
   updatesUnignoreEp,
   updatesUpdateEp,
 } from "@/api/updates";
+import { freePort, watchCsp } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -31,34 +31,7 @@ const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 function viewUrl(path: string, theme = "dark"): string {
   return `${HARNESS}?theme=${theme}#${path}`;
@@ -92,7 +65,7 @@ test.describe("maintenance @maintenance", () => {
   test("updates on the real app route: list, status, update, ignore and confirmed delete", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await installMaintenanceMock(page);
 
     // Routed app (not the harness): AppShell + router guard + route table must
@@ -189,7 +162,7 @@ test.describe("maintenance @maintenance", () => {
   });
 
   test("library duplicates: confirm keep, delete others and set status", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await installMaintenanceMock(page);
 
     await page.goto(viewUrl("/duplicates"));
@@ -226,7 +199,7 @@ test.describe("maintenance @maintenance", () => {
   });
 
   test("favorite duplicates: scan, unfavorite + delete and ignore", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await installMaintenanceMock(page);
 
     await page.goto(viewUrl("/duplicates/favorites"));
@@ -283,7 +256,7 @@ test.describe("maintenance @maintenance", () => {
   });
 
   test("cross-gid duplicates: safe links, confirmed remove and recompute", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await installMaintenanceMock(page);
 
     await page.goto(viewUrl("/duplicates/cross-gid"));
@@ -321,7 +294,7 @@ test.describe("maintenance @maintenance", () => {
   test("recycle: restore, confirmed purge with files and expunged redownload", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await installMaintenanceMock(page);
 
     await page.goto(viewUrl("/recycle"));
@@ -378,7 +351,7 @@ test.describe("maintenance @maintenance", () => {
   });
 
   test("integrity: scan, select all and repair", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await installMaintenanceMock(page);
 
     await page.goto(viewUrl("/integrity"));
@@ -414,7 +387,7 @@ test.describe("maintenance @maintenance", () => {
   });
 
   test("screenshots cover every view in dark/light and desktop/mobile", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await installMaintenanceMock(page);
 
     const views = [

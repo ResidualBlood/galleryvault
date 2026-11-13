@@ -44,10 +44,11 @@ with `GV_E2E_PORT`. Screenshots go to `$GV_SHOTS` when set.
 - **Specimen page**: `#/_kit` (lazy route, not in the navigation) auto-collects
   `src/views/kit/sections/*.vue`; `00-tokens.vue` renders the control ladder,
   icon sizes and the namespace palette.
-- **Pending markers**: files on the polish surface start with
-  `<!-- gv-polish:pending -->`. `check-design` skips the glyph / native-control
-  rules for marked files and prints the remaining count; `--strict` requires 0.
-  The marker is the only allowed edit to existing `.vue` files in this batch.
+- **Pending markers**: the polish surface is complete, so no file carries
+  `<!-- gv-polish:pending -->`. `check-design` still recognises the marker as an
+  opt-out for the glyph / native-control rules (it keeps page-by-page work
+  possible), but the guard now fails by default while any marker remains;
+  `--strict` is kept as a compatibility alias.
 - **E2E helpers**: `e2e/support/polish.ts` (`expectNoGlyphIcons`,
   `expectControlHeights`, `expectRowsAligned`, `expectNoHorizontalOverflow`,
   `expectTouchTargets`, `shotMatrix`); `e2e/kit.spec.ts` is the `@kit` gate.
@@ -62,6 +63,77 @@ node scripts/check-design.mjs                 # + glyph/native-control scan
 node scripts/check-design.mjs --strict        # fails while markers remain
 ```
 
+## 基础组件与页面骨架用法 (base components and page skeleton)
+
+All primitives live in `src/components/ui/`; pages compose them and never render
+a native `<button>`, `<select>` or `<textarea>` (enforced by `check-design`).
+They take a `size` from the shared control ladder (`xl` 48 / `lg` 40 / `md` 36 /
+`sm` 32; 44 / 40 / 36 on touch pointers) instead of local font-size or height
+values.
+
+| Group | Components |
+| --- | --- |
+| Actions | `Button` (filled / tonal / outlined / text, destructive), `IconButton`, `Checkbox`, `Switch`, `Slider`, `SelectionBar` |
+| Forms | `Field`, `Input`, `Select`, `TextArea`, plus `SegmentedControl` / `Tabs` for mode and section switches |
+| Structure | `PageHeader`, `Toolbar` + `ToolbarGroup`, `Pager`, `Chip`, `FilterButton` |
+| Feedback | `EmptyState`, `ErrorState`, `Skeleton`, `Dialog`, `Sheet`, `Menu`, `Popover`, `Toast` |
+| Data views | `GalleryCollection` (`grid` / `list` / `table`), `TagList` / `TagChip`, `BadgeStrip` |
+
+Icons come from the registry only: `<Icon name="settings" />` in
+`src/components/icons/Icon.vue`. Unicode glyphs and per-page `~icons/` imports
+fail the design guard. The usual page skeleton is:
+
+```vue
+<PageHeader title="…" :count="total" :crumbs="crumbs">
+  <template #actions><Button … /></template>
+</PageHeader>
+
+<Toolbar size="md">
+  <ToolbarGroup>…</ToolbarGroup>
+  <ToolbarGroup end collapsible label="…">…</ToolbarGroup>
+</Toolbar>
+
+<GalleryCollection :items="items" :mode="mode" :columns="columns">
+  <template #card="{ item }">…</template>
+</GalleryCollection>
+
+<EmptyState v-if="!loading && !items.length" … />
+```
+
+`Toolbar` provides one control size to every descendant and moves
+`collapsible` groups into its “More” menu below 600px. `PageHeader` owns the
+`h1`, count, crumbs, back button and action slot. Test hooks are stable
+`data-testid` attributes (`gv-page-header`, `gv-toolbar`, `view-mode-toggle`,
+`gallery-card`, `tag-list`, …) so mock and real E2E share the same selectors.
+
+## 视图切换与 tag 规则 (view switching and tags)
+
+**Views.** Browser surfaces use `useViewMode(pageKey)` with a page key
+(`browse`, `library`, `favorites`, …) and render through `GalleryCollection`.
+The preference is stored per page in `localStorage.gv_view_mode`
+(`{"browse":"table","library":"grid"}`), not as one global setting. Below 600px
+the table view is unavailable: the rendered mode falls back to `list` while the
+stored value is preserved, so widening the window restores the table.
+`ViewModeToggle` switches grid / list / table inside the page toolbar.
+
+**Tag placement.** List and table rows show the first 3–4 inline tags plus `+N`;
+grid cards hide tags by default and reveal the same `TagList` in an overlay on
+hover or keyboard focus (touch long-press opens a sheet). `+N` reports the real
+`tag_count`, so backend-truncated payloads still show the correct hidden count.
+
+**Chips.** The visible chip body is the tag body only — no `namespace:` prefix.
+The namespace is carried by the 6px colour dot (`--gv-tagns-<namespace>`) and by
+the tooltip / `aria-label`, which pair the localised namespace title with the raw
+`ns:name`. Chinese uses the backend `display` translation, English uses `name`;
+there is no second English translation table.
+
+**Clicks.** Local library, favorites and series filter through
+`libraryTagQuery`, appending `tags=ns:name` and pinning `tag_mode=and`; online
+search uses ExHentai's exact `ns:"name$"` syntax via `formatEhTagQuery`. Both
+helpers are idempotent, so repeated clicks do not duplicate or re-quote a tag.
+Shift / Ctrl / Cmd-click excludes a tag, and long-press or right-click opens the
+menu with “copy raw tag”. Tag navigation never issues an extra EH request.
+
 ## Directory ownership
 
 | Path | Contents / owner |
@@ -69,21 +141,21 @@ node scripts/check-design.mjs --strict        # fails while markers remain
 | `src/api/` | HTTP client plus **all** endpoint declarations, grouped by domain. |
 | `src/components/AppShell.vue` | Responsive shell (bottom bar / rail / drawer) and top bar. |
 | `src/components/ui/` | Design-system primitives: Button, IconButton, Input, Select, Switch, Dialog, Sheet, Popover, Toast, EmptyState, ErrorState, Skeleton. |
-| `src/components/actions/` | Card / detail / reader action rows (placeholder until fe-quick-actions). |
+| `src/components/actions/` | Card / detail / reader action rows (`GalleryActions`, `FavButton`, `DownloadButton`, fav picker). |
 | `src/composables/` | `useViewRequest` (token + AbortController + stale check), `usePolling`. |
 | `src/locales/{zh,en}/` | Feature JSON (`app`, `login`, `common`) plus generated `legacy.json`. |
 | `src/reader/source.ts` | `PageSource` interface for local / online-direct / online-proxy. |
 | `src/router/` | Hash route table (`routes.ts`) and navigation guard. |
 | `src/stores/` | `auth`, `settings` (theme/lang/page size), `ui` (toasts). |
-| `src/views/` | `LoginView` and the shared not-migrated placeholder. |
+| `src/views/` | One directory per surface (browse, library, online, favorites, detail, reader, updates, settings, maintenance, kit); `LoginView` stays top-level. |
 | `parity/` | Legacy endpoint/route snapshots and waivers. |
 | `scripts/` | Locale conversion, parity, dist and design guards. |
 | `e2e/` | Mocked shell tests + `e2e/real` smoke tests. |
 | `docs/design/` | Design spec, references, specimen, required-token list (fe-design). |
 
-Business views belong to later batches; this scaffold only ships the
-placeholder view, so every route is reachable without pretending a feature is
-implemented.
+Every route in `src/router/routes.ts` resolves to a real view; there is no
+placeholder route. Shared page structure is described in the two sections
+above, and `#/_kit` remains the specimen page for components.
 
 ## API client contract
 

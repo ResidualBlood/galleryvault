@@ -8,7 +8,6 @@ export interface PageHeaderCrumb {
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
-import Icon from "@/components/icons/Icon.vue";
 import IconButton from "./IconButton.vue";
 import { ensureLayoutMessages } from "./i18n/layout";
 import { useI18n } from "vue-i18n";
@@ -81,12 +80,11 @@ const countDescription = computed(() => {
         <IconButton
           v-if="back"
           class="page-header__back"
+          name="back"
           :label="backLabel || t('kit.pageHeader.back')"
           :data-testid="backTestid"
           @click="$emit('back')"
-        >
-          <Icon name="back" />
-        </IconButton>
+        />
         <div class="page-header__titles">
           <div class="page-header__heading">
             <h1 class="page-header__title" :data-testid="titleTestid">{{ title }}</h1>

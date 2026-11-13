@@ -6,7 +6,6 @@ import Button from "@/components/ui/Button.vue";
 import Field from "@/components/ui/Field.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import Input from "@/components/ui/Input.vue";
-import Icon from "@/components/icons/Icon.vue";
 import LangToggle from "@/components/LangToggle.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -79,13 +78,12 @@ onMounted(() => {
               <IconButton
                 class="login__reveal"
                 size="xl"
+                name="visibility"
                 :selected="revealPassword"
                 :label="revealPassword ? t('login.hidePassword') : t('login.showPassword')"
                 data-testid="login-reveal"
                 @click="revealPassword = !revealPassword"
-              >
-                <Icon name="visibility" size="md" />
-              </IconButton>
+              />
             </div>
           </Field>
           <Button

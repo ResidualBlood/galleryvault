@@ -14,7 +14,6 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
-import Icon from "@/components/icons/Icon.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import Sheet from "@/components/ui/Sheet.vue";
 import FavButton from "./FavButton.vue";
@@ -155,14 +154,13 @@ onBeforeUnmount(clearPress);
     </Button>
     <IconButton
       v-else-if="showRead"
+      name="visibility"
       :label="t('actions.read')"
       :size="density === 'card' ? 'sm' : 'lg'"
       :disabled="disabled"
       data-testid="action-read"
       @click="read"
-    >
-      <Icon name="visibility" :size="density === 'card' ? 'dense' : 'md'" />
-    </IconButton>
+    />
 
     <FavButton
       :gid="gid"

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "./fixtures/mock";
 import { installLibraryMock } from "./fixtures/library/seed";
 import { installLibManageMock } from "./fixtures/lib-manage/mock";
+import { watchCsp } from "./support/polish";
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
@@ -10,22 +11,6 @@ test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
 });
 
-function watchConsole(page: import("@playwright/test").Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function libraryGrid(page: import("@playwright/test").Page) {
   const grid = page.getByTestId("library-grid");
@@ -36,7 +21,7 @@ async function libraryGrid(page: import("@playwright/test").Page) {
 test("library batch delete asks for confirmation twice and calls delete-bulk @lib-manage", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await installLibraryMock(page, { total: 12 });
   const state = await installLibManageMock(page);
 
@@ -69,7 +54,7 @@ test("library batch delete asks for confirmation twice and calls delete-bulk @li
 test("filtered delete requires typing the match count above the threshold @lib-manage", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await installLibraryMock(page, { total: 12 });
   const state = await installLibManageMock(page);
 
@@ -107,7 +92,7 @@ test("filtered delete requires typing the match count above the threshold @lib-m
 test("library saved searches, new list and add-to-list call the API @lib-manage", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await installLibraryMock(page, { total: 12 });
   const state = await installLibManageMock(page);
 
@@ -147,7 +132,7 @@ test("library saved searches, new list and add-to-list call the API @lib-manage"
 test("series selection survives paging and batch download uses both sources @lib-manage", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await page.addInitScript(() => localStorage.setItem("gv_page_size", "2"));
   const state = await installLibManageMock(page);
 
@@ -190,7 +175,7 @@ test("series selection survives paging and batch download uses both sources @lib
 test("series create, rename, rebuild, add candidates, remove and delete @lib-manage", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const state = await installLibManageMock(page);
 
   await page.goto("/#/series");
@@ -237,7 +222,7 @@ test("series create, rename, rebuild, add candidates, remove and delete @lib-man
 });
 
 test("tags search, namespace filter, reload and tag sync @lib-manage", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const state = await installLibManageMock(page);
 
   await page.goto("/#/tags");
@@ -268,7 +253,7 @@ test("tags search, namespace filter, reload and tag sync @lib-manage", async ({ 
 test("gallery manage section edits local fields, notes, lists and deletes @lib-manage", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const state = await installLibManageMock(page);
 
   await page.goto("/#/gallery/5");

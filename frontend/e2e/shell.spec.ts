@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "./fixtures/mock";
+import { watchCsp } from "./support/polish";
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
@@ -8,25 +9,9 @@ test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
 });
 
-function watchConsole(page: import("@playwright/test").Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 test("login submits and lands on the app shell @shell", async ({ page, mock }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   mock.expired = true;
 
   await page.goto("/");
@@ -132,7 +117,7 @@ test("screenshots cover dark/light x desktop/mobile @shell", async ({ page }) =>
 });
 
 test("console has zero CSP violations @shell", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 

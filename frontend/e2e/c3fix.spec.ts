@@ -1,4 +1,3 @@
-import { createServer as createTcpServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
@@ -8,6 +7,7 @@ import { expect, test } from "./fixtures/mock";
 import { mockFavDlBackend } from "./fixtures/fav-dl/mock";
 import { installMaintenanceMock } from "./fixtures/maintenance/mock";
 import { mockSettingsBackend } from "./fixtures/settings-sys/mock";
+import { freePort } from "./support/polish";
 
 /**
  * Regression coverage for the four product defects found by the C3 gate
@@ -23,17 +23,6 @@ const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 let vite: ViteDevServer;
 let HARNESS_ROOT = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 function harnessUrl(name: string, params: Record<string, string> = {}): string {
   const query = new URLSearchParams(params);

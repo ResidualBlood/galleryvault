@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
@@ -11,6 +10,8 @@ import {
   expectNoHorizontalOverflow,
   expectRowsAligned,
   shotMatrix,
+  freePort,
+  watchCsp,
 } from "./support/polish";
 import { restoreGalleriesEp } from "@/api/recycle";
 import { redownloadGalleryEp, scanIntegrityEp } from "@/api/integrity";
@@ -43,34 +44,7 @@ const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
-function watchCsp(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 function harnessUrl(path: string, options: { theme?: string; lang?: string } = {}): string {
   const params = new URLSearchParams();

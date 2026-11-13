@@ -6,6 +6,7 @@ import {
   LARGE_GALLERY_ID,
   SMALL_GALLERY_ID,
 } from "./fixtures/gallery/data";
+import { watchCsp } from "./support/polish";
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
@@ -13,27 +14,11 @@ test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
 });
 
-function watchConsole(page: import("@playwright/test").Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 test("renders metadata and a bounded thumbnail window for 1000 pages @detail", async ({
   page,
 }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await mockGalleryBackend(page);
 
   await page.goto(`/#/gallery/${LARGE_GALLERY_ID}`);
@@ -115,7 +100,7 @@ test("screenshots cover dark/light x desktop/mobile @detail", async ({ page }) =
 });
 
 test("console has zero CSP violations on the detail route @detail", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await mockGalleryBackend(page);

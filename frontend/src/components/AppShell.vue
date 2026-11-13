@@ -144,12 +144,11 @@ onBeforeUnmount(() => {
     <header v-if="!immersive" class="shell__topbar" data-testid="topbar">
       <IconButton
         class="shell__menu"
+        name="menu"
         :label="t('app.actions.menu')"
         data-testid="drawer-toggle"
         @click="toggleNav"
-      >
-        <Icon name="menu" size="md" />
-      </IconButton>
+      />
       <RouterLink to="/browse" class="shell__brand">{{ t("app.title") }}</RouterLink>
       <template v-if="showPageTitle">
         <span class="shell__divider" aria-hidden="true" />
@@ -160,17 +159,21 @@ onBeforeUnmount(() => {
         <span class="shell__divider shell__divider--actions" aria-hidden="true" />
         <Popover align="end">
           <template #trigger>
-            <IconButton :label="t('app.actions.notifications')" data-testid="notifications">
-              <Icon name="notifications" size="md" />
-            </IconButton>
+            <IconButton
+              name="notifications"
+              :label="t('app.actions.notifications')"
+              data-testid="notifications"
+            />
           </template>
           <NotificationPanel :poll-ms="0" />
         </Popover>
         <Popover v-if="!compact" align="end">
           <template #trigger>
-            <IconButton :label="globalControlsLabel" data-testid="global-controls-toggle">
-              <Icon name="global-controls" size="md" />
-            </IconButton>
+            <IconButton
+              name="global-controls"
+              :label="globalControlsLabel"
+              data-testid="global-controls-toggle"
+            />
           </template>
           <GlobalControls class="shell__controls-popover" />
         </Popover>
@@ -178,9 +181,12 @@ onBeforeUnmount(() => {
           <span class="shell__divider shell__divider--actions" aria-hidden="true" />
           <ThemeToggle />
           <LangToggle />
-          <IconButton :label="t('app.actions.logout')" data-testid="logout" @click="signOut">
-            <Icon name="logout" size="md" />
-          </IconButton>
+          <IconButton
+            name="logout"
+            :label="t('app.actions.logout')"
+            data-testid="logout"
+            @click="signOut"
+          />
         </template>
       </div>
     </header>
@@ -271,9 +277,12 @@ onBeforeUnmount(() => {
           <div class="shell__account-row">
             <ThemeToggle />
             <LangToggle />
-            <IconButton :label="t('app.actions.logout')" data-testid="logout" @click="signOut">
-              <Icon name="logout" size="md" />
-            </IconButton>
+            <IconButton
+              name="logout"
+              :label="t('app.actions.logout')"
+              data-testid="logout"
+              @click="signOut"
+            />
           </div>
         </div>
       </template>

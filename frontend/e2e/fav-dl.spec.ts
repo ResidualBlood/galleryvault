@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
@@ -29,6 +28,7 @@ import {
 import { sessionEp } from "@/api/auth";
 import { notificationsEp } from "@/api/system";
 import { mockFavDlBackend, type FavDlMockState } from "./fixtures/fav-dl/mock";
+import { freePort, watchCsp } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -36,34 +36,7 @@ const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 type Theme = "dark" | "light";
 type HarnessView = "favorites" | "favlist" | "downloads" | "history";
@@ -162,7 +135,7 @@ test.beforeEach(async ({ page, baseURL }) => {
 
 test.describe("favourites / downloads / history @fav-dl", () => {
   test("favourites overview saves each folder's monitor config @fav-dl", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await mockFavDlBackend(page);
 
     await page.goto(harnessUrl({ view: "favorites" }));
@@ -203,7 +176,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
 
   test("favlist sends all 15 filters through one constructor, then downloads / moves / removes",
     async ({ page }) => {
-      const csp = watchConsole(page);
+      const csp = watchCsp(page);
       const state = await mockFavDlBackend(page);
 
       await page.goto(
@@ -309,7 +282,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
 
   test("downloads page pauses polling while hidden, then handles batch / retry / delete / pause",
     async ({ page }) => {
-      const csp = watchConsole(page);
+      const csp = watchCsp(page);
       const state = await mockFavDlBackend(page);
 
       await page.goto(harnessUrl({ view: "downloads" }));
@@ -424,7 +397,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
   test("history clears all history, all progress and one gallery's progress @fav-dl", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const state = await mockFavDlBackend(page);
 
     await page.goto(harnessUrl({ view: "history" }));
@@ -458,7 +431,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
 
   test("real app routes mount the migrated favourites / favlist / downloads / history views @fav-dl",
     async ({ page }) => {
-      const csp = watchConsole(page);
+      const csp = watchCsp(page);
       await installShellMock(page);
       await mockFavDlBackend(page);
 
@@ -484,7 +457,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
 
   test("screenshots: favourites / favlist / downloads / history in dark and light, desktop and mobile @fav-dl",
     async ({ page }) => {
-      const csp = watchConsole(page);
+      const csp = watchCsp(page);
       await mockFavDlBackend(page);
 
       const views: Array<{ view: HarnessView; path: string; testid: string; ready: string }> = [

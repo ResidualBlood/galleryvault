@@ -3,8 +3,8 @@
  * GalleryVault design guard.
  *
  *   node scripts/check-design.mjs --tokens-only   # required tokens + contrast
- *   node scripts/check-design.mjs                 # tokens + src scan
- *   node scripts/check-design.mjs --strict        # scan + no polish markers left
+ *   node scripts/check-design.mjs                 # tokens + src scan, strict
+ *   node scripts/check-design.mjs --strict        # explicit alias (compatibility)
  *
  * Dependency-free. Exit 0 = clean, 1 = violations.
  *
@@ -27,9 +27,10 @@
  *     "·" is whitelisted as a text separator;
  *   - no native <button> / <input> / <select> / <textarea> in templates;
  *   - `~icons/` imports only from src/components/icons/.
- * A file whose first lines contain `<!-- gv-polish:pending -->` is exempt from
- * the glyph / native-control rules until the owning task removes the marker.
- * `--strict` fails while any marker remains (used by the final gate).
+ * A file whose first lines contain `<!-- gv-polish:pending -->` is still exempt
+ * from the glyph / native-control rules, kept for future page-by-page work, but
+ * the guard now fails whenever any marker remains. `--strict` is a no-op alias
+ * kept so existing CI invocations keep working.
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
@@ -51,12 +52,15 @@ if (argv.includes("--help") || argv.includes("-h")) {
 
 --tokens-only  validate tokens.required.json against tokens.css
 default        also scan src/**/*.{vue,css,ts} for raw design literals,
-               glyph icons and native form controls
---strict       default scan + fail while any gv-polish:pending marker remains`);
+               glyph icons and native form controls; fails if any
+               gv-polish:pending marker remains
+--strict       compatibility alias (default is already strict)`);
   process.exit(0);
 }
 const tokensOnly = argv.includes("--tokens-only");
-const strict = argv.includes("--strict");
+// Marker removals are complete; the guard is strict by default. `--strict` is
+// accepted as a compatibility alias so existing gate commands keep working.
+const strict = true;
 const errors = [];
 const notes = [];
 let pendingFiles = 0;
@@ -505,7 +509,7 @@ if (!tokensOnly) {
   notes.push(`polish: ${pendingFiles} file(s) still marked <!-- ${PENDING_MARKER} -->`);
   if (strict && pendingFiles > 0) {
     errors.push(
-      `${pendingFiles} file(s) still carry <!-- ${PENDING_MARKER} --> — --strict requires 0`,
+      `${pendingFiles} file(s) still carry <!-- ${PENDING_MARKER} --> — the design guard requires 0`,
     );
   }
 }

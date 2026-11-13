@@ -3,6 +3,7 @@ import {
   expectNoGlyphIcons,
   expectNoHorizontalOverflow,
   shotMatrix,
+  watchCsp,
 } from "./support/polish";
 
 /**
@@ -18,13 +19,8 @@ import {
 test("tag kit stays language-reactive, clickable and truncates with +N @kit-tags", async ({
   page,
 }) => {
-  const cspViolations: string[] = [];
+  const cspViolations = watchCsp(page);
   const apiRequests: string[] = [];
-  page.on("console", (message) => {
-    if (/content security policy/i.test(message.text())) {
-      cspViolations.push(message.text());
-    }
-  });
   page.on("request", (request) => {
     const path = new URL(request.url()).pathname;
     if (path.startsWith("/api")) apiRequests.push(path);

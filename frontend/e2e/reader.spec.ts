@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
@@ -8,6 +7,7 @@ import { readerPagePath } from "../src/api/reader";
 import { mockGalleryBackend } from "./fixtures/gallery/mock";
 import { SMALL_GALLERY_ID } from "./fixtures/gallery/data";
 import { expect, test } from "./fixtures/mock";
+import { freePort, watchCsp } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -16,17 +16,6 @@ const MODES = ["ltr", "rtl", "double", "double-rtl", "webtoon"] as const;
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true });
@@ -129,22 +118,6 @@ async function openReader(page: Page, options: ReaderOptions = {}): Promise<void
   await expect(page.getByTestId("reader-loading")).toHaveCount(0);
 }
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 test("keyboard turns ten pages without dropping one @reader", async ({ page }) => {
   await mockPages(page, { total: 40 });
@@ -456,7 +429,7 @@ test("five modes have dark/light desktop/mobile screenshots @reader", async ({ p
 });
 
 test("reader has zero CSP violations across modes @reader", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await mockPages(page, { total: 12 });

@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 
@@ -21,6 +22,37 @@ const GLYPH_SOURCE =
 
 const SHOT_DIR =
   process.env.GV_SHOTS || "/tmp/opencode/gv-frontend-rewrite/shots/polish";
+
+/** Collect CSP console/page errors raised by a page (one watcher per page). */
+export function watchCsp(page: Page): string[] {
+  const issues: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    if (
+      message.type() === "error" &&
+      /content security policy|refused to (?:load|execute|connect)/i.test(text)
+    ) {
+      issues.push(text);
+    }
+  });
+  page.on("pageerror", (error) => {
+    if (/content security policy/i.test(error.message)) issues.push(error.message);
+  });
+  return issues;
+}
+
+/** Reserve an ephemeral 127.0.0.1 TCP port for a per-suite Vite harness. */
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createTcpServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      probe.close(() => resolve(port));
+    });
+  });
+}
 
 export interface RowsAlignedOptions {
   /** CSS selector for the row container. */

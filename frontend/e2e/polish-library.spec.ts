@@ -9,6 +9,7 @@ import {
   expectNoHorizontalOverflow,
   expectRowsAligned,
   shotMatrix,
+  watchCsp,
 } from "./support/polish";
 
 /**
@@ -35,22 +36,6 @@ test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
 });
 
-function watchCsp(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function openLibrary(
   page: Page,

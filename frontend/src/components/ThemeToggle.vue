@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import Icon from "@/components/icons/Icon.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import type { IconName } from "@/components/icons/registry";
 import { useSettingsStore } from "@/stores/settings";
@@ -30,7 +29,10 @@ const label = computed(() => `${t("app.actions.theme")}: ${stateLabel.value}`);
 </script>
 
 <template>
-  <IconButton :label="label" data-testid="theme-toggle" @click="settings.cycleTheme()">
-    <Icon :name="icon" size="md" />
-  </IconButton>
+  <IconButton
+    :name="icon"
+    :label="label"
+    data-testid="theme-toggle"
+    @click="settings.cycleTheme()"
+  />
 </template>

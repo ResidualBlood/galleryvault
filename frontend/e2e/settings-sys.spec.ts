@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
@@ -20,7 +19,7 @@ import {
 import { cancelArchiveEp, createArchiveEp, previewArchiveEp } from "@/api/archive";
 import { changePasswordEp } from "@/api/auth";
 import { checkAllFavoritesEp } from "@/api/favorites";
-import { expectControlHeights } from "./support/polish";
+import { expectControlHeights, freePort, watchCsp } from "./support/polish";
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
@@ -44,34 +43,7 @@ const SECRET_SENTINEL = "do-not-render-this-secret";
 let vite: ViteDevServer;
 let HARNESS = "";
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 function harnessUrl(
   view: string,
@@ -257,7 +229,7 @@ test.describe("settings & system @settings-sys", () => {
     test.setTimeout(240_000);
     const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
     await mockSettingsBackend(page);
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
 
     for (const theme of ["dark", "light"] as const) {
       for (const viewport of [
@@ -281,7 +253,7 @@ test.describe("settings & system @settings-sys", () => {
     test.setTimeout(240_000);
     const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
     await mockSettingsBackend(page, { cookieState: "not_logged_in" });
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
 
     const surfaces = [
       "logs",
@@ -513,7 +485,7 @@ test.describe("settings & system @settings-sys", () => {
   test("real app route: #/settings saves one group through AppShell", async ({ page }) => {
     const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
     const mock = await mockSettingsBackend(page);
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
 
     // Routed app, not the harness: the router guard, the route table and
     // AppShell all have to resolve #/settings to the migrated SettingsView.

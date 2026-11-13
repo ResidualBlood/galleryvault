@@ -8,6 +8,7 @@ import {
   expectNoHorizontalOverflow,
   expectRowsAligned,
   shotMatrix,
+  watchCsp,
 } from "./support/polish";
 
 /**
@@ -33,22 +34,6 @@ import {
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
-function watchCsp(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function mockJson(page: Page, pattern: string, body: unknown): Promise<void> {
   await page.route(pattern, async (route) => {

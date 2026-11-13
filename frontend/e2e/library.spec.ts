@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "./fixtures/mock";
 import { installLibraryMock } from "./fixtures/library/seed";
+import { watchCsp } from "./support/polish";
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
@@ -9,22 +10,6 @@ test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
 });
 
-function watchConsole(page: import("@playwright/test").Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function libraryGrid(page: import("@playwright/test").Page) {
   const grid = page.getByTestId("library-grid");
@@ -33,7 +18,7 @@ async function libraryGrid(page: import("@playwright/test").Page) {
 }
 
 test("home shows continue reading, latest and random entry @library", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await installLibraryMock(page);
 
   await page.goto("/#/browse");
@@ -91,7 +76,7 @@ test("library search, tag suggestions, sort and page size @library", async ({ pa
 });
 
 test("virtual grid keeps the DOM small and restores scroll after detail @library", async ({ page }) => {
-  const csp = watchConsole(page);
+  const csp = watchCsp(page);
   await page.addInitScript(() => {
     localStorage.setItem("gv_page_size", "500");
   });

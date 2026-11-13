@@ -11,6 +11,7 @@ import { mockOnlineReaderBackend } from "./fixtures/online-reader/mock";
 import { READER_GID, READER_TOKEN } from "./fixtures/online-reader/data";
 import { addFavoritesEp } from "@/api/favorites";
 import { createDownloadEp } from "@/api/downloads";
+import { watchCsp } from "./support/polish";
 
 /**
  * Routed-app coverage for the quick actions batch: the same GalleryActions /
@@ -25,22 +26,6 @@ import { createDownloadEp } from "@/api/downloads";
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function onlineWithActions(
   page: Page,
@@ -73,7 +58,7 @@ test.beforeEach(async ({ page, baseURL }) => {
 
 test.describe("quick actions wired into the real routes @actions-wired", () => {
   test("online list card favourite flips the card badge to favourited", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const mock = await onlineWithActions(page);
 
     await page.goto("/#/online");
@@ -96,7 +81,7 @@ test.describe("quick actions wired into the real routes @actions-wired", () => {
   });
 
   test("online detail download enqueues and shows the downloading badge", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const mock = await onlineWithActions(page, { statusSequence: ["none", "downloading"] });
 
     await page.goto(`/#/online/g/${LIST_GID}/${LIST_TOKEN}`);
@@ -122,7 +107,7 @@ test.describe("quick actions wired into the real routes @actions-wired", () => {
   });
 
   test("online reader toolbar favourite and end panel use the wired actions", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const mock = await mockActionsBackend(page, { fallbackUnknown: true });
     await mockOnlineReaderBackend(page);
 
@@ -159,7 +144,7 @@ test.describe("quick actions wired into the real routes @actions-wired", () => {
   });
 
   test("local detail favourite writes through the cloud-confirmed store", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     const mock = await mockActionsBackend(page, { fallbackUnknown: true });
     await mockGalleryBackend(page);
 
@@ -180,7 +165,7 @@ test.describe("quick actions wired into the real routes @actions-wired", () => {
   test("cloud-rejected favourite keeps the card unchanged and surfaces an error", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await onlineWithActions(page, { addCloudFail: true });
 
     await page.goto("/#/online");

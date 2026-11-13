@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { ehSearchEp } from "../src/api/eh";
 import { mockOnlineBackend } from "./fixtures/online/mock";
 import {
@@ -10,25 +10,10 @@ import {
   NEWER_TOKEN,
   PAGE_CURSOR,
 } from "./fixtures/online/data";
+import { watchCsp } from "./support/polish";
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 function detailUrl(gid = LIST_GID, token = LIST_TOKEN): string {
   return `/#/online/g/${gid}/${token}`;
@@ -40,7 +25,7 @@ test.beforeAll(() => {
 
 test.describe("online browse @online", () => {
   test("search updates the URL and renders matching cards", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockOnlineBackend(page);
 
     await page.goto("/#/discover");
@@ -61,7 +46,7 @@ test.describe("online browse @online", () => {
   test("cursor infinite scroll loads page two and back restores the list", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockOnlineBackend(page);
     const searches: string[] = [];
     page.on("request", (request) => {
@@ -103,7 +88,7 @@ test.describe("online browse @online", () => {
   test("detail renders contract fields, official link, no iframe and page placeholders", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockOnlineBackend(page);
 
     await page.goto(detailUrl());
@@ -138,7 +123,7 @@ test.describe("online browse @online", () => {
   test("in-library fixture offers the local copy and newer-version navigation", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockOnlineBackend(page);
 
     await page.goto(detailUrl(NEWER_GID, NEWER_TOKEN));
@@ -152,7 +137,7 @@ test.describe("online browse @online", () => {
   });
 
   test("preview thumbnails load one page at a time on mobile", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await mockOnlineBackend(page);
     const requested: string[] = [];
@@ -174,7 +159,7 @@ test.describe("online browse @online", () => {
   });
 
   test("auth state points at settings, banned state shows a ban notice", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockOnlineBackend(page);
 
     await page.goto("/#/online?q=__auth__");
@@ -193,7 +178,7 @@ test.describe("online browse @online", () => {
   });
 
   test("screenshots cover dark/light x desktop/mobile", async ({ page }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockOnlineBackend(page);
     const themes = ["dark", "light"] as const;
     const viewports = [

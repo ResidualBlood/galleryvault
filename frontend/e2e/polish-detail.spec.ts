@@ -13,6 +13,7 @@ import {
   expectNoHorizontalOverflow,
   expectRowsAligned,
   shotMatrix,
+  watchCsp,
 } from "./support/polish";
 
 /**
@@ -79,22 +80,6 @@ async function mockOnlineDetailVariant(
   });
 }
 
-function watchConsole(page: Page): string[] {
-  const issues: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (
-      message.type() === "error" &&
-      /content security policy|refused to (?:load|execute|connect)/i.test(text)
-    ) {
-      issues.push(text);
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (/content security policy/i.test(error.message)) issues.push(error.message);
-  });
-  return issues;
-}
 
 async function controlStep(page: Page, token = "--gv-size-control-lg"): Promise<number> {
   return page.evaluate((name) => {
@@ -211,7 +196,7 @@ test.describe("polish: gallery detail pages @polish-detail", () => {
   test("local detail: header, meta grid, aligned action row, four screenshots @polish-detail", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockGalleryBackend(page);
     await page.goto(LOCAL_URL);
     await expect(page.getByTestId("gallery-detail")).toBeVisible();
@@ -246,7 +231,7 @@ test.describe("polish: gallery detail pages @polish-detail", () => {
   test("online detail: header, aligned action row with link entries, four screenshots @polish-detail", async ({
     page,
   }) => {
-    const csp = watchConsole(page);
+    const csp = watchCsp(page);
     await mockOnlineBackend(page);
     await mockOnlineDetailVariant(page, { display: true });
     await page.goto(ONLINE_URL);
