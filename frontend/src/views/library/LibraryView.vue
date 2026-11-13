@@ -297,7 +297,7 @@ function onFiltersCommit(): void {
 }
 
 function onSearch(): void {
-  pushFilters({ ...filters.value, term: filters.value.term });
+  pushFilters(filters.value);
 }
 
 function onSelectTag(tag: TagSuggestion): void {
@@ -600,12 +600,7 @@ onBeforeUnmount(() => {
       @select="onSelectionChange"
     >
       <template #card="{ item }">
-        <div
-          class="library-card"
-          :class="{ 'library-card--selected': selection.has(item.id) }"
-          data-testid="library-card"
-          :data-id="item.id"
-        >
+        <div class="library-card" data-testid="library-card" :data-id="item.id">
           <GalleryCard
             :item="item"
             :variant="viewMode === 'list' ? 'list' : 'grid'"
@@ -681,12 +676,6 @@ onBeforeUnmount(() => {
 .library-card {
   position: relative;
   min-width: 0;
-}
-
-.library-card--selected {
-  outline: 2px solid var(--gv-color-primary);
-  outline-offset: 2px;
-  border-radius: var(--gv-radius-md);
 }
 
 .library__skeletons {
