@@ -4,6 +4,7 @@ import {
   annotateUnverified,
   expect,
   newApiContext,
+  screenshot,
   test,
 } from "./support";
 
@@ -277,27 +278,38 @@ test("N-03 快捷操作：指定 favcat 收藏 / 取消 / 一键下载入口 @pa
 });
 
 test("N-04 在线阅读回退：按设备切服务器代理 / 官方页入口 @parity", async ({ app }) => {
-  const { page } = app;
   const item = sample;
   if (!item) return;
 
-  let proxyImages = 0;
+  // The `app` fixture has already loaded "/" once, so `page.addInitScript` would
+  // only apply to the next *document* load. The reader URL is a same-document
+  // hash navigation, so the script never ran and the device stayed on "direct".
+  // Register it on the context and open a fresh page: its first navigation is a
+  // full document load, and the stored mode is in place before the app boots.
+  await app.context.addInitScript(() => {
+    localStorage.setItem("gv_online_image_mode", "proxy");
+  });
+
+  const proxyPages: number[] = [];
+  let hathDirect = 0;
+  const page = await app.context.newPage();
   page.on("request", (request) => {
-    if (
-      /\/api\/eh\/galleries\/\d+\/[^/]+\/pages\/\d+\/image$/.test(
-        new URL(request.url()).pathname,
-      )
-    ) {
-      proxyImages += 1;
-    }
+    const url = new URL(request.url());
+    if (url.hostname.endsWith("hath.network")) hathDirect += 1;
+    const match = /\/api\/eh\/galleries\/\d+\/[^/]+\/pages\/(\d+)\/image$/.exec(
+      url.pathname,
+    );
+    if (match) proxyPages.push(Number(match[1]));
   });
 
   try {
-    await page.addInitScript(() => localStorage.setItem("gv_online_image_mode", "proxy"));
     await page.goto(`/#/online/g/${item.gid}/${item.token}/read/1`);
     await expect(page.getByTestId("online-reader")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("online-reader-mode")).toHaveAttribute("data-mode", "proxy");
-    await expect.poll(() => proxyImages, { timeout: 30_000 }).toBeGreaterThan(0);
+    await expect.poll(() => proxyPages.length, { timeout: 30_000 }).toBeGreaterThan(0);
+    // Proxy mode renders the page through /pages/{n}/image and never touches a
+    // H@H node directly (the point of the fallback).
+    expect(hathDirect).toBe(0);
 
     if (await page.getByTestId("online-reader-blocked").isVisible().catch(() => false)) {
       await expect(page.getByTestId("online-reader-official")).toHaveAttribute(
@@ -309,8 +321,8 @@ test("N-04 在线阅读回退：按设备切服务器代理 / 官方页入口 @p
         "proxy path stayed healthy; blocked-panel official link was not rendered (detail link covered by N-01)",
       );
     }
+    await screenshot(page, "N-04", { fullPage: false });
   } finally {
-    await page.evaluate(() => localStorage.setItem("gv_online_image_mode", "direct"));
+    await page.close();
   }
-  await app.shot("N-04", { fullPage: false });
 });
