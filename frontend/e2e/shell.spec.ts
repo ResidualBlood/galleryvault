@@ -139,8 +139,13 @@ test("console has zero CSP violations @shell", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("nav-drawer")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByTestId("theme-toggle").click();
-  await page.getByTestId("lang-toggle").click();
+  // Below 840px theme / language / logout live in the navigation sheet
+  // (audit SH-06: the topbar only keeps notifications + global controls).
+  await page.getByTestId("bottom-more").click();
+  const sheet = page.getByTestId("nav-sheet");
+  await expect(sheet).toBeVisible();
+  await sheet.getByTestId("theme-toggle").click();
+  await sheet.getByTestId("lang-toggle").click();
   await expect(page.getByTestId("nav-bottom")).toBeVisible();
 
   expect(csp).toEqual([]);

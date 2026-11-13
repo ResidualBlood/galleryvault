@@ -1,7 +1,7 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
 import {
   clearNotifications,
@@ -93,6 +93,7 @@ onBeforeUnmount(() => {
   <section class="notifications" data-testid="notification-panel">
     <header class="notifications__head">
       <div class="notifications__title-line">
+        <Icon class="notifications__icon" name="notifications" size="md" />
         <h2 class="notifications__title">{{ t('system.notifications.title') }}</h2>
         <span v-if="unread" class="notifications__badge" data-testid="notification-badge">
           {{ unread }}
@@ -101,14 +102,17 @@ onBeforeUnmount(() => {
           {{ t('system.notifications.unread', { count: unread }) }}
         </span>
       </div>
-      <div class="notifications__actions">
+      <div class="notifications__actions" data-gv-toolbar>
         <Button variant="text" size="compact" :disabled="loading" @click="load()">
+          <Icon name="retry" size="dense" />
           {{ t('system.notifications.refresh') }}
         </Button>
         <Button variant="text" size="compact" :disabled="!unread" @click="markRead">
+          <Icon name="all-selected" size="dense" />
           {{ t('system.notifications.markRead') }}
         </Button>
         <Button variant="text" size="compact" :disabled="!items.length" @click="clearAll">
+          <Icon name="delete" size="dense" />
           {{ t('system.notifications.clear') }}
         </Button>
       </div>
@@ -163,6 +167,11 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--gv-space-2);
   flex-wrap: wrap;
+}
+
+.notifications__icon {
+  flex: none;
+  color: var(--gv-color-on-surface-variant);
 }
 
 .notifications__title {

@@ -2,6 +2,7 @@
   "title": "GalleryVault",
   "nav": {
     "browse": "浏览",
+    "aria": "主导航",
     "online": "在线",
     "library": "本机库",
     "favorites": "收藏",
