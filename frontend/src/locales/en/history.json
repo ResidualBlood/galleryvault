@@ -4,6 +4,10 @@
     "loaded": "{n} entries",
     "readAt": "Last read",
     "clearSingle": "Reset progress",
-    "progressLine": "Progress {current}/{total}"
+    "progressLine": "Progress {current}/{total}",
+    "subtitle": "Pick up where you left off."
+  },
+  "table": {
+    "readAt": "Last read"
   }
 }

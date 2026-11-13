@@ -4,6 +4,10 @@
     "loaded": "共 {n} 条",
     "readAt": "上次阅读",
     "clearSingle": "重置进度",
-    "progressLine": "进度 {current}/{total}"
+    "progressLine": "进度 {current}/{total}",
+    "subtitle": "从上次停下的地方继续阅读。"
+  },
+  "table": {
+    "readAt": "最近阅读"
   }
 }

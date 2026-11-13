@@ -60,5 +60,6 @@
   "confirm": "Confirm",
   "save": "Save",
   "working": "Working…",
-  "filterTags": "Filter by tag"
+  "filterTags": "Filter by tag",
+  "moreActions": "More actions"
 }

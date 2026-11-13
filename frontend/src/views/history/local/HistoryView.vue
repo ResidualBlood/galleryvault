@@ -1,14 +1,30 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Reading history.
+ *
+ * The page is a three-view collection (list by default, table and grid
+ * available) built on the shared GalleryCollection. History rows carry no
+ * tags: the list / table only show title, progress, last-read time, pages and
+ * the continue-reading action (audit HS-05, PLAN §P5).
+ */
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
+import Pager from "@/components/ui/Pager.vue";
 import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
+import GalleryCard from "@/components/gallery/GalleryCard.vue";
+import GalleryCollection from "@/components/gallery/GalleryCollection.vue";
+import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
+import type { TableColumn } from "@/components/gallery/table-columns";
+import { useViewMode } from "@/composables/useViewMode";
 import { PAGE_SIZES, clampPageSize } from "@/stores/library";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
@@ -19,15 +35,23 @@ import {
   fetchHistory,
   type HistoryEntry,
 } from "@/api/history";
+import type { GalleryItem } from "@/api/library";
+import HistoryActions from "./HistoryActions.vue";
+import HistoryRow from "./HistoryRow.vue";
 import { ensureHistoryMessages } from "./messages";
 
 ensureHistoryMessages();
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const settings = useSettingsStore();
 const ui = useUiStore();
+
+const view = useViewMode("history", {
+  allowed: ["grid", "list", "table"] as const,
+  fallback: "list",
+});
 
 const items = ref<HistoryEntry[]>([]);
 const total = ref(0);
@@ -42,16 +66,19 @@ const pageSize = computed(() => clampPageSize(settings.pageSize, 24));
 const pageCount = computed(() =>
   Math.max(1, Math.ceil(total.value / Math.max(1, pageSize.value))),
 );
-const pageLinks = computed(() => {
-  const start = Math.max(1, page.value - 2);
-  const end = Math.min(pageCount.value, page.value + 2);
-  const pages: number[] = [];
-  for (let value = start; value <= end; value += 1) pages.push(value);
-  return pages;
-});
 const pageSizeOptions = computed(() =>
   PAGE_SIZES.map((value) => ({ value: String(value), label: String(value) })),
 );
+
+const historyColumns: readonly TableColumn[] = [
+  { key: "title", labelKey: "title", minWidth: 160, flex: 1, align: "start", priority: 100, pinned: true },
+  { key: "progress", labelKey: "progress", width: 88, align: "end", priority: 60 },
+  { key: "posted", labelKey: "readAt", width: 120, align: "end", hideBelow: 520, priority: 30 },
+  { key: "pages", labelKey: "pages", width: 64, align: "end", priority: 50 },
+  { key: "actions", labelKey: "actions", width: 112, align: "end", priority: 70 },
+];
+
+const entriesById = computed(() => new Map(items.value.map((entry) => [entry.gallery_id, entry])));
 
 function first(value: unknown): string {
   if (Array.isArray(value)) return first(value[0]);
@@ -62,22 +89,34 @@ function titleOf(entry: HistoryEntry): string {
   return entry.display_title || entry.title || entry.raw_title || `#${entry.gallery_id}`;
 }
 
-function progressText(entry: HistoryEntry): string {
-  const totalPages = entry.total_pages ?? 0;
-  return t("history.page.progressLine", {
-    current: Math.min((entry.current_page ?? 0) + 1, Math.max(1, totalPages)),
-    total: totalPages || "?",
-  });
+const mappedItems = computed<GalleryItem[]>(() =>
+  items.value.map((entry) => {
+    const totalPages = entry.total_pages ?? 0;
+    const current = entry.current_page ?? 0;
+    return {
+      id: entry.gallery_id,
+      gid: entry.gid,
+      token: null,
+      title: titleOf(entry),
+      category: entry.category ?? "misc",
+      page_count: totalPages,
+      cover_url: null,
+      tags: [],
+      tag_count: 0,
+      uploader: null,
+      posted_at: entry.last_read_at,
+      file_size: null,
+      reading_progress: totalPages > 0 ? Math.min(current + 1, totalPages) : 0,
+    };
+  }),
+);
+
+function entryFor(item: GalleryItem): HistoryEntry {
+  return entriesById.value.get(item.id) as HistoryEntry;
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  return new Intl.DateTimeFormat(locale.value === "zh" ? "zh-CN" : "en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+function readPageFor(item: GalleryItem): number {
+  return entriesById.value.get(item.id)?.current_page ?? 0;
 }
 
 function syncFromRoute(): void {
@@ -103,6 +142,10 @@ async function load(): Promise<void> {
   } finally {
     if (seq === requestSeq) loading.value = false;
   }
+}
+
+function goPage(target: number): void {
+  void router.push({ name: "history", query: { page: String(target) } });
 }
 
 function onPageSize(value: string): void {
@@ -132,9 +175,9 @@ async function confirmClear(): Promise<void> {
   }
 }
 
-async function resetProgress(entry: HistoryEntry): Promise<void> {
+async function resetProgress(item: GalleryItem): Promise<void> {
   try {
-    await clearGalleryProgress(entry.gallery_id);
+    await clearGalleryProgress(item.id);
     ui.success(t("legacy.progressClearedSingle"));
     await load();
   } catch (cause) {
@@ -155,31 +198,55 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="history" data-testid="history-view">
-    <header class="history__header">
-      <p class="history__eyebrow">{{ t("history.page.eyebrow") }}</p>
-      <div class="history__heading">
-        <h1 class="history__title">{{ t("legacy.history") }}</h1>
-        <span class="history__total">{{ t("history.page.loaded", { n: total }) }}</span>
-      </div>
-      <div class="history__actions">
+    <PageHeader
+      :title="t('legacy.history')"
+      :count="total"
+      :count-label="t('history.page.loaded', { n: total })"
+      :subtitle="t('history.page.subtitle')"
+      testid="history-header"
+    >
+      <template #actions>
         <Button
-          variant="outlined"
-          size="compact"
+          variant="text"
+          danger
+          icon="delete"
           data-testid="history-clear"
           @click="dialog = 'history'"
         >
           {{ t("legacy.clearHistory") }}
         </Button>
         <Button
-          variant="outlined"
-          size="compact"
+          variant="text"
+          danger
+          icon="clear"
           data-testid="history-clear-progress"
           @click="dialog = 'progress'"
         >
           {{ t("legacy.clearProgress") }}
         </Button>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
+
+    <Toolbar testid="history-toolbar">
+      <ToolbarGroup>
+        <Select
+          class="history__page-size"
+          :model-value="String(pageSize)"
+          :options="pageSizeOptions"
+          :aria-label="t('legacy.perPage')"
+          data-testid="history-page-size"
+          @update:model-value="onPageSize"
+        />
+      </ToolbarGroup>
+      <ToolbarGroup end>
+        <ViewModeToggle
+          :model-value="view.mode.value"
+          :options="view.available.value"
+          testid="history-view-toggle"
+          @update:model-value="view.setMode"
+        />
+      </ToolbarGroup>
+    </Toolbar>
 
     <ErrorState
       v-if="error && !items.length"
@@ -200,78 +267,41 @@ onBeforeUnmount(() => {
       testid="history-empty"
     />
 
-    <ul v-else class="history__list" data-testid="history-list">
-      <li
-        v-for="entry in items"
-        :key="entry.gallery_id"
-        class="history-row"
-        :data-gallery-id="entry.gallery_id"
-      >
-        <div class="history-row__main">
-          <RouterLink class="history-row__title" :to="`/gallery/${entry.gallery_id}`">
-            {{ titleOf(entry) }}
-          </RouterLink>
-          <p class="history-row__meta">
-            <span>{{ progressText(entry) }}</span>
-            <span v-if="entry.last_read_at">
-              · {{ t("history.page.readAt") }} {{ formatDate(entry.last_read_at) }}
-            </span>
-          </p>
+    <GalleryCollection
+      v-else
+      :items="mappedItems"
+      :mode="view.mode.value"
+      :columns="historyColumns"
+      testid="history-list"
+    >
+      <template #card="{ item }">
+        <div v-if="view.mode.value === 'grid'" class="history-cell" :data-gallery-id="item.id">
+          <GalleryCard :item="item" variant="grid" :show-meta="false">
+            <template #actions>
+              <HistoryActions :item="item" :read-page="readPageFor(item)" icon-only @reset="resetProgress(item)" />
+            </template>
+          </GalleryCard>
         </div>
-        <div class="history-row__actions">
-          <RouterLink
-            class="history-row__read"
-            :to="`/reader/${entry.gallery_id}/${entry.current_page ?? 0}`"
-          >
-            {{ t("legacy.readNow") }}
-          </RouterLink>
-          <Button
-            variant="text"
-            size="compact"
-            data-testid="history-reset-row"
-            :title="t('legacy.markUnread')"
-            @click="resetProgress(entry)"
-          >
-            {{ t("history.page.clearSingle") }}
-          </Button>
-        </div>
-      </li>
-    </ul>
+        <li v-else class="history-row" :data-gallery-id="item.id">
+          <HistoryRow
+            :item="item"
+            :entry="entryFor(item)"
+            :read-page="readPageFor(item)"
+            @reset="resetProgress(item)"
+          />
+        </li>
+      </template>
+      <template #actions="{ item }">
+        <HistoryActions :item="item" :read-page="readPageFor(item)" icon-only @reset="resetProgress(item)" />
+      </template>
+    </GalleryCollection>
 
-    <div v-if="items.length" class="history__footer">
-      <nav class="history__pager" :aria-label="t('legacy.pageNav')">
-        <RouterLink
-          v-if="page > 1"
-          class="history__page"
-          :to="{ name: 'history', query: { page: page - 1 } }"
-        >
-          ‹
-        </RouterLink>
-        <RouterLink
-          v-for="value in pageLinks"
-          :key="value"
-          class="history__page"
-          :class="{ 'history__page--current': value === page }"
-          :aria-current="value === page ? 'page' : undefined"
-          :to="{ name: 'history', query: { page: value } }"
-        >
-          {{ value }}
-        </RouterLink>
-        <RouterLink
-          v-if="page < pageCount"
-          class="history__page"
-          :to="{ name: 'history', query: { page: page + 1 } }"
-        >
-          ›
-        </RouterLink>
-      </nav>
-      <Select
-        class="history__page-size"
-        :model-value="String(pageSize)"
-        :options="pageSizeOptions"
-        :label="t('legacy.perPage')"
-        data-testid="history-page-size"
-        @update:model-value="onPageSize"
+    <div v-if="items.length && pageCount > 1" class="history__footer">
+      <Pager
+        :page="page"
+        :total-pages="pageCount"
+        testid="history-pager"
+        @update:page="goPage"
       />
     </div>
 
@@ -284,7 +314,7 @@ onBeforeUnmount(() => {
       <p>{{ t("legacy.confirmClearHistory") }}</p>
       <template #footer>
         <Button variant="text" @click="dialog = ''">{{ t("common.cancel") }}</Button>
-        <Button :loading="busy" data-testid="history-clear-confirm" @click="confirmClear">
+        <Button danger :loading="busy" data-testid="history-clear-confirm" @click="confirmClear">
           {{ t("legacy.clearHistory") }}
         </Button>
       </template>
@@ -299,7 +329,7 @@ onBeforeUnmount(() => {
       <p>{{ t("legacy.confirmClearProgress") }}</p>
       <template #footer>
         <Button variant="text" @click="dialog = ''">{{ t("common.cancel") }}</Button>
-        <Button :loading="busy" data-testid="history-clear-progress-confirm" @click="confirmClear">
+        <Button danger :loading="busy" data-testid="history-clear-progress-confirm" @click="confirmClear">
           {{ t("legacy.clearProgress") }}
         </Button>
       </template>
@@ -316,167 +346,30 @@ onBeforeUnmount(() => {
   margin: 0 auto;
 }
 
-.history__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-2);
-}
-
-.history__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.history__heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--gv-space-3);
-}
-
-.history__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.history__total {
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-}
-
-.history__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-2);
+.history__page-size {
+  width: 96px;
 }
 
 .history__list {
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.history-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--gv-space-3);
-  min-height: 72px;
-  padding: var(--gv-space-3);
-  border: 1px solid var(--gv-color-outline-variant);
-  border-radius: var(--gv-radius-md);
-  background: var(--gv-color-surface-container);
-  box-shadow: var(--gv-elev-1);
-}
-
-.history-row__main {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-  min-width: 0;
-}
-
-.history-row__title {
-  overflow: hidden;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-title-small);
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-row__title:hover {
-  text-decoration: underline;
-}
-
-.history-row__meta {
-  display: flex;
-  flex-wrap: wrap;
-  margin: 0;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-}
-
-.history-row__actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--gv-space-1);
-}
-
-.history-row__read {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 var(--gv-space-3);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-full);
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-  text-decoration: none;
-}
-
-.history-row__read:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 8%, transparent);
 }
 
 .history__footer {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: var(--gv-space-3);
-  padding: var(--gv-space-3) 0;
+  justify-content: flex-end;
 }
 
-.history__pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-1);
+.history-cell {
+  min-width: 0;
 }
 
-.history__page {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 36px;
-  height: 36px;
-  border-radius: var(--gv-radius-full);
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-  text-decoration: none;
-}
-
-.history__page:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 8%, transparent);
-}
-
-.history__page--current {
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
-}
-
-.history__page-size {
-  min-width: 120px;
-}
-
-@media (max-width: 599px) {
-  .history-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .history-row__actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
+.history-row {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 </style>

@@ -1,250 +1,131 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Series member card.
+ *
+ * Members render through the shared GalleryCard so the grid / list views match
+ * the rest of the product (audit SR-04 / SR-05): title step, two-line clamp,
+ * 2px selection ring, 44px translucent selection corner and the hover tag
+ * overlay all come from GalleryCard. Only the series-specific fields are
+ * mapped here: source badge (local / cloud) and the category label.
+ */
 import { computed } from "vue";
-import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
+import GalleryCard from "@/components/gallery/GalleryCard.vue";
+import type { GalleryBadge } from "@/components/gallery/BadgeStrip.vue";
+import type { GalleryItem } from "@/api/library";
 import type { SeriesMember } from "@/api/series";
 
 const props = defineProps<{
   member: SeriesMember;
   selected: boolean;
+  mode: "grid" | "list";
 }>();
 
 const emit = defineEmits<{ toggle: [member: SeriesMember, checked: boolean] }>();
 
 const { t } = useI18n();
 
+const CATEGORY_KEYS: Record<string, string> = {
+  doujinshi: "catDoujinshi",
+  manga: "catManga",
+  artistcg: "catArtistcg",
+  gamecg: "catGamecg",
+  western: "catWestern",
+  "non-h": "catNonH",
+  nonh: "catNonH",
+  image_set: "catImageSet",
+  imageset: "catImageSet",
+  cosplay: "catCosplay",
+  asianporn: "catAsianporn",
+  misc: "catMisc",
+  other: "catMisc",
+  private: "catMisc",
+  deleted: "catDeleted",
+};
+
+const CATEGORY_TOKENS: Record<string, string> = {
+  doujinshi: "--gv-cat-doujinshi",
+  manga: "--gv-cat-manga",
+  artistcg: "--gv-cat-artistcg",
+  gamecg: "--gv-cat-gamecg",
+  western: "--gv-cat-western",
+  "non-h": "--gv-cat-nonh",
+  nonh: "--gv-cat-nonh",
+  image_set: "--gv-cat-imageset",
+  imageset: "--gv-cat-imageset",
+  cosplay: "--gv-cat-cosplay",
+  asianporn: "--gv-cat-asianporn",
+  misc: "--gv-cat-misc",
+  other: "--gv-cat-other",
+  private: "--gv-cat-private",
+  deleted: "--gv-cat-other",
+};
+
 const title = computed(() => props.member.title || `gid ${props.member.gid ?? ""}`);
 const isLocal = computed(() => Boolean(props.member.is_local));
-const pages = computed(() => props.member.page_count ?? 0);
-const tags = computed(() => (props.member.tags ?? []).slice(0, 4));
-const galleryLink = computed(() =>
-  isLocal.value && props.member.gallery_id
-    ? { name: "gallery" as const, params: { id: props.member.gallery_id } }
-    : null,
+const category = computed(() => props.member.category ?? "misc");
+const categoryLabel = computed(() =>
+  t(`legacy.${CATEGORY_KEYS[category.value] ?? "catMisc"}`),
 );
-const externalLink = computed(() => {
-  if (isLocal.value) return "";
-  const value = props.member.url ?? "";
-  return /^https?:\/\//i.test(value) ? value : "";
-});
 
-function onToggle(event: Event): void {
-  emit("toggle", props.member, (event.target as HTMLInputElement).checked);
+const badges = computed<GalleryBadge[]>(() => [
+  {
+    label: categoryLabel.value,
+    tone: "category",
+    colorToken: CATEGORY_TOKENS[category.value] ?? "--gv-cat-misc",
+    title: categoryLabel.value,
+  },
+  {
+    label: isLocal.value ? t("seriesPage.localBadge") : t("seriesPage.cloudBadge"),
+    tone: isLocal.value ? "success" : "neutral",
+  },
+]);
+
+const item = computed<GalleryItem>(() => ({
+  id: Number(props.member.gallery_id ?? props.member.gid ?? 0),
+  gid: props.member.gid,
+  token: props.member.token,
+  title: title.value,
+  category: category.value,
+  page_count: props.member.page_count ?? 0,
+  cover_url: props.member.cover_url ?? null,
+  tags: props.member.tags ?? [],
+  tag_count: (props.member.tags ?? []).length,
+  uploader: null,
+  posted_at: null,
+  file_size: null,
+  reading_progress: 0,
+}));
+
+const source = computed<"local" | "online">(() => (isLocal.value ? "local" : "online"));
+
+function onSelect(_id: number, checked: boolean): void {
+  emit("toggle", props.member, checked);
 }
 </script>
 
 <template>
-  <article
-    class="member"
-    :class="{ 'member--selected': selected }"
+  <div
+    class="series-member"
     data-testid="series-member"
     :data-local="isLocal ? '1' : '0'"
   >
-    <label class="member__check" :title="t('seriesPage.selectMember', { title })">
-      <input
-        type="checkbox"
-        :checked="selected"
-        :aria-label="t('seriesPage.selectMember', { title })"
-        @change="onToggle"
-      />
-    </label>
-
-    <RouterLink
-      v-if="galleryLink"
-      class="member__cover"
-      :to="galleryLink"
-      :title="title"
-    >
-      <img
-        v-if="member.cover_url"
-        class="member__image"
-        :src="member.cover_url"
-        :alt="title"
-        loading="lazy"
-        decoding="async"
-      />
-      <span v-else class="member__placeholder">{{ t("seriesPage.noCover") }}</span>
-      <span class="member__state" :data-local="isLocal ? '1' : '0'">
-        {{ isLocal ? t("seriesPage.localBadge") : t("seriesPage.cloudBadge") }}
-      </span>
-    </RouterLink>
-    <a
-      v-else-if="externalLink"
-      class="member__cover"
-      :href="externalLink"
-      target="_blank"
-      rel="noopener noreferrer"
-      :title="title"
-    >
-      <img
-        v-if="member.cover_url"
-        class="member__image"
-        :src="member.cover_url"
-        :alt="title"
-        loading="lazy"
-        decoding="async"
-      />
-      <span v-else class="member__placeholder">{{ t("seriesPage.noCover") }}</span>
-      <span class="member__state" :data-local="isLocal ? '1' : '0'">
-        {{ isLocal ? t("seriesPage.localBadge") : t("seriesPage.cloudBadge") }}
-      </span>
-    </a>
-    <div v-else class="member__cover">
-      <img
-        v-if="member.cover_url"
-        class="member__image"
-        :src="member.cover_url"
-        :alt="title"
-        loading="lazy"
-        decoding="async"
-      />
-      <span v-else class="member__placeholder">{{ t("seriesPage.noCover") }}</span>
-      <span class="member__state" :data-local="isLocal ? '1' : '0'">
-        {{ isLocal ? t("seriesPage.localBadge") : t("seriesPage.cloudBadge") }}
-      </span>
-    </div>
-
-    <p class="member__title" :title="title">{{ title }}</p>
-    <div class="member__meta">
-      <span v-if="pages">{{ pages }}P</span>
-      <span v-if="member.category">{{ member.category }}</span>
-    </div>
-    <div v-if="tags.length" class="member__tags">
-      <RouterLink
-        v-for="tag in tags"
-        :key="`${tag.namespace}:${tag.name}`"
-        class="member__tag"
-        :to="{ name: 'library', query: { tags: `${tag.namespace}:${tag.name}` } }"
-        :title="t('seriesPage.filterTags')"
-      >
-        {{ tag.display || tag.name }}
-      </RouterLink>
-    </div>
-  </article>
+    <GalleryCard
+      :item="item"
+      :variant="mode"
+      :source="source"
+      :badges="badges"
+      :show-meta="false"
+      selectable
+      :selected="selected"
+      tag-source="local"
+      @select="onSelect"
+    />
+  </div>
 </template>
 
 <style scoped>
-.member {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
+.series-member {
   min-width: 0;
-  padding: var(--gv-space-2);
-  border: 1px solid var(--gv-color-outline-variant);
-  border-radius: var(--gv-radius-md);
-  background: var(--gv-color-surface-container);
-}
-
-.member--selected {
-  border-color: var(--gv-color-primary);
-  box-shadow: var(--gv-elev-1);
-}
-
-.member__check {
-  position: absolute;
-  top: var(--gv-space-2);
-  right: var(--gv-space-2);
-  z-index: 5;
-  scroll-margin-top: calc(var(--gv-size-topbar) + var(--gv-space-4));
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
-  border-radius: var(--gv-radius-full);
-  background: var(--gv-color-surface-container-highest);
-  box-shadow: var(--gv-elev-1);
-  cursor: pointer;
-}
-
-.member__check input {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--gv-color-primary);
-  cursor: pointer;
-}
-
-.member__cover {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: var(--gv-size-card-cover-aspect);
-  overflow: hidden;
-  border-radius: var(--gv-radius-sm);
-  background: var(--gv-color-surface-container-highest);
-  color: var(--gv-color-on-surface-variant);
-  text-decoration: none;
-}
-
-.member__image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.member__placeholder {
-  font: var(--gv-type-label-small);
-}
-
-.member__state {
-  position: absolute;
-  top: var(--gv-space-1);
-  left: var(--gv-space-1);
-  height: 20px;
-  padding: 0 var(--gv-space-1);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container-highest);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-  line-height: 20px;
-}
-
-.member__state[data-local="1"] {
-  background: var(--gv-color-success-container);
-  color: var(--gv-color-on-success-container);
-}
-
-.member__title {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-small);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-}
-
-.member__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-2);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-}
-
-.member__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-1);
-}
-
-.member__tag {
-  height: 20px;
-  padding: 0 var(--gv-space-1);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-variant);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-  line-height: 20px;
-  text-decoration: none;
-}
-
-.member__tag:hover {
-  background: var(--gv-color-surface-container-highest);
-  color: var(--gv-color-on-surface);
 }
 </style>
