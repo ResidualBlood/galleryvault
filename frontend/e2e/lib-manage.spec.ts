@@ -161,13 +161,13 @@ test("series selection survives paging and batch download uses both sources @lib
   await betaMembers.nth(0).locator('input[type="checkbox"]').check();
   await expect(page.getByTestId("series-selection")).toContainText("3");
 
-  await page.getByTestId("series-next").click();
+  await page.getByTestId("series-pager").locator('[data-pager="next"]').click();
   await expect(page.getByTestId("series-page-info")).toContainText("2 / 2");
   const gammaMembers = page.getByTestId("series-group").nth(0).getByTestId("series-member");
   await gammaMembers.nth(1).locator('input[type="checkbox"]').check();
   await expect(page.getByTestId("series-selection")).toContainText("4");
 
-  await page.getByTestId("series-prev").click();
+  await page.getByTestId("series-pager").locator('[data-pager="prev"]').click();
   await expect(page.getByTestId("series-page-info")).toContainText("1 / 2");
   const alphaAgain = page.getByTestId("series-group").nth(0).getByTestId("series-member");
   await expect(alphaAgain.nth(0).locator('input[type="checkbox"]')).toBeChecked();
@@ -217,7 +217,8 @@ test("series create, rename, rebuild, add candidates, remove and delete @lib-man
   await expect.poll(() => state.cloudItemsAdded.length).toBe(1);
   expect(state.cloudItemsAdded[0]).toEqual({ id: 41, gids: [300001] });
 
-  await alpha.getByTestId("series-remove-item").click();
+  await alpha.getByTestId("series-group-menu-trigger").click();
+  await page.getByRole("menuitem", { name: "移除条目" }).click();
   const removeDialog = page.getByTestId("series-remove-manual-dialog");
   await expect(removeDialog).toBeVisible();
   await removeDialog.getByTestId("series-remove-gids").locator("input").fill("200011");

@@ -1,14 +1,23 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Checkbox from "@/components/ui/Checkbox.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
 import Input from "@/components/ui/Input.vue";
+import Menu from "@/components/ui/Menu.vue";
+import type { MenuItem } from "@/components/ui/Menu.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
+import Pager from "@/components/ui/Pager.vue";
+import SelectionBar from "@/components/ui/SelectionBar.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
+import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
+import { useViewMode } from "@/composables/useViewMode";
 import { ApiError } from "@/api/client";
 import { downloadGalleryOriginal, redownloadGallery } from "@/api/gallery";
 import {
@@ -39,6 +48,11 @@ const router = useRouter();
 const settings = useSettingsStore();
 const ui = useUiStore();
 
+const view = useViewMode("series", {
+  allowed: ["grid", "list"] as const,
+  fallback: "grid",
+});
+
 const groups = ref<SeriesGroup[]>([]);
 const total = ref(0);
 const page = ref(1);
@@ -54,6 +68,9 @@ let controller: AbortController | null = null;
 const showAll = computed(() => route.query.show_all === "1");
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const selectedCount = computed(() => localSelection.value.size + cloudSelection.value.size);
+const groupMenuItems = computed<MenuItem[]>(() => [
+  { id: "remove", label: t("seriesPage.removeItem"), icon: "clear" },
+]);
 const totalItems = computed(() =>
   groups.value.reduce((sum, group) => sum + (group.galleries?.length ?? group.count ?? 0), 0),
 );
@@ -354,6 +371,10 @@ function selectedCloudFor(group: SeriesGroup): number[] {
     .map((member) => member.gid as number);
 }
 
+function onGroupMenu(group: SeriesGroup, id: string): void {
+  if (id === "remove") openRemove(group);
+}
+
 function openRemove(group: SeriesGroup): void {
   const local = selectedLocalFor(group);
   const cloud = selectedCloudFor(group);
@@ -465,34 +486,63 @@ async function downloadSelection(original: boolean): Promise<void> {
 
 <template>
   <section class="series" data-testid="series-view">
-    <header class="series__header">
-      <p class="series__eyebrow">{{ t("seriesPage.eyebrow") }}</p>
-      <h1 class="series__title">{{ t("seriesPage.title") }}</h1>
-      <p class="series__subtitle">{{ t("seriesPage.subtitle") }}</p>
-    </header>
+    <PageHeader
+      :title="t('seriesPage.title')"
+      :subtitle="t('seriesPage.subtitle')"
+      testid="series-header"
+    />
 
-    <div class="series__toolbar">
-      <Button variant="filled" data-testid="series-create" @click="openCreate">
-        {{ t("seriesPage.create") }}
-      </Button>
+    <Toolbar testid="series-toolbar">
+      <ToolbarGroup>
+        <Button variant="filled" data-testid="series-create" @click="openCreate">
+          {{ t("seriesPage.create") }}
+        </Button>
+        <Button
+          variant="outlined"
+          icon="retry"
+          :loading="busy"
+          data-testid="series-rebuild"
+          @click="rebuild"
+        >
+          {{ t("seriesPage.rebuild") }}
+        </Button>
+        <Button
+          :variant="showAll ? 'tonal' : 'outlined'"
+          :icon="showAll ? 'check' : undefined"
+          data-testid="series-show-all"
+          @click="toggleShowAll"
+        >
+          {{ t("seriesPage.showAll") }}
+        </Button>
+      </ToolbarGroup>
+      <ToolbarGroup end>
+        <span class="series__stats" data-testid="series-stats">
+          {{
+            t("seriesPage.stats", {
+              groups: total,
+              items: totalItems,
+            })
+          }}
+        </span>
+        <ViewModeToggle
+          :model-value="view.mode.value"
+          :options="view.available.value"
+          testid="series-view-toggle"
+          @update:model-value="view.setMode"
+        />
+      </ToolbarGroup>
+    </Toolbar>
+
+    <SelectionBar
+      :count="selectedCount"
+      :label="t('seriesPage.selectedCount', { count: selectedCount })"
+      testid="series-selection"
+      @clear="clearSelection"
+    >
       <Button
-        variant="outlined"
-        :loading="busy"
-        data-testid="series-rebuild"
-        @click="rebuild"
-      >
-        {{ t("seriesPage.rebuild") }}
-      </Button>
-      <Button
-        :variant="showAll ? 'tonal' : 'outlined'"
-        data-testid="series-show-all"
-        @click="toggleShowAll"
-      >
-        {{ showAll ? "✓ " : "" }}{{ t("seriesPage.showAll") }}
-      </Button>
-      <Button
-        variant="outlined"
-        :disabled="!selectedCount"
+        variant="tonal"
+        icon="downloads"
+        :disabled="busy"
         data-testid="series-download"
         @click="downloadSelection(false)"
       >
@@ -500,58 +550,14 @@ async function downloadSelection(original: boolean): Promise<void> {
       </Button>
       <Button
         variant="outlined"
-        :disabled="!selectedCount"
+        icon="downloads"
+        :disabled="busy"
         data-testid="series-download-original"
         @click="downloadSelection(true)"
       >
         {{ t("seriesPage.downloadOriginal") }}
       </Button>
-      <span class="series__stats" data-testid="series-stats">
-        {{
-          t("seriesPage.stats", {
-            groups: total,
-            items: totalItems,
-          })
-        }}
-      </span>
-    </div>
-
-    <div class="series__selection" data-testid="series-selection">
-      <span>{{ t("seriesPage.selectedCount", { count: selectedCount }) }}</span>
-      <Button
-        variant="text"
-        size="compact"
-        :disabled="!selectedCount"
-        data-testid="series-clear-selection"
-        @click="clearSelection"
-      >
-        {{ t("seriesPage.clearSelection") }}
-      </Button>
-    </div>
-
-    <div class="series__pager">
-      <Button
-        variant="text"
-        size="compact"
-        :disabled="page <= 1"
-        data-testid="series-prev"
-        @click="goPage(page - 1)"
-      >
-        ←
-      </Button>
-      <span data-testid="series-page-info">
-        {{ t("seriesPage.page", { page, pages: totalPages }) }}
-      </span>
-      <Button
-        variant="text"
-        size="compact"
-        :disabled="page >= totalPages"
-        data-testid="series-next"
-        @click="goPage(page + 1)"
-      >
-        →
-      </Button>
-    </div>
+    </SelectionBar>
 
     <div v-if="loading" class="series__skeletons" aria-hidden="true">
       <Skeleton v-for="index in 4" :key="index" variant="line" :lines="4" />
@@ -582,32 +588,27 @@ async function downloadSelection(original: boolean): Promise<void> {
       >
         <header class="group__head">
           <div class="group__title-wrap">
-            <h2 class="group__title">{{ group.name }}</h2>
-            <span class="group__count">{{ group.count ?? group.galleries.length }}</span>
-            <span class="group__badge">
+            <h2 class="group__title" :title="group.name">{{ group.name }}</h2>
+            <span class="group__count" data-testid="series-group-count">
+              {{ group.count ?? group.galleries.length }}
+            </span>
+            <span class="group__badge" data-testid="series-group-badge">
               {{ group.match_key ? t("seriesPage.auto") : t("seriesPage.manual") }}
             </span>
           </div>
           <div class="group__actions">
             <Button
-              variant="outlined"
-              size="compact"
+              variant="tonal"
+              size="sm"
+              icon="expand"
               data-testid="series-add-item"
               @click="openAdd(group)"
             >
               {{ t("seriesPage.addItem") }}
             </Button>
             <Button
-              variant="outlined"
-              size="compact"
-              data-testid="series-remove-item"
-              @click="openRemove(group)"
-            >
-              {{ t("seriesPage.removeItem") }}
-            </Button>
-            <Button
-              variant="outlined"
-              size="compact"
+              variant="text"
+              size="sm"
               data-testid="series-rename"
               @click="openRename(group)"
             >
@@ -615,26 +616,51 @@ async function downloadSelection(original: boolean): Promise<void> {
             </Button>
             <Button
               variant="text"
-              size="compact"
+              size="sm"
+              danger
+              icon="delete"
               data-testid="series-delete"
               @click="openDelete(group)"
             >
               {{ t("seriesPage.delete") }}
             </Button>
+            <Menu
+              :items="groupMenuItems"
+              :label="t('seriesPage.moreActions')"
+              testid="series-group-menu"
+              @select="onGroupMenu(group, $event)"
+            />
           </div>
         </header>
 
-        <div v-if="group.galleries.length" class="group__grid">
+        <div
+          v-if="group.galleries.length"
+          class="group__grid"
+          :class="{ 'group__grid--list': view.mode.value === 'list' }"
+        >
           <SeriesMemberCard
             v-for="member in group.galleries"
             :key="member.gallery_id ?? member.gid ?? 0"
             :member="member"
             :selected="isSelected(member)"
+            :mode="view.mode.value === 'list' ? 'list' : 'grid'"
             @toggle="toggleMember"
           />
         </div>
         <p v-else class="group__empty">{{ t("legacy.noGalleries") }}</p>
       </section>
+    </div>
+
+    <div v-if="groups.length" class="series__footer">
+      <span class="sr-only" data-testid="series-page-info">
+        {{ t("seriesPage.page", { page, pages: totalPages }) }}
+      </span>
+      <Pager
+        :page="page"
+        :total-pages="totalPages"
+        testid="series-pager"
+        @update:page="goPage"
+      />
     </div>
 
     <!-- create / rename -->
@@ -723,10 +749,10 @@ async function downloadSelection(original: boolean): Promise<void> {
             :key="candidate.gid"
             class="candidate"
           >
-            <input
-              type="checkbox"
-              :checked="candidateSelection.has(candidate.gid)"
-              @change="toggleCandidate(candidate.gid, ($event.target as HTMLInputElement).checked)"
+            <Checkbox
+              :model-value="candidateSelection.has(candidate.gid)"
+              :aria-label="candidate.title || `gid ${candidate.gid}`"
+              @update:model-value="toggleCandidate(candidate.gid, $event)"
             />
             <img
               v-if="candidate.thumb"
@@ -823,56 +849,7 @@ async function downloadSelection(original: boolean): Promise<void> {
   margin: 0 auto;
 }
 
-.series__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.series__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.series__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.series__subtitle {
-  margin: 0;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-medium);
-}
-
-.series__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-2);
-}
-
 .series__stats {
-  margin-left: auto;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-}
-
-.series__selection {
-  display: flex;
-  align-items: center;
-  gap: var(--gv-space-2);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-large);
-}
-
-.series__pager {
-  display: flex;
-  align-items: center;
-  gap: var(--gv-space-2);
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }
@@ -880,6 +857,11 @@ async function downloadSelection(original: boolean): Promise<void> {
 .series__skeletons {
   display: grid;
   gap: var(--gv-space-3);
+}
+
+.series__footer {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .series__list {
@@ -910,20 +892,26 @@ async function downloadSelection(original: boolean): Promise<void> {
 
 .group__title-wrap {
   display: flex;
-  align-items: baseline;
-  gap: var(--gv-space-2);
+  flex: 1 1 220px;
+  align-items: center;
+  gap: var(--gv-space-1);
   min-width: 0;
 }
 
 .group__title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   color: var(--gv-color-on-surface);
   font: var(--gv-type-title-medium);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group__count,
 .group__badge {
+  flex: none;
   height: 20px;
   padding: 0 var(--gv-space-1);
   border-radius: var(--gv-radius-xs);
@@ -931,18 +919,26 @@ async function downloadSelection(original: boolean): Promise<void> {
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-label-small);
   line-height: 20px;
+  white-space: nowrap;
 }
 
 .group__actions {
   display: flex;
-  flex-wrap: wrap;
+  flex: none;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: var(--gv-space-1);
+  margin-inline-start: auto;
 }
 
 .group__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   gap: var(--gv-space-2);
+}
+
+.group__grid--list {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .group__empty {
@@ -971,7 +967,7 @@ async function downloadSelection(original: boolean): Promise<void> {
 
 .series__candidate-search {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--gv-space-2);
 }
 
@@ -998,12 +994,6 @@ async function downloadSelection(original: boolean): Promise<void> {
 
 .candidate:hover {
   background: var(--gv-color-surface-container-highest);
-}
-
-.candidate input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--gv-color-primary);
 }
 
 .candidate__thumb {

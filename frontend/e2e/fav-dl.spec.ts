@@ -410,7 +410,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
 
     await page.goto(harnessUrl({ view: "history" }));
     await expect(page.getByTestId("history-view")).toBeVisible();
-    await expect(page.locator(".history-row")).toHaveCount(12);
+    await expect(page.getByTestId("history-list")).toHaveAttribute("data-loaded", "12");
 
     await page.getByTestId("history-clear").click();
     await expect(page.getByRole("dialog")).toBeVisible();
@@ -458,7 +458,7 @@ test.describe("favourites / downloads / history @fav-dl", () => {
 
       await page.goto("/#/history");
       await expect(page.getByTestId("history-view")).toBeVisible();
-      await expect(page.locator(".history-row")).toHaveCount(12);
+      await expect(page.getByTestId("history-list")).toHaveAttribute("data-loaded", "12");
 
       expect(csp).toEqual([]);
     });
