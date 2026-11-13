@@ -231,6 +231,20 @@ test("@polish-browse grid hides inline tags until hover; list and table cap them
   expect(await overlayChips.count()).toBeGreaterThan(0);
   expect(await overlayChips.count()).toBeLessThanOrEqual(6);
 
+  // Touch long-press opens the same tags in a sheet.
+  await cards.first().dispatchEvent("pointerdown", {
+    pointerType: "touch",
+    clientX: 40,
+    clientY: 260,
+    bubbles: true,
+  });
+  const sheet = page.getByTestId("card-tag-sheet");
+  await expect(sheet).toBeVisible({ timeout: 3_000 });
+  expect(await sheet.locator(".tag-chip").count()).toBeGreaterThanOrEqual(4);
+  await expect(sheet.getByTestId("tag-more")).toHaveText("+1");
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+
   // List: 4 chips + N.
   const toggle = await modeToggle(page);
   await toggle.locator('[data-view-mode="list"]').click();
