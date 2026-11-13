@@ -10,7 +10,15 @@
   "empty": "This gallery has no readable pages",
   "close": "Back to details",
   "jump": "Jump to page",
+  "jumpPlaceholder": "Go to",
   "jumpHint": "Type a page number and press Enter",
+  "modesShort": {
+    "ltr": "LTR",
+    "rtl": "RTL",
+    "double": "Double",
+    "double-rtl": "Double RTL",
+    "webtoon": "Webtoon"
+  },
   "first": "First",
   "last": "Last",
   "next": "Next page",
@@ -23,7 +31,9 @@
   "slideshow": "Slideshow",
   "slideshowStart": "Start slideshow",
   "slideshowStop": "Stop slideshow",
-  "slideshowInterval": "Slideshow interval (seconds)",
+  "slideshowInterval": "Slideshow interval",
+  "slideshowIntervalPlaceholder": "Interval",
+  "slideshowIntervalUnit": "s",
   "fullscreen": "Fullscreen",
   "modes": {
     "ltr": "Left to right",
@@ -37,7 +47,7 @@
     "width": "Fit width",
     "original": "Original"
   },
-  "shortcuts": "Shortcuts: ← → turn pages, Space next, Home / End first and last, F fullscreen, G jump",
+  "shortcuts": "Shortcuts: arrow keys turn pages, Space next, Home / End first and last, F fullscreen, G jump",
   "zonePrev": "Previous page area",
   "zoneNext": "Next page area",
   "zoneToggle": "Show or hide toolbars",

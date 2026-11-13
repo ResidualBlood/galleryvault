@@ -1,6 +1,6 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import Button from "@/components/ui/Button.vue";
 import type { ReaderFit } from "@/reader/pure";
 
 const props = defineProps<{
@@ -43,9 +43,15 @@ function onLoad(event: Event): void {
   <div class="reader-page" :data-page="page" data-testid="reader-page">
     <div v-if="failed" class="reader-page__missing" data-testid="reader-page-missing">
       <span class="reader-page__missing-text">{{ placeholder }}</span>
-      <button type="button" class="reader-page__retry" data-testid="reader-retry" @click="emit('retry', page)">
+      <Button
+        class="reader-page__retry"
+        variant="outlined"
+        icon="retry"
+        data-testid="reader-retry"
+        @click="emit('retry', page)"
+      >
         {{ retryLabel }}
-      </button>
+      </Button>
     </div>
     <div v-else-if="src" class="reader-page__frame" :class="{ 'reader-page__frame--loaded': loaded }">
       <img
@@ -146,23 +152,5 @@ function onLoad(event: Event): void {
 
 .reader-page__retry {
   pointer-events: auto;
-  min-width: var(--gv-size-touch);
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-4);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.reader-page__retry:hover {
-  background: color-mix(in srgb, var(--gv-color-primary) 12%, transparent);
-}
-
-.reader-page__retry:focus-visible {
-  outline: 2px solid var(--gv-color-focus-ring);
-  outline-offset: 2px;
 }
 </style>

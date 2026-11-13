@@ -322,6 +322,8 @@ test("screenshots cover dark/light x desktop/mobile @online-reader", async ({ pa
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto(harnessUrl({ theme }));
       await expect(page.getByTestId("reader-shell")).toBeVisible();
+      // The action strip rides with the bottom bar, so call the bars up first.
+      await page.getByTestId("reader-zone-center").click();
       await expect(page.getByTestId("online-reader-actions")).toBeVisible();
       await expect(page.locator('[data-testid="reader-page"] img').first()).toBeVisible();
       await page.waitForTimeout(250);

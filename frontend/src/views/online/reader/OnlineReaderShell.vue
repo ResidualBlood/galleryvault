@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 /**
  * Online reader body (`online-direct` main path, `online-proxy` per device).
@@ -12,6 +11,8 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import ReaderShell from "@/views/reader/ReaderShell.vue";
 import Button from "@/components/ui/Button.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import Icon from "@/components/icons/Icon.vue";
+import SegmentedControl from "@/components/ui/SegmentedControl.vue";
 import GalleryActions from "@/components/actions/GalleryActions.vue";
 import OnlineStateNotice from "@/views/online/list/OnlineStateNotice.vue";
 import { ensureOnlineMessages } from "@/views/online/list/messages";
@@ -112,6 +113,15 @@ const quotaUsage = computed(() => {
 const modeHint = computed(() =>
   tr(mode.value === "direct" ? "imageMode.directHint" : "imageMode.proxyHint"),
 );
+
+const modeOptions = computed(() => [
+  { value: "direct", label: tr("imageMode.direct") },
+  { value: "proxy", label: tr("imageMode.proxy") },
+]);
+
+function onModeChange(value: string): void {
+  setMode(value === "proxy" ? "proxy" : "direct");
+}
 
 /* ------------------------------------------------------------------ loading */
 
@@ -257,10 +267,6 @@ function setMode(next: OnlineImageMode): void {
   reloadKey.value += 1;
 }
 
-function toggleMode(): void {
-  setMode(mode.value === "direct" ? "proxy" : "direct");
-}
-
 onBeforeUnmount(() => {
   if (source.value instanceof OnlineDirectPageSource) source.value.dispose();
 });
@@ -277,7 +283,8 @@ void boot();
     :data-total="total"
   >
     <div v-if="loading" class="online-reader__state" data-testid="online-reader-loading">
-      {{ tr("loading") }}
+      <span class="online-reader__spinner" aria-hidden="true" />
+      <p class="online-reader__state-text">{{ tr("loading") }}</p>
     </div>
 
     <div v-else-if="loadError" class="online-reader__state" data-testid="online-reader-error">
@@ -310,35 +317,40 @@ void boot();
         :progress-sender="sendProgress"
         @close="emit('close')"
         @page-change="onPageChange"
-      />
-
-      <div class="online-reader__actions" data-testid="online-reader-actions" data-no-gesture>
-        <button
-          type="button"
-          class="online-reader__mode"
-          data-testid="online-reader-mode"
-          :data-mode="mode"
-          :title="modeHint"
-          :aria-label="`${tr('imageMode.label')}: ${tr(`imageMode.${mode}`)}`"
-          @click="toggleMode"
-        >
-          {{ tr(`imageMode.${mode}`) }}
-        </button>
-        <GalleryActions
-          :gid="props.gid"
-          :token="props.token"
-          :title="gallery?.title ?? ''"
-          source="online"
-          density="toolbar"
-          :show-read="false"
-          :favorited="gallery?.favorited ?? false"
-          :favcat="gallery?.favcat ?? null"
-          :in-library="gallery?.in_library ?? false"
-          :download-status="gallery?.download?.status ?? null"
-          :download-current-page="gallery?.download?.current_page ?? 0"
-          :download-total-pages="gallery?.download?.total_pages ?? null"
-        />
-      </div>
+      >
+        <template #bar-actions>
+          <div class="online-reader__actions" data-testid="online-reader-actions" data-no-gesture>
+            <div
+              class="online-reader__mode"
+              data-testid="online-reader-mode"
+              :data-mode="mode"
+              :title="modeHint"
+            >
+              <SegmentedControl
+                testid="online-reader-mode-control"
+                :model-value="mode"
+                :options="modeOptions"
+                :label="tr('imageMode.label')"
+                @change="onModeChange"
+              />
+            </div>
+            <GalleryActions
+              :gid="props.gid"
+              :token="props.token"
+              :title="gallery?.title ?? ''"
+              source="online"
+              density="toolbar"
+              :show-read="false"
+              :favorited="gallery?.favorited ?? false"
+              :favcat="gallery?.favcat ?? null"
+              :in-library="gallery?.in_library ?? false"
+              :download-status="gallery?.download?.status ?? null"
+              :download-current-page="gallery?.download?.current_page ?? 0"
+              :download-total-pages="gallery?.download?.total_pages ?? null"
+            />
+          </div>
+        </template>
+      </ReaderShell>
 
       <div
         v-if="quotaNotice"
@@ -348,7 +360,10 @@ void boot();
         data-no-gesture
       >
         <div class="online-reader__quota-text">
-          <strong class="online-reader__quota-title">{{ tr("quota.title") }}</strong>
+          <strong class="online-reader__quota-title">
+            <Icon name="status-warning" size="dense" />
+            {{ tr("quota.title") }}
+          </strong>
           <span>{{ tr("quota.body") }}</span>
           <span v-if="quotaUsage" class="online-reader__quota-usage" data-testid="online-reader-quota-usage">
             {{ quotaUsage }}
@@ -358,7 +373,7 @@ void boot();
         <div class="online-reader__quota-actions">
           <Button
             variant="filled"
-            size="compact"
+            icon="status-challenge"
             data-testid="online-reader-quota-proxy"
             @click="setMode('proxy')"
           >
@@ -372,11 +387,11 @@ void boot();
             target="_blank"
             rel="noopener noreferrer"
           >
+            <Icon name="external-link" size="dense" />
             {{ tr("quota.official") }}
           </a>
           <Button
             variant="text"
-            size="compact"
             data-testid="online-reader-quota-close"
             @click="quotaNotice = false"
           >
@@ -394,11 +409,15 @@ void boot();
         :data-page="failurePage ?? undefined"
         data-no-gesture
       >
-        <h2 class="online-reader__panel-title">{{ tr("blocked.title") }}</h2>
+        <h2 class="online-reader__panel-title">
+          <Icon name="status-blocked" size="dense" />
+          {{ tr("blocked.title") }}
+        </h2>
         <p class="online-reader__panel-body">{{ tr("blocked.body") }}</p>
         <div class="online-reader__panel-actions">
           <Button
             variant="filled"
+            icon="status-challenge"
             data-testid="online-reader-use-proxy"
             @click="setMode('proxy')"
           >
@@ -412,10 +431,12 @@ void boot();
             target="_blank"
             rel="noopener noreferrer"
           >
+            <Icon name="external-link" size="dense" />
             {{ tr("blocked.official") }}
           </a>
           <Button
             variant="text"
+            icon="retry"
             data-testid="online-reader-retry-page"
             @click="retryPage"
           >
@@ -448,7 +469,7 @@ void boot();
           />
           <Button
             variant="outlined"
-            size="compact"
+            icon="back"
             data-testid="online-reader-back"
             @click="emit('close')"
           >
@@ -485,11 +506,9 @@ void boot();
   text-align: center;
 }
 
+/* Rendered through ReaderShell's bottom-bar slot, so the strip appears and
+   hides with the bars instead of floating over the page forever (OR-05). */
 .online-reader__actions {
-  position: fixed;
-  right: var(--gv-space-3);
-  bottom: calc(var(--gv-size-reader-bar) + var(--gv-space-3));
-  z-index: 60;
   display: flex;
   align-items: center;
   gap: var(--gv-space-2);
@@ -501,25 +520,18 @@ void boot();
 }
 
 .online-reader__mode {
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-3);
-  border: 1px solid var(--gv-color-outline-variant);
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-large);
+  display: flex;
+  align-items: center;
+}
+
+/* The shared segmented control sits on the chip step (32); this strip is a
+   control-lg row, so lift the segments to the same step. */
+.online-reader__mode :deep(.segmented__item) {
+  height: var(--gv-size-control-lg);
+}
+
+.online-reader__mode :deep(.segmented__label) {
   white-space: nowrap;
-  cursor: pointer;
-}
-
-.online-reader__mode[data-mode="direct"] {
-  color: var(--gv-color-primary-text);
-  border-color: var(--gv-color-primary);
-}
-
-.online-reader__mode:focus-visible {
-  outline: 2px solid var(--gv-color-focus-ring);
-  outline-offset: 2px;
 }
 
 .online-reader__quota {
@@ -549,6 +561,9 @@ void boot();
 }
 
 .online-reader__quota-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gv-space-2);
   font: var(--gv-type-title-small);
   color: var(--gv-color-error);
 }
@@ -585,6 +600,10 @@ void boot();
 }
 
 .online-reader__panel-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gv-space-2);
   margin: 0;
   font: var(--gv-type-title-medium);
   color: var(--gv-color-error);
@@ -640,7 +659,8 @@ void boot();
 .online-reader__link {
   display: inline-flex;
   align-items: center;
-  min-height: var(--gv-size-touch);
+  gap: var(--gv-space-2);
+  min-height: var(--gv-size-control-lg);
   padding: 0 var(--gv-space-3);
   border-radius: var(--gv-radius-full);
   color: var(--gv-color-primary-text);
@@ -658,11 +678,6 @@ void boot();
 }
 
 @media (max-width: 599px) {
-  .online-reader__actions {
-    right: var(--gv-space-2);
-    bottom: calc(var(--gv-size-reader-bar) + var(--gv-space-2));
-  }
-
   .online-reader__end {
     right: var(--gv-space-2);
     left: var(--gv-space-2);

@@ -162,7 +162,9 @@ test("N-02 在线阅读直连：后端图片请求 0 / 五模式 / 进度与继�
     }
     await page.getByTestId("reader-settings").click();
     for (const mode of ["rtl", "double", "double-rtl", "webtoon", "ltr"]) {
-      await page.locator(`[data-testid="reader-settings-panel"] [data-mode="${mode}"]`).click();
+      await page
+        .locator(`[data-testid="reader-mode-control"] [data-segmented-value="${mode}"]`)
+        .click();
       await expect(page.getByTestId("reader-shell")).toHaveAttribute("data-mode", mode);
     }
     await page.keyboard.press("Escape");

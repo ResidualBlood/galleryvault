@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import {
   computed,
@@ -8,6 +7,8 @@ import {
   ref,
   watch,
 } from "vue";
+import EmptyState from "@/components/ui/EmptyState.vue";
+import ErrorState from "@/components/ui/ErrorState.vue";
 import ReaderTopBar from "./ReaderTopBar.vue";
 import ReaderBottomBar from "./ReaderBottomBar.vue";
 import ReaderPage from "./ReaderPage.vue";
@@ -1003,14 +1004,19 @@ defineExpose({
         class="reader__message"
         data-testid="reader-loading"
       >
-        {{ tr("loading") }}
+        <span class="reader__spinner" aria-hidden="true" />
+        <p class="reader__message-text">{{ tr("loading") }}</p>
       </div>
       <div v-else-if="loadError" class="reader__message" data-testid="reader-error">
-        <p>{{ tr("loadFailed") }}</p>
-        <button type="button" class="reader__retry" @click="loadGallery">{{ tr("retry") }}</button>
+        <ErrorState
+          :title="tr('loadFailed')"
+          :retry-label="tr('retry')"
+          testid="reader-error-state"
+          @retry="loadGallery"
+        />
       </div>
       <div v-else-if="total === 0" class="reader__message" data-testid="reader-empty">
-        {{ tr("empty") }}
+        <EmptyState :icon="'library'" :title="tr('empty')" testid="reader-empty-state" />
       </div>
       <template v-else>
         <ReaderWebtoon
@@ -1056,28 +1062,47 @@ defineExpose({
     </div>
 
     <div v-if="mode !== 'webtoon' && !loading && !loadError && total > 0" class="reader__zones">
-      <button
-        type="button"
+      <div
         class="reader__zone reader__zone--left"
+        role="button"
+        tabindex="0"
         data-testid="reader-zone-left"
         :aria-label="tr('zonePrev')"
         @click="onZoneClick('left', $event)"
+        @keydown.enter.prevent="runZone('left')"
+        @keydown.space.prevent="runZone('left')"
       />
-      <button
-        type="button"
+      <div
         class="reader__zone reader__zone--center"
+        role="button"
+        tabindex="0"
         data-testid="reader-zone-center"
         :aria-label="tr('zoneToggle')"
         @click="onZoneClick('center', $event)"
+        @keydown.enter.prevent="runZone('center')"
+        @keydown.space.prevent="runZone('center')"
       />
-      <button
-        type="button"
+      <div
         class="reader__zone reader__zone--right"
+        role="button"
+        tabindex="0"
         data-testid="reader-zone-right"
         :aria-label="tr('zoneNext')"
         @click="onZoneClick('right', $event)"
+        @keydown.enter.prevent="runZone('right')"
+        @keydown.space.prevent="runZone('right')"
       />
     </div>
+
+    <p
+      v-if="!loading && !loadError && total > 0"
+      class="reader__page-indicator"
+      :class="{ 'reader__page-indicator--muted': barsVisible }"
+      data-testid="reader-page-indicator"
+      aria-live="off"
+    >
+      {{ displayLabel }}
+    </p>
 
     <div class="reader__bar-layer reader__bar-layer--top" :class="{ 'reader__bar-layer--hidden': !barsVisible }">
       <ReaderTopBar
@@ -1087,6 +1112,7 @@ defineExpose({
         :jump-value="currentPage + 1"
         :total="total"
         :jump-label="tr('jump')"
+        :jump-placeholder="tr('jumpPlaceholder')"
         :jump-hint="tr('jumpHint')"
         :close-label="tr('close')"
         :fullscreen-label="tr('fullscreen')"
@@ -1097,11 +1123,16 @@ defineExpose({
     </div>
 
     <div class="reader__bar-layer reader__bar-layer--bottom" :class="{ 'reader__bar-layer--hidden': !barsVisible }">
+      <div v-if="$slots['bar-actions']" class="reader__bar-actions" data-no-gesture>
+        <slot name="bar-actions" />
+      </div>
       <ReaderBottomBar
         :page="currentPage"
         :total="total"
         :page-label="displayLabel"
         :first-label="tr('first')"
+        :prev-label="tr('prev')"
+        :next-page-label="tr('next')"
         :last-label="tr('last')"
         :settings-label="tr('settings')"
         :slideshow-label="tr(slideshowOn ? 'slideshowStop' : 'slideshowStart')"
@@ -1109,6 +1140,8 @@ defineExpose({
         :next-label="tr('nextGallery')"
         :at-end="atEnd"
         @first="goFirst"
+        @prev="prevPage"
+        @next-page="nextPage"
         @last="goLast"
         @seek="jumpTo"
         @settings="openSettings"
@@ -1129,14 +1162,16 @@ defineExpose({
       :fit-label="tr('fit')"
       :slideshow-label="tr('slideshow')"
       :interval-label="tr('slideshowInterval')"
+      :interval-placeholder="tr('slideshowIntervalPlaceholder')"
+      :interval-unit="tr('slideshowIntervalUnit')"
       :close-label="tr('close')"
       :shortcuts="tr('shortcuts')"
       :mode-names="{
-        ltr: tr('modes.ltr'),
-        rtl: tr('modes.rtl'),
-        double: tr('modes.double'),
-        'double-rtl': tr('modes.double-rtl'),
-        webtoon: tr('modes.webtoon'),
+        ltr: tr('modesShort.ltr'),
+        rtl: tr('modesShort.rtl'),
+        double: tr('modesShort.double'),
+        'double-rtl': tr('modesShort.double-rtl'),
+        webtoon: tr('modesShort.webtoon'),
       }"
       :fit-names="{
         height: tr('fits.height'),
@@ -1223,15 +1258,46 @@ defineExpose({
   text-align: center;
 }
 
-.reader__retry {
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-5);
-  border: 1px solid var(--gv-color-outline);
+.reader__message-text {
+  margin: 0;
+}
+
+.reader__spinner {
+  width: var(--gv-size-control-md);
+  height: var(--gv-size-control-md);
+  border: 2px solid color-mix(in srgb, var(--gv-color-reader-on-surface) 24%, transparent);
+  border-top-color: var(--gv-color-primary);
   border-radius: var(--gv-radius-full);
-  background: transparent;
+  animation: reader-spin var(--gv-motion-duration-long) linear infinite;
+}
+
+@keyframes reader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.reader__page-indicator {
+  position: absolute;
+  right: var(--gv-space-3);
+  bottom: var(--gv-space-3);
+  z-index: 3;
+  margin: 0;
+  padding: var(--gv-space-1) var(--gv-space-2);
   color: var(--gv-color-reader-on-surface);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
+  font: var(--gv-type-body-small);
+  font-weight: 700;
+  text-shadow:
+    0 0 4px var(--gv-color-reader-surface),
+    0 0 2px var(--gv-color-reader-surface);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  transition: opacity var(--gv-motion-duration-medium) var(--gv-motion-ease-standard);
+}
+
+/* Fades out while the bars are open: the top bar already prints the page. */
+.reader__page-indicator--muted {
+  opacity: 0;
 }
 
 .reader__zones {
@@ -1287,6 +1353,18 @@ defineExpose({
 
 .reader__bar-layer--hidden.reader__bar-layer--bottom {
   transform: translateY(100%);
+}
+
+/* Host-provided actions (online reader: image source, favorite, download) ride
+   with the bottom bar so they appear and hide together (OR-05). */
+.reader__bar-actions {
+  position: absolute;
+  right: var(--gv-space-3);
+  bottom: calc(var(--gv-size-reader-bar) + var(--gv-space-2));
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--gv-space-2);
 }
 
 

@@ -1,13 +1,15 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
+import IconButton from "@/components/ui/IconButton.vue";
+import Input from "@/components/ui/Input.vue";
 
-defineProps<{
+const props = defineProps<{
   title: string;
   pageLabel: string;
   jumpValue: number;
   total: number;
   jumpLabel: string;
+  jumpPlaceholder: string;
   jumpHint: string;
   closeLabel: string;
   fullscreenLabel: string;
@@ -19,60 +21,75 @@ const emit = defineEmits<{
   fullscreen: [];
 }>();
 
-const jumpInput = ref<HTMLInputElement | null>(null);
+/**
+ * The page text owns the current number; the jump field stays empty until the
+ * user types, so the same page is never printed twice (OR-03 / RD-03).
+ */
+const draft = ref("");
+const jumpWrap = ref<HTMLElement | null>(null);
+
+watch(
+  () => props.jumpValue,
+  () => {
+    draft.value = "";
+  },
+);
 
 function submitJump(): void {
-  const value = Number.parseInt(jumpInput.value?.value ?? "", 10);
+  const value = Number.parseInt(draft.value, 10);
+  draft.value = "";
   if (Number.isFinite(value)) emit("jump", value - 1);
 }
 
 function focusJump(): void {
-  jumpInput.value?.focus();
-  jumpInput.value?.select();
+  const input = jumpWrap.value?.querySelector("input");
+  input?.focus();
+  input?.select();
 }
 
 defineExpose({ focusJump });
 </script>
 
 <template>
-  <header class="reader-topbar" data-testid="reader-topbar">
-    <button type="button" class="reader-icon" data-testid="reader-close" :title="closeLabel" @click="emit('close')">
-      <span aria-hidden="true">←</span>
-      <span class="sr-only">{{ closeLabel }}</span>
-    </button>
-    <p class="reader-topbar__title" :title="title">{{ title }}</p>
+  <header class="reader-topbar" data-testid="reader-topbar" data-gv-toolbar>
+    <IconButton
+      name="back"
+      size="lg"
+      :label="closeLabel"
+      data-testid="reader-close"
+      @click="emit('close')"
+    />
+    <div class="reader-topbar__title-box">
+      <p class="reader-topbar__title" :title="title">{{ title }}</p>
+    </div>
     <div class="reader-topbar__jump">
-      <label class="reader-topbar__jump-label" :title="jumpHint">
-        <span class="sr-only">{{ jumpLabel }}</span>
-        <input
-          ref="jumpInput"
-          class="reader-topbar__input"
-          data-testid="reader-jump"
+      <div ref="jumpWrap" class="reader-topbar__jump-field" data-testid="reader-jump">
+        <Input
+          v-model="draft"
           type="number"
-          min="1"
-          :max="total"
-          :value="jumpValue"
-          inputmode="numeric"
+          size="lg"
+          :placeholder="jumpPlaceholder"
           :aria-label="jumpLabel"
-          @change="submitJump"
-          @keydown.enter.prevent="submitJump"
+          :title="jumpHint"
+          @enter="submitJump"
         />
-      </label>
+      </div>
       <span class="reader-topbar__page" data-testid="reader-page-label">{{ pageLabel }}</span>
     </div>
-    <button type="button" class="reader-icon" data-testid="reader-fullscreen" :title="fullscreenLabel" @click="emit('fullscreen')">
-      <span aria-hidden="true">⛶</span>
-      <span class="sr-only">{{ fullscreenLabel }}</span>
-    </button>
+    <IconButton
+      name="fullscreen"
+      size="lg"
+      :label="fullscreenLabel"
+      data-testid="reader-fullscreen"
+      @click="emit('fullscreen')"
+    />
   </header>
 </template>
 
 <style scoped>
 .reader-topbar {
   position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
+  inset: 0 0 auto;
   z-index: 3;
   display: flex;
   align-items: center;
@@ -87,8 +104,15 @@ defineExpose({ focusJump });
   transition: transform var(--gv-motion-duration-medium) var(--gv-motion-ease-standard);
 }
 
+/* Flex spacer: the right-hand controls stay flush with the bar padding even
+   when the title is hidden at 390 (OR-02 / RD-02). */
+.reader-topbar__title-box {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .reader-topbar__title {
-  flex: 1;
   overflow: hidden;
   margin: 0;
   font: var(--gv-type-title-small);
@@ -98,67 +122,24 @@ defineExpose({ focusJump });
 
 .reader-topbar__jump {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--gv-space-2);
   min-width: 0;
 }
 
-.reader-topbar__jump-label {
-  display: inline-flex;
-}
-
-.reader-topbar__input {
-  width: 4.5em;
-  min-height: 36px;
-  padding: 0 var(--gv-space-1);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container-lowest);
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-medium);
-  text-align: center;
+.reader-topbar__jump-field {
+  width: 72px;
 }
 
 .reader-topbar__page {
   color: var(--gv-color-on-surface);
   font: var(--gv-type-body-small);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.reader-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
-  padding: 0;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-title-medium);
-  cursor: pointer;
-}
-
-.reader-icon:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 12%, transparent);
-}
-
-.reader-icon:focus-visible {
-  outline: 2px solid var(--gv-color-focus-ring);
-  outline-offset: 2px;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-@media (max-width: 599px) {
+@media (max-width: 599.98px) {
   .reader-topbar__title {
     display: none;
   }
