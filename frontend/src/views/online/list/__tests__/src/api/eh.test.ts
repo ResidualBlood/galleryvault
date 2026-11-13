@@ -6,8 +6,11 @@ import {
   fetchOnlineDetail,
   fetchOnlinePages,
   isValidCursor,
+  isValidJump,
+  isValidSeekDate,
   mapOnlineState,
   officialGalleryUrl,
+  searchOnline,
 } from "@/api/eh";
 
 afterEach(() => {
@@ -61,6 +64,17 @@ describe("buildSearchParams", () => {
       tl: "12",
     });
   });
+
+  it("sends prev or next (not both) plus date-jump parameters", () => {
+    expect(buildSearchParams({ prev: "1-2", next: "3-4", jump: "1m" })).toEqual({
+      next: "3-4",
+      jump: "1m",
+    });
+    expect(buildSearchParams({ prev: "1-2", seek: "2024-02-29" })).toEqual({
+      prev: "1-2",
+      seek: "2024-02-29",
+    });
+  });
 });
 
 describe("cursor validation", () => {
@@ -71,6 +85,40 @@ describe("cursor validation", () => {
     expect(isValidCursor("199", "toplist")).toBe(true);
     expect(isValidCursor("200", "toplist")).toBe(false);
     expect(isValidCursor("")).toBe(false);
+  });
+});
+
+describe("date-jump validation", () => {
+  it("accepts the eight EH intervals and real calendar dates", () => {
+    for (const value of ["1d", "3d", "1w", "2w", "1m", "6m", "1y", "2y"]) {
+      expect(isValidJump(value)).toBe(true);
+    }
+    expect(isValidJump("2d")).toBe(false);
+    expect(isValidSeekDate("2024-02-29")).toBe(true);
+    expect(isValidSeekDate("2024-02-30")).toBe(false);
+    expect(isValidSeekDate("2024-2-9")).toBe(false);
+  });
+
+  it("returns the prev cursor from the search response", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(
+        JSON.stringify({
+          state: "ok",
+          items: [],
+          next: "3-4",
+          prev: "1-2",
+          jump: "1m",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const data = await searchOnline({ q: "test", prev: "1-2", jump: "1m" });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("prev=1-2");
+    expect(data.prev).toBe("1-2");
+    expect(data.jump).toBe("1m");
   });
 });
 

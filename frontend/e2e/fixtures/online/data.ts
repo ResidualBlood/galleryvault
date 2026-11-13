@@ -14,6 +14,7 @@ export const NEWER_TOKEN = "tok900002";
 export const LOCAL_GALLERY_ID = 42;
 
 export const PAGE_CURSOR = "1-2";
+export const PREV_CURSOR = "0-1";
 
 const CATEGORIES = ["doujinshi", "manga", "artistcg", "image_set"] as const;
 
@@ -74,10 +75,38 @@ export function searchResponse(query: URLSearchParams): OnlineSearchResponse {
       q,
     };
   }
-  if (query.get("next") === PAGE_CURSOR) {
-    return { state: "ok", items: SECOND_PAGE, next: null, q: "" };
+  if (query.get("list") === "toplist") {
+    const page = Math.max(0, Number(query.get("next") ?? "0") || 0);
+    return {
+      state: "ok",
+      items: Array.from({ length: 3 }, (_, offset) => searchItem(page * 3 + offset + 1)),
+      next: page < 199 ? String(page + 1) : null,
+      prev: page > 0 ? String(page - 1) : null,
+      q: "",
+      list: "toplist",
+      tl: Number(query.get("tl") ?? "15") || 15,
+    };
   }
-  return { state: "ok", items: FIRST_PAGE, next: PAGE_CURSOR, q: "" };
+  const jump = query.get("jump");
+  const seek = query.get("seek");
+  if (jump || seek) {
+    return {
+      state: "ok",
+      items: [{ ...searchItem(50), title: `Date jump ${jump ?? seek}` }],
+      next: "50-51",
+      prev: query.get("prev") ? PREV_CURSOR : null,
+      q: "",
+      jump,
+      seek,
+    };
+  }
+  if (query.get("prev") === PREV_CURSOR) {
+    return { state: "ok", items: FIRST_PAGE, next: PAGE_CURSOR, prev: null, q: "" };
+  }
+  if (query.get("next") === PAGE_CURSOR) {
+    return { state: "ok", items: SECOND_PAGE, next: null, prev: PREV_CURSOR, q: "" };
+  }
+  return { state: "ok", items: FIRST_PAGE, next: PAGE_CURSOR, prev: null, q: "" };
 }
 
 const TAGS: OnlineTag[] = [

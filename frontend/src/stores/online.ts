@@ -228,10 +228,25 @@ export function mergeDownloadBadge(
   }
 }
 
+export type OnlinePageDirection = "next" | "prev";
+
+/** Replayable cursor state for one list page (URL query `next`/`prev`). */
+export interface OnlineCursorState {
+  cursor?: string | null;
+  direction?: OnlinePageDirection;
+  jump?: string | null;
+  seek?: string | null;
+}
+
 interface CacheEntry {
   items: OnlineSearchItem[];
   state: OnlineState;
   nextCursor: string | null;
+  prevCursor: string | null;
+  cursor: string | null;
+  direction: OnlinePageDirection;
+  jump: string | null;
+  seek: string | null;
   scrollY: number;
 }
 
@@ -253,6 +268,11 @@ export const useOnlineStore = defineStore("online-list", () => {
   const items = ref<OnlineSearchItem[]>([]);
   const state = ref<OnlineState>("ok");
   const nextCursor = ref<string | null>(null);
+  const prevCursor = ref<string | null>(null);
+  const currentCursor = ref<string | null>(null);
+  const currentDirection = ref<OnlinePageDirection>("next");
+  const jump = ref<string | null>(null);
+  const seek = ref<string | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const currentKey = ref("");
@@ -263,6 +283,7 @@ export const useOnlineStore = defineStore("online-list", () => {
 
   const initialLoading = computed(() => loading.value && items.value.length === 0);
   const hasMore = computed(() => Boolean(nextCursor.value) && !error.value);
+  const hasPrev = computed(() => Boolean(prevCursor.value) && !error.value);
 
   function remember(): void {
     if (!currentKey.value) return;
@@ -271,11 +292,26 @@ export const useOnlineStore = defineStore("online-list", () => {
       items: [...items.value],
       state: state.value,
       nextCursor: nextCursor.value,
+      prevCursor: prevCursor.value,
+      cursor: currentCursor.value,
+      direction: currentDirection.value,
+      jump: jump.value,
+      seek: seek.value,
       scrollY: previous?.scrollY ?? 0,
     });
   }
 
-  async function load(cursor: string | null, append: boolean): Promise<boolean> {
+  interface LoadOptions {
+    direction?: OnlinePageDirection;
+    jump?: string | null;
+    seek?: string | null;
+  }
+
+  async function load(
+    cursor: string | null,
+    append: boolean,
+    options: LoadOptions = {},
+  ): Promise<boolean> {
     const key = currentKey.value;
     if (!key) return false;
     const seq = ++requestSeq;
@@ -283,6 +319,9 @@ export const useOnlineStore = defineStore("online-list", () => {
     controller = new AbortController();
     loading.value = true;
     error.value = null;
+    const direction = options.direction ?? "next";
+    const jumpValue = options.jump ?? null;
+    const seekValue = options.seek ?? null;
     try {
       const filters = currentFilters.value;
       const data = await searchOnline(
@@ -292,7 +331,10 @@ export const useOnlineStore = defineStore("online-list", () => {
           min_rating: filters.min_rating,
           list: filters.list,
           tl: filters.list === "toplist" ? filters.tl : null,
-          next: cursor,
+          next: direction === "next" ? cursor : null,
+          prev: direction === "prev" ? cursor : null,
+          jump: jumpValue,
+          seek: seekValue,
         },
         controller.signal,
       );
@@ -303,6 +345,13 @@ export const useOnlineStore = defineStore("online-list", () => {
         mapped === "ok" && data.items.length === 0 && !append ? "empty" : mapped;
       items.value = append ? mergeUnique(items.value, data.items) : data.items;
       nextCursor.value = mapped === "ok" ? data.next : null;
+      prevCursor.value = mapped === "ok" ? (data.prev ?? null) : null;
+      if (!append) {
+        currentCursor.value = cursor;
+        currentDirection.value = direction;
+        jump.value = jumpValue;
+        seek.value = seekValue;
+      }
       remember();
       return true;
     } catch (caught) {
@@ -315,15 +364,42 @@ export const useOnlineStore = defineStore("online-list", () => {
     }
   }
 
+  function emptyCursorState(): void {
+    nextCursor.value = null;
+    prevCursor.value = null;
+    currentCursor.value = null;
+    currentDirection.value = "next";
+    jump.value = null;
+    seek.value = null;
+  }
+
   /**
    * Start or resume a filter set. Returns true when cached items were reused
    * (the list view then restores the previous scroll offset).
+   *
+   * `initial` replays a cursor from the URL query; when it differs from the
+   * cached page the list refetches instead of showing stale rows.
    */
-  function start(filters: OnlineFilters): boolean {
+  function start(filters: OnlineFilters, initial: OnlineCursorState = {}): boolean {
     const normalized = normalizeFilters(filters);
     const key = filtersKey(normalized);
+    const cursor = initial.cursor ?? null;
+    const direction = initial.direction ?? "next";
+    const jumpValue = initial.jump ?? null;
+    const seekValue = initial.seek ?? null;
+    const samePage =
+      currentCursor.value === cursor &&
+      currentDirection.value === direction &&
+      jump.value === jumpValue &&
+      seek.value === seekValue;
     currentFilters.value = normalized;
-    if (key === currentKey.value && (items.value.length > 0 || loading.value)) return true;
+    if (
+      key === currentKey.value &&
+      samePage &&
+      (items.value.length > 0 || loading.value)
+    ) {
+      return true;
+    }
 
     const cached = listCache.get(key);
     currentKey.value = key;
@@ -331,17 +407,32 @@ export const useOnlineStore = defineStore("online-list", () => {
     requestSeq += 1;
     controller?.abort();
     controller = null;
-    if (cached) {
+    if (
+      cached &&
+      cached.cursor === cursor &&
+      cached.direction === direction &&
+      cached.jump === jumpValue &&
+      cached.seek === seekValue
+    ) {
       items.value = [...cached.items];
       state.value = cached.state;
       nextCursor.value = cached.nextCursor;
+      prevCursor.value = cached.prevCursor;
+      currentCursor.value = cached.cursor;
+      currentDirection.value = cached.direction;
+      jump.value = cached.jump;
+      seek.value = cached.seek;
       loading.value = false;
       return true;
     }
     items.value = [];
     state.value = "ok";
-    nextCursor.value = null;
-    void load(null, false);
+    emptyCursorState();
+    void load(cursor, false, {
+      direction,
+      jump: jumpValue,
+      seek: seekValue,
+    });
     return false;
   }
 
@@ -350,10 +441,55 @@ export const useOnlineStore = defineStore("online-list", () => {
     return load(nextCursor.value, true);
   }
 
+  /** Replace the list with the next page (`next` cursor). */
+  async function goNext(): Promise<boolean> {
+    if (!nextCursor.value || !currentKey.value || error.value) return false;
+    return load(nextCursor.value, false, { direction: "next" });
+  }
+
+  /** Replace the list with the previous page (`prev` cursor). */
+  async function goPrev(): Promise<boolean> {
+    if (!prevCursor.value || !currentKey.value || error.value) return false;
+    const direction: OnlinePageDirection =
+      currentFilters.value.list === "toplist" ? "next" : "prev";
+    return load(prevCursor.value, false, { direction });
+  }
+
+  /** Toplist direct page jump: page 1 maps to no `p`, page N to `p=N-1`. */
+  async function goToPage(page: number): Promise<boolean> {
+    if (!currentKey.value || error.value) return false;
+    if (currentFilters.value.list !== "toplist") return false;
+    if (!Number.isInteger(page) || page < 1 || page > 200) return false;
+    return load(page > 1 ? String(page - 1) : null, false, { direction: "next" });
+  }
+
+  /**
+   * Date jump (`jump=1m` / `seek=YYYY-MM-DD`). E-Hentai extends an existing
+   * cursor, so this requires the current page's next or prev cursor.
+   */
+  async function jumpDate(value: { jump?: string | null; seek?: string | null }): Promise<boolean> {
+    if (!currentKey.value || error.value) return false;
+    if (currentFilters.value.list === "toplist") return false;
+    const jumpValue = value.jump ?? null;
+    const seekValue = value.seek ?? null;
+    if (Boolean(jumpValue) === Boolean(seekValue)) return false;
+    const cursor = nextCursor.value ?? prevCursor.value;
+    if (!cursor) return false;
+    return load(cursor, false, {
+      direction: nextCursor.value ? "next" : "prev",
+      jump: jumpValue,
+      seek: seekValue,
+    });
+  }
+
   async function retry(): Promise<boolean> {
     if (loading.value || !currentKey.value) return false;
     error.value = null;
-    return load(nextCursor.value ?? null, items.value.length > 0);
+    return load(currentCursor.value, false, {
+      direction: currentDirection.value,
+      jump: jump.value,
+      seek: seek.value,
+    });
   }
 
   function saveScroll(scrollY: number): void {
@@ -365,6 +501,11 @@ export const useOnlineStore = defineStore("online-list", () => {
         items: [...items.value],
         state: state.value,
         nextCursor: nextCursor.value,
+        prevCursor: prevCursor.value,
+        cursor: currentCursor.value,
+        direction: currentDirection.value,
+        jump: jump.value,
+        seek: seek.value,
         scrollY: Math.max(0, scrollY),
       });
     }
@@ -382,14 +523,24 @@ export const useOnlineStore = defineStore("online-list", () => {
     items,
     state,
     nextCursor,
+    prevCursor,
+    currentCursor,
+    currentDirection,
+    jump,
+    seek,
     loading,
     initialLoading,
     error,
     hasMore,
+    hasPrev,
     currentKey,
     currentFilters,
     start,
     loadMore,
+    goNext,
+    goPrev,
+    goToPage,
+    jumpDate,
     retry,
     saveScroll,
     savedScroll,

@@ -33,7 +33,15 @@ export interface OnlineSearchQuery {
   list?: OnlineListType;
   tl?: number | null;
   next?: string | null;
+  prev?: string | null;
+  /** E-Hentai date-jump interval (`1d`, `3d`, `1w`, `2w`, `1m`, `6m`, `1y`, `2y`). */
+  jump?: string | null;
+  /** E-Hentai date-jump date (`YYYY-MM-DD`). */
+  seek?: string | null;
 }
+
+export const ONLINE_JUMP_VALUES = ["1d", "3d", "1w", "2w", "1m", "6m", "1y", "2y"] as const;
+export type OnlineJumpValue = (typeof ONLINE_JUMP_VALUES)[number];
 
 export interface OnlineDownloadState {
   id?: number;
@@ -67,11 +75,14 @@ export interface OnlineSearchResponse {
   state: string;
   items: OnlineSearchItem[];
   next: string | null;
+  prev?: string | null;
   q?: string;
   category?: string | null;
   min_rating?: number | null;
   list?: string;
   tl?: number | null;
+  jump?: string | null;
+  seek?: string | null;
 }
 
 export interface OnlineThumb {
@@ -179,6 +190,22 @@ export function isValidCursor(cursor: string, list: OnlineListType = "search"): 
   return /^\d+(-\d+)?$/.test(cursor);
 }
 
+export function isValidJump(value: string): value is OnlineJumpValue {
+  return (ONLINE_JUMP_VALUES as readonly string[]).includes(value);
+}
+
+/** Validate a `YYYY-MM-DD` date, rejecting impossible calendar days. */
+export function isValidSeekDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
 export function buildSearchParams(query: OnlineSearchQuery): Record<string, string> {
   const out: Record<string, string> = {};
   const q = typeof query.q === "string" ? query.q.trim() : "";
@@ -194,6 +221,9 @@ export function buildSearchParams(query: OnlineSearchQuery): Record<string, stri
     out.tl = String(query.tl);
   }
   if (query.next) out.next = query.next;
+  else if (query.prev) out.prev = query.prev;
+  if (query.jump) out.jump = query.jump;
+  if (query.seek) out.seek = query.seek;
   return out;
 }
 
@@ -218,11 +248,14 @@ export async function searchOnline(
     state: data?.state ?? "error",
     items: Array.isArray(data?.items) ? data.items : [],
     next: typeof data?.next === "string" && data.next ? data.next : null,
+    prev: typeof data?.prev === "string" && data.prev ? data.prev : null,
     q: data?.q,
     category: data?.category ?? null,
     min_rating: data?.min_rating ?? null,
     list: data?.list,
     tl: data?.tl ?? null,
+    jump: typeof data?.jump === "string" && data.jump ? data.jump : null,
+    seek: typeof data?.seek === "string" && data.seek ? data.seek : null,
   };
 }
 

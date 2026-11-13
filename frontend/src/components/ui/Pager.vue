@@ -15,6 +15,10 @@ const props = withDefaults(
     pageSizeOptions?: number[];
     disabled?: boolean;
     showJump?: boolean;
+    /** Cursor mode: override the page-number inference for the prev button. */
+    hasPrev?: boolean;
+    /** Cursor mode: override the page-number inference for the next button. */
+    hasNext?: boolean;
     testid?: string;
   }>(),
   {
@@ -23,6 +27,8 @@ const props = withDefaults(
     pageSizeOptions: () => [],
     disabled: false,
     showJump: true,
+    hasPrev: undefined,
+    hasNext: undefined,
     testid: "gv-pager",
   },
 );
@@ -61,9 +67,13 @@ const pages = computed<Array<number | "gap">>(() => {
   return output;
 });
 
-const canPrev = computed(() => !props.disabled && props.page > 1);
+const canPrev = computed(
+  () => !props.disabled && (props.hasPrev ?? props.page > 1),
+);
 const canNext = computed(
-  () => !props.disabled && (!hasTotal.value || props.page < total.value),
+  () =>
+    !props.disabled &&
+    (props.hasNext ?? (!hasTotal.value || props.page < total.value)),
 );
 
 function go(page: number): void {
@@ -153,7 +163,9 @@ function onPageSize(event: Event): void {
         :disabled="disabled"
         data-pager="jump"
         @blur="submitJump"
+        @keydown.enter.prevent="submitJump"
       />
+      <button class="pager__jump-submit" type="submit" tabindex="-1" aria-hidden="true" />
       <span v-if="jumpError" :id="`${testid}-jump-error`" class="pager__error" role="alert">
         {{ jumpError }}
       </span>
@@ -270,6 +282,15 @@ function onPageSize(event: Event): void {
 
 .pager__input--invalid {
   border-color: var(--gv-color-error);
+}
+
+.pager__jump-submit {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .pager__error {

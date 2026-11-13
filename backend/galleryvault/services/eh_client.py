@@ -43,6 +43,7 @@ from .eh_parsers import (  # noqa: F401 - re-exported for backwards compatibilit
     IMAGE_LIMIT_RE,
     IMAGE_LIMIT_SIMPLE_RE,
     IMAGE_RE,
+    JUMP_VALUES,
     PAGE_RE,
     SHOWKEY_RE,
     SHOWPAGE_IMAGE_RE,
@@ -105,6 +106,8 @@ from .eh_parsers import (  # noqa: F401 - re-exported for backwards compatibilit
     _usable_thumb_src,
     classify_search_body,
     get_fixed_preview_thumb_url,
+    normalize_jump,
+    normalize_seek,
     parse_favorite_note,
     parse_gallery_preview,
     parse_gallery_url,
@@ -112,6 +115,7 @@ from .eh_parsers import (  # noqa: F401 - re-exported for backwards compatibilit
     parse_newer_gallery,
     parse_online_gallery,
     parse_search_page,
+    parse_search_prev_cursor,
 )
 
 __all__ = [
@@ -131,6 +135,7 @@ __all__ = [
     "IMAGE_LIMIT_RE",
     "IMAGE_LIMIT_SIMPLE_RE",
     "IMAGE_RE",
+    "JUMP_VALUES",
     "PAGE_RE",
     "SHOWKEY_RE",
     "SHOWPAGE_IMAGE_RE",
@@ -166,6 +171,8 @@ __all__ = [
     "classify_search_response",
     "cookie_health_loop",
     "get_fixed_preview_thumb_url",
+    "normalize_jump",
+    "normalize_seek",
     "parse_favorite_note",
     "parse_gallery_preview",
     "parse_gallery_url",
@@ -173,6 +180,7 @@ __all__ = [
     "parse_newer_gallery",
     "parse_online_gallery",
     "parse_search_page",
+    "parse_search_prev_cursor",
     "probe_cookie_health",
 ]
 
@@ -1232,8 +1240,11 @@ class EhClient:
         f_cats: int | None = None,
         min_rating: float | None = None,
         next_cursor: str | None = None,
+        prev_cursor: str | None = None,
         list_type: str = "search",
         tl: int | None = None,
+        jump: str | None = None,
+        seek: str | None = None,
     ) -> EhSearchResult:
         """Fetch one ExHentai listing (cursor, not ``page=N``).
 
@@ -1241,10 +1252,27 @@ class EhClient:
         ``watched`` (``/watched``), ``toplist`` (``/toplist.php?tl=``).
         Toplist ``tl`` values match the site: 11 yesterday / 12 month /
         13 year / 15 all-time.
+
+        ``prev_cursor`` walks back via the list ``prev=`` cursor and is
+        mutually exclusive with ``next_cursor``.  ``jump`` (``1d`` … ``2y``)
+        and ``seek`` (``YYYY-MM-DD``) are E-Hentai's date-jump parameters and
+        extend an existing cursor, so one of ``next_cursor`` / ``prev_cursor``
+        is required (same contract as EhViewer's date-jump dialog).
         """
         kind = (list_type or "search").strip().lower()
         if kind not in {"search", "popular", "watched", "toplist"}:
             raise ValueError("invalid list")
+        if next_cursor and prev_cursor:
+            raise ValueError("next and prev are mutually exclusive")
+        jump_value = normalize_jump(jump)
+        seek_value = normalize_seek(seek)
+        if jump_value and seek_value:
+            raise ValueError("jump and seek are mutually exclusive")
+        if jump_value or seek_value:
+            if kind == "toplist":
+                raise ValueError("toplist uses page cursors, not date jump")
+            if not (next_cursor or prev_cursor):
+                raise ValueError("date jump requires a cursor")
         params: dict[str, object] = {}
         path = "/"
         if kind == "popular":
@@ -1275,6 +1303,23 @@ class EhClient:
                 if not _NEXT_CURSOR_RE.fullmatch(str(next_cursor)):
                     raise ValueError("invalid next cursor")
                 params["next"] = str(next_cursor)
+        elif prev_cursor:
+            if kind == "toplist":
+                if not _TOPLIST_CURSOR_RE.fullmatch(str(prev_cursor)) or not (
+                    0 <= int(prev_cursor) < 200
+                ):
+                    raise ValueError("invalid prev cursor")
+                cur_p = int(prev_cursor)
+                if cur_p > 0:
+                    params["p"] = cur_p
+            else:
+                if not _NEXT_CURSOR_RE.fullmatch(str(prev_cursor)):
+                    raise ValueError("invalid prev cursor")
+                params["prev"] = str(prev_cursor)
+        if jump_value:
+            params["jump"] = jump_value
+        if seek_value:
+            params["seek"] = seek_value
         if kind in {"search", "watched"} and min_rating is not None:
             srdd = max(2, min(5, int(min_rating)))
             params["advsearch"] = 1
@@ -1321,10 +1366,17 @@ class EhClient:
         )
         if kind == "toplist":
             nxt = _toplist_next_cursor(body, cur_p)
+            prv = str(cur_p - 1) if cur_p > 0 else None
+        else:
+            prv = parse_search_prev_cursor(body)
         if items:
-            return EhSearchResult(items=items, next_cursor=nxt, state="ok")
-        if next_cursor:
-            return EhSearchResult(items=[], next_cursor=None, state="ok")
+            return EhSearchResult(
+                items=items, next_cursor=nxt, state="ok", prev_cursor=prv
+            )
+        if next_cursor or prev_cursor:
+            return EhSearchResult(
+                items=[], next_cursor=None, state="ok", prev_cursor=prv
+            )
         if re.search(r"No hits found", body, re.IGNORECASE):
             return EhSearchResult(items=[], next_cursor=None, state="empty")
         if 'name="f_search"' in body or "itg" in body.lower():
