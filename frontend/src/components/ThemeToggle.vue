@@ -1,33 +1,36 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
 import IconButton from "@/components/ui/IconButton.vue";
+import type { IconName } from "@/components/icons/registry";
 import { useSettingsStore } from "@/stores/settings";
 
 const settings = useSettingsStore();
 const { t } = useI18n();
 
-const glyph = computed(() => {
-  if (settings.theme === "light") return "☀";
-  if (settings.theme === "system") return "◐";
-  return "☾";
+/**
+ * SH-01 / LG-01: the theme control used to render ☀ / ◐ / ☾ as text at three
+ * different optical sizes. The icon now comes from the shared registry and the
+ * current state is carried by the label instead of a glyph.
+ */
+const icon = computed<IconName>(() => {
+  if (settings.theme === "light") return "theme-light";
+  if (settings.theme === "system") return "theme-system";
+  return "theme-dark";
 });
+
+const stateLabel = computed(() => {
+  if (settings.theme === "light") return t("app.actions.themeLight");
+  if (settings.theme === "system") return t("app.actions.themeSystem");
+  return t("app.actions.themeDark");
+});
+
+const label = computed(() => `${t("app.actions.theme")}: ${stateLabel.value}`);
 </script>
 
 <template>
-  <IconButton
-    :label="`${t('app.actions.theme')}: ${glyph}`"
-    data-testid="theme-toggle"
-    @click="settings.cycleTheme()"
-  >
-    <span class="theme-glyph" aria-hidden="true">{{ glyph }}</span>
+  <IconButton :label="label" data-testid="theme-toggle" @click="settings.cycleTheme()">
+    <Icon :name="icon" size="md" />
   </IconButton>
 </template>
-
-<style scoped>
-.theme-glyph {
-  font: var(--gv-type-title-medium);
-  line-height: 1;
-}
-</style>

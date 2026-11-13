@@ -1,12 +1,14 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
+import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
 import { fetchCookieHealth, type CookieHealth } from "@/api/settings";
 import "./messages";
 
 const { t } = useI18n();
+const router = useRouter();
 const health = ref<CookieHealth | null>(null);
 const dismissed = ref(false);
 
@@ -26,6 +28,10 @@ const body = computed(() => {
   const translated = t(key);
   return translated === key ? t("system.global.cookie.unknown") : translated;
 });
+
+function openSettings(): void {
+  void router.push({ name: "settings" });
+}
 
 async function load(): Promise<void> {
   try {
@@ -48,12 +54,16 @@ onMounted(load);
     :data-cookie-state="state"
   >
     <div class="cookie-banner__text">
+      <Icon class="cookie-banner__icon" name="status-warning" size="md" />
       <strong class="cookie-banner__title">{{ t('system.global.cookie.title') }}</strong>
       <span class="cookie-banner__body">{{ body }}</span>
     </div>
-    <div class="cookie-banner__actions">
-      <a class="cookie-banner__link" href="#/settings">{{ t('system.global.cookie.openSettings') }}</a>
-      <Button variant="text" size="compact" @click="dismissed = true">
+    <div class="cookie-banner__actions" data-gv-toolbar>
+      <Button variant="text" data-testid="cookie-banner-settings" @click="openSettings">
+        {{ t('system.global.cookie.openSettings') }}
+      </Button>
+      <Button variant="text" data-testid="cookie-banner-dismiss" @click="dismissed = true">
+        <Icon name="close" size="dense" />
         {{ t('system.global.cookie.dismiss') }}
       </Button>
     </div>
@@ -74,36 +84,51 @@ onMounted(load);
 
 .cookie-banner__text {
   display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
+  min-width: 0;
+  align-items: center;
+  gap: var(--gv-space-2);
   font: var(--gv-type-body-small);
 }
 
+.cookie-banner__icon {
+  flex: none;
+}
+
 .cookie-banner__title {
+  flex: none;
   font: var(--gv-type-label-large);
+  white-space: nowrap;
 }
 
 .cookie-banner__body {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cookie-banner__actions {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: var(--gv-space-2);
-  flex-shrink: 0;
+  gap: var(--gv-space-1);
 }
 
-.cookie-banner__link {
-  color: var(--gv-color-on-warning-container);
-  font: var(--gv-type-label-large);
-  text-decoration: underline;
-}
-
+/* SH-07: on 390 the banner used to take 100px (12% of the viewport) with a
+   14px title over 12px body. Keep one line: title + the two 40px actions. */
 @media (max-width: 599px) {
   .cookie-banner {
-    flex-direction: column;
-    align-items: flex-start;
+    gap: var(--gv-space-2);
+    padding: var(--gv-space-1) var(--gv-space-3);
+  }
+
+  .cookie-banner__title {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cookie-banner__body {
+    display: none;
   }
 }
 </style>

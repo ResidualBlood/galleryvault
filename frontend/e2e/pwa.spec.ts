@@ -169,8 +169,10 @@ test("console has zero CSP violations @pwa", async ({ page }) => {
   await expect(page.getByTestId("nav-drawer")).toBeVisible();
   await waitForServiceWorker(page);
   await announceUpdate(page);
-  await page.setViewportSize({ width: 390, height: 844 });
+  // Below 840px the theme control lives in the navigation sheet (audit SH-06);
+  // the CSP check only needs one theme cycle after the shell has booted.
   await page.getByTestId("theme-toggle").click();
+  await page.setViewportSize({ width: 390, height: 844 });
 
   expect(csp).toEqual([]);
   expect(pageErrors).toEqual([]);

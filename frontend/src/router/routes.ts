@@ -65,7 +65,9 @@ export const routes: RouteRecordRaw[] = [
         path: "online/g/:gid/:token/read/:page",
         name: "online-reader",
         component: OnlineReaderView,
-        meta: { title: "app.nav.online" },
+        // RD-08: readers are a fixed overlay; the shell renders no bars and
+        // the document must not scroll behind them.
+        meta: { title: "app.nav.online", immersive: true },
       },
       {
         path: "library",
@@ -83,7 +85,7 @@ export const routes: RouteRecordRaw[] = [
         path: "reader/:id/:page",
         name: "reader",
         component: ReaderView,
-        meta: { title: "app.nav.library" },
+        meta: { title: "app.nav.library", immersive: true },
       },
       {
         path: "series",

@@ -458,10 +458,11 @@ test.describe("settings & system @settings-sys", () => {
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute("data-cookie-state", "not_logged_in");
     await expect(banner).toContainText("E-Hentai Cookie 异常");
-    await expect(banner.getByRole("link", { name: "前往设置" })).toHaveAttribute(
-      "href",
-      "#/settings",
-    );
+    // SH-05: "前往设置" is now the same Button control as "忽略" (no bare link).
+    const settingsButton = banner.getByRole("button", { name: "前往设置" });
+    await expect(settingsButton).toBeVisible();
+    await settingsButton.click();
+    await expect.poll(() => page.evaluate(() => document.body.dataset.route)).toBe("settings");
     await expect(banner).toBeVisible();
     await page.getByTestId("cookie-health-banner").getByRole("button", { name: "忽略" }).click();
     await expect(page.getByTestId("cookie-health-banner")).toBeHidden();

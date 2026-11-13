@@ -1,7 +1,7 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import {
@@ -93,13 +93,14 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="global" data-testid="global-controls">
-    <div class="global__row">
+    <div class="global__row" data-gv-toolbar>
       <Button
         :variant="paused ? 'tonal' : 'outlined'"
         :disabled="busy"
         :data-testid="paused ? 'global-resume' : 'global-pause'"
         @click="togglePause"
       >
+        <Icon :name="paused ? 'play' : 'pause'" size="md" />
         {{ paused ? t('system.global.resume') : t('system.global.pause') }}
       </Button>
       <Button
@@ -109,19 +110,25 @@ onBeforeUnmount(() => {
         data-testid="global-scan"
         @click="scanNow"
       >
+        <Icon v-if="!scanning" name="retry" size="md" />
         {{ scanning ? t('system.global.scanning') : t('system.global.scan') }}
       </Button>
       <Button variant="outlined" data-testid="global-purge" @click="purgeOpen = true">
+        <Icon name="delete" size="md" />
         {{ t('system.global.purge') }}
       </Button>
-      <span v-if="paused" class="global__status" data-testid="global-paused">{{ t('system.global.paused') }}</span>
+      <span v-if="paused" class="global__status" data-testid="global-paused">
+        {{ t('system.global.paused') }}
+      </span>
     </div>
     <p v-if="error" class="global__error" role="alert">{{ error }}</p>
 
     <Dialog :open="purgeOpen" :title="t('system.global.purgeTitle')" @close="purgeOpen = false">
       <p class="global__body">{{ t('system.global.purgeBody') }}</p>
       <template #footer>
-        <Button variant="text" @click="purgeOpen = false">{{ t('system.global.cookie.dismiss') }}</Button>
+        <Button variant="text" @click="purgeOpen = false">
+          {{ t('system.global.cookie.dismiss') }}
+        </Button>
         <Button
           variant="filled"
           :loading="purgeBusy"
@@ -129,6 +136,7 @@ onBeforeUnmount(() => {
           data-testid="global-purge-confirm"
           @click="purge"
         >
+          <Icon name="delete" size="md" />
           {{ t('system.global.purge') }}
         </Button>
       </template>
@@ -148,9 +156,21 @@ onBeforeUnmount(() => {
 
 .global__row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--gv-space-2);
+}
+
+/* Below 600 there is no room for three labelled buttons on one line: stack them
+   as full-width rows so each row still holds a single control-ladder step. */
+@media (max-width: 599px) {
+  .global__row {
+    flex-wrap: wrap;
+  }
+
+  .global__row .btn {
+    flex: 1 1 100%;
+  }
 }
 
 .global__status {

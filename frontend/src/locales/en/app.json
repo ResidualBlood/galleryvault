@@ -2,6 +2,7 @@
   "title": "GalleryVault",
   "nav": {
     "browse": "Browse",
+    "aria": "Main navigation",
     "online": "Online",
     "library": "Library",
     "favorites": "Favorites",
