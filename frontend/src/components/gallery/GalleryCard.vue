@@ -381,6 +381,7 @@ onBeforeUnmount(clearPress);
           :max="6"
           :size="24"
           :source="source"
+          layout="wrap"
           @select="onTagSelect"
           @exclude="onTagExclude"
           @menu="onTagMenu"
@@ -421,6 +422,7 @@ onBeforeUnmount(clearPress);
         :max="Math.max(tagCount, tags.length)"
         :size="28"
         :source="source"
+        layout="wrap"
         @select="onTagSelect"
         @exclude="onTagExclude"
         @menu="onTagMenu"
@@ -605,7 +607,10 @@ onBeforeUnmount(clearPress);
   z-index: 2;
   max-height: calc(100% - var(--gv-space-6) - var(--gv-space-2));
   padding: var(--gv-space-2);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   border: 1px solid var(--gv-color-outline-variant);
   border-radius: var(--gv-radius-sm);
   background: color-mix(in srgb, var(--gv-color-surface-container-high) 96%, transparent);

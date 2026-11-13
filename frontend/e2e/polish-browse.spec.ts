@@ -9,6 +9,7 @@ import {
   expectNoGlyphIcons,
   expectNoHorizontalOverflow,
   expectRowsAligned,
+  expectTagChipsReadable,
   shotMatrix,
   watchCsp,
 } from "./support/polish";
@@ -215,6 +216,31 @@ test("@polish-browse grid hides inline tags until hover; list and table cap them
   const overlayChips = overlay.locator(".tag-chip");
   expect(await overlayChips.count()).toBeGreaterThan(0);
   expect(await overlayChips.count()).toBeLessThanOrEqual(6);
+  await expect(overlay.getByTestId("tag-list")).toHaveAttribute("data-layout", "wrap");
+  await expectTagChipsReadable(overlayChips);
+
+  // Shots at both widths and themes; chips must stay readable everywhere.
+  for (const variant of [
+    { theme: "dark", width: 1280, height: 900 },
+    { theme: "light", width: 1280, height: 900 },
+    { theme: "dark", width: 390, height: 844 },
+    { theme: "light", width: 390, height: 844 },
+  ] as const) {
+    await page.setViewportSize({ width: variant.width, height: variant.height });
+    await page.emulateMedia({ colorScheme: variant.theme });
+    await page.evaluate((theme) => localStorage.setItem("gv_theme", theme), variant.theme);
+    await page.reload();
+    await expect(page.getByTestId("browse-grid")).toBeVisible({ timeout: 20_000 });
+    const shotCard = page.getByTestId("gallery-card").first();
+    await shotCard.hover();
+    const shotOverlay = shotCard.getByTestId("card-tag-overlay");
+    await expect(shotOverlay).toBeVisible();
+    await expectTagChipsReadable(shotOverlay.locator(".tag-chip"));
+    await page.screenshot({
+      path: join(SHOTS, `browse-grid-tags-${variant.theme}-${variant.width}.png`),
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   // Touch long-press opens the same tags in a sheet.
   await cards.first().dispatchEvent("pointerdown", {

@@ -59,6 +59,38 @@ describe("TagList", () => {
     expect(wrapper.find('[data-testid="tag-list-panel"]').exists()).toBe(false);
   });
 
+  it("keeps the default inline layout and its class contract", () => {
+    const wrapper = mountList({ max: 4 });
+    const root = wrapper.get('[data-testid="tag-list"]');
+    expect(root.attributes("data-layout")).toBe("inline");
+    expect(root.classes()).not.toContain("tag-list--wrap");
+  });
+
+  it("renders the wrap layout class without an absolute +N panel", async () => {
+    const wrapper = mountList({ max: 4, layout: "wrap" });
+    const root = wrapper.get('[data-testid="tag-list"]');
+    expect(root.attributes("data-layout")).toBe("wrap");
+    expect(root.classes()).toContain("tag-list--wrap");
+    await wrapper.get('[data-testid="tag-more"]').trigger("click");
+    expect(wrapper.find('[data-testid="tag-list-panel"]').exists()).toBe(false);
+  });
+
+  it("expands and collapses the hidden tags in the same flow for wrap", async () => {
+    const wrapper = mountList({ max: 4, layout: "wrap" });
+    const chips = () => wrapper.findAll('[data-testid="tag-list"] .tag-chip');
+    expect(chips()).toHaveLength(4);
+
+    await wrapper.get('[data-testid="tag-more"]').trigger("click");
+    expect(chips()).toHaveLength(tags.length);
+    expect(wrapper.get('[data-testid="tag-more"]').attributes("aria-expanded")).toBe("true");
+    // The newly revealed chips are direct flow siblings, not panel children.
+    expect(wrapper.find('[data-testid="tag-list-panel"]').exists()).toBe(false);
+
+    await wrapper.get('[data-testid="tag-more"]').trigger("click");
+    expect(chips()).toHaveLength(4);
+    expect(wrapper.get('[data-testid="tag-more"]').attributes("aria-expanded")).toBe("false");
+  });
+
   it("emits the tag selected from an inline chip", async () => {
     const wrapper = mountList({ max: 2 });
     await wrapper.findAll('[data-testid="tag-list"] .tag-chip')[0].trigger("click");

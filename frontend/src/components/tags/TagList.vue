@@ -11,10 +11,16 @@ import {
 import "./i18n";
 
 /**
- * Single-line tag row. It shows up to `max` tags by the inline priority,
- * folds the rest into a `+N` chip and opens a small overlay with every tag
- * when `+N` is activated. `tagCount` wins over the returned array length, so
- * the backend's truncated `tags_limit` payload still reports the real total.
+ * Tag row. It shows up to `max` tags by the inline priority, folds the rest
+ * into a `+N` chip and reveals every tag when `+N` is activated. `tagCount`
+ * wins over the returned array length, so the backend's truncated
+ * `tags_limit` payload still reports the real total.
+ *
+ * `layout="inline"` (default) keeps the legacy single-line row with an
+ * absolutely positioned `+N` overlay. `layout="wrap"` fills its container:
+ * chips keep their intrinsic width and wrap onto new lines, and `+N` expands
+ * the remaining chips in the same flow (so a parent `overflow` cannot clip
+ * them), then collapses them again on the next click.
  */
 const props = withDefaults(
   defineProps<{
@@ -23,8 +29,9 @@ const props = withDefaults(
     size?: 24 | 28;
     source?: "local" | "online";
     tagCount?: number | null;
+    layout?: "inline" | "wrap";
   }>(),
-  { tags: () => [], max: 4, size: 24, source: "local", tagCount: null },
+  { tags: () => [], max: 4, size: 24, source: "local", tagCount: null, layout: "inline" },
 );
 
 const emit = defineEmits<{
@@ -69,6 +76,15 @@ const allTags = computed(() => {
   return uniqueTags.value;
 });
 
+/** Chips not already in the inline slots, revealed by `+N` in wrap mode. */
+const remainingTags = computed(() => {
+  const shown = new Set(visible.value.map(tagKey));
+  return allTags.value.filter((tag) => !shown.has(tagKey(tag)));
+});
+
+const wrapLayout = computed(() => props.layout === "wrap");
+const expandedInline = computed(() => wrapLayout.value && expanded.value);
+
 function toggle(): void {
   if (hiddenCount.value <= 0) return;
   expanded.value = !expanded.value;
@@ -112,10 +128,12 @@ function onMenu(event: TagMenuEvent): void {
   <span
     ref="root"
     class="tag-list"
+    :class="{ 'tag-list--wrap': wrapLayout }"
     data-testid="tag-list"
     :data-source="source"
     :data-size="size"
     :data-max="max"
+    :data-layout="layout"
   >
     <TagChip
       v-for="tag in visible"
@@ -126,6 +144,17 @@ function onMenu(event: TagMenuEvent): void {
       @exclude="onExclude"
       @menu="onMenu"
     />
+    <template v-if="expandedInline">
+      <TagChip
+        v-for="tag in remainingTags"
+        :key="`flow-${tagKey(tag)}`"
+        :tag="tag"
+        :size="size"
+        @select="onSelect"
+        @exclude="onExclude"
+        @menu="onMenu"
+      />
+    </template>
     <button
       v-if="hasAny && hiddenCount > 0"
       type="button"
@@ -141,7 +170,7 @@ function onMenu(event: TagMenuEvent): void {
     </button>
 
     <span
-      v-if="expanded"
+      v-if="expanded && !wrapLayout"
       class="tag-list__panel"
       role="group"
       :aria-label="t('tagsUi.allTags')"
@@ -170,6 +199,18 @@ function onMenu(event: TagMenuEvent): void {
   flex-wrap: nowrap;
   min-width: 0;
   gap: var(--gv-space-1);
+  max-width: 100%;
+}
+
+/* Wrap layout: chips keep their intrinsic width and flow onto new lines. */
+.tag-list--wrap {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.tag-list--wrap :deep(.tag-chip) {
+  flex: 0 0 auto;
   max-width: 100%;
 }
 
