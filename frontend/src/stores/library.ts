@@ -184,6 +184,22 @@ export function normalizeQuery(
 }
 
 /** Stable request parameters; empty strings/undefined are omitted. */
+/**
+ * Request parameters for one page.
+ *
+ * Every collection row needs the full tag list (the grid overlay, the list /
+ * table `+N` counts and the tag filter all read from it), so the list request
+ * always pins `tags_limit=0` unless the caller asked for another limit. This is
+ * one local SQL read, not an EH request.
+ */
+export function withTagLimit(query: GalleryListQuery, page?: number): GalleryListQuery {
+  return {
+    ...query,
+    ...(page !== undefined && page > 0 ? { page } : {}),
+    tags_limit: query.tags_limit ?? 0,
+  };
+}
+
 export function buildGalleryQuery(query: GalleryListQuery): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of QUERY_KEYS) {
@@ -313,7 +329,7 @@ export const useLibraryStore = defineStore("library-list", () => {
     error.value = null;
     try {
       const data = await fetchGalleries(
-        { ...currentQuery.value, page: target },
+        withTagLimit(currentQuery.value, target),
         controller.signal,
       );
       if (seq !== requestSeq || key !== currentKey.value) return false;
@@ -392,7 +408,7 @@ export const useLibraryStore = defineStore("library-list", () => {
     try {
       let target = Math.max(1, page.value || 1);
       let data = await fetchGalleries(
-        { ...currentQuery.value, page: target },
+        withTagLimit(currentQuery.value, target),
         controller.signal,
       );
       if (seq !== requestSeq || key !== currentKey.value) return false;
@@ -402,7 +418,7 @@ export const useLibraryStore = defineStore("library-list", () => {
         if (lastPage !== target) {
           target = lastPage;
           data = await fetchGalleries(
-            { ...currentQuery.value, page: target },
+            withTagLimit(currentQuery.value, target),
             controller.signal,
           );
           if (seq !== requestSeq || key !== currentKey.value) return false;

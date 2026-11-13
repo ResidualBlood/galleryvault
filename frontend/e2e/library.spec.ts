@@ -69,7 +69,10 @@ test("library search, tag suggestions, sort and page size @library", async ({ pa
   await expect(page.getByTestId("tag-suggestion").first()).toBeVisible();
   await page.getByTestId("tag-suggestion").first().click();
   await expect(page).toHaveURL(/tags=language:chinese/);
-  await expect(page.locator(".library__tag")).toContainText("language:chinese");
+  await expect(page.getByTestId("active-filter-chip").first()).toHaveAttribute(
+    "data-tag",
+    "language:chinese",
+  );
 
   await page.getByTestId("order-select").locator("select").selectOption("title_asc");
   await expect(page).toHaveURL(/order_by=title_asc/);
@@ -77,6 +80,8 @@ test("library search, tag suggestions, sort and page size @library", async ({ pa
     .poll(() => state.requests.at(-1)?.get("order_by"), { timeout: 10_000 })
     .toBe("title_asc");
 
+  await page.getByTestId("advanced-toggle").click();
+  await expect(page.getByTestId("advanced-filters")).toBeVisible();
   await page.getByTestId("page-size-select").locator("select").selectOption("100");
   await expect(page).toHaveURL(/page_size=100/);
   expect(await page.evaluate(() => localStorage.getItem("gv_page_size"))).toBe("100");

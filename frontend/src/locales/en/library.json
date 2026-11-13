@@ -32,6 +32,26 @@
     "totalBooks": "{n} galleries",
     "loading": "Loading…",
     "scrollRestored": "Restored your previous position",
-    "clearFilters": "Clear filters"
+    "clearFilters": "Clear filters",
+    "filters": "Filters",
+    "filtersTitle": "Filters",
+    "activeFiltersLabel": "Active filters",
+    "removeFilter": "Click to remove this filter",
+    "languageLabel": "Language",
+    "chipSearch": "Search: {value}",
+    "chipCategory": "Category: {value}",
+    "chipReadStatus": "Reading status: {value}",
+    "chipPageMin": "{value}+ pages",
+    "chipPageMax": "≤{value} pages",
+    "chipRating": "Rating ≥{value}",
+    "chipSizeMin": "≥{value} MB",
+    "chipSizeMax": "≤{value} MB",
+    "chipPostedFrom": "Posted from {value}",
+    "chipPostedTo": "Posted to {value}",
+    "chipUploader": "Uploader: {value}",
+    "chipQuality": "Quality: {value}",
+    "chipLocalRating": "Local ≥{value} stars",
+    "chipList": "List: {value}",
+    "localRatingOption": "≥{value} stars"
   }
 }

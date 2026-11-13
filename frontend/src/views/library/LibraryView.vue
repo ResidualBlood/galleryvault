@@ -1,36 +1,75 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Local library (DESIGN.md C19).
+ *
+ * Page skeleton: PageHeader → one-line Toolbar (tag-aware search, search,
+ * FilterButton with the active-condition count, sort, view switch) → active
+ * filter chips → collapsible filter panel (Sheet below 600px) → SelectionBar
+ * (only with a selection) → GalleryCollection.
+ *
+ * The whole filter state lives in one `LibraryFilters` object (`./filters.ts`)
+ * that is the single source for the URL query, the request parameters and the
+ * chip row. Tag clicks on a card / row / table cell are handled by the shared
+ * collection components with `useTagNavigation("local")`, which appends to
+ * `tags=` and pins `tag_mode=and` (idempotent).
+ */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Chip from "@/components/ui/Chip.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
-import Input from "@/components/ui/Input.vue";
+import FilterButton from "@/components/ui/FilterButton.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
 import Select from "@/components/ui/Select.vue";
+import Sheet from "@/components/ui/Sheet.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
 import GalleryActions from "@/components/actions/GalleryActions.vue";
-import TagSuggest from "./TagSuggest.vue";
-import VirtualGrid from "@/components/gallery/VirtualGrid.vue";
 import GalleryCard from "@/components/gallery/GalleryCard.vue";
+import GalleryCollection from "@/components/gallery/GalleryCollection.vue";
+import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
+import {
+  LOCAL_TABLE_COLUMNS,
+  orderByFor,
+  type SortState,
+  type TableColumn,
+} from "@/components/gallery/table-columns";
+import { tagKey, tagLabel, type TagLike } from "@/components/tags/tag-utils";
+import { useViewMode } from "@/composables/useViewMode";
+import { fetchLists, type GalleryList } from "@/api/lists";
+import type { TagSuggestion } from "@/api/library";
+import { useLibraryStore, type GalleryListQuery } from "@/stores/library";
+import { useFavoritesStore } from "@/stores/favorites";
+import { useSettingsStore } from "@/stores/settings";
+import TagSuggest from "./TagSuggest.vue";
+import LibraryFilterPanel from "./LibraryFilterPanel.vue";
 import LibraryManageBar from "./manage/LibraryManageBar.vue";
 import { useGallerySelection } from "./manage/useSelection";
 import { ensureLibraryManageMessages } from "./manage/messages";
 import { ensureLibraryMessages } from "./messages";
 import {
-  clampPageSize,
-  PAGE_SIZES,
-  useLibraryStore,
-} from "@/stores/library";
-import { fetchLists, type GalleryList } from "@/api/lists";
-import type { GalleryQuery, TagSuggestion } from "@/api/library";
-import { useFavoritesStore } from "@/stores/favorites";
-import { useSettingsStore } from "@/stores/settings";
+  activeConditions,
+  activeFilterCount,
+  appendTagCondition,
+  defaultFilters,
+  filtersFromQuery,
+  filtersToUrlQuery,
+  firstQuery,
+  hasAdvancedFilters,
+  removeTagToken,
+  tagTokenToTag,
+  toGalleryQuery,
+  type FilterCondition,
+  type LibraryFilters,
+} from "./filters";
 
 ensureLibraryMessages();
 ensureLibraryManageMessages();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const store = useLibraryStore();
@@ -38,8 +77,173 @@ const settings = useSettingsStore();
 const favorites = useFavoritesStore();
 const selection = useGallerySelection();
 
+const view = useViewMode("library", {
+  allowed: ["grid", "list", "table"] as const,
+  fallback: "grid",
+});
+const viewMode = computed(() => view.mode.value);
+const viewModes = computed(() => view.available.value);
+const compact = computed(() => view.isCompact.value);
+
+const filters = ref<LibraryFilters>(defaultFilters(settings.pageSize));
+const filtersOpen = ref(false);
+const panelClosedByUser = ref(false);
+const lists = ref<GalleryList[]>([]);
+const tagDisplays = ref(new Map<string, TagLike>());
+
+const galleryQuery = computed<GalleryListQuery>(() => withRouteTagMode(toGalleryQuery(filters.value)));
+
+/** The URL's `tag_mode` / `tag_match` are part of the effective query. */
+function withRouteTagMode(query: GalleryListQuery): GalleryListQuery {
+  const mode = firstQuery(route.query.tag_mode);
+  const match = firstQuery(route.query.tag_match);
+  return {
+    ...query,
+    ...(mode === "and" || mode === "or" ? { tag_mode: mode } : {}),
+    ...(match === "exact" || match === "fuzzy" ? { tag_match: match } : {}),
+  };
+}
+const activeCount = computed(() => activeFilterCount(filters.value));
+const totalLabel = computed(() => t("library.page.totalBooks", { n: store.total }));
+
+/**
+ * Library table columns: the shared set minus the low-value date / progress /
+ * status cells, so the tag column (3 + N) still fits at 1280 with the drawer
+ * open. Selection, cover, title, category, tags, pages, size, rating, actions
+ * stay; the grid and list views keep showing dates and progress.
+ */
+const tableColumns = LOCAL_TABLE_COLUMNS.filter(
+  (column) => !["posted", "progress", "status"].includes(column.key),
+);
+
+const selectedIds = computed(() => selection.list.value);
 const selectedItems = computed(() => store.items.filter((item) => selection.has(item.id)));
-const manageQuery = computed(() => store.currentQuery);
+
+const sort = computed<SortState | null>(() => {
+  const match = /^(title|posted_at|page_count|file_size|rating|id)_(asc|desc)$/.exec(
+    filters.value.orderBy,
+  );
+  if (!match) return null;
+  const column = LOCAL_TABLE_COLUMNS.find((entry) => entry.sortKey === match[1]);
+  if (!column) return null;
+  return { key: column.key, direction: match[2] as "asc" | "desc" };
+});
+
+const orderOptions = computed(() => [
+  { value: "id_desc", label: t("legacy.orderDefault") },
+  { value: "posted_at_desc", label: t("legacy.orderPosted") },
+  { value: "title_asc", label: t("legacy.orderTitle") },
+  { value: "page_count_desc", label: t("legacy.orderPages") },
+  { value: "file_size_desc", label: t("legacy.orderSize") },
+  { value: "rating_desc", label: t("legacy.orderRating") },
+]);
+
+const CATEGORY_KEYS: Record<string, string> = {
+  doujinshi: "catDoujinshi",
+  manga: "catManga",
+  artistcg: "catArtistcg",
+  gamecg: "catGamecg",
+  western: "catWestern",
+  "non-h": "catNonH",
+  image_set: "catImageSet",
+  cosplay: "catCosplay",
+  asianporn: "catAsianporn",
+  misc: "catMisc",
+  deleted: "catDeleted",
+};
+
+function categoryLabel(value: string): string {
+  return t(`legacy.${CATEGORY_KEYS[value] ?? "catMisc"}`);
+}
+
+function readStatusLabel(value: string): string {
+  if (value === "unread") return t("legacy.readStatusUnread");
+  if (value === "reading") return t("legacy.readStatusReading");
+  if (value === "completed") return t("legacy.readStatusCompleted");
+  return value;
+}
+
+function qualityLabel(value: string): string {
+  if (value === "original") return t("legacy.qualityOriginal");
+  if (value === "resample") return t("legacy.qualityResample");
+  return value;
+}
+
+function listLabel(value: string): string {
+  const found = lists.value.find((item) => String(item.id) === value);
+  return found ? found.name : value;
+}
+
+const tagLookup = computed(() => {
+  const map = new Map<string, TagLike>();
+  for (const item of store.items) {
+    for (const tag of item.tags ?? []) map.set(tagKey(tag), tag);
+  }
+  for (const [key, tag] of tagDisplays.value) map.set(key, tag);
+  return map;
+});
+
+interface ConditionChip {
+  key: string;
+  label: string;
+  /** Raw `namespace:name` for tag chips (used by e2e and the tooltip). */
+  tag?: string;
+  condition: FilterCondition;
+}
+
+function tagChipLabel(token: string): string {
+  const excluded = token.startsWith("-");
+  const tag = tagLookup.value.get(tagKey(tagTokenToTag(token)));
+  const text = tag ? tagLabel(tag, locale.value) : tagTokenToTag(token).name;
+  return excluded ? `- ${text}` : text;
+}
+
+function conditionLabel(condition: FilterCondition): string {
+  const value = condition.value;
+  switch (condition.kind) {
+    case "q":
+      return t("library.page.chipSearch", { value });
+    case "tag":
+      return tagChipLabel(value);
+    case "category":
+      return t("library.page.chipCategory", { value: categoryLabel(value) });
+    case "read_status":
+      return t("library.page.chipReadStatus", { value: readStatusLabel(value) });
+    case "page_min":
+      return t("library.page.chipPageMin", { value });
+    case "page_max":
+      return t("library.page.chipPageMax", { value });
+    case "min_rating":
+      return t("library.page.chipRating", { value });
+    case "size_min":
+      return t("library.page.chipSizeMin", { value });
+    case "size_max":
+      return t("library.page.chipSizeMax", { value });
+    case "posted_from":
+      return t("library.page.chipPostedFrom", { value });
+    case "posted_to":
+      return t("library.page.chipPostedTo", { value });
+    case "uploader":
+      return t("library.page.chipUploader", { value });
+    case "image_quality":
+      return t("library.page.chipQuality", { value: qualityLabel(value) });
+    case "min_local_rating":
+      return t("library.page.chipLocalRating", { value });
+    case "list_id":
+      return t("library.page.chipList", { value: listLabel(value) });
+    default:
+      return value;
+  }
+}
+
+const chips = computed<ConditionChip[]>(() =>
+  activeConditions(filters.value).map((condition) => ({
+    key: `${condition.kind}:${condition.value}`,
+    label: conditionLabel(condition),
+    tag: condition.kind === "tag" ? condition.value : undefined,
+    condition,
+  })),
+);
 
 function isFavorited(item: {
   gid: number | null;
@@ -53,12 +257,13 @@ function isFavorited(item: {
   }).favorited;
 }
 
-function toggleSelected(id: number, event: Event): void {
-  selection.toggle(id, (event.target as HTMLInputElement).checked);
+function onSelectionChange(id: number, next: boolean): void {
+  selection.toggle(id, next);
 }
 
 /** Re-read the page from the server so deleted rows and totals stay honest. */
 function onRemoved(): void {
+  selection.clear();
   void store.reload();
 }
 
@@ -70,308 +275,126 @@ function onFavorited(gids: number[]): void {
   }
 }
 
-function first(value: unknown): string {
-  if (Array.isArray(value)) return value[0] ?? "";
-  return value === null || value === undefined ? "" : String(value);
-}
-
-const term = ref("");
-const tags = ref("");
-const category = ref("");
-const orderBy = ref("id_desc");
-const readStatus = ref("");
-const pageSize = ref(settings.pageSize);
-
-/* Advanced filters mirror the legacy library form. Sizes stay in MB in the URL
- * (as the old frontend did) and are converted to bytes for GET /api/galleries. */
-const advancedOpen = ref(false);
-const pageMin = ref("");
-const pageMax = ref("");
-const minRating = ref("");
-const sizeMin = ref("");
-const sizeMax = ref("");
-const postedFrom = ref("");
-const postedTo = ref("");
-const uploader = ref("");
-const imageQuality = ref("");
-const minLocalRating = ref("");
-const listId = ref("");
-const lists = ref<GalleryList[]>([]);
-
-const activeTags = computed(() =>
-  tags.value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean),
-);
-
-const pageSizeOptions = computed(() => {
-  const values = new Set(PAGE_SIZES.map(String));
-  values.add(String(pageSize.value));
-  return [...values]
-    .map(Number)
-    .sort((a, b) => a - b)
-    .map((value) => ({ value: String(value), label: String(value) }));
-});
-
-const categoryOptions = computed(() => [
-  { value: "", label: t("legacy.allCategories") },
-  ...["doujinshi", "manga", "artistcg", "gamecg", "western", "non-h", "image_set", "cosplay", "asianporn", "misc", "deleted"].map(
-    (value) => ({ value, label: categoryLabel(value) }),
-  ),
-  { value: "__not_fav__", label: t("legacy.notFavorited") },
-]);
-
-const orderOptions = computed(() => [
-  { value: "id_desc", label: t("legacy.orderDefault") },
-  { value: "posted_at_desc", label: t("legacy.orderPosted") },
-  { value: "title_asc", label: t("legacy.orderTitle") },
-  { value: "page_count_desc", label: t("legacy.orderPages") },
-  { value: "file_size_desc", label: t("legacy.orderSize") },
-  { value: "rating_desc", label: t("legacy.orderRating") },
-]);
-
-const readStatusOptions = computed(() => [
-  { value: "", label: t("legacy.readStatusAll") },
-  { value: "unread", label: t("legacy.readStatusUnread") },
-  { value: "reading", label: t("legacy.readStatusReading") },
-  { value: "completed", label: t("legacy.readStatusCompleted") },
-]);
-
-const ratingOptions = computed(() => [
-  { value: "", label: t("legacy.minRating") },
-  { value: "2", label: "≥2" },
-  { value: "3", label: "≥3" },
-  { value: "4", label: "≥4" },
-  { value: "4.5", label: "≥4.5" },
-]);
-
-const qualityOptions = computed(() => [
-  { value: "", label: t("legacy.qualityAll") },
-  { value: "original", label: t("legacy.qualityOriginal") },
-  { value: "resample", label: t("legacy.qualityResample") },
-]);
-
-const localRatingOptions = computed(() => [
-  { value: "", label: t("legacy.localRatingMin") },
-  ...[1, 2, 3, 4, 5].map((value) => ({ value: String(value), label: `≥${value}★` })),
-]);
-
-const listOptions = computed(() => [
-  { value: "", label: t("legacy.listAll") },
-  ...lists.value.map((item) => ({
-    value: String(item.id),
-    label: `${item.name} (${item.count ?? 0})`,
-  })),
-]);
-
-/** Legacy counts order/read and every advanced field, not q/tags/category. */
-const activeAdvancedCount = computed(
-  () =>
-    [
-      orderBy.value !== "id_desc",
-      Boolean(readStatus.value),
-      Boolean(pageMin.value),
-      Boolean(pageMax.value),
-      Boolean(minRating.value),
-      Boolean(sizeMin.value),
-      Boolean(sizeMax.value),
-      Boolean(postedFrom.value),
-      Boolean(postedTo.value),
-      Boolean(uploader.value.trim()),
-      Boolean(imageQuality.value),
-      Boolean(minLocalRating.value),
-      Boolean(listId.value),
-    ].filter(Boolean).length,
-);
-
-const totalLabel = computed(() => t("library.page.totalBooks", { n: store.total }));
-
-function categoryLabel(value: string): string {
-  const keys: Record<string, string> = {
-    doujinshi: "catDoujinshi",
-    manga: "catManga",
-    artistcg: "catArtistcg",
-    gamecg: "catGamecg",
-    western: "catWestern",
-    "non-h": "catNonH",
-    image_set: "catImageSet",
-    cosplay: "catCosplay",
-    asianporn: "catAsianporn",
-    misc: "catMisc",
-    deleted: "catDeleted",
-  };
-  return t(`legacy.${keys[value] ?? "catMisc"}`);
-}
-
-const language = computed(() => {
-  const tag = activeTags.value.find((item) => item.startsWith("language:"));
-  return tag ? tag.slice("language:".length) : "";
-});
-
-function positiveInt(value: string): number | undefined {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : undefined;
-}
-
-function floatValue(value: string): number | undefined {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-/** Legacy size inputs are MB; the API expects bytes. */
-function megabytes(value: string): number | undefined {
-  const mb = floatValue(value);
-  return mb === undefined ? undefined : Math.round(mb * 1048576);
-}
-
-function syncFromRoute(): void {
-  term.value = first(route.query.q);
-  tags.value = first(route.query.tags);
-  category.value = first(route.query.category);
-  orderBy.value = first(route.query.order_by) || "id_desc";
-  readStatus.value = first(route.query.read_status);
-  pageSize.value = clampPageSize(
-    first(route.query.page_size) || settings.pageSize,
-    settings.pageSize,
-  );
-  pageMin.value = first(route.query.page_min) || first(route.query.min_pages);
-  pageMax.value = first(route.query.page_max) || first(route.query.max_pages);
-  minRating.value = first(route.query.min_rating);
-  sizeMin.value = first(route.query.size_min);
-  sizeMax.value = first(route.query.size_max);
-  postedFrom.value = first(route.query.posted_from);
-  postedTo.value = first(route.query.posted_to);
-  uploader.value = first(route.query.uploader);
-  imageQuality.value = first(route.query.image_quality);
-  minLocalRating.value = first(route.query.min_local_rating);
-  listId.value = first(route.query.list_id);
-  if (activeAdvancedCount.value > 0) advancedOpen.value = true;
-
-  const query: GalleryQuery = {
-    q: term.value.trim(),
-    tags: tags.value,
-    category: category.value,
-    order_by: orderBy.value,
-    read_status: readStatus.value,
-    min_rating: floatValue(minRating.value),
-    page_min: positiveInt(pageMin.value),
-    page_max: positiveInt(pageMax.value),
-    size_min: megabytes(sizeMin.value),
-    size_max: megabytes(sizeMax.value),
-    posted_from: postedFrom.value,
-    posted_to: postedTo.value,
-    uploader: uploader.value.trim(),
-    image_quality: imageQuality.value,
-    min_local_rating: positiveInt(minLocalRating.value),
-    list_id: positiveInt(listId.value),
-    page_size: pageSize.value,
-  };
-  store.start(query, settings.pageSize);
-  restoreScrollSoon();
-}
-
-function pushQuery(patch: Record<string, string> = {}): void {
-  const merged: Record<string, string> = {
-    q: term.value.trim(),
-    tags: tags.value,
-    tag_mode: first(route.query.tag_mode),
-    tag_match: first(route.query.tag_match),
-    category: category.value,
-    order_by: orderBy.value,
-    read_status: readStatus.value,
-    min_rating: minRating.value,
-    page_min: pageMin.value,
-    page_max: pageMax.value,
-    size_min: sizeMin.value,
-    size_max: sizeMax.value,
-    posted_from: postedFrom.value,
-    posted_to: postedTo.value,
-    uploader: uploader.value.trim(),
-    image_quality: imageQuality.value,
-    min_local_rating: minLocalRating.value,
-    list_id: listId.value,
-    page_size: String(pageSize.value),
-    ...patch,
-  };
-  const query: Record<string, string> = {};
-  for (const [key, value] of Object.entries(merged)) {
-    if (value) query[key] = value;
-  }
+function pushFilters(next: LibraryFilters, extra: Record<string, string> = {}): void {
+  filters.value = next;
+  const query = filtersToUrlQuery(next, {
+    tag_mode: firstQuery(route.query.tag_mode),
+    tag_match: firstQuery(route.query.tag_match),
+    ...extra,
+  });
   void router.push({ name: "library", query });
 }
 
-function onSearch(): void {
-  pushQuery({ q: term.value.trim() });
+/** Panel patches stay local; the URL is pushed on `commit` (change / select). */
+function onFiltersChange(next: LibraryFilters): void {
+  filters.value = next;
 }
 
-function onLanguageChange(value: string): void {
-  const rest = activeTags.value.filter(
-    (tag) => !tag.startsWith("language:") && !tag.startsWith("-language:"),
-  );
-  if (value) rest.push(`language:${value}`);
-  tags.value = rest.join(",");
-  pushQuery({ tags: tags.value });
+function onFiltersCommit(): void {
+  const next = filters.value;
+  if (next.pageSize !== settings.pageSize) settings.setPageSize(next.pageSize);
+  pushFilters(next);
+}
+
+function onSearch(): void {
+  pushFilters(filters.value);
 }
 
 function onSelectTag(tag: TagSuggestion): void {
-  const key = tag.namespace ? `${tag.namespace}:${tag.name}` : tag.name;
-  const current = activeTags.value;
-  const next = current.includes(key) ? current : [...current, key];
-  term.value = "";
-  tags.value = next.join(",");
-  pushQuery({ q: "", tags: tags.value });
+  const condensed = appendTagCondition(filters.value.tags, tag);
+  const key = tagKey(tag);
+  tagDisplays.value = new Map(tagDisplays.value).set(key, tag);
+  pushFilters(
+    { ...filters.value, term: "", tags: condensed.tags },
+    { tag_mode: condensed.tag_mode },
+  );
 }
 
-function removeTag(tag: string): void {
-  tags.value = activeTags.value.filter((item) => item !== tag).join(",");
-  pushQuery({ tags: tags.value });
+function onOrderChange(value: string): void {
+  pushFilters({ ...filters.value, orderBy: value });
 }
 
-function clearFilters(): void {
-  term.value = "";
-  tags.value = "";
-  category.value = "";
-  readStatus.value = "";
-  orderBy.value = "id_desc";
-  pageMin.value = "";
-  pageMax.value = "";
-  minRating.value = "";
-  sizeMin.value = "";
-  sizeMax.value = "";
-  postedFrom.value = "";
-  postedTo.value = "";
-  uploader.value = "";
-  imageQuality.value = "";
-  minLocalRating.value = "";
-  listId.value = "";
-  pushQuery({
-    q: "",
-    tags: "",
-    tag_mode: "",
-    tag_match: "",
-    category: "",
-    read_status: "",
-    order_by: "id_desc",
-    min_rating: "",
-    page_min: "",
-    page_max: "",
-    size_min: "",
-    size_max: "",
-    posted_from: "",
-    posted_to: "",
-    uploader: "",
-    image_quality: "",
-    min_local_rating: "",
-    list_id: "",
-  });
+function onSort(column: TableColumn, direction: "asc" | "desc"): void {
+  const orderBy = orderByFor(column, direction);
+  if (!orderBy) return;
+  pushFilters({ ...filters.value, orderBy });
 }
 
-function onPageSize(value: string): void {
-  const next = clampPageSize(value, settings.pageSize);
-  pageSize.value = next;
-  settings.setPageSize(next);
-  pushQuery({ page_size: String(next) });
+function removeCondition(condition: FilterCondition): void {
+  const next: LibraryFilters = { ...filters.value };
+  switch (condition.kind) {
+    case "q":
+      next.term = "";
+      break;
+    case "tag":
+      next.tags = removeTagToken(next.tags, condition.value);
+      break;
+    case "category":
+      next.category = "";
+      break;
+    case "read_status":
+      next.readStatus = "";
+      break;
+    case "page_min":
+      next.pageMin = "";
+      break;
+    case "page_max":
+      next.pageMax = "";
+      break;
+    case "min_rating":
+      next.minRating = "";
+      break;
+    case "size_min":
+      next.sizeMin = "";
+      break;
+    case "size_max":
+      next.sizeMax = "";
+      break;
+    case "posted_from":
+      next.postedFrom = "";
+      break;
+    case "posted_to":
+      next.postedTo = "";
+      break;
+    case "uploader":
+      next.uploader = "";
+      break;
+    case "image_quality":
+      next.imageQuality = "";
+      break;
+    case "min_local_rating":
+      next.minLocalRating = "";
+      break;
+    case "list_id":
+      next.listId = "";
+      break;
+    default:
+      break;
+  }
+  pushFilters(next);
+}
+
+function clearAll(): void {
+  pushFilters({ ...defaultFilters(settings.pageSize), orderBy: "id_desc" });
+}
+
+function toggleFilters(): void {
+  filtersOpen.value = !filtersOpen.value;
+  panelClosedByUser.value = !filtersOpen.value;
+}
+
+function closeFilters(): void {
+  filtersOpen.value = false;
+  panelClosedByUser.value = true;
+}
+
+function syncFromRoute(): void {
+  filters.value = filtersFromQuery(route.query, settings.pageSize);
+  if (hasAdvancedFilters(filters.value) && !panelClosedByUser.value) {
+    filtersOpen.value = true;
+  }
+  store.start(galleryQuery.value, settings.pageSize);
+  restoreScrollSoon();
 }
 
 function restoreScrollSoon(): void {
@@ -418,207 +441,112 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="library" data-testid="library-view">
-    <header class="library__header">
-      <p class="library__eyebrow">{{ t("library.page.eyebrow") }}</p>
-      <div class="library__heading">
-        <h1 class="library__title">{{ t("library.page.title") }}</h1>
-        <span class="library__total">{{ totalLabel }}</span>
-      </div>
-    </header>
+    <PageHeader
+      :title="t('library.page.title')"
+      :count="store.total ? totalLabel : ''"
+      :count-label="totalLabel"
+      testid="library-header"
+    />
 
-    <form class="library__toolbar" role="search" @submit.prevent="onSearch">
-      <TagSuggest
-        v-model="term"
-        :label="t('library.page.search')"
-        :placeholder="t('library.page.searchPlaceholder')"
-        @select="onSelectTag"
-      />
-      <Button type="submit" variant="filled" data-testid="library-search-submit">
-        {{ t("library.page.search") }}
-      </Button>
-      <Button type="button" variant="outlined" @click="clearFilters">
-        {{ t("library.page.clearFilters") }}
-      </Button>
+    <form class="library__search-form" role="search" @submit.prevent="onSearch">
+      <Toolbar testid="library-toolbar">
+        <TagSuggest
+          class="library__search"
+          :model-value="filters.term"
+          :label="t('library.page.search')"
+          :placeholder="t('library.page.searchPlaceholder')"
+          @update:model-value="onFiltersChange({ ...filters, term: $event })"
+          @select="onSelectTag"
+        />
+        <ToolbarGroup end>
+          <Button type="submit" icon="search" data-testid="library-search-submit">
+            {{ t("legacy.search") }}
+          </Button>
+          <FilterButton
+            :count="activeCount"
+            :label="t('library.page.filters')"
+            :aria-expanded="filtersOpen"
+            aria-controls="library-advanced-filters"
+            testid="advanced-toggle"
+            @click="toggleFilters"
+          />
+          <Select
+            class="library__sort"
+            data-testid="order-select"
+            :model-value="filters.orderBy"
+            :options="orderOptions"
+            :aria-label="t('library.page.orderLabel')"
+            @update:model-value="onOrderChange"
+          />
+          <ViewModeToggle
+            :model-value="viewMode"
+            :options="viewModes"
+            @update:model-value="view.setMode"
+          />
+        </ToolbarGroup>
+      </Toolbar>
     </form>
 
-    <div class="library__filters">
-      <Select
-        class="library__select"
-        :model-value="category"
-        :options="categoryOptions"
-        :label="t('library.page.categoryLabel')"
-        @update:model-value="category = $event; pushQuery({ category: $event })"
+    <div
+      v-if="chips.length"
+      class="library__chips"
+      data-testid="active-filters"
+      :aria-label="t('library.page.activeFiltersLabel')"
+    >
+      <Chip
+        v-for="chip in chips"
+        :key="chip.key"
+        icon="close"
+        :label="chip.label"
+        :title="chip.tag ? `${chip.tag} — ${t('library.page.removeFilter')}` : t('library.page.removeFilter')"
+        :data-tag="chip.tag"
+        data-testid="active-filter-chip"
+        @click="removeCondition(chip.condition)"
       />
-      <Select
-        class="library__select"
-        :model-value="readStatus"
-        :options="readStatusOptions"
-        :label="t('library.page.readStatusLabel')"
-        @update:model-value="readStatus = $event; pushQuery({ read_status: $event })"
-      />
-      <Select
-        class="library__select"
-        data-testid="order-select"
-        :model-value="orderBy"
-        :options="orderOptions"
-        :label="t('library.page.orderLabel')"
-        @update:model-value="orderBy = $event; pushQuery({ order_by: $event })"
-      />
-      <Select
-        class="library__select library__select--size"
-        data-testid="page-size-select"
-        :model-value="String(pageSize)"
-        :options="pageSizeOptions"
-        :label="t('library.page.pageSizeLabel')"
-        @update:model-value="onPageSize"
-      />
-      <Button
-        variant="text"
-        size="compact"
-        type="button"
-        data-testid="advanced-toggle"
-        :aria-expanded="advancedOpen"
-        aria-controls="library-advanced-filters"
-        @click="advancedOpen = !advancedOpen"
-      >
-        {{ t("legacy.library_filters_advanced") }}
-        <template v-if="activeAdvancedCount">({{ activeAdvancedCount }})</template>
-      </Button>
     </div>
 
-    <section
-      v-if="advancedOpen"
-      id="library-advanced-filters"
-      class="library__advanced"
-      data-testid="advanced-filters"
-      :aria-label="t('legacy.library_filters_advanced')"
+    <Sheet
+      v-if="compact"
+      :open="filtersOpen"
+      :title="t('library.page.filtersTitle')"
+      testid="library-filter-sheet"
+      @close="closeFilters"
     >
-      <Input
-        v-model="pageMin"
-        class="library__filter"
-        type="number"
-        :label="t('legacy.pageMin')"
-        data-testid="page-min"
-        @change="pushQuery()"
+      <LibraryFilterPanel
+        :model-value="filters"
+        :lists="lists"
+        :query="galleryQuery"
+        @update:model-value="onFiltersChange"
+        @commit="onFiltersCommit"
+        @clear="clearAll"
+        @lists-changed="loadLists"
+        @removed="onRemoved"
       />
-      <Input
-        v-model="pageMax"
-        class="library__filter"
-        type="number"
-        :label="t('legacy.pageMax')"
-        data-testid="page-max"
-        @change="pushQuery()"
-      />
-      <Select
-        class="library__filter"
-        data-testid="min-rating"
-        :model-value="minRating"
-        :options="ratingOptions"
-        :label="t('legacy.minRating')"
-        @update:model-value="minRating = $event; pushQuery()"
-      />
-      <Input
-        v-model="sizeMin"
-        class="library__filter"
-        type="number"
-        :label="t('legacy.sizeMin')"
-        data-testid="size-min"
-        @change="pushQuery()"
-      />
-      <Input
-        v-model="sizeMax"
-        class="library__filter"
-        type="number"
-        :label="t('legacy.sizeMax')"
-        data-testid="size-max"
-        @change="pushQuery()"
-      />
-      <Input
-        v-model="postedFrom"
-        class="library__filter"
-        type="date"
-        :label="t('legacy.postedFrom')"
-        data-testid="posted-from"
-        @change="pushQuery()"
-      />
-      <Input
-        v-model="postedTo"
-        class="library__filter"
-        type="date"
-        :label="t('legacy.postedTo')"
-        data-testid="posted-to"
-        @change="pushQuery()"
-      />
-      <Input
-        v-model="uploader"
-        class="library__filter"
-        :label="t('legacy.uploader')"
-        data-testid="uploader-filter"
-        @change="pushQuery()"
-      />
-      <Select
-        class="library__filter"
-        data-testid="image-quality"
-        :model-value="imageQuality"
-        :options="qualityOptions"
-        :label="t('legacy.quality')"
-        @update:model-value="imageQuality = $event; pushQuery()"
-      />
-      <Select
-        class="library__filter"
-        data-testid="language-filter"
-        :model-value="language"
-        :options="[
-          { value: '', label: t('legacy.languageAll') },
-          { value: 'chinese', label: t('legacy.langChinese') },
-          { value: 'english', label: t('legacy.langEnglish') },
-          { value: 'japanese', label: t('legacy.langJapanese') },
-          { value: 'korean', label: t('legacy.langKorean') },
-          { value: 'translated', label: t('legacy.langTranslated') },
-        ]"
-        :label="t('legacy.language')"
-        @update:model-value="onLanguageChange"
-      />
-      <Select
-        class="library__filter"
-        data-testid="min-local-rating"
-        :model-value="minLocalRating"
-        :options="localRatingOptions"
-        :label="t('legacy.localRatingMin')"
-        @update:model-value="minLocalRating = $event; pushQuery()"
-      />
-      <Select
-        class="library__filter"
-        data-testid="list-filter"
-        :model-value="listId"
-        :options="listOptions"
-        :label="t('legacy.listAll')"
-        @update:model-value="listId = $event; pushQuery()"
-      />
-    </section>
+      <template #footer>
+        <Button variant="text" @click="closeFilters">{{ t("common.close") }}</Button>
+      </template>
+    </Sheet>
+
+    <LibraryFilterPanel
+      v-else-if="filtersOpen"
+      :model-value="filters"
+      :lists="lists"
+      :query="galleryQuery"
+      @update:model-value="onFiltersChange"
+      @commit="onFiltersCommit"
+      @clear="clearAll"
+      @lists-changed="loadLists"
+      @removed="onRemoved"
+    />
 
     <LibraryManageBar
-      :query="manageQuery"
       :selected="selectedItems"
-      :total="store.total"
+      :lists="lists"
+      :default-list-id="filters.listId"
       @clear="selection.clear()"
       @removed="onRemoved"
       @favorited="onFavorited"
     />
-
-    <div v-if="activeTags.length" class="library__tags" :aria-label="t('library.page.activeTagsLabel')">
-      <span v-for="tag in activeTags" :key="tag" class="library__tag">
-        {{ tag }}
-        <button
-          type="button"
-          class="library__tag-remove"
-          :aria-label="`${t('library.page.removeTag')} ${tag}`"
-          @click="removeTag(tag)"
-        >
-          ×
-        </button>
-      </span>
-    </div>
 
     <div v-if="store.initialLoading" class="library__skeletons" aria-hidden="true">
       <Skeleton v-for="index in 12" :key="index" variant="card" />
@@ -632,40 +560,56 @@ onBeforeUnmount(() => {
       @retry="store.retry"
     />
 
-    <EmptyState
-      v-else-if="!store.items.length"
-      :title="t('library.page.emptyTitle')"
-      :body="t('library.page.emptyBody')"
-      testid="library-empty"
-    />
+    <template v-else-if="!store.items.length">
+      <!-- C18: an empty table keeps its header (only the table view). -->
+      <GalleryCollection
+        v-if="viewMode === 'table'"
+        :items="[]"
+        mode="table"
+        :columns="tableColumns"
+        :sort="sort"
+        testid="library-grid"
+        @sort="onSort"
+      />
+      <EmptyState
+        :title="t('library.page.emptyTitle')"
+        :body="t('library.page.emptyBody')"
+        :action-label="activeCount ? t('library.page.clearFilters') : ''"
+        testid="library-empty"
+        @action="clearAll"
+      />
+    </template>
 
-    <VirtualGrid
+    <GalleryCollection
       v-else
       :items="store.items"
+      :mode="viewMode"
+      :columns="tableColumns"
+      :sort="sort"
+      selectable
+      :selected="selectedIds"
       :loading="store.loading"
       :has-more="store.hasMore"
       :error="store.error"
       :failures="store.failures"
       :total="store.total"
-      data-testid="library-grid"
+      testid="library-grid"
       @load-more="store.loadMore"
       @retry="store.retry"
+      @sort="onSort"
+      @select="onSelectionChange"
     >
       <template #card="{ item }">
-        <div
-          class="library-card"
-          :class="{ 'library-card--selected': selection.has(item.id) }"
-          data-testid="library-card"
-        >
-          <label class="library-card__check" :title="t('libraryManage.select')">
-            <input
-              type="checkbox"
-              :checked="selection.has(item.id)"
-              :aria-label="`${t('libraryManage.select')} ${item.title}`"
-              @change="toggleSelected(item.id, $event)"
-            />
-          </label>
-          <GalleryCard :item="item" :favorited="isFavorited(item)">
+        <div class="library-card" data-testid="library-card" :data-id="item.id">
+          <GalleryCard
+            :item="item"
+            :variant="viewMode === 'list' ? 'list' : 'grid'"
+            selectable
+            :selected="selection.has(item.id)"
+            tag-source="local"
+            :favorited="isFavorited(item)"
+            @select="onSelectionChange"
+          >
             <template #actions>
               <GalleryActions
                 v-if="item.gid"
@@ -682,7 +626,20 @@ onBeforeUnmount(() => {
           </GalleryCard>
         </div>
       </template>
-    </VirtualGrid>
+      <template #actions="{ item }">
+        <GalleryActions
+          v-if="item.gid"
+          density="card"
+          :gid="item.gid"
+          :token="item.token ?? ''"
+          :title="item.title"
+          :favorited="isFavorited(item)"
+          :favcat="item.favorite_category ?? null"
+          :in-library="true"
+          :show-read="false"
+        />
+      </template>
+    </GalleryCollection>
   </section>
 </template>
 
@@ -695,147 +652,61 @@ onBeforeUnmount(() => {
   margin: 0 auto;
 }
 
-.library__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
+.library__search-form {
+  width: 100%;
 }
 
-.library__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
+.library__search {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
-.library__heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--gv-space-3);
+.library__sort {
+  flex: none;
+  width: 190px;
 }
 
-.library__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.library__total {
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-}
-
-.library__toolbar {
+.library__chips {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--gv-space-2);
-}
-
-.library__filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-3);
-}
-
-.library__select {
-  min-width: 160px;
-}
-
-.library__select--size {
-  min-width: 120px;
-}
-
-.library__advanced {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--gv-space-3);
-  padding: var(--gv-space-3);
-  border: 1px solid var(--gv-color-outline-variant);
-  border-radius: var(--gv-radius-md);
-  background: var(--gv-color-surface-container-low);
-}
-
-.library__filter {
-  min-width: 120px;
-}
-
-.library__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-1);
-}
-
-.library__tag {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--gv-space-1);
-  height: 24px;
-  padding: 0 var(--gv-space-1) 0 var(--gv-space-2);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
-  font: var(--gv-type-label-small);
-}
-
-.library__tag-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: inherit;
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.library__tag-remove:hover {
-  background: var(--gv-color-surface-container-highest);
 }
 
 .library-card {
   position: relative;
-}
-
-.library-card--selected {
-  outline: 2px solid var(--gv-color-primary);
-  outline-offset: 2px;
-  border-radius: var(--gv-radius-md);
-}
-
-.library-card__check {
-  position: absolute;
-  top: var(--gv-space-2);
-  right: var(--gv-space-2);
-  z-index: 5;
-  scroll-margin-top: calc(var(--gv-size-topbar) + var(--gv-space-4));
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
-  border-radius: var(--gv-radius-full);
-  background: var(--gv-color-surface-container-highest);
-  box-shadow: var(--gv-elev-2);
-  cursor: pointer;
-}
-
-.library-card__check input {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--gv-color-primary);
-  cursor: pointer;
+  min-width: 0;
 }
 
 .library__skeletons {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
   gap: var(--gv-space-3);
+}
+
+@media (max-width: 599.98px) {
+  .library {
+    gap: var(--gv-space-3);
+  }
+
+  .library__sort {
+    flex: 1 1 140px;
+    width: auto;
+  }
+
+  /* Let the action group wrap on its own line instead of overflowing; the
+     Toolbar itself only wraps whole items (audit LB-01 / toolbar at 390). */
+  .library__search-form :deep([data-gv-toolbar-group]) {
+    flex: 1 1 100%;
+    width: 100%;
+    flex-wrap: wrap;
+    margin-inline-start: 0;
+  }
+
+  /* The view switch gets its own trailing line instead of a lonely first cell. */
+  .library__search-form :deep(.view-mode-toggle) {
+    margin-inline-start: auto;
+  }
 }
 
 @media (min-width: 840px) {
