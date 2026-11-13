@@ -456,6 +456,17 @@ test("@polish-browse card actions never cover the title at 390", async ({ page }
   await expectNoHorizontalOverflow(page);
 });
 
+test("@polish-browse empty table keeps its header", async ({ page }) => {
+  await installLibraryMock(page, { total: 0 });
+  await page.addInitScript(() =>
+    localStorage.setItem("gv_view_mode", JSON.stringify({ browse: "table" })),
+  );
+  await page.goto("/#/browse");
+  await expect(page.getByTestId("browse-empty")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-column="title"]')).toBeVisible();
+  await expect(page.locator('[data-column="pages"]')).toBeVisible();
+});
+
 test("@polish-browse sentinel says every item is loaded", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.evaluate(() => localStorage.setItem("gv_theme", "dark")).catch(() => undefined);

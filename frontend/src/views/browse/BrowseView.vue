@@ -272,12 +272,23 @@ onBeforeUnmount(() => {
         @retry="store.retry"
       />
 
-      <EmptyState
-        v-else-if="!store.items.length"
-        :title="t('library.page.emptyTitle')"
-        :body="t('legacy.noGalleries')"
-        testid="browse-empty"
-      />
+      <div v-else-if="!store.items.length" class="browse__empty">
+        <!-- C18: an empty table keeps its header (only the table view). -->
+        <GalleryCollection
+          v-if="view.mode.value === 'table'"
+          :items="[]"
+          mode="table"
+          :columns="BROWSE_TABLE_COLUMNS"
+          :sort="sort"
+          testid="browse-grid"
+          @sort="onSort"
+        />
+        <EmptyState
+          :title="t('library.page.emptyTitle')"
+          :body="t('legacy.noGalleries')"
+          testid="browse-empty"
+        />
+      </div>
 
       <GalleryCollection
         v-else
@@ -451,6 +462,12 @@ onBeforeUnmount(() => {
   color: var(--gv-color-primary-text);
   font: var(--gv-type-label-large);
   text-decoration: none;
+}
+
+.browse__empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-4);
 }
 
 .browse__skeletons {
