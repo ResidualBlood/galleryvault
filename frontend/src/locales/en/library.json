@@ -4,7 +4,9 @@
     "title": "Browse",
     "latest": "Recently added",
     "random": "Random",
-    "randomFailed": "Could not open a random gallery. Try again later."
+    "randomFailed": "Could not open a random gallery. Try again later.",
+    "viewAllTags": "View all",
+    "tagCount": "{count} tags"
   },
   "continueReading": {
     "title": "Continue reading",

@@ -1,16 +1,40 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Windowed collection surface shared by every browsing page.
+ *
+ * Three fixed-row-height variants (DESIGN.md C18):
+ *   - `grid`  cover cards, row height = column width * 4/3 + 76 + gutter;
+ *   - `list`  one row per gallery, `--gv-size-list-row` (132 below 600px);
+ *   - `table` one row per gallery, `--gv-size-table-row`, sticky header.
+ *
+ * Switching variants keeps the first visible gallery anchored: the previous
+ * row height / column count are snapshotted after each render, so the pre-flush
+ * watcher can convert the current scroll offset into an item index and back.
+ * Infinite scroll and the sentinel keep their previous behaviour.
+ */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import GalleryCard from "./GalleryCard.vue";
+import GalleryTable from "./GalleryTable.vue";
+import GalleryTableRow from "./GalleryTableRow.vue";
+import { ensureCollectionMessages } from "./collection-messages";
+import type { SortState, TableColumn } from "./table-columns";
+import Button from "@/components/ui/Button.vue";
 import {
   canAutoRetry,
+  collectionRowHeight,
   computeColumnCount,
   computeRowHeight,
+  firstVisibleItemIndex,
   GRID_GAP,
   GRID_MIN_CARD_WIDTH,
+  scrollTopForItem,
 } from "@/stores/library";
 import type { GalleryItem } from "@/api/library";
+
+ensureCollectionMessages();
+
+type CollectionVariant = "grid" | "list" | "table";
 
 const props = withDefaults(
   defineProps<{
@@ -21,11 +45,15 @@ const props = withDefaults(
     /** Consecutive failed loads, owned by the list store (0..5). */
     failures?: number;
     total?: number;
-    variant?: "grid" | "list";
+    variant?: CollectionVariant;
     source?: "local" | "online";
     minCardWidth?: number;
     gap?: number;
     testid?: string;
+    columns?: readonly TableColumn[];
+    sort?: SortState | null;
+    selectable?: boolean;
+    selected?: number[];
   }>(),
   {
     loading: false,
@@ -38,43 +66,71 @@ const props = withDefaults(
     minCardWidth: GRID_MIN_CARD_WIDTH,
     gap: GRID_GAP,
     testid: "virtual-grid",
+    columns: () => [],
+    sort: null,
+    selectable: false,
+    selected: () => [],
   },
 );
 
-const emit = defineEmits<{ loadMore: []; retry: [] }>();
+const emit = defineEmits<{
+  loadMore: [];
+  retry: [];
+  sort: [column: TableColumn, direction: "asc" | "desc"];
+  select: [id: number, selected: boolean];
+  open: [item: GalleryItem];
+}>();
+
 const { t } = useI18n();
 
 const root = ref<HTMLElement | null>(null);
+const canvas = ref<HTMLElement | null>(null);
 const sentinel = ref<HTMLElement | null>(null);
 const containerWidth = ref(0);
 const containerTop = ref(0);
 const scrollY = ref(0);
 const viewportHeight = ref(0);
+const compact = ref(false);
 const OVERSCAN_ROWS = 3;
 
-const columns = computed(() =>
-  props.variant === "list"
-    ? 1
-    : computeColumnCount(containerWidth.value, props.minCardWidth, props.gap),
+let media: MediaQueryList | null = null;
+
+function syncCompact(event?: MediaQueryListEvent): void {
+  compact.value = event ? event.matches : Boolean(media?.matches);
+}
+
+const columnCount = computed(() =>
+  props.variant === "grid"
+    ? computeColumnCount(containerWidth.value, props.minCardWidth, props.gap)
+    : 1,
 );
 
 const rowHeight = computed(() =>
-  props.variant === "list"
-    ? 164
-    : computeRowHeight(containerWidth.value, columns.value, props.gap),
+  collectionRowHeight(
+    props.variant,
+    containerWidth.value,
+    columnCount.value,
+    props.gap,
+    compact.value,
+  ),
+);
+
+const gridRowHeight = computed(() =>
+  computeRowHeight(containerWidth.value, columnCount.value, props.gap),
 );
 
 const rows = computed(() => {
   const out: GalleryItem[][] = [];
-  for (let index = 0; index < props.items.length; index += columns.value) {
-    out.push(props.items.slice(index, index + columns.value));
+  for (let index = 0; index < props.items.length; index += columnCount.value) {
+    out.push(props.items.slice(index, index + columnCount.value));
   }
   return out;
 });
 
 const canvasHeight = computed(() => {
   if (rows.value.length === 0) return 0;
-  return rows.value.length * rowHeight.value - props.gap;
+  const gutter = props.variant === "grid" ? props.gap : 0;
+  return rows.value.length * rowHeight.value - gutter;
 });
 
 const visibleRows = computed(() => {
@@ -96,20 +152,30 @@ const visibleRows = computed(() => {
   return out;
 });
 
+const selectedSet = computed(() => new Set(props.selected));
+const activeVariant = computed(() => props.variant);
+const isTable = computed(() => props.variant === "table");
+
 const retryBlocked = computed(() => !canAutoRetry(props.failures));
 
 let observer: IntersectionObserver | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let frame = 0;
 
+/** Last rendered layout, used by the variant switch to keep the anchor. */
+let lastLayout = { rowHeight: 0, columns: 1 };
+
 function measure(): void {
   const element = root.value;
   if (!element) return;
   const rect = element.getBoundingClientRect();
   containerWidth.value = rect.width;
-  containerTop.value = rect.top + window.scrollY;
+  const anchorElement = canvas.value ?? element;
+  const anchorRect = anchorElement.getBoundingClientRect();
+  containerTop.value = anchorRect.top + window.scrollY;
   scrollY.value = window.scrollY;
   viewportHeight.value = window.innerHeight;
+  lastLayout = { rowHeight: rowHeight.value, columns: columnCount.value };
 }
 
 function onScroll(): void {
@@ -119,6 +185,39 @@ function onScroll(): void {
     scrollY.value = window.scrollY;
   });
 }
+
+watch(
+  [rowHeight, columnCount, canvasHeight],
+  async () => {
+    await nextTick();
+    lastLayout = { rowHeight: rowHeight.value, columns: columnCount.value };
+  },
+  { flush: "post" },
+);
+
+/**
+ * Keep the first visible gallery in place across grid / list / table switches.
+ * Runs pre-flush, so `lastLayout` still describes the outgoing view while the
+ * new template (and its row height) is about to render.
+ */
+watch(
+  () => props.variant,
+  async () => {
+    const previous = lastLayout;
+    if (!previous.rowHeight) return;
+    const anchorItem = firstVisibleItemIndex(
+      scrollY.value,
+      containerTop.value,
+      previous.rowHeight,
+      previous.columns,
+    );
+    await nextTick();
+    measure();
+    const target = scrollTopForItem(anchorItem, rowHeight.value, columnCount.value, containerTop.value);
+    window.scrollTo(0, target);
+    scrollY.value = window.scrollY;
+  },
+);
 
 function maybeLoadMore(): void {
   if (!props.hasMore || props.loading) return;
@@ -171,6 +270,11 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(async () => {
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    media = window.matchMedia("(max-width: 599px)");
+    syncCompact();
+    media.addEventListener?.("change", syncCompact);
+  }
   await nextTick();
   measure();
   chainIfSentinelVisible();
@@ -192,6 +296,7 @@ onBeforeUnmount(() => {
   if (frame) window.cancelAnimationFrame(frame);
   observer?.disconnect();
   resizeObserver?.disconnect();
+  media?.removeEventListener?.("change", syncCompact);
 });
 </script>
 
@@ -199,30 +304,90 @@ onBeforeUnmount(() => {
   <div
     ref="root"
     class="virtual-grid"
-    :class="`virtual-grid--${variant}`"
+    :class="`virtual-grid--${activeVariant}`"
     :data-testid="testid"
+    :data-variant="activeVariant"
     :data-loaded="items.length"
     :data-total="total"
-    :data-columns="columns"
-    :data-row-height="rowHeight"
+    :data-columns="columnCount"
+    :data-row-height="gridRowHeight"
+    :data-list-row-height="rowHeight"
     :data-loading="loading ? '1' : '0'"
     :data-has-more="hasMore ? '1' : '0'"
     :data-failures="failures"
   >
-    <div class="virtual-grid__canvas" :style="{ height: `${canvasHeight}px` }">
+    <GalleryTable
+      v-if="isTable"
+      :columns="props.columns"
+      :sort="sort"
+      :testid="`${testid}-table`"
+      @sort="(column, direction) => emit('sort', column, direction)"
+    >
+      <template #default="{ columns: visible }">
+        <div
+          ref="canvas"
+          class="virtual-grid__canvas"
+          :style="{ height: `${canvasHeight}px` }"
+        >
+          <div
+            v-for="row in visibleRows"
+            :key="row.index"
+            class="virtual-grid__row virtual-grid__row--table"
+            :style="{ transform: `translateY(${row.top}px)` }"
+          >
+            <template v-for="item in row.items" :key="item.id">
+              <slot name="row" :item="item" :columns="visible">
+                <GalleryTableRow
+                  :item="item"
+                  :columns="visible"
+                  :source="source"
+                  :selectable="selectable"
+                  :selected="selectedSet.has(item.id)"
+                  @select="(id, next) => emit('select', id, next)"
+                  @open="(entry) => emit('open', entry)"
+                >
+                  <template v-if="$slots.actions" #actions>
+                    <slot name="actions" :item="item" />
+                  </template>
+                </GalleryTableRow>
+              </slot>
+            </template>
+          </div>
+        </div>
+      </template>
+    </GalleryTable>
+
+    <div
+      v-else
+      ref="canvas"
+      class="virtual-grid__canvas"
+      :style="{ height: `${canvasHeight}px` }"
+    >
       <div
         v-for="row in visibleRows"
         :key="row.index"
         class="virtual-grid__row"
         :style="{
           transform: `translateY(${row.top}px)`,
-          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
           gap: `${gap}px`,
         }"
       >
         <template v-for="item in row.items" :key="item.id">
           <slot name="card" :item="item">
-            <GalleryCard :item="item" :variant="variant" :source="source" />
+            <GalleryCard
+              :item="item"
+              :variant="activeVariant === 'list' ? 'list' : 'grid'"
+              :source="source"
+              :selectable="selectable"
+              :selected="selectedSet.has(item.id)"
+              @select="(id, next) => emit('select', id, next)"
+              @open="(entry) => emit('open', entry)"
+            >
+              <template v-if="$slots.actions" #actions>
+                <slot name="actions" :item="item" />
+              </template>
+            </GalleryCard>
           </slot>
         </template>
       </div>
@@ -238,17 +403,18 @@ onBeforeUnmount(() => {
       @keydown="onKeydown"
     >
       <span v-if="loading" class="virtual-grid__status">{{ t("common.loading") }}</span>
-      <button
+      <Button
         v-else-if="error"
-        type="button"
-        class="virtual-grid__retry"
+        variant="text"
+        size="sm"
+        icon="retry"
         data-testid="grid-retry"
         @click="retry"
       >
-        ↻ {{ t("legacy.clickToRetry") }}
-      </button>
+        {{ t("legacy.clickToRetry") }}
+      </Button>
       <span v-else-if="!hasMore && items.length" class="virtual-grid__status">
-        {{ t("legacy.noData") }}
+        {{ t("collection.loadedAll") }}
       </span>
     </div>
   </div>
@@ -258,6 +424,7 @@ onBeforeUnmount(() => {
 .virtual-grid {
   position: relative;
   width: 100%;
+  min-width: 0;
 }
 
 .virtual-grid__canvas {
@@ -277,6 +444,10 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.virtual-grid__row--table {
+  display: block;
+}
+
 .virtual-grid__sentinel {
   display: flex;
   align-items: center;
@@ -293,21 +464,5 @@ onBeforeUnmount(() => {
 .virtual-grid__status {
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
-}
-
-.virtual-grid__retry {
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-4);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.virtual-grid__retry:hover {
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
 }
 </style>

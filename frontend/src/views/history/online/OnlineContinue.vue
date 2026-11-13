@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 /**
  * "Continue reading online" strip for the home page.

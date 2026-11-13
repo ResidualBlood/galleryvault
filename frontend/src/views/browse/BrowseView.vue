@@ -1,18 +1,42 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Home / browse page (DESIGN.md C19).
+ *
+ * PageHeader → Toolbar (search, search action, random, view toggle) → continue
+ * reading strips → recently added collection (grid / list / table, remembered
+ * per page) → tag overview. The tag overview sits *after* the main list so the
+ * first cards are visible in a 1280x900 viewport (audit BR-04).
+ */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { onBeforeRouteLeave, RouterLink, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
-import VirtualGrid from "@/components/gallery/VirtualGrid.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
+import GalleryCollection from "@/components/gallery/GalleryCollection.vue";
+import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
+import {
+  BROWSE_TABLE_COLUMNS,
+  orderByFor,
+  type SortState,
+  type TableColumn,
+} from "@/components/gallery/table-columns";
 import TagSuggest from "@/views/library/TagSuggest.vue";
 import OnlineContinue from "@/views/history/online/OnlineContinue.vue";
 import BrowseTagOverview from "./extra/BrowseTagOverview.vue";
 import { ensureLibraryMessages } from "@/views/library/messages";
-import { fetchHistory, fetchRandomGallery, galleryThumbUrl, type HistoryItem, type TagSuggestion } from "@/api/library";
+import { useViewMode } from "@/composables/useViewMode";
+import {
+  fetchHistory,
+  fetchRandomGallery,
+  galleryThumbUrl,
+  type HistoryItem,
+  type TagSuggestion,
+} from "@/api/library";
 import { progressPercent, useLibraryStore } from "@/stores/library";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
@@ -25,13 +49,27 @@ const store = useLibraryStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
 
+const view = useViewMode("browse", {
+  allowed: ["grid", "list", "table"] as const,
+  fallback: "grid",
+});
+
 const term = ref("");
 const history = ref<HistoryItem[]>([]);
 const historyLoading = ref(true);
 const randomBusy = ref(false);
+const sort = ref<SortState | null>(null);
 let historyController: AbortController | null = null;
 
 const latestTotal = computed(() => store.total);
+
+function queryFor(orderBy: string | null) {
+  return {
+    page_size: settings.pageSize,
+    tags_limit: 0,
+    ...(orderBy ? { order_by: orderBy } : {}),
+  };
+}
 
 async function loadHistory(): Promise<void> {
   historyController?.abort();
@@ -71,6 +109,13 @@ async function openRandom(): Promise<void> {
   }
 }
 
+function onSort(column: TableColumn, direction: "asc" | "desc"): void {
+  const mapped = orderByFor(column, direction);
+  if (!mapped) return;
+  sort.value = { key: column.key, direction };
+  store.start(queryFor(mapped));
+}
+
 function historyTitle(item: HistoryItem): string {
   return item.display_title || item.title || `#${item.gallery_id}`;
 }
@@ -99,7 +144,7 @@ function restoreScrollSoon(): void {
 }
 
 onMounted(() => {
-  store.start({ page_size: settings.pageSize }, settings.pageSize);
+  store.start(queryFor(null), settings.pageSize);
   restoreScrollSoon();
   void loadHistory();
 });
@@ -116,35 +161,43 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="browse" data-testid="browse-view">
-    <header class="browse__header">
-      <p class="browse__eyebrow">{{ t("library.home.eyebrow") }}</p>
-      <h1 class="browse__title">{{ t("library.home.title") }}</h1>
-    </header>
+    <PageHeader :title="t('library.home.title')" testid="browse-header" />
 
-    <form class="browse__toolbar" role="search" @submit.prevent="onSearch">
-      <TagSuggest
-        v-model="term"
-        :label="t('library.page.search')"
-        :placeholder="t('library.page.searchPlaceholder')"
-        @select="onSelectTag"
-      />
-      <Button type="submit" variant="filled">{{ t("legacy.search") }}</Button>
-      <Button
-        type="button"
-        variant="tonal"
-        :loading="randomBusy"
-        data-testid="random-button"
-        @click="openRandom"
-      >
-        ⚄ {{ t("library.home.random") }}
-      </Button>
+    <form class="browse__search-form" role="search" @submit.prevent="onSearch">
+      <Toolbar testid="browse-toolbar">
+        <TagSuggest
+          v-model="term"
+          class="browse__search"
+          :label="t('library.page.search')"
+          :placeholder="t('library.page.searchPlaceholder')"
+          @select="onSelectTag"
+        />
+        <ToolbarGroup end>
+          <Button type="submit" icon="search">{{ t("legacy.search") }}</Button>
+          <Button
+            type="button"
+            variant="tonal"
+            icon="random"
+            :loading="randomBusy"
+            data-testid="random-button"
+            @click="openRandom"
+          >
+            {{ t("library.home.random") }}
+          </Button>
+          <ViewModeToggle
+            :model-value="view.mode.value"
+            :options="view.available.value"
+            @update:model-value="view.setMode"
+          />
+        </ToolbarGroup>
+      </Toolbar>
     </form>
 
     <section v-if="history.length || historyLoading" class="browse__section" data-testid="continue-reading">
       <div class="browse__section-head">
         <h2 class="browse__section-title">{{ t("library.continueReading.title") }}</h2>
         <RouterLink class="browse__link" to="/history">
-          {{ t("library.continueReading.viewAll") }} →
+          {{ t("library.continueReading.viewAll") }}
         </RouterLink>
       </div>
 
@@ -199,13 +252,11 @@ onBeforeUnmount(() => {
 
     <OnlineContinue class="browse__section" />
 
-    <BrowseTagOverview class="browse__section" />
-
-    <section class="browse__section">
+    <section class="browse__section browse__latest">
       <div class="browse__section-head">
         <h2 class="browse__section-title">
           {{ t("library.home.latest") }}
-          <span class="browse__count">{{ latestTotal }}</span>
+          <span v-if="latestTotal" class="browse__count">{{ latestTotal }}</span>
         </h2>
       </div>
 
@@ -221,16 +272,30 @@ onBeforeUnmount(() => {
         @retry="store.retry"
       />
 
-      <EmptyState
-        v-else-if="!store.items.length"
-        :title="t('library.page.emptyTitle')"
-        :body="t('legacy.noGalleries')"
-        testid="browse-empty"
-      />
+      <div v-else-if="!store.items.length" class="browse__empty">
+        <!-- C18: an empty table keeps its header (only the table view). -->
+        <GalleryCollection
+          v-if="view.mode.value === 'table'"
+          :items="[]"
+          mode="table"
+          :columns="BROWSE_TABLE_COLUMNS"
+          :sort="sort"
+          testid="browse-grid"
+          @sort="onSort"
+        />
+        <EmptyState
+          :title="t('library.page.emptyTitle')"
+          :body="t('legacy.noGalleries')"
+          testid="browse-empty"
+        />
+      </div>
 
-      <VirtualGrid
+      <GalleryCollection
         v-else
         :items="store.items"
+        :mode="view.mode.value"
+        :columns="BROWSE_TABLE_COLUMNS"
+        :sort="sort"
         :loading="store.loading"
         :has-more="store.hasMore"
         :error="store.error"
@@ -239,8 +304,11 @@ onBeforeUnmount(() => {
         testid="browse-grid"
         @load-more="store.loadMore"
         @retry="store.retry"
+        @sort="onSort"
       />
     </section>
+
+    <BrowseTagOverview class="browse__section" />
   </section>
 </template>
 
@@ -253,30 +321,28 @@ onBeforeUnmount(() => {
   margin: 0 auto;
 }
 
-.browse__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
+/* C17: the toolbar sticks under the 56px app topbar; the table header uses
+   `--gv-table-head-top` so it parks below the toolbar instead of behind it. */
+.browse {
+  --gv-table-head-top: calc(
+    var(--gv-size-topbar) + var(--gv-size-control-lg) + var(--gv-space-4)
+  );
 }
 
-.browse__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
+.browse__search-form {
+  position: sticky;
+  top: var(--gv-size-topbar);
+  z-index: 7;
+  display: block;
+  width: 100%;
+  padding-block: var(--gv-space-2);
+  border-bottom: 1px solid var(--gv-color-outline-variant);
+  background: var(--gv-color-surface);
 }
 
-.browse__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.browse__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--gv-space-2);
+.browse__search :deep(.tag-suggest__input) {
+  height: var(--gv-size-control-lg);
+  font: var(--gv-type-body-medium);
 }
 
 .browse__section {
@@ -317,6 +383,7 @@ onBeforeUnmount(() => {
   text-decoration: underline;
 }
 
+/* BR-10: fade the right edge of the horizontal strip instead of a hard cut. */
 .browse__continue {
   display: grid;
   grid-auto-columns: 160px;
@@ -325,6 +392,7 @@ onBeforeUnmount(() => {
   padding-bottom: var(--gv-space-1);
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  mask-image: linear-gradient(to right, black calc(100% - var(--gv-space-6)), transparent);
 }
 
 .continue-card {
@@ -394,6 +462,12 @@ onBeforeUnmount(() => {
   color: var(--gv-color-primary-text);
   font: var(--gv-type-label-large);
   text-decoration: none;
+}
+
+.browse__empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-4);
 }
 
 .browse__skeletons {

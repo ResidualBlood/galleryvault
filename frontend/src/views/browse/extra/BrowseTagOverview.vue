@@ -1,10 +1,19 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Tag namespace overview shown after the recently-added list.
+ *
+ * Audit BR-05 / BR-06: the section link reads "View all" (not a second "Tags"),
+ * namespaces always use `gallery.namespaces.*` (no raw `uploader` / `reclass`
+ * leaking into a Chinese UI), untranslated namespaces are hidden, and the head
+ * uses the same right-aligned `label-large` link as every other section.
+ */
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
 import { fetchTagFacets } from "@/api/library";
+import "@/components/tags/i18n";
 
 const { t, te } = useI18n();
 
@@ -13,17 +22,14 @@ const loading = ref(true);
 
 const pills = computed(() => {
   const counts = [...facets.value].sort((a, b) => b.total - a.total);
-  return counts.map((facet) => ({
-    namespace: facet.namespace,
-    total: facet.total,
-    label: label(facet.namespace),
-  }));
+  return counts
+    .filter((facet) => te(`gallery.namespaces.${facet.namespace}`))
+    .map((facet) => ({
+      namespace: facet.namespace,
+      total: facet.total,
+      label: t(`gallery.namespaces.${facet.namespace}`),
+    }));
 });
-
-function label(namespace: string): string {
-  const key = `legacy.ns.${namespace}`;
-  return te(key) ? t(key) : namespace;
-}
 
 onMounted(async () => {
   try {
@@ -42,7 +48,8 @@ onMounted(async () => {
     <div class="overview__head">
       <h2 class="overview__title">{{ t("legacy.tags") }}</h2>
       <RouterLink class="overview__link" :to="{ name: 'tags' }">
-        {{ t("legacy.tags") }} →
+        <span>{{ t("library.home.viewAllTags") }}</span>
+        <Icon name="chevron-right" size="sm" aria-hidden="true" />
       </RouterLink>
     </div>
     <div v-if="loading" class="overview__skeleton" aria-hidden="true">
@@ -55,6 +62,8 @@ onMounted(async () => {
         :key="pill.namespace"
         class="overview__pill"
         :data-testid="`browse-ns-${pill.namespace}`"
+        :aria-label="t('library.home.tagCount', { count: pill.total })"
+        :title="t('library.home.tagCount', { count: pill.total })"
         :to="{ name: 'tags', query: { ns: pill.namespace } }"
       >
         {{ pill.label }} <b>{{ pill.total }}</b>
@@ -72,7 +81,9 @@ onMounted(async () => {
 
 .overview__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
+  justify-content: space-between;
   gap: var(--gv-space-2);
 }
 
@@ -83,8 +94,11 @@ onMounted(async () => {
 }
 
 .overview__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gv-space-1);
   color: var(--gv-color-primary-text);
-  font: var(--gv-type-body-small);
+  font: var(--gv-type-label-large);
   text-decoration: none;
 }
 
@@ -102,7 +116,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: var(--gv-space-1);
-  height: 28px;
+  height: 32px;
   padding: 0 var(--gv-space-2);
   border: 1px solid var(--gv-color-outline-variant);
   border-radius: var(--gv-radius-full);
