@@ -33,6 +33,35 @@ node scripts/check-parity.mjs --report | --views | --strict
 the worktree path (4200–4999) so parallel worktrees do not collide; override
 with `GV_E2E_PORT`. Screenshots go to `$GV_SHOTS` when set.
 
+## Polish phase (2026-11-13)
+
+- **Control ladder**: `--gv-size-control-xl/lg/md/sm` = 48 / 40 / 36 / 32 (touch
+  pointers 48 / 44 / 40 / 36). One toolbar row uses one step and
+  `align-items: center`; 48 is reserved for the login / welcome forms. See
+  `docs/design/DESIGN.md` C12 and C16–C19.
+- **Tag namespace colours**: themed `--gv-tagns-<namespace>` for the 15 EH
+  namespaces, each checked at ≥4.5:1 against `--gv-color-surface-container`.
+- **Specimen page**: `#/_kit` (lazy route, not in the navigation) auto-collects
+  `src/views/kit/sections/*.vue`; `00-tokens.vue` renders the control ladder,
+  icon sizes and the namespace palette.
+- **Pending markers**: files on the polish surface start with
+  `<!-- gv-polish:pending -->`. `check-design` skips the glyph / native-control
+  rules for marked files and prints the remaining count; `--strict` requires 0.
+  The marker is the only allowed edit to existing `.vue` files in this batch.
+- **E2E helpers**: `e2e/support/polish.ts` (`expectNoGlyphIcons`,
+  `expectControlHeights`, `expectRowsAligned`, `expectNoHorizontalOverflow`,
+  `expectTouchTargets`, `shotMatrix`); `e2e/kit.spec.ts` is the `@kit` gate.
+- **Audit capture**: `e2e/real/audit.spec.ts` (`@audit`) mirrors
+  `audit/capture.mjs` against `$GV_E2E_BASE`, blocks every non-GET `/api`
+  request except `POST /api/tags/search`, and writes screenshots + metrics to
+  `$GV_SHOTS`. Writers do not run it; the tester does after integration.
+
+```bash
+node scripts/check-design.mjs --tokens-only   # tokens + contrast
+node scripts/check-design.mjs                 # + glyph/native-control scan
+node scripts/check-design.mjs --strict        # fails while markers remain
+```
+
 ## Directory ownership
 
 | Path | Contents / owner |
@@ -183,6 +212,8 @@ Hash mode. Legacy paths and aliases (PLAN §4.1, inv-frontend.md §2.1):
 - Aliases: `/discover` → `/online`, `/duplicates/favorites` →
   `/favorites/manage`.
 - New: `/online`, `/online/g/:gid/:token`, `/online/g/:gid/:token/read/:page`.
+- Design kit: `/_kit` (lazy, not in the navigation) renders
+  `src/views/kit/sections/*.vue` for shared alignment / screenshot fixtures.
 - Waiver: `#/series/{id}` is a dead legacy route and redirects to `/series`
   (`parity/waivers.json`). Every other entry in `parity/legacy-routes.json` is
   resolved by the new router in a unit test.

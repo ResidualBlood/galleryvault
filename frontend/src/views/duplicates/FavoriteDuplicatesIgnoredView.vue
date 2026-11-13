@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";

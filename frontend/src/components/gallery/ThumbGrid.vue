@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script lang="ts">
 export interface ThumbMetrics {
   columns: number;

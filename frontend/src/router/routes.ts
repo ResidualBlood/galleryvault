@@ -193,6 +193,12 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: "app.nav.archive" },
       },
       {
+        path: "_kit",
+        name: "kit",
+        component: () => import("@/views/kit/KitView.vue"),
+        meta: { title: "app.title" },
+      },
+      {
         path: "welcome",
         name: "welcome",
         component: () => import("@/views/welcome/WelcomeView.vue"),

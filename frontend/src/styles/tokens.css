@@ -190,6 +190,23 @@
   --gv-size-reader-bar: 56px;
   --gv-size-card-cover-aspect: 3 / 4;
 
+  /*
+   * Control ladder (DESIGN.md C12/C16). One row uses one step only:
+   * lg = page toolbars / forms / dialogs, md = inline actions / pager /
+   * settings rows, sm = card actions / filter chips / table rows.
+   * 48 (xl) is reserved for the single-column login and welcome forms.
+   */
+  --gv-size-control-xl: 48px;
+  --gv-size-control-lg: 40px;
+  --gv-size-control-md: 36px;
+  --gv-size-control-sm: 32px;
+  --gv-size-icon-dense: 18px;
+  --gv-size-chip: 32px;
+  --gv-size-tag: 24px;
+  --gv-size-tag-lg: 28px;
+  --gv-size-table-row: 56px;
+  --gv-size-list-row: 152px;
+
   /* ------------------------------------------ EH category colors (fixed) */
   --gv-cat-doujinshi: #fc4e4e;
   --gv-cat-doujinshi-ink: #000000;
@@ -227,6 +244,25 @@
   --gv-favcat-7: #5050d7;
   --gv-favcat-8: #9755f5;
   --gv-favcat-9: #fe93ff;
+}
+
+/*
+ * Pointer / viewport adjustments for the control ladder. Values change, the
+ * alignment relationships do not: touch pointers add 4px per step, and the
+ * compact viewport (390) uses a shorter list row.
+ */
+@media (pointer: coarse) {
+  :root {
+    --gv-size-control-lg: 44px;
+    --gv-size-control-md: 40px;
+    --gv-size-control-sm: 36px;
+  }
+}
+
+@media (max-width: 599.98px) {
+  :root {
+    --gv-size-list-row: 132px;
+  }
 }
 
 /* ------------------------------------------------------------- dark (default) */
@@ -293,6 +329,23 @@
 
   --gv-color-reader-surface: #000000;
   --gv-color-reader-on-surface: #f5f2ea;
+
+  /* ------------------------- tag namespace accents (dark; >=4.5:1 on surface-container) */
+  --gv-tagns-female: #f2a6c0;
+  --gv-tagns-male: #8fb8f2;
+  --gv-tagns-mixed: #cfb0f5;
+  --gv-tagns-artist: #f0b27a;
+  --gv-tagns-group: #9fd3a8;
+  --gv-tagns-character: #7fd0d8;
+  --gv-tagns-parody: #d8c27a;
+  --gv-tagns-language: #b7c4e8;
+  --gv-tagns-cosplayer: #e8a3d8;
+  --gv-tagns-other: #c3c8cc;
+  --gv-tagns-reclass: #e6b0a0;
+  --gv-tagns-location: #a8d8c0;
+  --gv-tagns-temp: #cbb894;
+  --gv-tagns-local: #9fc2b0;
+  --gv-tagns-uploader: #d6b0e0;
 }
 
 /* --------------------------------------------------------------- light */
@@ -358,6 +411,23 @@
 
   --gv-color-reader-surface: #000000;
   --gv-color-reader-on-surface: #f5f2ea;
+
+  /* ------------------------- tag namespace accents (light; >=4.5:1 on surface-container) */
+  --gv-tagns-female: #b3245a;
+  --gv-tagns-male: #1f5fa8;
+  --gv-tagns-mixed: #6b3fa0;
+  --gv-tagns-artist: #8a4a00;
+  --gv-tagns-group: #2f6b3a;
+  --gv-tagns-character: #0f6672;
+  --gv-tagns-parody: #6e5a00;
+  --gv-tagns-language: #3b4a8f;
+  --gv-tagns-cosplayer: #8c2b7a;
+  --gv-tagns-other: #5a6065;
+  --gv-tagns-reclass: #9a3f2a;
+  --gv-tagns-location: #1f6a50;
+  --gv-tagns-temp: #6d5424;
+  --gv-tagns-local: #3d6350;
+  --gv-tagns-uploader: #6f3a80;
 }
 
 /* System preference: only applies while the user has not chosen a theme. */

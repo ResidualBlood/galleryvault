@@ -1,3 +1,4 @@
+<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import ErrorState from "@/components/ui/ErrorState.vue";
