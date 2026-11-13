@@ -44,7 +44,9 @@ function toggle(): void {
 .switch {
   position: relative;
   display: inline-flex;
+  flex: none;
   align-items: center;
+  align-self: center;
   width: 52px;
   height: 32px;
   padding: 4px;
@@ -79,7 +81,34 @@ function toggle(): void {
 
 .switch:disabled {
   cursor: not-allowed;
-  opacity: var(--gv-state-disabled);
+}
+
+.switch:disabled .switch__thumb {
+  background: color-mix(in srgb, var(--gv-color-on-surface) var(--gv-state-disabled), transparent);
+}
+
+.switch:disabled:not(.switch--on) {
+  border-color: color-mix(
+    in srgb,
+    var(--gv-color-on-surface) var(--gv-state-disabled-container),
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--gv-color-on-surface) var(--gv-state-disabled-container),
+    transparent
+  );
+}
+
+.switch:disabled.switch--on {
+  border-color: color-mix(in srgb, var(--gv-color-primary) var(--gv-state-disabled), transparent);
+  background: color-mix(in srgb, var(--gv-color-primary) var(--gv-state-disabled), transparent);
+}
+
+/* Explicit keyboard ring: the 52x32 track is the focusable element. */
+.switch:focus-visible {
+  outline: var(--gv-state-focus-ring-width) solid var(--gv-color-focus-ring);
+  outline-offset: var(--gv-state-focus-ring-offset);
 }
 
 @media (prefers-reduced-motion: reduce) {

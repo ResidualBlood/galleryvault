@@ -1,0 +1,53 @@
+{
+  "controls": {
+    "clear": "清除",
+    "section": {
+      "title": "控件",
+      "lede": "Button / IconButton / TextField / Select 共用同一档位；同一行等高、中心线对齐。"
+    },
+    "size": {
+      "label": "尺寸",
+      "xl": "超大",
+      "lg": "大",
+      "md": "中",
+      "sm": "小"
+    },
+    "sample": {
+      "button": "按钮",
+      "icon": "搜索",
+      "field": "搜索画廊",
+      "select": "排序",
+      "switch": "开关",
+      "checkbox": "复选框"
+    },
+    "alignment": "尺寸三档与同行对齐",
+    "override": "显式覆盖继承档位",
+    "states": "禁用 / 错误 / 加载",
+    "disabled": "禁用",
+    "error": "错误",
+    "loading": "加载中",
+    "field": {
+      "label": "字段标签",
+      "helper": "辅助说明",
+      "inline": "行内标签",
+      "error": "请输入有效内容"
+    },
+    "checkbox": {
+      "label": "启用",
+      "indeterminate": "部分选中"
+    },
+    "textarea": {
+      "label": "备注",
+      "placeholder": "输入备注"
+    },
+    "slider": {
+      "label": "页码",
+      "value": "第 {value} 页"
+    },
+    "sort": {
+      "newest": "最新",
+      "oldest": "最早"
+    },
+    "focus": "键盘焦点"
+  }
+}
