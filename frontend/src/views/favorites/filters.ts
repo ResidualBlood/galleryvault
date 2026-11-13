@@ -108,6 +108,9 @@ export function buildFavListParams(filters: FavListFilters): URLSearchParams {
     String(Math.max(1, Math.min(500, Math.trunc(filters.page_size) || 24))),
   );
   params.set("state", filters.state);
+  // The card / row renders the inline tag row itself, so ask for every tag
+  // instead of the backend's default 4 (be-list-tags added `tags_limit`).
+  params.set("tags_limit", "0");
 
   const q = filters.q.trim();
   if (q) params.set("q", q);

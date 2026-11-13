@@ -79,6 +79,8 @@ export interface FavoriteItem {
   cover_url: string | null;
   file_size: number | null;
   note: string | null;
+  /** When the gallery was first recorded as a favourite (no posted date here). */
+  first_seen_at: string | null;
   is_local: boolean;
   tags: FavoriteItemTag[];
 }
@@ -368,6 +370,8 @@ function normalizeFavoriteItem(raw: FavoriteItem): FavoriteItem {
     cover_url: typeof raw?.cover_url === "string" ? raw.cover_url : null,
     file_size: typeof raw?.file_size === "number" ? raw.file_size : null,
     note: typeof raw?.note === "string" ? raw.note : null,
+    first_seen_at:
+      typeof raw?.first_seen_at === "string" ? raw.first_seen_at : null,
     is_local: Boolean(raw?.is_local) || typeof raw?.gallery_id === "number",
     tags: Array.isArray(raw?.tags)
       ? raw.tags.map((tag) => ({
