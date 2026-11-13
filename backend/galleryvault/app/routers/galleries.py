@@ -171,6 +171,27 @@ def _get_thumb_service() -> ThumbnailService:
     return service
 
 
+async def _tags_for_galleries(
+    repo: object, gallery_ids: list[int], tags_limit: int | None
+) -> dict[int, list[tuple[str, str]]]:
+    """Fetch tag previews, passing a custom cap only when the client asked.
+
+    Keeping the one-argument call for the default keeps existing repository
+    doubles (which implement the historical signature) working.
+    """
+    limit = tags_limit if isinstance(tags_limit, int) else None
+    if limit is None:
+        return await repo.tags_for_galleries(gallery_ids)
+    return await repo.tags_for_galleries(gallery_ids, limit)
+
+
+def _tag_count(tag_map: dict[int, list[tuple[str, str]]], gallery_id: int) -> int:
+    counts = getattr(tag_map, "counts", None) or {}
+    if gallery_id in counts:
+        return int(counts[gallery_id])
+    return len(tag_map.get(gallery_id, []))
+
+
 def _dedupe_tags(tags: list[tuple[str | None, str]]) -> list[tuple[str | None, str]]:
     seen: set[tuple[str | None, str]] = set()
     out: list[tuple[str | None, str]] = []
@@ -270,6 +291,7 @@ async def list_galleries(
     image_quality: str | None = None,
     min_local_rating: int | None = Query(default=None, ge=1, le=5),
     list_id: int | None = None,
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
     gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
@@ -351,7 +373,7 @@ async def list_galleries(
             list_id=list_id,
         )
         g_ids = [r.id for r in rows if getattr(r, "id", None)]
-        tag_map = await repo_cls(session).tags_for_galleries(g_ids)
+        tag_map = await _tags_for_galleries(repo_cls(session), g_ids, tags_limit)
         progress_map = await repo_cls(session).progress_for_galleries(g_ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -412,6 +434,7 @@ async def list_galleries(
                     }
                     for ns, name in tag_map.get(row.id, [])
                 ],
+                "tag_count": _tag_count(tag_map, row.id),
                 "uploader": getattr(row, "uploader", None),
                 "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
                 "file_size": getattr(row, "file_size", None),
@@ -437,6 +460,7 @@ gallery_list = list_galleries
 async def list_trash(
     page: int = 1,
     page_size: int = 24,
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
@@ -445,7 +469,7 @@ async def list_trash(
     try:
         total, rows = await GalleryRepository(session).list_trashed(page, page_size)
         g_ids = [r.id for r in rows]
-        tag_map = await GalleryRepository(session).tags_for_galleries(g_ids)
+        tag_map = await _tags_for_galleries(GalleryRepository(session), g_ids, tags_limit)
         progress_map = await GalleryRepository(session).progress_for_galleries(g_ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -469,6 +493,7 @@ async def list_trash(
                     {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
                     for ns, name in tag_map.get(row.id, [])
                 ],
+                "tag_count": _tag_count(tag_map, row.id),
                 "reading_progress": progress_map.get(row.id),
             }
             for row in rows
@@ -480,6 +505,7 @@ async def list_trash(
 async def list_expunged(
     page: int = 1,
     page_size: int = 24,
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
@@ -488,7 +514,7 @@ async def list_expunged(
     try:
         total, rows = await GalleryRepository(session).list_expunged(page, page_size)
         g_ids = [r.id for r in rows]
-        tag_map = await GalleryRepository(session).tags_for_galleries(g_ids)
+        tag_map = await _tags_for_galleries(GalleryRepository(session), g_ids, tags_limit)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     return {
@@ -509,6 +535,7 @@ async def list_expunged(
                     {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
                     for ns, name in tag_map.get(row.id, [])
                 ],
+                "tag_count": _tag_count(tag_map, row.id),
             }
             for row in rows
         ],

@@ -35,6 +35,21 @@ from .base import _chunked, count_select, escape_like_wildcards
 from .galleries_common import _title_sort_column
 
 
+class GalleryTagMap(dict[int, list[tuple[str, str]]]):
+    """Per-gallery tag rows plus each gallery's full tag count.
+
+    Subclasses ``dict`` so every existing caller keeps treating the result as a
+    plain ``{gallery_id: [(namespace, name), ...]}`` map, while list endpoints
+    read ``counts`` (from the same single query) to render a ``+N`` chip.
+    """
+
+    counts: dict[int, int]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.counts = {}
+
+
 class GalleryQueryMixin:
     """Read-only gallery queries (requires ``self.session``)."""
 
@@ -390,20 +405,27 @@ class GalleryQueryMixin:
 
     async def tags_for_galleries(
         self, gallery_ids: Sequence[int], limit_per_gallery: int = 4
-    ) -> dict[int, list[tuple[str, str]]]:
-        """Tags for a set of galleries in one query, ordered per gallery."""
+    ) -> GalleryTagMap:
+        """Tags for a set of galleries in one query, ordered per gallery.
+
+        ``limit_per_gallery`` caps the returned list (the historical 4-chip
+        preview); ``0`` returns every tag. The map carries ``counts`` with each
+        gallery's full tag total so list payloads can render a ``+N`` chip
+        without a second query.
+        """
         if not gallery_ids:
-            return {}
+            return GalleryTagMap()
         rows = await self.session.execute(
             select(GalleryTag.gallery_id, Tag.namespace, Tag.name)
             .join(Tag, Tag.id == GalleryTag.tag_id)
             .where(GalleryTag.gallery_id.in_(list(gallery_ids)))
             .order_by(GalleryTag.gallery_id, Tag.namespace, Tag.name)
         )
-        result: dict[int, list[tuple[str, str]]] = {}
+        result = GalleryTagMap()
         for gallery_id, namespace, name in rows:
+            result.counts[gallery_id] = result.counts.get(gallery_id, 0) + 1
             tags = result.setdefault(gallery_id, [])
-            if len(tags) < limit_per_gallery:
+            if limit_per_gallery <= 0 or len(tags) < limit_per_gallery:
                 tags.append((namespace, name))
         return result
 

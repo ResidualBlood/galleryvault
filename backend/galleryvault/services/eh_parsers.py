@@ -484,6 +484,11 @@ class SearchGallery:
     category: str | None = None
     pages: int | None = None
     rating: float | None = None
+    # List-row tags parsed from the ``.gt``/``.gtl`` ``title`` attributes.
+    # Empty when the account uses a list mode without tags (thumbnail/minimal).
+    tags: list[dict[str, str]] = field(default_factory=list)
+    posted: int | None = None
+    uploader: str | None = None
 
 
 @dataclass
@@ -1180,6 +1185,79 @@ def _search_category(snippet: str) -> str | None:
     return normalize_category(_text(match.group(1)))
 
 
+# List rows render tags as ``<div class="gt" title="female:sole female">f:sole female</div>``.
+# The ``title`` attribute keeps the full ``namespace:name`` pair while the text is
+# abbreviated, so only the attribute is reliable for a machine-readable tag.
+_LIST_TAG_NODE_RE = re.compile(r"<(?:div|span)\b([^>]*)>", re.IGNORECASE)
+_LIST_CLASS_RE = re.compile(r'class=["\']([^"\']*)["\']', re.IGNORECASE)
+_LIST_TITLE_RE = re.compile(r'title=["\']([^"\']*)["\']', re.IGNORECASE)
+# Compact/extended list rows expose the post time in a hidden ``posted_<gid>``
+# node; thumbnail/minimal modes omit it, in which case ``posted`` is None.
+_LIST_POSTED_RE = re.compile(r'id=["\']posted_\d+["\'][^>]*>\s*([^<]+?)\s*<', re.IGNORECASE)
+_LIST_UPLOADER_RE = re.compile(
+    r'href=["\'][^"\']*/uploader/[^"\']*["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL
+)
+
+
+def _search_tags(snippet: str) -> list[dict[str, str]]:
+    """Tags from a list-row window, read from ``.gt``/``.gtl`` ``title`` attrs.
+
+    The abbreviated text (``f:sole female``) is deliberately ignored: the
+    attribute carries the full namespace. A value without ``:`` is kept as a
+    ``misc`` tag. Order is preserved and duplicates are dropped.
+    """
+    tags: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for node in _LIST_TAG_NODE_RE.finditer(snippet):
+        attrs = node.group(1)
+        classes = _LIST_CLASS_RE.search(attrs)
+        if not classes or not ({"gt", "gtl"} & set(classes.group(1).split())):
+            continue
+        title = _LIST_TITLE_RE.search(attrs)
+        if not title:
+            continue
+        value = html.unescape(title.group(1)).strip()
+        if not value:
+            continue
+        namespace, name = value.split(":", 1) if ":" in value else ("misc", value)
+        namespace = namespace.strip() or "misc"
+        name = name.strip()
+        if not name:
+            continue
+        key = (namespace, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append({"namespace": namespace, "name": name})
+    return tags
+
+
+def _search_posted(snippet: str) -> int | None:
+    """UTC timestamp from the row's ``posted_<gid>`` text (None when absent)."""
+    match = _LIST_POSTED_RE.search(snippet)
+    if not match:
+        return None
+    parts = re.fullmatch(
+        r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})",
+        _text(match.group(1)).strip(),
+    )
+    if not parts:
+        return None
+    try:
+        parsed = datetime(*(int(part) for part in parts.groups()), tzinfo=UTC)
+    except ValueError:
+        return None
+    return int(parsed.timestamp())
+
+
+def _search_uploader(snippet: str) -> str | None:
+    match = _LIST_UPLOADER_RE.search(snippet)
+    if not match:
+        return None
+    name = _text(match.group(1)).strip()
+    return name or None
+
+
 def parse_favorite_note(snippet: str, gid: int) -> str | None:
     """Extract a per-gallery favorite note from listing HTML when present."""
     patterns = (
@@ -1252,6 +1330,9 @@ def parse_search_page(
                 _search_category(snippet),
                 _search_pages(snippet),
                 _search_rating(snippet),
+                _search_tags(snippet),
+                _search_posted(snippet),
+                _search_uploader(snippet),
             )
         )
     return items, _search_next_cursor(body)

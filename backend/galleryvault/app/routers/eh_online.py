@@ -28,6 +28,7 @@ from ...services.eh_client import (
     PreviewPage,
 )
 from ...services.online_resolve import OnlineResolveError, resolve_online_page
+from ...services.tag_translation import translated_tag
 from ..core.eh_client_manager import EhClientManager
 from ..dependencies import (
     db_error,
@@ -141,7 +142,14 @@ def _detail_payload(detail: OnlineGalleryDetail) -> dict[str, Any]:
         "rating": detail.rating,
         "file_size": detail.file_size,
         "thumb": detail.thumb,
-        "tags": [dict(tag) for tag in detail.tags],
+        "tags": [
+            {
+                "namespace": tag.get("namespace", ""),
+                "name": tag.get("name", ""),
+                "display": translated_tag(tag.get("namespace"), tag.get("name", ""))[1],
+            }
+            for tag in detail.tags
+        ],
         "newer": {"gid": int(newer[0]), "token": newer[1]} if newer else None,
         "parent_gid": detail.parent_gid,
     }
