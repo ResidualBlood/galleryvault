@@ -19,12 +19,17 @@
     "archiveTier": "归档画质"
   },
   "page": {
-    "eyebrow": "DOWNLOADS",
     "selectTask": "选择任务 {title}",
     "confirmDelete": "删除下载任务 #{id}？已下载的文件不会被删除。",
     "confirmDeleteSelected": "删除所选的 {n} 个下载任务？已下载的文件不会被删除。",
     "deletedCount": "已删除 {n} 个任务",
     "retriedCount": "已重试 {n} 个任务",
-    "pauseFailed": "切换暂停状态失败"
+    "pauseFailed": "切换暂停状态失败",
+    "statusLabel": "任务状态",
+    "more": "更多操作",
+    "selected": "已选 {n} 项",
+    "shown": "显示 {shown} / 共 {total} 条",
+    "expand": "展开添加区",
+    "collapse": "收起添加区"
   }
 }

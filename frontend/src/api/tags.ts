@@ -50,7 +50,7 @@ export function fetchTags(
   const cjk = isCjkQuery(q);
   const params = new URLSearchParams();
   params.set("page", String(cjk ? 1 : Math.max(1, query.page ?? 1)));
-  params.set("page_size", "100");
+  params.set("page_size", String(Math.max(1, query.page_size ?? 100)));
   if (!cjk && query.namespace) params.set("namespace", query.namespace);
   if (q) params.set("q", q);
   if (cjk && q) params.set("zh", "1");

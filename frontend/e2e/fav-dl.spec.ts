@@ -334,7 +334,10 @@ test.describe("favourites / downloads / history @fav-dl", () => {
         .poll(() => state.downloadRequests.length, { timeout: 5000 })
         .toBeGreaterThan(beforeHidden);
 
-      await page.getByTestId("downloads-filter-failed").click();
+      await page
+        .getByTestId("downloads-status-segmented")
+        .locator('[data-segmented-value="failed"]')
+        .click();
       await expect(page.locator(".download-item")).toHaveCount(1);
       await expect(page.locator(".download-item").first()).toHaveAttribute(
         "data-status",
@@ -343,10 +346,13 @@ test.describe("favourites / downloads / history @fav-dl", () => {
       await expect
         .poll(() => state.downloadRequests.at(-1)?.get("status"))
         .toBe("failed");
-      await page.getByTestId("downloads-filter-all").click();
+      await page
+        .getByTestId("downloads-status-segmented")
+        .locator('[data-segmented-value="all"]')
+        .click();
       await expect(page.locator(".download-item")).toHaveCount(6);
 
-      await page.getByTestId("downloads-urls").fill(
+      await page.getByTestId("downloads-urls").locator("textarea").fill(
         "https://e-hentai.org/g/123456/abcdef/\n987/abc123",
       );
       await page.getByTestId("downloads-quality").locator("select").selectOption("original");
@@ -384,10 +390,12 @@ test.describe("favourites / downloads / history @fav-dl", () => {
         .poll(() => writeCount(state, deleteDownloadEp.path.replace("{id}", "6"), "DELETE"))
         .toBe(1);
 
+      await page.getByTestId("downloads-more-trigger").click();
       await page.getByTestId("downloads-clear-success").click();
       await page.getByTestId("downloads-clear-confirm").click();
       await expect.poll(() => writeCount(state, clearSuccessfulDownloadsEp.path)).toBe(1);
 
+      await page.getByTestId("downloads-more-trigger").click();
       await page.getByTestId("downloads-retry-all").click();
       await page.getByTestId("downloads-retry-all-confirm").click();
       await expect.poll(() => writeCount(state, retryAllDownloadsEp.path)).toBe(1);

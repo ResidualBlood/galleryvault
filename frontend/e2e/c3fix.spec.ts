@@ -175,7 +175,7 @@ test.describe("C3 round 2 fixes @c3r2", () => {
     await expect(page.getByRole("status").filter({ hasText: "没有识别到画廊链接" })).toBeVisible();
     await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
 
-    await page.getByTestId("downloads-urls").fill("123456/abcdef");
+    await page.getByTestId("downloads-urls").locator("textarea").fill("123456/abcdef");
     await page.getByTestId("downloads-add-archive").click();
     const archive = page.getByTestId("downloads-archive-dialog");
     await expect(archive).toBeVisible();
@@ -183,6 +183,7 @@ test.describe("C3 round 2 fixes @c3r2", () => {
     await page.keyboard.press("Escape");
     await expect(archive).toHaveCount(0);
 
+    await page.getByTestId("downloads-more-trigger").click();
     await page.getByTestId("downloads-retry-all").click();
     await expect(page.getByTestId("downloads-retry-all-dialog")).toBeVisible();
     await page.keyboard.press("Escape");

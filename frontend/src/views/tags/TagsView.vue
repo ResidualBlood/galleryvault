@@ -1,13 +1,28 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Chip from "@/components/ui/Chip.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import Icon from "@/components/icons/Icon.vue";
 import Input from "@/components/ui/Input.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
+import Pager from "@/components/ui/Pager.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
+import TagChip from "@/components/tags/TagChip.vue";
+import TagMenu from "@/components/tags/TagMenu.vue";
+import {
+  namespaceLabel,
+  tagKey,
+  type TagLike,
+  type TagMenuEvent,
+} from "@/components/tags/tag-utils";
+import { useTagNavigation } from "@/components/tags/useTagNavigation";
+import "@/components/tags/i18n";
 import { ApiError } from "@/api/client";
 import { fetchTagFacets, type TagSuggestion } from "@/api/library";
 import {
@@ -21,10 +36,13 @@ import { ensureTagsMessages } from "./messages";
 
 ensureTagsMessages();
 
-const { t, te } = useI18n();
+const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
+const tagNav = useTagNavigation("local");
+
+const PAGE_SIZES = [50, 100, 200];
 
 const items = ref<TagSuggestion[]>([]);
 const total = ref(0);
@@ -38,25 +56,59 @@ const loading = ref(true);
 const error = ref("");
 const reloadBusy = ref(false);
 const syncBusy = ref(false);
+const menu = ref<TagMenuEvent | null>(null);
 
 let controller: AbortController | null = null;
 
 const cjk = computed(() => isCjkQuery(q.value.trim()));
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
-const maxUsage = computed(() =>
-  items.value.reduce((max, item) => Math.max(max, item.usage_count ?? 0), 0),
+const headerCount = computed(() =>
+  namespace.value || q.value.trim() ? total.value : facetTotal.value || total.value,
 );
 
-function namespaceLabel(value: string): string {
-  const key = `legacy.ns.${value}`;
-  return te(key) ? t(key) : value;
-}
+/** Facet counts decide the namespace order; items decide the page content. */
+const groups = computed(() => {
+  const order = Object.entries(facets.value)
+    .sort((a, b) => b[1] - a[1])
+    .map(([value]) => value);
+  const rank = (value: string): number => {
+    const index = order.indexOf(value);
+    return index < 0 ? order.length + 1 : index;
+  };
+
+  const buckets = new Map<string, TagSuggestion[]>();
+  for (const tag of items.value) {
+    const key = (tag.namespace || "misc").trim() || "misc";
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(tag);
+    else buckets.set(key, [tag]);
+  }
+
+  return [...buckets.keys()]
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+    .map((key) => ({
+      namespace: key,
+      label: namespaceLabel(key, t),
+      count: facets.value[key] ?? buckets.get(key)?.length ?? 0,
+      items: buckets.get(key) ?? [],
+    }));
+});
 
 const namespacePills = computed(() => {
   const entries = Object.entries(facets.value).sort((a, b) => b[1] - a[1]);
   return [
-    { value: "", label: t("tagsPage.allNamespaces"), count: facetTotal.value },
-    ...entries.map(([value, count]) => ({ value, label: namespaceLabel(value), count })),
+    {
+      value: "",
+      label: t("tagsPage.allNamespaces"),
+      title: t("tagsPage.allNamespaces"),
+      count: facetTotal.value,
+    },
+    ...entries.map(([value, count]) => ({
+      value,
+      label: namespaceLabel(value, t),
+      title: `${namespaceLabel(value, t)}（${value}）`,
+      count,
+    })),
   ];
 });
 
@@ -95,7 +147,12 @@ async function load(): Promise<void> {
   page.value = Math.max(1, Number.parseInt(first(route.query.page) || "1", 10) || 1);
   try {
     const data = await fetchTags(
-      { q: q.value, namespace: namespace.value, page: page.value, page_size: pageSize.value },
+      {
+        q: q.value,
+        namespace: namespace.value,
+        page: page.value,
+        page_size: pageSize.value,
+      },
       controller.signal,
     );
     let rows = data.items ?? [];
@@ -141,18 +198,25 @@ function goPage(target: number): void {
   void router.push({ name: "tags", query: query({ page: next > 1 ? String(next) : "" }) });
 }
 
-function tagKey(tag: TagSuggestion): string {
-  return tag.namespace ? `${tag.namespace}:${tag.name}` : tag.name;
+function onPageSize(value: number): void {
+  pageSize.value = value;
+  void router.push({ name: "tags", query: query({ page: "" }) });
 }
 
-function sizeClass(usage: number): string {
-  const max = maxUsage.value;
-  if (max <= 0) return "cloud-tag--s1";
-  const ratio = usage / max;
-  if (ratio >= 0.75) return "cloud-tag--s4";
-  if (ratio >= 0.45) return "cloud-tag--s3";
-  if (ratio >= 0.2) return "cloud-tag--s2";
-  return "cloud-tag--s1";
+function onTagSelect(tag: TagLike): void {
+  void tagNav.navigate(tag);
+}
+
+function onTagExclude(tag: TagLike): void {
+  void tagNav.navigate(tag, { exclude: true });
+}
+
+function openTagMenu(event: TagMenuEvent): void {
+  menu.value = event;
+}
+
+function onCopied(): void {
+  ui.success(t("tagsUi.copied"));
 }
 
 async function reload(): Promise<void> {
@@ -208,17 +272,20 @@ void load();
 
 <template>
   <section class="tags" data-testid="tags-view">
-    <header class="tags__header">
-      <p class="tags__eyebrow">{{ t("tagsPage.eyebrow") }}</p>
-      <h1 class="tags__title">{{ t("tagsPage.title") }}</h1>
-      <p class="tags__subtitle">{{ t("tagsPage.subtitle") }}</p>
-    </header>
+    <PageHeader
+      :title="t('tagsPage.title')"
+      :count="headerCount"
+      :subtitle="t('tagsPage.subtitle')"
+      testid="tags-header"
+    />
 
-    <div class="tags__toolbar">
+    <Toolbar class="tags__toolbar" size="lg" testid="tags-toolbar">
       <form class="tags__search" role="search" @submit.prevent="search">
         <Input
           v-model="q"
-          :label="t('tagsPage.search')"
+          class="tags__search-input"
+          icon="search"
+          :aria-label="t('tagsPage.search')"
           :placeholder="t('tagsPage.searchPlaceholder')"
           data-testid="tags-search-input"
           @enter="search"
@@ -227,42 +294,51 @@ void load();
           {{ t("tagsPage.search") }}
         </Button>
       </form>
-      <Button
-        variant="outlined"
-        :loading="reloadBusy"
-        data-testid="tags-reload"
-        :title="t('tagsPage.reloadHint')"
-        @click="reload"
-      >
-        {{ reloadBusy ? t("tagsPage.reloading") : t("tagsPage.reload") }}
-      </Button>
-      <Button
-        variant="outlined"
-        :loading="syncBusy"
-        data-testid="tags-sync"
-        :title="t('tagsPage.syncHint')"
-        @click="syncAll"
-      >
-        {{ t("tagsPage.syncAll") }}
-      </Button>
-    </div>
+      <ToolbarGroup class="tags__maint" end>
+        <Button
+          variant="outlined"
+          icon="retry"
+          :loading="reloadBusy"
+          data-testid="tags-reload"
+          :title="t('tagsPage.reloadHint')"
+          @click="reload"
+        >
+          {{ reloadBusy ? t("tagsPage.reloading") : t("tagsPage.reload") }}
+        </Button>
+        <Button
+          variant="outlined"
+          icon="updates"
+          :loading="syncBusy"
+          data-testid="tags-sync"
+          :title="t('tagsPage.syncHint')"
+          @click="syncAll"
+        >
+          {{ t("tagsPage.syncAll") }}
+        </Button>
+      </ToolbarGroup>
+    </Toolbar>
 
-    <div class="tags__pills" :aria-label="t('tagsPage.title')">
-      <button
+    <div
+      class="tags__namespaces"
+      role="group"
+      :aria-label="t('tagsPage.title')"
+      data-testid="tags-namespaces"
+    >
+      <Chip
         v-for="pill in namespacePills"
         :key="pill.value || 'all'"
-        type="button"
-        class="pill"
-        :class="{ 'pill--active': namespace === pill.value }"
-        :data-testid="`tags-ns-${pill.value || 'all'}`"
+        :label="pill.label"
+        :count="pill.count"
+        :selected="namespace === pill.value"
+        :title="pill.title"
+        :testid="`tags-ns-${pill.value || 'all'}`"
         @click="selectNamespace(pill.value)"
-      >
-        {{ pill.label }} <b>{{ pill.count }}</b>
-      </button>
+      />
     </div>
 
     <p v-if="namespace" class="tags__current" data-testid="tags-current-ns">
-      {{ t("tagsPage.currentNamespace", { namespace }) }}
+      {{ t("tagsPage.currentNamespace", { namespace: namespaceLabel(namespace, t) }) }}
+      <span class="tags__current-raw">{{ namespace }}</span>
       <RouterLink class="tags__link" :to="{ name: 'tags', query: query({ ns: '', page: '' }) }">
         {{ t("tagsPage.backToAll") }}
       </RouterLink>
@@ -288,46 +364,55 @@ void load();
     />
 
     <div v-else class="tags__cloud" data-testid="tags-cloud">
-      <RouterLink
-        v-for="tag in items"
-        :key="tagKey(tag)"
-        class="cloud-tag"
-        :class="[sizeClass(tag.usage_count), tag.namespace ? `cloud-tag--${tag.namespace}` : '']"
-        :to="{ name: 'library', query: { tags: tagKey(tag) } }"
-        :title="tag.namespace ? `${tag.namespace}:${tag.name}` : tag.name"
+      <section
+        v-for="group in groups"
+        :key="group.namespace"
+        class="tags__group"
+        :data-group="group.namespace"
       >
-        <span class="cloud-tag__ns" v-if="tag.namespace">{{ tag.namespace }}:</span>
-        <span class="cloud-tag__name">{{ tag.display || tag.name }}</span>
-        <small class="cloud-tag__count">{{ tag.usage_count }}</small>
-      </RouterLink>
+        <h2 class="tags__group-title">
+          <Icon name="tags" size="dense" aria-hidden="true" />
+          <span>{{ group.label }}</span>
+          <span class="tags__group-count">{{ group.count }}</span>
+        </h2>
+        <div class="tags__group-chips">
+          <span v-for="tag in group.items" :key="tagKey(tag)" class="tags__tag">
+            <TagChip
+              :tag="tag"
+              :size="24"
+              @select="onTagSelect"
+              @exclude="onTagExclude"
+              @menu="openTagMenu"
+            />
+            <span class="tags__usage">{{ tag.usage_count }}</span>
+          </span>
+        </div>
+      </section>
     </div>
 
     <div v-if="!loading && !error && items.length" class="tags__pager">
       <p v-if="cjk" class="tags__hint">{{ t("tagsPage.cjkHint") }}</p>
-      <template v-else>
-        <Button
-          variant="text"
-          size="compact"
-          :disabled="page <= 1"
-          data-testid="tags-prev"
-          @click="goPage(page - 1)"
-        >
-          {{ t("tagsPage.prev") }}
-        </Button>
-        <span data-testid="tags-page-info">
-          {{ t("tagsPage.pageInfo", { page, pages: totalPages }) }}
-        </span>
-        <Button
-          variant="text"
-          size="compact"
-          :disabled="page >= totalPages"
-          data-testid="tags-next"
-          @click="goPage(page + 1)"
-        >
-          {{ t("tagsPage.next") }}
-        </Button>
-      </template>
+      <Pager
+        v-else
+        :page="page"
+        :total-pages="totalPages"
+        :page-size="pageSize"
+        :page-size-options="PAGE_SIZES"
+        testid="tags-pager"
+        @update:page="goPage"
+        @update:page-size="onPageSize"
+      />
     </div>
+
+    <TagMenu
+      v-if="menu"
+      :tag="menu.tag"
+      :x="menu.x"
+      :y="menu.y"
+      source="local"
+      @close="menu = null"
+      @copied="onCopied"
+    />
   </section>
 </template>
 
@@ -340,89 +425,44 @@ void load();
   margin: 0 auto;
 }
 
-.tags__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.tags__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.tags__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.tags__subtitle {
-  margin: 0;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-medium);
-}
-
-.tags__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--gv-space-2);
-}
-
 .tags__search {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--gv-space-2);
-  flex: 1;
-  min-width: 260px;
-}
-
-.tags__pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-1);
-}
-
-.pill {
-  display: inline-flex;
+  flex: 1 1 320px;
   align-items: center;
+  gap: var(--gv-space-2);
+  min-width: 0;
+}
+
+.tags__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tags__namespaces {
+  display: flex;
+  flex-wrap: nowrap;
   gap: var(--gv-space-1);
-  height: 28px;
-  padding: 0 var(--gv-space-2);
-  border: 1px solid var(--gv-color-outline-variant);
-  border-radius: var(--gv-radius-full);
-  background: var(--gv-color-surface-container);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.pill:hover {
-  background: var(--gv-color-surface-container-highest);
-}
-
-.pill--active {
-  border-color: var(--gv-color-primary);
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
-}
-
-.pill b {
-  font: var(--gv-type-label-small);
-  color: inherit;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
 }
 
 .tags__current {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--gv-space-2);
   margin: 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
+}
+
+.tags__current-raw {
+  padding: 0 var(--gv-space-1);
+  border-radius: var(--gv-radius-xs);
+  background: var(--gv-color-surface-variant);
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-label-small);
 }
 
 .tags__link {
@@ -442,59 +482,68 @@ void load();
 
 .tags__cloud {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--gv-space-4);
+}
+
+.tags__group {
+  display: flex;
+  flex-direction: column;
   gap: var(--gv-space-2);
+  min-width: 0;
+}
+
+.tags__group-title {
+  display: flex;
   align-items: center;
-}
-
-.cloud-tag {
-  display: inline-flex;
-  align-items: baseline;
   gap: var(--gv-space-1);
-  padding: 0 var(--gv-space-2);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-variant);
-  color: var(--gv-color-on-surface-variant);
-  text-decoration: none;
-  line-height: 28px;
-}
-
-.cloud-tag:hover {
-  background: var(--gv-color-surface-container-highest);
-  color: var(--gv-color-on-surface);
-}
-
-.cloud-tag--s1 {
-  font: var(--gv-type-label-small);
-}
-
-.cloud-tag--s2 {
-  font: var(--gv-type-body-small);
-}
-
-.cloud-tag--s3 {
-  font: var(--gv-type-body-medium);
-}
-
-.cloud-tag--s4 {
-  font: var(--gv-type-title-small);
-}
-
-.cloud-tag__ns {
+  margin: 0;
   color: var(--gv-color-primary-text);
+  font: var(--gv-type-label-large);
+}
+
+.tags__group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--gv-space-5);
+  padding: 0 var(--gv-space-1);
+  border-radius: var(--gv-radius-full);
+  background: var(--gv-color-secondary-container);
+  color: var(--gv-color-on-secondary-container);
   font: var(--gv-type-label-small);
 }
 
-.cloud-tag__count {
+.tags__group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gv-space-2);
+  min-width: 0;
+}
+
+.tags__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gv-space-1);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tags__usage {
+  flex: none;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-label-small);
+  font-variant-numeric: tabular-nums;
 }
 
 .tags__pager {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: var(--gv-space-2);
+  padding: var(--gv-space-3) 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }
@@ -503,5 +552,17 @@ void load();
   margin: 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
+}
+
+@media (max-width: 599.98px) {
+  .tags__search {
+    flex: 1 1 100%;
+  }
+
+  .tags__maint {
+    flex-wrap: wrap;
+    width: 100%;
+    margin-inline-start: 0;
+  }
 }
 </style>

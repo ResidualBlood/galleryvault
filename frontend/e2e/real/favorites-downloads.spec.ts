@@ -58,13 +58,14 @@ test("V-09 下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量对话框
   const { page } = app;
   await page.goto("/#/downloads");
   await expect(page.getByTestId("downloads-view")).toBeVisible();
-  await expect(page.getByTestId("downloads-page-size")).toBeVisible();
+  await expect(page.getByTestId("downloads-pager")).toBeVisible();
   await expect(page.getByTestId("downloads-urls")).toBeVisible();
   await expect(page.getByTestId("downloads-quality")).toBeVisible();
   await expect(page.getByTestId("downloads-gp")).toBeVisible();
 
+  const segmented = page.getByTestId("downloads-status-segmented");
   for (const filter of ["all", "pending", "downloading", "success", "failed", "cancelled"]) {
-    await expect(page.getByTestId(`downloads-filter-${filter}`)).toBeVisible();
+    await expect(segmented.locator(`[data-segmented-value="${filter}"]`)).toBeVisible();
   }
 
   // Pause toggle is global but reversible; restore the initial value.
@@ -78,9 +79,11 @@ test("V-09 下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量对话框
     .poll(async () => (await app.api.get<{ paused: boolean }>("/api/pause")).paused)
     .toBe(initial.paused);
 
+  await page.getByTestId("downloads-more-trigger").click();
   await page.getByTestId("downloads-retry-all").click();
   await expect(page.getByTestId("downloads-retry-all-confirm")).toBeVisible();
   await page.keyboard.press("Escape");
+  await page.getByTestId("downloads-more-trigger").click();
   await page.getByTestId("downloads-clear-success").click();
   await expect(page.getByTestId("downloads-clear-confirm")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -96,15 +99,14 @@ test("V-09 下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量对话框
   ).toBeVisible();
   await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
 
-  await page.getByTestId("downloads-urls").fill("123456/abcdef");
+  await page.getByTestId("downloads-urls").locator("textarea").fill("123456/abcdef");
   await page.getByTestId("downloads-add-archive").click();
   await expect(page.getByTestId("downloads-archive-dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
 
-  // The cancel button only exists for live tasks; terminal tasks show retry
-  // instead. Assert the per-row contract rather than requiring a cancellable
-  // task to already exist in the shared queue.
+  // Cancel only exists for live tasks; retry only for failed / cancelled tasks.
+  // A finished task shows the success state and delete, never retry (DL-04).
   const list = page.getByTestId("downloads-list");
   if (await list.isVisible().catch(() => false)) {
     const rows = list.locator("li[data-task-id]");
@@ -118,6 +120,10 @@ test("V-09 下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量对话框
       if (status === "pending" || status === "downloading") {
         cancellable += 1;
         await expect(row.getByTestId("downloads-cancel")).toBeVisible();
+        await expect(row.getByTestId("downloads-retry")).toHaveCount(0);
+      } else if (status === "success") {
+        await expect(row.getByTestId("downloads-cancel")).toHaveCount(0);
+        await expect(row.getByTestId("downloads-retry")).toHaveCount(0);
       } else {
         await expect(row.getByTestId("downloads-cancel")).toHaveCount(0);
         await expect(row.getByTestId("downloads-retry")).toBeVisible();

@@ -243,7 +243,7 @@ test("tags search, namespace filter, reload and tag sync @lib-manage", async ({ 
   await page.getByTestId("tags-ns-artist").click();
   await expect(page).toHaveURL(/ns=artist/);
   await expect(page.getByTestId("tags-current-ns")).toContainText("artist");
-  await expect(page.getByTestId("tags-cloud").locator(".cloud-tag")).toHaveCount(2);
+  await expect(page.getByTestId("tags-cloud").locator("[data-namespace]")).toHaveCount(2);
 
   await page.getByTestId("tags-search-input").locator("input").fill("dragon");
   await page.getByTestId("tags-search-submit").click();
