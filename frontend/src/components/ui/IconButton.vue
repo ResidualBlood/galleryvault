@@ -77,7 +77,10 @@ const iconSize = computed(() => controlIconSize(size.value));
     color var(--gv-motion-duration-short) var(--gv-motion-ease-standard);
 }
 
-/* Keep the visual square at the ladder step while the hit area reaches 44px. */
+/* Keep the visual square at the ladder step (40 at lg) while the hit area
+   reaches --gv-size-touch (44). The pseudo-element never affects layout, so
+   rows stay equal-height; consumers must leave >= 4px between buttons so two
+   expanded targets cannot paint over each other (see DESIGN.md C12). */
 .icon-btn::before {
   content: "";
   position: absolute;

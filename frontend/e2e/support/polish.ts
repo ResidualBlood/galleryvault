@@ -191,6 +191,61 @@ export async function expectNoHorizontalOverflow(page: Page, tolerance = 1): Pro
   ).toBeLessThanOrEqual(result.viewport + tolerance);
 }
 
+/**
+ * Effective hit area check for controls whose *visual* box is smaller than
+ * `min` (e.g. a 40px Material 3 icon button): probe points just inside the
+ * required radius around the centre and require the topmost hit at every point
+ * to be the control itself. That proves a pseudo-element / padding expansion
+ * exists, and that no neighbouring control covers it.
+ */
+export async function expectHitTargets(
+  controls: Locator,
+  min = 44,
+  options: { tolerance?: number } = {},
+): Promise<void> {
+  const tolerance = options.tolerance ?? 0.5;
+  // Just inside the required edge, so a box of exactly `min` passes.
+  const reach = Math.max(min / 2 - tolerance, 0);
+  const failures = await controls.evaluateAll(
+    (nodes, { reach }) => {
+      const out: string[] = [];
+      const owns = (el: Element, hit: Element | null): boolean =>
+        hit !== null && (hit === el || el.contains(hit));
+      for (const el of nodes) {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        if (rect.width < 1 || rect.height < 1) continue;
+        if (style.visibility === "hidden" || style.display === "none") continue;
+        if (Number(style.opacity) === 0) continue;
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const probes: Array<[string, number, number]> = [
+          ["center", cx, cy],
+          ["top", cx, cy - reach],
+          ["bottom", cx, cy + reach],
+          ["left", cx - reach, cy],
+          ["right", cx + reach, cy],
+        ];
+        const missed = probes
+          .filter(([, x, y]) => !owns(el, document.elementFromPoint(x, y)))
+          .map(([direction]) => direction);
+        if (missed.length) {
+          const label = el.getAttribute("aria-label") ?? el.tagName.toLowerCase();
+          out.push(
+            `${label} (${Math.round(rect.width)}x${Math.round(rect.height)}): hit area misses ${missed.join("/")}`,
+          );
+        }
+      }
+      return out.slice(0, 12);
+    },
+    { reach },
+  );
+  expect(
+    failures,
+    `hit areas must reach >= ${min}x${min}px and must not be covered by a neighbour`,
+  ).toEqual([]);
+}
+
 /** Every visible hit area must be at least `min` x `min` CSS px. */
 export async function expectTouchTargets(
   page: Page,

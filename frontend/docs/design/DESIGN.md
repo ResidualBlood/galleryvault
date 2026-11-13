@@ -355,7 +355,7 @@ background:
 
 **结构**：顶栏（左侧菜单按钮 + 页面标题 + 右侧操作）→ 按断点切换的导航（底部 bar / rail / 可折叠 drawer / 常驻 drawer）→ 内容区。抽屉分组：品牌 → 主区（本机库、在线、收藏、下载）→ 固定项（设置、管理）→ “更多”折叠。
 
-**尺寸**：顶栏 56px；底部 bar 80px；rail 80px；drawer 264px；内容最大 1440px；页面边距 16px（<600）/ 24px（≥600）。
+**尺寸**：顶栏 56px；底部 bar 80px；rail 80px；drawer 264px；内容最大 1440px；页面边距 16px（<600）/ 24px（≥600）。顶栏图标按钮视觉取 lg 档 40px（Material 3 icon button），命中区由 IconButton 伪元素扩到 ≥44×44，行高与同行控件不变；动作组内间距 8px，为两侧各 2px 的命中区外扩留出净空。
 
 **Token**：`--gv-color-surface`、`--gv-color-surface-container`、`--gv-color-secondary-container`、`--gv-color-on-secondary-container`、`--gv-color-on-surface-variant`、`--gv-color-outline-variant`、`--gv-size-*`、`--gv-elev-0`/`--gv-elev-4`、`--gv-motion-duration-medium`。
 
@@ -495,7 +495,7 @@ background:
 **结构**：
 
 - Button：`filled`（primary 填充）/ `tonal`（secondary-container）/ `outlined`（outline 描边 + primary-text 文字）/ `text`（primary-text，无底）；可带 18/20px 前置图标（随档位）。按钮内图标 `display: block; flex: none`，图标与文字间距 8px。
-- IconButton：视觉为方形（边长 = 当前档位高度），命中区用伪元素扩到 ≥44×44；图标 20px（32/36px 档用 18px）。
+- IconButton：视觉为方形（边长 = 当前档位高度），命中区用伪元素扩到 ≥44×44；图标 20px（32/36px 档用 18px）。命中区只做命中、不占布局：视觉盒与同一行的其它控件仍严格等高（顶栏图标按钮 = lg 档 40px）。因为单侧外扩最多 `(44 − 档位) / 2` px，同行相邻按钮之间的间距必须 ≥ 该外扩的 2 倍（lg 档即 ≥4px，C01 顶栏取 8px），否则后一个按钮的扩张区会盖住前一个的点击。
 - TextField：标签（外置）+ 输入区 + 辅助/错误文字；可选前置图标与清除按钮。**工具栏内的输入不带上置标签**，用占位文字 + 前置图标 + `aria-label`；需要标签的表单使用 `Field`（标签在上）。
 - Select：与 TextField 同构，右侧 chevron（Icon，20px）居中；展开用 Popover。
 - Switch：52×32 轨道 + 24px thumb（不随档位缩放）。
