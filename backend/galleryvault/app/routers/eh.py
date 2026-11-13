@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...services.eh_client import EhClientError, EhSearchResult, SearchGallery
+from ...services.tag_translation import translated_tag
 from ..core.eh_client_manager import EhClientManager
 from ..core.uow import UnitOfWork
 from ..dependencies import (
@@ -133,6 +134,16 @@ def _gallery_payload(item: SearchGallery) -> dict[str, Any]:
         "category": item.category,
         "pages": item.pages,
         "rating": item.rating,
+        "tags": [
+            {
+                "namespace": tag["namespace"],
+                "name": tag["name"],
+                "display": translated_tag(tag["namespace"], tag["name"])[1],
+            }
+            for tag in item.tags
+        ],
+        "posted": item.posted,
+        "uploader": item.uploader,
     }
 
 

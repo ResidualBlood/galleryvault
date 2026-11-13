@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -48,7 +48,33 @@ class SeriesCloudItemsRequest(BaseModel):
     gids: list[int] = Field(default_factory=list)
 
 
-def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[str, Any]:
+async def _tags_for_galleries(
+    repo: object, gallery_ids: list[int], tags_limit: int | None
+) -> dict[int, list[tuple[str, str]]]:
+    """Fetch tag previews, only overriding the cap when the client asked."""
+    limit = tags_limit if isinstance(tags_limit, int) else None
+    if limit is None:
+        return await repo.tags_for_galleries(gallery_ids)
+    return await repo.tags_for_galleries(gallery_ids, limit)
+
+
+def _tag_count(tag_map: dict[int, list[tuple[str, str]]], gallery_id: int) -> int:
+    counts = getattr(tag_map, "counts", None) or {}
+    if gallery_id in counts:
+        return int(counts[gallery_id])
+    return len(tag_map.get(gallery_id, []))
+
+
+def _clip_tags(tags: list[dict[str, Any]], tags_limit: int | None) -> list[dict[str, Any]]:
+    limit = tags_limit if isinstance(tags_limit, int) else 4
+    return tags if limit <= 0 else tags[:limit]
+
+
+def _serialize_card(
+    m: Any,
+    tag_map: dict[int, list[tuple[str, str]]],
+    tags_limit: int | None = None,
+) -> dict[str, Any]:
     if isinstance(m, dict):
         raw_tags = m.get("tags") or []
         tags = []
@@ -91,7 +117,8 @@ def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[s
             "category": m.get("category") or "other",
             "page_count": m.get("page_count", 0),
             "cover_url": cover_url,
-            "tags": tags,
+            "tags": _clip_tags(tags, tags_limit),
+            "tag_count": len(tags),
         }
 
     is_local = getattr(m, "is_local", True)
@@ -146,6 +173,7 @@ def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[s
         "page_count": page_count,
         "cover_url": cover_url,
         "tags": tags,
+        "tag_count": _tag_count(tag_map, g_id) if g_id is not None else len(tags),
     }
 
 
@@ -164,6 +192,7 @@ async def list_series(
     page: int = 1,
     page_size: int = 25,
     show_all: int = 0,
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
     uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
@@ -186,7 +215,7 @@ async def list_series(
                 elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
                     local_gallery_ids.append(m.id)
         tag_map = (
-            await gal_repo.tags_for_galleries(local_gallery_ids)
+            await _tags_for_galleries(gal_repo, local_gallery_ids, tags_limit)
             if local_gallery_ids
             else {}
         )
@@ -202,7 +231,9 @@ async def list_series(
                 "name_manual": s.name_manual,
                 "count": count,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
-                "galleries": [_serialize_card(m, tag_map) for m in members],
+                "galleries": [
+                    _serialize_card(m, tag_map, tags_limit) for m in members
+                ],
             }
             for s, count, members in rows
         ],
@@ -215,6 +246,7 @@ async def list_series(
 @router.get("/api/series/{series_id}")
 async def get_series(
     series_id: int,
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
     uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
@@ -233,7 +265,7 @@ async def get_series(
             elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
                 local_ids.append(m.id)
         tag_map = (
-            await gal_repo.tags_for_galleries(local_ids)
+            await _tags_for_galleries(gal_repo, local_ids, tags_limit)
             if local_ids
             else {}
         )
@@ -249,7 +281,7 @@ async def get_series(
         "name_manual": s.name_manual,
         "count": len(members),
         "created_at": s.created_at.isoformat() if s.created_at else None,
-        "galleries": [_serialize_card(m, tag_map) for m in members],
+        "galleries": [_serialize_card(m, tag_map, tags_limit) for m in members],
     }
 
 

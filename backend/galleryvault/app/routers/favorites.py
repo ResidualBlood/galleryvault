@@ -210,6 +210,28 @@ def _record_favorites_move_log(
     spawn_task(tm.persist_history(), "persist task history")
 
 
+async def _tags_for_galleries(
+    repo: object, gallery_ids: list[int], tags_limit: int | None
+) -> dict[int, list[tuple[str, str]]]:
+    """Fetch tag previews, only overriding the cap when the client asked."""
+    limit = tags_limit if isinstance(tags_limit, int) else None
+    if limit is None:
+        return await repo.tags_for_galleries(gallery_ids)
+    return await repo.tags_for_galleries(gallery_ids, limit)
+
+
+def _tag_count(tag_map: dict[int, list[tuple[str, str]]], gallery_id: int) -> int:
+    counts = getattr(tag_map, "counts", None) or {}
+    if gallery_id in counts:
+        return int(counts[gallery_id])
+    return len(tag_map.get(gallery_id, []))
+
+
+def _clip_tags(tags: list[dict[str, str]], tags_limit: int | None) -> list[dict[str, str]]:
+    limit = tags_limit if isinstance(tags_limit, int) else 4
+    return tags if limit <= 0 else tags[:limit]
+
+
 @router.get("/api/favorites/{favcat}/items")
 async def favorite_items(
     favcat: int,
@@ -234,6 +256,7 @@ async def favorite_items(
     uploader: str | None = None,
     image_quality: str | None = None,
     min_local_rating: int | None = Query(default=None, ge=1, le=5),
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
@@ -306,8 +329,10 @@ async def favorite_items(
             image_quality=image_quality,
             min_local_rating=min_local_rating,
         )
-        tag_map = await GalleryRepository(session).tags_for_galleries(
-            [g.id for _, g in rows if (g is not None) and g.id is not None]
+        tag_map = await _tags_for_galleries(
+            GalleryRepository(session),
+            [g.id for _, g in rows if (g is not None) and g.id is not None],
+            tags_limit,
         )
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -340,6 +365,7 @@ async def favorite_items(
                 }
                 for ns, name in tag_map.get(gallery.id, [])
             ]
+            tag_count = _tag_count(tag_map, gallery.id)
         else:
             meta = metadata.get(item.gid, {})
             title = resolve_display_title(
@@ -355,13 +381,15 @@ async def favorite_items(
                 else None
             )
             file_size = meta.get("file_size") or item.file_size
+            cloud_tags = normalize_tags(meta.get("tags", []))
+            tag_count = len(cloud_tags)
             tags = [
                 {
                     "namespace": t["namespace"],
                     "name": t["name"],
                     "display": translated_tag(t["namespace"], t["name"])[1],
                 }
-                for t in normalize_tags(meta.get("tags", []))
+                for t in _clip_tags(cloud_tags, tags_limit)
             ]
         items.append(
             {
@@ -383,6 +411,7 @@ async def favorite_items(
                 "is_local": gallery is not None,
                 "note": getattr(item, "note", None),
                 "tags": tags,
+                "tag_count": tag_count,
             }
         )
     return {
