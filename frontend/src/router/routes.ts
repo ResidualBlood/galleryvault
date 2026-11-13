@@ -1,4 +1,4 @@
-import type { RouteRecordRaw } from "vue-router";
+import { RouterView, type RouteRecordRaw } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import GalleryDetailView from "@/views/gallery/GalleryDetailView.vue";
 import LoginView from "@/views/LoginView.vue";
@@ -165,16 +165,23 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: "app.nav.duplicates" },
       },
       {
+        // UI-03: ignored is a child view, so the "更新" drawer item keeps its
+        // active state on `/updates/ignored` (inclusive router-link matching).
         path: "updates",
-        name: "updates",
-        component: UpdatesView,
+        component: RouterView,
         meta: { title: "app.nav.updates" },
-      },
-      {
-        path: "updates/ignored",
-        name: "updates-ignored",
-        component: UpdatesIgnoredView,
-        meta: { title: "app.nav.updates" },
+        children: [
+          {
+            path: "",
+            name: "updates",
+            component: UpdatesView,
+          },
+          {
+            path: "ignored",
+            name: "updates-ignored",
+            component: UpdatesIgnoredView,
+          },
+        ],
       },
       {
         path: "recycle",

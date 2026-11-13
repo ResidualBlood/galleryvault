@@ -6,7 +6,8 @@
       "favorites": "Favorite duplicates",
       "crossGid": "Cross-GID duplicates",
       "integrity": "Integrity",
-      "archive": "Archive"
+      "archive": "Archive",
+      "label": "Maintenance pages"
     },
     "loading": "Loading…",
     "loadFailed": "Could not load: {error}",
@@ -28,9 +29,9 @@
     "title": "Gallery updates",
     "subtitle": "These local galleries were re-uploaded on ExHentai with a new gid.",
     "state": {
-      "active": "Active",
+      "active": "Has updates",
       "all": "All",
-      "pending": "Pending",
+      "pending": "To download",
       "downloading": "Downloading",
       "failed": "Failed",
       "ignored": "Ignored"
@@ -49,16 +50,18 @@
     "status": {
       "scanning": "Scanning for updates",
       "detectedAt": "Last scan {date}",
-      "total": "Pending {n}",
+      "never": "Last scan: —",
+      "total": "{n} items",
       "error": "Scan failed: {error}"
     },
     "column": {
       "gallery": "Gallery",
       "gid": "GID",
       "favorites": "Favorites",
-      "status": "Status"
+      "status": "Status",
+      "cover": "Cover"
     },
-    "toNewer": "→ new gid",
+    "toNewer": "new gid",
     "favcat": "#{n} {name}",
     "empty": "No galleries with updates were found.",
     "message": {
@@ -80,10 +83,16 @@
       "title": "Ignored updates",
       "subtitle": "These updates no longer appear in the active list.",
       "empty": "No ignored updates.",
+      "emptyBody": "Ignored updates are skipped by scans and can be restored at any time.",
+      "back": "Back to gallery updates",
+      "count": "{n} items",
       "unignore": "Unignore",
       "unignoreSelected": "Restore selected",
       "unignored": "Restored {n} item(s)"
-    }
+    },
+    "filterLabel": "Filter by status",
+    "emptyBody": "Scanning walks your watched galleries and finds local copies that were re-uploaded with a new gid on ExHentai.",
+    "listCount": "Showing {n} of {total}"
   },
   "duplicates": {
     "library": {

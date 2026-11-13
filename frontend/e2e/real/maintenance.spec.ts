@@ -59,16 +59,38 @@ test("V-16 更新与忽略列表 @parity", async ({ app }) => {
   await expect(page.getByTestId("updates-view")).toBeVisible();
   await expect(page.getByTestId("updates-status")).toBeVisible();
   for (const state of ["active", "pending", "downloading", "failed", "all"]) {
-    await expect(page.getByTestId(`updates-state-${state}`)).toBeVisible();
+    await expect(
+      page.getByTestId("updates-state-filter").locator(`[data-segmented-value="${state}"]`),
+    ).toBeVisible();
   }
-  for (const action of ["updates-scan", "updates-update", "updates-update-original", "updates-archive", "updates-ignore"]) {
-    await expect(page.getByTestId(action)).toBeVisible();
-  }
-  await page.getByTestId("updates-state-failed").click();
-  await expect(page.getByTestId("updates-delete")).toBeVisible();
+  await expect(page.getByTestId("updates-scan")).toBeVisible();
+  // Bulk actions live in the selection bar and appear only with a selection.
+  await expect(page.getByTestId("updates-selection")).toHaveCount(0);
+  const firstRow = page.locator('[data-testid^="updates-row-"]').first();
   await expect(
-    page.getByTestId("updates-empty").or(page.locator('[data-testid^="updates-row-"]').first()),
+    page.getByTestId("updates-empty").or(firstRow),
   ).toBeVisible({ timeout: 20_000 });
+  if (await firstRow.isVisible().catch(() => false)) {
+    await page.locator('[data-testid^="updates-select-"]').first().check();
+    await expect(page.getByTestId("updates-selection")).toBeVisible();
+    for (const action of ["updates-update", "updates-update-original", "updates-archive", "updates-ignore"]) {
+      await expect(page.getByTestId(action)).toBeVisible();
+    }
+  } else {
+    await expect(page.getByTestId("updates-empty")).toBeVisible();
+    annotateUnverified("update list is empty; bulk actions stay hidden until a row is selected");
+  }
+  await page
+    .getByTestId("updates-state-filter")
+    .locator('[data-segmented-value="failed"]')
+    .click();
+  const failedRow = page.locator('[data-testid^="updates-row-"]').first();
+  if (await failedRow.isVisible().catch(() => false)) {
+    await page.locator('[data-testid^="updates-select-"]').first().check();
+    await expect(page.getByTestId("updates-delete")).toBeVisible();
+  } else {
+    await expect(page.getByTestId("updates-empty")).toBeVisible();
+  }
 
   await page.goto("/#/updates/ignored");
   await expect(page.getByTestId("updates-ignored-view")).toBeVisible();

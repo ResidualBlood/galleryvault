@@ -1,73 +1,43 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed } from "vue";
-import { RouterLink } from "vue-router";
+import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import Tabs, { type TabItem } from "@/components/ui/Tabs.vue";
 
 const props = defineProps<{ active: string }>();
 const { t } = useI18n();
+const router = useRouter();
 
-const tabs = computed(() => [
-  { key: "recycle", name: "recycle", label: t("maintenance.shared.tabs.recycle") },
-  { key: "duplicates", name: "duplicates", label: t("maintenance.shared.tabs.duplicates") },
-  {
-    key: "favmanage",
-    name: "favorites-manage",
-    label: t("maintenance.shared.tabs.favorites"),
-  },
-  {
-    key: "dupxgid",
-    name: "duplicates-cross-gid",
-    label: t("maintenance.shared.tabs.crossGid"),
-  },
-  { key: "integrity", name: "integrity", label: t("maintenance.shared.tabs.integrity") },
-  { key: "archive", name: "archive", label: t("maintenance.shared.tabs.archive") },
-]);
+/** Destinations are resolved once so the shared Tabs component can render links. */
+const tabs = computed<TabItem[]>(() =>
+  [
+    { key: "recycle", name: "recycle", label: t("maintenance.shared.tabs.recycle") },
+    { key: "duplicates", name: "duplicates", label: t("maintenance.shared.tabs.duplicates") },
+    {
+      key: "favmanage",
+      name: "favorites-manage",
+      label: t("maintenance.shared.tabs.favorites"),
+    },
+    {
+      key: "dupxgid",
+      name: "duplicates-cross-gid",
+      label: t("maintenance.shared.tabs.crossGid"),
+    },
+    { key: "integrity", name: "integrity", label: t("maintenance.shared.tabs.integrity") },
+    { key: "archive", name: "archive", label: t("maintenance.shared.tabs.archive") },
+  ].map((tab) => ({
+    value: tab.key,
+    label: tab.label,
+    to: router.resolve({ name: tab.name }).fullPath,
+  })),
+);
 </script>
 
 <template>
-  <nav class="tabs" role="tablist" data-testid="maintenance-tabs">
-    <RouterLink
-      v-for="tab in tabs"
-      :key="tab.key"
-      class="tabs__link"
-      :class="{ 'tabs__link--active': props.active === tab.key }"
-      :to="{ name: tab.name }"
-      role="tab"
-      :aria-selected="props.active === tab.key"
-    >
-      {{ tab.label }}
-    </RouterLink>
-  </nav>
+  <Tabs
+    :items="tabs"
+    :active="props.active"
+    :label="t('maintenance.shared.tabs.label')"
+    testid="maintenance-tabs"
+  />
 </template>
-
-<style scoped>
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-1);
-  padding-bottom: var(--gv-space-2);
-  border-bottom: 1px solid var(--gv-color-outline-variant);
-}
-
-.tabs__link {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-3);
-  border-radius: var(--gv-radius-xs);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-large);
-  text-decoration: none;
-}
-
-.tabs__link:hover {
-  background: var(--gv-color-surface-container-high);
-  color: var(--gv-color-on-surface);
-}
-
-.tabs__link--active {
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
-}
-</style>

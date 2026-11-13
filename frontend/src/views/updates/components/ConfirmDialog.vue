@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import Dialog from "@/components/ui/Dialog.vue";
 import Button from "@/components/ui/Button.vue";
@@ -35,11 +34,12 @@ const { t } = useI18n();
     <p v-if="props.body" class="confirm__body">{{ props.body }}</p>
     <slot />
     <template #footer>
-      <Button variant="outlined" data-testid="confirm-cancel" @click="emit('cancel')">
+      <Button variant="outlined" icon="close" data-testid="confirm-cancel" @click="emit('cancel')">
         {{ t("maintenance.shared.cancel") }}
       </Button>
       <Button
         :variant="props.danger ? 'filled' : 'tonal'"
+        :icon="props.danger ? 'delete' : 'check'"
         :class="{ 'confirm__danger': props.danger }"
         data-testid="confirm-accept"
         @click="emit('confirm')"

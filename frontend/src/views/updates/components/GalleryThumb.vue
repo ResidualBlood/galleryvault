@@ -1,7 +1,7 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
 import { coverSrc } from "@/views/updates/url";
 
 const props = withDefaults(
@@ -38,7 +38,10 @@ watch(
       loading="lazy"
       @error="failed = true"
     />
-    <span v-else class="thumb__empty">{{ t("maintenance.shared.noCover") }}</span>
+    <span v-else class="thumb__empty">
+      <Icon name="browse" size="md" aria-hidden="true" />
+      <span class="sr-only">{{ t("maintenance.shared.noCover") }}</span>
+    </span>
   </span>
 </template>
 
@@ -71,7 +74,11 @@ watch(
 }
 
 .thumb__empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--gv-space-1);
+  color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-label-small);
   text-align: center;
 }

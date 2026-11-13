@@ -1,12 +1,15 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { computed, onMounted, ref } from "vue";
+import { RouterLink, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
+import Checkbox from "@/components/ui/Checkbox.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
 import {
   fetchIgnoredUpdates,
   unignoreUpdates,
@@ -19,6 +22,7 @@ import { ensureMaintenanceMessages } from "@/views/updates/i18n";
 
 ensureMaintenanceMessages();
 
+const router = useRouter();
 const ui = useUiStore();
 const { t } = useI18n();
 
@@ -26,6 +30,13 @@ const items = ref<GalleryUpdate[]>([]);
 const selected = ref<number[]>([]);
 const loading = ref(true);
 const error = ref("");
+
+const allSelected = computed(
+  () => items.value.length > 0 && selected.value.length === items.value.length,
+);
+const partialSelection = computed(
+  () => selected.value.length > 0 && !allSelected.value,
+);
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -44,6 +55,14 @@ function toggle(id: number): void {
   selected.value = selected.value.includes(id)
     ? selected.value.filter((value) => value !== id)
     : [...selected.value, id];
+}
+
+function toggleAll(): void {
+  selected.value = allSelected.value ? [] : items.value.map((item) => item.id);
+}
+
+function back(): void {
+  void router.push({ name: "updates" });
 }
 
 async function unignore(ids: number[]): Promise<void> {
@@ -66,25 +85,26 @@ onMounted(load);
 
 <template>
   <section class="ignored" data-testid="updates-ignored-view">
-    <header class="ignored__header">
-      <p class="ignored__eyebrow">{{ t("maintenance.updates.eyebrow") }}</p>
-      <h1 class="ignored__title">{{ t("maintenance.updates.ignored.title") }}</h1>
-      <p class="ignored__subtitle">{{ t("maintenance.updates.ignored.subtitle") }}</p>
-    </header>
+    <PageHeader
+      :title="t('maintenance.updates.ignored.title')"
+      :count="items.length"
+      back
+      :back-label="t('maintenance.updates.ignored.back')"
+      testid="updates-ignored-header"
+      @back="back"
+    />
 
-    <div class="ignored__toolbar">
+    <Toolbar class="ignored__toolbar" size="lg" testid="updates-ignored-toolbar">
       <Button
+        variant="tonal"
+        icon="status-blocked"
         data-testid="updates-unignore-selected"
         :disabled="!selected.length"
         @click="unignore(selected)"
       >
         {{ t("maintenance.updates.ignored.unignoreSelected") }}
       </Button>
-      <RouterLink class="ignored__link" :to="{ name: 'updates' }">
-        {{ t("maintenance.updates.title") }}
-      </RouterLink>
-    </div>
-
+    </Toolbar>
     <div v-if="loading" class="ignored__skeletons" aria-hidden="true">
       <Skeleton v-for="index in 4" :key="index" variant="list" />
     </div>
@@ -99,22 +119,42 @@ onMounted(load);
 
     <EmptyState
       v-else-if="!items.length"
+      icon="updates"
       :title="t('maintenance.updates.ignored.empty')"
+      :body="t('maintenance.updates.ignored.emptyBody')"
+      :action-label="t('maintenance.updates.ignored.back')"
       testid="updates-ignored-empty"
+      @action="back"
     />
 
-    <ul v-else class="ignored__list">
-      <li
-        v-for="item in items"
-        :key="item.id"
-        class="ignored__item"
-        :data-testid="`updates-ignored-${item.id}`"
-      >
-        <label class="ignored__check">
-          <input
-            type="checkbox"
-            :checked="selected.includes(item.id)"
+    <template v-else>
+      <div class="ignored__listbar">
+        <Checkbox
+          :model-value="allSelected"
+          :indeterminate="partialSelection"
+          :label="t('maintenance.shared.selectAll')"
+          data-testid="updates-ignored-select-all"
+          @change="toggleAll"
+        />
+        <span class="ignored__count">
+          {{ t("maintenance.updates.ignored.count", { n: items.length }) }}
+        </span>
+      </div>
+
+      <ul class="ignored__list">
+        <li
+          v-for="item in items"
+          :key="item.id"
+          class="ignored__item"
+          :class="{ 'ignored__item--selected': selected.includes(item.id) }"
+          :data-testid="`updates-ignored-${item.id}`"
+        >
+          <Checkbox
+            :model-value="selected.includes(item.id)"
             :aria-label="t('maintenance.shared.select')"
+            role="checkbox"
+            :aria-checked="selected.includes(item.id)"
+            :data-testid="`updates-ignored-select-${item.id}`"
             @change="toggle(item.id)"
           />
           <GalleryThumb :src="item.cover_url || galleryThumbUrl(item.gallery_id)" :alt="item.title" />
@@ -126,20 +166,24 @@ onMounted(load);
               {{ item.title }}
             </RouterLink>
             <span class="ignored__gid">
-              {{ item.old_gid }} {{ t("maintenance.updates.toNewer") }} {{ item.new_gid }}
+              {{ item.old_gid }}
+              <Icon name="forward" size="dense" aria-hidden="true" />
+              <span class="sr-only">{{ t("maintenance.updates.toNewer") }}</span>
+              {{ item.new_gid }}
             </span>
           </span>
-        </label>
-        <Button
-          variant="outlined"
-          size="compact"
-          data-testid="updates-unignore-one"
-          @click="unignore([item.id])"
-        >
-          {{ t("maintenance.updates.ignored.unignore") }}
-        </Button>
-      </li>
-    </ul>
+          <Button
+            variant="outlined"
+            size="sm"
+            icon="retry"
+            data-testid="updates-unignore-one"
+            @click="unignore([item.id])"
+          >
+            {{ t("maintenance.updates.ignored.unignore") }}
+          </Button>
+        </li>
+      </ul>
+    </template>
   </section>
 </template>
 
@@ -152,44 +196,6 @@ onMounted(load);
   margin: 0 auto;
 }
 
-.ignored__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.ignored__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.ignored__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.ignored__subtitle {
-  margin: 0;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-}
-
-.ignored__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-2);
-}
-
-.ignored__link {
-  margin-left: auto;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-}
-
 .ignored__skeletons,
 .ignored__list {
   display: flex;
@@ -198,6 +204,20 @@ onMounted(load);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.ignored__listbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gv-space-3);
+  min-height: var(--gv-size-control-lg);
+}
+
+.ignored__count {
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-body-small);
 }
 
 .ignored__item {
@@ -210,16 +230,13 @@ onMounted(load);
   box-shadow: var(--gv-elev-1);
 }
 
-.ignored__check {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--gv-space-3);
-  min-width: 0;
+.ignored__item--selected {
+  background: var(--gv-color-secondary-container);
 }
 
 .ignored__body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: var(--gv-space-1);
   min-width: 0;
@@ -234,19 +251,33 @@ onMounted(load);
   white-space: nowrap;
 }
 
+.ignored__gallery:hover {
+  color: var(--gv-color-primary-text);
+}
+
 .ignored__gid {
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }
 
-@media (max-width: 599px) {
+.ignored__gid .gv-icon {
+  display: inline-block;
+  margin: 0 var(--gv-space-1);
+  vertical-align: middle;
+}
+
+@media (max-width: 599.98px) {
   .ignored__item {
-    align-items: flex-start;
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: center;
   }
 
-  .ignored__link {
-    margin-left: 0;
+  .ignored__body {
+    flex-basis: calc(100% - var(--gv-size-touch) - 56px - var(--gv-space-6));
+  }
+
+  .ignored__item > .btn {
+    margin-inline-start: auto;
   }
 }
 </style>
