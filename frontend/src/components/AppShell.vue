@@ -41,6 +41,20 @@ function onMediaChange(event: MediaQueryListEvent): void {
   wide.value = event.matches;
 }
 
+/**
+ * SH-06: below 600 only the menu + notifications stay in the topbar. Global
+ * controls move into the navigation sheet, next to theme / language / logout, so
+ * the audit's "3 ungrouped actions squeezed into 390" row is gone.
+ */
+const compact = ref(
+  typeof window === "undefined" ? false : window.matchMedia("(max-width: 599px)").matches,
+);
+let compactMedia: MediaQueryList | null = null;
+
+function onCompactChange(event: MediaQueryListEvent): void {
+  compact.value = event.matches;
+}
+
 const drawerOpen = ref(true);
 const sheetOpen = ref(false);
 
@@ -111,10 +125,14 @@ onMounted(() => {
   media = window.matchMedia("(min-width: 840px)");
   wide.value = media.matches;
   media.addEventListener("change", onMediaChange);
+  compactMedia = window.matchMedia("(max-width: 599px)");
+  compact.value = compactMedia.matches;
+  compactMedia.addEventListener("change", onCompactChange);
 });
 
 onBeforeUnmount(() => {
   media?.removeEventListener("change", onMediaChange);
+  compactMedia?.removeEventListener("change", onCompactChange);
   document.documentElement.classList.remove("gv-shell-immersive");
 });
 </script>
@@ -148,7 +166,7 @@ onBeforeUnmount(() => {
           </template>
           <NotificationPanel :poll-ms="0" />
         </Popover>
-        <Popover align="end">
+        <Popover v-if="!compact" align="end">
           <template #trigger>
             <IconButton :label="globalControlsLabel" data-testid="global-controls-toggle">
               <Icon name="global-controls" size="md" />
@@ -243,11 +261,21 @@ onBeforeUnmount(() => {
 
     <NavSheet v-if="!wide && !immersive" :open="sheetOpen" @close="sheetOpen = false">
       <template #account>
-        <ThemeToggle />
-        <LangToggle />
-        <IconButton :label="t('app.actions.logout')" data-testid="logout" @click="signOut">
-          <Icon name="logout" size="md" />
-        </IconButton>
+        <div class="shell__account-group">
+          <!-- SH-06: the 390 topbar keeps 2 actions; global controls join the
+               theme / language / logout group in the sheet. -->
+          <div v-if="compact" class="shell__sheet-controls">
+            <p class="shell__sheet-heading">{{ t("system.global.controls") }}</p>
+            <GlobalControls />
+          </div>
+          <div class="shell__account-row">
+            <ThemeToggle />
+            <LangToggle />
+            <IconButton :label="t('app.actions.logout')" data-testid="logout" @click="signOut">
+              <Icon name="logout" size="md" />
+            </IconButton>
+          </div>
+        </div>
       </template>
     </NavSheet>
   </div>
@@ -339,6 +367,34 @@ onBeforeUnmount(() => {
   /* Wide enough for the three global actions on one row (audit: one control
      ladder step per toolbar, centre lines within 1px). */
   width: min(480px, calc(100vw - var(--gv-space-6)));
+}
+
+/* SH-06: global controls join the theme / language / logout group inside the
+   mobile navigation sheet (the topbar keeps menu + notifications only). */
+.shell__account-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-3);
+  width: 100%;
+}
+
+.shell__account-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gv-space-1);
+}
+
+.shell__sheet-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-1);
+}
+
+.shell__sheet-heading {
+  margin: 0;
+  padding: 0 var(--gv-space-1);
+  font: var(--gv-type-label-large);
+  color: var(--gv-color-primary-text);
 }
 
 .shell__body {

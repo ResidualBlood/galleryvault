@@ -351,6 +351,79 @@ test("@polish-shell notification and global panels use icons on one step", async
   });
 });
 
+test("@polish-shell 390 topbar keeps two actions and the sheet owns global controls", async ({
+  page,
+}) => {
+  // SH-06: below 600 the topbar keeps menu + notifications only; the global
+  // pause / scan / purge controls move into the navigation sheet next to the
+  // theme / language / logout group. >= 600 keeps the old topbar row.
+  let paused = false;
+  await page.route("**/api/pause", async (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { paused?: boolean } | null;
+      paused = Boolean(body?.paused);
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ paused }),
+    });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/browse");
+  const topbar = page.getByTestId("topbar");
+  await expect(topbar).toBeVisible();
+
+  // Exactly two actions: the menu button and the notification button.
+  await expect(topbar.locator("button")).toHaveCount(2);
+  await expect(topbar.getByTestId("drawer-toggle")).toBeVisible();
+  await expect(topbar.getByTestId("notifications")).toBeVisible();
+  await expect(topbar.getByTestId("global-controls-toggle")).toHaveCount(0);
+  await expectNoGlyphIcons(page, { selector: "[data-testid='topbar']" });
+
+  // The menu action opens the sheet; global controls live there, grouped with
+  // theme / language / logout, and they are operable.
+  await topbar.getByTestId("drawer-toggle").click();
+  const sheet = page.getByTestId("nav-sheet");
+  await expect(sheet).toBeVisible();
+  const global = sheet.getByTestId("global-controls");
+  await expect(global).toBeVisible();
+  await expect(sheet.getByTestId("theme-toggle")).toBeVisible();
+  await expect(sheet.getByTestId("lang-toggle")).toBeVisible();
+  await expect(sheet.getByTestId("logout")).toBeVisible();
+
+  await global.getByTestId("global-pause").click();
+  await expect(global.getByTestId("global-resume")).toBeVisible();
+  expect(paused).toBe(true);
+  await global.getByTestId("global-resume").click();
+  await expect(global.getByTestId("global-pause")).toBeVisible();
+  expect(paused).toBe(false);
+
+  for (const theme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.evaluate((value) => localStorage.setItem("gv_theme", value), theme);
+    await page.reload();
+    await expect(topbar).toBeVisible();
+    await page.screenshot({ path: join(SHOTS, `shell-topbar-actions-390-${theme}.png`) });
+    await topbar.getByTestId("drawer-toggle").click();
+    await expect(sheet.getByTestId("global-controls")).toBeVisible();
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: join(SHOTS, `shell-sheet-global-390-${theme}.png`) });
+  }
+
+  // >= 600 is unchanged: the global-controls popover stays in the topbar and the
+  // sheet does not gain a second copy.
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await page.setViewportSize({ width: 700, height: 900 });
+  await page.goto("/#/browse");
+  await expect(page.getByTestId("global-controls-toggle")).toBeVisible();
+  await page.getByTestId("drawer-toggle").click();
+  await expect(page.getByTestId("nav-sheet")).toBeVisible();
+  await expect(page.getByTestId("nav-sheet").getByTestId("global-controls")).toHaveCount(0);
+});
+
 test("@polish-shell 390 shell has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#/browse");
