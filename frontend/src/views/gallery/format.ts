@@ -76,3 +76,37 @@ export function formatRating(rating?: number | null): string {
   if (!Number.isFinite(value)) return "";
   return value.toFixed(2);
 }
+
+/**
+ * Post date for the detail pages.
+ *
+ * OD-01: an empty / zero / epoch timestamp used to render "1970-01-22"; the
+ * field is unknown in that case. Epoch seconds and milliseconds are both
+ * accepted (the online payload sends seconds), and a parsed date inside 1970
+ * is treated as a missing value as well.
+ */
+export function formatPosted(
+  value?: string | number | null,
+  locale = "zh-CN",
+): string {
+  if (value === null || value === undefined || value === "") return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+
+  let date: Date;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) {
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric) || numeric <= 0) return "";
+    date = new Date(numeric < 1e11 ? numeric * 1000 : numeric);
+  } else {
+    date = new Date(raw);
+  }
+  if (Number.isNaN(date.getTime())) return "";
+  if (date.getUTCFullYear() <= 1970) return "";
+
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}

@@ -95,6 +95,8 @@
     "pageOnly": "Page only",
     "thumbsFailed": "Failed to load thumbnails",
     "thumbsLoading": "Loading more thumbnails…",
-    "thumbsEnd": "All thumbnails loaded"
+    "thumbsEnd": "All thumbnails loaded",
+    "back": "Back",
+    "breadcrumb": "Breadcrumb"
   }
 }

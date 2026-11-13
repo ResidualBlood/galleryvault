@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -108,6 +107,10 @@ function isSprite(item: OnlinePreviewItem): boolean {
   return Boolean(thumb && thumb.url && thumb.w > 0 && thumb.h > 0);
 }
 
+function readerHref(page: number): string {
+  return `#/online/g/${props.gid}/${props.token}/read/${page}`;
+}
+
 function spriteViewBox(item: OnlinePreviewItem): string {
   const thumb = item.thumb;
   if (!thumb) return "0 0 1 1";
@@ -131,15 +134,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="thumb-grid" data-testid="online-thumbs" :data-loaded="loadedCount">
-    <button
+    <a
       v-for="item in items"
       :key="item.index"
-      type="button"
       class="thumb"
       :data-testid="isSprite(item) ? 'online-thumb' : 'online-thumb-placeholder'"
       :data-page="item.index + 1"
+      :href="readerHref(item.index)"
       :aria-label="t('online.detail.openPage', { page: item.index + 1 })"
-      @click="emit('select', item.index)"
+      @click.prevent="emit('select', item.index)"
     >
       <svg
         v-if="isSprite(item) && item.thumb"
@@ -154,7 +157,7 @@ onBeforeUnmount(() => {
         <span class="thumb__number">{{ item.index + 1 }}</span>
         <span class="thumb__hint">{{ t("online.detail.pageOnly") }}</span>
       </span>
-    </button>
+    </a>
 
     <template v-if="loading && items.length === 0">
       <Skeleton v-for="index in 10" :key="`skeleton-${index}`" variant="card" />
