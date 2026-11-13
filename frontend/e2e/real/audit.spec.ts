@@ -276,7 +276,8 @@ test.describe("@audit read-only visual audit", () => {
         await capture("favorites-list", { full: true });
       }
 
-      // Settings index + one capture per group (group list is discovered).
+      // Settings index + one capture per group (groups are deep-linked by route,
+      // so the 390px run reaches every group instead of only the first one).
       await go("/settings", 1500);
       await capture("settings-00-index", { full: true });
       const groups = await page.evaluate(() =>
@@ -286,12 +287,7 @@ test.describe("@audit read-only visual audit", () => {
       );
       const uniqueGroups = [...new Set(groups.filter((group): group is string => Boolean(group)))];
       for (const [index, group] of uniqueGroups.entries()) {
-        await go("/settings", 800);
-        const nav = page.locator(`[data-settings-nav="${group}"]`).first();
-        if (await nav.count()) {
-          await nav.click({ timeout: 3000 }).catch(() => {});
-          await page.waitForTimeout(600);
-        }
+        await go(`/settings/${group}`, 900);
         await capture(`settings-${String(index + 1).padStart(2, "0")}-${group}`, { full: true });
       }
 

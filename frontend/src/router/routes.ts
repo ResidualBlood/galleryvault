@@ -122,7 +122,7 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: "app.nav.logs" },
       },
       {
-        path: "settings",
+        path: "settings/:group?",
         name: "settings",
         component: () => import("@/views/settings/SettingsView.vue"),
         meta: { title: "app.nav.settings" },
