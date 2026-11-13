@@ -728,8 +728,14 @@ def test_series_acceptance_constraints() -> None:
         assert re.search(r'path:\s*"series"', routes_ts)
         assert re.search(r'name:\s*"series"', routes_ts)
 
-        shell_vue = (frontend_dir / "src" / "components" / "AppShell.vue").read_text(encoding="utf-8")
-        assert '{ to: "/series", labelKey: "app.nav.series"' in shell_vue
+        nav_ts = (frontend_dir / "src" / "components" / "shell" / "navigation.ts").read_text(
+            encoding="utf-8"
+        )
+        # Nav items live in navigation.ts now; tolerate extra fields on the item object.
+        assert re.search(
+            r'\bto:\s*"/series",[^}]*\blabelKey:\s*"app\.nav\.series"',
+            nav_ts,
+        ), "series nav item missing /series or app.nav.series"
 
         # 3. Check locales
         zh = json.loads(
