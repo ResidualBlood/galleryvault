@@ -8,6 +8,7 @@
     "checkStatusError": "检查状态获取失败",
     "interval": "检查间隔",
     "minutesUnit": "分钟",
+    "intervalHint": "每个收藏夹按自身间隔调度，最小 10 分钟；保存后约 1 分钟内生效。",
     "countColumn": "画廊数",
     "sizeColumn": "大小",
     "cloudLocalHint": "云端 / 本地"

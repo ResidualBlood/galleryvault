@@ -883,12 +883,83 @@ async def _run_favorites_check_inner(
             entry["completed"] = datetime.now(UTC).isoformat()
 
 
+# Fixed scheduler heartbeat.  Every tick re-reads the per-folder rows from the
+# database, so an interval change takes effect on the next tick instead of
+# waiting out the previous global sleep.  Tests patch this constant.
+FAVORITES_POLL_TICK_SECONDS = 60
+# ExHentai request budget: no folder may be checked more often than once every
+# ten minutes, even if the stored/UI value is smaller.  Failures also advance
+# ``last_checked_at`` (see ``FavoritesRepository.checked``), so a broken folder
+# is retried on this interval rather than on every tick.
+FAVORITES_MIN_POLL_INTERVAL_SECONDS = 600
+# Used only when a stored interval is missing/invalid.  The legacy global
+# ``favorites_poll_interval_minutes`` no longer drives the tick cadence; it is
+# kept as a compatibility fallback for rows that never got a per-folder value.
+FAVORITES_DEFAULT_INTERVAL_MINUTES = 720
+
+
+def _favorites_fallback_interval_seconds(settings: Any) -> int:
+    raw = getattr(settings, "favorites_poll_interval_minutes", FAVORITES_DEFAULT_INTERVAL_MINUTES)
+    try:
+        minutes = int(raw)
+    except (TypeError, ValueError):
+        minutes = FAVORITES_DEFAULT_INTERVAL_MINUTES
+    return max(FAVORITES_MIN_POLL_INTERVAL_SECONDS, minutes * 60)
+
+
+def _favorites_effective_interval_seconds(category: Any, fallback_seconds: int) -> int:
+    """Return the clamped per-folder interval (seconds)."""
+    raw = getattr(category, "poll_interval_seconds", None)
+    try:
+        seconds = int(raw)
+    except (TypeError, ValueError):
+        seconds = fallback_seconds
+    return max(FAVORITES_MIN_POLL_INTERVAL_SECONDS, seconds)
+
+
+def favorites_check_due(category: Any, now: datetime, fallback_seconds: int) -> bool:
+    """Whether ``category`` is due, based on its own interval and last check.
+
+    A missing ``last_checked_at`` counts as due (first run / new folder).
+    ``last_checked_at`` is written for failed checks too, so errors do not
+    retry on every tick.
+    """
+    last_checked = getattr(category, "last_checked_at", None)
+    if last_checked is None:
+        return True
+    if last_checked.tzinfo is None:
+        last_checked = last_checked.replace(tzinfo=UTC)
+    interval = _favorites_effective_interval_seconds(category, fallback_seconds)
+    return (now - last_checked).total_seconds() >= interval
+
+
+async def _run_favorites_poll_tick(
+    settings: Any,
+    service: FavoritesService,
+    session_factory: Any,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """One scheduler tick: check only the folders whose own interval elapsed."""
+    async with session_factory() as session:
+        categories = await FavoritesRepository(session).categories()
+    fallback_seconds = _favorites_fallback_interval_seconds(settings)
+    current = now or datetime.now(UTC)
+    for cat in categories:
+        if not getattr(cat, "enabled", False):
+            continue
+        if not favorites_check_due(cat, current, fallback_seconds):
+            continue
+        await run_favorites_check(cat.favcat, service, scheduled=True)
+
+
 async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
     while True:
+        # Sleep for a fixed tick, then re-read settings and folder rows.  The
+        # per-folder interval is evaluated inside the tick; the legacy global
+        # interval is only a fallback for invalid rows.
+        await asyncio.sleep(FAVORITES_POLL_TICK_SECONDS)
         settings = app_state.settings or get_settings()
-        # Config stores minutes; poll loop works in seconds — tolerate test stubs
-        interval = max(60, int(getattr(settings, "favorites_poll_interval_minutes", 720)) * 60)
-        await asyncio.sleep(interval)
         if not settings.exhentai_cookies:
             continue
         session_factory = _get_background_session_factory()
@@ -898,11 +969,7 @@ async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
         if active_service is None:
             continue
         try:
-            async with session_factory() as session:
-                categories = await FavoritesRepository(session).categories()
-            for cat in categories:
-                if cat.enabled:
-                    await run_favorites_check(cat.favcat, active_service, scheduled=True)
+            await _run_favorites_poll_tick(settings, active_service, session_factory)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "favorites scheduled poll loop error",

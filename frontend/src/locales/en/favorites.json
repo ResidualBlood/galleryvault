@@ -8,6 +8,7 @@
     "checkStatusError": "Could not read check status",
     "interval": "Check interval",
     "minutesUnit": "min",
+    "intervalHint": "Each folder is polled on its own interval (minimum 10 minutes); changes take effect within about a minute.",
     "countColumn": "Galleries",
     "sizeColumn": "Size",
     "cloudLocalHint": "Cloud / local"

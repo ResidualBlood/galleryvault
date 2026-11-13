@@ -50,6 +50,9 @@ const ui = useUiStore();
 // select silently fell back to the first option, which is what we reproduce
 // here instead of echoing an invalid mode back to POST /api/settings (422).
 const FAVORITE_MODES = ["incremental", "monitor_only", "force"] as const;
+// The backend scheduler enforces the same floor to protect the ExHentai
+// request budget: smaller values are clamped on save and at scheduling time.
+const MIN_POLL_INTERVAL_MINUTES = 10;
 
 function normalizeFavoriteMode(value: unknown): string {
   return FAVORITE_MODES.includes(value as (typeof FAVORITE_MODES)[number])
@@ -82,7 +85,10 @@ function toEditable(item: FavoriteCategory): EditableFolder {
     local_size: item.local_size ?? 0,
     enabled: Boolean(item.enabled),
     mode: normalizeFavoriteMode(item.mode),
-    poll_interval_minutes: Math.max(1, item.poll_interval_minutes ?? 720),
+    poll_interval_minutes: Math.max(
+      MIN_POLL_INTERVAL_MINUTES,
+      item.poll_interval_minutes ?? 720,
+    ),
   };
 }
 
@@ -159,7 +165,10 @@ async function save(): Promise<void> {
         favcat: folder.favcat,
         enabled: folder.enabled,
         mode: folder.mode,
-        poll_interval_minutes: Math.max(1, Math.trunc(folder.poll_interval_minutes) || 720),
+        poll_interval_minutes: Math.max(
+          MIN_POLL_INTERVAL_MINUTES,
+          Math.trunc(folder.poll_interval_minutes) || 720,
+        ),
       })),
     );
     dirty.value = false;
@@ -280,6 +289,10 @@ onBeforeUnmount(stopPolling);
       </ToolbarGroup>
     </Toolbar>
 
+    <p class="favcats__hint" data-testid="favorites-interval-hint">
+      {{ t("favorites.page.intervalHint") }}
+    </p>
+
     <ErrorState
       v-if="loadError && !folders.length"
       :title="t('common.errorTitle')"
@@ -390,8 +403,10 @@ onBeforeUnmount(stopPolling);
             type="number"
             :unit="t('favorites.page.minutesUnit')"
             :aria-label="`${folderTitle(folder)} ${t('favorites.page.interval')}`"
+            :min="MIN_POLL_INTERVAL_MINUTES"
+            :step="1"
             data-testid="favcat-interval"
-            @update:model-value="folder.poll_interval_minutes = Number.parseInt($event, 10) || 1"
+            @update:model-value="folder.poll_interval_minutes = Number.parseInt($event, 10) || MIN_POLL_INTERVAL_MINUTES"
             @change="markDirty()"
           />
         </div>
@@ -556,6 +571,12 @@ onBeforeUnmount(stopPolling);
 
 .favcats__cell--action {
   justify-content: flex-end;
+}
+
+.favcats__hint {
+  margin: 0 0 var(--gv-space-3);
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-body-small);
 }
 
 .favcats__error {
