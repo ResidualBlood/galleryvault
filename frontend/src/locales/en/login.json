@@ -1,6 +1,9 @@
 {
+  "title": "Sign in",
   "subtitle": "Password required to access the local library.",
   "password": "Password",
+  "showPassword": "Show plain text",
+  "hidePassword": "Hide plain text",
   "submit": "Log in",
   "submitting": "Signing in…",
   "error": "Wrong password, please try again.",

@@ -1,12 +1,15 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
+import Field from "@/components/ui/Field.vue";
 import Input from "@/components/ui/Input.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
 import Select from "@/components/ui/Select.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import BadgeStrip, { type GalleryBadge } from "@/components/gallery/BadgeStrip.vue";
 import { changePassword, getOnboardingStatus } from "@/api/auth";
 import { fetchSettings, saveSettings, testExhentai } from "@/api/settings";
 import { triggerScan } from "@/api/system";
@@ -52,6 +55,67 @@ const scanBusy = ref(false);
 const favouritesBusy = ref(false);
 const recent = ref<GalleryItem[]>([]);
 const recentLoading = ref(false);
+
+/** Same category badge semantics as GalleryCard (fixed EH category colours). */
+const CATEGORY_KEYS: Record<string, string> = {
+  doujinshi: "catDoujinshi",
+  manga: "catManga",
+  artistcg: "catArtistcg",
+  gamecg: "catGamecg",
+  western: "catWestern",
+  "non-h": "catNonH",
+  nonh: "catNonH",
+  image_set: "catImageSet",
+  imageset: "catImageSet",
+  cosplay: "catCosplay",
+  asianporn: "catAsianporn",
+  misc: "catMisc",
+  other: "catMisc",
+  private: "catMisc",
+  deleted: "catDeleted",
+};
+
+const CATEGORY_TOKENS: Record<string, string> = {
+  doujinshi: "--gv-cat-doujinshi",
+  manga: "--gv-cat-manga",
+  artistcg: "--gv-cat-artistcg",
+  gamecg: "--gv-cat-gamecg",
+  western: "--gv-cat-western",
+  "non-h": "--gv-cat-nonh",
+  nonh: "--gv-cat-nonh",
+  image_set: "--gv-cat-imageset",
+  imageset: "--gv-cat-imageset",
+  cosplay: "--gv-cat-cosplay",
+  asianporn: "--gv-cat-asianporn",
+  misc: "--gv-cat-misc",
+  other: "--gv-cat-other",
+  private: "--gv-cat-private",
+  deleted: "--gv-cat-other",
+};
+
+function categoryLabel(item: GalleryItem): string {
+  return t(`legacy.${CATEGORY_KEYS[item.category] ?? "catMisc"}`);
+}
+
+function categoryBadge(item: GalleryItem): GalleryBadge {
+  const label = categoryLabel(item);
+  return {
+    label,
+    tone: "category",
+    colorToken: CATEGORY_TOKENS[item.category] ?? "--gv-cat-misc",
+    title: label,
+  };
+}
+
+function endBadges(item: GalleryItem): GalleryBadge[] {
+  return item.page_count > 0 ? [{ label: `${item.page_count}P` }] : [];
+}
+
+const steps = computed(() => [
+  { key: "password", label: t("system.welcome.stepPassword") },
+  { key: "site", label: t("system.welcome.stepSite") },
+  { key: "finish", label: t("system.welcome.stepFinish") },
+]);
 
 const baseUrlOptions = computed(() => [
   { value: "https://exhentai.org", label: t("system.welcome.baseUrlExhentai") },
@@ -225,18 +289,29 @@ async function finish(): Promise<void> {
 function later(): void {
   void router.push({ name: "browse" });
 }
-
-function galleryThumb(item: GalleryItem): string {
-  return item.cover_url ?? "";
-}
 </script>
 
 <template>
   <div class="welcome" data-testid="welcome-page">
-    <header class="welcome__header">
-      <h1 class="welcome__title">{{ t('system.welcome.title') }}</h1>
-      <p class="welcome__subtitle">{{ t('system.welcome.subtitle') }}</p>
-    </header>
+    <PageHeader
+      testid="welcome-header"
+      :title="t('system.welcome.title')"
+      :subtitle="t('system.welcome.subtitle')"
+    />
+
+    <ol class="welcome__steps" :aria-label="t('system.welcome.stepsLabel')">
+      <li v-for="(step, index) in steps" :key="step.key" class="welcome__step">
+        <span class="welcome__step-index" aria-hidden="true">{{ index + 1 }}</span>
+        <span class="welcome__step-label">{{ step.label }}</span>
+        <Icon
+          v-if="index < steps.length - 1"
+          class="welcome__step-sep"
+          name="chevron-right"
+          size="sm"
+          aria-hidden="true"
+        />
+      </li>
+    </ol>
 
     <p v-if="loading" class="welcome__state">{{ t('system.common.loading') }}</p>
     <p v-else-if="loadError" class="welcome__error" role="alert">{{ loadError }}</p>
@@ -248,31 +323,44 @@ function galleryThumb(item: GalleryItem): string {
     <p v-if="passwordNotice" class="welcome__notice">{{ passwordNotice }}</p>
 
     <section class="welcome__card" data-testid="welcome-password">
-      <h2 class="welcome__card-title">{{ t('system.welcome.stepPassword') }}</h2>
+      <h2 class="welcome__card-title">
+        <span class="welcome__step-badge" aria-hidden="true">1</span>
+        <span>{{ t('system.welcome.stepPassword') }}</span>
+      </h2>
       <p class="welcome__card-body">{{ t('system.welcome.passwordIntro') }}</p>
-      <div class="welcome__grid">
-        <Input
-          v-model="currentPassword"
-          type="password"
-          autocomplete="current-password"
-          :label="t('system.welcome.current')"
-          data-testid="welcome-current-password"
-        />
-        <Input
-          v-model="newPassword"
-          type="password"
-          autocomplete="new-password"
-          :label="t('system.welcome.next')"
-        />
-        <Input
-          v-model="confirmPassword"
-          type="password"
-          autocomplete="new-password"
-          :label="t('system.welcome.confirm')"
-        />
+      <div class="welcome__fields">
+        <Field :label="t('system.welcome.current')" label-for="welcome-current-password">
+          <Input
+            id="welcome-current-password"
+            v-model="currentPassword"
+            type="password"
+            size="xl"
+            autocomplete="current-password"
+            data-testid="welcome-current-password"
+          />
+        </Field>
+        <Field :label="t('system.welcome.next')" label-for="welcome-next-password">
+          <Input
+            id="welcome-next-password"
+            v-model="newPassword"
+            type="password"
+            size="xl"
+            autocomplete="new-password"
+          />
+        </Field>
+        <Field :label="t('system.welcome.confirm')" label-for="welcome-confirm-password">
+          <Input
+            id="welcome-confirm-password"
+            v-model="confirmPassword"
+            type="password"
+            size="xl"
+            autocomplete="new-password"
+          />
+        </Field>
       </div>
-      <div class="welcome__actions">
+      <div class="welcome__actions" data-gv-toolbar>
         <Button
+          size="xl"
           :disabled="passwordBusy"
           :loading="passwordBusy"
           data-testid="welcome-save-password"
@@ -284,43 +372,95 @@ function galleryThumb(item: GalleryItem): string {
     </section>
 
     <section class="welcome__card" data-testid="welcome-site">
-      <h2 class="welcome__card-title">{{ t('system.welcome.stepSite') }}</h2>
+      <h2 class="welcome__card-title">
+        <span class="welcome__step-badge" aria-hidden="true">2</span>
+        <span>{{ t('system.welcome.stepSite') }}</span>
+      </h2>
       <p class="welcome__card-body">{{ t('system.welcome.siteIntro') }}</p>
-      <div class="welcome__grid">
+
+      <Field :label="t('system.welcome.baseUrl')" label-for="welcome-base-url">
         <Select
+          id="welcome-base-url"
           v-model="baseUrl"
+          size="xl"
           :options="baseUrlOptions"
-          :label="t('system.welcome.baseUrl')"
           data-testid="welcome-base-url"
         />
+      </Field>
+      <Field
+        v-if="customSelected"
+        :label="t('system.welcome.customUrl')"
+        label-for="welcome-custom-url"
+      >
         <Input
-          v-if="customSelected"
+          id="welcome-custom-url"
           v-model="customBaseUrl"
-          :label="t('system.welcome.customUrl')"
+          size="xl"
           :placeholder="t('system.welcome.customUrl')"
         />
-        <Input
-          v-model="ipbMemberId"
-          type="password"
-          autocomplete="new-password"
-          :label="t('system.welcome.ipbMemberId')"
-        />
-        <Input
-          v-model="ipbPassHash"
-          type="password"
-          autocomplete="new-password"
-          :label="t('system.welcome.ipbPassHash')"
-        />
-        <Input
-          v-model="igneous"
-          type="password"
-          autocomplete="new-password"
-          :label="t('system.welcome.igneous')"
-        />
+      </Field>
+
+      <div class="welcome__group">
+        <h3 class="welcome__group-title">{{ t('system.welcome.cookieGroup') }}</h3>
+        <div class="welcome__fields">
+          <Field
+            :label="t('system.welcome.ipbMemberId')"
+            :helper="t('system.welcome.ipbMemberIdHint')"
+            label-for="welcome-ipb-member-id"
+          >
+            <Input
+              id="welcome-ipb-member-id"
+              v-model="ipbMemberId"
+              type="password"
+              size="xl"
+              autocomplete="new-password"
+            />
+          </Field>
+          <Field
+            :label="t('system.welcome.ipbPassHash')"
+            :helper="t('system.welcome.ipbPassHashHint')"
+            label-for="welcome-ipb-pass-hash"
+          >
+            <Input
+              id="welcome-ipb-pass-hash"
+              v-model="ipbPassHash"
+              type="password"
+              size="xl"
+              autocomplete="new-password"
+            />
+          </Field>
+          <Field
+            :label="t('system.welcome.igneous')"
+            :helper="t('system.welcome.igneousHint')"
+            label-for="welcome-igneous"
+          >
+            <Input
+              id="welcome-igneous"
+              v-model="igneous"
+              type="password"
+              size="xl"
+              autocomplete="new-password"
+            />
+          </Field>
+        </div>
       </div>
+
       <p class="welcome__hint">{{ t('system.welcome.cookiesNote') }}</p>
-      <div class="welcome__actions">
+      <span
+        class="welcome__status"
+        :class="{ 'welcome__status--ok': status.exhentai_configured }"
+        data-testid="welcome-site-status"
+      >
+        <span class="welcome__status-dot" aria-hidden="true" />
+        {{
+          status.exhentai_configured
+            ? t('system.common.configured')
+            : t('system.common.notConfigured')
+        }}
+      </span>
+      <div class="welcome__actions" data-gv-toolbar>
         <Button
+          size="xl"
           :disabled="siteBusy"
           :loading="siteBusy"
           data-testid="welcome-save-site"
@@ -330,6 +470,7 @@ function galleryThumb(item: GalleryItem): string {
         </Button>
         <Button
           variant="outlined"
+          size="xl"
           :disabled="testBusy"
           :loading="testBusy"
           data-testid="welcome-test"
@@ -337,25 +478,25 @@ function galleryThumb(item: GalleryItem): string {
         >
           {{ t('system.welcome.test') }}
         </Button>
-        <span class="welcome__status">
-          {{
-            status.exhentai_configured
-              ? t('system.common.configured')
-              : t('system.common.notConfigured')
-          }}
-        </span>
       </div>
     </section>
 
     <section class="welcome__card" data-testid="welcome-finish">
-      <h2 class="welcome__card-title">{{ t('system.welcome.stepFinish') }}</h2>
+      <h2 class="welcome__card-title">
+        <span class="welcome__step-badge" aria-hidden="true">3</span>
+        <span>{{ t('system.welcome.stepFinish') }}</span>
+      </h2>
       <p class="welcome__card-body">
         {{ t('system.welcome.libraryCount', { count: status.library_count ?? 0 }) }}
       </p>
 
-      <div class="welcome__actions">
+      <div class="welcome__actions" data-gv-toolbar>
+        <Button size="xl" data-testid="welcome-finish-button" @click="finish">
+          {{ t('system.welcome.finish') }}
+        </Button>
         <Button
           variant="outlined"
+          size="xl"
           :disabled="scanBusy"
           :loading="scanBusy"
           data-testid="welcome-scan"
@@ -363,8 +504,11 @@ function galleryThumb(item: GalleryItem): string {
         >
           {{ t('system.welcome.scan') }}
         </Button>
+      </div>
+      <div class="welcome__actions" data-gv-toolbar>
         <Button
           variant="outlined"
+          size="xl"
           :disabled="favouritesBusy"
           :loading="favouritesBusy"
           data-testid="welcome-check-favs"
@@ -372,10 +516,7 @@ function galleryThumb(item: GalleryItem): string {
         >
           {{ t('system.welcome.checkFavs') }}
         </Button>
-        <Button data-testid="welcome-finish-button" @click="finish">
-          {{ t('system.welcome.finish') }}
-        </Button>
-        <Button variant="text" data-testid="welcome-later" @click="later">
+        <Button variant="text" size="xl" data-testid="welcome-later" @click="later">
           {{ t('system.welcome.later') }}
         </Button>
       </div>
@@ -386,14 +527,25 @@ function galleryThumb(item: GalleryItem): string {
       </div>
       <ul v-else-if="recent.length" class="welcome__recent" data-testid="welcome-recent">
         <li v-for="item in recent" :key="item.id" class="welcome__recent-item">
-          <img
-            v-if="galleryThumb(item)"
-            class="welcome__thumb"
-            :src="galleryThumb(item)"
-            :alt="item.title"
-            loading="lazy"
-          />
-          <a class="welcome__recent-title-text" :href="`#/gallery/${item.id}`">{{ item.title }}</a>
+          <a class="welcome__recent-link" :href="`#/gallery/${item.id}`">
+            <span class="welcome__recent-cover">
+              <img
+                v-if="item.cover_url"
+                class="welcome__recent-image"
+                :src="item.cover_url"
+                :alt="item.title"
+                loading="lazy"
+              />
+              <span v-else class="welcome__recent-placeholder">{{ t("legacy.noCover") }}</span>
+              <BadgeStrip class="welcome__recent-badges" :badges="[categoryBadge(item)]" />
+              <BadgeStrip
+                class="welcome__recent-badges welcome__recent-badges--end"
+                :badges="endBadges(item)"
+                align="end"
+              />
+            </span>
+            <span class="welcome__recent-title-text">{{ item.title }}</span>
+          </a>
         </li>
       </ul>
       <p v-else class="welcome__hint">{{ t('system.welcome.recentEmpty') }}</p>
@@ -406,21 +558,44 @@ function galleryThumb(item: GalleryItem): string {
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-4);
-  padding: var(--gv-space-4);
-  max-width: var(--gv-size-content-max);
-  margin: 0 auto;
+  min-width: 0;
 }
 
-.welcome__title {
+.welcome__steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gv-space-2);
   margin: 0;
-  font: var(--gv-type-headline-medium);
-  color: var(--gv-color-on-surface);
+  padding: 0;
+  list-style: none;
 }
 
-.welcome__subtitle {
-  margin: var(--gv-space-1) 0 0;
+.welcome__step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gv-space-2);
+  min-width: 0;
   color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-medium);
+  font: var(--gv-type-label-large);
+}
+
+.welcome__step-index {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--gv-space-5);
+  height: var(--gv-space-5);
+  border: 1px solid var(--gv-color-outline);
+  border-radius: var(--gv-radius-full);
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-label-medium);
+}
+
+.welcome__step-sep {
+  flex: none;
+  color: var(--gv-color-outline);
 }
 
 .welcome__state,
@@ -433,13 +608,13 @@ function galleryThumb(item: GalleryItem): string {
 .welcome__error {
   margin: 0;
   color: var(--gv-color-error);
-  font: var(--gv-type-body-small);
+  font: var(--gv-type-body-medium);
 }
 
 .welcome__notice {
   margin: 0;
   color: var(--gv-color-success);
-  font: var(--gv-type-body-small);
+  font: var(--gv-type-body-medium);
 }
 
 .welcome__card {
@@ -453,9 +628,25 @@ function galleryThumb(item: GalleryItem): string {
 }
 
 .welcome__card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--gv-space-2);
   margin: 0;
+  color: var(--gv-color-on-surface);
   font: var(--gv-type-title-medium);
-  color: var(--gv-color-primary-text);
+}
+
+.welcome__step-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--gv-space-5);
+  height: var(--gv-space-5);
+  border-radius: var(--gv-radius-full);
+  background: var(--gv-color-primary-container);
+  color: var(--gv-color-on-primary-container);
+  font: var(--gv-type-label-medium);
 }
 
 .welcome__card-body {
@@ -464,10 +655,22 @@ function galleryThumb(item: GalleryItem): string {
   font: var(--gv-type-body-medium);
 }
 
-.welcome__grid {
+.welcome__fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: var(--gv-space-3);
+}
+
+.welcome__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-2);
+}
+
+.welcome__group-title {
+  margin: 0;
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-label-large);
 }
 
 .welcome__actions {
@@ -478,8 +681,28 @@ function galleryThumb(item: GalleryItem): string {
 }
 
 .welcome__status {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: var(--gv-space-1);
+  height: var(--gv-size-chip);
+  padding: 0 var(--gv-space-3);
+  border-radius: var(--gv-radius-full);
+  background: var(--gv-color-surface-variant);
   color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
+  font: var(--gv-type-label-large);
+}
+
+.welcome__status--ok {
+  background: var(--gv-color-success-container);
+  color: var(--gv-color-on-success-container);
+}
+
+.welcome__status-dot {
+  width: var(--gv-space-2);
+  height: var(--gv-space-2);
+  border-radius: var(--gv-radius-full);
+  background: currentColor;
 }
 
 .welcome__recent-title {
@@ -500,27 +723,74 @@ function galleryThumb(item: GalleryItem): string {
 .welcome__recent-item {
   display: flex;
   flex-direction: column;
-  gap: var(--gv-space-1);
   min-width: 0;
 }
 
-.welcome__thumb {
-  width: 100%;
-  aspect-ratio: var(--gv-size-card-cover-aspect);
-  object-fit: cover;
+.welcome__recent-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-2);
+  padding: var(--gv-space-2);
+  border: 1px solid var(--gv-color-outline-variant);
+  border-radius: var(--gv-radius-md);
+  background: var(--gv-color-surface-container);
+  color: var(--gv-color-on-surface);
+  text-decoration: none;
+}
+
+.welcome__recent-link:hover {
+  border-color: var(--gv-color-outline);
+}
+
+.welcome__recent-cover {
+  position: relative;
+  display: block;
+  overflow: hidden;
   border-radius: var(--gv-radius-sm);
   background: var(--gv-color-surface-container-lowest);
 }
 
-.welcome__recent-title-text {
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-small);
-  text-decoration: none;
+.welcome__recent-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: var(--gv-size-card-cover-aspect);
+  object-fit: cover;
 }
 
-@media (max-width: 599px) {
-  .welcome {
-    padding: var(--gv-space-3);
+.welcome__recent-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: var(--gv-size-card-cover-aspect);
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-body-small);
+}
+
+.welcome__recent-badges {
+  position: absolute;
+  top: var(--gv-space-1);
+  left: var(--gv-space-1);
+  max-width: calc(100% - var(--gv-space-2));
+}
+
+.welcome__recent-badges--end {
+  right: var(--gv-space-1);
+  left: auto;
+}
+
+.welcome__recent-title-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--gv-color-on-surface);
+  font: var(--gv-type-title-small);
+}
+
+@media (max-width: 599.98px) {
+  .welcome__fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
