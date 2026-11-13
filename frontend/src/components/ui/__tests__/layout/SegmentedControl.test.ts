@@ -71,4 +71,12 @@ describe("SegmentedControl", () => {
     await radios[0].trigger("click");
     expect(wrapper.emitted("update:modelValue")).toHaveLength(1);
   });
+
+  it("maps the control ladder step onto the outer frame class", () => {
+    const wrapper = mount(SegmentedControl, {
+      props: { modelValue: "grid", options, label: "View mode", size: "sm" },
+      global: globalPlugins,
+    });
+    expect(wrapper.classes()).toContain("segmented--sm");
+  });
 });

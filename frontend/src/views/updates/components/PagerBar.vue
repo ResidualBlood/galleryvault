@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
@@ -30,7 +29,7 @@ function go(page: number): void {
   <nav class="pager" :data-testid="testid ?? 'pager'" :aria-label="summary">
     <Button
       variant="outlined"
-      size="compact"
+      size="md"
       :disabled="page <= 1"
       data-testid="pager-prev"
       @click="go(page - 1)"
@@ -43,7 +42,7 @@ function go(page: number): void {
     </span>
     <Button
       variant="outlined"
-      size="compact"
+      size="md"
       :disabled="page >= safePages"
       data-testid="pager-next"
       @click="go(page + 1)"
@@ -56,14 +55,24 @@ function go(page: number): void {
 <style scoped>
 .pager {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: var(--gv-space-2);
   margin-top: var(--gv-space-4);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.pager::-webkit-scrollbar {
+  display: none;
 }
 
 .pager__summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }

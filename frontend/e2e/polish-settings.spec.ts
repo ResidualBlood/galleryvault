@@ -362,15 +362,21 @@ test.describe("settings polish @polish-settings", () => {
 
   test("every group renders in both themes at 1280 and 390 @polish-settings", async ({ page }) => {
     test.setTimeout(300_000);
+    mkdirSync(SHOTS, { recursive: true });
     const { mockSettingsBackend } = await import("./fixtures/settings-sys/mock");
     await mockSettingsBackend(page);
 
     await page.goto(harnessUrl());
-    await shotMatrix(page, "settings-00-index", { url: harnessUrl(), fullPage: true });
+    await shotMatrix(page, "settings-00-index", {
+      url: harnessUrl(),
+      fullPage: true,
+      dir: SHOTS,
+    });
     for (const group of GROUPS) {
       await shotMatrix(page, `settings-${group}`, {
         url: groupUrl(group),
         fullPage: true,
+        dir: SHOTS,
       });
     }
 

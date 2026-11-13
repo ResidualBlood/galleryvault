@@ -159,6 +159,7 @@ onBeforeUnmount(clearPress);
       :disabled="disabled"
       data-testid="fav-button"
       :data-favcat="active ? activeFavcat : undefined"
+      :data-state="active ? 'favorited' : 'idle'"
       @click="onClick"
       @contextmenu="onContextMenu"
       @pointerdown="startPress"

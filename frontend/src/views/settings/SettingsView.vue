@@ -75,7 +75,7 @@ const GROUP_ICONS: Record<string, IconName> = {
   system: "settings",
 };
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
@@ -234,15 +234,33 @@ function thumbsText(status: ThumbsStatus | undefined): string {
   });
 }
 
+function formatStamp(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(locale.value, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 function translationText(status: TagSearchStatus | undefined): string {
   if (!status) return "";
+  let text: string;
   if (status.last_error) {
-    return t("settings.status.translationError", { error: status.last_error });
+    text = t("settings.status.translationError", { error: status.last_error });
+  } else if (typeof status.entries === "number") {
+    text = t("settings.status.translation", { entries: status.entries });
+  } else {
+    text = t("settings.status.unknown");
   }
-  if (typeof status.entries === "number") {
-    return t("settings.status.translation", { entries: status.entries });
-  }
-  return t("settings.status.unknown");
+  // The backend exposes the last successful update as `last` (fallback:
+  // `completed_at`); ST09-04 renders it next to the entry count.
+  const stamp = formatStamp(status.last ?? status.completed_at);
+  return stamp ? t("settings.status.updatedSuffix", { text, time: stamp }) : text;
 }
 
 const display = computed<Record<string, string>>(() => {
@@ -263,6 +281,14 @@ const display = computed<Record<string, string>>(() => {
   if (typeof window !== "undefined") {
     out.integration_opds_url = `${window.location.origin}${opdsEp.path}`;
   }
+  return out;
+});
+
+/** Values derived from another field, rendered as a secondary help line (ST08-02). */
+const derived = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {};
+  const root = String(server.value.cold_storage_root ?? "").trim();
+  if (root) out.archive_roots = t("settings.help.effectiveArchiveRoot", { path: root });
   return out;
 });
 
@@ -652,6 +678,7 @@ defineExpose({ plans });
           :custom-base-url="customBaseUrl"
           :configured="configured"
           :display="display"
+          :derived="derived"
           :tones="tones"
           @update="onRowUpdate"
           @update:custom-base-url="customBaseUrl = $event"

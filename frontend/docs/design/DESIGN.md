@@ -283,7 +283,7 @@ CSS 媒体查询不能引用自定义属性，组件内可写 `@media (min-width
 | `--gv-size-control-md` | 36px（触屏 40） | 行内操作、分页、设置动作区 |
 | `--gv-size-control-sm` | 32px（触屏 36） | 卡片动作、筛选 Chip、表格行内 |
 | `--gv-size-icon-dense` | 18px | 32/36px 档控件内图标 |
-| `--gv-size-chip` | 32px | 筛选 Chip / SegmentedControl |
+| `--gv-size-chip` | 32px | 筛选 Chip |
 | `--gv-size-tag` | 24px | 行内 / 卡片 TagChip |
 | `--gv-size-tag-lg` | 28px | 详情页 TagChip |
 | `--gv-size-table-row` | 56px | 表格视图行高 |
@@ -578,7 +578,7 @@ background:
 - SelectionBar：仅在有选中项时出现，显示「已选 N」+ 批量操作；破坏性操作放末尾或收进「更多」。
 - FilterButton：`outlined` 带生效条件数角标（0 时不显示角标）。
 
-**尺寸**：PageHeader 与内容同宽，h1 下间距 8px，操作区与标题基线居中；Toolbar 行高 = 当前档位（lg 40 / md 36），组内 gap 8、组间 16；SegmentedControl 高 `--gv-size-chip`（32），内边距 2px；Pager 控件用 md（36），跳页输入宽 72px；SelectionBar 高 56px，`secondary-container` 底。
+**尺寸**：PageHeader 与内容同宽，h1 下间距 8px，操作区与标题基线居中；Toolbar 行高 = 当前档位（lg 40 / md 36），组内 gap 8、组间 16；SegmentedControl 外框 = 当前档位（lg 40 / md 36 / sm 32），内边距 1px，分段高 = 档位 − 4px；Pager 控件用 md（36），跳页输入宽 72px；SelectionBar 高 56px，`secondary-container` 底。
 
 **Token**：`--gv-size-control-*`、`--gv-size-chip`、`--gv-color-secondary-container`、`--gv-color-on-secondary-container`、`--gv-color-surface-container`、`--gv-color-outline-variant`、`--gv-color-primary-text`、`--gv-type-headline-small`、`--gv-type-label-large`。
 

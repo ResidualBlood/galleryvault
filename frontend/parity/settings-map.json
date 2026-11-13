@@ -516,14 +516,6 @@
           "helpKey": "settings.help.field.archive_roots"
         },
         {
-          "key": "cold_storage_root",
-          "storage": "readonly",
-          "control": "readonly",
-          "source": "server",
-          "labelKey": "settings.field.cold_storage_root",
-          "helpKey": "settings.help.field.cold_storage_root"
-        },
-        {
           "key": "auto_archive_downloads",
           "storage": "us",
           "control": "switch",
@@ -794,6 +786,7 @@
     }
   ],
   "notExposed": [
+    "cold_storage_root",
     "thumbnail_workers",
     "trusted_proxies",
     "favorites_poll_interval_minutes",

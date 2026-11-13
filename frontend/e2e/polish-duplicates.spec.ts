@@ -79,12 +79,11 @@ async function fontSizes(page: Page, selector: string): Promise<number> {
   });
 }
 
-async function chipStep(page: Page): Promise<number> {
-  return page.evaluate(() =>
-    Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--gv-size-chip"),
-    ),
-  );
+async function segmentItemStep(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return Number.parseFloat(style.getPropertyValue("--gv-size-control-sm")) - 4;
+  });
 }
 
 test("@polish-duplicates library duplicates: two uniform toolbars, shared group and copy rows", async ({
@@ -95,17 +94,17 @@ test("@polish-duplicates library duplicates: two uniform toolbars, shared group 
   await expect(page.getByTestId("duplicates-group-9001")).toContainText("Alpha Copy");
   await expectNoGlyphIcons(page, { selector: "[data-testid='duplicates-view']" });
 
-  // FM-01 / DP-02 / DX-02: actions are all lg, filters all chip height, and
+  // FM-01 / DP-02 / DX-02: actions are all lg, filters use the 32px frame (28px segments), and
   // the two toolbar rows never mix steps.
   await expectControlHeights(page.getByTestId("duplicates-toolbar").locator("button"), 40);
   await expectRowsAligned(page, {
     rowSelector: "[data-testid='duplicates-toolbar']",
     requireRows: true,
   });
-  const chip = await chipStep(page);
+  const segment = await segmentItemStep(page);
   await expectControlHeights(
     page.getByTestId("duplicates-filters").locator("[data-segmented-value]"),
-    chip,
+    segment,
   );
   await expectRowsAligned(page, {
     rowSelector: "[data-testid='duplicates-filters']",
@@ -162,7 +161,7 @@ test("@polish-duplicates favourite duplicates: filters split, danger only in the
   await expectRowsAligned(page, { rowSelector: "[data-testid='dupfav-toolbar']", requireRows: true });
   await expectControlHeights(
     page.getByTestId("dupfav-filters").locator("[data-segmented-value]"),
-    await chipStep(page),
+    await segmentItemStep(page),
   );
   await expectRowsAligned(page, { rowSelector: "[data-testid='dupfav-filters']", requireRows: true });
 
@@ -199,7 +198,7 @@ test("@polish-duplicates cross-gid duplicates: safe links, icon disclosure and a
   await expectRowsAligned(page, { rowSelector: "[data-testid='dupxgid-toolbar']", requireRows: true });
   await expectControlHeights(
     page.getByTestId("dupxgid-filters").locator("[data-segmented-value]"),
-    await chipStep(page),
+    await segmentItemStep(page),
   );
   await expectRowsAligned(page, { rowSelector: "[data-testid='dupxgid-filters']", requireRows: true });
 

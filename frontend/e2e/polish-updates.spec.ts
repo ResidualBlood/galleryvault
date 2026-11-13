@@ -156,14 +156,14 @@ test("updates toolbar is one aligned row and the table uses the shared header @p
   await expectNoGlyphIcons(page, { selector: "[data-testid='updates-header']" });
   await expectNoGlyphIcons(page, { selector: "[data-testid='updates-toolbar']" });
 
-  // UP-03: scan stays on the lg ladder step; the segmented filter is the chip
-  // step and both share one centre line in one toolbar row.
+  // UP-03: scan and the segmented frame are both on the lg step and share one
+  // centre line in one toolbar row.
   await expectControlHeights(page.getByTestId("updates-toolbar").locator("[data-gv-control]"), 40);
   const toolbar = await toolbarMetrics(page, "updates-toolbar");
   expect(toolbar).toBeTruthy();
   expect(Math.max(...toolbar!.centers) - Math.min(...toolbar!.centers)).toBeLessThanOrEqual(1);
   const segmentedBox = await page.getByTestId("updates-state-filter").boundingBox();
-  expect(segmentedBox!.height).toBeCloseTo(38, 0);
+  expect(segmentedBox!.height).toBeCloseTo(40, 0);
 
   // UP-08: "全部" first, one label per state.
   const labels = await page

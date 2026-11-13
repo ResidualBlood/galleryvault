@@ -312,12 +312,12 @@ test("@polish-downloads-tags downloads: one-step add row, segmented filters and 
   // maintenance actions live behind the overflow menu.
   const segmented = page.getByTestId("downloads-status-segmented");
   await expect(segmented.locator("[data-segmented-value]")).toHaveCount(6);
-  const chipSize = await page.evaluate(() =>
+  const segmentSize = await page.evaluate(() =>
     Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--gv-size-chip"),
+      getComputedStyle(document.documentElement).getPropertyValue("--gv-size-control-md"),
     ),
   );
-  await expectControlHeights(segmented.locator("[data-segmented-value]"), chipSize);
+  await expectControlHeights(segmented.locator("[data-segmented-value]"), segmentSize);
   await expect(page.getByTestId("downloads-retry-all")).toHaveCount(0);
   await expect(page.getByTestId("downloads-clear-success")).toHaveCount(0);
   await page.getByTestId("downloads-more-trigger").click();
@@ -395,7 +395,7 @@ test("@polish-downloads-tags downloads: 390 keeps filters and row actions on one
     page.getByTestId("downloads-status-segmented").locator("[data-segmented-value]"),
     await page.evaluate(() =>
       Number.parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue("--gv-size-chip"),
+        getComputedStyle(document.documentElement).getPropertyValue("--gv-size-control-md"),
       ),
     ),
   );

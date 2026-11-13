@@ -83,6 +83,16 @@ describe("TextField", () => {
     expect(wrapper.get("input").attributes("type")).toBe("number");
   });
 
+  it("passes numeric bounds and step through to the native input", () => {
+    const wrapper = mount(Input, {
+      props: { type: "number", modelValue: "50", min: 1, max: 500, step: 2 },
+    });
+    const input = wrapper.get("input");
+    expect(input.attributes("min")).toBe("1");
+    expect(input.attributes("max")).toBe("500");
+    expect(input.attributes("step")).toBe("2");
+  });
+
   it("uses ariaLabel when there is no visual label", () => {
     const wrapper = mount(Input, { props: { ariaLabel: "Search galleries" } });
     expect(wrapper.get("input").attributes("aria-label")).toBe("Search galleries");

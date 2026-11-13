@@ -22,6 +22,8 @@ const BASE = (process.env.GV_E2E_BASE || "http://127.0.0.1:8200").replace(/\/+$/
 const SHOT_DIR =
   process.env.GV_SHOTS || "/tmp/opencode/gv-frontend-rewrite/shots/audit";
 const METRIC_DIR = join(SHOT_DIR, "metrics");
+/** Online (EH) captures cost upstream requests and can trip a CAPTCHA. */
+const AUDIT_ONLINE = process.env.GV_AUDIT_ONLINE === "1";
 
 const VARIANTS = [
   { theme: "dark", width: 1280, height: 900 },
@@ -220,9 +222,11 @@ test.describe("@audit read-only visual audit", () => {
       await capture("library", { full: true });
       ids.gallery = await firstHref(page, "#/gallery/", /^#\/gallery\/\d+$/);
 
-      await go("/online", 3500);
-      await capture("online-list", { full: true });
-      ids.online = await firstHref(page, "#/online/g/", /^#\/online\/g\/\d+\/[0-9a-f]+$/);
+      if (AUDIT_ONLINE) {
+        await go("/online", 3500);
+        await capture("online-list", { full: true });
+        ids.online = await firstHref(page, "#/online/g/", /^#\/online\/g\/\d+\/[0-9a-f]+$/);
+      }
 
       if (ids.gallery) {
         await go(ids.gallery.replace(/^#/, ""));

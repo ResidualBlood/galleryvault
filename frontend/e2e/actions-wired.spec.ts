@@ -86,7 +86,7 @@ test.describe("quick actions wired into the real routes @actions-wired", () => {
     await expect(card.getByTestId("fav-button")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".toast--success")).toContainText("已收藏");
     await expect(card.getByTestId("fav-heart")).toHaveAttribute("data-favcat", "3");
-    await expect(card).toContainText("♥");
+    await expect(card.getByTestId("fav-button")).toHaveAttribute("data-state", "favorited");
 
     expect(mock.writes.some((write) => write.path === addFavoritesEp.path)).toBe(true);
     const add = mock.writes.find((write) => write.path === addFavoritesEp.path);

@@ -161,10 +161,32 @@ test.describe("quick actions @actions", () => {
     await expect(badge).toHaveAttribute("data-status", "queued");
     await expect(badge).toHaveText("排队");
 
-    await expect(badge).toHaveAttribute("data-status", "downloading", { timeout: 12_000 });
+    // The store polls `/api/eh/status`; drive its own visibility tick and wait
+    // for the observed state instead of racing a long fixed timeout.
+    await expect
+      .poll(
+        async () => {
+          await page.evaluate(() =>
+            document.dispatchEvent(new Event("visibilitychange")),
+          );
+          return badge.getAttribute("data-status");
+        },
+        { timeout: 15_000 },
+      )
+      .toBe("downloading");
     await expect(badge).toHaveText("下载中 3/10");
 
-    await expect(badge).toHaveAttribute("data-status", "success", { timeout: 12_000 });
+    await expect
+      .poll(
+        async () => {
+          await page.evaluate(() =>
+            document.dispatchEvent(new Event("visibilitychange")),
+          );
+          return badge.getAttribute("data-status");
+        },
+        { timeout: 15_000 },
+      )
+      .toBe("success");
     await expect(badge).toHaveText("已在库");
 
     const post = mock.writes.find(
