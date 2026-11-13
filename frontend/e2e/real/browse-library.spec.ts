@@ -45,9 +45,11 @@ test("V-02 库搜索 / 筛选 / 排序 / 分页 / 保存搜索 / 清单 @parity"
 
     await page.goto("/#/library");
     await expect(page.getByTestId("library-view")).toBeVisible();
-    await expect(page.getByTestId("library-manage")).toBeVisible();
 
-    // Infinite-scroll grid / page-size / sort controls.
+    // Infinite-scroll grid / page-size / sort controls. Page size lives in the
+    // collapsible filter panel, so open it first.
+    await page.getByTestId("advanced-toggle").click();
+    await expect(page.getByTestId("advanced-filters")).toBeVisible();
     await page.locator('[data-testid="page-size-select"] select').selectOption("100");
     await expect(page).toHaveURL(/page_size=100/);
     await page.locator('[data-testid="order-select"] select').selectOption("title_asc");
@@ -114,6 +116,8 @@ test("V-02 库搜索 / 筛选 / 排序 / 分页 / 保存搜索 / 清单 @parity"
 
     await page.goto("/#/library?q=a");
     await expect(page.getByTestId("library-view")).toBeVisible();
+    await page.getByTestId("advanced-toggle").click();
+    await expect(page.getByTestId("advanced-filters")).toBeVisible();
     await page.getByTestId("filtered-delete").click();
     await expect(page.getByTestId("filtered-delete-confirm")).toBeVisible();
     await page.keyboard.press("Escape");

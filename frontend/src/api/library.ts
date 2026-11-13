@@ -144,6 +144,11 @@ export interface GalleryQuery {
   image_quality?: string;
   min_local_rating?: number;
   list_id?: number;
+  /**
+   * Tag truncation override (be-list-tags): `0` returns every tag. The backend
+   * default stays `4` for older callers.
+   */
+  tags_limit?: number;
 }
 
 export interface HistoryItem {

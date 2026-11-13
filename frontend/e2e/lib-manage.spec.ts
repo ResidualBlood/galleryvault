@@ -42,7 +42,7 @@ test("library batch delete asks for confirmation twice and calls delete-bulk @li
 
   await page.goto("/#/library");
   await libraryGrid(page);
-  await expect(page.getByTestId("library-manage")).toBeVisible();
+  await expect(page.getByTestId("library-view")).toBeVisible();
 
   const cards = page.getByTestId("library-card");
   await cards.nth(0).locator('input[type="checkbox"]').check();
@@ -76,6 +76,8 @@ test("filtered delete requires typing the match count above the threshold @lib-m
   await page.goto("/#/library?q=dragon");
   await libraryGrid(page);
 
+  await page.getByTestId("advanced-toggle").click();
+  await expect(page.getByTestId("advanced-filters")).toBeVisible();
   await page.getByTestId("filtered-delete").click();
   const dialog = page.getByTestId("filtered-delete-dialog");
   await expect(dialog).toBeVisible();
@@ -111,6 +113,8 @@ test("library saved searches, new list and add-to-list call the API @lib-manage"
 
   await page.goto("/#/library");
   await libraryGrid(page);
+  await page.getByTestId("advanced-toggle").click();
+  await expect(page.getByTestId("advanced-filters")).toBeVisible();
 
   const savedSelect = page.getByTestId("saved-search-select").locator("select");
   await expect(savedSelect.locator("option")).toHaveCount(2);
@@ -329,7 +333,7 @@ test("screenshots cover library manage, series, tags and gallery manage @lib-man
       await page.evaluate((value) => localStorage.setItem("gv_theme", value), theme);
       await page.reload();
       await libraryGrid(page);
-      await expect(page.getByTestId("library-manage")).toBeVisible();
+      await expect(page.getByTestId("library-view")).toBeVisible();
       await page.getByTestId("library-card").nth(0).locator('input[type="checkbox"]').check();
       await page.screenshot({
         path: join(SHOTS, `library-manage-${theme}-${viewport.label}.png`),

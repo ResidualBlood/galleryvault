@@ -32,6 +32,26 @@
     "totalBooks": "共 {n} 本",
     "loading": "加载中…",
     "scrollRestored": "已恢复上次浏览位置",
-    "clearFilters": "清空筛选"
+    "clearFilters": "清空筛选",
+    "filters": "筛选",
+    "filtersTitle": "筛选条件",
+    "activeFiltersLabel": "生效的筛选条件",
+    "removeFilter": "点击移除该筛选",
+    "languageLabel": "语言",
+    "chipSearch": "搜索：{value}",
+    "chipCategory": "分类：{value}",
+    "chipReadStatus": "阅读状态：{value}",
+    "chipPageMin": "≥{value} 页",
+    "chipPageMax": "≤{value} 页",
+    "chipRating": "评分 ≥{value}",
+    "chipSizeMin": "≥{value} MB",
+    "chipSizeMax": "≤{value} MB",
+    "chipPostedFrom": "发布起 {value}",
+    "chipPostedTo": "发布止 {value}",
+    "chipUploader": "上传者：{value}",
+    "chipQuality": "画质：{value}",
+    "chipLocalRating": "本地 ≥{value} 星",
+    "chipList": "清单：{value}",
+    "localRatingOption": "≥{value} 星"
   }
 }

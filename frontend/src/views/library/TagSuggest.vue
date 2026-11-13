@@ -1,7 +1,19 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
+/**
+ * Tag-aware search field shared by browse and the local library.
+ *
+ * It is the shared `Input` control (one control-ladder step, no hand-written
+ * field chrome) plus a suggestions popover. The popover is a listbox of
+ * `Button`s, so keyboard / hover states come from the design system rather than
+ * ad-hoc background rules.
+ *
+ * The inner input is owned by `Input`, which does not forward listeners to it;
+ * key handling therefore sits on the wrapper and reads the bubbled keydown.
+ */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import Button from "@/components/ui/Button.vue";
+import Input from "@/components/ui/Input.vue";
 import { fetchTagSuggestions, type TagSuggestion } from "@/api/library";
 
 const props = withDefaults(
@@ -67,8 +79,7 @@ function schedule(term: string): void {
   timer = setTimeout(() => void search(trimmed), 200);
 }
 
-function onInput(event: Event): void {
-  const value = (event.target as HTMLInputElement).value;
+function onValue(value: string): void {
   emit("update:modelValue", value);
   schedule(value);
 }
@@ -85,9 +96,19 @@ function move(delta: number): void {
     (activeIndex.value + delta + suggestions.value.length) % suggestions.value.length;
 }
 
+function onFocusIn(event: FocusEvent): void {
+  const target = event.target as HTMLElement | null;
+  if (target?.tagName !== "INPUT") return;
+  if (props.modelValue.trim()) schedule(props.modelValue);
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "ArrowDown") {
     event.preventDefault();
+    if (!open.value && props.modelValue.trim()) {
+      schedule(props.modelValue);
+      return;
+    }
     move(1);
     return;
   }
@@ -104,6 +125,13 @@ function onKeydown(event: KeyboardEvent): void {
     if (open.value && activeIndex.value >= 0 && suggestions.value[activeIndex.value]) {
       event.preventDefault();
       choose(suggestions.value[activeIndex.value]);
+      return;
+    }
+    // `Input` prevents the native Enter submit; keep the form working here.
+    const form = (event.target as HTMLElement | null)?.closest("form");
+    if (form) {
+      event.preventDefault();
+      form.requestSubmit();
     }
   }
 }
@@ -134,30 +162,32 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="tag-suggest" :data-testid="testid">
-    <input
-      class="tag-suggest__input"
-      type="search"
-      role="combobox"
-      :value="modelValue"
+  <div
+    ref="root"
+    class="tag-suggest"
+    role="combobox"
+    :aria-expanded="open"
+    :aria-controls="listId"
+    aria-haspopup="listbox"
+    :data-testid="testid"
+    @focusin="onFocusIn"
+    @keydown="onKeydown"
+  >
+    <Input
+      :model-value="modelValue"
+      class="tag-suggest__field"
       :placeholder="placeholder"
-      :aria-label="label || placeholder"
-      :aria-expanded="open"
-      :aria-controls="listId"
-      aria-autocomplete="list"
+      :aria-label="label || placeholder || t('library.page.search')"
       autocomplete="off"
-      @input="onInput"
-      @focus="modelValue.trim() && schedule(modelValue)"
-      @keydown="onKeydown"
+      @update:model-value="onValue"
     />
     <div v-if="open" :id="listId" class="tag-suggest__menu" role="listbox">
-      <button
+      <Button
         v-for="(tag, index) in suggestions"
         :key="`${tag.namespace ?? ''}:${tag.name}`"
-        type="button"
-        role="option"
         class="tag-suggest__item"
-        :class="{ 'tag-suggest__item--active': index === activeIndex }"
+        :variant="index === activeIndex ? 'tonal' : 'text'"
+        role="option"
         :aria-selected="index === activeIndex"
         data-testid="tag-suggestion"
         @mousedown.prevent="choose(tag)"
@@ -165,7 +195,7 @@ onBeforeUnmount(() => {
       >
         <span class="tag-suggest__name">{{ tag.display || tag.name }}</span>
         <span class="tag-suggest__ns">{{ tag.namespace }} · {{ tag.usage_count }}</span>
-      </button>
+      </Button>
       <p v-if="showEmpty" class="tag-suggest__empty">
         {{ t("library.page.tagSuggestEmpty") }}
       </p>
@@ -180,25 +210,8 @@ onBeforeUnmount(() => {
   min-width: 180px;
 }
 
-.tag-suggest__input {
+.tag-suggest__field {
   width: 100%;
-  height: 48px;
-  padding: 0 var(--gv-space-3);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container-lowest);
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-large);
-}
-
-.tag-suggest__input::placeholder {
-  color: var(--gv-color-on-surface-variant);
-}
-
-.tag-suggest__input:focus {
-  outline: none;
-  border-color: var(--gv-color-primary);
-  box-shadow: 0 0 0 1px var(--gv-color-primary);
 }
 
 .tag-suggest__menu {
@@ -207,6 +220,9 @@ onBeforeUnmount(() => {
   right: 0;
   left: 0;
   z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   max-height: 280px;
   padding: var(--gv-space-1);
   overflow-y: auto;
@@ -217,25 +233,8 @@ onBeforeUnmount(() => {
 }
 
 .tag-suggest__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   width: 100%;
-  min-height: 40px;
-  padding: 0 var(--gv-space-2);
-  border: 0;
-  border-radius: var(--gv-radius-xs);
-  background: transparent;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-medium);
-  text-align: start;
-  cursor: pointer;
-}
-
-.tag-suggest__item--active,
-.tag-suggest__item:hover {
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
+  justify-content: space-between;
 }
 
 .tag-suggest__name {
