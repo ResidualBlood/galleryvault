@@ -217,7 +217,7 @@ test.describe("maintenance @maintenance", () => {
     await page.getByTestId("dupfav-scan").click();
     await expect.poll(() => state.favoriteScans).toBe(1);
 
-    await page.getByTestId("dupfav-select-3002").check();
+    await page.getByTestId("dupfav-select-3002").locator("input").check();
     await page.getByTestId("dupfav-unfav-delete").click();
     await expect(page.getByTestId("dupfav-confirm")).toBeVisible();
     await page.getByTestId("confirm-accept").click();
@@ -226,7 +226,7 @@ test.describe("maintenance @maintenance", () => {
       deleteLocal: true,
     });
 
-    await page.getByTestId("dupfav-select-3001").check();
+    await page.getByTestId("dupfav-select-3001").locator("input").check();
     await page.getByTestId("dupfav-ignore").click();
     await expect
       .poll(
@@ -249,7 +249,7 @@ test.describe("maintenance @maintenance", () => {
     await expect(page.getByTestId("favignored-view")).toBeVisible();
     await expect(page.getByTestId("favignored-item-4001")).toBeVisible();
 
-    await page.getByTestId("favignored-select-0").check();
+    await page.getByTestId("favignored-select-0").click();
     await page.getByTestId("favignored-restore-selected").click();
     await expect
       .poll(
@@ -275,7 +275,7 @@ test.describe("maintenance @maintenance", () => {
     await expect(link).toHaveAttribute("href", "#");
     expect(await page.locator('a[href^="javascript:"]').count()).toBe(0);
 
-    await page.getByTestId("dupxgid-select-5002").check();
+    await page.getByTestId("dupxgid-select-5002").locator("input").check();
     await page.getByTestId("dupxgid-unfav-delete").click();
     await expect(page.getByTestId("dupxgid-confirm")).toBeVisible();
     await page.getByTestId("confirm-accept").click();

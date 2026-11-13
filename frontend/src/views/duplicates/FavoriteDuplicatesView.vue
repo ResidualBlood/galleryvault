@@ -1,12 +1,22 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Checkbox from "@/components/ui/Checkbox.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
+import PageHeader from "@/components/ui/PageHeader.vue";
+import Pager from "@/components/ui/Pager.vue";
+import SegmentedControl, { type SegmentedOption } from "@/components/ui/SegmentedControl.vue";
+import SelectionBar from "@/components/ui/SelectionBar.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
+import Toolbar from "@/components/ui/Toolbar.vue";
+import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
+import DuplicateBadge from "./components/DuplicateBadge.vue";
+import DuplicateCopyRow from "./components/DuplicateCopyRow.vue";
+import DuplicateGroupCard from "./components/DuplicateGroupCard.vue";
+import MaintenanceNav from "./components/MaintenanceNav.vue";
 import {
   fetchFavoriteDuplicatesStatus,
   ignoreFavoriteDuplicate,
@@ -18,10 +28,8 @@ import {
 } from "@/api/duplicates";
 import { useUiStore } from "@/stores/ui";
 import { formatBytes, formatDate } from "@/stores/library";
-import { galleryThumbUrl, safeHref } from "@/views/updates/url";
-import GalleryThumb from "@/views/updates/components/GalleryThumb.vue";
+import { galleryThumbUrl } from "@/views/updates/url";
 import ConfirmDialog from "@/views/updates/components/ConfirmDialog.vue";
-import MaintenanceTabs from "@/views/updates/components/MaintenanceTabs.vue";
 import { ensureMaintenanceMessages } from "@/views/updates/i18n";
 
 ensureMaintenanceMessages();
@@ -34,6 +42,7 @@ const { t } = useI18n();
 type Filter = "all" | "local" | "cloud";
 type RemoveMode = "unfav" | "delete";
 const FILTERS: readonly Filter[] = ["all", "local", "cloud"];
+const PAGE_SIZE = 24;
 
 const status = ref<FavoriteDuplicatesStatus | null>(null);
 const loading = ref(true);
@@ -53,6 +62,10 @@ const filter = computed<Filter>(() => {
   const value = first(route.query.filter);
   return value === "local" || value === "cloud" ? value : "all";
 });
+const page = computed(() => {
+  const parsed = Number.parseInt(first(route.query.page), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+});
 
 function isLocal(item: FavoriteDuplicateItem): boolean {
   return item.gallery_id != null;
@@ -71,8 +84,29 @@ function applyFilter(groups: FavoriteDuplicateGroup[]): FavoriteDuplicateGroup[]
 }
 
 const groups = computed(() => applyFilter(status.value?.groups ?? []));
+const totalPages = computed(() => Math.max(1, Math.ceil(groups.value.length / PAGE_SIZE)));
+const pageGroups = computed(() =>
+  groups.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
+);
 const itemCount = computed(() =>
   groups.value.reduce((sum, group) => sum + group.items.length, 0),
+);
+const summary = computed(() =>
+  t("maintenance.duplicates.favorites.found", {
+    groups: groups.value.length,
+    items: itemCount.value,
+  }),
+);
+const filterOptions = computed<SegmentedOption[]>(() =>
+  FILTERS.map((item) => ({
+    value: item,
+    label:
+      item === "all"
+        ? t("maintenance.duplicates.favorites.filterAll")
+        : item === "local"
+          ? t("maintenance.duplicates.favorites.filterLocal")
+          : t("maintenance.duplicates.favorites.filterCloud"),
+  })),
 );
 const selectedCount = computed(() => selected.value.length);
 
@@ -91,19 +125,34 @@ function itemThumb(item: FavoriteDuplicateItem): string {
     : item.cover_data || item.cover_url || "";
 }
 
-function itemLink(item: FavoriteDuplicateItem): string {
-  return safeHref(item.url);
+function itemTo(item: FavoriteDuplicateItem) {
+  return isLocal(item) ? { name: "gallery", params: { id: item.gallery_id } } : null;
 }
 
 function isIgnored(group: FavoriteDuplicateGroup): boolean {
   return locallyIgnored.value.includes(group.key);
 }
 
-function setFilter(next: Filter): void {
+function setFilter(next: string): void {
+  if (!FILTERS.includes(next as Filter)) return;
   void router.push({
     name: "favorites-manage",
     query: { ...(next === "all" ? {} : { filter: next }) },
   });
+}
+
+function goPage(next: number): void {
+  void router.push({
+    name: "favorites-manage",
+    query: {
+      ...(filter.value === "all" ? {} : { filter: filter.value }),
+      ...(next > 1 ? { page: next } : {}),
+    },
+  });
+}
+
+function openIgnored(): void {
+  void router.push({ name: "favorites-ignored" });
 }
 
 function toggle(gid: number): void {
@@ -255,72 +304,47 @@ onMounted(load);
 
 <template>
   <section class="favdup" data-testid="dupfav-view">
-    <header class="favdup__header">
-      <p class="favdup__eyebrow">{{ t("maintenance.duplicates.favorites.eyebrow") }}</p>
-      <h1 class="favdup__title">{{ t("maintenance.duplicates.favorites.title") }}</h1>
-      <p class="favdup__subtitle">{{ t("maintenance.duplicates.favorites.subtitle") }}</p>
-    </header>
+    <PageHeader
+      :title="t('maintenance.duplicates.favorites.title')"
+      :count="itemCount"
+      :count-label="summary"
+      :subtitle="t('maintenance.duplicates.favorites.subtitle')"
+      testid="dupfav-header"
+    >
+      <template #actions>
+        <Button variant="text" icon="favorite-outline" data-testid="dupfav-ignored-link" @click="openIgnored">
+          {{ t("maintenance.duplicates.favorites.ignoredPageLink") }}
+        </Button>
+      </template>
+    </PageHeader>
 
-    <MaintenanceTabs active="favmanage" />
+    <MaintenanceNav />
 
-    <div class="favdup__toolbar">
-      <Button data-testid="dupfav-scan" :loading="scanning" @click="scan">
-        {{
-          scanning
-            ? t("maintenance.duplicates.favorites.scanning")
-            : t("maintenance.duplicates.favorites.scan")
-        }}
-      </Button>
-      <Button
-        v-for="item in FILTERS"
-        :key="item"
-        size="compact"
-        :variant="filter === item ? 'tonal' : 'outlined'"
-        :data-testid="`dupfav-filter-${item}`"
-        @click="setFilter(item)"
-      >
-        {{
-          item === "all"
-            ? t("maintenance.duplicates.favorites.filterAll")
-            : item === "local"
-              ? t("maintenance.duplicates.favorites.filterLocal")
-              : t("maintenance.duplicates.favorites.filterCloud")
-        }}
-      </Button>
-      <Button
-        variant="outlined"
-        class="favdup__danger"
-        data-testid="dupfav-unfav"
-        :disabled="!selectedCount"
-        @click="openRemove('unfav')"
-      >
-        {{ t("maintenance.duplicates.favorites.unfav") }}
-        <template v-if="selectedCount">({{ selectedCount }})</template>
-      </Button>
-      <Button
-        variant="outlined"
-        class="favdup__danger"
-        data-testid="dupfav-unfav-delete"
-        :disabled="!selectedCount"
-        @click="openRemove('delete')"
-      >
-        {{ t("maintenance.duplicates.favorites.unfavDelete") }}
-      </Button>
-      <Button
-        variant="outlined"
-        data-testid="dupfav-ignore"
-        :disabled="!selectedCount"
-        @click="ignoreSelected"
-      >
-        {{ t("maintenance.duplicates.favorites.ignoreSelected") }}
-      </Button>
-      <Button variant="text" data-testid="dupfav-clear" @click="clearSelection">
-        {{ t("maintenance.duplicates.favorites.clear") }}
-      </Button>
-      <RouterLink class="favdup__link" :to="{ name: 'favorites-ignored' }">
-        {{ t("maintenance.duplicates.favorites.ignoredPageLink") }}
-      </RouterLink>
-    </div>
+    <Toolbar class="favdup__actions" testid="dupfav-toolbar">
+      <ToolbarGroup end>
+        <Button icon="favorites" :loading="scanning" data-testid="dupfav-scan" @click="scan">
+          {{
+            scanning
+              ? t("maintenance.duplicates.favorites.scanning")
+              : t("maintenance.duplicates.favorites.scan")
+          }}
+        </Button>
+      </ToolbarGroup>
+    </Toolbar>
+
+    <Toolbar class="favdup__filters" size="sm" testid="dupfav-filters">
+      <ToolbarGroup>
+        <SegmentedControl
+          :model-value="filter"
+          :options="filterOptions"
+          :label="t('maintenance.duplicates.favorites.filterAll')"
+          testid="dupfav-filter"
+          @update:model-value="setFilter"
+        />
+      </ToolbarGroup>
+    </Toolbar>
+
+    <p class="favdup__summary" data-testid="dupfav-summary">{{ summary }}</p>
 
     <div v-if="status?.running" class="favdup__progress" data-testid="dupfav-progress">
       <span class="favdup__progress-bar">
@@ -342,6 +366,30 @@ onMounted(load);
       </span>
     </div>
 
+    <SelectionBar
+      :count="selectedCount"
+      :label="t('maintenance.shared.selected', { n: selectedCount })"
+      testid="dupfav-selection"
+      @clear="clearSelection"
+    >
+      <Button variant="outlined" data-testid="dupfav-ignore" @click="ignoreSelected">
+        {{ t("maintenance.duplicates.favorites.ignoreSelected") }}
+      </Button>
+      <template #danger>
+        <Button variant="outlined" danger data-testid="dupfav-unfav" @click="openRemove('unfav')">
+          {{ t("maintenance.duplicates.favorites.unfav") }} ({{ selectedCount }})
+        </Button>
+        <Button
+          variant="outlined"
+          danger
+          data-testid="dupfav-unfav-delete"
+          @click="openRemove('delete')"
+        >
+          {{ t("maintenance.duplicates.favorites.unfavDelete") }}
+        </Button>
+      </template>
+    </SelectionBar>
+
     <div v-if="loading" class="favdup__skeletons" aria-hidden="true">
       <Skeleton v-for="index in 4" :key="index" variant="list" />
     </div>
@@ -361,109 +409,80 @@ onMounted(load);
 
       <EmptyState
         v-if="!groups.length"
-        :title="status ? t('maintenance.duplicates.favorites.none') : t('maintenance.duplicates.favorites.hint')"
+        icon="favorites"
+        :title="status ? t('maintenance.duplicates.favorites.empty') : t('maintenance.duplicates.favorites.hint')"
+        :body="t('maintenance.duplicates.favorites.emptyBody')"
+        :action-label="t('maintenance.duplicates.favorites.scan')"
         testid="dupfav-empty"
+        @action="scan"
       />
 
       <template v-else>
-        <p class="favdup__summary" data-testid="dupfav-summary">
-          {{
-            t("maintenance.duplicates.favorites.found", {
-              groups: groups.length,
-              items: itemCount,
-            })
-          }}
-        </p>
-
-        <article
-          v-for="group in groups"
+        <DuplicateGroupCard
+          v-for="group in pageGroups"
           :key="group.key"
-          class="favdup__group"
-          :class="{ 'favdup__group--ignored': isIgnored(group) }"
-          :data-testid="`dupfav-group-${group.key}`"
+          :title="groupTitle(group)"
+          :muted="isIgnored(group)"
+          :testid="`dupfav-group-${group.key}`"
         >
-          <header class="favdup__group-head">
-            <span class="favdup__count">{{ group.items.length }} ×</span>
-            <span class="favdup__group-title">{{ groupTitle(group) }}</span>
-            <span v-if="group.artist" class="favdup__artist">{{ group.artist }}</span>
-            <span v-if="isIgnored(group)" class="favdup__badge">
+          <template #badges>
+            <DuplicateBadge size="sm" tone="primary">{{ group.items.length }}</DuplicateBadge>
+            <DuplicateBadge v-if="group.artist" size="sm">{{ group.artist }}</DuplicateBadge>
+            <DuplicateBadge v-if="isIgnored(group)" size="sm" tone="warning">
               {{ t("maintenance.duplicates.favorites.ignored") }}
-            </span>
-            <span class="favdup__group-actions">
-              <Button
-                variant="outlined"
-                size="compact"
-                data-testid="dupfav-select-group"
-                @click="toggleGroup(group)"
-              >
-                {{ t("maintenance.shared.select") }}
-              </Button>
-            </span>
-          </header>
+            </DuplicateBadge>
+          </template>
+          <template #actions>
+            <Button
+              variant="outlined"
+              size="sm"
+              data-testid="dupfav-select-group"
+              @click="toggleGroup(group)"
+            >
+              {{ t("maintenance.shared.select") }}
+            </Button>
+          </template>
 
-          <div
+          <DuplicateCopyRow
             v-for="item in group.items"
             :key="item.gid"
-            class="favdup__row"
-            :data-testid="`dupfav-item-${item.gid}`"
+            :title="itemTitle(item)"
+            :thumb="itemThumb(item)"
+            :to="itemTo(item)"
+            :href="isLocal(item) ? null : item.url"
+            :tags="item.tags ?? []"
+            :testid="`dupfav-item-${item.gid}`"
           >
-            <label class="favdup__check">
-              <input
-                type="checkbox"
-                :checked="selected.includes(item.gid)"
+            <template #leading>
+              <Checkbox
+                :model-value="selected.includes(item.gid)"
                 :aria-label="t('maintenance.shared.select')"
                 :data-testid="`dupfav-select-${item.gid}`"
                 @change="toggle(item.gid)"
               />
-              <GalleryThumb :src="itemThumb(item)" :alt="itemTitle(item)" />
-              <span class="favdup__body">
-                <RouterLink
-                  v-if="isLocal(item)"
-                  class="favdup__item-title"
-                  :to="{ name: 'gallery', params: { id: item.gallery_id } }"
-                >
-                  {{ itemTitle(item) }}
-                </RouterLink>
-                <a
-                  v-else
-                  class="favdup__item-title"
-                  :href="itemLink(item)"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  {{ itemTitle(item) }}
-                </a>
-                <span class="favdup__meta">
-                  <span class="favdup__badge">
-                    {{
-                      isLocal(item)
-                        ? t("maintenance.duplicates.library.current")
-                        : t("maintenance.duplicates.favorites.filterCloud")
-                    }}
-                  </span>
-                  <span v-if="item.favcat != null" class="favdup__badge">
-                    #{{ item.favcat }}
-                  </span>
-                  <span v-if="item.posted_at" class="favdup__badge">
-                    {{ formatDate(item.posted_at) }}
-                  </span>
-                  <span v-if="item.file_size" class="favdup__badge">
-                    {{ formatBytes(item.file_size) }}
-                  </span>
-                </span>
-                <span v-if="item.tags?.length" class="favdup__tags">
-                  <span
-                    v-for="tag in item.tags"
-                    :key="`${tag.namespace}:${tag.name}`"
-                    class="favdup__tag"
-                  >
-                    {{ tag.display || tag.name }}
-                  </span>
-                </span>
-              </span>
-            </label>
-          </div>
-        </article>
+            </template>
+            <template #meta>
+              <DuplicateBadge>
+                {{
+                  isLocal(item)
+                    ? t("maintenance.duplicates.library.current")
+                    : t("maintenance.duplicates.favorites.filterCloud")
+                }}
+              </DuplicateBadge>
+              <DuplicateBadge v-if="item.favcat != null">#{{ item.favcat }}</DuplicateBadge>
+              <DuplicateBadge v-if="item.posted_at">{{ formatDate(item.posted_at) }}</DuplicateBadge>
+              <DuplicateBadge v-if="item.file_size">{{ formatBytes(item.file_size) }}</DuplicateBadge>
+            </template>
+          </DuplicateCopyRow>
+        </DuplicateGroupCard>
+
+        <Pager
+          v-if="groups.length > PAGE_SIZE"
+          :page="page"
+          :total-pages="totalPages"
+          testid="dupfav-pager"
+          @update:page="goPage"
+        />
       </template>
     </template>
 
@@ -493,54 +512,24 @@ onMounted(load);
   margin: 0 auto;
 }
 
-.favdup__header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.favdup__eyebrow {
-  margin: 0;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-small);
-  letter-spacing: var(--gv-type-label-small-tracking);
-}
-
-.favdup__title {
-  margin: 0;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-headline-small);
-}
-
-.favdup__subtitle,
 .favdup__summary {
   margin: 0;
   color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-body-small);
 }
 
+.favdup__filters {
+  flex-wrap: nowrap;
+}
+
+.favdup__filters :deep(.segmented) {
+  min-width: max-content;
+}
+
 .favdup__error {
   margin: 0;
   color: var(--gv-color-error);
   font: var(--gv-type-body-small);
-}
-
-.favdup__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-2);
-}
-
-.favdup__link {
-  margin-left: auto;
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-}
-
-.favdup__danger {
-  border-color: var(--gv-color-error);
-  color: var(--gv-color-error);
 }
 
 .favdup__progress {
@@ -573,110 +562,5 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-2);
-}
-
-.favdup__group {
-  padding: var(--gv-space-3);
-  border-radius: var(--gv-radius-md);
-  background: var(--gv-color-surface-container);
-  box-shadow: var(--gv-elev-1);
-}
-
-.favdup__group--ignored {
-  opacity: 0.72;
-}
-
-.favdup__group-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-2);
-  padding-bottom: var(--gv-space-2);
-  border-bottom: 1px solid var(--gv-color-outline-variant);
-}
-
-.favdup__count {
-  color: var(--gv-color-primary-text);
-  font: var(--gv-type-label-large);
-}
-
-.favdup__group-title {
-  min-width: 0;
-  overflow: hidden;
-  flex: 1;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-title-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.favdup__artist {
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-}
-
-.favdup__group-actions {
-  display: flex;
-  gap: var(--gv-space-2);
-}
-
-.favdup__row {
-  padding-top: var(--gv-space-3);
-}
-
-.favdup__check {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--gv-space-3);
-}
-
-.favdup__body {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.favdup__item-title {
-  overflow: hidden;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-title-small);
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.favdup__meta,
-.favdup__tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gv-space-1);
-}
-
-.favdup__badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 var(--gv-space-2);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-variant);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-}
-
-.favdup__tag {
-  padding: 0 var(--gv-space-1);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container-high);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-small);
-}
-
-@media (max-width: 599px) {
-  .favdup__link {
-    margin-left: 0;
-  }
 }
 </style>

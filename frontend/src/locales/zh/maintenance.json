@@ -21,7 +21,8 @@
     "prev": "上一页",
     "next": "下一页",
     "empty": "暂无数据",
-    "noCover": "无封面"
+    "noCover": "无封面",
+    "tabsLabel": "维护导航"
   },
   "updates": {
     "eyebrow": "GALLERY UPDATES",
@@ -96,9 +97,9 @@
       "filterAll": "全部",
       "filterOpen": "待处理",
       "filterDismissed": "已忽略",
-      "empty": "未发现重复副本。",
-      "noneOpen": "没有待处理的重复副本。",
-      "noneDismissed": "没有已忽略的重复副本。",
+      "empty": "未发现重复副本",
+      "noneOpen": "没有待处理的重复副本",
+      "noneDismissed": "没有已忽略的重复副本",
       "found": "{groups} 组重复 · {items} 项副本",
       "current": "当前保留",
       "pages": "{n} 页",
@@ -113,7 +114,17 @@
       "statusOpen": "待处理",
       "statusDismissed": "已忽略",
       "kept": "已保留该副本",
-      "deletedOthers": "已保留并删除其他副本"
+      "deletedOthers": "已保留并删除其他副本",
+      "emptyBody": "扫描媒体库后，这里会按作品列出同一画廊的多份副本。",
+      "showAll": "查看全部",
+      "policy": {
+        "keep_first": "保留首个",
+        "prefer_more_pages": "保留页数最多",
+        "prefer_newer": "保留较新",
+        "prefer_larger": "保留较大",
+        "prefer_smaller": "保留较小",
+        "manual": "手动处理"
+      }
     },
     "favorites": {
       "eyebrow": "FAVORITES",
@@ -149,11 +160,17 @@
       "ignoredPage": {
         "title": "已忽略的收藏重复",
         "subtitle": "你标记为不重复的组。勾选后点击“恢复所选”重新纳入查重。",
-        "empty": "没有已忽略的项目。",
+        "empty": "没有已忽略的项目",
         "unignore": "恢复",
         "unignoreSelected": "恢复所选",
-        "restored": "已恢复 {n} 组"
-      }
+        "restored": "已恢复 {n} 组",
+        "emptyBody": "被忽略的组不会出现在查重结果中；恢复后会重新纳入比对。",
+        "back": "返回收藏夹重复"
+      },
+      "empty": "未发现重复画廊",
+      "emptyBody": "扫描后会在这里列出同一作品的不同版本，可逐项比较后保留。",
+      "showAll": "查看全部",
+      "backToList": "返回收藏夹重复"
     },
     "cross": {
       "eyebrow": "DUPLICATES",
@@ -165,7 +182,21 @@
       "none": "未发现跨 GID 重复。",
       "noFav": "所选没有收藏项。",
       "infoSummary": "跨 GID 查重说明",
-      "infoDetail": "本地画廊与未入库的云端收藏按标准化标题、画师与核心标题聚类。取消收藏只影响收藏夹；删除已下载会移除本地副本。"
+      "infoDetail": "本地画廊与未入库的云端收藏按标准化标题、画师与核心标题聚类。取消收藏只影响收藏夹；删除已下载会移除本地副本。",
+      "hintTitle": "尚未跨 GID 查重",
+      "hintBody": "先扫描媒体库，再点“重新计算”按标题聚类。",
+      "noneBody": "重新计算后，这里会列出疑似同一作品的不同 GID。",
+      "expandGroup": "展开该组",
+      "collapseGroup": "收起该组"
+    },
+    "storage": {
+      "folder": "文件夹",
+      "ehviewer_dir": "EhViewer 目录",
+      "jhentai_dir": "JHenTai 目录",
+      "cbz": "CBZ 压缩包",
+      "cbr": "CBR 压缩包",
+      "pdf": "PDF 文件",
+      "7z": "7z 压缩包"
     }
   },
   "recycle": {

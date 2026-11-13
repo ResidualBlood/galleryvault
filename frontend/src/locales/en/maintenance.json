@@ -21,7 +21,8 @@
     "prev": "Previous",
     "next": "Next",
     "empty": "Nothing here",
-    "noCover": "No cover"
+    "noCover": "No cover",
+    "tabsLabel": "Maintenance sections"
   },
   "updates": {
     "eyebrow": "GALLERY UPDATES",
@@ -96,9 +97,9 @@
       "filterAll": "All",
       "filterOpen": "Open",
       "filterDismissed": "Dismissed",
-      "empty": "No duplicate copies found.",
-      "noneOpen": "No open duplicate copies.",
-      "noneDismissed": "No dismissed duplicate copies.",
+      "empty": "No duplicate copies found",
+      "noneOpen": "No open duplicate copies",
+      "noneDismissed": "No dismissed duplicate copies",
       "found": "{groups} duplicate group(s) · {items} copy(ies)",
       "current": "Current",
       "pages": "{n} pages",
@@ -113,7 +114,17 @@
       "statusOpen": "Open",
       "statusDismissed": "Dismissed",
       "kept": "Copy kept",
-      "deletedOthers": "Copy kept; other copies deleted"
+      "deletedOthers": "Copy kept; other copies deleted",
+      "emptyBody": "Scan the library to list every gallery that exists in more than one scan root.",
+      "showAll": "Show all",
+      "policy": {
+        "keep_first": "Keep the first",
+        "prefer_more_pages": "Keep the most pages",
+        "prefer_newer": "Keep the newer",
+        "prefer_larger": "Keep the larger",
+        "prefer_smaller": "Keep the smaller",
+        "manual": "Resolve manually"
+      }
     },
     "favorites": {
       "eyebrow": "FAVORITES",
@@ -149,11 +160,17 @@
       "ignoredPage": {
         "title": "Ignored favorite duplicates",
         "subtitle": "Groups you marked as not duplicated. Select and restore them to include them again.",
-        "empty": "No ignored items.",
+        "empty": "No ignored items",
         "unignore": "Restore",
         "unignoreSelected": "Restore selected",
-        "restored": "Restored {n} group(s)"
-      }
+        "restored": "Restored {n} group(s)",
+        "emptyBody": "Ignored groups stay out of duplicate results until you restore them.",
+        "back": "Back to favourite duplicates"
+      },
+      "empty": "No duplicate galleries found",
+      "emptyBody": "Scan to list different versions of the same work and compare them one by one.",
+      "showAll": "Show all",
+      "backToList": "Back to favourite duplicates"
     },
     "cross": {
       "eyebrow": "DUPLICATES",
@@ -165,7 +182,21 @@
       "none": "No cross-GID duplicates found.",
       "noFav": "None of the selected items are favorited.",
       "infoSummary": "About cross-GID duplicates",
-      "infoDetail": "Local galleries and uningested cloud favorites are clustered by normalized title, artist and core title. Unfavoriting only changes favorites; deleting downloads removes local copies."
+      "infoDetail": "Local galleries and uningested cloud favorites are clustered by normalized title, artist and core title. Unfavoriting only changes favorites; deleting downloads removes local copies.",
+      "hintTitle": "Cross-GID scan not run yet",
+      "hintBody": "Scan the library first, then press Recompute to cluster by title.",
+      "noneBody": "Recompute to list different gids that look like the same work.",
+      "expandGroup": "Expand group",
+      "collapseGroup": "Collapse group"
+    },
+    "storage": {
+      "folder": "Folder",
+      "ehviewer_dir": "EhViewer folder",
+      "jhentai_dir": "JHenTai folder",
+      "cbz": "CBZ archive",
+      "cbr": "CBR archive",
+      "pdf": "PDF file",
+      "7z": "7z archive"
     }
   },
   "recycle": {

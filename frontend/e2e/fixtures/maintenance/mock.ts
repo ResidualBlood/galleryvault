@@ -152,7 +152,12 @@ const LIBRARY_DUPLICATES = [
         file_size: 1024 * 1024 * 30,
         posted_at: "2025-01-02T00:00:00Z",
         is_current: true,
-        tags: [{ namespace: "language", name: "chinese", display: "中文" }],
+        tags: [
+          { namespace: "female", name: "big breasts", display: "巨乳" },
+          { namespace: "artist", name: "alpha artist", display: "Alpha 画师" },
+          { namespace: "language", name: "chinese", display: "中文" },
+          { namespace: "parody", name: "original work", display: "原创" },
+        ],
       },
       {
         key: "copy-b",
@@ -160,12 +165,18 @@ const LIBRARY_DUPLICATES = [
         gallery_id: null,
         storage_type: "cbz",
         title: "Alpha CBZ",
-        display_title: "Alpha CBZ",
+        display_title:
+          "Alpha Copy — Collector's Edition with a very long subtitle that must clamp at 390",
         page_count: 20,
         file_size: 1024 * 1024 * 25,
         posted_at: null,
         is_current: false,
-        tags: [],
+        tags: [
+          { namespace: "female", name: "big breasts", display: "巨乳" },
+          { namespace: "male", name: "sole male", display: "单男" },
+          { namespace: "other", name: "full color", display: "全彩" },
+          { namespace: "language", name: "chinese", display: "中文" },
+        ],
       },
     ],
   },
@@ -181,7 +192,8 @@ const LIBRARY_DUPLICATES = [
         gallery_id: 12,
         storage_type: "folder",
         title: "Beta Copy",
-        display_title: "Beta Copy",
+        display_title:
+          "Beta Copy — another edition whose title is long enough to be truncated at 390",
         page_count: 14,
         file_size: 1024 * 1024 * 12,
         posted_at: null,
@@ -218,12 +230,16 @@ const FAVORITE_DUPLICATES = [
         favcat: 3,
         file_size: 1024 * 1024 * 20,
         posted_at: "2025-02-01T00:00:00Z",
-        tags: [{ namespace: "language", name: "chinese", display: "中文" }],
+        tags: [
+          { namespace: "female", name: "big breasts", display: "巨乳" },
+          { namespace: "language", name: "chinese", display: "中文" },
+        ],
       },
       {
         gid: 3002,
         title: "Favorite Cloud",
-        display_title: "Favorite Cloud",
+        display_title:
+          "Favorite Cloud — uncensored re-upload with a title long enough to wrap at 390",
         gallery_id: null,
         favcat: 2,
         favorited: true,
@@ -232,7 +248,11 @@ const FAVORITE_DUPLICATES = [
         cover_url: thumb(3002),
         file_size: 1024 * 1024 * 18,
         posted_at: "2025-02-02T00:00:00Z",
-        tags: [{ namespace: "language", name: "english", display: "English" }],
+        tags: [
+          { namespace: "female", name: "big breasts", display: "巨乳" },
+          { namespace: "male", name: "sole male", display: "单男" },
+          { namespace: "language", name: "english", display: "English" },
+        ],
       },
     ],
   },
@@ -254,6 +274,7 @@ const IGNORED_FAVORITES = [
         url: "https://e-hentai.org/g/4001/aaaabbbbcccc/",
         cover_url: thumb(4001),
         file_size: 1024 * 1024 * 9,
+        tags: [{ namespace: "female", name: "big breasts", display: "巨乳" }],
       },
     ],
   },
@@ -407,6 +428,16 @@ function updateList(state: string) {
 export interface MaintenanceMockOptions {
   /** Serve an empty integrity list (with the scan summary still present). */
   integrityEmpty?: boolean;
+  /** Serve no library duplicate groups. */
+  duplicatesEmpty?: boolean;
+  /** Serve a favourite duplicate scan with no groups. */
+  favoritesEmpty?: boolean;
+  /** Serve an empty ignored-duplicates list. */
+  ignoredEmpty?: boolean;
+  /** Serve a ready cross-GID response without groups. */
+  crossGidEmpty?: boolean;
+  /** Serve a cross-GID response that has not been computed yet. */
+  crossGidNotReady?: boolean;
 }
 
 export async function installMaintenanceMock(
@@ -506,7 +537,8 @@ export async function installMaintenanceMock(
       return;
     }
     if (path === libraryDuplicatesEp.path && method === "GET") {
-      await json(route, { groups: LIBRARY_DUPLICATES, count: LIBRARY_DUPLICATES.length });
+      const groups = options.duplicatesEmpty ? [] : LIBRARY_DUPLICATES;
+      await json(route, { groups, count: groups.length });
       return;
     }
     if (RE_RESOLVE.test(path) && method === "POST") {
@@ -519,7 +551,12 @@ export async function installMaintenanceMock(
     }
 
     if (path === crossGidDuplicatesEp.path && method === "GET") {
-      await json(route, { ready: true, count: CROSS_GID.length, groups: CROSS_GID });
+      const groups = options.crossGidEmpty ? [] : CROSS_GID;
+      await json(route, {
+        ready: !options.crossGidNotReady,
+        count: groups.length,
+        groups,
+      });
       return;
     }
     if (path === refreshCrossGidDuplicatesEp.path && method === "POST") {
@@ -528,15 +565,16 @@ export async function installMaintenanceMock(
     }
 
     if (path === favoriteDuplicatesStatusEp.path && method === "GET") {
+      const groups = options.favoritesEmpty ? [] : FAVORITE_DUPLICATES;
       await json(route, {
         running: false,
         stage: "done",
         done: 6,
         total: 6,
         last_error: null,
-        groups: FAVORITE_DUPLICATES,
-        group_count: FAVORITE_DUPLICATES.length,
-        item_count: 2,
+        groups,
+        group_count: groups.length,
+        item_count: groups.reduce((sum, group) => sum + group.items.length, 0),
         ignored: [],
       });
       return;
@@ -555,7 +593,7 @@ export async function installMaintenanceMock(
       return;
     }
     if (path === ignoredFavoriteDuplicatesEp.path && method === "GET") {
-      await json(route, IGNORED_FAVORITES);
+      await json(route, options.ignoredEmpty ? [] : IGNORED_FAVORITES);
       return;
     }
     if (path === removeFavoritesEp.path && method === "POST") {
