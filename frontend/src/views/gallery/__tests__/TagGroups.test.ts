@@ -42,7 +42,7 @@ describe("TagGroups", () => {
     const chips = artist.findAll('[data-testid="tag-chip"]');
 
     expect(chips).toHaveLength(2);
-    expect(chips.map((chip) => chip.text())).toEqual(["artist:alpha", "artist:zeta"]);
+    expect(chips.map((chip) => chip.text())).toEqual(["alpha", "zeta"]);
   });
 
   it("emits the selected tag", async () => {

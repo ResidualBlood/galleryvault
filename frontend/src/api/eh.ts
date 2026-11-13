@@ -51,6 +51,10 @@ export interface OnlineSearchItem {
   category: string;
   pages: number;
   rating?: number | null;
+  /** Tags parsed from the list-page HTML (no extra EH request). */
+  tags?: OnlineTag[] | null;
+  posted?: string | null;
+  uploader?: string | null;
   in_library?: boolean;
   gallery_id?: number | null;
   favorited?: boolean;

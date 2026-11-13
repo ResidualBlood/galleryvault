@@ -55,6 +55,9 @@
     "female": "Female",
     "male": "Male",
     "mixed": "Mixed",
+    "cosplayer": "Cosplayer",
+    "reclass": "Reclass",
+    "temp": "Temp",
     "local": "Local",
     "uploader": "Uploader"
   }
