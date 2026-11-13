@@ -177,6 +177,85 @@ test.describe("online browse @online", () => {
     expect(csp).toEqual([]);
   });
 
+  test("pager walks next/previous and keeps cursors in the URL", async ({ page }) => {
+    await mockOnlineBackend(page);
+    await page.goto("/#/online");
+    const pager = page.getByTestId("online-pager");
+    await expect(pager).toBeVisible();
+    await expect(pager.locator('[data-pager="prev"]')).toBeDisabled();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
+
+    await pager.locator('[data-pager="next"]').click();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "6");
+    await expect(page).toHaveURL(/next=1-2/);
+    await expect(pager.locator('[data-pager="prev"]')).toBeEnabled();
+
+    await pager.locator('[data-pager="prev"]').click();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
+    await expect(page).toHaveURL(/prev=0-1/);
+  });
+
+  test("date jump uses a preset or a picked date and replays from the URL", async ({
+    page,
+  }) => {
+    await mockOnlineBackend(page);
+    await page.goto("/#/online");
+    const pager = page.getByTestId("online-pager");
+    await expect(pager.getByTestId("online-jump-preset")).toBeVisible();
+
+    await pager.getByTestId("online-jump-preset").locator("select").selectOption("1m");
+    await pager.getByTestId("online-date-jump").click();
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Date jump 1m");
+    await expect(page).toHaveURL(/jump=1m/);
+    await expect(page).toHaveURL(/next=1-2/);
+
+    await page.getByTestId("online-date-input").fill("2024-02-29");
+    await pager.getByTestId("online-date-jump").click();
+    await expect(page.getByTestId("gallery-card").first()).toContainText(
+      "Date jump 2024-02-29",
+    );
+    await expect(page).toHaveURL(/seek=2024-02-29/);
+
+    await page.reload();
+    await expect(page.getByTestId("gallery-card").first()).toContainText(
+      "Date jump 2024-02-29",
+    );
+  });
+
+  test("toplist pager jumps to page N and replays page from the URL", async ({ page }) => {
+    await mockOnlineBackend(page);
+    await page.goto("/#/online?list=toplist");
+    const pager = page.getByTestId("online-pager");
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Online Fixture 01");
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loading", "0");
+
+    const jump = pager.locator('[data-pager="jump"]');
+    await jump.fill("3");
+    await jump.press("Enter");
+    await expect(page).toHaveURL(/page=3/);
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Online Fixture 07");
+
+    await page.reload();
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Online Fixture 07");
+  });
+
+  test("pager and date-jump screenshots at 1280 and 390", async ({ page }) => {
+    await mockOnlineBackend(page);
+    for (const viewport of [
+      { width: 1280, height: 900, label: "1280" },
+      { width: 390, height: 844, label: "390" },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto("/#/online");
+      await expect(page.getByTestId("online-pager")).toBeVisible();
+      await expect(page.getByTestId("online-jump-preset")).toBeVisible();
+      await page.screenshot({
+        path: join(SHOTS, `online-pager-${viewport.label}.png`),
+        fullPage: true,
+      });
+    }
+  });
+
   test("screenshots cover dark/light x desktop/mobile", async ({ page }) => {
     const csp = watchCsp(page);
     await mockOnlineBackend(page);

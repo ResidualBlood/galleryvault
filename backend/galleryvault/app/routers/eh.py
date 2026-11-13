@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...services.eh_client import EhClientError, EhSearchResult, SearchGallery
+from ...services.eh_client import (
+    EhClientError,
+    EhSearchResult,
+    SearchGallery,
+    normalize_jump,
+    normalize_seek,
+)
 from ...services.tag_translation import translated_tag
 from ..core.eh_client_manager import EhClientManager
 from ..core.uow import UnitOfWork
@@ -87,11 +93,24 @@ def _search_cache_key(
     next_cursor: str | None,
     list_type: str = "search",
     tl: int | None = None,
-) -> tuple[str, str, str, str, str, str]:
+    prev_cursor: str | None = None,
+    jump: str | None = None,
+    seek: str | None = None,
+) -> tuple[str, str, str, str, str, str, str, str, str]:
     rating = "" if min_rating is None else str(min_rating)
     cats = "" if f_cats is None else str(f_cats)
     tl_key = "" if list_type != "toplist" or tl is None else str(tl)
-    return (q or "", cats, rating, next_cursor or "", list_type or "search", tl_key)
+    return (
+        q or "",
+        cats,
+        rating,
+        next_cursor or "",
+        list_type or "search",
+        tl_key,
+        prev_cursor or "",
+        jump or "",
+        seek or "",
+    )
 
 
 def _search_cache_get(key: tuple[str, ...]) -> dict[str, Any] | None:
@@ -191,6 +210,9 @@ async def eh_search(
     category: str | None = None,
     min_rating: float | None = Query(default=None, ge=0, le=5),
     next_cursor: str | None = Query(default=None, alias="next"),
+    prev_cursor: Annotated[str | None, Query(alias="prev")] = None,
+    jump: str | None = None,
+    seek: str | None = None,
     list_type: Annotated[str, Query(alias="list")] = "search",
     tl: int | None = None,
     session: AsyncSession = Depends(get_session),  # noqa: B008
@@ -218,9 +240,45 @@ async def eh_search(
                 raise HTTPException(status_code=422, detail="invalid next cursor")
     else:
         next_cursor = None
+    if prev_cursor:
+        prev_cursor = str(prev_cursor).strip()
+        if kind == "toplist":
+            if not _TOPLIST_CURSOR_RE.fullmatch(prev_cursor) or not (
+                0 <= int(prev_cursor) < 200
+            ):
+                raise HTTPException(status_code=422, detail="invalid prev cursor")
+        else:
+            if not _NEXT_CURSOR_RE.fullmatch(prev_cursor):
+                raise HTTPException(status_code=422, detail="invalid prev cursor")
+    else:
+        prev_cursor = None
+    if next_cursor and prev_cursor:
+        raise HTTPException(status_code=422, detail="next and prev are mutually exclusive")
+    try:
+        jump = normalize_jump(jump)
+        seek = normalize_seek(seek)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if jump and seek:
+        raise HTTPException(status_code=422, detail="jump and seek are mutually exclusive")
+    if jump or seek:
+        if kind == "toplist":
+            raise HTTPException(
+                status_code=422, detail="toplist uses page cursors, not date jump"
+            )
+        if not (next_cursor or prev_cursor):
+            raise HTTPException(status_code=422, detail="date jump requires a cursor")
     f_cats = parse_category_param(category)
     key = _search_cache_key(
-        q.strip() if q else "", f_cats, min_rating, next_cursor, kind, tl
+        q.strip() if q else "",
+        f_cats,
+        min_rating,
+        next_cursor,
+        kind,
+        tl,
+        prev_cursor,
+        jump,
+        seek,
     )
     payload = _search_cache_get(key)
     if payload is None:
@@ -232,8 +290,11 @@ async def eh_search(
                     f_cats=f_cats,
                     min_rating=min_rating,
                     next_cursor=next_cursor,
+                    prev_cursor=prev_cursor,
                     list_type=kind,
                     tl=tl,
+                    jump=jump,
+                    seek=seek,
                 )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -243,6 +304,7 @@ async def eh_search(
             "state": result.state,
             "items": _result_items(result),
             "next": result.next_cursor,
+            "prev": result.prev_cursor,
         }
         ttl = _SEARCH_TTL_OK if result.state in {"ok", "empty"} else _SEARCH_TTL_ERR
         _search_cache_set(key, payload, ttl)
@@ -266,9 +328,12 @@ async def eh_search(
         "state": state,
         "items": items,
         "next": payload.get("next"),
+        "prev": payload.get("prev"),
         "q": q or "",
         "category": category,
         "min_rating": min_rating,
         "list": kind,
         "tl": tl,
+        "jump": jump,
+        "seek": seek,
     }

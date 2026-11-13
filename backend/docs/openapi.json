@@ -4683,6 +4683,54 @@
             }
           },
           {
+            "name": "prev",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prev"
+            }
+          },
+          {
+            "name": "jump",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Jump"
+            }
+          },
+          {
+            "name": "seek",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Seek"
+            }
+          },
+          {
             "name": "list",
             "in": "query",
             "required": false,

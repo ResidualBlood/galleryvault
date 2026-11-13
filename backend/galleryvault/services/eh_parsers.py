@@ -26,6 +26,7 @@ __all__ = [
     "IMAGE_LIMIT_RE",
     "IMAGE_LIMIT_SIMPLE_RE",
     "IMAGE_RE",
+    "JUMP_VALUES",
     "PAGE_RE",
     "SHOWKEY_RE",
     "SHOWPAGE_IMAGE_RE",
@@ -58,13 +59,17 @@ __all__ = [
     "ShowkeyState",
     "classify_search_body",
     "get_fixed_preview_thumb_url",
+    "normalize_jump",
+    "normalize_seek",
     "parse_favorite_note",
     "parse_gallery_preview",
     "parse_gallery_url",
     "parse_login_state",
     "parse_newer_gallery",
     "parse_online_gallery",
-    "parse_search_page",]
+    "parse_search_page",
+    "parse_search_prev_cursor",
+]
 
 
 GALLERY_RE = re.compile(r"/(?:g|gallery)/(?P<gid>\d+)/(?P<token>[A-Za-z0-9]+)/?")
@@ -496,6 +501,7 @@ class EhSearchResult:
     items: list[SearchGallery]
     next_cursor: str | None = None
     state: str = "ok"
+    prev_cursor: str | None = None
 
 
 @dataclass(frozen=True)
@@ -982,6 +988,39 @@ def _favorites_next_url(body: str) -> str:
 _NEXT_CURSOR_RE = re.compile(r"^\d+(-\d+)?$")
 _TOPLIST_CURSOR_RE = re.compile(r"^\d+$")
 
+# Date-jump values accepted by E-Hentai / ExHentai list pages.
+# Reference: EhViewer_CN_SXJ `JumpDateSelector.nodePickerAppendBuild`
+# (`jump=1d|3d|1w|2w|1m|6m|1y|2y`).  ``seek`` always uses ``YYYY-MM-DD``.
+JUMP_VALUES = frozenset({"1d", "3d", "1w", "2w", "1m", "6m", "1y", "2y"})
+
+
+def normalize_jump(value: str | None) -> str | None:
+    """Validate an ExHentai ``jump`` interval (e.g. ``1m``)."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw not in JUMP_VALUES:
+        raise ValueError("invalid jump")
+    return raw
+
+
+def normalize_seek(value: str | None) -> str | None:
+    """Validate an ExHentai ``seek`` date (``YYYY-MM-DD``)."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC).date()
+    except ValueError as exc:
+        raise ValueError("invalid seek date") from exc
+    if parsed.isoformat() != raw:
+        raise ValueError("invalid seek date")
+    return raw
+
 
 def _toplist_next_cursor(body: str, cur_p: int) -> str | None:
     """Detect next page cursor for E-Hentai toplist (uses p=N query parameter)."""
@@ -1024,6 +1063,33 @@ def _search_next_cursor(body: str) -> str | None:
     fallback = re.search(r"[?&]next=(\d+(?:-\d+)?)", body)
     if fallback:
         return fallback.group(1)
+    return None
+
+
+def _cursor_param(url: str, param: str) -> str | None:
+    qs = parse_qs(urlparse(html.unescape(url)).query)
+    cur = (qs.get(param) or [""])[0].strip()
+    if _NEXT_CURSOR_RE.fullmatch(cur):
+        return cur
+    return None
+
+
+def parse_search_prev_cursor(body: str) -> str | None:
+    """ExHentai list ``prev`` cursor from the ``#uprev`` nav link.
+
+    The listing emits ``<a id="uprev" href="...&prev=gid-ts">``; the first page
+    has no such link, so ``None`` means "no previous page".
+    """
+    for pattern in (
+        r'<a[^>]+id=["\']uprev["\'][^>]*href=["\']([^"\']+)["\']',
+        r'<a[^>]+href=["\']([^"\']+)["\'][^>]*id=["\']uprev["\']',
+    ):
+        match = re.search(pattern, body, re.IGNORECASE)
+        if not match:
+            continue
+        cur = _cursor_param(match.group(1), "prev")
+        if cur:
+            return cur
     return None
 
 

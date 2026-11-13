@@ -19,6 +19,7 @@ import ErrorState from "@/components/ui/ErrorState.vue";
 import FilterButton from "@/components/ui/FilterButton.vue";
 import Input from "@/components/ui/Input.vue";
 import PageHeader from "@/components/ui/PageHeader.vue";
+import Pager from "@/components/ui/Pager.vue";
 import SegmentedControl from "@/components/ui/SegmentedControl.vue";
 import SelectionBar from "@/components/ui/SelectionBar.vue";
 import Select from "@/components/ui/Select.vue";
@@ -29,7 +30,14 @@ import GalleryCard from "@/components/gallery/GalleryCard.vue";
 import GalleryCollection from "@/components/gallery/GalleryCollection.vue";
 import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
 import type { GalleryItem } from "@/api/library";
-import type { OnlineListType } from "@/api/eh";
+import {
+  ONLINE_JUMP_VALUES,
+  isValidCursor,
+  isValidJump,
+  isValidSeekDate,
+  type OnlineJumpValue,
+  type OnlineListType,
+} from "@/api/eh";
 import type { TagLike } from "@/components/tags/tag-utils";
 import { createDownloadsBatch } from "@/api/downloads";
 import { addFavoritesBatch, type FavoriteCategory } from "@/api/favorites";
@@ -50,6 +58,7 @@ import {
   toggleCategory,
   useOnlineStore,
   type OnlineCategory,
+  type OnlineCursorState,
   type OnlineFilters,
 } from "@/stores/online";
 import OnlineListRow from "./OnlineListRow.vue";
@@ -279,6 +288,39 @@ function routeFilters(): OnlineFilters {
   return normalizeFilters({ ...base, ...fromQuery });
 }
 
+/** Replay cursor/date-jump state encoded in the URL (all optional). */
+function routeCursor(next: OnlineFilters): OnlineCursorState {
+  const query = route.query;
+  const raw = (key: string): string => {
+    const value = query[key];
+    return typeof value === "string" ? value.trim() : "";
+  };
+  const out: OnlineCursorState = {};
+  if (next.list === "toplist") {
+    const page = Number.parseInt(raw("page"), 10);
+    if (Number.isInteger(page) && page > 1 && page <= 200) {
+      out.cursor = String(page - 1);
+      out.direction = "next";
+    }
+  } else {
+    const prev = raw("prev");
+    const nextCursor = raw("next");
+    if (prev && isValidCursor(prev, next.list)) {
+      out.cursor = prev;
+      out.direction = "prev";
+    } else if (nextCursor && isValidCursor(nextCursor, next.list)) {
+      out.cursor = nextCursor;
+      out.direction = "next";
+    }
+  }
+  if (!out.cursor) return out;
+  const jump = raw("jump");
+  const seek = raw("seek");
+  if (jump && isValidJump(jump)) out.jump = jump;
+  else if (seek && isValidSeekDate(seek)) out.seek = seek;
+  return out;
+}
+
 function assignFilters(next: OnlineFilters): void {
   filters.q = next.q;
   filters.category = next.category;
@@ -286,6 +328,61 @@ function assignFilters(next: OnlineFilters): void {
   filters.list = next.list;
   filters.tl = next.tl;
   term.value = next.q;
+}
+
+/** Current page cursor encoded for replay (toplist uses `page=1..200`). */
+function cursorQuery(): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (filters.list === "toplist") {
+    const page = store.currentCursor ? Number(store.currentCursor) + 1 : 1;
+    if (page > 1) out.page = String(page);
+  } else if (store.currentCursor) {
+    out[store.currentDirection === "prev" ? "prev" : "next"] = store.currentCursor;
+  }
+  if (store.jump) out.jump = store.jump;
+  else if (store.seek) out.seek = store.seek;
+  return out;
+}
+
+async function navigateCursor(action: Promise<boolean>): Promise<void> {
+  const ok = await action;
+  if (!ok) return;
+  const target = { ...filtersToQuery(filters), ...cursorQuery() };
+  if (!sameQuery(target)) await router.push({ name: "online", query: target });
+}
+
+const pagerPage = computed(() =>
+  filters.list === "toplist" && store.currentCursor ? Number(store.currentCursor) + 1 : 1,
+);
+
+const jumpOptions = computed(() =>
+  ONLINE_JUMP_VALUES.map((value) => ({
+    value,
+    label: t(`online.jump.preset.${value}`),
+  })),
+);
+const jumpPreset = ref<OnlineJumpValue>("1m");
+const seekDate = ref("");
+
+function applyDateJump(): void {
+  if (filters.list === "toplist") return;
+  const value: { jump?: string; seek?: string } = seekDate.value
+    ? { seek: seekDate.value }
+    : { jump: jumpPreset.value };
+  if (value.seek && !isValidSeekDate(value.seek)) {
+    ui.info(t("online.jump.invalidDate"));
+    return;
+  }
+  void navigateCursor(store.jumpDate(value));
+}
+
+function onPagerPage(page: number): void {
+  if (filters.list === "toplist") {
+    void navigateCursor(store.goToPage(page));
+    return;
+  }
+  if (page <= 0) void navigateCursor(store.goPrev());
+  else void navigateCursor(store.goNext());
 }
 
 function sameQuery(target: Record<string, string>): boolean {
@@ -307,8 +404,8 @@ function restoreScrollSoon(): void {
   });
 }
 
-function startWith(next: OnlineFilters): void {
-  const resumed = store.start(next);
+function startWith(next: OnlineFilters, cursor: OnlineCursorState = {}): void {
+  const resumed = store.start(next, cursor);
   if (resumed) restoreScrollSoon();
 }
 
@@ -450,7 +547,7 @@ watch(
   () => {
     const next = routeFilters();
     assignFilters(next);
-    startWith(next);
+    startWith(next, routeCursor(next));
   },
   { immediate: true, deep: true },
 );
@@ -687,6 +784,49 @@ onBeforeUnmount(() => {
       </template>
     </GalleryCollection>
 
+    <Pager
+      v-if="
+        !store.initialLoading &&
+        store.state !== 'error' &&
+        (store.items.length > 0 || store.hasPrev || store.hasMore)
+      "
+      :page="pagerPage"
+      :total-pages="filters.list === 'toplist' ? 200 : 0"
+      :has-prev="filters.list === 'toplist' ? undefined : store.hasPrev"
+      :has-next="filters.list === 'toplist' ? undefined : store.hasMore"
+      :disabled="store.initialLoading"
+      testid="online-pager"
+      @update:page="onPagerPage"
+    >
+      <template v-if="filters.list !== 'toplist'" #date-jump>
+        <form
+          v-if="store.hasPrev || store.hasMore"
+          class="online__date-jump"
+          @submit.prevent="applyDateJump"
+        >
+          <Select
+            class="online__jump-preset"
+            size="sm"
+            :model-value="jumpPreset"
+            :options="jumpOptions"
+            :label="t('online.jump.presetLabel')"
+            data-testid="online-jump-preset"
+            @update:model-value="jumpPreset = $event as OnlineJumpValue"
+          />
+          <input
+            v-model="seekDate"
+            class="online__date-input"
+            type="date"
+            :aria-label="t('online.jump.dateLabel')"
+            data-testid="online-date-input"
+          />
+          <Button variant="outlined" type="submit" data-testid="online-date-jump">
+            {{ t("online.jump.apply") }}
+          </Button>
+        </form>
+      </template>
+    </Pager>
+
     <Dialog
       :open="batchFavoriteOpen"
       :title="t('legacy.favAddTitle')"
@@ -751,6 +891,27 @@ onBeforeUnmount(() => {
 .online__select {
   flex: none;
   width: 150px;
+}
+
+.online__date-jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gv-space-2);
+}
+
+.online__jump-preset {
+  width: 130px;
+}
+
+.online__date-input {
+  height: var(--gv-size-control-sm, var(--gv-size-control-md));
+  padding: 0 var(--gv-space-2);
+  border: 1px solid var(--gv-color-outline);
+  border-radius: var(--gv-radius-xs);
+  background: var(--gv-color-surface-container-lowest);
+  color: var(--gv-color-on-surface);
+  font: var(--gv-type-body-medium);
 }
 
 /* Category chips keep the per-category colour from --gv-cat-* (DESIGN C05). */

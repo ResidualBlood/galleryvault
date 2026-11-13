@@ -167,6 +167,119 @@ describe("cursor continuation", () => {
     expect(store.hasMore).toBe(false);
   });
 
+  it("replaces the page with next/prev cursors and keeps the prev cursor", async () => {
+    searchMock
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(1), searchItem(2)],
+        next: "1-2",
+        prev: null,
+      })
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(3)],
+        next: "3-4",
+        prev: "2-2",
+      })
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(1)],
+        next: "1-2",
+        prev: null,
+      });
+
+    const store = useOnlineStore();
+    store.clearCache();
+    store.start({ ...DEFAULT_ONLINE_FILTERS });
+    await vi.waitFor(() => expect(store.loading).toBe(false));
+    expect(store.hasPrev).toBe(false);
+
+    await store.goNext();
+    expect(searchMock.mock.calls[1][0].next).toBe("1-2");
+    expect(store.items.map((item) => item.gid)).toEqual([3]);
+    expect(store.prevCursor).toBe("2-2");
+    expect(store.hasPrev).toBe(true);
+
+    await store.goPrev();
+    expect(searchMock.mock.calls[2][0].prev).toBe("2-2");
+    expect(searchMock.mock.calls[2][0].next).toBeNull();
+    expect(store.items.map((item) => item.gid)).toEqual([1]);
+  });
+
+  it("sends date jumps with the current cursor", async () => {
+    searchMock
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(1)],
+        next: "1-2",
+        prev: null,
+      })
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(2)],
+        next: "3-4",
+        prev: "1-2",
+      });
+
+    const store = useOnlineStore();
+    store.clearCache();
+    store.start({ ...DEFAULT_ONLINE_FILTERS });
+    await vi.waitFor(() => expect(store.loading).toBe(false));
+
+    await store.jumpDate({ jump: "1m" });
+    expect(searchMock.mock.calls[1][0].next).toBe("1-2");
+    expect(searchMock.mock.calls[1][0].jump).toBe("1m");
+    expect(store.jump).toBe("1m");
+
+    searchMock.mockResolvedValueOnce({
+      state: "ok",
+      items: [searchItem(2)],
+      next: "3-4",
+      prev: "1-2",
+    });
+    await store.jumpDate({ seek: "2024-02-29" });
+    expect(searchMock.mock.calls[2][0].seek).toBe("2024-02-29");
+    expect(store.seek).toBe("2024-02-29");
+  });
+
+  it("jumps to a toplist page and replays the cursor", async () => {
+    const filters = { ...DEFAULT_ONLINE_FILTERS, list: "toplist" as const, tl: 15 };
+    searchMock
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(1)],
+        next: "1",
+        prev: null,
+      })
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(3)],
+        next: "3",
+        prev: "1",
+      })
+      .mockResolvedValueOnce({
+        state: "ok",
+        items: [searchItem(3)],
+        next: "3",
+        prev: "1",
+      });
+
+    const store = useOnlineStore();
+    store.clearCache();
+    store.start(filters);
+    await vi.waitFor(() => expect(store.loading).toBe(false));
+
+    await store.goToPage(3);
+    expect(searchMock.mock.calls[1][0].next).toBe("2");
+    expect(store.currentCursor).toBe("2");
+
+    // Replaying the URL cursor reuses the cached page instead of refetching.
+    const resumed = store.start(filters, { cursor: "2", direction: "next" });
+    expect(resumed).toBe(true);
+    expect(searchMock).toHaveBeenCalledTimes(2);
+    expect(store.items.map((item) => item.gid)).toEqual([3]);
+  });
+
   it("maps auth/ban states and does not paginate them", async () => {
     searchMock.mockResolvedValueOnce({ state: "not_logged_in", items: [], next: "1-2" });
     const store = useOnlineStore();

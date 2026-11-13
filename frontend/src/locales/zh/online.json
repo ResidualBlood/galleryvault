@@ -23,6 +23,22 @@
     "13": "年度",
     "15": "全部"
   },
+  "jump": {
+    "apply": "跳转",
+    "presetLabel": "日期区间",
+    "dateLabel": "跳转日期",
+    "invalidDate": "请输入有效日期",
+    "preset": {
+      "1d": "1 天",
+      "3d": "3 天",
+      "1w": "1 周",
+      "2w": "2 周",
+      "1m": "1 个月",
+      "6m": "6 个月",
+      "1y": "1 年",
+      "2y": "2 年"
+    }
+  },
   "minRating": "最低评分",
   "ratingAny": "不限评分",
   "ratingAtLeast": "≥ {value}",

@@ -23,6 +23,22 @@
     "13": "This year",
     "15": "All time"
   },
+  "jump": {
+    "apply": "Jump",
+    "presetLabel": "Date range",
+    "dateLabel": "Jump to date",
+    "invalidDate": "Enter a valid date",
+    "preset": {
+      "1d": "1 day",
+      "3d": "3 days",
+      "1w": "1 week",
+      "2w": "2 weeks",
+      "1m": "1 month",
+      "6m": "6 months",
+      "1y": "1 year",
+      "2y": "2 years"
+    }
+  },
   "minRating": "Minimum rating",
   "ratingAny": "Any rating",
   "ratingAtLeast": "≥ {value}",
