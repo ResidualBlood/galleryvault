@@ -137,6 +137,34 @@ class DownloadSelectedRequest(BaseModel):
     quality: str | None = None
 
 
+class DownloadTaskItem(BaseModel):
+    id: int
+    gid: int
+    gallery_id: int | None = None
+    cover_url: str | None = None
+    title: str | None = None
+    status: str
+    retry_count: int = 0
+    max_retries: int = 10
+    current_page: int = 0
+    total_pages: int | None = None
+    error_message: str | None = None
+    mode: str | None = None
+    quality: str | None = None
+    archive_fallback: bool = False
+    archive_status: str | None = None
+    archive_error: str | None = None
+    speed: float | None = None
+    eta_seconds: float | None = None
+
+
+class DownloadListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[DownloadTaskItem]
+
+
 class DuplicateIgnoreRequest(BaseModel):
     key: str
     title: str | None = None

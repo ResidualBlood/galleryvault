@@ -15,10 +15,12 @@ import {
   clearSuccessfulDownloadsEp,
   createDownloadBatchEp,
   downloadsEp,
+  favoriteCoverEp,
   pauseEp,
   quotaEp,
   retryAllDownloadsEp,
 } from "@/api/downloads";
+import { galleryThumbEp } from "@/api/galleries";
 import {
   clearAllProgressEp,
   clearHistoryEp,
@@ -92,6 +94,8 @@ const DOWNLOAD_TASKS = [
   {
     id: 1,
     gid: 800001,
+    gallery_id: 9001,
+    cover_url: localCover(9001),
     title: "Sunset Sketchbook",
     status: "downloading",
     retry_count: 0,
@@ -110,6 +114,8 @@ const DOWNLOAD_TASKS = [
   {
     id: 2,
     gid: 800002,
+    gallery_id: null,
+    cover_url: remoteCover(800002, "token800002"),
     title: "Night Market Diaries",
     status: "pending",
     retry_count: 0,
@@ -126,6 +132,8 @@ const DOWNLOAD_TASKS = [
   {
     id: 3,
     gid: 800003,
+    gallery_id: 9003,
+    cover_url: localCover(9003),
     title: "Archive Collection Vol. 3",
     status: "success",
     retry_count: 0,
@@ -142,6 +150,8 @@ const DOWNLOAD_TASKS = [
   {
     id: 4,
     gid: 800004,
+    gallery_id: null,
+    cover_url: remoteCover(800004, "token800004"),
     title: "Gone Gallery",
     status: "failed",
     retry_count: 3,
@@ -158,6 +168,8 @@ const DOWNLOAD_TASKS = [
   {
     id: 5,
     gid: 800005,
+    gallery_id: 9005,
+    cover_url: localCover(9005),
     title: "Cancelled Download",
     status: "cancelled",
     retry_count: 1,
@@ -174,6 +186,8 @@ const DOWNLOAD_TASKS = [
   {
     id: 6,
     gid: 800006,
+    gallery_id: null,
+    cover_url: remoteCover(800006, "token800006"),
     title: "Finished Doujinshi",
     status: "success",
     retry_count: 0,
@@ -205,6 +219,20 @@ const COVERS = [
 
 function cover(index: number): string {
   return COVERS[index % COVERS.length];
+}
+
+/** Raw bytes behind `cover(0)` for thumbnail <img> endpoints. */
+const COVER_BYTES = Buffer.from(COVERS[0].split(",")[1], "base64");
+
+function localCover(galleryId: number): string {
+  return galleryThumbEp.path.replace("{id}", String(galleryId)).replace("{id}", "0");
+}
+
+function remoteCover(gid: number, token: string): string {
+  return `${favoriteCoverEp.path}?${new URLSearchParams({
+    gid: String(gid),
+    token,
+  }).toString()}`;
 }
 
 function favoriteItem(index: number, state: string) {
@@ -491,6 +519,14 @@ export async function mockFavDlBackend(
     }
 
     /* ------------------------------------------------------------ reads */
+    if (method === "GET" && /^\/api\/galleries\/\d+\/thumb\/0$/.test(path)) {
+      await route.fulfill({ status: 200, contentType: "image/png", body: COVER_BYTES });
+      return;
+    }
+    if (method === "GET" && path === favoriteCoverEp.path) {
+      await route.fulfill({ status: 200, contentType: "image/png", body: COVER_BYTES });
+      return;
+    }
     if (method === "GET" && path === downloadsEp.path) {
       state.downloadRequests.push(url.searchParams);
       const status = url.searchParams.get("status");

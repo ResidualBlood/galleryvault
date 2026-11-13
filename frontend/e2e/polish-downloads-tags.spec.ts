@@ -6,10 +6,12 @@ import {
   clearSuccessfulDownloadsEp,
   createDownloadBatchEp,
   downloadsEp,
+  favoriteCoverEp,
   pauseEp,
   quotaEp,
   retryAllDownloadsEp,
 } from "@/api/downloads";
+import { galleryThumbEp } from "@/api/galleries";
 import { reloadTagsEp, startTagSyncEp, tagsSearchEp } from "@/api/library";
 import {
   expectControlHeights,
@@ -43,10 +45,29 @@ import {
 
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
 
+/** 16x21 PNG used by the local-thumbnail and remote-cover fixtures. */
+const COVER_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAVCAIAAADAXPmFAAAAH0lEQVR42mMoSAojCTGMaiBGg4eVHkloVMOohgHTAABn5RuQqvjj3gAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function localCover(galleryId: number): string {
+  return galleryThumbEp.path.replace("{id}", String(galleryId)).replace("{id}", "0");
+}
+
+function remoteCover(gid: number, token: string): string {
+  return `${favoriteCoverEp.path}?${new URLSearchParams({
+    gid: String(gid),
+    token,
+  }).toString()}`;
+}
+
 const TASKS = [
   {
     id: 1,
     gid: 800001,
+    gallery_id: null,
+    cover_url: remoteCover(800001, "token800001"),
     title: "Sunset Sketchbook — a very long title that has to be clipped at 390",
     status: "downloading",
     retry_count: 0,
@@ -63,6 +84,8 @@ const TASKS = [
   {
     id: 2,
     gid: 800002,
+    gallery_id: null,
+    cover_url: null,
     title: "Night Market Diaries",
     status: "pending",
     retry_count: 0,
@@ -77,6 +100,8 @@ const TASKS = [
   {
     id: 3,
     gid: 800003,
+    gallery_id: 300003,
+    cover_url: localCover(300003),
     title: "Archive Collection Vol. 3",
     status: "success",
     retry_count: 0,
@@ -91,6 +116,8 @@ const TASKS = [
   {
     id: 4,
     gid: 800004,
+    gallery_id: null,
+    cover_url: remoteCover(800004, "token800004"),
     title: "Gone Gallery",
     status: "failed",
     retry_count: 3,
@@ -105,6 +132,8 @@ const TASKS = [
   {
     id: 5,
     gid: 800005,
+    gallery_id: 300005,
+    cover_url: localCover(300005),
     title: "Cancelled Download",
     status: "cancelled",
     retry_count: 1,
@@ -170,6 +199,21 @@ async function installMock(page: Page): Promise<void> {
         error: null,
         cached: true,
       });
+      return;
+    }
+    // DL-09: local thumbnails and the gid-based remote cover fallback both
+    // return a real image; the failed row deliberately 404s to prove the
+    // placeholder path.
+    if (/^\/api\/galleries\/\d+\/thumb\/0$/.test(path) && method === "GET") {
+      await route.fulfill({ status: 200, contentType: "image/png", body: COVER_PNG });
+      return;
+    }
+    if (path === favoriteCoverEp.path && method === "GET") {
+      if (url.searchParams.get("gid") === "800004") {
+        await route.fulfill({ status: 404, contentType: "text/plain", body: "" });
+      } else {
+        await route.fulfill({ status: 200, contentType: "image/png", body: COVER_PNG });
+      }
       return;
     }
     if (path === downloadsEp.path && method === "GET") {
@@ -466,6 +510,47 @@ test("@polish-downloads-tags downloads: every status renders its own icon and pr
   await expect(meta).toContainText("12/40");
   await expect(meta).toContainText("1.5 MB/s");
   await expect(page.locator('[data-status="downloading"] .download-item__fill')).toHaveCount(1);
+
+  expect(csp).toEqual([]);
+});
+
+test("@downloads finished local rows open the gallery and thumbnails stay lazy", async ({
+  page,
+}) => {
+  const csp = watchCsp(page);
+  await openDownloads(page);
+
+  // DL-09: the local thumbnail is a lazy <img>, not an eager preload.
+  const localThumb = page.locator(
+    '[data-status="success"] [data-testid="downloads-thumb"] img',
+  );
+  await expect(localThumb).toBeVisible();
+  await expect(localThumb).toHaveAttribute("loading", "lazy");
+  await expect(localThumb).toHaveJSProperty("naturalWidth", 16);
+
+  // A missing cover and a 404 remote cover both render the placeholder.
+  await expect(page.locator('[data-status="pending"] .thumb__empty')).toBeVisible();
+  await expect(page.locator('[data-status="failed"] .thumb__empty')).toBeVisible();
+
+  await page.screenshot({
+    path: join(SHOTS, "downloads-gallery-fields-1280.png"),
+  });
+
+  // DL-04: only the finished, locally ingested row offers "open".
+  const open = page.getByTestId("downloads-open");
+  await expect(open).toHaveCount(1);
+  await open.click();
+  await expect(page).toHaveURL(/#\/gallery\/300003$/);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/downloads");
+  await expect(page.getByTestId("downloads-list")).toBeVisible();
+  await expect(
+    page.locator('[data-status="success"] [data-testid="downloads-thumb"] img'),
+  ).toBeVisible();
+  await page.screenshot({
+    path: join(SHOTS, "downloads-gallery-fields-390.png"),
+  });
 
   expect(csp).toEqual([]);
 });

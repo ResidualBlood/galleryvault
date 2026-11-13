@@ -19,6 +19,7 @@ import Skeleton from "@/components/ui/Skeleton.vue";
 import TextArea from "@/components/ui/TextArea.vue";
 import Toolbar from "@/components/ui/Toolbar.vue";
 import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
+import GalleryThumb from "@/views/updates/components/GalleryThumb.vue";
 import { PAGE_SIZES, clampPageSize } from "@/stores/library";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
@@ -38,9 +39,11 @@ import {
   type DownloadTask,
   type QuotaInfo,
 } from "@/api/downloads";
+import { ensureMaintenanceMessages } from "@/views/updates/i18n";
 import { ensureDownloadsMessages } from "./messages";
 import { startVisiblePolling, type VisiblePoller } from "./poll";
 import {
+  canOpenGallery,
   errorSummary,
   formatDuration,
   formatSpeed,
@@ -49,6 +52,8 @@ import {
 } from "./format";
 
 ensureDownloadsMessages();
+// The reused GalleryThumb names the empty state from the maintenance namespace.
+ensureMaintenanceMessages();
 
 const { t } = useI18n();
 const route = useRoute();
@@ -225,6 +230,11 @@ function metaText(task: DownloadTask): string {
 
 function progressOf(task: DownloadTask): number | null {
   return taskPercent(task.current_page, task.total_pages);
+}
+
+function openGallery(task: DownloadTask): void {
+  if (!canOpenGallery(task) || task.gallery_id == null) return;
+  void router.push({ name: "gallery", params: { id: task.gallery_id } });
 }
 
 function isSelected(id: number): boolean {
@@ -777,6 +787,13 @@ onBeforeUnmount(() => {
             @change="(checked: boolean) => toggleSelected(task.id, checked)"
           />
 
+          <GalleryThumb
+            class="download-item__thumb"
+            data-testid="downloads-thumb"
+            :src="task.cover_url"
+            :alt="task.title || `gid ${task.gid}`"
+          />
+
           <div class="download-item__main">
             <div class="download-item__head">
               <h3 class="download-item__title" :title="task.title">
@@ -855,6 +872,14 @@ onBeforeUnmount(() => {
               size="sm"
               data-testid="downloads-retry"
               @click="retry(task.id)"
+            />
+            <IconButton
+              v-if="canOpenGallery(task)"
+              :label="t('downloads.page.open')"
+              name="external-link"
+              size="sm"
+              data-testid="downloads-open"
+              @click="openGallery(task)"
             />
             <IconButton
               :label="t('legacy.deleteDl')"
@@ -1081,7 +1106,7 @@ onBeforeUnmount(() => {
 
 .download-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--gv-space-2);
   min-height: calc(var(--gv-size-control-lg) * 2);
@@ -1102,6 +1127,11 @@ onBeforeUnmount(() => {
 
 .download-item__check {
   min-height: 0;
+}
+
+.download-item__thumb {
+  width: 48px;
+  height: 62px;
 }
 
 .download-item__main {
@@ -1289,6 +1319,11 @@ onBeforeUnmount(() => {
     min-height: calc(var(--gv-type-title-small-line) * 2);
     overflow: hidden;
     white-space: normal;
+  }
+
+  .download-item__thumb {
+    width: 40px;
+    height: 52px;
   }
 
   .download-item__actions {

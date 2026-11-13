@@ -62,6 +62,18 @@ export function formatDuration(seconds?: number | null): string {
   return `${secs}s`;
 }
 
+/** DL-04: only a finished download that exists in the local library can open. */
+export function canOpenGallery(task: {
+  status: string;
+  gallery_id?: number | null;
+}): boolean {
+  return (
+    task.status === "success" &&
+    typeof task.gallery_id === "number" &&
+    task.gallery_id > 0
+  );
+}
+
 export function taskPercent(currentPage?: number | null, totalPages?: number | null): number | null {
   if (!totalPages || totalPages <= 0) return null;
   const current = Math.max(0, currentPage ?? 0);

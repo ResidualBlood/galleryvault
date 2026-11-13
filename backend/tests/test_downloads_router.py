@@ -138,6 +138,49 @@ async def test_downloads_router_list_downloads_cleans_titles(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_downloads_router_list_exposes_gallery_id_and_cover(monkeypatch):
+    rows = [
+        {
+            "id": 1,
+            "gid": 1001,
+            "token": "abc12345",
+            "title": "Local gallery",
+            "status": "success",
+            "gallery_id": 42,
+        },
+        {
+            "id": 2,
+            "gid": 1002,
+            "token": "def67890",
+            "title": "Remote only",
+            "status": "success",
+            "gallery_id": None,
+        },
+    ]
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def list_page(self, page, page_size, status):
+            return len(rows), rows
+
+    async def fake_get_session():
+        yield None
+
+    monkeypatch.setattr(downloads_router, "get_session", fake_get_session)
+    monkeypatch.setattr(downloads_router, "DownloadRepository", FakeRepo)
+    monkeypatch.setattr(downloads_router.app_state, "downloader", None)
+
+    res = await downloads_router.list_downloads(page=1, page_size=24, status=None)
+    local, remote = res["items"]
+    assert local["gallery_id"] == 42
+    assert local["cover_url"] == "/api/galleries/42/thumb/0"
+    assert remote["gallery_id"] is None
+    assert remote["cover_url"] == "/api/favorites/cover?gid=1002&token=def67890"
+
+
+@pytest.mark.asyncio
 async def test_download_repository_progress_archive_fallback():
     class FakeRow:
         def __init__(self):
@@ -188,7 +231,7 @@ async def test_download_repository_list_page_archive_fallback():
 
     class FakeResult:
         def all(self):
-            return [(task, "Test Title", None)]
+            return [(task, "Test Title", None, 77)]
 
     class FakeSession:
         async def scalar(self, stmt):
@@ -203,6 +246,8 @@ async def test_download_repository_list_page_archive_fallback():
     assert len(items) == 1
     assert items[0]["archive_fallback"] is True
     assert items[0].archive_fallback is True
+    assert items[0]["gallery_id"] == 77
+    assert items[0].gallery_id == 77
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,8 @@
 import { ep, request } from "./client";
 
 export const downloadsEp = ep("GET", "/api/downloads");
+/** Remote cover fallback for download rows that are not in the library. */
+export const favoriteCoverEp = ep("GET", "/api/favorites/cover");
 export const createDownloadEp = ep("POST", "/api/downloads");
 export const createDownloadBatchEp = ep("POST", "/api/downloads/batch");
 export const cancelDownloadEp = ep("POST", "/api/downloads/{id}/cancel");
@@ -29,6 +31,10 @@ export type DownloadStatus =
 export interface DownloadTask {
   id: number;
   gid: number;
+  /** Local gallery primary key when this gid is already in the library. */
+  gallery_id?: number | null;
+  /** Local thumbnail when ingested, remote cover fallback otherwise. */
+  cover_url?: string | null;
   title: string;
   status: string;
   retry_count?: number;

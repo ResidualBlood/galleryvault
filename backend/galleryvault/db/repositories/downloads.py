@@ -228,8 +228,15 @@ class DownloadRepository:
             Gallery.title_jpn,
         ).label("effective_title_jpn")
 
+        # ``Gallery.id`` comes from the same outer join, so every page needs a
+        # single query: no per-row lookup for the local gallery id.
         query = (
-            select(DownloadTask, effective_title, effective_title_jpn)
+            select(
+                DownloadTask,
+                effective_title,
+                effective_title_jpn,
+                Gallery.id.label("gallery_id"),
+            )
             .outerjoin(GalleryMetadata, GalleryMetadata.gid == DownloadTask.gid)
             .outerjoin(Gallery, Gallery.gid == DownloadTask.gid)
         )
@@ -242,12 +249,13 @@ class DownloadRepository:
         )
         res = await self.session.execute(query)
         items: list[dict] = []
-        for task, eff_title, eff_title_jpn in res.all():
+        for task, eff_title, eff_title_jpn, gallery_id in res.all():
             items.append(
                 DownloadTaskRow(
                     id=task.id,
                     gid=task.gid,
                     token=task.token,
+                    gallery_id=gallery_id,
                     title=eff_title,
                     title_jpn=eff_title_jpn,
                     status=task.status,

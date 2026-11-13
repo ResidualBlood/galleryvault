@@ -33,7 +33,7 @@ from ..dependencies import (
     resolve_session,
     spawn_task,
 )
-from ..schemas import DownloadBatchRequest, DownloadRequest
+from ..schemas import DownloadBatchRequest, DownloadListResponse, DownloadRequest
 from ..state import app_state
 
 router = APIRouter()
@@ -222,7 +222,7 @@ def _row_val(row: Any, key: str, default: Any = None) -> Any:
     return getattr(row, key, default)
 
 
-@router.get("/api/downloads")
+@router.get("/api/downloads", response_model=DownloadListResponse)
 async def list_downloads(
     page: int = 1,
     page_size: int = 24,
@@ -242,10 +242,20 @@ async def list_downloads(
         title = _row_val(x, "title")
         title_jpn = _row_val(x, "title_jpn")
         gid = _row_val(x, "gid")
+        token = _row_val(x, "token")
+        gallery_id = _row_val(x, "gallery_id")
         is_fallback = bool(_row_val(x, "archive_fallback", False))
+        if gallery_id is not None:
+            cover_url = f"/api/galleries/{int(gallery_id)}/thumb/0"
+        elif gid and token:
+            cover_url = f"/api/favorites/cover?gid={int(gid)}&token={token}"
+        else:
+            cover_url = None
         item: dict[str, Any] = {
             "id": _row_val(x, "id"),
             "gid": gid,
+            "gallery_id": gallery_id,
+            "cover_url": cover_url,
             "title": resolve_display_title(title, title_jpn) or title,
             "status": _row_val(x, "status"),
             "retry_count": _row_val(x, "retry_count", 0),
