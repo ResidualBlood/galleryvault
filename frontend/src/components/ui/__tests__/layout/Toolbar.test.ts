@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
-import { defineComponent, h, inject, nextTick, unref } from "vue";
+import { defineComponent, h, inject, nextTick } from "vue";
 import Toolbar from "../../Toolbar.vue";
 import ToolbarGroup from "../../ToolbarGroup.vue";
+import { gvControlSize } from "../../control-size";
 import { globalPlugins, stubMatchMedia } from "./helpers";
 
 const SizeProbe = defineComponent({
   setup() {
-    const size = inject("gvControlSize");
-    return () => h("span", { class: "size-probe" }, String(unref(size)));
+    const size = inject(gvControlSize);
+    return () => h("span", { class: "size-probe" }, String(size?.value));
   },
 });
 

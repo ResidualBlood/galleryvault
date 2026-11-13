@@ -13,13 +13,6 @@ export interface ToolbarContext {
   unregister: (id: number) => void;
 }
 
-/**
- * The control ladder key shared with po-controls. Controls inject
- * `gvControlSize` (a `Ref<ControlSize>`) and inherit the toolbar step when
- * they do not set their own size.
- */
-export const GV_CONTROL_SIZE_KEY = "gvControlSize";
-
 export const TOOLBAR_CONTEXT: InjectionKey<ToolbarContext> = Symbol("gvToolbar");
 </script>
 
@@ -27,13 +20,18 @@ export const TOOLBAR_CONTEXT: InjectionKey<ToolbarContext> = Symbol("gvToolbar")
 import { computed, defineComponent, markRaw, onBeforeUnmount, onMounted, provide, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Menu from "./Menu.vue";
+import { provideControlSize, resolveControlSize, type ControlSizeProp } from "./control-size";
 import { ensureLayoutMessages } from "./i18n/layout";
 
 ensureLayoutMessages();
 
 const props = withDefaults(
   defineProps<{
-    size?: "lg" | "md" | "sm";
+    /**
+     * Control ladder step for every descendant control. `lg` / `md` / `sm` are
+     * the working steps; the legacy `compact` / `small` aliases map to `sm`.
+     */
+    size?: ControlSizeProp;
     sticky?: boolean;
     moreLabel?: string;
     moreTestid?: string;
@@ -50,10 +48,7 @@ const props = withDefaults(
 
 const { t } = useI18n();
 
-provide(
-  GV_CONTROL_SIZE_KEY,
-  computed(() => props.size),
-);
+const controlSize = provideControlSize(computed(() => resolveControlSize(props.size)));
 
 const compact = ref(false);
 const overflow = ref<ToolbarOverflowEntry[]>([]);
@@ -103,7 +98,7 @@ onBeforeUnmount(() => {
     class="toolbar"
     :class="{ 'toolbar--sticky': sticky }"
     data-gv-toolbar
-    :data-size="size"
+    :data-size="controlSize"
     :data-testid="testid"
   >
     <slot />
