@@ -4,7 +4,9 @@
     "title": "浏览",
     "latest": "最近入库",
     "random": "随机一本",
-    "randomFailed": "随机打开失败，请稍后重试。"
+    "randomFailed": "随机打开失败，请稍后重试。",
+    "viewAllTags": "查看全部",
+    "tagCount": "{count} 个标签"
   },
   "continueReading": {
     "title": "继续阅读",

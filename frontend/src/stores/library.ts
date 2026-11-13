@@ -17,6 +17,24 @@ export const GRID_GAP = 12;
 /** Cover (3:4) + two title lines + one meta line + padding, see GalleryCard. */
 export const GRID_CARD_INFO_HEIGHT = 76;
 
+/** Fixed row heights for the three collection views (DESIGN.md C18). */
+export const LIST_ROW_HEIGHT = 152;
+export const LIST_ROW_HEIGHT_COMPACT = 132;
+export const TABLE_ROW_HEIGHT = 56;
+/** Below this viewport the compact row heights and list-only fallback apply. */
+export const COMPACT_VIEWPORT = 600;
+
+/**
+ * List query with the tag truncation override added by `be-list-tags`.
+ *
+ * `tags_limit: 0` returns every tag (the browse grid overlay and the list/tag
+ * `+N` math need the full set); the backend keeps `4` as its default so older
+ * callers are unchanged.
+ */
+export interface GalleryListQuery extends GalleryQuery {
+  tags_limit?: number;
+}
+
 /** All query parameters understood by GET /api/galleries. */
 const QUERY_KEYS = [
   "page",
@@ -39,7 +57,8 @@ const QUERY_KEYS = [
   "image_quality",
   "min_local_rating",
   "list_id",
-] as const satisfies readonly (keyof GalleryQuery)[];
+  "tags_limit",
+] as const;
 
 export function clampPageSize(value: unknown, fallback = DEFAULT_PAGE_SIZE): number {
   const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
@@ -84,16 +103,64 @@ export function computeRowHeight(
   return Math.round(width * (4 / 3) + GRID_CARD_INFO_HEIGHT + gap);
 }
 
+/**
+ * Height of one virtual row for a collection view.
+ *
+ * Grid rows grow with the column width (3:4 cover + 76px info + gutter), list
+ * and table rows are fixed by token (see DESIGN.md C18); the compact list row
+ * is the 132px token used below 600px.
+ */
+export function collectionRowHeight(
+  mode: "grid" | "list" | "table",
+  containerWidth: number,
+  columns: number,
+  gap = GRID_GAP,
+  compact = false,
+): number {
+  if (mode === "list") return compact ? LIST_ROW_HEIGHT_COMPACT : LIST_ROW_HEIGHT;
+  if (mode === "table") return TABLE_ROW_HEIGHT;
+  return computeRowHeight(containerWidth, columns, gap);
+}
+
+/** Row index of the first partly visible row (0 when scrolled above). */
+export function firstVisibleRow(scrollY: number, canvasTop: number, rowHeight: number): number {
+  if (!Number.isFinite(rowHeight) || rowHeight <= 0) return 0;
+  return Math.max(0, Math.floor(Math.max(0, scrollY - canvasTop) / rowHeight));
+}
+
+/** Item index of the first visible row, used as the view-switch anchor. */
+export function firstVisibleItemIndex(
+  scrollY: number,
+  canvasTop: number,
+  rowHeight: number,
+  columns: number,
+): number {
+  const safeColumns = Math.max(1, Math.trunc(columns) || 1);
+  return firstVisibleRow(scrollY, canvasTop, rowHeight) * safeColumns;
+}
+
+/** Scroll offset that puts `itemIndex` at the top of the viewport. */
+export function scrollTopForItem(
+  itemIndex: number,
+  rowHeight: number,
+  columns: number,
+  canvasTop: number,
+): number {
+  const safeColumns = Math.max(1, Math.trunc(columns) || 1);
+  const row = Math.floor(Math.max(0, itemIndex) / safeColumns);
+  return Math.max(0, canvasTop + row * Math.max(0, rowHeight));
+}
+
 export function canAutoRetry(failures: number): boolean {
   return failures < MAX_INFINITE_ERRORS;
 }
 
 /** Keep only meaningful values; `page` is retained (the request needs it). */
 export function normalizeQuery(
-  input: GalleryQuery,
+  input: GalleryListQuery,
   fallbackPageSize = DEFAULT_PAGE_SIZE,
-): GalleryQuery {
-  const out: GalleryQuery = {
+): GalleryListQuery {
+  const out: GalleryListQuery = {
     page_size: clampPageSize(input.page_size ?? fallbackPageSize),
   };
   for (const key of QUERY_KEYS) {
@@ -117,22 +184,22 @@ export function normalizeQuery(
 }
 
 /** Stable request parameters; empty strings/undefined are omitted. */
-export function buildGalleryQuery(query: GalleryQuery): Record<string, string> {
+export function buildGalleryQuery(query: GalleryListQuery): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of QUERY_KEYS) {
-    const value = query[key];
+    const value = (query as Record<string, unknown>)[key];
     if (value === undefined || value === null || value === "") continue;
     out[key] = String(value);
   }
   return out;
 }
 
-export function buildGalleryQueryString(query: GalleryQuery): string {
+export function buildGalleryQueryString(query: GalleryListQuery): string {
   return new URLSearchParams(buildGalleryQuery(query)).toString();
 }
 
 /** Cache key: everything except the page number. */
-export function queryCacheKey(query: GalleryQuery): string {
+export function queryCacheKey(query: GalleryListQuery): string {
   return buildGalleryQueryString({ ...query, page: undefined });
 }
 
@@ -199,7 +266,7 @@ export const useLibraryStore = defineStore("library-list", () => {
   const failures = ref(0);
   const exhausted = ref(false);
   const currentKey = ref("");
-  const currentQuery = ref<GalleryQuery>({});
+  const currentQuery = ref<GalleryListQuery>({});
 
   let controller: AbortController | null = null;
   let requestSeq = 0;
@@ -276,7 +343,7 @@ export const useLibraryStore = defineStore("library-list", () => {
    * Start (or resume) a list. Remounting after a detail visit reuses the cached
    * items and scroll offset, which is what the back-navigation contract needs.
    */
-  function start(query: GalleryQuery, fallbackPageSize = DEFAULT_PAGE_SIZE): void {
+  function start(query: GalleryListQuery, fallbackPageSize = DEFAULT_PAGE_SIZE): void {
     const next = normalizeQuery(query, fallbackPageSize);
     const key = queryCacheKey(next);
     pageSize.value = next.page_size ?? fallbackPageSize;
