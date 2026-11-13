@@ -129,6 +129,41 @@ export async function expectNoGlyphIcons(
   expect(offenders, "character icons must be replaced by <Icon name=…>").toEqual([]);
 }
 
+/**
+ * Every visible tag chip must keep a readable text run: at least 24px of text
+ * or a fully shown short label (`scrollWidth <= clientWidth + 1`). This is the
+ * regression guard for flex rows squeezing chips down to the namespace dot.
+ */
+export async function expectTagChipsReadable(chips: Locator): Promise<void> {
+  const boxes = await chips.evaluateAll((nodes) =>
+    nodes
+      .filter((node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 1 && rect.height > 1;
+      })
+      .map((node) => {
+        const text = node.querySelector<HTMLElement>(".tag-chip__text");
+        if (!text) return { label: "", width: 0, clientWidth: 0, scrollWidth: 0 };
+        const rect = text.getBoundingClientRect();
+        return {
+          label: (text.textContent ?? "").trim(),
+          width: Math.round(rect.width * 10) / 10,
+          clientWidth: text.clientWidth,
+          scrollWidth: text.scrollWidth,
+        };
+      }),
+  );
+  expect(boxes.length, "expected at least one visible tag chip").toBeGreaterThan(0);
+  for (const box of boxes) {
+    const readable =
+      box.width > 0 && (box.width >= 24 || box.scrollWidth <= box.clientWidth + 1);
+    expect(
+      readable,
+      `tag "${box.label}" text is squeezed to ${box.width}px (scroll ${box.scrollWidth}, client ${box.clientWidth})`,
+    ).toBe(true);
+  }
+}
+
 /** Every visible control in `controls` must use the same ladder step. */
 export async function expectControlHeights(
   controls: Locator,

@@ -8,6 +8,7 @@ import {
   expectNoGlyphIcons,
   expectNoHorizontalOverflow,
   expectRowsAligned,
+  expectTagChipsReadable,
   shotMatrix,
   watchCsp,
 } from "./support/polish";
@@ -255,6 +256,8 @@ test("@polish-library grid tags stay in a hover overlay (LB-12)", async ({ page 
   const overlay = card.getByTestId("card-tag-overlay");
   await expect(overlay).toBeVisible();
   expect(await overlay.locator(".tag-chip").count()).toBeGreaterThan(0);
+  await expect(overlay.getByTestId("tag-list")).toHaveAttribute("data-layout", "wrap");
+  await expectTagChipsReadable(overlay.locator(".tag-chip"));
 });
 
 test("@polish-library card corners never overlap and actions stay off the title", async ({
