@@ -165,7 +165,6 @@ function onPageSize(event: Event): void {
         @blur="submitJump"
         @keydown.enter.prevent="submitJump"
       />
-      <button class="pager__jump-submit" type="submit" tabindex="-1" aria-hidden="true" />
       <span v-if="jumpError" :id="`${testid}-jump-error`" class="pager__error" role="alert">
         {{ jumpError }}
       </span>
@@ -282,15 +281,6 @@ function onPageSize(event: Event): void {
 
 .pager__input--invalid {
   border-color: var(--gv-color-error);
-}
-
-.pager__jump-submit {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
 }
 
 .pager__error {

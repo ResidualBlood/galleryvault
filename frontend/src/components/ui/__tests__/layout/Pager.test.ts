@@ -56,6 +56,29 @@ describe("Pager", () => {
     expect(wrapper.emitted("update:page")?.[0]).toEqual([7]);
   });
 
+  it("submits the jump value on Enter and on blur without a hidden submit control", async () => {
+    const wrapper = mountPager();
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+
+    const input = wrapper.find('[data-pager="jump"]');
+    await input.setValue("4");
+    await input.trigger("keydown.enter");
+    expect(wrapper.emitted("update:page")?.[0]).toEqual([4]);
+
+    await input.setValue("6");
+    await input.trigger("blur");
+    expect(wrapper.emitted("update:page")?.[1]).toEqual([6]);
+  });
+
+  it("rejects an out-of-range jump value on Enter", async () => {
+    const wrapper = mountPager();
+    const input = wrapper.find('[data-pager="jump"]');
+    await input.setValue("99");
+    await input.trigger("keydown.enter");
+    expect(wrapper.emitted("update:page")).toBeUndefined();
+    expect(input.attributes("aria-invalid")).toBe("true");
+  });
+
   it("degrades to previous / next without a total and exposes the date slot", () => {
     const wrapper = mount(Pager, {
       props: { page: 1, totalPages: 0 },
