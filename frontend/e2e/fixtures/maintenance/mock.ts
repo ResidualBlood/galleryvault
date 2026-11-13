@@ -290,6 +290,16 @@ const CROSS_GID = [
   },
 ];
 
+/** Tags used to exercise chips / `+N` / namespace tooltips on both pages. */
+const RICH_TAGS = [
+  { namespace: "female", name: "sole female", display: "单女" },
+  { namespace: "male", name: "sole male", display: "单男" },
+  { namespace: "artist", name: "artist alpha", display: "画师甲" },
+  { namespace: "group", name: "circle beta", display: "社团乙" },
+  { namespace: "parody", name: "series gamma", display: "原作丙" },
+  { namespace: "language", name: "chinese", display: "中文" },
+];
+
 const TRASH = [
   {
     id: 21,
@@ -301,7 +311,8 @@ const TRASH = [
     cover_url: thumb(21),
     trashed_at: "2026-10-01T00:00:00Z",
     storage_path: "/library/trash-one",
-    tags: [],
+    tags: RICH_TAGS,
+    tag_count: RICH_TAGS.length,
   },
   {
     id: 22,
@@ -314,6 +325,7 @@ const TRASH = [
     trashed_at: "2026-10-02T00:00:00Z",
     storage_path: "/library/trash-two",
     tags: [],
+    tag_count: 0,
   },
 ];
 
@@ -327,7 +339,8 @@ const EXPUNGED = [
     cover_url: thumb(31),
     updated_at: "2026-09-01T00:00:00Z",
     storage_path: "/library/expunged-one",
-    tags: [],
+    tags: RICH_TAGS.slice(0, 2),
+    tag_count: 2,
   },
 ];
 
@@ -341,7 +354,7 @@ const INTEGRITY = [
     file_count: 18,
     cover_url: thumb(41),
     storage_path: "/library/integrity-one",
-    tags: [{ namespace: "language", name: "chinese", display: "中文" }],
+    tags: RICH_TAGS.slice(0, 4),
   },
   {
     id: 42,
@@ -407,6 +420,8 @@ function updateList(state: string) {
 export interface MaintenanceMockOptions {
   /** Serve an empty integrity list (with the scan summary still present). */
   integrityEmpty?: boolean;
+  /** Serve empty recycle lists (both trash and expunged). */
+  recycleEmpty?: boolean;
 }
 
 export async function installMaintenanceMock(
@@ -574,11 +589,13 @@ export async function installMaintenanceMock(
     }
 
     if (path === trashGalleriesEp.path && method === "GET") {
-      await json(route, pageOf(TRASH, Number(url.searchParams.get("page") ?? 1), 24));
+      const trash = options.recycleEmpty ? [] : TRASH;
+      await json(route, pageOf(trash, Number(url.searchParams.get("page") ?? 1), 24));
       return;
     }
     if (path === expungedGalleriesEp.path && method === "GET") {
-      await json(route, pageOf(EXPUNGED, Number(url.searchParams.get("page") ?? 1), 24));
+      const expunged = options.recycleEmpty ? [] : EXPUNGED;
+      await json(route, pageOf(expunged, Number(url.searchParams.get("page") ?? 1), 24));
       return;
     }
     if (path === restoreGalleriesEp.path && method === "POST") {

@@ -84,15 +84,17 @@ test("V-17 回收站与已清除列表 @parity", async ({ app }) => {
   const empty = page.getByTestId("recycle-empty");
   const firstItem = page.locator('[data-testid^="recycle-item-"]').first();
   await expect(empty.or(firstItem)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("recycle-restore")).toBeVisible();
-  const purge = page.getByTestId("recycle-purge");
-  await expect(purge).toBeVisible();
 
-  // Purge requires a selection; on an empty bin the control is disabled by
-  // design. Only open the dialog when a recycle-bin row exists to select.
+  // Bulk actions only exist while something is selected (RC-03): the empty
+  // selection has no disabled restore / purge shells.
+  await expect(page.getByTestId("recycle-restore")).toHaveCount(0);
+  await expect(page.getByTestId("recycle-purge")).toHaveCount(0);
+
   if (await firstItem.isVisible().catch(() => false)) {
-    await page.locator('[data-testid^="recycle-select-"]').first().check();
-    await expect(purge).toBeEnabled();
+    await firstItem.locator('input[type="checkbox"]').first().check();
+    const purge = page.getByTestId("recycle-purge");
+    await expect(page.getByTestId("recycle-restore")).toBeVisible();
+    await expect(purge).toBeVisible();
     await purge.click();
     await expect(page.getByTestId("recycle-purge-dialog")).toBeVisible();
     await expect(page.getByTestId("recycle-delete-files")).toBeVisible();
@@ -100,25 +102,28 @@ test("V-17 回收站与已清除列表 @parity", async ({ app }) => {
     await expect(page.getByTestId("recycle-purge-dialog")).toHaveCount(0);
   } else {
     await expect(empty).toBeVisible();
-    await expect(purge).toBeDisabled();
-    annotateUnverified("recycle bin is empty; purge cannot be opened without a selection (disabled by design)");
+    annotateUnverified("recycle bin is empty; purge needs a selection (bulk bar hidden by design)");
   }
 
-  await page.getByTestId("recycle-tab-expunged").click();
-  await expect(page.getByTestId("recycle-redownload")).toBeVisible();
-  // Switching tabs clears the selection, so purge is disabled again unless an
-  // expunged row can be selected.
+  await page
+    .getByTestId("recycle-tabs")
+    .locator('[data-segmented-value="expunged"]')
+    .click();
   const firstExpunged = page.locator('[data-testid^="recycle-item-"]').first();
   await expect(empty.or(firstExpunged)).toBeVisible({ timeout: 20_000 });
-  await expect(purge).toBeDisabled();
+  // Switching tabs clears the selection.
+  await expect(page.getByTestId("recycle-redownload")).toHaveCount(0);
   if (await firstExpunged.isVisible().catch(() => false)) {
-    await page.locator('[data-testid^="recycle-select-"]').first().check();
-    await expect(purge).toBeEnabled();
+    await firstExpunged.locator('input[type="checkbox"]').first().check();
+    await expect(page.getByTestId("recycle-redownload")).toBeVisible();
   } else {
-    annotateUnverified("expunged list is empty; purge stays disabled without a selection");
+    annotateUnverified("expunged list is empty; redownload needs a selection");
   }
 
-  await page.getByTestId("recycle-tab-trash").click();
+  await page
+    .getByTestId("recycle-tabs")
+    .locator('[data-segmented-value="trash"]')
+    .click();
   annotateUnverified("restore / purge / redownload were not confirmed (shared recycle bin)");
   await app.shot("V-17");
 });

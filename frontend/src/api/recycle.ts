@@ -27,6 +27,8 @@ export interface TrashGallery {
   trashed_at?: string | null;
   storage_path?: string | null;
   tags?: RecycleTag[];
+  /** Total tag count when `tags` was truncated by the backend. */
+  tag_count?: number | null;
   reading_progress?: number | null;
 }
 
@@ -40,6 +42,8 @@ export interface ExpungedGallery {
   updated_at?: string | null;
   storage_path?: string | null;
   tags?: RecycleTag[];
+  /** Total tag count when `tags` was truncated by the backend. */
+  tag_count?: number | null;
 }
 
 export interface RecyclePage<T> {
@@ -68,6 +72,8 @@ function pagePath(base: string, page: number, pageSize: number): string {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
+    // be-list-tags: 0 returns every tag so inline chips + `+N` are accurate.
+    tags_limit: "0",
   });
   return `${base}?${params.toString()}`;
 }

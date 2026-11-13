@@ -309,7 +309,7 @@ test.describe("maintenance @maintenance", () => {
     await expect(page.getByTestId("recycle-view")).toBeVisible();
     await expect(page.getByTestId("recycle-item-21")).toContainText("Trash One");
 
-    await page.getByTestId("recycle-select-21").check();
+    await page.getByTestId("recycle-select-21").locator("input").check();
     await page.getByTestId("recycle-restore").click();
     await expect
       .poll(
@@ -321,10 +321,10 @@ test.describe("maintenance @maintenance", () => {
       )
       .toMatchObject({ ids: [21] });
 
-    await page.getByTestId("recycle-select-22").check();
+    await page.getByTestId("recycle-select-22").locator("input").check();
     await page.getByTestId("recycle-purge").click();
     await expect(page.getByTestId("recycle-purge-dialog")).toBeVisible();
-    await page.getByTestId("recycle-delete-files").check();
+    await page.getByTestId("recycle-delete-files").locator("input").check();
     await page.getByTestId("confirm-accept").click();
     await expect
       .poll(
@@ -336,10 +336,13 @@ test.describe("maintenance @maintenance", () => {
       )
       .toMatchObject({ ids: [22], delete_files: true });
 
-    await page.getByTestId("recycle-tab-expunged").click();
+    await page
+      .getByTestId("recycle-tabs")
+      .locator('[data-segmented-value="expunged"]')
+      .click();
     await expect(page).toHaveURL(/tab=expunged/);
     await expect(page.getByTestId("recycle-item-31")).toContainText("Expunged One");
-    await page.getByTestId("recycle-select-31").check();
+    await page.getByTestId("recycle-select-31").locator("input").check();
     await page.getByTestId("recycle-redownload").click();
     await expect
       .poll(
