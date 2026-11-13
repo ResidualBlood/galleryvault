@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script lang="ts">
 export interface ThumbMetrics {
   columns: number;
@@ -240,29 +239,29 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 
-.thumb__index {
-  position: absolute;
-  bottom: var(--gv-space-1);
-  left: var(--gv-space-1);
-  padding: 0 var(--gv-space-1);
-  border-radius: var(--gv-radius-xs);
-  background: color-mix(in srgb, var(--gv-color-surface) 78%, transparent);
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-label-small);
-}
-
+/* GD-09: both corner badges share one frosted surface and sit on the same
+   baseline (page number bottom-left, "last read" bottom-right), so neither
+   covers the middle of the artwork. */
+.thumb__index,
 .thumb__current {
   position: absolute;
-  top: var(--gv-space-1);
-  right: var(--gv-space-1);
+  bottom: var(--gv-space-1);
   max-width: calc(100% - var(--gv-space-2));
   overflow: hidden;
   padding: 0 var(--gv-space-1);
   border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-secondary-container);
-  color: var(--gv-color-on-secondary-container);
+  background: color-mix(in srgb, var(--gv-color-surface) 82%, transparent);
+  color: var(--gv-color-on-surface);
   font: var(--gv-type-label-small);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.thumb__index {
+  left: var(--gv-space-1);
+}
+
+.thumb__current {
+  right: var(--gv-space-1);
 }
 </style>

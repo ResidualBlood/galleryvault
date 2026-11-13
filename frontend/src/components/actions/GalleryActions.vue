@@ -1,11 +1,10 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 /**
  * Unified read / favorite / download row for local and online galleries.
  *
  * Three densities share the same behavior and store state:
  *   - card    overlay row revealed on card hover (always visible on touch)
- *   - detail  full row for details pages
+ *   - detail  full row for detail pages (read CTA + split favourite/download)
  *   - toolbar compact icons for the online reader top bar
  *
  * The host card supplies `favorited` / `favcat` / download fields; afterwards
@@ -15,6 +14,8 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Icon from "@/components/icons/Icon.vue";
+import IconButton from "@/components/ui/IconButton.vue";
 import Sheet from "@/components/ui/Sheet.vue";
 import FavButton from "./FavButton.vue";
 import DownloadButton from "./DownloadButton.vue";
@@ -145,33 +146,23 @@ onBeforeUnmount(clearPress);
     <Button
       v-if="showRead && density === 'detail'"
       variant="filled"
-      size="compact"
+      size="lg"
       :disabled="disabled"
       data-testid="action-read"
       @click="read"
     >
       {{ t("actions.read") }}
     </Button>
-    <button
+    <IconButton
       v-else-if="showRead"
-      type="button"
-      class="gallery-actions__read"
-      :aria-label="t('actions.read')"
+      :label="t('actions.read')"
+      :size="density === 'card' ? 'sm' : 'lg'"
       :disabled="disabled"
       data-testid="action-read"
       @click="read"
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5H6.5A2.5 2.5 0 0 0 4 21z"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.7"
-          stroke-linejoin="round"
-        />
-        <path d="M7 7h9M7 10.5h9" fill="none" stroke="currentColor" stroke-width="1.5" />
-      </svg>
-    </button>
+      <Icon name="visibility" :size="density === 'card' ? 'dense' : 'md'" />
+    </IconButton>
 
     <FavButton
       :gid="gid"
@@ -203,7 +194,6 @@ onBeforeUnmount(clearPress);
     >
       {{ downloadBadge.label }}
     </span>
-
 
     <Sheet
       :open="sheetOpen"
@@ -258,7 +248,7 @@ onBeforeUnmount(clearPress);
 
 .gallery-actions--card {
   justify-content: flex-end;
-  gap: 0;
+  gap: var(--gv-space-1);
   padding: var(--gv-space-1);
   border-radius: var(--gv-radius-full);
   background: color-mix(in srgb, var(--gv-color-surface) 78%, transparent);
@@ -278,38 +268,14 @@ onBeforeUnmount(clearPress);
   }
 }
 
-.gallery-actions__read {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
-  padding: 0;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-on-surface-variant);
-  cursor: pointer;
-}
-
-.gallery-actions--card .gallery-actions__read {
-  width: var(--gv-space-6);
-  height: var(--gv-space-6);
-}
-
-.gallery-actions__read:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-}
-
-.gallery-actions__read svg {
-  width: var(--gv-size-icon-lg);
-  height: var(--gv-size-icon-lg);
+.gallery-actions--detail {
+  gap: var(--gv-space-2);
 }
 
 .gallery-actions__badge {
   display: inline-flex;
   align-items: center;
-  height: var(--gv-size-icon-md);
+  height: var(--gv-size-control-sm);
   padding: 0 var(--gv-space-2);
   border-radius: var(--gv-radius-xs);
   font: var(--gv-type-label-small);
@@ -348,7 +314,14 @@ onBeforeUnmount(clearPress);
 
 .gallery-actions__sheet-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--gv-space-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery-actions--card {
+    transition-duration: 1ms;
+  }
 }
 </style>

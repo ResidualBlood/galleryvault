@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -14,16 +13,20 @@ import {
 } from "@/api/gallery";
 import Button from "@/components/ui/Button.vue";
 import GalleryActions from "@/components/actions/GalleryActions.vue";
-import GalleryDetailLayout from "@/components/gallery/GalleryDetailLayout.vue";
+import GalleryDetailLayout, {
+  type DetailCrumb,
+  type DetailMetaItem,
+} from "@/components/gallery/GalleryDetailLayout.vue";
 import GalleryManageSection from "./extra/GalleryManageSection.vue";
 import TagGroups from "@/components/gallery/TagGroups.vue";
 import ThumbGrid from "@/components/gallery/ThumbGrid.vue";
+import { useTagNavigation } from "@/components/tags/useTagNavigation";
 import { useViewRequest } from "@/composables/useViewRequest";
 import { useUiStore } from "@/stores/ui";
 import {
   categoryKey,
   formatBytes,
-  formatDate,
+  formatPosted,
   formatRating,
   parseGalleryId,
 } from "./format";
@@ -34,12 +37,12 @@ const router = useRouter();
 const ui = useUiStore();
 const request = useViewRequest();
 const { t, te, locale } = useI18n();
+const tagNavigation = useTagNavigation("local");
 
 const gallery = ref<GalleryDetail | null>(null);
 const progress = ref<GalleryProgress | null>(null);
 const loading = ref(true);
 const error = ref(false);
-const coverFailed = ref(false);
 
 const status = computed<"loading" | "ready" | "error">(() => {
   if (loading.value) return "loading";
@@ -56,6 +59,9 @@ const coverUrl = computed(() =>
   gallery.value && pageCount.value > 0 ? galleryThumbUrl(gallery.value.id, 0) : "",
 );
 
+const title = computed(() => gallery.value?.title ?? "");
+const titleTestid = "gallery-title";
+
 const subtitle = computed(() => {
   const item = gallery.value;
   if (!item) return "";
@@ -65,6 +71,10 @@ const subtitle = computed(() => {
   }
   return "";
 });
+
+const crumbs = computed<DetailCrumb[]>(() => [
+  { label: t("app.nav.library"), to: "/library" },
+]);
 
 const category = computed(() => categoryKey(gallery.value?.category));
 
@@ -89,7 +99,7 @@ const continuePage = computed(() => {
 });
 
 const postedLabel = computed(() =>
-  formatDate(gallery.value?.posted_at, locale.value === "zh" ? "zh-CN" : "en-US"),
+  formatPosted(gallery.value?.posted_at, locale.value === "zh" ? "zh-CN" : "en-US"),
 );
 
 const sizeLabel = computed(() =>
@@ -106,6 +116,30 @@ const qualityLabel = computed(() => {
     return t(`gallery.quality.${quality}`);
   }
   return "";
+});
+
+/* GD-05: optional facts (uploader / rating) are dropped instead of repeated as
+   "未知" placeholders; only the post date keeps an explicit "未知" (OD-01), so a
+   page never shows more than one unknown. The layout degrades to a single
+   summary line when fewer than two rows survive. */
+const meta = computed<DetailMetaItem[]>(() => {
+  const item = gallery.value;
+  if (!item) return [];
+  const rows: DetailMetaItem[] = [];
+  if (item.uploader) rows.push({ label: t("gallery.meta.uploader"), value: item.uploader });
+  rows.push({
+    label: t("gallery.meta.posted"),
+    value: postedLabel.value || t("gallery.unknown"),
+  });
+  if (pageCount.value > 0) {
+    rows.push({ label: t("gallery.meta.pages"), value: String(pageCount.value) });
+  }
+  if (sizeLabel.value) rows.push({ label: t("gallery.meta.size"), value: sizeLabel.value });
+  if (ratingLabel.value) {
+    rows.push({ label: t("gallery.meta.rating"), value: ratingLabel.value, icon: "star" });
+  }
+  if (qualityLabel.value) rows.push({ label: t("gallery.meta.quality"), value: qualityLabel.value });
+  return rows;
 });
 
 function fallbackProgress(detail: GalleryDetail): GalleryProgress {
@@ -133,10 +167,7 @@ function readFromStart(): void {
 }
 
 function selectTag(tag: GalleryTag): void {
-  void router.push({
-    name: "library",
-    query: { tags: `${tag.namespace}:${tag.name}`, tag_mode: "and" },
-  });
+  void tagNavigation.navigate(tag);
 }
 
 function invalid(): void {
@@ -155,7 +186,6 @@ async function load(): Promise<void> {
   const context = request.begin("gallery", String(id));
   loading.value = true;
   error.value = false;
-  coverFailed.value = false;
   try {
     const [detailResult, progressResult] = await Promise.allSettled([
       getGallery(id, { signal: context.signal }),
@@ -198,73 +228,35 @@ onBeforeUnmount(() => {
 <template>
   <GalleryDetailLayout
     :status="status"
+    :title="title"
+    :title-testid="titleTestid"
+    subtitle-testid="gallery-subtitle"
+    :subtitle="subtitle"
+    :crumbs="crumbs"
+    back-fallback="/library"
+    :cover-url="coverUrl"
+    :cover-alt="t('gallery.coverAlt', { title })"
+    cover-testid="gallery-cover"
+    cover-fallback-testid="gallery-cover-fallback"
+    :cover-fallback-label="t('gallery.coverMissing')"
+    :meta="meta"
     :error-title="t('gallery.loadFailed')"
     @retry="load"
   >
-    <template #header>
-      <article v-if="gallery" class="gallery-header">
-        <div class="gallery-header__cover">
-          <img
-            v-if="coverUrl && !coverFailed"
-            class="gallery-header__image"
-            data-testid="gallery-cover"
-            :src="coverUrl"
-            :alt="t('gallery.coverAlt', { title: gallery.title })"
-            @error="coverFailed = true"
-          />
-          <div v-else class="gallery-header__fallback" data-testid="gallery-cover-fallback">
-            <span>{{ t("gallery.coverMissing") }}</span>
-          </div>
-        </div>
-
-        <div class="gallery-header__info">
-          <span class="gallery-header__category" :style="categoryStyle">
-            {{ categoryLabel() }}
-          </span>
-          <h1 class="gallery-header__title" data-testid="gallery-title">
-            {{ gallery.title }}
-          </h1>
-          <p v-if="subtitle" class="gallery-header__subtitle" data-testid="gallery-subtitle">
-            {{ subtitle }}
-          </p>
-
-          <dl class="gallery-header__meta">
-            <div class="gallery-header__meta-item">
-              <dt>{{ t("gallery.meta.uploader") }}</dt>
-              <dd>{{ gallery.uploader || t("gallery.unknown") }}</dd>
-            </div>
-            <div class="gallery-header__meta-item">
-              <dt>{{ t("gallery.meta.posted") }}</dt>
-              <dd>{{ postedLabel || t("gallery.unknown") }}</dd>
-            </div>
-            <div class="gallery-header__meta-item">
-              <dt>{{ t("gallery.meta.pages") }}</dt>
-              <dd>{{ pageCount }}</dd>
-            </div>
-            <div class="gallery-header__meta-item">
-              <dt>{{ t("gallery.meta.size") }}</dt>
-              <dd>{{ sizeLabel || t("gallery.unknown") }}</dd>
-            </div>
-            <div class="gallery-header__meta-item">
-              <dt>{{ t("gallery.meta.rating") }}</dt>
-              <dd>{{ ratingLabel || t("gallery.unknown") }}</dd>
-            </div>
-            <div v-if="qualityLabel" class="gallery-header__meta-item">
-              <dt>{{ t("gallery.meta.quality") }}</dt>
-              <dd>{{ qualityLabel }}</dd>
-            </div>
-          </dl>
-        </div>
-      </article>
+    <template #badges>
+      <span v-if="gallery" class="gallery-detail__category" :style="categoryStyle">
+        {{ categoryLabel() }}
+      </span>
     </template>
 
     <template #actions>
-      <div v-if="gallery" class="gallery-actions">
+      <template v-if="gallery">
         <Button data-testid="continue-reading" variant="filled" @click="continueReading">
           {{ hasProgress ? t("gallery.continueReading") : t("gallery.read") }}
         </Button>
         <Button
           v-if="hasProgress"
+          class="gallery-detail__restart"
           data-testid="read-from-start"
           variant="outlined"
           @click="readFromStart"
@@ -284,170 +276,84 @@ onBeforeUnmount(() => {
           :in-library="true"
           download-status="success"
         />
-      </div>
+      </template>
     </template>
 
     <template #tags>
-      <div v-if="gallery" class="gallery-section">
-        <div class="gallery-section__head">
-          <h2 class="gallery-section__title">{{ t("gallery.tags") }}</h2>
+      <div v-if="gallery" class="gallery-detail__section">
+        <div class="gallery-detail__head">
+          <h2 class="gallery-detail__title">{{ t("gallery.tags") }}</h2>
         </div>
-        <TagGroups :tags="gallery.tags ?? []" @select="selectTag" />
+        <TagGroups :tags="gallery.tags ?? []" source="local" @select="selectTag" />
       </div>
     </template>
 
-    <template #extra>
-      <GalleryManageSection v-if="gallery" :gallery="gallery" @refresh="load" />
-    </template>
-
     <template #thumbs>
-      <div v-if="gallery" class="gallery-section">
-        <div class="gallery-section__head">
-          <h2 class="gallery-section__title">{{ t("gallery.thumbs") }}</h2>
-          <span class="gallery-section__count">
+      <div v-if="gallery" class="gallery-detail__section">
+        <div class="gallery-detail__head">
+          <h2 class="gallery-detail__title">{{ t("gallery.thumbs") }}</h2>
+          <span class="gallery-detail__count">
             {{ t("gallery.thumbsCount", { count: pageCount }) }}
           </span>
         </div>
         <ThumbGrid
           :gallery-id="gallery.id"
           :pages="gallery.pages ?? []"
-          :current-page="progress?.current_page ?? -1"
+          :current-page="hasProgress ? (progress?.current_page ?? -1) : -1"
           @select="openPage"
         />
       </div>
+    </template>
+
+    <template #extra>
+      <GalleryManageSection v-if="gallery" :gallery="gallery" @refresh="load" />
     </template>
   </GalleryDetailLayout>
 </template>
 
 <style scoped>
-.gallery-header {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--gv-space-4);
-}
-
-.gallery-header__cover {
-  width: min(180px, 45vw);
-}
-
-.gallery-header__image,
-.gallery-header__fallback {
-  display: block;
-  width: 100%;
-  aspect-ratio: var(--gv-size-card-cover-aspect);
-  border-radius: var(--gv-radius-md);
-  background: var(--gv-color-surface-container-highest);
-}
-
-.gallery-header__image {
-  object-fit: cover;
-}
-
-.gallery-header__fallback {
-  display: flex;
+.gallery-detail__category {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: var(--gv-space-2);
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
-  text-align: center;
-}
-
-.gallery-header__info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-2);
-  min-width: 0;
-}
-
-.gallery-header__category {
-  align-self: flex-start;
-  height: 24px;
+  height: var(--gv-size-tag-lg);
   padding: 0 var(--gv-space-2);
   border-radius: var(--gv-radius-xs);
   background: var(--category-bg, var(--gv-cat-misc));
   color: var(--category-ink, var(--gv-cat-misc-ink));
   font: var(--gv-type-label-small);
-  line-height: 24px;
 }
 
-.gallery-header__title {
-  margin: 0;
-  font: var(--gv-type-headline-small);
-  color: var(--gv-color-on-surface);
-  overflow-wrap: anywhere;
+/* --gv-bp-compact = 600px: "restart" is the secondary read entry and yields
+   to the primary CTA + the two quick actions on one mobile row (GD-03). */
+@media (max-width: 599.98px) {
+  .gallery-detail__restart {
+    display: none;
+  }
 }
 
-.gallery-header__subtitle {
-  margin: 0;
-  font: var(--gv-type-body-medium);
-  color: var(--gv-color-on-surface-variant);
-  overflow-wrap: anywhere;
-}
-
-.gallery-header__meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--gv-space-2) var(--gv-space-4);
-  margin: var(--gv-space-2) 0 0;
-}
-
-.gallery-header__meta-item {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.gallery-header__meta-item dt {
-  font: var(--gv-type-label-medium);
-  color: var(--gv-color-on-surface-variant);
-}
-
-.gallery-header__meta-item dd {
-  margin: 0;
-  font: var(--gv-type-body-medium);
-  color: var(--gv-color-on-surface);
-  overflow-wrap: anywhere;
-}
-
-.gallery-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gv-space-2);
-}
-
-.gallery-section {
+.gallery-detail__section {
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-3);
+  min-width: 0;
 }
 
-.gallery-section__head {
+.gallery-detail__head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  justify-content: space-between;
   gap: var(--gv-space-2);
 }
 
-.gallery-section__title {
+.gallery-detail__title {
   margin: 0;
-  font: var(--gv-type-title-medium);
   color: var(--gv-color-on-surface);
+  font: var(--gv-type-title-medium);
 }
 
-.gallery-section__count {
-  font: var(--gv-type-body-small);
+.gallery-detail__count {
   color: var(--gv-color-on-surface-variant);
-}
-
-@media (min-width: 840px) {
-  .gallery-header {
-    grid-template-columns: 176px minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .gallery-header__cover {
-    width: 176px;
-  }
+  font: var(--gv-type-body-small);
 }
 </style>

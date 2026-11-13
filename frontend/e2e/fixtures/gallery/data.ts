@@ -2,14 +2,18 @@ import type { GalleryDetail, GalleryPage } from "../../../src/api/gallery";
 
 export const SMALL_GALLERY_ID = 2;
 export const LARGE_GALLERY_ID = 1;
+/** Only uploader-independent facts: no uploader, no post date, no rating. */
+export const SPARSE_GALLERY_ID = 3;
 
+/* `display` is what the backend tag translation service returns; the zh UI
+   shows it, every other locale falls back to `name` (DESIGN C07). */
 const TAGS = [
-  { namespace: "artist", name: "zeta" },
-  { namespace: "uploader", name: "fixture-uploader" },
-  { namespace: "female", name: "heroine" },
-  { namespace: "parody", name: "fixture-series" },
-  { namespace: "misc", name: "full color" },
-  { namespace: "artist", name: "alpha" },
+  { namespace: "artist", name: "zeta", display: "泽塔" },
+  { namespace: "uploader", name: "fixture-uploader", display: null },
+  { namespace: "female", name: "heroine", display: "女主角" },
+  { namespace: "parody", name: "fixture-series", display: "示例系列" },
+  { namespace: "misc", name: "full color", display: "全彩" },
+  { namespace: "artist", name: "alpha", display: "阿尔法" },
 ];
 
 function pages(count: number): GalleryPage[] {
@@ -26,6 +30,7 @@ function gallery(
   title: string,
   count: number,
   uploader: string,
+  overrides: Partial<GalleryDetail> = {},
 ): GalleryDetail {
   return {
     id,
@@ -43,6 +48,7 @@ function gallery(
     image_quality: "original",
     tags: TAGS,
     pages: pages(count),
+    ...overrides,
   };
 }
 
@@ -59,11 +65,19 @@ export const GALLERIES: Record<number, GalleryDetail> = {
     1000,
     "fixture-uploader",
   ),
+  [SPARSE_GALLERY_ID]: gallery(
+    SPARSE_GALLERY_ID,
+    "Sparse Detail Fixture",
+    5,
+    "",
+    { posted_at: null, rating: null, image_quality: null, tags: [] },
+  ),
 };
 
 export const DEFAULT_PROGRESS: Record<number, number> = {
   [SMALL_GALLERY_ID]: 3,
   [LARGE_GALLERY_ID]: 640,
+  [SPARSE_GALLERY_ID]: 0,
 };
 
 export function thumbnailSvg(index = 0): string {

@@ -1,4 +1,3 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
@@ -8,6 +7,7 @@ import Dialog from "@/components/ui/Dialog.vue";
 import Input from "@/components/ui/Input.vue";
 import Select from "@/components/ui/Select.vue";
 import Switch from "@/components/ui/Switch.vue";
+import TextArea from "@/components/ui/TextArea.vue";
 import { ApiError } from "@/api/client";
 import {
   deleteGallery,
@@ -44,7 +44,7 @@ const localError = ref("");
 
 const ratingOptions = computed(() => [
   { value: "", label: "—" },
-  ...[1, 2, 3, 4, 5].map((value) => ({ value: String(value), label: `${value}★` })),
+  ...[1, 2, 3, 4, 5].map((value) => ({ value: String(value), label: String(value) })),
 ]);
 
 function syncLocalFields(gallery: GalleryDetail): void {
@@ -262,44 +262,16 @@ async function confirmDelete(): Promise<void> {
   <section class="manage" data-testid="gallery-manage">
     <div class="manage__head">
       <h2 class="manage__title">{{ t("legacy.more") }}</h2>
-      <div class="manage__actions">
+      <div class="manage__actions" data-gv-toolbar="manage-actions">
         <Button
-          variant="outlined"
-          size="compact"
-          data-testid="sync-tags"
-          :loading="busy"
-          @click="syncTags"
-        >
-          {{ t("legacy.syncTags") }}
-        </Button>
-        <Button
-          variant="outlined"
-          size="compact"
+          variant="tonal"
+          size="sm"
+          icon="downloads"
           data-testid="redownload"
           :loading="busy"
           @click="redownload"
         >
           {{ t("libraryManage.redownload") }}
-        </Button>
-        <Button
-          v-if="gallery.gid"
-          variant="outlined"
-          size="compact"
-          data-testid="download-original"
-          :loading="busy"
-          @click="downloadOriginal(false)"
-        >
-          {{ t("legacy.dlOrig") }}
-        </Button>
-        <Button
-          v-if="gallery.gid"
-          variant="outlined"
-          size="compact"
-          data-testid="download-original-archive"
-          :loading="busy"
-          @click="downloadOriginal(true)"
-        >
-          {{ t("legacy.dlOrigArchive") }}
         </Button>
         <a
           class="manage__link"
@@ -310,12 +282,34 @@ async function confirmDelete(): Promise<void> {
           {{ t("legacy.exportCbz") }}
         </a>
         <Button
-          variant="text"
-          size="compact"
-          data-testid="delete-gallery"
-          @click="openDelete"
+          variant="outlined"
+          size="sm"
+          icon="retry"
+          data-testid="sync-tags"
+          :loading="busy"
+          @click="syncTags"
         >
-          {{ t("legacy.deleteGallery") }}
+          {{ t("legacy.syncTags") }}
+        </Button>
+        <Button
+          v-if="gallery.gid"
+          variant="outlined"
+          size="sm"
+          data-testid="download-original"
+          :loading="busy"
+          @click="downloadOriginal(false)"
+        >
+          {{ t("legacy.dlOrig") }}
+        </Button>
+        <Button
+          v-if="gallery.gid"
+          variant="outlined"
+          size="sm"
+          data-testid="download-original-archive"
+          :loading="busy"
+          @click="downloadOriginal(true)"
+        >
+          {{ t("legacy.dlOrigArchive") }}
         </Button>
       </div>
     </div>
@@ -337,13 +331,11 @@ async function confirmDelete(): Promise<void> {
           :placeholder="t('legacy.localTags')"
           data-testid="local-tags"
         />
-        <span class="card__label">{{ t("legacy.localNote") }}</span>
-        <textarea
+        <TextArea
           v-model="localNote"
-          class="card__textarea"
-          rows="3"
+          :label="t('legacy.localNote')"
           :placeholder="t('legacy.localNote')"
-          :aria-label="t('legacy.localNote')"
+          :rows="3"
           data-testid="local-note"
         />
         <p v-if="localError" class="card__error">{{ localError }}</p>
@@ -366,13 +358,17 @@ async function confirmDelete(): Promise<void> {
           <Button
             v-for="list in allLists"
             :key="list.id"
+            class="card__chip"
             :variant="mine.has(list.id) ? 'tonal' : 'outlined'"
-            size="compact"
+            size="sm"
             :disabled="busy"
             :data-testid="`list-toggle-${list.id}`"
             @click="toggleList(list, mine.has(list.id))"
           >
-            {{ mine.has(list.id) ? t("legacy.listRemove") : t("legacy.listAdd") }}: {{ list.name }}
+            <span class="card__chip-label">
+              {{ mine.has(list.id) ? t("legacy.listRemove") : t("legacy.listAdd") }}
+            </span>
+            <span class="card__chip-name" :title="list.name">{{ list.name }}</span>
           </Button>
         </div>
       </section>
@@ -398,6 +394,19 @@ async function confirmDelete(): Promise<void> {
           </Button>
         </template>
       </section>
+    </div>
+
+    <div class="manage__footer">
+      <Button
+        variant="text"
+        size="sm"
+        danger
+        icon="delete"
+        data-testid="delete-gallery"
+        @click="openDelete"
+      >
+        {{ t("legacy.deleteGallery") }}
+      </Button>
     </div>
 
     <Dialog
@@ -458,13 +467,15 @@ async function confirmDelete(): Promise<void> {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--gv-space-1);
+  gap: var(--gv-space-2);
 }
 
+/* GD-08: the export entry is a real download link, laid out on the same `sm`
+   step as the buttons beside it so the row keeps one height and one baseline. */
 .manage__link {
   display: inline-flex;
   align-items: center;
-  height: 32px;
+  height: var(--gv-size-control-sm);
   padding: 0 var(--gv-space-3);
   border: 1px solid var(--gv-color-outline);
   border-radius: var(--gv-radius-full);
@@ -474,7 +485,19 @@ async function confirmDelete(): Promise<void> {
 }
 
 .manage__link:hover {
-  background: var(--gv-color-surface-container-highest);
+  background: color-mix(in srgb, var(--gv-color-on-surface) var(--gv-state-hover), transparent);
+}
+
+.manage__link:focus-visible {
+  outline: var(--gv-state-focus-ring-width) solid var(--gv-color-focus-ring);
+  outline-offset: var(--gv-state-focus-ring-offset);
+}
+
+.manage__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--gv-space-2);
+  border-top: 1px solid var(--gv-color-outline-variant);
 }
 
 .manage__grid {
@@ -496,11 +519,6 @@ async function confirmDelete(): Promise<void> {
   margin: 0;
   color: var(--gv-color-on-surface);
   font: var(--gv-type-label-large);
-}
-
-.card__label {
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-body-small);
 }
 
 .card__hint {
@@ -525,27 +543,29 @@ async function confirmDelete(): Promise<void> {
   min-width: 120px;
 }
 
+/* GD-10: the verb stays in the button label; the list name is a separate
+   truncating span so four buttons no longer differ by 10-15px in width. */
 .card__chips {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--gv-space-2);
 }
 
-.card__textarea {
-  width: 100%;
-  padding: var(--gv-space-2);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container-lowest);
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-medium);
-  resize: vertical;
+.card__chip {
+  justify-content: flex-start;
+  min-width: 0;
 }
 
-.card__textarea:focus {
-  outline: none;
-  border-color: var(--gv-color-primary);
-  box-shadow: 0 0 0 1px var(--gv-color-primary);
+.card__chip-label {
+  flex: none;
+}
+
+.card__chip-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gv-color-on-surface-variant);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .manage__form {

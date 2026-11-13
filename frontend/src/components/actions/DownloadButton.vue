@@ -1,7 +1,8 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
+import Button from "@/components/ui/Button.vue";
 import {
   useDownloadsStore,
   readDefaultQuality,
@@ -13,6 +14,12 @@ import { ensureActionMessages } from "./messages";
 
 ensureActionMessages();
 
+/**
+ * Download control with the quality menu.
+ *
+ * `card` / `toolbar` render one icon-only button; `detail` renders a split
+ * button (icon + label | chevron) sized on the same `lg` step as the read CTA.
+ */
 const props = withDefaults(
   defineProps<{
     gid: number;
@@ -112,10 +119,11 @@ function choose(next: DownloadQuality): void {
 
 <template>
   <span class="dl" :class="`dl--${density}`">
-    <button
-      type="button"
-      class="dl__button"
-      :class="{ 'dl__button--active': busy }"
+    <Button
+      class="dl__main"
+      :class="{ 'dl__main--busy': busy }"
+      :variant="density === 'detail' ? 'outlined' : 'text'"
+      :size="density === 'card' ? 'sm' : 'lg'"
       :aria-label="t('actions.download')"
       :aria-busy="busy || undefined"
       :disabled="disabled"
@@ -123,30 +131,35 @@ function choose(next: DownloadQuality): void {
       :data-status="entry.status"
       @click="start()"
     >
-      <span v-if="busy" class="dl__spinner" aria-hidden="true" />
-      <svg v-else class="dl__icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M11 4h2v9.2l3.3-3.3 1.4 1.4L12 17l-5.7-5.7 1.4-1.4L11 13.2z"
-          fill="currentColor"
+      <template #leading>
+        <span v-if="busy" class="dl__spinner" aria-hidden="true" />
+        <Icon
+          v-else
+          class="dl__icon"
+          name="downloads"
+          :size="density === 'card' ? 'dense' : 'md'"
         />
-        <path d="M5 19h14v2H5z" fill="currentColor" />
-      </svg>
-    </button>
+      </template>
+      <span v-if="density === 'detail'" class="dl__label">{{ t("actions.download") }}</span>
+    </Button>
 
-    <button
-      type="button"
-      class="dl__select"
+    <Button
+      v-if="density === 'detail'"
+      class="dl__toggle"
+      variant="outlined"
+      size="lg"
       :aria-label="t('actions.downloadQuality')"
       :disabled="disabled"
       data-testid="download-quality"
       @click.stop="menuOpen = !menuOpen"
     >
-      <span aria-hidden="true">▾</span>
-    </button>
+      <Icon name="chevron-down" size="md" />
+    </Button>
 
     <div v-if="menuOpen" class="dl__menu" role="menu" data-testid="download-quality-menu">
-      <button
-        type="button"
+      <Button
+        variant="text"
+        size="md"
         class="dl__menu-item"
         :class="{ 'dl__menu-item--selected': quality === 'original' }"
         role="menuitemradio"
@@ -155,9 +168,10 @@ function choose(next: DownloadQuality): void {
         @click="choose('original')"
       >
         {{ t("actions.qualityOriginal") }}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="text"
+        size="md"
         class="dl__menu-item"
         :class="{ 'dl__menu-item--selected': quality === 'resample' }"
         role="menuitemradio"
@@ -166,7 +180,7 @@ function choose(next: DownloadQuality): void {
         @click="choose('resample')"
       >
         {{ t("actions.qualityResample") }}
-      </button>
+      </Button>
     </div>
   </span>
 </template>
@@ -178,40 +192,57 @@ function choose(next: DownloadQuality): void {
   align-items: center;
 }
 
-.dl__button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
+.dl__main {
+  position: relative;
+}
+
+/* Split button: square inner edge, divider from the toggle's left border. */
+.dl--detail .dl__main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-width: 0;
+}
+
+.dl__toggle {
+  width: var(--gv-size-control-lg);
   padding: 0;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: transparent;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.dl--card .dl__main {
+  width: var(--gv-size-control-sm);
+  padding: 0;
+}
+
+.dl--toolbar .dl__main {
+  width: var(--gv-size-control-lg);
+  padding: 0;
+}
+
+/* Icon-only densities read as a neutral glyph; only the busy state adds colour. */
+.dl--card .dl__main,
+.dl--toolbar .dl__main {
   color: var(--gv-color-on-surface-variant);
-  cursor: pointer;
 }
 
-.dl--card .dl__button {
-  width: var(--gv-space-6);
-  height: var(--gv-space-6);
-}
-
-.dl__button:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-}
-
-.dl__button:active {
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
-
-.dl__button--active {
+.dl__main--busy {
   color: var(--gv-color-primary);
 }
 
+.dl__label {
+  white-space: nowrap;
+}
+
+/* The glyph stays neutral like the favourite heart (C06); only the label and
+   the busy state carry the accent colour. Disabled falls back to the button
+   colour so the layered disabled treatment still applies. */
 .dl__icon {
-  width: var(--gv-size-icon-lg);
-  height: var(--gv-size-icon-lg);
+  color: var(--gv-color-on-surface-variant);
+}
+
+.dl__main:disabled .dl__icon {
+  color: inherit;
 }
 
 .dl__spinner {
@@ -230,24 +261,6 @@ function choose(next: DownloadQuality): void {
   }
 }
 
-.dl__select {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-space-5);
-  height: var(--gv-size-touch);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.dl--card .dl__select {
-  display: none;
-}
-
 .dl__menu {
   position: absolute;
   inset-inline-end: 0;
@@ -255,6 +268,7 @@ function choose(next: DownloadQuality): void {
   z-index: 31;
   display: flex;
   flex-direction: column;
+  gap: var(--gv-space-1);
   min-width: 160px;
   padding: var(--gv-space-2);
   border-radius: var(--gv-radius-sm);
@@ -263,22 +277,28 @@ function choose(next: DownloadQuality): void {
 }
 
 .dl__menu-item {
-  min-height: 40px;
-  padding: 0 var(--gv-space-3);
-  border: 0;
-  border-radius: var(--gv-radius-xs);
-  background: transparent;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-label-large);
-  text-align: start;
-  cursor: pointer;
-}
-
-.dl__menu-item:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 8%, transparent);
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .dl__menu-item--selected {
   color: var(--gv-color-primary-text);
+}
+
+@media (max-width: 599.98px) {
+  .dl--detail .dl__main {
+    width: var(--gv-size-control-lg);
+    padding: 0;
+  }
+
+  .dl--detail .dl__label {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dl__spinner {
+    animation-duration: 2s;
+  }
 }
 </style>

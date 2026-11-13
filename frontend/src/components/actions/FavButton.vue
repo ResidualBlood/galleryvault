@@ -1,7 +1,8 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import Icon from "@/components/icons/Icon.vue";
+import Button from "@/components/ui/Button.vue";
 import { useFavoritesStore, parseFavcat, readDefaultFavcat } from "@/stores/favorites";
 import { useUiStore } from "@/stores/ui";
 import FavPicker from "./FavPicker.vue";
@@ -9,6 +10,13 @@ import { ensureActionMessages } from "./messages";
 
 ensureActionMessages();
 
+/**
+ * Favourite control.
+ *
+ * `card` / `toolbar` render one icon-only button; `detail` renders a split
+ * button (icon + label | chevron) whose two segments share the `lg` ladder
+ * height, so the detail action row stays exactly as tall as the read button.
+ */
 const props = withDefaults(
   defineProps<{
     gid: number;
@@ -140,10 +148,11 @@ onBeforeUnmount(clearPress);
 
 <template>
   <span class="fav" :class="`fav--${density}`" :data-testid="`fav-${gid}`">
-    <button
-      type="button"
-      class="fav__button"
-      :class="{ 'fav__button--active': active }"
+    <Button
+      class="fav__main"
+      :class="{ 'fav__main--active': active }"
+      :variant="density === 'detail' ? 'outlined' : 'text'"
+      :size="density === 'card' ? 'sm' : 'lg'"
       :aria-label="label"
       :aria-pressed="active"
       :aria-busy="pending || undefined"
@@ -157,57 +166,57 @@ onBeforeUnmount(clearPress);
       @pointercancel="clearPress"
       @pointerleave="clearPress"
     >
-      <span v-if="pending" class="fav__spinner" aria-hidden="true" />
-      <svg
-        v-else
-        class="fav__heart"
-        :class="{ 'fav__heart--active': active }"
-        :style="heartStyle"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        data-testid="fav-heart"
-        :data-favcat="active ? activeFavcat : undefined"
-      >
-        <path
-          v-if="active"
-          d="M12 21s-7.5-4.6-9.6-8.2C.7 9.5 2.4 5.5 6.1 5.1c2-.2 3.8.8 4.9 2.4 1.1-1.6 2.9-2.6 4.9-2.4 3.7.4 5.4 4.4 3.7 7.7C19.5 16.4 12 21 12 21z"
-          fill="currentColor"
-        />
-        <path
+      <template #leading>
+        <span v-if="pending" class="fav__spinner" aria-hidden="true" />
+        <Icon
           v-else
-          d="M12 20.2s-7-4.3-8.9-7.7C1.6 9.8 3.1 6.4 6.4 6c1.8-.2 3.4.7 4.5 2.2l1.1 1.5 1.1-1.5C14.2 6.7 15.8 5.8 17.6 6c3.3.4 4.8 3.8 3.3 6.5-1.9 3.4-8.9 7.7-8.9 7.7z"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linejoin="round"
+          class="fav__heart"
+          :class="{ 'fav__heart--active': active }"
+          :style="heartStyle"
+          :name="active ? 'favorite' : 'favorite-outline'"
+          :size="density === 'card' ? 'dense' : 'md'"
+          data-testid="fav-heart"
+          :data-favcat="active ? activeFavcat : undefined"
         />
-      </svg>
-    </button>
+      </template>
+      <span v-if="density === 'detail'" class="fav__label">{{ label }}</span>
+    </Button>
 
-    <button
-      type="button"
-      class="fav__select"
+    <Button
+      v-if="density === 'detail'"
+      class="fav__toggle"
+      variant="outlined"
+      size="lg"
       :aria-label="t('actions.favoriteSelect')"
       :disabled="disabled"
       data-testid="fav-select"
       @click.stop="openPicker"
     >
-      <span aria-hidden="true">▾</span>
-    </button>
+      <Icon name="chevron-down" size="md" />
+    </Button>
 
     <div v-if="menuOpen" class="fav__menu" role="menu" data-testid="fav-menu">
-      <button type="button" class="fav__menu-item" role="menuitem" data-testid="fav-move" @click="move">
+      <Button
+        variant="text"
+        size="md"
+        class="fav__menu-item"
+        role="menuitem"
+        data-testid="fav-move"
+        @click="move"
+      >
         {{ t("actions.favoriteMove") }}
-      </button>
-      <button
-        type="button"
-        class="fav__menu-item fav__menu-item--danger"
+      </Button>
+      <Button
+        variant="text"
+        size="md"
+        danger
+        class="fav__menu-item"
         role="menuitem"
         data-testid="fav-remove"
         @click="remove"
       >
         {{ t("actions.favoriteRemove") }}
-      </button>
+      </Button>
     </div>
 
     <FavPicker
@@ -230,45 +239,50 @@ onBeforeUnmount(clearPress);
   align-items: center;
 }
 
-.fav__button {
+.fav__main {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-size-touch);
-  height: var(--gv-size-touch);
+}
+
+/* The split button reads as one outlined pill: both segments share the outer
+   radius, the inner edge is square and the divider is the toggle's border. */
+.fav--detail .fav__main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-width: 0;
+}
+
+.fav__toggle {
+  width: var(--gv-size-control-lg);
   padding: 0;
-  border: 0;
-  border-radius: var(--gv-radius-full);
-  background: transparent;
-  color: var(--gv-color-on-surface-variant);
-  cursor: pointer;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
-.fav--card .fav__button {
-  width: var(--gv-space-6);
-  height: var(--gv-space-6);
+.fav--card .fav__main {
+  width: var(--gv-size-control-sm);
+  padding: 0;
 }
 
-.fav__button:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-}
-
-.fav__button:active {
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
-
-.fav__button--active {
-  color: inherit;
+.fav--toolbar .fav__main {
+  width: var(--gv-size-control-lg);
+  padding: 0;
 }
 
 .fav__heart {
-  width: var(--gv-size-icon-lg);
-  height: var(--gv-size-icon-lg);
+  color: var(--gv-color-on-surface-variant);
+  transition: color var(--gv-motion-duration-short) var(--gv-motion-ease-standard);
 }
 
 .fav__heart--active {
   filter: drop-shadow(0 0 var(--gv-space-xs) var(--gv-color-surface));
+}
+
+.fav__label {
+  white-space: nowrap;
+}
+
+.fav__main:disabled .fav__heart {
+  color: inherit;
 }
 
 .fav__spinner {
@@ -287,24 +301,6 @@ onBeforeUnmount(clearPress);
   }
 }
 
-.fav__select {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--gv-space-5);
-  height: var(--gv-size-touch);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-large);
-  cursor: pointer;
-}
-
-.fav--card .fav__select {
-  display: none;
-}
-
 .fav__menu {
   position: absolute;
   inset-inline-end: 0;
@@ -312,6 +308,7 @@ onBeforeUnmount(clearPress);
   z-index: 31;
   display: flex;
   flex-direction: column;
+  gap: var(--gv-space-1);
   min-width: 180px;
   padding: var(--gv-space-2);
   border-radius: var(--gv-radius-sm);
@@ -320,22 +317,31 @@ onBeforeUnmount(clearPress);
 }
 
 .fav__menu-item {
-  min-height: 40px;
-  padding: 0 var(--gv-space-3);
-  border: 0;
-  border-radius: var(--gv-radius-xs);
-  background: transparent;
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-label-large);
-  text-align: start;
-  cursor: pointer;
+  justify-content: flex-start;
+  width: 100%;
 }
 
-.fav__menu-item:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 8%, transparent);
+/* --gv-bp-compact = 600px: the detail row must stay on one line above the
+   mobile bottom bar, so the split button keeps both segments but drops the
+   label (the aria-label still names it). */
+@media (max-width: 599.98px) {
+  .fav--detail .fav__main {
+    width: var(--gv-size-control-lg);
+    padding: 0;
+  }
+
+  .fav--detail .fav__label {
+    display: none;
+  }
 }
 
-.fav__menu-item--danger {
-  color: var(--gv-color-error);
+@media (prefers-reduced-motion: reduce) {
+  .fav__heart {
+    transition-duration: 1ms;
+  }
+
+  .fav__spinner {
+    animation-duration: 2s;
+  }
 }
 </style>

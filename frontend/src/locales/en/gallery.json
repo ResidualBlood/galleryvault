@@ -60,5 +60,7 @@
     "temp": "Temp",
     "local": "Local",
     "uploader": "Uploader"
-  }
+  },
+  "back": "Back",
+  "breadcrumb": "Breadcrumb"
 }

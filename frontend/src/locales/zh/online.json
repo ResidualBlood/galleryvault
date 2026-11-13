@@ -95,6 +95,8 @@
     "pageOnly": "仅页码",
     "thumbsFailed": "缩略图加载失败",
     "thumbsLoading": "正在加载更多缩略图…",
-    "thumbsEnd": "已加载全部缩略图"
+    "thumbsEnd": "已加载全部缩略图",
+    "back": "返回",
+    "breadcrumb": "面包屑导航"
   }
 }

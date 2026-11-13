@@ -1,8 +1,8 @@
-<!-- gv-polish:pending -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
+import Input from "@/components/ui/Input.vue";
 import {
   useFavoritesStore,
   parseFavcat,
@@ -117,37 +117,37 @@ async function submit(): Promise<void> {
   <div class="fav-panel" data-testid="fav-panel">
     <p v-if="withHeading" class="fav-panel__title">{{ t("actions.favoriteSelect") }}</p>
     <div class="fav-panel__grid" role="radiogroup" :aria-label="t('actions.favoriteSelect')">
-      <button
+      <Button
         v-for="category in categories"
         :key="category.favcat"
-        type="button"
         class="fav-panel__slot"
         :class="{ 'fav-panel__slot--selected': selected === category.favcat }"
+        :variant="selected === category.favcat ? 'tonal' : 'text'"
+        size="md"
         role="radio"
         :aria-checked="selected === category.favcat"
         :data-testid="`fav-cat-${category.favcat}`"
         :data-favcat="category.favcat"
         @click="selected = category.favcat"
       >
-        <span class="fav-panel__dot" :style="{ background: colorFor(category.favcat) }" />
+        <template #leading>
+          <span class="fav-panel__dot" :style="{ background: colorFor(category.favcat) }" />
+        </template>
         <span class="fav-panel__name">{{ folderName(category.favcat, category.name) }}</span>
-        <span v-if="current === category.favcat" class="fav-panel__current">
-          {{ t("actions.current") }}
-        </span>
-      </button>
+        <template v-if="current === category.favcat" #trailing>
+          <span class="fav-panel__current">{{ t("actions.current") }}</span>
+        </template>
+      </Button>
     </div>
 
-    <label class="fav-panel__note">
-      <span class="fav-panel__note-label">{{ t("actions.note") }}</span>
-      <input
-        v-model="note"
-        class="fav-panel__note-input"
-        type="text"
-        maxlength="200"
-        :placeholder="t('actions.notePlaceholder')"
-        data-testid="fav-note"
-      />
-    </label>
+    <Input
+      v-model="note"
+      class="fav-panel__note"
+      :label="t('actions.note')"
+      :placeholder="t('actions.notePlaceholder')"
+      size="md"
+      data-testid="fav-note"
+    />
 
     <div class="fav-panel__footer">
       <Button variant="text" :disabled="submitting" @click="emit('done')">
@@ -193,36 +193,20 @@ async function submit(): Promise<void> {
 }
 
 .fav-panel__slot {
-  display: flex;
-  align-items: center;
-  gap: var(--gv-space-2);
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-2);
-  border: 1px solid transparent;
-  border-radius: var(--gv-radius-sm);
-  background: transparent;
-  color: var(--gv-color-on-surface-variant);
-  font: var(--gv-type-label-large);
-  text-align: start;
-  cursor: pointer;
-}
-
-.fav-panel__slot:hover {
-  background: color-mix(in srgb, var(--gv-color-on-surface) 8%, transparent);
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .fav-panel__slot--selected {
   border-color: var(--gv-color-primary);
-  background: color-mix(in srgb, var(--gv-color-primary) 12%, transparent);
-  color: var(--gv-color-on-surface);
 }
 
 .fav-panel__dot {
   flex: none;
   width: var(--gv-space-3);
   height: var(--gv-space-3);
-  border-radius: var(--gv-radius-full);
   border: 1px solid var(--gv-color-outline);
+  border-radius: var(--gv-radius-full);
 }
 
 .fav-panel__name {
@@ -232,35 +216,12 @@ async function submit(): Promise<void> {
 }
 
 .fav-panel__current {
-  margin-inline-start: auto;
   font: var(--gv-type-label-small);
   color: var(--gv-color-on-surface-variant);
 }
 
 .fav-panel__note {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gv-space-1);
-}
-
-.fav-panel__note-label {
-  font: var(--gv-type-label-medium);
-  color: var(--gv-color-on-surface-variant);
-}
-
-.fav-panel__note-input {
-  min-height: var(--gv-size-touch);
-  padding: 0 var(--gv-space-3);
-  border: 1px solid var(--gv-color-outline);
-  border-radius: var(--gv-radius-xs);
-  background: var(--gv-color-surface-container);
-  color: var(--gv-color-on-surface);
-  font: var(--gv-type-body-medium);
-}
-
-.fav-panel__note-input:focus-visible {
-  outline: var(--gv-state-focus-ring-width) solid var(--gv-color-primary);
-  outline-offset: var(--gv-state-focus-ring-offset);
+  min-width: 0;
 }
 
 .fav-panel__footer {
