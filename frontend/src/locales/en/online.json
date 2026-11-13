@@ -5,6 +5,10 @@
   "searchPlaceholder": "Title, tag or keyword",
   "search": "Search",
   "reset": "Reset",
+  "filter": "Filter",
+  "filtersLabel": "Search filters",
+  "clearSearch": "Clear search",
+  "clearSelection": "Clear selection",
   "listLabel": "List type",
   "list": {
     "search": "Search",

@@ -17,6 +17,19 @@ export const PAGE_CURSOR = "1-2";
 
 const CATEGORIES = ["doujinshi", "manga", "artistcg", "image_set"] as const;
 
+/** Tags the list-page HTML exposes (no extra EH request). */
+const LIST_TAGS: OnlineTag[] = [
+  { namespace: "female", name: "big breasts", display: "巨乳" },
+  { namespace: "artist", name: "fixture-artist", display: "夹具画师" },
+  { namespace: "parody", name: "fixture-series", display: "夹具系列" },
+  { namespace: "character", name: "heroine", display: "女主角" },
+  { namespace: "group", name: "fixture-group", display: "夹具社团" },
+  { namespace: "language", name: "chinese", display: "中文" },
+];
+
+/** One row deliberately has no tag node (minimal list mode). */
+const EMPTY_TAGS: OnlineTag[] = [];
+
 export function searchItem(index: number): OnlineSearchItem {
   const gid = 910000 + index;
   return {
@@ -28,6 +41,9 @@ export function searchItem(index: number): OnlineSearchItem {
     category: CATEGORIES[index % CATEGORIES.length],
     pages: 10 + index,
     rating: 3 + (index % 3) * 0.5,
+    tags: index === 2 ? EMPTY_TAGS : LIST_TAGS,
+    posted: 1761985800 + index * 3600,
+    uploader: "fixture-uploader",
     in_library: index === 4,
     gallery_id: index === 4 ? LOCAL_GALLERY_ID : null,
     favorited: index === 6,

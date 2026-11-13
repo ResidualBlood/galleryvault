@@ -78,7 +78,9 @@ test.describe("online browse @online", () => {
 
     await page.evaluate(() => window.scrollTo(0, 700));
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(700);
-    await page.getByTestId("gallery-card").nth(4).click();
+    // The row's tag line sits on the vertical centre; click the title area so
+    // the card link opens the detail page (tags intentionally search instead).
+    await page.getByTestId("gallery-card").nth(4).click({ position: { x: 200, y: 20 } });
 
     await expect(page).toHaveURL(new RegExp(`#/online/g/\\d+/tok\\d+$`));
     await expect(page.getByTestId("online-title")).toHaveText("Online Detail Fixture");
