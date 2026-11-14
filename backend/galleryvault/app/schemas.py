@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -218,6 +219,7 @@ class FilteredDeleteRequest(BaseModel):
     max_pages: int | None = None
     media_type: str | None = None
     storage_type: str | None = None
+    storage_tier: str | None = None
     min_posted_at: str | None = None
     max_posted_at: str | None = None
     read_status: str | None = None
@@ -395,3 +397,13 @@ class LogLevelRequest(BaseModel):
         self.level = lvl
         return self
 
+
+# ``app.schemas`` is a module while the newer response models live in the
+# ``app/schemas/`` sub-package.  Extend the module search path so
+# ``galleryvault.app.schemas.gallery`` resolves no matter which module is
+# imported first (app.main and app.dependencies contain the same idempotent
+# shim).  The response models live in ``app.schemas.gallery`` /
+# ``app.schemas.updates`` and are imported from there directly.
+_SCHEMAS_SUBPKG = str(Path(__file__).resolve().parent / "schemas")
+if _SCHEMAS_SUBPKG not in globals().get("__path__", []):
+    globals()["__path__"] = [*globals().get("__path__", []), _SCHEMAS_SUBPKG]
