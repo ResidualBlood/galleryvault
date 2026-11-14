@@ -46,6 +46,7 @@
       "delete": "Delete selected",
       "scan": "Scan now",
       "retry": "Retry",
+      "forceUpdate": "Update this row anyway",
       "ignoredPage": "Ignored updates"
     },
     "status": {
@@ -64,11 +65,19 @@
     },
     "toNewer": "new gid",
     "favcat": "#{n} {name}",
+    "pagesCompare": "{old} / {new} pages",
+    "newTitleLabel": "New",
+    "match": {
+      "parentChain": "Official replacement",
+      "title": "Title match · confirm",
+      "ambiguous": "This new version matched {n} local galleries"
+    },
     "empty": "No galleries with updates were found.",
     "message": {
       "selectedRequired": "Select at least one row.",
       "updated": "Updating {n} item(s)",
       "skipped": "skipped {n}",
+      "skippedAmbiguous": "Skipped {n} title-matched row(s) pending confirmation",
       "ignored": "Ignored {n} item(s)",
       "unignored": "Restored {n} item(s)",
       "deleted": "Deleted {n} update record(s)",

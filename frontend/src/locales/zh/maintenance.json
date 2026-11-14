@@ -46,6 +46,7 @@
       "delete": "删除所选",
       "scan": "立即检测",
       "retry": "重试",
+      "forceUpdate": "仍要更新此条",
       "ignoredPage": "已忽略的更新"
     },
     "status": {
@@ -64,11 +65,19 @@
     },
     "toNewer": "新 gid",
     "favcat": "#{n} {name}",
+    "pagesCompare": "{old} / {new} 页",
+    "newTitleLabel": "新版",
+    "match": {
+      "parentChain": "官方替换",
+      "title": "标题匹配·需确认",
+      "ambiguous": "该新版本匹配了 {n} 本本地画廊"
+    },
     "empty": "没有检测到有更新的画廊。",
     "message": {
       "selectedRequired": "请先选择条目。",
       "updated": "已开始更新 {n} 项",
       "skipped": "跳过 {n} 项",
+      "skippedAmbiguous": "因标题匹配多对一已跳过 {n} 项，请逐条确认",
       "ignored": "已忽略 {n} 项",
       "unignored": "已恢复 {n} 项",
       "deleted": "已删除 {n} 条更新记录",

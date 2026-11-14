@@ -598,16 +598,29 @@ async def detect_gallery_updates() -> None:
 
 
 async def run_gallery_updates(
-    ids: list[int], *, archive: bool = False, quality: str | None = None
+    ids: list[int],
+    *,
+    archive: bool = False,
+    quality: str | None = None,
+    force: bool = False,
 ) -> dict[str, int]:
+    """Queue downloads / finalize updates for the given row ids.
+
+    Rows that only matched on the normalized title *and* whose new gid matched
+    several local galleries are skipped by default: that N→1 case has no
+    official replacement link, so deleting the wrong old copy unattended would
+    lose user data.  The updates page passes ``force=True`` only for an explicit
+    per-row confirmation.
+    """
     session_cm = app_state.session_factory
     if session_cm is None:
-        return {"started": 0, "skipped": len(ids)}
+        return {"started": 0, "skipped": len(ids), "skipped_ambiguous": 0}
     repo_cls = GalleryUpdatesRepository
     dl_repo_cls = DownloadRepository
 
     started = 0
     skipped = 0
+    skipped_ambiguous = 0
     mode = "archive" if archive else "favorite"
     ready: list[Any] = []
     try:
@@ -620,6 +633,17 @@ async def run_gallery_updates(
                     skipped += 1
                     continue
                 pending_rows.append(row)
+            if pending_rows and not force:
+                evidence = await repo.match_evidence(pending_rows)
+                guarded: list[Any] = []
+                for row in pending_rows:
+                    ev = evidence.get(int(row.id), {})
+                    if ev.get("match_source") == "title" and ev.get("ambiguous"):
+                        skipped += 1
+                        skipped_ambiguous += 1
+                        continue
+                    guarded.append(row)
+                pending_rows = guarded
             local = (
                 await repo.local_new_gids([row.new_gid for row in pending_rows])
                 if pending_rows
@@ -652,7 +676,7 @@ async def run_gallery_updates(
         raise db_error(exc) from exc
     for ref in ready:
         await finalize_gallery_update(ref)
-    return {"started": started, "skipped": skipped}
+    return {"started": started, "skipped": skipped, "skipped_ambiguous": skipped_ambiguous}
 
 
 async def gallery_updates_finalize_loop() -> None:

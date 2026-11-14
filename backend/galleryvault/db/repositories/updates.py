@@ -1,10 +1,11 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import DownloadTask, Gallery, GalleryMetadata, GalleryUpdate
+from ..models import DownloadTask, FavoriteItem, Gallery, GalleryMetadata, GalleryUpdate
 from .base import count_select
 
 #: ``list_page`` status marker for "everything the user still has to act on",
@@ -143,6 +144,101 @@ class GalleryUpdatesRepository:
             ):
                 chained.add((old_gid, new_gid))
         return chained
+
+    async def match_evidence(self, rows: Sequence[GalleryUpdate]) -> dict[int, dict[str, Any]]:
+        """Explain *why* each update row matched, for the updates page.
+
+        The list endpoint only stores ``old_gid``/``new_gid``; the evidence is
+        derived on read so no schema migration is needed:
+
+        * ``match_source`` — ``parent_chain`` when ExHentai records an official
+          ``parent``/``replaces`` link, ``title`` for a normalized-title match.
+        * ``new_title`` — the current title of the re-uploaded gid (favorites
+          first, then cached gdata metadata, then an already ingested copy).
+        * ``old_page_count`` / ``new_page_count`` — local page counts for the
+          old copy and (when ingested) the new one, falling back to the cached
+          gdata ``file_count`` for a not-yet-downloaded re-upload.
+        * ``ambiguous`` — the same new gid matched more than one local gallery,
+          the N→1 hazard that must never be bulk-updated unattended.
+
+        Returns a mapping keyed by update row id; rows without any lookup data
+        still get a default ``title`` source.
+        """
+        if not rows:
+            return {}
+        gallery_ids = sorted({int(r.gallery_id) for r in rows})
+        new_gids = sorted({int(r.new_gid) for r in rows})
+
+        old_page_rows = await self.session.execute(
+            select(Gallery.id, Gallery.page_count).where(Gallery.id.in_(gallery_ids))
+        )
+        old_pages = {int(row_id): pages for row_id, pages in old_page_rows.all()}
+
+        new_local_rows = await self.session.execute(
+            select(Gallery.gid, Gallery.title, Gallery.page_count).where(
+                Gallery.gid.in_(new_gids),
+                Gallery.expunged.is_(False),
+                Gallery.trashed.is_(False),
+            )
+        )
+        local_new: dict[int, tuple[str | None, int | None]] = {}
+        for gid, title, page_count in new_local_rows.all():
+            if gid is not None:
+                local_new.setdefault(int(gid), (title, page_count))
+
+        fav_rows = await self.session.execute(
+            select(FavoriteItem.gid, FavoriteItem.title)
+            .where(FavoriteItem.gid.in_(new_gids))
+            .order_by(FavoriteItem.last_seen_at.desc())
+        )
+        fav_titles: dict[int, str] = {}
+        for gid, title in fav_rows.all():
+            if title and int(gid) not in fav_titles:
+                fav_titles[int(gid)] = str(title)
+
+        meta_rows = await self.session.execute(
+            select(GalleryMetadata.gid, GalleryMetadata.title, GalleryMetadata.file_count).where(
+                GalleryMetadata.gid.in_(new_gids)
+            )
+        )
+        meta_titles: dict[int, str] = {}
+        meta_pages: dict[int, int | None] = {}
+        for gid, title, file_count in meta_rows.all():
+            gid = int(gid)
+            if title and gid not in meta_titles:
+                meta_titles[gid] = str(title)
+            meta_pages[gid] = file_count
+
+        count_rows = await self.session.execute(
+            select(GalleryUpdate.new_gid, func.count())
+            .where(GalleryUpdate.new_gid.in_(new_gids))
+            .group_by(GalleryUpdate.new_gid)
+        )
+        match_counts = {int(gid): int(total) for gid, total in count_rows.all()}
+
+        chained = await self.replacement_chain_pairs(
+            [(int(r.old_gid), int(r.new_gid)) for r in rows]
+        )
+
+        evidence: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            new_gid = int(row.new_gid)
+            local_title, local_pages = local_new.get(new_gid, (None, None))
+            new_page_count = local_pages if local_pages is not None else meta_pages.get(new_gid)
+            match_count = match_counts.get(new_gid, 0)
+            evidence[int(row.id)] = {
+                "match_source": (
+                    "parent_chain"
+                    if (int(row.old_gid), new_gid) in chained
+                    else "title"
+                ),
+                "new_title": fav_titles.get(new_gid) or meta_titles.get(new_gid) or local_title,
+                "old_page_count": old_pages.get(int(row.gallery_id)),
+                "new_page_count": new_page_count,
+                "ambiguous": match_count > 1,
+                "ambiguous_count": match_count,
+            }
+        return evidence
 
     async def active_task_ids_for_gids(self, gids: list[int]) -> dict[int, int]:
         if not gids:

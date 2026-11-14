@@ -24,6 +24,7 @@ import {
   runUpdates,
   scanUpdates,
   type GalleryUpdate,
+  type UpdateRunResult,
   type UpdateState,
   type UpdatesStatus,
 } from "@/api/updates";
@@ -128,6 +129,34 @@ function coverFor(item: GalleryUpdate): string {
   return item.cover_url || galleryThumbUrl(item.gallery_id);
 }
 
+function matchLabel(item: GalleryUpdate): string {
+  return item.match_source === "parent_chain"
+    ? t("maintenance.updates.match.parentChain")
+    : t("maintenance.updates.match.title");
+}
+
+function pagesCompare(item: GalleryUpdate): string {
+  const oldCount = item.old_page_count ?? "—";
+  const newCount = item.new_page_count ?? "—";
+  return t("maintenance.updates.pagesCompare", { old: oldCount, new: newCount });
+}
+
+function showNewTitle(item: GalleryUpdate): boolean {
+  return Boolean(item.new_title && item.new_title !== item.title);
+}
+
+/** Shared success banner for bulk and single-row update calls. */
+function updateMessage(result: UpdateRunResult, fallback: number): string {
+  let text = t("maintenance.updates.message.updated", { n: result.started ?? fallback });
+  if (result.skipped) {
+    text += ` · ${t("maintenance.updates.message.skipped", { n: result.skipped })}`;
+  }
+  if (result.skipped_ambiguous) {
+    text += ` · ${t("maintenance.updates.message.skippedAmbiguous", { n: result.skipped_ambiguous })}`;
+  }
+  return text;
+}
+
 async function loadStatus(): Promise<void> {
   try {
     status.value = await fetchUpdatesStatus();
@@ -217,12 +246,7 @@ async function update(quality?: "original"): Promise<void> {
   if (!ids) return;
   try {
     const result = await runUpdates(ids, quality ? { quality } : {});
-    ui.success(
-      t("maintenance.updates.message.updated", { n: result.started ?? ids.length }) +
-        (result.skipped
-          ? ` · ${t("maintenance.updates.message.skipped", { n: result.skipped })}`
-          : ""),
-    );
+    ui.success(updateMessage(result, ids.length));
     selected.value = [];
     await load();
   } catch (cause) {
@@ -235,12 +259,7 @@ async function archive(payload: { gids: number[]; quality: "resample" | "origina
   if (!ids) return;
   try {
     const result = await runUpdates(ids, { archive: true, quality: payload.quality });
-    ui.success(
-      t("maintenance.updates.message.updated", { n: result.started ?? ids.length }) +
-        (result.skipped
-          ? ` · ${t("maintenance.updates.message.skipped", { n: result.skipped })}`
-          : ""),
-    );
+    ui.success(updateMessage(result, ids.length));
     selected.value = [];
     archiveOpen.value = false;
     await load();
@@ -282,6 +301,17 @@ async function retryOne(item: GalleryUpdate): Promise<void> {
   try {
     await runUpdates([item.id]);
     ui.success(t("maintenance.updates.message.updated", { n: 1 }));
+    await load();
+  } catch (cause) {
+    ui.error(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/** Explicit per-row confirmation for a title-only N→1 match. */
+async function forceUpdateOne(item: GalleryUpdate): Promise<void> {
+  try {
+    const result = await runUpdates([item.id], { force: true });
+    ui.success(updateMessage(result, 1));
     await load();
   } catch (cause) {
     ui.error(cause instanceof Error ? cause.message : String(cause));
@@ -479,6 +509,46 @@ onBeforeUnmount(() => poller.stop());
                 >
                   {{ item.title }}
                 </RouterLink>
+                <p
+                  v-if="showNewTitle(item)"
+                  class="updates__new-title"
+                  :data-testid="`updates-new-title-${item.id}`"
+                >
+                  <span class="updates__new-title-label">
+                    {{ t("maintenance.updates.newTitleLabel") }}
+                  </span>
+                  {{ item.new_title }}
+                </p>
+                <div class="updates__match">
+                  <span
+                    v-if="item.match_source"
+                    class="updates__badge updates__badge--match"
+                    :data-match="item.match_source"
+                    :data-testid="`updates-match-${item.id}`"
+                  >
+                    {{ matchLabel(item) }}
+                  </span>
+                  <span class="updates__pages" :data-testid="`updates-pages-${item.id}`">
+                    {{ pagesCompare(item) }}
+                  </span>
+                </div>
+                <p
+                  v-if="item.ambiguous"
+                  class="updates__warning"
+                  :data-testid="`updates-ambiguous-${item.id}`"
+                >
+                  <Icon name="status-blocked" size="dense" aria-hidden="true" />
+                  {{ t("maintenance.updates.match.ambiguous", { n: item.ambiguous_count ?? 2 }) }}
+                  <Button
+                    v-if="item.status === 'pending'"
+                    variant="text"
+                    size="sm"
+                    data-testid="updates-force-update"
+                    @click="forceUpdateOne(item)"
+                  >
+                    {{ t("maintenance.updates.action.forceUpdate") }}
+                  </Button>
+                </p>
               </td>
               <td class="updates__cell updates__cell--gid">
                 <span class="updates__gid-old">{{ item.old_gid }}</span>
@@ -689,6 +759,65 @@ onBeforeUnmount(() => poller.stop());
 
 .updates__gallery-link:hover {
   color: var(--gv-color-primary-text);
+}
+
+.updates__new-title {
+  margin: var(--gv-space-1) 0 0;
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-body-small);
+}
+
+.updates__new-title-label {
+  display: inline-flex;
+  align-items: center;
+  height: var(--gv-space-5);
+  margin-inline-end: var(--gv-space-1);
+  padding: 0 var(--gv-space-1);
+  border-radius: var(--gv-radius-xs);
+  background: var(--gv-color-surface-variant);
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-label-small);
+}
+
+.updates__match {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gv-space-1);
+  margin-top: var(--gv-space-1);
+}
+
+.updates__badge--match[data-match="parent_chain"] {
+  background: var(--gv-color-secondary-container);
+  color: var(--gv-color-on-secondary-container);
+}
+
+.updates__badge--match[data-match="title"] {
+  background: var(--gv-color-warning-container);
+  color: var(--gv-color-on-warning-container);
+}
+
+.updates__pages {
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-label-small);
+  white-space: nowrap;
+}
+
+.updates__warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gv-space-1);
+  margin: var(--gv-space-1) 0 0;
+  color: var(--gv-color-on-warning-container);
+  background: var(--gv-color-warning-container);
+  border-radius: var(--gv-radius-xs);
+  padding: var(--gv-space-1) var(--gv-space-2);
+  font: var(--gv-type-body-small);
+}
+
+.updates__warning .btn {
+  margin-inline-start: auto;
 }
 
 .updates__cell--gid {

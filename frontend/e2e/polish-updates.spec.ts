@@ -9,6 +9,7 @@ import {
   updatesIgnoredEp,
   updatesScanEp,
   updatesStatusEp,
+  updatesUpdateEp,
 } from "@/api/updates";
 import {
   expectControlHeights,
@@ -41,6 +42,7 @@ import {
 
 const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
+const T32_SHOTS = process.env.GV_T32_SHOTS || "/tmp/opencode/gv-hardening";
 
 let vite: ViteDevServer;
 let HARNESS = "";
@@ -209,6 +211,47 @@ test("updates toolbar is one aligned row and the table uses the shared header @p
   expect(slots.inDangerSlot).toBe(true);
   expect(slots.dangerClass).toContain("btn--danger");
   await page.screenshot({ path: join(SHOTS, "updates-failed-selection-dark-1280.png") });
+
+  expect(csp).toEqual([]);
+});
+
+test("updates rows expose match evidence and guard ambiguous title matches @polish-updates", async ({
+  page,
+}) => {
+  const csp = watchCsp(page);
+  const state = await installMaintenanceMock(page);
+  await page.goto(harnessUrl());
+  await expect(page.getByTestId("updates-row-1")).toBeVisible();
+
+  // Official replacement chain: green badge, new title and page deltas.
+  await expect(page.getByTestId("updates-match-1")).toHaveText("官方替换");
+  await expect(page.getByTestId("updates-new-title-1")).toContainText("Updated Alpha v2");
+  await expect(page.getByTestId("updates-pages-1")).toHaveText("18 / 24 页");
+
+  // Title-only N→1 match: warning badge, count and an explicit escape hatch.
+  await expect(page.getByTestId("updates-match-5")).toHaveText("标题匹配·需确认");
+  await expect(page.getByTestId("updates-new-title-5")).toContainText("Updated Delta Complete");
+  await expect(page.getByTestId("updates-pages-5")).toHaveText("10 / 14 页");
+  await expect(page.getByTestId("updates-ambiguous-5")).toContainText("2 本本地画廊");
+
+  mkdirSync(T32_SHOTS, { recursive: true });
+  await page.screenshot({ path: join(T32_SHOTS, "t3.2-updates-match-dark-1280.png") });
+
+  // The per-row confirmation must carry force=true so the backend processes
+  // the otherwise-skipped title match.
+  await page.getByTestId("updates-force-update").click();
+  await expect
+    .poll(
+      () =>
+        state.requests.filter(
+          (request) => request.method === "POST" && request.path === updatesUpdateEp.path,
+        ).length,
+    )
+    .toBe(1);
+  const updateRequest = state.requests.find(
+    (request) => request.method === "POST" && request.path === updatesUpdateEp.path,
+  );
+  expect(updateRequest?.body).toMatchObject({ ids: [5], force: true });
 
   expect(csp).toEqual([]);
 });
