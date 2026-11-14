@@ -690,7 +690,7 @@ async def test_run_cold_archive_cancellation_and_progress(
         tm.request_cancel("archive")
         return cold_root / "fake_dest.cbz"
 
-    monkeypatch.setattr("galleryvault.services.cold_archive.archive_one", fake_archive_one)
+    monkeypatch.setattr("galleryvault.services.cold.orchestrate.archive_one", fake_archive_one)
 
     await run_cold_archive(
         session_factory=lambda: FakeSession(),
@@ -1345,7 +1345,7 @@ async def test_run_cold_archive_notifications(tmp_path, monkeypatch):
     async def fake_archive_ok(gid_or_id, **kwargs):
         return cold_root / "dest.cbz"
 
-    monkeypatch.setattr("galleryvault.services.cold_archive.archive_one", fake_archive_ok)
+    monkeypatch.setattr("galleryvault.services.cold.orchestrate.archive_one", fake_archive_ok)
     await run_cold_archive(session_factory=lambda: FakeSession(), task_manager=tm)
 
     data = list_notifications()
@@ -1365,7 +1365,7 @@ async def test_run_cold_archive_notifications(tmp_path, monkeypatch):
             return cold_root / "dest.cbz"
         raise RuntimeError("disk read failed")
 
-    monkeypatch.setattr("galleryvault.services.cold_archive.archive_one", fake_archive_fail)
+    monkeypatch.setattr("galleryvault.services.cold.orchestrate.archive_one", fake_archive_fail)
     await run_cold_archive(session_factory=lambda: FakeSession(), task_manager=tm)
 
     data2 = list_notifications()
