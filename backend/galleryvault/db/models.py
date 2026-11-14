@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -38,7 +39,7 @@ class Gallery(Base):
     file_count: Mapped[int | None] = mapped_column(Integer)
     file_size: Mapped[int | None] = mapped_column(BigInteger)
     rating: Mapped[float | None] = mapped_column(Float)
-    expunged: Mapped[bool] = mapped_column(Boolean, default=False)
+    expunged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True)
     trashed: Mapped[bool] = mapped_column(Boolean, default=False)
     trashed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     storage_type: Mapped[str] = mapped_column(String(16))
@@ -55,9 +56,11 @@ class Gallery(Base):
     source_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     tags_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     category_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
     __table_args__ = (
         Index("idx_galleries_gid", "gid", unique=True, postgresql_where=text("gid IS NOT NULL")),
@@ -75,6 +78,31 @@ class Gallery(Base):
             "storage_path",
             postgresql_using="btree",
             postgresql_ops={"storage_path": "text_pattern_ops"},
+        ),
+        # Full-text and trigram title indexes are created by migrations 0001 /
+        # 0015; declaring them here keeps autogenerate from dropping them.  The
+        # FTS expression must stay byte-identical to what PostgreSQL stores in
+        # pg_get_indexdef, otherwise autogenerate reports a changed index.
+        Index(
+            "idx_galleries_title_fts",
+            text(
+                "to_tsvector('simple'::regconfig, "
+                "(COALESCE(title, ''::text) || ' '::text) "
+                "|| COALESCE(title_jpn, ''::text))"
+            ),
+            postgresql_using="gin",
+        ),
+        Index(
+            "idx_galleries_title_trgm",
+            "title",
+            postgresql_using="gin",
+            postgresql_ops={"title": "gin_trgm_ops"},
+        ),
+        Index(
+            "idx_galleries_title_jpn_trgm",
+            "title_jpn",
+            postgresql_using="gin",
+            postgresql_ops={"title_jpn": "gin_trgm_ops"},
         ),
         CheckConstraint(
             "local_rating IS NULL OR (local_rating >= 1 AND local_rating <= 5)",
@@ -144,9 +172,11 @@ class DownloadTask(Base):
     total_pages: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
     target_path: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -158,6 +188,9 @@ class DownloadTask(Base):
             postgresql_where=text("status IN ('pending', 'downloading')"),
         ),
         Index("idx_download_tasks_status_id", "status", text("id DESC")),
+        # Created by migration 0001; declared here so autogenerate keeps them.
+        Index("idx_download_tasks_gid", "gid"),
+        Index("idx_download_tasks_status", "status"),
         CheckConstraint(
             "status IN ('pending', 'downloading', 'success', 'failed', 'cancelled')",
             name="ck_download_task_status",
@@ -331,7 +364,7 @@ class AppConfig(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict[str, Any]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
 
 
@@ -343,7 +376,7 @@ class ReadingProgress(Base):
     current_page: Mapped[int] = mapped_column(Integer, default=0)
     total_pages: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
 
 
@@ -388,7 +421,7 @@ class FavoritesCheckLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     favcat: Mapped[int] = mapped_column(Integer, nullable=False)
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    discovered_gids: Mapped[list[int]] = mapped_column(JSONB, default=list)
+    discovered_gids: Mapped[list[int]] = mapped_column(JSON, default=list)
     attempts: Mapped[int] = mapped_column(Integer, default=1)
     success: Mapped[bool] = mapped_column(Boolean, default=False)
     error_message: Mapped[str | None] = mapped_column(Text)
@@ -454,7 +487,7 @@ class SeriesItem(Base):
         ForeignKey("series.id", ondelete="CASCADE"), nullable=False
     )
     gallery_id: Mapped[int] = mapped_column(
-        ForeignKey("galleries.id", ondelete="CASCADE"), primary_key=True, unique=True, nullable=False
+        ForeignKey("galleries.id", ondelete="CASCADE"), primary_key=True, nullable=False
     )
     source: Mapped[str] = mapped_column(String(16), default="auto", server_default=text("'auto'"))
     __table_args__ = (Index("idx_series_items_series_id", "series_id"),)
@@ -477,7 +510,6 @@ class SeriesCloudItem(Base):
     )
     gid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     __table_args__ = (
-        UniqueConstraint("series_id", "gid"),
         Index("idx_series_cloud_items_series_id", "series_id"),
         Index("idx_series_cloud_items_gid", "gid"),
     )
@@ -493,7 +525,6 @@ class SeriesCloudExclusion(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     __table_args__ = (
-        UniqueConstraint("series_id", "gid"),
         Index("idx_series_cloud_exclusions_series_id", "series_id"),
         Index("idx_series_cloud_exclusions_gid", "gid"),
     )
