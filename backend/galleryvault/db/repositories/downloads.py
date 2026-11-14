@@ -279,13 +279,19 @@ class DownloadRepository:
             )
         return total, items
 
-    async def cancel(self, task_id: int) -> bool:
+    async def cancel(self, task_id: int) -> str | None:
+        """Cancel an active task and return its real terminal status.
+
+        Returns ``None`` when the task does not exist. Terminal tasks are left
+        untouched and their current status is returned so callers can surface
+        it instead of pretending the cancel took effect.
+        """
         task = await self.session.get(DownloadTask, task_id)
         if task is None:
-            return False
+            return None
         if task.status in {"pending", "downloading"}:
             task.status = "cancelled"
-        return True
+        return task.status
 
     async def delete(self, task_id: int) -> bool:
         """Permanently remove a download task (and its attempt log)."""

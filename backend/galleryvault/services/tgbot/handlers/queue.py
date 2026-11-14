@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import select
-
 from galleryvault.app.dependencies import get_settings
 from galleryvault.app.lifespan import update_runtime_settings
 from galleryvault.app.state import app_state
@@ -141,17 +139,11 @@ async def cmd_retry(ctx: BotContext) -> None:
         return
 
     if arg == "all":
-        count = 0
         async with app_state.session_factory() as session, safe_transaction(session):
-            stmt = select(DownloadTaskModel).where(
-                DownloadTaskModel.status.in_(["failed", "cancelled"])
-            )
-            res = await session.execute(stmt)
-            tasks = list(res.scalars().all())
-            for t in tasks:
-                _reset_task_for_retry(t)
-                count += 1
-        await ctx.reply_text(bot_retry_all_ok(count, lang=ctx.lang))
+            task_ids = await DownloadRepository(session).retry_all()
+        for task_id in task_ids:
+            clear_download_cancelled(task_id)
+        await ctx.reply_text(bot_retry_all_ok(len(task_ids), lang=ctx.lang))
         return
 
     try:
@@ -211,12 +203,9 @@ async def cb_queue(ctx: BotContext) -> None:
     elif action == "retry_all":
         if app_state.session_factory:
             async with app_state.session_factory() as session, safe_transaction(session):
-                stmt = select(DownloadTaskModel).where(
-                    DownloadTaskModel.status.in_(["failed", "cancelled"])
-                )
-                res = await session.execute(stmt)
-                for t in res.scalars().all():
-                    _reset_task_for_retry(t)
+                task_ids = await DownloadRepository(session).retry_all()
+            for task_id in task_ids:
+                clear_download_cancelled(task_id)
         rows, counts = await list_queue_snapshot()
         text = bot_queue(rows, counts, ctx.lang)
         kb = _build_queue_keyboard(counts, ctx.lang)
