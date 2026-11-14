@@ -95,6 +95,30 @@ jobs:
       - name: Unit tests
         working-directory: frontend
         run: npm run test:unit
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/pyproject.toml"
+      - name: Install backend (endpoint contract test)
+        working-directory: backend
+        run: uv pip install --system -e ".[dev]"
+      - name: Endpoint contract (frontend/src/api declarations)
+        env:
+          PYTHONPATH: backend
+        run: |
+          # A frontend-only edit can call a route the backend does not serve.
+          # The test skips when frontend/src/api is absent; fail instead.
+          test -d frontend/src/api
+          pytest -q -p no:cacheprovider backend/tests/contract/test_frontend_endpoints_exist.py -rs | tee /tmp/contract-fe.log
+          if grep -q "skipped" /tmp/contract-fe.log; then
+            echo "endpoint contract test was skipped; refusing to pass" >&2
+            exit 1
+          fi
       - name: Build
         working-directory: frontend
         run: npm run build
