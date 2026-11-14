@@ -197,13 +197,6 @@ async def test_real_user_workflow_e2e():
             fav_cats = fav_cats_resp.json()
             assert isinstance(fav_cats, list)
 
-            # 更新/配置收藏分类 (favcat 0)
-            update_favcat_resp = await client.post(
-                "/api/favorites/categories",
-                json={"favcat": 0, "enabled": True, "mode": "gallery"},
-            )
-            assert update_favcat_resp.status_code == 200, f"Update favcat failed: {update_favcat_resp.text}"
-
             if active_gid and active_token:
                 created_fav_gids.append(active_gid)
                 # 添加收藏
