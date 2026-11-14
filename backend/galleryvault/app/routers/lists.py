@@ -123,30 +123,6 @@ async def delete_local_list(
     return {"deleted": True, "id": list_id}
 
 
-@router.get("/api/lists/{list_id}")
-async def get_local_list(
-    list_id: int,
-    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
-) -> dict[str, object]:
-    try:
-        async with uow:
-            row = await uow.lists.get(list_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="list not found")
-            ids = await uow.lists.get_gallery_ids_for_list(list_id)
-    except HTTPException:
-        raise
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-
-    return {
-        "id": row.id,
-        "name": row.name,
-        "gallery_ids": [int(gid) for gid in ids],
-        "count": len(ids),
-    }
-
-
 @router.post("/api/lists/{list_id}/items")
 async def add_local_list_items(
     list_id: int,

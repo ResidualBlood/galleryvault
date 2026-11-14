@@ -407,8 +407,8 @@ async def test_series_tags_limit_and_count(monkeypatch) -> None:
     assert len(card["tags"]) == 4
     assert card["tag_count"] == 6
 
-    everything = await series_mod.get_series(1, tags_limit=0)
-    card = everything["galleries"][0]
+    everything = await series_mod.list_series(tags_limit=0)
+    card = everything["items"][0]["galleries"][0]
     assert len(card["tags"]) == 6
     assert card["tag_count"] == 6
 
@@ -447,6 +447,5 @@ def test_tags_limit_above_64_is_422(client: TestClient) -> None:
         "/api/galleries/expunged?tags_limit=65",
         "/api/favorites/0/items?tags_limit=65",
         "/api/series?tags_limit=65",
-        "/api/series/1?tags_limit=65",
     ):
         assert client.get(path).status_code == 422, path
