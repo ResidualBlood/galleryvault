@@ -73,7 +73,6 @@ from ..schemas import (
     ArchivePreviewRequest,
     DownloadSelectedRequest,
     DuplicateIgnoreRequest,
-    FavoriteCategoryRequest,
     FavoriteNoteRequest,
     FavoritesAddRequest,
     FavoritesMoveRequest,
@@ -664,21 +663,6 @@ router.add_api_route(
 )
 
 
-@router.post("/api/favorites/sync")
-async def favorites_sync(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    client = app_state.eh_client
-    if client is None:
-        raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
-    try:
-        categories = await FavoritesRepository(session).categories()
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {"status": "ok", "categories": len(categories)}
-
-
 @router.post("/api/favorites/remove")
 async def favorites_remove(
     body: FavoritesRemoveRequest,
@@ -1095,32 +1079,10 @@ async def favorite_categories(
     return result
 
 
-@router.get("/api/favorites/metadata-status")
-async def favorites_metadata_status() -> dict[str, object]:
-    tm = get_task_manager()
-    return dict(tm.metadata_sync_state)
-
-
 @router.get("/api/favorites/check-status")
 async def favorites_check_status() -> dict[str, object]:
     tm = get_task_manager()
     return dict(tm.favorites_check_state)
-
-
-@router.post("/api/favorites/compute-sizes", status_code=202)
-async def compute_favorite_sizes(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    tm = get_task_manager()
-    if tm.metadata_sync_state.get("running"):
-        raise HTTPException(
-            status_code=409, detail="favorite size sync already running"
-        )
-    favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
-    for favcat in favcats:
-        spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
-    return {"status": "started", "favcats": favcats}
 
 
 @router.post("/api/favorites/download-missing", status_code=202)
@@ -1141,33 +1103,7 @@ async def download_missing_favorites(
     return {"status": "started", "favcats": favcats}
 
 
-@router.post("/api/favorites/categories")
-async def update_favorite_category(
-    body: FavoriteCategoryRequest,
-    favcat: int = 0,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    favcat = body.favcat if body.favcat is not None else favcat
-    if not 0 <= favcat <= 9:
-        raise HTTPException(status_code=422, detail="invalid favcat")
-    try:
-        async with safe_transaction(session):
-            row = await FavoritesRepository(session).category(favcat)
-            if row is None:
-                row = FavoritesMonitor(favcat=favcat)
-                session.add(row)
-            if body.enabled is not None:
-                row.enabled = body.enabled
-            if body.mode is not None:
-                row.mode = body.mode
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {"favcat": favcat, "enabled": row.enabled, "mode": row.mode}
-
-
 @router.post("/api/favorites/sync-categories")
-@router.post("/api/favorites/fetch-categories")
 async def sync_favorite_categories(
     session: AsyncSession = Depends(get_session),  # noqa: B008
     eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
@@ -1207,7 +1143,6 @@ async def sync_favorite_categories(
 
 
 @router.post("/api/favorites/{favcat}/check", status_code=202)
-@router.post("/api/favorites/check", status_code=202)
 async def check_favorites(favcat: int = 0) -> dict[str, object]:
     if not 0 <= favcat <= 9:
         raise HTTPException(status_code=422, detail="invalid favcat")
