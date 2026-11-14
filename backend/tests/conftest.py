@@ -55,7 +55,12 @@ def _fast_asyncio_sleep(monkeypatch):
         # 仅跳过下载与重试的等待（downloader, download_worker 及后台重试 backoff）
         frame = inspect.currentframe().f_back
         filename = frame.f_code.co_filename if frame else ""
-        if "downloader.py" in filename or "download_worker.py" in filename or (delay >= 1.0 and "test_" not in filename):
+        if (
+            "downloader.py" in filename
+            or "download_worker.py" in filename
+            or "/services/download/" in filename.replace("\\", "/")
+            or (delay >= 1.0 and "test_" not in filename)
+        ):
             await _orig_sleep(0)
             return result
         return await _orig_sleep(delay, result, *args, **kwargs)

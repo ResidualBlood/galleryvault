@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import time
@@ -233,7 +234,9 @@ def test_import_linter_contracts() -> None:
     )
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
-    assert "Contracts: 2 kept, 0 broken" in output
+    contracts = re.search(r"Contracts: (\d+) kept, 0 broken", output)
+    assert contracts is not None, output
+    assert int(contracts.group(1)) >= 2, output
 
 
 def test_request_schemas_compatibility() -> None:

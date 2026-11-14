@@ -24,3 +24,41 @@ source_modules =
     galleryvault.db
 forbidden_modules =
     galleryvault.services
+
+# ---------------------------------------------------------------------------
+# Contract slots for the B9-B11 service splits (T9.0a).
+# Slots are inert ordering anchors: they register no contract by themselves.
+# Future batches append their contract section below the matching slot.
+#
+# slot: download
+#   Download service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: library
+#   Library service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: reading
+#   Reading service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: favorites
+#   Favorites service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: eh
+#   EH client split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: cold
+#   Cold archive split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: maintain
+#   Maintenance service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: edge
+#   Edge/telegram split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
