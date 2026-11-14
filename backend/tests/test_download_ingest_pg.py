@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from galleryvault.app.routers import downloads as downloads_router
 from galleryvault.app.state import app_state
 from galleryvault.config import get_settings
 from galleryvault.db.models import DownloadTask
@@ -64,8 +65,10 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
 
     original_factory = app_state.session_factory
     original_settings = app_state.settings
+    original_telegram = app_state.telegram
     app_state.session_factory = factory
     app_state.settings = SimpleNamespace(auto_archive_downloads=False)
+    app_state.telegram = None
     monkeypatch.setattr(
         dw, "registry", SimpleNamespace(for_path=lambda _path: _FakeScanner())
     )
@@ -76,6 +79,9 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
         notified.append((kind, title, detail))
 
     monkeypatch.setattr(dw, "record_download_notification", _record)
+    # The ledger is covered by the host test; keep this DB test free of a
+    # second AppConfig writer racing other pytest workers.
+    monkeypatch.setattr(dw, "_record_ingest_history", lambda *a, **k: None)
     class _FailingIngest:
         def __init__(self, _session):
             pass
@@ -145,6 +151,36 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
             assert ok_state.ingest_payload is None
             assert ok_state.finished_at is not None
         assert notified and notified[0][0] == "ok"
+
+        # T2.2: the failed ingest still has its directory -> the retry endpoint
+        # puts the row back into the pump without touching the downloader.
+        execute_calls: list[object] = []
+
+        async def _execute(*args: object, **_kwargs: object) -> None:
+            execute_calls.append(args)
+
+        app_state.downloader = SimpleNamespace(execute=_execute)
+        async with factory() as session:
+            retry_result = await downloads_router.retry_download(fail_id, session=session)
+        assert retry_result == {"id": fail_id, "status": "downloading"}
+
+        async with factory() as session:
+            pending_state = await session.scalar(
+                select(DownloadTask).where(DownloadTask.id == fail_id)
+            )
+            assert pending_state.status == "downloading"
+            assert pending_state.ingest_status == "pending"
+            assert pending_state.ingest_payload is not None
+
+        assert await dw.run_pending_ingest_once() is True
+        async with factory() as session:
+            retried_state = await session.scalar(
+                select(DownloadTask).where(DownloadTask.id == fail_id)
+            )
+            assert retried_state.status == "success"
+            assert retried_state.ingest_status == "done"
+        assert execute_calls == [], "re-running the ingest must not redownload"
+        assert notified[-1][0] == "ok"
     finally:
         async with factory() as session, session.begin():
             await session.execute(
@@ -152,4 +188,5 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
             )
         app_state.session_factory = original_factory
         app_state.settings = original_settings
+        app_state.telegram = original_telegram
         await engine.dispose()

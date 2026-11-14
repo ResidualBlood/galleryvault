@@ -1,6 +1,8 @@
+import asyncio
 import html
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -406,14 +408,24 @@ class DownloadRepository:
         return True
 
     async def retry_all(self) -> list[int]:
-        """Reset pending, failed, and cancelled download tasks to healthy pending status.
+        """Reset pending, failed, and cancelled download tasks to a healthy state.
 
-        De-duplicates by gid to respect the unique active constraint.
+        A task whose previous failure was an *ingest* failure and whose files
+        are still on disk goes back to ``downloading + ingest_status='pending'``
+        so only the import is re-run (no re-download). Everything else is
+        requeued for a normal download. De-duplicates by gid to respect the
+        unique active constraint.
         """
         now = datetime.now(UTC)
         downloading_subquery = select(DownloadTask.gid).where(DownloadTask.status == "downloading")
         stmt = (
-            select(DownloadTask.id, DownloadTask.gid, DownloadTask.status)
+            select(
+                DownloadTask.id,
+                DownloadTask.gid,
+                DownloadTask.status,
+                DownloadTask.ingest_status,
+                DownloadTask.target_path,
+            )
             .where(
                 DownloadTask.status.in_(["pending", "failed", "cancelled"]),
                 DownloadTask.gid.not_in(downloading_subquery),
@@ -425,37 +437,105 @@ class DownloadRepository:
         if not candidates:
             return []
 
-        by_gid: dict[int, list[tuple[int, str]]] = {}
-        for tid, gid, status in candidates:
-            by_gid.setdefault(int(gid), []).append((int(tid), str(status)))
+        by_gid: dict[int, list[tuple[int, str, Any, Any]]] = {}
+        for row in candidates:
+            tid, gid, status = int(row[0]), int(row[1]), str(row[2])
+            ingest_status = row[3] if len(row) > 3 else None
+            target_path = row[4] if len(row) > 4 else None
+            by_gid.setdefault(gid, []).append((tid, status, ingest_status, target_path))
 
-        target_ids: list[int] = []
+        plain_ids: list[int] = []
+        ingest_ids: list[int] = []
         for items in by_gid.values():
-            pending_item = next((tid for tid, st in items if st == "pending"), None)
-            if pending_item is not None:
-                target_ids.append(pending_item)
+            pending_item = next((item for item in items if item[1] == "pending"), None)
+            target = pending_item or items[0]
+            tid, status, ingest_status, target_path = target
+            if (
+                status == "failed"
+                and ingest_status == "failed"
+                and await self._files_present(target_path)
+            ):
+                ingest_ids.append(tid)
             else:
-                target_ids.append(items[0][0])
+                plain_ids.append(tid)
 
-        if not target_ids:
-            return []
-
-        target_ids.sort()
-        update_stmt = (
-            update(DownloadTask)
-            .where(DownloadTask.id.in_(target_ids))
-            .values(
-                status="pending",
-                retry_at=None,
-                retry_count=0,
-                max_retries=10,
-                error_message=None,
-                finished_at=None,
-                updated_at=now,
+        if plain_ids:
+            await self.session.execute(
+                update(DownloadTask)
+                .where(DownloadTask.id.in_(plain_ids))
+                .values(
+                    status="pending",
+                    ingest_status=None,
+                    ingest_payload=None,
+                    retry_at=None,
+                    retry_count=0,
+                    max_retries=10,
+                    error_message=None,
+                    finished_at=None,
+                    updated_at=now,
+                )
             )
-        )
-        await self.session.execute(update_stmt)
-        return target_ids
+        if ingest_ids:
+            await self.session.execute(
+                update(DownloadTask)
+                .where(DownloadTask.id.in_(ingest_ids))
+                .values(
+                    status="downloading",
+                    ingest_status="pending",
+                    retry_at=None,
+                    retry_count=0,
+                    max_retries=10,
+                    error_message=None,
+                    finished_at=None,
+                    updated_at=now,
+                )
+            )
+        return sorted(plain_ids + ingest_ids)
+
+    @staticmethod
+    async def _files_present(target_path: Any) -> bool:
+        """Whether a task target still exists (filesystem check off the loop)."""
+        if not target_path:
+            return False
+        try:
+            return await asyncio.to_thread(lambda: Path(str(target_path)).exists())
+        except (OSError, ValueError):
+            return False
+
+    async def can_rerun_ingest(self, task: DownloadTask) -> bool:
+        """A failed ingest whose files survived can be retried without re-downloading."""
+        if getattr(task, "status", None) != "failed":
+            return False
+        if getattr(task, "ingest_status", None) != "failed":
+            return False
+        return await self._files_present(getattr(task, "target_path", None))
+
+    async def reset_for_retry(self, task: DownloadTask) -> str:
+        """Move a terminal task back to the queue and return the new status.
+
+        Ingest failures with the downloaded directory still on disk become
+        ``downloading + ingest_status='pending'``: the ingest pump picks the row
+        up and no network request or GP is spent. Otherwise the task goes back
+        to ``pending`` with the ingest state cleared for a normal re-download.
+        Shared by the API endpoint, ``/retry-all`` and the Telegram bot.
+        """
+        now = datetime.now(UTC)
+        if await self.can_rerun_ingest(task):
+            task.status = "downloading"
+            task.ingest_status = "pending"
+            new_status = "downloading"
+        else:
+            task.status = "pending"
+            task.ingest_status = None
+            task.ingest_payload = None
+            new_status = "pending"
+        task.retry_count = 0
+        task.retry_at = None
+        task.error_message = None
+        task.finished_at = None
+        task.max_retries = 10
+        task.updated_at = now
+        return new_status
 
 
 

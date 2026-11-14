@@ -34,6 +34,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "download_fail_verb": "下载失败 ",
         "download_fail_title": "<b>{title}</b>",
         "download_fail_detail": "：{detail}",
+        "download_ingest_fail_detail": "下载完成但入库失败：{error}",
         "download_summary_head": "📊 下载汇总：完成 <b>{ok}</b>，失败 <b>{fail}</b>",
         "list_sep": "、",
         "download_more_failures": "… 还有 {n} 个失败未列出",
@@ -117,6 +118,9 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_clear_ok": "🧹 已清理 <b>{count}</b> 条已完成的下载历史记录",
         "bot_clear_empty": "📭 没有已完成的任务需要清理",
         "bot_retry_ok": "🔄 已重新入队任务 <code>{id}</code>（gid <code>{gid}</code>）",
+        "bot_retry_ingest_ok": (
+            "🔄 已重新入库任务 <code>{id}</code>（gid <code>{gid}</code>），无需重新下载"
+        ),
         "bot_retry_all_ok": "🔄 已重新入队 <b>{count}</b> 个失败的任务",
         "bot_retry_none": "📭 没有失败的任务需要重试",
         "bot_retry_not_found": "❌ 找不到任务 <code>{ident}</code> 或该任务不可重试",
@@ -205,6 +209,7 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "download_fail_verb": "Download failed: ",
         "download_fail_title": "<b>{title}</b>",
         "download_fail_detail": ": {detail}",
+        "download_ingest_fail_detail": "download finished but ingest failed: {error}",
         "download_summary_head": "📊 Download summary: <b>{ok}</b> completed, <b>{fail}</b> failed",
         "list_sep": ", ",
         "download_more_failures": "… and {n} more failures not listed",
@@ -289,6 +294,10 @@ _TEMPLATES: dict[str, dict[str, str]] = {
         "bot_clear_ok": "🧹 Cleared <b>{count}</b> completed download task(s)",
         "bot_clear_empty": "📭 No completed tasks to clear",
         "bot_retry_ok": "🔄 Re-enqueued task <code>{id}</code> (gid <code>{gid}</code>)",
+        "bot_retry_ingest_ok": (
+            "🔄 Re-running ingest for task <code>{id}</code> (gid <code>{gid}</code>); "
+            "no re-download needed"
+        ),
         "bot_retry_all_ok": "🔄 Re-enqueued <b>{count}</b> failed task(s)",
         "bot_retry_none": "📭 No failed tasks to retry",
         "bot_retry_not_found": "❌ Task <code>{ident}</code> not found or not in retryable status",
@@ -446,6 +455,11 @@ def download_fail(title: str, detail: str | None = None, lang: str = "zh") -> st
     if is_gone_detail(detail):
         return _t(lang, "download_gone").format(title=esc(title))
     return "❌ " + _t(lang, "download_fail_verb") + _entry_fail(title, detail, lang)
+
+
+def download_ingest_fail_detail(error: object, lang: str = "zh") -> str:
+    """Localized detail for a download that landed but could not be imported."""
+    return _t(lang, "download_ingest_fail_detail").format(error=error)
 
 
 def download_updated(old_gid: object, new_gid: object, title: str, lang: str = "zh") -> str:
@@ -838,6 +852,10 @@ def bot_clear_success(count: int, lang: str = "zh") -> str:
 
 def bot_retry_ok(task_id: object, gid: object, lang: str = "zh") -> str:
     return _t(lang, "bot_retry_ok").format(id=esc(task_id), gid=esc(gid))
+
+
+def bot_retry_ingest_ok(task_id: object, gid: object, lang: str = "zh") -> str:
+    return _t(lang, "bot_retry_ingest_ok").format(id=esc(task_id), gid=esc(gid))
 
 
 def bot_retry_all_ok(count: int, lang: str = "zh") -> str:

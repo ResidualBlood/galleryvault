@@ -22,6 +22,7 @@ from galleryvault.services.messages import (
     bot_queue,
     bot_resumed,
     bot_retry_all_ok,
+    bot_retry_ingest_ok,
     bot_retry_not_found,
     bot_retry_ok,
     bot_retry_usage,
@@ -36,17 +37,6 @@ router = CommandRouter()
 logger = logging.getLogger(__name__)
 
 _MANUAL_RETRY_MAX = 10
-
-
-def _reset_task_for_retry(task: DownloadTaskModel) -> None:
-    """Reset a terminal download task so the worker will claim it again."""
-    task.status = "pending"
-    task.retry_count = 0
-    task.retry_at = None
-    task.error_message = None
-    task.finished_at = None
-    task.max_retries = 10
-    clear_download_cancelled(task.id)
 
 
 async def _set_global_paused(ctx: BotContext, value: bool) -> None:
@@ -154,15 +144,19 @@ async def cmd_retry(ctx: BotContext) -> None:
 
     gid: int | None = None
     found = False
+    new_status = "pending"
     async with app_state.session_factory() as session, safe_transaction(session):
         row = await session.get(DownloadTaskModel, task_id)
         if row and row.status in {"failed", "cancelled", "success"}:
-            _reset_task_for_retry(row)
+            new_status = await DownloadRepository(session).reset_for_retry(row)
             gid = row.gid
             found = True
 
     if found:
-        await ctx.reply_text(bot_retry_ok(task_id, gid, lang=ctx.lang))
+        if new_status == "downloading":
+            await ctx.reply_text(bot_retry_ingest_ok(task_id, gid, lang=ctx.lang))
+        else:
+            await ctx.reply_text(bot_retry_ok(task_id, gid, lang=ctx.lang))
     else:
         await ctx.reply_text(bot_retry_not_found(task_id, lang=ctx.lang))
 

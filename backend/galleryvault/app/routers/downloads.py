@@ -232,6 +232,9 @@ async def create_downloads_batch(
     }
 
 
+_DOWNLOAD_STATUSES = frozenset({"pending", "downloading", "success", "failed", "cancelled"})
+
+
 def _row_val(row: Any, key: str, default: Any = None) -> Any:
     if isinstance(row, dict):
         return row.get(key, default)
@@ -248,6 +251,11 @@ async def list_downloads(
     session = await resolve_session(session, fallback_dep=get_session)
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
+    if status is not None and status not in _DOWNLOAD_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"invalid status; expected one of {sorted(_DOWNLOAD_STATUSES)}",
+        )
     try:
         total, rows = await DownloadRepository(session).list_page(page, page_size, status)
     except SQLAlchemyError as exc:
@@ -412,12 +420,7 @@ async def retry_download(
                     status_code=409,
                     detail="An active download already exists for this gid",
                 )
-            row.status = "pending"
-            row.retry_count = 0
-            row.retry_at = None
-            row.error_message = None
-            row.finished_at = None
-            row.max_retries = 10
+            new_status = await DownloadRepository(session).reset_for_retry(row)
     except HTTPException:
         raise
     except IntegrityError as exc:
@@ -430,7 +433,7 @@ async def retry_download(
     clear_download_cancelled(task_id)
     reset_challenge_count(task_id)
     notify_new_task()
-    return {"id": task_id, "status": "pending"}
+    return {"id": task_id, "status": new_status}
 
 
 @router.post("/api/downloads/{task_id}/cancel")

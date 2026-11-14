@@ -39,7 +39,12 @@ from .eh_client import (  # noqa: F401  # kept for backoff classification docs
     GalleryReplacedError,
 )
 from .ingest import GalleryIngestService
-from .messages import GONE_DETAIL, HOPS_DETAIL
+from .messages import (
+    GONE_DETAIL,
+    HOPS_DETAIL,
+    download_ingest_fail_detail,
+    normalize_lang,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -458,6 +463,65 @@ async def _notify_ingested(payload: dict[str, Any]) -> None:
         )
 
 
+async def _notify_ingest_failed(payload: dict[str, Any], error: str) -> None:
+    """Report a download whose files landed but whose import failed.
+
+    Reuses the ``fail`` kind so it lands in the same Telegram digest and in-app
+    notification ring, with a detail that says the download itself completed.
+    Named ``notifier`` guard: without a notifier there is no channel (the
+    callee would return immediately anyway), and the ingest state transition
+    stays free of notification side effects.
+    """
+    if app_state.telegram is None:
+        return
+    gid = payload.get("gid")
+    title = payload.get("title") or str(gid)
+    settings = app_state.settings or get_settings()
+    lang = normalize_lang(getattr(settings, "telegram_notify_lang", "zh"))
+    try:
+        await record_download_notification(
+            "fail", title, download_ingest_fail_detail(error, lang)
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "download ingest failure notification failed",
+            extra=log_extra(gid=gid, error=type(exc).__name__),
+        )
+
+
+def _record_ingest_history(
+    payload: dict[str, Any], *, ok: bool, error: str | None = None
+) -> None:
+    """Append the ingest outcome to the TaskManager ledger and persist it (G5)."""
+    tm = app_state.task_manager
+    if tm is None:
+        return
+    now = datetime.now(UTC).isoformat()
+    gid = payload.get("gid")
+    if ok:
+        reason = f"gid {gid} ingested"
+    else:
+        reason = f"gid {gid} ingest failed: {error}"
+    tm.record_task(
+        "download-ingest",
+        now,
+        now,
+        "success" if ok else "failed",
+        reason=reason,
+        done=1,
+        total=1,
+    )
+    try:
+        from ..app.dependencies import spawn_task
+
+        spawn_task(tm.persist_history(), "persist task history")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "download ingest history persistence failed",
+            extra=log_extra(error=type(exc).__name__),
+        )
+
+
 async def _record_ingest_outcome(task_id: int, *, error: str | None) -> bool:
     session_cm = _get_background_session_factory()
     if session_cm is None:
@@ -493,17 +557,21 @@ async def run_pending_ingest_once() -> bool:
     task_id = int(pending["id"])
     payload = pending.get("ingest_payload") or {}
     if not payload:
-        await _record_ingest_outcome(task_id, error="missing ingest_payload")
+        error = "missing ingest_payload"
+        await _record_ingest_outcome(task_id, error=error)
+        _record_ingest_history(payload, ok=False, error=error)
         return True
     try:
         await ingest_downloaded_gallery(ingest_result_from_payload(payload), strict=True)
     except Exception as exc:  # noqa: BLE001
-        await _record_ingest_outcome(
-            task_id, error=f"{type(exc).__name__}: {exc}"
-        )
+        error = f"{type(exc).__name__}: {exc}"
+        await _record_ingest_outcome(task_id, error=error)
+        await _notify_ingest_failed(payload, error)
+        _record_ingest_history(payload, ok=False, error=error)
         return True
     # ``success`` is only written here, after the gallery is in the library.
     if await _record_ingest_outcome(task_id, error=None):
+        _record_ingest_history(payload, ok=True)
         await _notify_ingested(payload)
     return True
 
