@@ -7,10 +7,15 @@ response shapes, the route resolution order (``DELETE /api/galleries/progress``
 must precede ``DELETE /api/galleries/{identifier}``), the OpenAPI snapshot and
 ``monkeypatch.setattr(galleries, ...)`` all keep working.
 
-Test-patched collaborators (``GalleryRepository``, ``_invoke_gallery``,
+Test-patched collaborators (``GalleryRepository``, ``db_error``,
 ``get_session``, ``resolve_session``, ``display_title``) stay on the
 ``galleries`` package and are resolved at call time through :func:`_gal` and
 injected into :mod:`galleryvault.services.reading.progress`.
+
+Progress endpoints never load the page list: :func:`_gallery_page_count`
+resolves the gallery row and asks the repository for ``page_count(id)``, so
+saving/reading progress costs one ``COUNT(*)`` instead of fetching every page
+row (including manifests).
 """
 
 from __future__ import annotations
@@ -18,11 +23,13 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...services.reading import progress as reading_progress
 from ..dependencies import get_session
 from ..schemas import ProgressRequest
+from ..state import app_state
 
 router = APIRouter()
 
@@ -34,12 +41,38 @@ def _gal() -> Any:
     return galleries
 
 
+async def _gallery_page_count(
+    identifier: int, session: AsyncSession | None = None
+) -> tuple[Any, int]:
+    """Resolve a gallery and count its pages without loading the page list."""
+    gal = _gal()
+    if session is None:
+        if not app_state.session_factory:
+            raise HTTPException(
+                status_code=503, detail="Database session factory not initialized"
+            )
+        async with app_state.session_factory() as s:
+            return await _gallery_page_count(identifier, session=s)
+    try:
+        repo = gal.GalleryRepository(session)
+        row = await repo.get_by_id(identifier)
+        if row is None:
+            row = await repo.get_by_gid(identifier)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Gallery not found")
+        return row, await repo.page_count(row.id)
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise gal.db_error(exc) from exc
+
+
 def _deps() -> reading_progress.ReadingDeps:
     """Build the use-case collaborators from the package's current globals."""
     gal = _gal()
     return reading_progress.ReadingDeps(
         gallery_repo=gal.GalleryRepository,
-        invoke_gallery=gal._invoke_gallery,
+        gallery_page_count=_gallery_page_count,
         display_title=gal.display_title,
     )
 

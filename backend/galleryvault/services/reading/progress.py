@@ -51,7 +51,7 @@ class ReadingDeps:
     """Local-library collaborators injected by ``app/routers/reading.py``."""
 
     gallery_repo: type
-    invoke_gallery: Callable[..., Awaitable[tuple[Any, list[Any]]]]
+    gallery_page_count: Callable[..., Awaitable[tuple[Any, int]]]
     display_title: Callable[[Any], str]
 
 
@@ -82,12 +82,12 @@ async def get_gallery_progress(
     session: Any,
     deps: ReadingDeps,
 ) -> dict[str, object]:
-    row, pages = await deps.invoke_gallery(identifier, session=session)
+    row, page_count = await deps.gallery_page_count(identifier, session=session)
     progress = await deps.gallery_repo(session).progress(row.id)
     return {
         "gallery_id": row.id,
         "current_page": progress.current_page if progress else 0,
-        "total_pages": progress.total_pages if progress else len(pages),
+        "total_pages": progress.total_pages if progress else page_count,
         "updated_at": progress.updated_at if progress else None,
     }
 
@@ -99,12 +99,12 @@ async def update_gallery_progress(
     session: Any,
     deps: ReadingDeps,
 ) -> dict[str, object]:
-    row, pages = await deps.invoke_gallery(identifier, session=session)
-    if not pages:
+    row, page_count = await deps.gallery_page_count(identifier, session=session)
+    if not page_count:
         raise HTTPException(status_code=400, detail="Gallery has no pages")
     current = body.current_page if body.current_page is not None else (body.page or 0)
-    total_pages = body.total_pages or len(pages)
-    if current < 0 or current >= len(pages):
+    total_pages = body.total_pages or page_count
+    if current < 0 or current >= page_count:
         raise HTTPException(status_code=422, detail="current_page is outside gallery")
     async with safe_transaction(session):
         repo = deps.gallery_repo(session)
@@ -194,7 +194,7 @@ async def delete_gallery_progress(
     session: Any,
     deps: ReadingDeps,
 ) -> None:
-    row, _ = await deps.invoke_gallery(identifier, session=session)
+    row, _ = await deps.gallery_page_count(identifier, session=session)
     async with safe_transaction(session):
         await deps.gallery_repo(session).delete_progress(row.id)
 

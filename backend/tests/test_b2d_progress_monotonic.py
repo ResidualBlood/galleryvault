@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from galleryvault.app.routers import galleries
+from galleryvault.app.routers import reading as reading_router
 from galleryvault.app.schemas import ProgressRequest
 from galleryvault.db.models import ReadingProgress
 from galleryvault.db.repositories.galleries import GalleryRepository
@@ -76,13 +77,6 @@ async def test_advance_progress_inserts_first_entry() -> None:
     assert session.added == [stored]
 
 
-def _pages() -> list[SimpleNamespace]:
-    return [
-        SimpleNamespace(page_index=i, member_name=f"{i:04d}.jpg", media_type="jpg", manifest={})
-        for i in range(10)
-    ]
-
-
 async def test_save_progress_returns_stored_page_when_regressing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -98,10 +92,10 @@ async def test_save_progress_returns_stored_page_when_regressing(
         async def record_history(self, *args: object, **kwargs: object) -> None:
             raise AssertionError("stale progress must not overwrite history")
 
-    async def _lookup(*args: object, **kwargs: object) -> tuple[object, list[object]]:
-        return row, _pages()
+    async def _lookup(*args: object, **kwargs: object) -> tuple[object, int]:
+        return row, 10
 
-    monkeypatch.setattr(galleries, "_invoke_gallery", _lookup)
+    monkeypatch.setattr(reading_router, "_gallery_page_count", _lookup)
     monkeypatch.setattr(galleries, "GalleryRepository", _Repo)
 
     session = MagicMock()
@@ -132,10 +126,10 @@ async def test_save_progress_records_history_when_advancing(
         async def record_history(self, gallery_id: int, current: int, total: int) -> None:
             recorded.append((current, total))
 
-    async def _lookup(*args: object, **kwargs: object) -> tuple[object, list[object]]:
-        return row, _pages()
+    async def _lookup(*args: object, **kwargs: object) -> tuple[object, int]:
+        return row, 10
 
-    monkeypatch.setattr(galleries, "_invoke_gallery", _lookup)
+    monkeypatch.setattr(reading_router, "_gallery_page_count", _lookup)
     monkeypatch.setattr(galleries, "GalleryRepository", _Repo)
 
     session = MagicMock()
