@@ -42,10 +42,21 @@ def test_patch_compiles_to_jsonb_merge_upsert() -> None:
     assert "value = (app_config.value || excluded.value)" in sql
 
 
-def test_patch_compiles_remove_as_jsonb_delete_path() -> None:
+def test_patch_compiles_remove_as_jsonb_key_subtraction() -> None:
+    # jsonb ``#-`` takes a *path*: ``{a,b}`` deletes nested a.b, not top-level
+    # a and b.  Key removal must use ``jsonb - text[]`` instead.
     sql = _compiled({"saved_searches": []}, remove=("saved_searches",))
-    assert "#-" in sql
+    assert "#-" not in sql
+    assert "(app_config.value || excluded.value) - " in sql
     assert "TEXT[]" in sql
+
+
+def test_patch_removes_every_named_key_with_one_subtraction() -> None:
+    sql = _compiled({"keep": 1}, remove=("a", "b"))
+    assert "#-" not in sql
+    # One text[] operand, not a nested path of two elements.
+    assert sql.count("TEXT[]") == 1
+    assert "(app_config.value || excluded.value) - " in sql
 
 
 def test_patch_has_no_remove_clause_when_remove_is_empty() -> None:

@@ -138,6 +138,24 @@ async def test_patch_only_rewrites_the_keys_it_names() -> None:
 
 
 @pytest.mark.asyncio
+async def test_patch_remove_drops_multiple_top_level_keys() -> None:
+    async with _schema() as schema:
+        async with schema.factory() as session:
+            await SettingsRepository(session).patch({"a": 1, "b": 2, "c": 3})
+            await session.commit()
+
+        async with schema.factory() as session:
+            await SettingsRepository(session).patch({}, remove=["a", "b"])
+            await session.commit()
+
+        async with schema.factory() as session:
+            stored = await SettingsRepository(session).get()
+        # ``jsonb #- '{a,b}'`` would have searched for a nested a.b and kept
+        # both top-level keys; only ``jsonb - text[]`` drops each of them.
+        assert stored == {"c": 3}
+
+
+@pytest.mark.asyncio
 async def test_get_for_update_seeds_missing_row_and_locks_it() -> None:
     async with _schema() as schema:
         async with schema.factory() as session:

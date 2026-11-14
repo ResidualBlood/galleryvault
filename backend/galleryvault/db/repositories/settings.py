@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import ARRAY, Text, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,7 +37,11 @@ class SettingsRepository(BaseRepository[AppConfig]):
         merged = AppConfig.value.concat(stmt.excluded.value)
         removed = [str(key) for key in remove]
         if removed:
-            merged = merged.delete_path(removed)
+            # ``jsonb - text[]`` removes each named *top-level* key.  ``#-``
+            # would instead treat the list as one nested path (a.b), which is
+            # wrong as soon as more than one key is requested.  Parenthesise the
+            # merge: binary ``-`` binds tighter than ``||`` in PostgreSQL.
+            merged = merged.self_group().op("-")(literal(removed, type_=ARRAY(Text)))
         return stmt.on_conflict_do_update(
             index_elements=[AppConfig.key],
             set_={"value": merged, "updated_at": func.now()},
