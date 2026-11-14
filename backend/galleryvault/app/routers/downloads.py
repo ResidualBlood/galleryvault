@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -346,6 +347,34 @@ async def retry_all_downloads(
     }
 
 
+async def _active_task_exists_for_gid(
+    session: AsyncSession,
+    gid: int,
+    *,
+    exclude_id: int,
+) -> bool:
+    """Whether another pending/downloading task already holds ``gid``.
+
+    The partial unique index ``idx_download_tasks_active_gid`` enforces this;
+    checking first turns a raw IntegrityError into a clear 409. Focused unit
+    tests may pass a fake session without ``scalar``; a real AsyncSession
+    always provides it.
+    """
+    scalar = getattr(session, "scalar", None)
+    if scalar is None:
+        return False
+    stmt = (
+        select(DownloadTaskModel.id)
+        .where(
+            DownloadTaskModel.gid == gid,
+            DownloadTaskModel.id != exclude_id,
+            DownloadTaskModel.status.in_(["pending", "downloading"]),
+        )
+        .limit(1)
+    )
+    return await scalar(stmt) is not None
+
+
 @router.post("/api/downloads/{task_id}/retry")
 async def retry_download(
     task_id: int,
@@ -359,6 +388,14 @@ async def retry_download(
                 raise HTTPException(status_code=404, detail="Download task not found")
             if row.status not in {"failed", "cancelled", "success"}:
                 raise HTTPException(status_code=409, detail="Task is still active")
+            gid = getattr(row, "gid", None)
+            if gid is not None and await _active_task_exists_for_gid(
+                session, gid, exclude_id=task_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="An active download already exists for this gid",
+                )
             row.status = "pending"
             row.retry_count = 0
             row.retry_at = None
@@ -367,6 +404,10 @@ async def retry_download(
             row.max_retries = 10
     except HTTPException:
         raise
+    except IntegrityError as exc:
+        # Concurrent insert won the race after the pre-check; report the same
+        # conflict instead of a generic database outage.
+        raise db_error(exc) from exc
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
@@ -389,8 +430,14 @@ async def cancel_download(
             if row is None:
                 raise HTTPException(status_code=404, detail="Download task not found")
             was_active = row.status in {"pending", "downloading"}
-            if not await DownloadRepository(session).cancel(task_id):
+            status = await DownloadRepository(session).cancel(task_id)
+            if status is None:
                 raise HTTPException(status_code=404, detail="Download task not found")
+            if not was_active:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"status": status, "message": "task already finished"},
+                )
     except HTTPException:
         raise
     except SQLAlchemyError as exc:

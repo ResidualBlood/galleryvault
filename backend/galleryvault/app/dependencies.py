@@ -12,6 +12,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from fastapi import Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings, get_settings, normalize_library_roots
@@ -269,6 +270,10 @@ def get_gallery_service(
 
 
 def db_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, IntegrityError):
+        # A constraint conflict is a client-visible conflict, not an outage.
+        logger.warning("database conflict", extra=log_extra(error=type(exc).__name__))
+        return HTTPException(status_code=409, detail="Conflict")
     logger.error("database operation failed", extra=log_extra(error=type(exc).__name__))
     return HTTPException(status_code=503, detail="Database is unavailable")
 

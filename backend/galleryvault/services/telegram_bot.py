@@ -112,7 +112,8 @@ async def cancel_download_ident(ident: int) -> tuple[str, int | None, int | None
         task_id = int(task.id)
         gid = int(task.gid)
         was_downloading = task.status == "downloading"
-        if not await DownloadRepository(session).cancel(task_id):
+        status = await DownloadRepository(session).cancel(task_id)
+        if status is None:
             return "not_found", None, None
     if was_downloading:
         mark_download_cancelled(task_id)
