@@ -391,6 +391,206 @@ async def challenge_probe_loop() -> None:
 
 
 
+def _classify_error(exc: BaseException) -> dict[str, Any]:
+    """Classify a failed attempt for handler ordering and retry decisions."""
+    gone = isinstance(exc, GalleryGoneError) or "does not exist on ExHentai" in str(exc)
+    if isinstance(exc, GalleryReplacedError):
+        kind = "replaced"
+    elif isinstance(exc, DownloadCancelledError):
+        kind = "cancelled"
+    elif isinstance(exc, EhChallengeError):
+        kind = "challenge"
+    else:
+        kind = "error"
+    return {
+        "kind": kind,
+        "auth_failure": "authenticat" in str(exc),
+        "gone": gone,
+        "not_retryable": isinstance(exc, (ArchiveNotRetryableError, GalleryGoneError)) or gone,
+        "message": GONE_DETAIL if gone else f"{type(exc).__name__}: {exc}",
+    }
+
+
+def _handle_archive_fallback(target: Any | None, exec_task: DownloadTask | None) -> bool:
+    """Propagate the archive-fallback flag onto a row or update-values mapping."""
+    if exec_task is None or not getattr(exec_task, "archive_fallback", False):
+        return False
+    if target is not None:
+        if isinstance(target, dict):
+            target["archive_fallback"] = True
+        else:
+            target.archive_fallback = True
+    return True
+
+
+async def _record_progress(
+    task: DownloadTask,
+    exec_task: DownloadTask | None,
+    progress_state: dict[str, Any],
+    current: int,
+    total: int,
+) -> None:
+    """Throttle progress persistence and forward the archive-fallback marker."""
+    if is_download_cancelled(task.id):
+        raise DownloadCancelledError("download was cancelled")
+    now = _time.monotonic()
+    if (
+        current >= total
+        or progress_state["last_persisted"] == 0
+        or current - progress_state["last_persisted"] >= _PROGRESS_FLUSH_STEP
+        or now - progress_state["last_flush"] >= _PROGRESS_FLUSH_INTERVAL
+    ):
+        if task.id is not None:
+            is_fb = _handle_archive_fallback(None, exec_task)
+            await download_progress(
+                task.id,
+                current,
+                total,
+                archive_fallback=True if is_fb else None,
+                gid=getattr(task, "gid", None),
+            )
+        progress_state["last_persisted"] = current
+        progress_state["last_flush"] = now
+
+
+async def _apply_retry_policy(
+    session_cm: Any,
+    task: DownloadTask,
+    exc: BaseException,
+    *,
+    exec_task: DownloadTask | None = None,
+) -> None:
+    """Persist the retry/pause decision for a failed or challenged attempt."""
+    info = _classify_error(exc)
+    if info["kind"] == "challenge":
+        http_meta = _extract_http_meta(exc)
+        challenge_extra: dict[str, Any] = {
+            "task_id": task.id,
+            "gid": task.gid,
+            "error": str(exc),
+        }
+        challenge_extra.update(http_meta)
+        logger.warning(
+            "download challenge encountered; auto-pausing downloads",
+            extra=log_extra(**challenge_extra),
+        )
+        now = datetime.now(UTC)
+        count = _bump_challenge_count(task.id)
+        over_budget = count >= _MAX_CHALLENGE_PAUSES
+        try:
+            async with session_cm() as session, session.begin():
+                row = await session.get(DownloadTaskModel, task.id)
+                if row and row.status != "cancelled":
+                    if over_budget:
+                        # Stop the pause/resume/challenge loop, but keep the
+                        # remaining retry budget so a manual retry can still
+                        # pick the task up later.
+                        row.status = "failed"
+                        row.retry_at = None
+                        row.finished_at = now
+                        row.retry_count = min(
+                            max(0, row.retry_count or 0), max(0, row.max_retries - 1)
+                        )
+                        row.error_message = (
+                            f"自动暂停失败：302 临时挑战已达上限 "
+                            f"({count}/{_MAX_CHALLENGE_PAUSES})"
+                        )
+                    else:
+                        row.status = "pending"
+                        row.retry_at = now + timedelta(seconds=retry_backoff(max(1, count)))
+                        row.error_message = (
+                            f"自动暂停：检测到 ExHentai 302 临时挑战 "
+                            f"({count}/{_MAX_CHALLENGE_PAUSES})"
+                        )
+                    row.updated_at = now
+                    await DownloadRepository(session).record_attempt(
+                        task.id or 0,
+                        max(1, row.retry_count or 1),
+                        "challenged",
+                        "EhChallengeError",
+                    )
+        except SQLAlchemyError as db_exc:
+            logger.exception(
+                "download status persistence failed on challenge",
+                extra=log_extra(
+                    task_id=task.id,
+                    gid=task.gid,
+                    error=str(db_exc) or type(db_exc).__name__,
+                ),
+            )
+        if over_budget:
+            logger.error(
+                "302 challenge budget exhausted; failing task",
+                extra=log_extra(
+                    task_id=task.id,
+                    gid=task.gid,
+                    challenges=count,
+                    limit=_MAX_CHALLENGE_PAUSES,
+                ),
+            )
+        sample_path = f"/g/{task.gid}/{task.token}/" if task.token else "/"
+        await _trigger_challenge_pause(
+            sample_path,
+            task_id=task.id,
+            gid=task.gid,
+            response_meta=http_meta,
+        )
+        return
+
+    http_meta = _extract_http_meta(exc)
+    fail_extra: dict[str, Any] = {
+        "task_id": task.id,
+        "gid": task.gid,
+        "error": type(exc).__name__,
+        "message": str(exc),
+    }
+    fail_extra.update(http_meta)
+    logger.exception(
+        "download task failed",
+        extra=log_extra(**fail_extra),
+    )
+    row = None
+    try:
+        async with session_cm() as session, session.begin():
+            row = await session.get(DownloadTaskModel, task.id)
+            if row and row.status != "cancelled":
+                now = datetime.now(UTC)
+                row.retry_count += 1
+                if (
+                    info["auth_failure"]
+                    or info["not_retryable"]
+                    or row.retry_count >= row.max_retries
+                ):
+                    row.status = "failed"
+                    row.retry_at = None
+                    row.finished_at = now
+                    row.retry_count = max(row.retry_count, row.max_retries)
+                else:
+                    row.status = "pending"
+                    # Always apply exponential backoff for transient errors so a
+                    # just-failed task in not re-claimed immediately. The old
+                    # `challenge ? backoff : now` caused non-challenge
+                    # EhClientError to be retried in <1s, burning the retry budget.
+                    row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count))
+                _handle_archive_fallback(row, exec_task)
+                row.error_message = info["message"]
+                row.updated_at = now
+                await DownloadRepository(session).record_attempt(
+                    task.id or 0, row.retry_count, "failed", type(exc).__name__
+                )
+        if row is not None and row.status == "failed":
+            await record_download_notification(
+                "fail",
+                task.title or str(task.gid),
+                GONE_DETAIL if info["gone"] else type(exc).__name__,
+            )
+    except SQLAlchemyError as db_exc:
+        logger.error(
+            "download status persistence failed",
+            extra=log_extra(error=str(db_exc) or type(db_exc).__name__),
+        )
+
+
 async def _run_download_inner(
     task: DownloadTask,
     *,
@@ -403,7 +603,6 @@ async def _run_download_inner(
     downloader = app_state.downloader
     if downloader is None:
         return
-    notify_fn = record_download_notification
 
     row = None
     exec_task: DownloadTask | None = None
@@ -443,26 +642,7 @@ async def _run_download_inner(
         progress_state = {"last_persisted": 0, "last_flush": 0.0}
 
         async def _on_progress(current: int, total: int) -> None:
-            if is_download_cancelled(task.id):
-                raise DownloadCancelledError("download was cancelled")
-            now = _time.monotonic()
-            if (
-                current >= total
-                or progress_state["last_persisted"] == 0
-                or current - progress_state["last_persisted"] >= _PROGRESS_FLUSH_STEP
-                or now - progress_state["last_flush"] >= _PROGRESS_FLUSH_INTERVAL
-            ):
-                if task.id is not None:
-                    is_fb = bool(getattr(exec_task, "archive_fallback", False))
-                    await download_progress(
-                        task.id,
-                        current,
-                        total,
-                        archive_fallback=True if is_fb else None,
-                        gid=getattr(task, "gid", None),
-                    )
-                progress_state["last_persisted"] = current
-                progress_state["last_flush"] = now
+            await _record_progress(task, exec_task, progress_state, current, total)
 
         if is_download_cancelled(task.id):
             raise DownloadCancelledError("download was cancelled")
@@ -495,8 +675,7 @@ async def _run_download_inner(
             "ingest_payload": serialize_ingest_payload(result),
             "updated_at": now,
         }
-        if getattr(exec_task, "archive_fallback", False):
-            update_values["archive_fallback"] = True
+        _handle_archive_fallback(update_values, exec_task)
         if result.title:
             update_values["title"] = result.title
         if getattr(result, "title_jpn", None):
@@ -545,8 +724,7 @@ async def _run_download_inner(
                     row.retry_at = None
                     row.ingest_status = "pending"
                     row.ingest_payload = update_values.get("ingest_payload")
-                    if "archive_fallback" in update_values:
-                        row.archive_fallback = update_values["archive_fallback"]
+                    _handle_archive_fallback(row, exec_task)
                     if "title" in update_values:
                         row.title = update_values["title"]
                     if "title_jpn" in update_values:
@@ -630,132 +808,6 @@ async def _run_download_inner(
         clear_download_cancelled(task.id)
         logger.info("download cancelled", extra=log_extra(gid=task.gid))
     except EhChallengeError as exc:
-        http_meta = _extract_http_meta(exc)
-        challenge_extra: dict[str, Any] = {
-            "task_id": task.id,
-            "gid": task.gid,
-            "error": str(exc),
-        }
-        challenge_extra.update(http_meta)
-        logger.warning(
-            "download challenge encountered; auto-pausing downloads",
-            extra=log_extra(**challenge_extra),
-        )
-        now = datetime.now(UTC)
-        count = _bump_challenge_count(task.id)
-        over_budget = count >= _MAX_CHALLENGE_PAUSES
-        try:
-            async with session_cm() as session, session.begin():
-                row = await session.get(DownloadTaskModel, task.id)
-                if row and row.status != "cancelled":
-                    if over_budget:
-                        # Stop the pause/resume/challenge loop, but keep the
-                        # remaining retry budget so a manual retry can still
-                        # pick the task up later.
-                        row.status = "failed"
-                        row.retry_at = None
-                        row.finished_at = now
-                        row.retry_count = min(
-                            max(0, row.retry_count or 0), max(0, row.max_retries - 1)
-                        )
-                        row.error_message = (
-                            f"自动暂停失败：302 临时挑战已达上限 "
-                            f"({count}/{_MAX_CHALLENGE_PAUSES})"
-                        )
-                    else:
-                        row.status = "pending"
-                        row.retry_at = now + timedelta(
-                            seconds=retry_backoff(max(1, count))
-                        )
-                        row.error_message = (
-                            f"自动暂停：检测到 ExHentai 302 临时挑战 "
-                            f"({count}/{_MAX_CHALLENGE_PAUSES})"
-                        )
-                    row.updated_at = now
-                    await DownloadRepository(session).record_attempt(
-                        task.id or 0, max(1, row.retry_count or 1), "challenged", "EhChallengeError"
-                    )
-        except SQLAlchemyError as db_exc:
-            logger.exception(
-                "download status persistence failed on challenge",
-                extra=log_extra(
-                    task_id=task.id,
-                    gid=task.gid,
-                    error=str(db_exc) or type(db_exc).__name__,
-                ),
-            )
-        if over_budget:
-            logger.error(
-                "302 challenge budget exhausted; failing task",
-                extra=log_extra(
-                    task_id=task.id,
-                    gid=task.gid,
-                    challenges=count,
-                    limit=_MAX_CHALLENGE_PAUSES,
-                ),
-            )
-        sample_path = f"/g/{task.gid}/{task.token}/" if task.token else "/"
-        await _trigger_challenge_pause(
-            sample_path,
-            task_id=task.id,
-            gid=task.gid,
-            response_meta=http_meta,
-        )
-    except Exception as exc:
-        http_meta = _extract_http_meta(exc)
-        fail_extra: dict[str, Any] = {
-            "task_id": task.id,
-            "gid": task.gid,
-            "error": type(exc).__name__,
-            "message": str(exc),
-        }
-        fail_extra.update(http_meta)
-        logger.exception(
-            "download task failed",
-            extra=log_extra(**fail_extra),
-        )
-        try:
-            gone = False
-            async with session_cm() as session, session.begin():
-                row = await session.get(DownloadTaskModel, task.id)
-                if row and row.status != "cancelled":
-                    now = datetime.now(UTC)
-                    auth_failure = "authenticat" in str(exc)
-                    gone = isinstance(exc, GalleryGoneError) or "does not exist on ExHentai" in str(
-                        exc
-                    )
-                    not_retryable = (
-                        isinstance(exc, (ArchiveNotRetryableError, GalleryGoneError))
-                        or gone
-                    )
-                    row.retry_count += 1
-                    if auth_failure or not_retryable or row.retry_count >= row.max_retries:
-                        row.status = "failed"
-                        row.retry_at = None
-                        row.finished_at = now
-                        row.retry_count = max(row.retry_count, row.max_retries)
-                    else:
-                        row.status = "pending"
-                        # Always apply exponential backoff for transient errors so a
-                        # just-failed task in not re-claimed immediately. The old
-                        # `challenge ? backoff : now` caused non-challenge
-                        # EhClientError to be retried in <1s, burning the retry budget.
-                        row.retry_at = now + timedelta(seconds=retry_backoff(row.retry_count))
-                    if exec_task is not None and getattr(exec_task, "archive_fallback", False):
-                        row.archive_fallback = True
-                    row.error_message = GONE_DETAIL if gone else f"{type(exc).__name__}: {exc}"
-                    row.updated_at = now
-                    await DownloadRepository(session).record_attempt(
-                        task.id or 0, row.retry_count, "failed", type(exc).__name__
-                    )
-            if row is not None and row.status == "failed":
-                await notify_fn(
-                    "fail",
-                    task.title or str(task.gid),
-                    GONE_DETAIL if gone else type(exc).__name__,
-                )
-        except SQLAlchemyError as db_exc:
-            logger.error(
-                "download status persistence failed",
-                extra=log_extra(error=str(db_exc) or type(db_exc).__name__),
-            )
+        await _apply_retry_policy(session_cm, task, exc)
+    except Exception as exc:  # noqa: BLE001
+        await _apply_retry_policy(session_cm, task, exc, exec_task=exec_task)
