@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..app.state import app_state
@@ -313,6 +313,40 @@ def is_under_cold(
         return False
 
 
+def _normalize_root_prefix(root: Path | str) -> str:
+    """Normalize a resolved cold root to a path prefix without a trailing slash."""
+    normalized = os.path.normpath(str(root))
+    return normalized
+
+
+def _cold_path_filter(roots: Sequence[Path | str]) -> Any | None:
+    """Build the SQL predicate equivalent to ``is_under_cold`` for stored paths.
+
+    ``is_under_cold`` resolves one path on the filesystem (following symlinks);
+    doing that per DB row is not viable for large libraries.  Stored
+    ``storage_path`` values are already absolute resolved paths, so the same
+    containment can be expressed as ``path == root`` or ``path LIKE root/%``
+    with the separator included: ``/Archive`` must not match ``/Archive2``.
+    SQLAlchemy escapes ``%``/``_`` in the prefix (``autoescape``).
+    """
+    conditions: list[Any] = []
+    for root in roots:
+        base = _normalize_root_prefix(root)
+        if base == os.sep:
+            # Every absolute stored path lives under the filesystem root.
+            conditions.append(Gallery.storage_path.startswith(os.sep))
+            continue
+        conditions.append(
+            or_(
+                Gallery.storage_path == base,
+                Gallery.storage_path.startswith(base + os.sep, autoescape=True),
+            )
+        )
+    if not conditions:
+        return None
+    return or_(*conditions)
+
+
 async def reconcile_storage_tier(
     *,
     session_factory: Callable[[], AsyncSession] | None = None,
@@ -320,13 +354,15 @@ async def reconcile_storage_tier(
 ) -> dict[str, int]:
     """Align ``galleries.storage_tier``/``cold_at`` with the configured cold roots.
 
-    Idempotent: rows already consistent are untouched, so this can run on every
-    startup and after each ``archive_roots`` change.  ``cold_at`` is backfilled
-    from ``updated_at`` for historical rows, which is only an approximation of
-    when the gallery actually became cold.
+    Idempotent set-based reconciliation: three bulk ``UPDATE`` statements run
+    entirely in the database (no ORM row hydration), so startup cost stays flat
+    for large libraries.  ``cold_at`` is backfilled from ``updated_at`` for
+    historical rows, which is only an approximation of when the gallery became
+    cold.
 
     Cold roots are runtime settings, therefore the 0044 migration cannot
-    backfill; this pass is the backfill.
+    backfill; this pass is the backfill.  Matching follows ``is_under_cold`` for
+    the normalized absolute paths stored by the scanner/archive writers.
     """
     counts = {"checked": 0, "fixed_cold": 0, "fixed_hot": 0, "cold_at_filled": 0}
     sf = session_factory or app_state.session_factory
@@ -335,25 +371,46 @@ async def reconcile_storage_tier(
         return counts
 
     roots = resolve_archive_roots(archive_roots=archive_roots)
+    path_filter = _cold_path_filter(roots)
     try:
         async with sf() as session:
-            rows = list((await session.scalars(select(Gallery))).all())
-            now = datetime.now(UTC)
-            for gallery in rows:
-                counts["checked"] += 1
-                if is_under_cold(gallery.storage_path, roots):
-                    if gallery.storage_tier != "cold":
-                        gallery.storage_tier = "cold"
-                        counts["fixed_cold"] += 1
-                    if gallery.cold_at is None:
-                        gallery.cold_at = getattr(gallery, "updated_at", None) or now
-                        counts["cold_at_filled"] += 1
-                else:
-                    if gallery.storage_tier != "hot":
-                        gallery.storage_tier = "hot"
-                        counts["fixed_hot"] += 1
-                    if gallery.cold_at is not None:
-                        gallery.cold_at = None
+            counts["checked"] = int(
+                (await session.scalar(select(func.count()).select_from(Gallery))) or 0
+            )
+
+            cold_values = {
+                "storage_tier": "cold",
+                "cold_at": func.coalesce(Gallery.cold_at, Gallery.updated_at, func.now()),
+            }
+            if path_filter is not None:
+                cold_stmt = (
+                    update(Gallery)
+                    .where(path_filter, Gallery.storage_tier != "cold")
+                    .values(**cold_values)
+                )
+                cold_result = await session.execute(cold_stmt)
+                counts["fixed_cold"] = max(int(cold_result.rowcount or 0), 0)
+
+                fill_stmt = (
+                    update(Gallery)
+                    .where(
+                        Gallery.storage_tier == "cold",
+                        Gallery.cold_at.is_(None),
+                        path_filter,
+                    )
+                    .values(cold_at=func.coalesce(Gallery.updated_at, func.now()))
+                )
+                fill_result = await session.execute(fill_stmt)
+                counts["cold_at_filled"] = max(int(fill_result.rowcount or 0), 0)
+
+            hot_stmt = update(Gallery).where(Gallery.storage_tier == "cold")
+            if path_filter is not None:
+                hot_stmt = hot_stmt.where(~path_filter)
+            hot_result = await session.execute(
+                hot_stmt.values(storage_tier="hot", cold_at=None)
+            )
+            counts["fixed_hot"] = max(int(hot_result.rowcount or 0), 0)
+
             if (
                 counts["fixed_cold"]
                 or counts["fixed_hot"]

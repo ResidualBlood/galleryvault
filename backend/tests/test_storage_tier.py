@@ -4,7 +4,8 @@ DB-free tests: archive writes ``cold``, ingest derives the tier from the cold
 roots, and the startup reconcile fixes historical rows idempotently.
 """
 
-from datetime import UTC, datetime
+import os
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -175,8 +176,12 @@ async def test_ingest_outside_cold_root_stays_hot(
 
 
 class _ReconcileSession:
-    def __init__(self, rows: list) -> None:
-        self.rows = rows
+    """Fake async session counting the bulk UPDATE statements, not ORM rows."""
+
+    def __init__(self, checked: int, rowcounts: list[int]) -> None:
+        self.checked = checked
+        self.rowcounts = rowcounts
+        self.statements: list = []
         self.commits = 0
 
     async def __aenter__(self):
@@ -185,74 +190,45 @@ class _ReconcileSession:
     async def __aexit__(self, *args):
         return False
 
-    async def scalars(self, stmt):
-        return SimpleNamespace(all=lambda: self.rows)
+    async def scalar(self, stmt):
+        return self.checked
+
+    async def execute(self, stmt):
+        self.statements.append(stmt)
+        return SimpleNamespace(rowcount=self.rowcounts[len(self.statements) - 1])
 
     async def commit(self):
         self.commits += 1
 
 
 @pytest.mark.asyncio
-async def test_reconcile_fixes_mismatched_rows(tmp_path: Path) -> None:
+async def test_reconcile_uses_set_based_updates(tmp_path: Path) -> None:
     from galleryvault.services.cold_archive import reconcile_storage_tier
 
     cold_root = tmp_path / "Archive"
     cold_root.mkdir()
-    cold_path = cold_root / "cbz" / "aa" / "bb" / "400-Cold.cbz"
-    hot_path = tmp_path / "downloads" / "401-Hot"
-    cold_path_ok = cold_root / "cbz" / "cc" / "dd" / "402-Cold.cbz"
-    stamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
-
-    rows = [
-        Gallery(
-            title="mislabeled hot",
-            storage_type="cbz",
-            storage_path=str(cold_path),
-            path_hash="h1",
-            storage_signature="s1",
-            storage_tier="hot",
-            cold_at=None,
-            updated_at=stamp,
-        ),
-        Gallery(
-            title="stale cold",
-            storage_type="folder",
-            storage_path=str(hot_path),
-            path_hash="h2",
-            storage_signature="s2",
-            storage_tier="cold",
-            cold_at=stamp,
-            updated_at=stamp,
-        ),
-        Gallery(
-            title="already cold",
-            storage_type="cbz",
-            storage_path=str(cold_path_ok),
-            path_hash="h3",
-            storage_signature="s3",
-            storage_tier="cold",
-            cold_at=stamp,
-            updated_at=stamp,
-        ),
-    ]
-    session = _ReconcileSession(rows)
+    # checked=3; cold fixed=1, cold_at filled=1, hot fixed=1
+    session = _ReconcileSession(3, [1, 1, 1])
 
     counts = await reconcile_storage_tier(
         session_factory=lambda: session, archive_roots=[cold_root]
     )
 
     assert counts == {"checked": 3, "fixed_cold": 1, "fixed_hot": 1, "cold_at_filled": 1}
-    assert rows[0].storage_tier == "cold"
-    assert rows[0].cold_at == stamp  # backfilled from updated_at
-    assert rows[1].storage_tier == "hot"
-    assert rows[1].cold_at is None
-    assert rows[2].storage_tier == "cold"
-    assert rows[2].cold_at == stamp
     assert session.commits == 1
+    # Exactly three bulk UPDATEs; no select(Gallery) row hydration is possible
+    # because this fake session has no ``scalars``/``get`` method.
+    assert len(session.statements) == 3
+    sql = " ".join(str(stmt) for stmt in session.statements)
+    assert "UPDATE galleries" in sql
+    # cold_at is backfilled in SQL from updated_at, not in Python per row.
+    assert "updated_at" in sql
+    assert "coalesce" in sql.lower()
 
-    # Idempotent: the second pass makes no further changes.
+    # Idempotent: a second pass reports no changes and does not commit.
+    second = _ReconcileSession(3, [0, 0, 0])
     counts_again = await reconcile_storage_tier(
-        session_factory=lambda: session, archive_roots=[cold_root]
+        session_factory=lambda: second, archive_roots=[cold_root]
     )
     assert counts_again == {
         "checked": 3,
@@ -260,4 +236,72 @@ async def test_reconcile_fixes_mismatched_rows(tmp_path: Path) -> None:
         "fixed_hot": 0,
         "cold_at_filled": 0,
     }
-    assert session.commits == 1
+    assert second.commits == 0
+
+
+def _matches_prefix(path: str, roots: list[str]) -> bool:
+    from galleryvault.services.cold_archive import _normalize_root_prefix
+
+    return any(
+        path == _normalize_root_prefix(root)
+        or path.startswith(_normalize_root_prefix(root) + os.sep)
+        for root in roots
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_without_cold_roots_never_marks_cold() -> None:
+    from galleryvault.services.cold_archive import reconcile_storage_tier
+
+    session = _ReconcileSession(5, [3])
+    counts = await reconcile_storage_tier(session_factory=lambda: session, archive_roots=[])
+
+    assert counts == {"checked": 5, "fixed_cold": 0, "fixed_hot": 3, "cold_at_filled": 0}
+    # Only the hot reset ran; without a cold root no row may become cold.
+    assert len(session.statements) == 1
+    hot_sql = str(session.statements[0])
+    assert "UPDATE galleries" in hot_sql
+    assert "LIKE" not in hot_sql
+
+
+def test_cold_prefix_boundary_matches_is_under_cold(tmp_path: Path) -> None:
+    from galleryvault.services.cold_archive import _normalize_root_prefix, is_under_cold
+
+    root = tmp_path / "Archive"
+    root.mkdir()
+    roots = [str(root)]
+    cases = [
+        (str(root), True),
+        (str(root / "cbz" / "aa" / "1.cbz"), True),
+        (str(tmp_path / "Archive2" / "x"), False),
+        (str(tmp_path / "archive" / "x"), False),
+        (str(tmp_path / "Other" / "x"), False),
+    ]
+    for path, expected in cases:
+        assert _matches_prefix(path, roots) is expected, path
+        # The SQL predicate mirrors this for stored absolute paths.
+        assert is_under_cold(path, roots) is expected, path
+    assert _normalize_root_prefix(str(root) + os.sep) == str(root)
+
+
+def test_cold_path_filter_escapes_like_wildcards() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from galleryvault.services.cold_archive import _cold_path_filter
+
+    condition = _cold_path_filter(["/Archive", "/Archive2", "/Arc_hive%x"])
+    assert condition is not None
+    compiled = condition.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    # The separator is part of the LIKE prefix so /Archive cannot match
+    # /Archive2; SQLAlchemy's autoescape uses "/" as the escape character.
+    assert "LIKE" in sql
+    assert "ESCAPE '/'" in sql
+    values = list(compiled.params.values())
+    assert "/Archive" in values
+    assert "//Archive//" in values
+    assert "/Archive2" in values
+    assert "/Arc_hive%x" in values
+    # Underscore and percent in a configured root are escaped, not wildcards.
+    assert "//Arc/_hive/%x//" in values
+
