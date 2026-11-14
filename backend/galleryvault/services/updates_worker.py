@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -322,7 +323,30 @@ async def finalize_updates_for_new_gid(new_gid: int) -> int:
     if session_cm is None:
         return 0
     async with session_cm() as session:
-        rows = await GalleryUpdatesRepository(session).actionable_by_new_gid(int(new_gid))
+        repo = GalleryUpdatesRepository(session)
+        rows = await repo.actionable_by_new_gid(int(new_gid))
+        if len(rows) > 1:
+            # One re-upload matching several local galleries is the title
+            # N→1 hazard: without an official replace link there is no way to
+            # tell which local copies are really superseded, so nothing may be
+            # auto-deleted.  Park the unchained rows in ``pending`` for the user.
+            old_gids = await repo.gallery_gids([r.gallery_id for r in rows])
+            chained = await repo.replacement_chain_pairs(
+                [(old_gid, int(new_gid)) for old_gid in old_gids.values()]
+            )
+            total = len(rows)
+            blocked = [
+                int(r.id)
+                for r in rows
+                if (old_gids.get(int(r.gallery_id)), int(new_gid)) not in chained
+            ]
+            if blocked:
+                blocked_ids = set(blocked)
+                rows = [r for r in rows if int(r.id) not in blocked_ids]
+                async with session_cm() as mark_session, mark_session.begin():
+                    await GalleryUpdatesRepository(mark_session).mark_ambiguous(
+                        blocked, f"ambiguous: {total} local galleries match"
+                    )
         refs = [
             SimpleNamespace(
                 id=r.id, gallery_id=r.gallery_id, new_gid=getattr(r, "new_gid", new_gid)
@@ -431,15 +455,57 @@ async def detect_gallery_updates() -> None:
 
                 local_new: set[int] = set()
                 active_tasks: dict[int, int] = {}
+                chained: set[tuple[int, int]] = set()
+                matches_per_new_gid: Counter[int] = Counter(
+                    int(e["new_gid"]) for e in detected
+                )
                 if detected:
                     new_gids = [e["new_gid"] for e in detected]
                     async with session_cm() as session:
                         repo = repo_cls(session)
                         local_new = await repo.local_new_gids(new_gids)
                         active_tasks = await repo.active_task_ids_for_gids(new_gids)
+                    needs_chain = any(
+                        int(e["new_gid"]) in local_new
+                        or matches_per_new_gid[int(e["new_gid"])] > 1
+                        for e in detected
+                    )
+                    if needs_chain:
+                        pairs = list(
+                            {(int(e["old_gid"]), int(e["new_gid"])) for e in detected}
+                        )
+                        async with session_cm() as session:
+                            chained = await repo_cls(
+                                session
+                            ).replacement_chain_pairs(pairs)
+                to_park: list[tuple[int, str]] = []
                 for entry in detected:
                     status = entry.get("existing_status")
-                    if entry["new_gid"] in local_new:
+                    new_gid = int(entry["new_gid"])
+                    pair = (int(entry["old_gid"]), new_gid)
+                    ambiguous_count = matches_per_new_gid[new_gid]
+                    if pair not in chained and ambiguous_count > 1:
+                        # Title matching only: one re-upload matched several
+                        # local galleries and no official replace link tells
+                        # which ones it supersedes.  Never auto-delete; the
+                        # user picks in the updates page.
+                        message = f"ambiguous: {ambiguous_count} local galleries match"
+                        if status in {"pending", "failed"} and entry.get("existing_id") is not None:
+                            to_park.append((int(entry["existing_id"]), message))
+                        if status is None:
+                            to_insert.append(
+                                {
+                                    "gallery_id": entry["gallery_id"],
+                                    "old_gid": entry["old_gid"],
+                                    "new_gid": new_gid,
+                                    "new_token": entry["new_token"],
+                                    "title": entry["title"],
+                                    "favcat": entry["favcat"],
+                                    "error_message": message,
+                                }
+                            )
+                        continue
+                    if new_gid in local_new and pair in chained:
                         to_finalize.append(
                             SimpleNamespace(
                                 id=entry.get("existing_id"),
@@ -449,7 +515,7 @@ async def detect_gallery_updates() -> None:
                         )
                         continue
                     extra: dict[str, Any] = {}
-                    task_id = active_tasks.get(entry["new_gid"])
+                    task_id = active_tasks.get(new_gid)
                     if status is None:
                         if task_id:
                             extra["status"] = "downloading"
@@ -458,7 +524,7 @@ async def detect_gallery_updates() -> None:
                             {
                                 "gallery_id": entry["gallery_id"],
                                 "old_gid": entry["old_gid"],
-                                "new_gid": entry["new_gid"],
+                                "new_gid": new_gid,
                                 "new_token": entry["new_token"],
                                 "title": entry["title"],
                                 "favcat": entry["favcat"],
@@ -466,12 +532,17 @@ async def detect_gallery_updates() -> None:
                             }
                         )
                     elif status in {"pending", "failed"} and task_id:
-                        to_attach[int(entry["new_gid"])] = int(task_id)
+                        to_attach[int(new_gid)] = int(task_id)
                 if to_insert:
                     async with session_cm() as session, session.begin():
                         found = await repo_cls(session).detect_many(
                             to_insert, known_gallery_ids=set()
                         )
+                if to_park:
+                    async with session_cm() as session, session.begin():
+                        parked_repo = repo_cls(session)
+                        for update_id, message in to_park:
+                            await parked_repo.mark_ambiguous([update_id], message)
                 if to_attach:
                     async with session_cm() as session, session.begin():
                         attached_repo = repo_cls(session)

@@ -108,6 +108,9 @@ async def test_detect_gallery_updates_finds_old_versions(monkeypatch):
         async def local_new_gids(self, gids):
             return set()
 
+        async def replacement_chain_pairs(self, pairs):
+            return set()
+
         async def active_task_ids_for_gids(self, gids):
             return {}
 
@@ -165,6 +168,9 @@ async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
         async def local_new_gids(self, gids):
             return set()
 
+        async def replacement_chain_pairs(self, pairs):
+            return set()
+
         async def active_task_ids_for_gids(self, gids):
             return {}
 
@@ -184,7 +190,7 @@ async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
     assert seen == []
 
 
-async def test_detect_gallery_updates_finalizes_when_new_gid_local(monkeypatch):
+async def test_detect_autofinalizes_with_parent_chain(monkeypatch):
     fav_rows = [(200, "tok", "Title A", 0)]
     gallery_rows = [(1, 100, "Title A", None)]
     finalized = []
@@ -215,6 +221,9 @@ async def test_detect_gallery_updates_finalizes_when_new_gid_local(monkeypatch):
         async def local_new_gids(self, gids):
             return {200}
 
+        async def replacement_chain_pairs(self, pairs):
+            return {(100, 200)}
+
         async def active_task_ids_for_gids(self, gids):
             return {}
 
@@ -239,6 +248,137 @@ async def test_detect_gallery_updates_finalizes_when_new_gid_local(monkeypatch):
     assert finalized == [1]
 
 
+async def test_detect_does_not_autofinalize_title_only_match(monkeypatch):
+    """A title match with no official replace link must not delete unattended."""
+    fav_rows = [(200, "tok", "Title A", 0)]
+    gallery_rows = [(1, 100, "Title A", None)]
+    finalized = []
+    seen = []
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+        async def execute(self, stmt):
+            if "favorite_items" in str(stmt):
+                return _Res(fav_rows)
+            return _Res(gallery_rows)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def tracking_by_gallery_id(self):
+            return {}
+
+        async def local_new_gids(self, gids):
+            return {200}
+
+        async def replacement_chain_pairs(self, pairs):
+            return set()
+
+        async def active_task_ids_for_gids(self, gids):
+            return {}
+
+        async def detect_many(self, entries, *, known_gallery_ids):
+            seen.extend(entries)
+            return len(entries)
+
+    async def fake_finalize(row):
+        finalized.append(row.gallery_id)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+
+    try:
+        await detect_gallery_updates()
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert finalized == []
+    assert len(seen) == 1
+    assert seen[0]["gallery_id"] == 1
+    assert seen[0]["new_gid"] == 200
+    assert "status" not in seen[0]  # inserted as pending, user decides
+
+
+async def test_detect_marks_many_to_one_ambiguous(monkeypatch):
+    """One new gid matching several local galleries without a link is ambiguous."""
+    fav_rows = [(200, "tok", "Title A", 0)]
+    gallery_rows = [
+        (1, 100, "Title A", None),
+        (2, 101, "Title A", None),
+    ]
+    finalized = []
+    seen = []
+    parked = []
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+        async def execute(self, stmt):
+            if "favorite_items" in str(stmt):
+                return _Res(fav_rows)
+            return _Res(gallery_rows)
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def tracking_by_gallery_id(self):
+            return {}
+
+        async def local_new_gids(self, gids):
+            return {200}
+
+        async def replacement_chain_pairs(self, pairs):
+            return set()
+
+        async def active_task_ids_for_gids(self, gids):
+            return {}
+
+        async def detect_many(self, entries, *, known_gallery_ids):
+            seen.extend(entries)
+            return len(entries)
+
+        async def mark_ambiguous(self, ids, error):
+            parked.append((list(ids), error))
+            return len(ids)
+
+    async def fake_finalize(row):
+        finalized.append(row.gallery_id)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+
+    try:
+        await detect_gallery_updates()
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert finalized == []
+    assert {e["old_gid"] for e in seen} == {100, 101}
+    assert all(
+        e["error_message"] == "ambiguous: 2 local galleries match" for e in seen
+    )
+    assert parked == []  # new rows carry the message themselves
 async def test_detect_gallery_updates_skips_ignored_even_if_new_local(monkeypatch):
     fav_rows = [(200, "tok", "Title A", 0)]
     gallery_rows = [(1, 100, "Title A", None)]
@@ -269,6 +409,9 @@ async def test_detect_gallery_updates_skips_ignored_even_if_new_local(monkeypatc
 
         async def local_new_gids(self, gids):
             return {200}
+
+        async def replacement_chain_pairs(self, pairs):
+            return set()
 
         async def active_task_ids_for_gids(self, gids):
             return {}
@@ -322,6 +465,9 @@ async def test_detect_gallery_updates_pins_active_download(monkeypatch):
             return {}
 
         async def local_new_gids(self, gids):
+            return set()
+
+        async def replacement_chain_pairs(self, pairs):
             return set()
 
         async def active_task_ids_for_gids(self, gids):
@@ -579,6 +725,12 @@ async def test_finalize_updates_for_new_gid_skips_ignored(monkeypatch):
                 SimpleNamespace(id=2, gallery_id=11, status="downloading"),
             ]
 
+        async def gallery_gids(self, gallery_ids):
+            return {10: 100, 11: 101}
+
+        async def replacement_chain_pairs(self, pairs):
+            return {(100, 200), (101, 200)}
+
     finalized = []
 
     async def fake_finalize(row):
@@ -603,6 +755,60 @@ async def test_finalize_updates_for_new_gid_skips_ignored(monkeypatch):
 
     assert done == 2
     assert finalized == [10, 11]
+
+
+async def test_finalize_updates_for_new_gid_keeps_ambiguous_pending(monkeypatch):
+    """Several local galleries, no official link: delete nothing, stay pending."""
+    parked = []
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def actionable_by_new_gid(self, new_gid):
+            return [
+                SimpleNamespace(id=1, gallery_id=10, status="downloading"),
+                SimpleNamespace(id=2, gallery_id=11, status="pending"),
+            ]
+
+        async def gallery_gids(self, gallery_ids):
+            return {10: 100, 11: 101}
+
+        async def replacement_chain_pairs(self, pairs):
+            return set()
+
+        async def mark_ambiguous(self, ids, error):
+            parked.append((list(ids), error))
+            return len(ids)
+
+    finalized = []
+
+    async def fake_finalize(row):
+        finalized.append(row.gallery_id)
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+
+    try:
+        done = await finalize_updates_for_new_gid(200)
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert done == 0
+    assert finalized == []
+    assert parked == [([1, 2], "ambiguous: 2 local galleries match")]
 
 
 # --- API surface ------------------------------------------------------------

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import DownloadTask, Gallery, GalleryUpdate
+from ..models import DownloadTask, Gallery, GalleryMetadata, GalleryUpdate
 from .base import count_select
 
 #: ``list_page`` status marker for "everything the user still has to act on",
@@ -52,6 +52,7 @@ class GalleryUpdatesRepository:
                 title=e["title"],
                 favcat=e["favcat"],
                 status=e.get("status") or "pending",
+                error_message=e.get("error_message"),
                 download_task_id=e.get("download_task_id"),
             )
             for e in entries
@@ -99,6 +100,49 @@ class GalleryUpdatesRepository:
             )
         )
         return {int(gid) for gid in rows.all() if gid is not None}
+
+    async def gallery_gids(self, gallery_ids: Sequence[int]) -> dict[int, int]:
+        """Map ``galleries.id`` to the ExHentai gid for the given local rows."""
+        if not gallery_ids:
+            return {}
+        rows = await self.session.execute(
+            select(Gallery.id, Gallery.gid).where(
+                Gallery.id.in_(list(dict.fromkeys(int(i) for i in gallery_ids)))
+            )
+        )
+        return {int(row_id): int(gid) for row_id, gid in rows.all() if gid is not None}
+
+    async def replacement_chain_pairs(
+        self, pairs: Sequence[tuple[int, int]]
+    ) -> set[tuple[int, int]]:
+        """Return the ``(old_gid, new_gid)`` pairs backed by an official link.
+
+        ExHentai records re-uploads as ``parent`` (new -> old) and ``replaces``
+        (old -> new) relations in the cached gdata metadata (``parent_gid`` /
+        ``newer_gid``).  Only those links are evidence that a title match is a
+        real replacement; a normalized-title match alone is not.
+        """
+        if not pairs:
+            return set()
+        gids = {int(gid) for pair in pairs for gid in pair}
+        rows = await self.session.execute(
+            select(
+                GalleryMetadata.gid,
+                GalleryMetadata.parent_gid,
+                GalleryMetadata.newer_gid,
+            ).where(GalleryMetadata.gid.in_(list(gids)))
+        )
+        meta = {int(gid): (parent, newer) for gid, parent, newer in rows.all()}
+        chained: set[tuple[int, int]] = set()
+        for old_gid, new_gid in pairs:
+            old_gid, new_gid = int(old_gid), int(new_gid)
+            parent, _ = meta.get(new_gid, (None, None))
+            _, newer = meta.get(old_gid, (None, None))
+            if (parent is not None and int(parent) == old_gid) or (
+                newer is not None and int(newer) == new_gid
+            ):
+                chained.add((old_gid, new_gid))
+        return chained
 
     async def active_task_ids_for_gids(self, gids: list[int]) -> dict[int, int]:
         if not gids:
@@ -166,6 +210,25 @@ class GalleryUpdatesRepository:
         row.error_message = error
         row.updated_at = datetime.now(UTC)
         return True
+
+    async def mark_ambiguous(self, ids: Sequence[int], error: str) -> int:
+        """Park rows back in ``pending`` when a match cannot be auto-finalized.
+
+        Used when one new gid matches several local galleries without an
+        official replacement link: the user has to pick which copies to update,
+        so nothing may be deleted unattended.
+        """
+        if not ids:
+            return 0
+        result = await self.session.execute(
+            update(GalleryUpdate)
+            .where(
+                GalleryUpdate.id.in_(list(ids)),
+                GalleryUpdate.status.in_(["pending", "downloading", "failed"]),
+            )
+            .values(status="pending", error_message=error, updated_at=datetime.now(UTC))
+        )
+        return int(result.rowcount or 0)
 
     async def mark_failed_by_task(self, task_id: int, error: str | None) -> int:
         """Fail gallery-update rows referencing a removed download task.
