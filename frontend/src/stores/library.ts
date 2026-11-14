@@ -55,6 +55,7 @@ const QUERY_KEYS = [
   "posted_to",
   "uploader",
   "image_quality",
+  "storage_tier",
   "min_local_rating",
   "list_id",
   "tags_limit",

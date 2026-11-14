@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildGalleryQuery, normalizeQuery } from "@/stores/library";
 import {
   activeConditions,
   activeFilterCount,
@@ -74,6 +75,15 @@ describe("library filters and URL", () => {
 
     // Only the two tiers are accepted; junk is ignored instead of sent to the API.
     expect(filtersFromQuery({ storage_tier: "warm" }, 24).storageTier).toBe("");
+  });
+
+  it("saved searches keep storage_tier through the store query", () => {
+    const filters = { ...defaultFilters(24), storageTier: "cold" };
+    const saved = buildGalleryQuery(normalizeQuery(toGalleryQuery(filters)));
+    expect(saved.storage_tier).toBe("cold");
+
+    const restored = filtersFromQuery(saved, 24);
+    expect(restored.storageTier).toBe("cold");
   });
 
   it("drops empty values but keeps the page size and tag mode", () => {

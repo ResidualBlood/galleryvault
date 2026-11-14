@@ -404,26 +404,8 @@ function syncFromRoute(): void {
   if (hasAdvancedFilters(filters.value) && !panelClosedByUser.value) {
     filtersOpen.value = true;
   }
-  startStore();
-  restoreScrollSoon();
-}
-
-/**
- * Start the shared list store, then re-apply `storage_tier`.
- *
- * `QUERY_KEYS` in the store predates the storage dimension (T4.2), so the
- * normalised query drops it. The query object and the cache key are both
- * writable refs: re-add the tier and make the key tier-specific so a hot list
- * is never served from (or saved over) the cold one.
- */
-function startStore(): void {
   store.start(galleryQuery.value, settings.pageSize);
-  const tier = filters.value.storageTier;
-  if (tier !== "hot" && tier !== "cold") return;
-  store.currentKey = `${store.currentKey}&storage_tier=${tier}`;
-  store.currentQuery = { ...store.currentQuery, storage_tier: tier };
-  store.page = 0;
-  void store.reload();
+  restoreScrollSoon();
 }
 
 function restoreScrollSoon(): void {
