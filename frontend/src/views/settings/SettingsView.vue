@@ -42,6 +42,7 @@ import {
   startTagSync,
   testExhentai,
   testTelegram,
+  waitForTagTranslation,
   type AppSettings,
   type TagSearchStatus,
   type ThumbsStatus,
@@ -101,6 +102,7 @@ const pendingPlan = ref<GroupSavePlan | null>(null);
 const purgeOpen = ref(false);
 const purgeBusy = ref(false);
 const logoutOpen = ref(false);
+let translationPoll: AbortController | null = null;
 const destructiveKey = ref("");
 const pendingScrollKey = ref("");
 
@@ -365,6 +367,7 @@ async function load(): Promise<void> {
 onMounted(load);
 onBeforeUnmount(() => {
   if (scrollTimer !== null) window.clearTimeout(scrollTimer);
+  translationPoll?.abort();
 });
 
 let scrollTimer: number | null = null;
@@ -509,6 +512,36 @@ function securityKeys(plan: GroupSavePlan | null): string {
     .join(", ");
 }
 
+/**
+ * The reload endpoint only acknowledges the spawn now; watch the status
+ * endpoint until the background download finishes, then refresh the panel.
+ */
+function pollTranslationUpdate(): void {
+  translationPoll?.abort();
+  const controller = new AbortController();
+  translationPoll = controller;
+  void waitForTagTranslation({ signal: controller.signal })
+    .then(async (status) => {
+      if (controller.signal.aborted) return;
+      if (status.last_error) {
+        ui.error(status.last_error);
+        return;
+      }
+      // Polling hit its safety timeout: keep the panel as-is instead of claiming success.
+      if (status.running) return;
+      ui.success(t("settings.action.forceUpdateTranslationDone"));
+      await loadAux();
+    })
+    .catch((cause: unknown) => {
+      if (!controller.signal.aborted) {
+        saveError.value = cause instanceof Error ? cause.message : String(cause);
+      }
+    })
+    .finally(() => {
+      if (translationPoll === controller) translationPoll = null;
+    });
+}
+
 async function handleAction(actionId: string): Promise<void> {
   const action = activeGroup.value.actions.find((entry) => entry.id === actionId);
   if (!action) return;
@@ -532,9 +565,9 @@ async function handleAction(actionId: string): Promise<void> {
         break;
       }
       case "force-update-translation": {
-        const result = await reloadTagTranslation();
-        ui.success(`${t("settings.action.forceUpdateTranslation")}${result.ok ? " OK" : ""}`);
-        await loadAux();
+        await reloadTagTranslation();
+        ui.info(t("settings.action.forceUpdateTranslationStarted"));
+        pollTranslationUpdate();
         break;
       }
       case "repair-categories": {

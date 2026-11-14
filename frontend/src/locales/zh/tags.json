@@ -6,6 +6,7 @@
   "allNamespaces": "全部",
   "reload": "重载标签库",
   "reloading": "重载中…",
+  "reloadStarted": "词库更新已开始，完成后会自动刷新",
   "reloadOk": "标签翻译已更新",
   "reloadFailed": "重载失败",
   "syncAll": "同步全部标签",

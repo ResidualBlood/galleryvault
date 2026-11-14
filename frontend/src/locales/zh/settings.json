@@ -250,6 +250,8 @@
     "openArchive": "打开归档页",
     "syncAllTags": "同步全部标签",
     "forceUpdateTranslation": "强制更新翻译",
+    "forceUpdateTranslationStarted": "翻译更新已开始，完成后会自动刷新",
+    "forceUpdateTranslationDone": "翻译更新完成",
     "repairCategories": "修复分类",
     "testTelegram": "测试 Telegram",
     "changePassword": "修改密码",

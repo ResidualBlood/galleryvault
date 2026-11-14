@@ -18,7 +18,13 @@ from ...services.tag_translation import (
     translated_tag,
     translation_entry_count,
 )
-from ..dependencies import get_current_settings, get_session, get_task_manager, resolve_session
+from ..dependencies import (
+    get_current_settings,
+    get_session,
+    get_task_manager,
+    resolve_session,
+    spawn_task,
+)
 from ..state import app_state
 
 router = APIRouter()
@@ -94,11 +100,24 @@ async def tag_translation_status() -> dict[str, object]:
 
 @router.post("/api/tags/search/reload", status_code=202)
 async def tag_translation_reload() -> dict[str, object]:
+    """Start a tag-translation update in the background.
+
+    The EhTagTranslation download takes seconds; awaiting it inside the request
+    made a 202 endpoint block for 6.7s.  Claim ``running`` synchronously (no
+    await between check and claim) so a second request cannot spawn a duplicate
+    before the coroutine starts, then hand off to ``translation_update_once``,
+    which owns the ``tm.track_task("translation")`` lifecycle.
+    """
     tm = get_task_manager()
-    if tm.translation_state.get("running"):
+    state = tm.translation_state
+    if state.get("running"):
         raise HTTPException(status_code=409, detail="tag translation update already running")
-    ok = await translation_update_once()
-    return {"accepted": True, "ok": ok, "last_error": tm.translation_state.get("last_error")}
+    state["running"] = True
+    task = spawn_task(translation_update_once(), "tag translation update")
+    if task is None:
+        state["running"] = False
+        raise HTTPException(status_code=503, detail="background tasks unavailable")
+    return {"accepted": True}
 
 
 @router.post("/api/telegram/test")

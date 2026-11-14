@@ -14,10 +14,9 @@ export interface TagsQuery {
   page_size?: number;
 }
 
+/** The reload endpoint now only acknowledges the spawn (202). */
 export interface TagReloadResult {
   accepted: boolean;
-  ok: boolean;
-  last_error?: string | null;
 }
 
 export interface TagSyncStartResult {

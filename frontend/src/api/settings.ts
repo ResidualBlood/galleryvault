@@ -36,11 +36,14 @@ export interface ThumbsStatus {
 
 export interface TagSearchStatus {
   ok?: boolean;
+  /** True while a background translation update is in flight. */
+  running?: boolean;
   last_error?: string | null;
   interval_minutes?: number;
   entries?: number;
   /** ISO timestamp of the last successful translation update (backend `last`). */
   last?: string | null;
+  started_at?: string | null;
   completed_at?: string | null;
   updated_at?: string | null;
 }
@@ -123,18 +126,65 @@ export function testTelegram(): Promise<{ ok?: boolean; results?: unknown }> {
   return request<{ ok?: boolean; results?: unknown }>(testTelegramEp, { body: {} });
 }
 
-export function fetchTagSearchStatus(): Promise<TagSearchStatus> {
-  return request<TagSearchStatus>(tagSearchStatusEp);
+export function fetchTagSearchStatus(signal?: AbortSignal): Promise<TagSearchStatus> {
+  return request<TagSearchStatus>(tagSearchStatusEp, { signal });
 }
 
 export function startTagSync(): Promise<{ queued?: number }> {
   return request<{ queued?: number }>(tagSyncStartEp, { body: {} });
 }
 
-export function reloadTagTranslation(): Promise<{ ok?: boolean; last_error?: string | null }> {
-  return request<{ ok?: boolean; last_error?: string | null }>(translationReloadEp, {
-    body: {},
+/** Starts the background update and returns as soon as it has been accepted. */
+export function reloadTagTranslation(
+  signal?: AbortSignal,
+): Promise<{ accepted?: boolean }> {
+  return request<{ accepted?: boolean }>(translationReloadEp, { body: {}, signal });
+}
+
+const TAG_TRANSLATION_POLL_MS = 1_500;
+const TAG_TRANSLATION_POLL_TIMEOUT_MS = 180_000;
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+/**
+ * Poll `GET /api/tags/search/status` until the spawned update finishes.
+ *
+ * The reload endpoint answers 202 immediately, so the UI shows "started" and
+ * waits for `running` to flip back to false before refreshing its data.
+ */
+export async function waitForTagTranslation(options: {
+  signal?: AbortSignal;
+  intervalMs?: number;
+  timeoutMs?: number;
+} = {}): Promise<TagSearchStatus> {
+  const {
+    signal,
+    intervalMs = TAG_TRANSLATION_POLL_MS,
+    timeoutMs = TAG_TRANSLATION_POLL_TIMEOUT_MS,
+  } = options;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const status = await fetchTagSearchStatus(signal);
+    if (!status.running || Date.now() >= deadline) return status;
+    await abortableDelay(intervalMs, signal);
+    if (signal?.aborted) return status;
+  }
 }
 
 export function repairTagCategories(): Promise<{ repaired?: number; total?: number }> {
