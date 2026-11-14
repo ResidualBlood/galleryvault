@@ -115,10 +115,6 @@ def _result(path: Path) -> SimpleNamespace:
     )
 
 
-async def _no_previous_gid(_gid: int) -> None:
-    return None
-
-
 @pytest.mark.asyncio
 async def test_ingest_failure_is_not_success(monkeypatch, tmp_path: Path) -> None:
     row = _Row()
@@ -150,7 +146,6 @@ async def test_ingest_failure_is_not_success(monkeypatch, tmp_path: Path) -> Non
         raise dw.IngestError("library insert failed")
 
     monkeypatch.setattr(dw, "ingest_downloaded_gallery", _explode)
-    monkeypatch.setattr(dw, "_previous_gid_for", _no_previous_gid)
     notified: list[tuple] = []
 
     async def _record(kind: str, title: str, detail: str | None = None) -> None:
@@ -185,7 +180,6 @@ async def test_ok_notification_sent_after_ingest(monkeypatch) -> None:
 
     monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
     monkeypatch.setattr(dw, "record_download_notification", _record)
-    monkeypatch.setattr(dw, "_previous_gid_for", _no_previous_gid)
 
     assert await dw.run_pending_ingest_once() is True
 
@@ -194,6 +188,101 @@ async def test_ok_notification_sent_after_ingest(monkeypatch) -> None:
     assert row.ingest_status == "done"
     assert row.ingest_payload is None, "payload is only needed until the import succeeds"
     assert row.finished_at is not None
+
+
+@pytest.mark.asyncio
+async def test_fresh_download_notifies_ok_not_updated(monkeypatch, tmp_path: Path) -> None:
+    row = _Row()
+    state: dict[str, bool] = {"ingested": False}
+    session = _PumpSession(row)
+    original_scalar = session.scalar
+
+    async def _scalar(stmt: object) -> object | None:
+        sql = str(stmt)
+        if "download_tasks" in sql:
+            return await original_scalar(stmt)
+        # After the import the gallery exists; a post-ingest lookup would
+        # wrongly report "updated" for every fresh download.
+        if state["ingested"] and "gallery_updates" not in sql:
+            return SimpleNamespace(gid=999)
+        return None
+
+    session.scalar = _scalar  # type: ignore[method-assign]
+    app_state.session_factory = lambda: session
+
+    async def _execute(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return _result(_target(tmp_path))
+
+    app_state.downloader = SimpleNamespace(execute=_execute)
+
+    class _FakeRepo:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def record_attempt(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    monkeypatch.setattr(dw, "DownloadRepository", _FakeRepo)
+    await dw._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
+    monkeypatch.setattr(dw, "DownloadRepository", DownloadRepository)
+
+    assert row.ingest_payload["notify_old_gid"] is None, "fresh download has no old gid"
+
+    async def _ingest(_result: object, *, strict: bool = False) -> None:
+        state["ingested"] = True
+
+    notified: list[tuple] = []
+
+    async def _record(kind: str, title: str, detail: str | None = None) -> None:
+        notified.append((kind, title, detail))
+
+    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
+    monkeypatch.setattr(dw, "record_download_notification", _record)
+
+    assert await dw.run_pending_ingest_once() is True
+    assert notified and notified[0][0] == "ok", "a fresh download must notify ok"
+
+
+@pytest.mark.asyncio
+async def test_replaced_from_gid_notifies_updated(monkeypatch, tmp_path: Path) -> None:
+    row = _Row()
+    app_state.session_factory = lambda: _PumpSession(row)
+
+    async def _execute(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return _result(_target(tmp_path))
+
+    app_state.downloader = SimpleNamespace(execute=_execute)
+
+    class _FakeRepo:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def record_attempt(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    monkeypatch.setattr(dw, "DownloadRepository", _FakeRepo)
+    await dw._run_download_inner(
+        DownloadTask(999, "tok", "Test", id=1, max_retries=5),
+        replaced_from_gid=111,
+    )
+    monkeypatch.setattr(dw, "DownloadRepository", DownloadRepository)
+
+    # The replacement chain gid is carried in the payload for the notification.
+    assert row.ingest_payload["notify_old_gid"] == 111
+
+    async def _ingest(_result: object, *, strict: bool = False) -> None:
+        return None
+
+    notified: list[tuple] = []
+
+    async def _record(kind: str, title: str, detail: str | None = None) -> None:
+        notified.append((kind, title, detail))
+
+    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
+    monkeypatch.setattr(dw, "record_download_notification", _record)
+
+    assert await dw.run_pending_ingest_once() is True
+    assert notified == [("updated", "Test", "111:999")]
 
 
 @pytest.mark.asyncio
@@ -221,7 +310,6 @@ async def test_pending_ingest_survives_restart(monkeypatch) -> None:
 
     monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
     monkeypatch.setattr(dw, "record_download_notification", _record)
-    monkeypatch.setattr(dw, "_previous_gid_for", _no_previous_gid)
 
     assert await dw.run_pending_ingest_once() is True
     assert getattr(ingested[0], "gid", None) == 999

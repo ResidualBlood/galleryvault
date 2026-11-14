@@ -410,21 +410,28 @@ def _scan_running() -> bool:
     return bool(tm and tm.scan_state.get("running"))
 
 
-async def _previous_gid_for(gid: int) -> int | None:
-    """Gid replaced by an update, for the ok/updated notification wording."""
-    session_cm = _get_background_session_factory()
-    if session_cm is None:
+async def _resolve_notify_old_gid(
+    session: Any, gid: int, replaced_from_gid: int | None
+) -> int | None:
+    """Gid old copy for the ok/updated wording, resolved *before* the ingest.
+
+    Must run in transaction A (files on disk, gallery not yet in the library):
+    once the ingest has inserted ``Gallery.gid == gid`` every download would
+    look like an update, so this cannot be queried after the import.
+    """
+    if replaced_from_gid is not None:
+        return replaced_from_gid
+    if not hasattr(session, "scalar"):
         return None
     try:
-        async with session_cm() as session:
-            update_row = await session.scalar(
-                select(GalleryUpdate).where(GalleryUpdate.new_gid == gid)
-            )
-            if update_row is not None:
-                return update_row.old_gid
-            prev = await session.scalar(select(Gallery).where(Gallery.gid == gid))
-            if prev is not None:
-                return gid
+        update_row = await session.scalar(
+            select(GalleryUpdate).where(GalleryUpdate.new_gid == gid)
+        )
+        if update_row is not None:
+            return update_row.old_gid
+        prev = await session.scalar(select(Gallery).where(Gallery.gid == gid))
+        if prev is not None:
+            return gid
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "failed to check update status for download notification",
@@ -436,7 +443,9 @@ async def _previous_gid_for(gid: int) -> int | None:
 async def _notify_ingested(payload: dict[str, Any]) -> None:
     gid = payload.get("gid")
     title = payload.get("title") or str(gid)
-    old_gid = await _previous_gid_for(int(gid)) if gid is not None else None
+    # ``notify_old_gid`` was resolved before the ingest; never look the gallery
+    # up here, because the just-inserted row would always look pre-existing.
+    old_gid = payload.get("notify_old_gid")
     try:
         if old_gid is not None:
             await record_download_notification("updated", title, f"{old_gid}:{gid}")
@@ -1097,6 +1106,12 @@ async def _run_download_inner(
             )
 
         async with session_cm() as session, session.begin():
+            # Resolve the notification wording *before* the library insert: the
+            # gallery does not exist yet, so a fresh download stays ``ok``.
+            ingest_payload = update_values["ingest_payload"]
+            ingest_payload["notify_old_gid"] = await _resolve_notify_old_gid(
+                session, task.gid, replaced_from_gid
+            )
             if hasattr(session, "execute"):
                 stmt = (
                     update(DownloadTaskModel)

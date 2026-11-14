@@ -76,11 +76,6 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
         notified.append((kind, title, detail))
 
     monkeypatch.setattr(dw, "record_download_notification", _record)
-    async def _previous(_gid: int) -> None:
-        return None
-
-    monkeypatch.setattr(dw, "_previous_gid_for", _previous)
-
     class _FailingIngest:
         def __init__(self, _session):
             pass
