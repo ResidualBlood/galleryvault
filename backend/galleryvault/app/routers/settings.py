@@ -12,13 +12,13 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...auth import client_ip, verify_login_password
 from ...config import normalize_library_roots
-from ...db.models import AppConfig, FavoritesMonitor, Gallery
+from ...db.models import FavoritesMonitor, Gallery
+from ...db.repositories.settings import patch_settings
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
 from ...logging import (
@@ -63,7 +63,6 @@ router = APIRouter()
 __all__ = ["router", "spawn_task"]
 
 _SAVED_SEARCH_MAX = 30
-_USER_SETTINGS_KEY = "user_settings"
 
 # Settings that decide who may reach the app at all, where files are read from,
 # or which proxies are trusted to supply the client IP.  A single ordinary
@@ -385,11 +384,13 @@ async def _save_settings(
                 },
             )
 
-    # Never fall back to an empty baseline: doing so would wipe every persisted
-    # key (cookies, telegram token, saved searches, ...) not present in this
-    # request. Fail closed and leave the database untouched instead.
+    # Read the persisted document for two reasons: a broken read must fail the
+    # request (never apply runtime state from an unsaved write), and the base
+    # URL comparison below needs the previous value.  The write itself is a
+    # partial merge, so keys absent from this request survive untouched.
+    repo = SettingsRepository(session)
     try:
-        db_settings = await SettingsRepository(session).get()
+        db_settings = await repo.get()
     except Exception as exc:
         logger.error(
             "settings save aborted: could not read current settings",
@@ -397,8 +398,9 @@ async def _save_settings(
         )
         raise db_error(exc) from exc
 
-    persisted_values = {**db_settings, **values}
-    cookies = persisted_values.get("exhentai_cookies")
+    # Encrypt only the values this request actually carries.  Persisted
+    # ciphertext is never decrypted/re-encrypted just because it exists.
+    cookies = values.get("exhentai_cookies")
     if isinstance(cookies, (dict, list)) and cookies:
         if not encryption_enabled():
             logger.warning(
@@ -408,14 +410,14 @@ async def _save_settings(
                 status_code=422,
                 detail="encryption not enabled; cannot store ExHentai cookies without encryption",
             )
-        persisted_values["exhentai_cookies"] = encrypt_json(cookies)
-    token = persisted_values.get("telegram_bot_token")
+        values["exhentai_cookies"] = encrypt_json(cookies)
+    token = values.get("telegram_bot_token")
     if isinstance(token, str) and token and not is_encrypted(token):
-        persisted_values["telegram_bot_token"] = encrypt(token)
+        values["telegram_bot_token"] = encrypt(token)
 
     try:
         async with safe_transaction(session):
-            await SettingsRepository(session).save(persisted_values)
+            await patch_settings(repo, values)
             for item in favorites:
                 favcat = _favcat(item)
                 row = await FavoritesRepository(session).category(favcat)
@@ -447,7 +449,7 @@ async def _save_settings(
     update_runtime_settings(values)
 
     old_base = str(db_settings.get("exhentai_base_url") or "")
-    new_base = str(persisted_values.get("exhentai_base_url") or "")
+    new_base = str(values.get("exhentai_base_url") or old_base)
     if is_public_site(old_base) and not is_public_site(new_base):
         try:
             async with safe_transaction(session):
@@ -590,27 +592,8 @@ async def _user_settings(session: AsyncSession | None = None) -> dict:
 
 
 async def _locked_user_settings(session: AsyncSession) -> dict:
-    """Read ``app_config.user_settings`` under a row lock.
-
-    ``SELECT ... FOR UPDATE`` serialises concurrent read-modify-write cycles
-    (e.g. two tabs adding a saved search at the same time), which otherwise
-    lose updates because each request read the same snapshot.
-    """
-    # A missing row cannot be locked. Seed it atomically before taking the lock;
-    # concurrent first saves wait on the same unique key rather than losing data.
-    await session.execute(
-        insert(AppConfig).values(key=_USER_SETTINGS_KEY, value={}).on_conflict_do_nothing(
-            index_elements=[AppConfig.key]
-        )
-    )
-    stmt = (
-        select(AppConfig)
-        .where(AppConfig.key == _USER_SETTINGS_KEY)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    row = (await session.execute(stmt)).scalar_one_or_none()
-    return dict(row.value) if row is not None and row.value else {}
+    """Read ``app_config.user_settings`` under a row lock (delegated to the repo)."""
+    return await SettingsRepository(session).get_for_update()
 
 
 def _normalize_saved_searches(raw: object) -> list[dict]:
@@ -660,7 +643,7 @@ async def saved_searches_add(
                 raise HTTPException(status_code=409, detail="saved search limit reached")
             entry = {"id": uuid.uuid4().hex, "name": name, "query": body.query or {}}
             items.append(entry)
-            await SettingsRepository(session).save({**stored, "saved_searches": items})
+            await patch_settings(SettingsRepository(session), {"saved_searches": items})
     except HTTPException:
         raise
     except Exception as exc:
@@ -681,7 +664,7 @@ async def saved_searches_delete(
             next_items = [it for it in items if it.get("id") != search_id]
             if len(next_items) == len(items):
                 raise HTTPException(status_code=404, detail="saved search not found")
-            await SettingsRepository(session).save({**stored, "saved_searches": next_items})
+            await patch_settings(SettingsRepository(session), {"saved_searches": next_items})
     except HTTPException:
         raise
     except Exception as exc:

@@ -1103,12 +1103,11 @@ async def _trigger_challenge_pause(
         session_factory = _get_background_session_factory()
         if session_factory:
             try:
+                from ..db.repositories.settings import patch_settings
                 from ..db.repository import SettingsRepository
 
                 async with session_factory() as session, session.begin():
-                    existing = await SettingsRepository(session).get()
-                    merged = {**existing, "global_paused": True}
-                    await SettingsRepository(session).save(merged)
+                    await patch_settings(SettingsRepository(session), {"global_paused": True})
             except Exception as exc:
                 err_extra: dict[str, Any] = {"error": str(exc)}
                 if task_id is not None:
@@ -1159,12 +1158,11 @@ async def _resume_challenge_pause() -> None:
         session_factory = _get_background_session_factory()
         if session_factory:
             try:
+                from ..db.repositories.settings import patch_settings
                 from ..db.repository import SettingsRepository
 
                 async with session_factory() as session, session.begin():
-                    existing = await SettingsRepository(session).get()
-                    merged = {**existing, "global_paused": False}
-                    await SettingsRepository(session).save(merged)
+                    await patch_settings(SettingsRepository(session), {"global_paused": False})
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "failed to persist global_paused setting on resume",

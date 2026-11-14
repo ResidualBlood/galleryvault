@@ -48,12 +48,11 @@ async def _set_global_paused(ctx: BotContext, value: bool) -> None:
     update_runtime_settings({"global_paused": value})
     try:
         if app_state.session_factory:
+            from galleryvault.db.repositories.settings import patch_settings
             from galleryvault.db.repository import SettingsRepository
 
             async with app_state.session_factory() as session, session.begin():
-                existing = await SettingsRepository(session).get()
-                merged = {**existing, "global_paused": value}
-                await SettingsRepository(session).save(merged)
+                await patch_settings(SettingsRepository(session), {"global_paused": value})
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "global pause persist failed", extra=log_extra(error=type(exc).__name__)

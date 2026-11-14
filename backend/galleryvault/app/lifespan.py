@@ -17,6 +17,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db.models import AppConfig
 from ..db.models import DownloadTask as DownloadTaskModel
+from ..db.repositories.settings import patch_settings
 from ..db.repository import SettingsRepository
 from ..db.session import create_worker_database, safe_transaction
 from ..logging import log_extra
@@ -215,17 +216,17 @@ async def migrate_plaintext_secrets() -> None:
                 if changed:
                     runtime_row.value = value
             user = await SettingsRepository(session).get()
-            changed = False
+            changes: dict[str, Any] = {}
             cookies = user.get("exhentai_cookies")
             if isinstance(cookies, (dict, list)) and cookies:
-                user["exhentai_cookies"] = encrypt_json(cookies)
-                changed = True
+                changes["exhentai_cookies"] = encrypt_json(cookies)
             token = user.get("telegram_bot_token")
             if isinstance(token, str) and token and not is_encrypted(token):
-                user["telegram_bot_token"] = encrypt(token)
-                changed = True
-            if changed:
-                await SettingsRepository(session).save(user)
+                changes["telegram_bot_token"] = encrypt(token)
+            # Re-encrypt only the keys that were still plaintext; other persisted
+            # keys keep their exact stored representation.
+            if changes:
+                await patch_settings(SettingsRepository(session), changes)
         logger.info("at-rest secret encryption enabled; plaintext values migrated")
     except Exception as exc:  # noqa: BLE001
         logger.warning("plaintext secret migration failed", extra=log_extra(error=str(exc)))
