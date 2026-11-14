@@ -81,11 +81,6 @@ class GalleryUpdatesRepository:
         ).all()
         return total, list(rows)
 
-    async def tracked_gallery_ids(self) -> set[int]:
-        """gallery_ids with any pending/failed/ignored row (skip re-detect)."""
-        rows = await self.session.scalars(select(GalleryUpdate.gallery_id))
-        return {int(r) for r in rows.all()}
-
     async def tracking_by_gallery_id(self) -> dict[int, GalleryUpdate]:
         rows = await self.session.scalars(select(GalleryUpdate))
         return {int(r.gallery_id): r for r in rows.all()}

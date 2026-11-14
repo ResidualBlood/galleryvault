@@ -203,7 +203,6 @@ def _record_favorites_remove_log(
         done=deleted_local_galleries,
         total=len(gids),
     )
-    spawn_task(tm.persist_history(), "persist task history")
 
 
 def _record_favorites_move_log(
@@ -230,7 +229,6 @@ def _record_favorites_move_log(
         done=local_moved,
         total=len(gids),
     )
-    spawn_task(tm.persist_history(), "persist task history")
 
 
 async def _tags_for_galleries(
@@ -757,7 +755,6 @@ def _record_favorites_add_log(
         done=local_added,
         total=len(gids),
     )
-    spawn_task(tm.persist_history(), "persist task history")
 
 
 @router.post("/api/favorites/add")
@@ -818,8 +815,7 @@ async def favorites_set_note(
             done=local_updated,
             total=1,
         )
-        spawn_task(tm.persist_history(), "persist task history")
-
+    
     deps = MutationDeps(
         favorites_repo=FavoritesRepository,
         gallery_repo=GalleryRepository,

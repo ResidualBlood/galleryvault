@@ -23,7 +23,6 @@ PATCH_SITES = {
     "app/routers/settings.py",
     "app/routers/tasks.py",
     "app/lifespan.py",
-    "services/settings_service.py",
     "services/tgbot/handlers/queue.py",
     "services/download_worker.py",
 }

@@ -138,9 +138,6 @@ async def test_clear_success_downloads(monkeypatch):
         def record_task(self, *args, **kwargs):
             recorded.append((args, kwargs))
 
-        async def persist_history(self):
-            return None
-
     monkeypatch.setattr(downloads_router, "DownloadRepository", FakeRepo)
     monkeypatch.setattr(downloads_router, "get_task_manager", lambda: FakeTM())
     orig_factory = app_state.session_factory

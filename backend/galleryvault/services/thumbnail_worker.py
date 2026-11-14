@@ -271,9 +271,6 @@ async def thumbnail_worker_loop() -> None:
                                 done=int(thumb_state.get("processed") or 0),
                                 total=int(thumb_state.get("total") or 0),
                             )
-                            from ..app.dependencies import spawn_task
-
-                            spawn_task(tm.persist_history(), "persist task history")
                 await asyncio.sleep(_THUMB_POLL_INTERVAL)
                 continue
 

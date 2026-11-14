@@ -155,9 +155,7 @@ def _fake_task_manager() -> SimpleNamespace:
     ) -> None:
         recorded.append({"kind": kind, "status": status, "done": done, "total": total})
 
-    return SimpleNamespace(
-        record_task=record_task, persist_history=lambda: None, recorded=recorded
-    )
+    return SimpleNamespace(record_task=record_task, recorded=recorded)
 
 
 def _patch_task_manager(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:

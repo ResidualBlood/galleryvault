@@ -1055,9 +1055,6 @@ def test_record_favorites_add_log(monkeypatch: pytest.MonkeyPatch) -> None:
                 {"kind": kind, "status": status, "reason": reason, "done": done, "total": total}
             )
 
-        async def persist_history(self) -> None:
-            pass
-
     monkeypatch.setattr("galleryvault.app.routers.favorites.get_task_manager", lambda: DummyTM())
 
     _record_favorites_add_log([1, 2], 3, [], 2)
@@ -1455,7 +1452,7 @@ async def test_favorite_note_cloud_failure_does_not_write_local(monkeypatch: pyt
     monkeypatch.setattr(
         fav_mod,
         "get_task_manager",
-        lambda: SimpleNamespace(record_task=fake_record, persist_history=lambda: None),
+        lambda: SimpleNamespace(record_task=fake_record),
     )
     monkeypatch.setattr(fav_mod, "spawn_task", lambda *a, **k: None)
     try:

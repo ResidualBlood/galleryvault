@@ -391,16 +391,6 @@ class SeriesRepository(BaseRepository[Series]):
         await self.session.flush()
         return int(result.rowcount or 0)
 
-    async def get_existing_auto_groups(self) -> dict[str, Series]:
-        rows = list(
-            (
-                await self.session.scalars(
-                    select(Series).where(Series.match_key.is_not(None))
-                )
-            ).all()
-        )
-        return {r.match_key: r for r in rows if r.match_key}
-
     async def get_auto_series(self) -> list[Series]:
         return list(
             (
@@ -735,29 +725,6 @@ class SeriesRepository(BaseRepository[Series]):
                 }
             )
         return candidates
-
-    async def get_unassigned_galleries(self) -> list[Gallery]:
-        stmt = (
-            select(Gallery)
-            .outerjoin(SeriesItem, SeriesItem.gallery_id == Gallery.id)
-            .outerjoin(SeriesExclusion, SeriesExclusion.gallery_id == Gallery.id)
-            .where(
-                Gallery.trashed.is_(False),
-                SeriesItem.gallery_id.is_(None),
-                SeriesExclusion.gallery_id.is_(None),
-            )
-            .order_by(Gallery.id.asc())
-        )
-        return list((await self.session.scalars(stmt)).all())
-
-    async def series_for_gallery(self, gallery_id: int) -> Series | None:
-        return (
-            await self.session.scalars(
-                select(Series)
-                .join(SeriesItem, SeriesItem.series_id == Series.id)
-                .where(SeriesItem.gallery_id == gallery_id)
-            )
-        ).first()
 
     async def get_tags_for_galleries(
         self, gallery_ids: list[int], chunk_size: int = 1000

@@ -89,34 +89,6 @@ class ValidationError(GalleryVaultError):
         super().__init__(message, code=code, status_code=status_code, details=details)
 
 
-class AuthenticationError(GalleryVaultError):
-    """Authentication failure or invalid credentials."""
-
-    def __init__(
-        self,
-        message: str = "Authentication required",
-        *,
-        code: str = "AUTHENTICATION_FAILED",
-        status_code: int = 401,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, status_code=status_code, details=details)
-
-
-class PermissionDeniedError(GalleryVaultError):
-    """Permission denied or unauthorized access to resource."""
-
-    def __init__(
-        self,
-        message: str = "Permission denied",
-        *,
-        code: str = "PERMISSION_DENIED",
-        status_code: int = 403,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, status_code=status_code, details=details)
-
-
 class ConflictError(GalleryVaultError):
     """Resource conflict or state collision."""
 
@@ -126,20 +98,6 @@ class ConflictError(GalleryVaultError):
         *,
         code: str = "CONFLICT",
         status_code: int = 409,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, status_code=status_code, details=details)
-
-
-class ServiceUnavailableError(GalleryVaultError):
-    """External service or subsystem unavailable."""
-
-    def __init__(
-        self,
-        message: str = "Service temporarily unavailable",
-        *,
-        code: str = "SERVICE_UNAVAILABLE",
-        status_code: int = 503,
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, code=code, status_code=status_code, details=details)
@@ -196,20 +154,6 @@ class DatabaseError(GalleryVaultError):
         *,
         code: str = "DATABASE_ERROR",
         status_code: int = 503,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, status_code=status_code, details=details)
-
-
-class TaskExecutionError(GalleryVaultError):
-    """Background task failure or execution abortion."""
-
-    def __init__(
-        self,
-        message: str = "Background task execution failed",
-        *,
-        code: str = "TASK_EXECUTION_ERROR",
-        status_code: int = 500,
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, code=code, status_code=status_code, details=details)

@@ -32,7 +32,6 @@ from ..dependencies import (
     get_task_manager,
     resolve_display_title,
     resolve_session,
-    spawn_task,
 )
 from ..schemas import (
     DownloadBatchRequest,
@@ -221,7 +220,6 @@ async def create_downloads_batch(
         done=queued,
         total=len(body.items),
     )
-    spawn_task(tm.persist_history(), "persist task history")
     return {
         "queued": queued,
         "skipped": skipped,
@@ -343,7 +341,6 @@ async def clear_success_downloads(
         done=deleted,
         total=deleted,
     )
-    spawn_task(tm.persist_history(), "persist task history")
     return {"deleted": deleted}
 
 

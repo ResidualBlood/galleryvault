@@ -271,7 +271,7 @@ async def test_save_progress_mirrors_persisted_page_into_history(monkeypatch) ->
     session.commit = MagicMock()
 
     result = await galleries_router.save_gallery_progress(
-        7, ProgressRequest(current_page=6), session=session, gallery_service=None
+        7, ProgressRequest(current_page=6), session=session
     )
 
     assert result["current_page"] == 9

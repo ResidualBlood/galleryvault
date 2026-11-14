@@ -861,10 +861,8 @@ class TaskManager:
     def _merge_history(self, stored: Any, local: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Merge persisted and in-memory history, newest first and de-duplicated.
 
-        ``persist_history`` used to overwrite the single ``AppConfig`` row with
-        the process-local list, so concurrent workers finishing at the same time
-        could lose each other's records (report 01 P3-9). Re-reading and merging
-        before writing keeps foreign records intact.
+        Re-reading and merging keeps records written by other workers intact
+        (report 01 P3-9).
         """
         merged: dict[tuple[Any, ...], dict[str, Any]] = {}
         candidates = list(stored or []) + list(local)
@@ -877,54 +875,6 @@ class TaskManager:
             return str(record.get("completed_at") or record.get("started_at") or "")
 
         return sorted(merged.values(), key=_sort_key, reverse=True)[:_HISTORY_LIMIT]
-
-    async def persist_history(self) -> None:
-        from ..app.state import app_state
-
-        session_cm = self.session_factory or app_state.session_factory
-        if not session_cm:
-            return
-        try:
-            from ..db.models import AppConfig
-
-            async with session_cm() as session, session.begin():
-                if hasattr(session, "get"):
-                    row = await session.get(AppConfig, "task_history")
-                else:
-                    row = None
-                stored = (
-                    row.value.get("history")
-                    if row is not None and isinstance(row.value, dict)
-                    else None
-                )
-                merged = self._merge_history(stored, self.task_history)
-                self.task_history = merged
-                if row:
-                    row.value = {"history": list(merged)}
-                else:
-                    session.add(AppConfig(key="task_history", value={"history": list(merged)}))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("failed to persist task history", extra={"error": str(exc)})
-
-    async def restore_history(self) -> None:
-        from ..app.state import app_state
-
-        session_cm = self.session_factory or app_state.session_factory
-        if not session_cm:
-            return
-        try:
-            from ..db.models import AppConfig
-
-            async with session_cm() as session:
-                if hasattr(session, "get"):
-                    row = await session.get(AppConfig, "task_history")
-                else:
-                    row = None
-                if row and isinstance(row.value, dict) and "history" in row.value:
-                    self.task_history.clear()
-                    self.task_history.extend(row.value["history"])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("failed to restore task history", extra={"error": str(exc)})
 
     def get_running_summary(self) -> list[dict[str, Any]]:
         running_tasks: list[dict[str, Any]] = []

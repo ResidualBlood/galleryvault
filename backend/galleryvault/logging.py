@@ -100,10 +100,6 @@ def request_id() -> str:
     return _request_id_var.get()
 
 
-def get_log_context() -> dict[str, Any]:
-    return dict(_log_context_var.get() or {})
-
-
 def set_log_context(**kwargs: Any) -> contextvars.Token:
     current = dict(_log_context_var.get() or {})
     current.update(kwargs)

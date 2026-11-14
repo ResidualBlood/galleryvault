@@ -94,9 +94,9 @@ def _isolate_app_state():
     orig_downloader = app_state.downloader
     orig_extra = dict(app_state.extra)
 
-    # ``TaskManager.task_history`` is mutated in place by ``record_task`` /
-    # ``persist_history`` / ``load_history``, and the default manager is a
-    # process singleton. Snapshot and clear it so records written by one test
+    # ``TaskManager.task_history`` is mutated in place by ``record_task`` and
+    # the default manager is a process singleton. Snapshot and clear it so
+    # records written by one test
     # cannot leak into the next one (and cannot depend on test ordering).
     task_managers = [default_task_manager]
     if app_state.task_manager is not None and app_state.task_manager is not default_task_manager:

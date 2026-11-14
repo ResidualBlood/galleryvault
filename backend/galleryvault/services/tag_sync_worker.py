@@ -70,9 +70,6 @@ def finalize_cancelled_run(tm: Any, state: dict[str, Any], task_name: str) -> No
         done=int(state.get("processed") or 0),
         total=int(state.get("total") or 0),
     )
-    from ..app.dependencies import spawn_task
-
-    spawn_task(tm.persist_history(), "persist task history")
 
 
 def _get_background_session_factory() -> Any:
@@ -164,21 +161,6 @@ async def requeue_job(
             "background job requeue failed",
             extra=log_extra(job_type=job_type, gallery_id=gallery_id, error=type(exc).__name__),
         )
-
-
-async def enqueue_job(job_type: str, gallery_id: int) -> bool:
-    session_factory = _get_background_session_factory()
-    if not session_factory:
-        return False
-    try:
-        async with session_factory() as session, session.begin():
-            return await BackgroundJobsRepository(session).enqueue(job_type, gallery_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "background job enqueue failed",
-            extra=log_extra(job_type=job_type, gallery_id=gallery_id, error=type(exc).__name__),
-        )
-        return False
 
 
 async def enqueue_tag_sync(gallery_ids: list[int]) -> int:
@@ -622,9 +604,6 @@ async def _tag_sync_worker() -> None:
                         done=int(tag_sync_state.get("processed") or 0),
                         total=int(tag_sync_state.get("total") or 0),
                     )
-                    from ..app.dependencies import spawn_task
-
-                    spawn_task(tm.persist_history(), "persist task history")
             if _sync_event is not None:
                 try:
                     await asyncio.wait_for(_sync_event.wait(), timeout=1.0)

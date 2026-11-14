@@ -13,7 +13,6 @@ from ..db.repository import GalleryRepository
 from ..logging import log_extra
 from .eh_client import GalleryGoneError
 from .eh_metadata import enrich_html_newer, refresh_gdata
-from .messages import GONE_DETAIL
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +244,3 @@ async def prepare_galleries(pairs: list[tuple[int, str]]) -> list[PreparedGaller
         if prepared.old_gid and prepared.gid in local:
             prepared.already_local = True
     return results
-
-
-def gone_message() -> str:
-    return GONE_DETAIL

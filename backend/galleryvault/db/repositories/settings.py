@@ -116,26 +116,6 @@ class SettingsRepository(BaseRepository[AppConfig]):
         row = await self.get_by_id(self.EXTRA_KEY)
         return dict(row.value) if row and row.value else {}
 
-    async def get_config(self, key: str) -> Any | None:
-        """Fetch generic configuration by key."""
-        row = await self.get_by_id(key)
-        return row.value if row else None
-
-    async def set_config(self, key: str, value: Any) -> None:
-        """Upsert generic configuration by key."""
-        row = await self.get_by_id(key)
-        if row is None:
-            self.session.add(AppConfig(key=key, value=value))
-        else:
-            row.value = value
-        await self.flush()
-
-    async def get_all_configs(self) -> dict[str, Any]:
-        """Retrieve all configuration records as a key-value dictionary."""
-        rows = await self.list_all()
-        return {r.key: r.value for r in rows if r.key}
-
-
 async def patch_settings(repo: Any, changes: Mapping[str, Any], remove: Sequence[str] = ()) -> None:
     """Apply a partial ``user_settings`` update through ``repo``.
 

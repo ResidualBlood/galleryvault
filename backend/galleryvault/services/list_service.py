@@ -168,15 +168,3 @@ class ListService(BaseService):
 
         return removed_count
 
-    async def get_lists_for_gallery(self, gallery_id: int) -> list[dict[str, Any]]:
-        """Retrieve all lists containing the specified gallery."""
-        async with self.transaction():
-            lists = await self.uow.lists.lists_for_gallery(gallery_id)
-            return [
-                {
-                    "id": lst.id,
-                    "name": lst.name,
-                    "created_at": lst.created_at.isoformat() if lst.created_at else None,
-                }
-                for lst in lists
-            ]

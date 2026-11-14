@@ -69,11 +69,6 @@ class CommandRouter:
         self._default_command_handler = func
         return func
 
-    def default_callback(self, func: HandlerFunc) -> HandlerFunc:
-        """Decorator for unhandled callback_queries."""
-        self._default_callback_handler = func
-        return func
-
     def include_router(self, other: CommandRouter) -> None:
         """Merge another router's registered commands and callbacks into this one."""
         self._commands.update(other._commands)

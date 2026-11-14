@@ -47,7 +47,7 @@ def _quiet_task_manager(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         router_module,
         "get_task_manager",
-        lambda: SimpleNamespace(record_task=lambda *a, **k: None, persist_history=lambda: None),
+        lambda: SimpleNamespace(record_task=lambda *a, **k: None),
     )
     monkeypatch.setattr(router_module, "spawn_task", lambda *a, **k: None)
 

@@ -83,41 +83,6 @@ async def test_release_session_ignores_non_session_values() -> None:
     await release_session(object())
 
 
-async def test_toggle_favorite_releases_before_cloud_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    events: list[str] = []
-    session = _Session(events)
-    row = _gallery_row()
-
-    class _Client:
-        async def add_favorite(self, gid: int, token: str, favcat: int, note: str | None = None) -> None:
-            events.append("network")
-
-    class _Repo:
-        def __init__(self, _session: object) -> None:
-            pass
-
-        async def favcats_for_gid(self, gid: int, gallery_id: int | None = None) -> list[int]:
-            return []
-
-        async def remember(self, favcat: int, item: object) -> None:
-            events.append("write")
-
-    monkeypatch.setattr(
-        galleries, "_invoke_gallery", AsyncMock(return_value=(row, []))
-    )
-    monkeypatch.setattr(galleries, "FavoritesRepository", _Repo)
-
-    result = await galleries.toggle_gallery_favorite(
-        7, 0, session=session, eh_client_mgr=_Mgr(events, _Client())
-    )
-
-    assert result["favorite"] is True
-    assert events.index("rollback") < events.index("network")
-    assert events.index("network") < events.index("write")
-
-
 async def test_download_original_releases_before_metadata_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
