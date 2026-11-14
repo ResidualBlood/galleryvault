@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.params import Depends as DependsType
@@ -188,6 +188,25 @@ async def restore_duplicate(
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     return {"status": "open"}
+
+
+@router.post("/api/scan/duplicates/{gid}/{status}")
+async def set_duplicate_status_route(
+    gid: int,
+    status: Literal["open", "dismissed"],
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    """Set a duplicate group's status through the canonical frontend route.
+
+    Declared after ``/resolve``, ``/dismiss`` and ``/restore`` so those keep
+    precedence; B5 collapses the legacy routes into this one.
+    """
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with safe_transaction(session):
+        ok = await GalleryRepository(session).set_duplicate_status(gid, status)
+    if not ok:
+        raise HTTPException(status_code=404, detail="duplicate group not found")
+    return {"status": status}
 
 
 @router.get("/api/scan/duplicates/thumb/{key}")
