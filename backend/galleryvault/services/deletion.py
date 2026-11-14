@@ -264,6 +264,7 @@ async def delete_galleries_local(
 
     from ..db.models import Gallery
     from ..db.repositories.base import path_hash
+    from ..db.repositories.galleries_ingest import sync_storage_tier
     from ..db.repository import GalleryRepository, _chunked
 
     provided_session: AsyncSession | None = None
@@ -519,6 +520,9 @@ async def delete_galleries_local(
                                     new_path = surviving[0]
                                     gallery.storage_path = str(new_path)
                                     gallery.path_hash = path_hash(new_path)
+                                    # The surviving copy defines the tier again:
+                                    # a recovered pointer may leave the cold root.
+                                    sync_storage_tier(gallery, new_path)
                                     gallery.trashed = False
                                     gallery.trashed_at = None
                                     gallery.updated_at = datetime.now(UTC)
