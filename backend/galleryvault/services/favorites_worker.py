@@ -22,12 +22,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..app.state import app_state
 from ..config import get_settings
 from ..db.models import FavoriteItem, Gallery, GalleryMetadata
+from ..db.repositories.duplicates import DuplicateGroupRepository
 from ..db.repository import (
     DownloadRepository,
     FavoritesRepository,
     GalleryRepository,
     GalleryUpdatesRepository,
 )
+from ..db.session import safe_transaction
 from ..logging import bind_log_context, log_extra
 from ..metadata.sidecar import normalize_posted, normalize_tags
 from ..services.tag_translation import translated_tag
@@ -1261,9 +1263,15 @@ async def run_duplicates_scan() -> None:
             for g in groups:
                 g.pop("legacy_keys", None)
             groups.sort(key=lambda g: -len(g["items"]))
+
+            # Single write path (T5.2): persist into ``duplicate_groups``.
+            # ``tm.duplicates_state`` only keeps progress from here on; the
+            # legacy in-memory group payload is gone so a restart cannot lose
+            # the scan result.
+            async with session_factory() as session, safe_transaction(session):
+                await DuplicateGroupRepository(session).sync("favorites", groups)
+
             tracker.update(
-                groups=groups,
-                ignored=ignored,
                 done=len(items),
                 stage="done",
             )

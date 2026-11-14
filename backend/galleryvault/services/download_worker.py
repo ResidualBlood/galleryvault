@@ -250,6 +250,7 @@ async def _register_superseded_duplicate(
         return
 
     from ..db.models import DuplicateRecord
+    from ..db.repositories.duplicates import DuplicateGroupRepository
 
     async with session_cm() as session, session.begin():
         record = await session.get(DuplicateRecord, gid)
@@ -273,6 +274,44 @@ async def _register_superseded_duplicate(
         else:
             # The user already dismissed/resolved this group; their decision wins.
             return
+
+        # Single source of truth (T2.4/T5.2): reconcile the whole same-gid kind
+        # so registering one superseded copy cannot drop the other open groups.
+        repo = DuplicateGroupRepository(session)
+        existing_groups = [
+            {
+                "group_key": row.group_key,
+                "member_gids": list(row.member_gids or []),
+                "payload": dict(row.payload or {}),
+                "title": row.title,
+                "artist": row.artist,
+            }
+            for row in await repo.list(kind="same_gid")
+        ]
+        target = next((g for g in existing_groups if g["group_key"] == str(gid)), None)
+        if target is None:
+            existing_groups.append(
+                {
+                    "group_key": str(gid),
+                    "member_gids": [gid],
+                    "payload": {
+                        "policy": payload["policy"],
+                        "winner_path": payload["winner_path"],
+                        "copies": payload["copies"],
+                    },
+                }
+            )
+        else:
+            stored_payload = dict(target.get("payload") or {})
+            target["payload"] = {
+                **stored_payload,
+                "policy": payload["policy"],
+                "winner_path": payload["winner_path"],
+                "copies": _merge_duplicate_copies(
+                    list(stored_payload.get("copies") or []), list(payload["copies"])
+                ),
+            }
+        await repo.sync("same_gid", existing_groups)
     logger.info(
         "registered superseded copy as duplicate",
         extra=log_extra(gid=gid, path=str(old_path)),

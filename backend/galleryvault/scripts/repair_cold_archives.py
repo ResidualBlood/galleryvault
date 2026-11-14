@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from galleryvault.config import get_settings
-from galleryvault.db.models import DuplicateRecord, Gallery, GalleryMetadata
+from galleryvault.db.models import DuplicateGroup, DuplicateRecord, Gallery, GalleryMetadata
 from galleryvault.db.repositories.base import path_hash
 from galleryvault.scanners.ehviewer import strip_gid_prefix
 from galleryvault.services.cold_archive import (
@@ -221,6 +221,37 @@ async def update_duplicate_records_for_rename(
             # Reassign so SQLAlchemy sees the JSONB mutation.
             record.copies = copies
             changed += 1
+
+    # Dual write until T5.3: keep the converged table's same-gid payload in
+    # sync so a repair run does not leave stale paths there.
+    if session is None or not hasattr(session, "scalars"):
+        return changed
+    groups = list(
+        (
+            await session.scalars(
+                select(DuplicateGroup).where(DuplicateGroup.kind == "same_gid")
+            )
+        ).all()
+    )
+    for group in groups:
+        payload = dict(group.payload or {})
+        copies = list(payload.get("copies") or [])
+        touched = False
+        for copy in copies:
+            if not isinstance(copy, dict):
+                continue
+            if str(copy.get("path") or "") != old_path:
+                continue
+            copy["path"] = new_path
+            if copy.get("key") == old_key:
+                copy["key"] = new_key
+            touched = True
+        if payload.get("winner_path") == old_path:
+            payload["winner_path"] = new_path
+            touched = True
+        if touched:
+            payload["copies"] = copies
+            group.payload = payload
     return changed
 
 

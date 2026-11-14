@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from gallery_dedup import (
@@ -20,6 +21,11 @@ from gallery_dedup import (
     find_gallery_duplicate_groups,
     normalize_title,
 )
+
+from ..db.repositories.duplicates import DuplicateGroupRepository
+from ..db.session import safe_transaction
+
+logger = logging.getLogger(__name__)
 
 # Process-wide guard shared by the HTTP refresh endpoint and the scan worker:
 # both read the same in-memory snapshot, so overlapping scans only double the
@@ -219,14 +225,37 @@ async def scan_library_cross_gid_duplicates(
         if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
     ]
 
+    # Single write path (T5.2): every scan result lands in ``duplicate_groups``;
+    # the process-local snapshot is no longer written.  Persistence is
+    # best-effort here because the read path still serves the legacy snapshot
+    # until T5.3, but failures are logged instead of silently swallowed.
     try:
-        from ..app.state import app_state
-
-        app_state.cross_gid_duplicates = filtered_groups
-    except Exception:  # noqa: BLE001, S110
-        pass
+        async with session_factory() as session, safe_transaction(session):
+            await DuplicateGroupRepository(session).sync("cross_gid", filtered_groups)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "cross-gid duplicate persistence failed",
+            extra={"error": type(exc).__name__},
+        )
 
     return filtered_groups
+
+
+async def run_cross_gid_scan(session_factory: Any = None) -> list[dict[str, Any]]:
+    """Background wrapper for the HTTP refresh: tracks progress and persists.
+
+    The endpoint only spawns this coroutine (202); the scan lock serialises it
+    with the library-scan tail so two full-library reads never overlap.
+    """
+    from ..app.dependencies import get_task_manager
+
+    tm = get_task_manager()
+    async with tm.track_task("duplicates-cross-gid") as tracker:
+        tracker.update(stage="scanning", done=0, total=0, last_error=None)
+        groups = await scan_library_cross_gid_duplicates_locked(session_factory, wait=True)
+        groups = groups or []
+        tracker.update(stage="done", done=len(groups), total=len(groups))
+        return groups
 
 
 __all__ = [
@@ -246,6 +275,7 @@ __all__ = [
     "find_duplicate_groups",
     "find_gallery_duplicate_groups",
     "normalize_title",
+    "run_cross_gid_scan",
     "scan_library_cross_gid_duplicates",
     "scan_library_cross_gid_duplicates_locked",
 ]

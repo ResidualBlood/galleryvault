@@ -429,18 +429,37 @@ class GalleryIngestMixin:
             local_list_ids=local_list_ids,
         )
 
-    async def sync_duplicates(self, groups) -> int:
+    async def sync_duplicates(self, records) -> int:
         """Persist the duplicate groups a scan just produced.
+
+        ``records`` are plain mappings supplied by the caller (``ResolvedGroup.
+        record()`` output): ``{"gid", "policy", "winner_path", "copies"}``.  The
+        repository deliberately does not import ``services.duplicate_resolver``
+        so the dependency direction stays db -> nothing.
 
         Open records are refreshed with the current copies; records the user
         dismissed or resolved are left alone (their decision wins).  Records
         whose gid is no longer duplicated (copy removed on disk, or resolved
         for real) are deleted.
         """
-        from galleryvault.services.duplicate_resolver import ResolvedGroup
+        normalized: list[dict[str, Any]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                continue
+            gid = record.get("gid")
+            if gid is None or isinstance(gid, bool):
+                continue
+            copies = record.get("copies") or []
+            normalized.append(
+                {
+                    "gid": int(gid),
+                    "policy": record.get("policy"),
+                    "winner_path": record.get("winner_path"),
+                    "copies": [dict(copy) for copy in copies if isinstance(copy, Mapping)],
+                }
+            )
 
-        groups = [group for group in groups if isinstance(group, ResolvedGroup)]
-        current = {group.gid for group in groups}
+        current = {record["gid"] for record in normalized}
         rows = list((await self.session.scalars(select(DuplicateRecord))).all())
         by_gid = {row.gid: row for row in rows}
         # Reconcile each copy against the row the gallery currently points at, so
@@ -455,33 +474,36 @@ class GalleryIngestMixin:
         )
         live_by_gid = {row.gid: row for row in live_rows}
         changed = 0
-        for group in groups:
-            payload = group.record()
-            live = live_by_gid.get(group.gid)
-            for copy in payload["copies"]:
+        for record in normalized:
+            live = live_by_gid.get(record["gid"])
+            for copy in record["copies"]:
                 copy["is_current"] = live is not None and copy["path"] == live.storage_path
-                copy["gallery_id"] = live.id if live is not None and copy["path"] == live.storage_path else copy.get("gallery_id")
-            record = by_gid.get(group.gid)
-            if record is None:
+                copy["gallery_id"] = (
+                    live.id
+                    if live is not None and copy["path"] == live.storage_path
+                    else copy.get("gallery_id")
+                )
+            stored = by_gid.get(record["gid"])
+            if stored is None:
                 self.session.add(
                     DuplicateRecord(
-                        gid=group.gid,
+                        gid=record["gid"],
                         status="open",
-                        policy=payload["policy"],
-                        winner_path=payload["winner_path"],
-                        copies=payload["copies"],
+                        policy=record["policy"],
+                        winner_path=record["winner_path"],
+                        copies=record["copies"],
                     )
                 )
                 changed += 1
-            elif record.status == "open":
-                record.policy = payload["policy"]
-                record.winner_path = payload["winner_path"]
-                record.copies = payload["copies"]
-                record.updated_at = datetime.now(UTC)
+            elif stored.status == "open":
+                stored.policy = record["policy"]
+                stored.winner_path = record["winner_path"]
+                stored.copies = record["copies"]
+                stored.updated_at = datetime.now(UTC)
                 changed += 1
-        for gid, record in by_gid.items():
+        for gid, stored in by_gid.items():
             if gid not in current:
-                await self.session.delete(record)
+                await self.session.delete(stored)
                 changed += 1
         await self.session.flush()
         return changed

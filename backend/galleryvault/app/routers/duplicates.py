@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 from pathlib import Path
@@ -27,6 +28,7 @@ from ..dependencies import (
     release_session,
     resolve_display_title,
     resolve_session,
+    spawn_task,
 )
 from ..state import app_state
 
@@ -344,19 +346,23 @@ async def get_cross_gid_duplicates(
     return {"ready": True, "count": len(filtered), "groups": filtered}
 
 
-@router.post("/api/library/duplicates/cross-gid/refresh")
+@router.post("/api/library/duplicates/cross-gid/refresh", status_code=202)
 async def refresh_cross_gid_duplicates(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    from ...services.duplicates import scan_library_cross_gid_duplicates_locked
+    from ...services.duplicates import cross_gid_scan_lock, run_cross_gid_scan
 
     session_factory = app_state.session_factory
     if not session_factory:
         raise HTTPException(status_code=503, detail="Database not available")
-
-    result = await scan_library_cross_gid_duplicates_locked(session_factory, wait=False)
-    if result is None:
+    if cross_gid_scan_lock.locked():
         raise HTTPException(status_code=409, detail="Cross-GID scan already running")
+
+    # T5.2: the scan moved off the request path.  Spawn it, yield once so the
+    # task can take the lock, then answer 202 with the current (possibly stale)
+    # view; the next GET/reload shows the persisted result.
+    spawn_task(run_cross_gid_scan(session_factory), "duplicates cross-gid scan")
+    await asyncio.sleep(0)
     return await get_cross_gid_duplicates(session=session)
 
