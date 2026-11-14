@@ -2,6 +2,7 @@ import { request } from "./client";
 import { downloadSelectedFavoritesEp } from "./favorites";
 import {
   addSeriesCloudItemsEp,
+  addSeriesItemsEp,
   createSeriesEp,
   deleteSeriesEp,
   patchSeriesEp,
@@ -159,6 +160,18 @@ export function removeSeriesItems(
   signal?: AbortSignal,
 ): Promise<RemoveSeriesResult> {
   return request<RemoveSeriesResult>(withId(removeSeriesItemsEp, id), {
+    body: { gallery_ids: galleryIds },
+    signal,
+  });
+}
+
+/** Attach local galleries (library ids, not gids) to a series. */
+export function addSeriesItems(
+  id: number,
+  galleryIds: number[],
+  signal?: AbortSignal,
+): Promise<{ id: number; added: number }> {
+  return request<{ id: number; added: number }>(withId(addSeriesItemsEp, id), {
     body: { gallery_ids: galleryIds },
     signal,
   });

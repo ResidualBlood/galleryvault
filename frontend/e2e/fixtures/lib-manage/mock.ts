@@ -63,6 +63,12 @@ export interface LibManageState {
   localItemsRemoved: Array<{ id: number; gallery_ids: number[] }>;
   tagReloads: number;
   tagSyncStarts: number;
+  categoryRefreshes: number;
+  categoryRefreshPolls: number;
+  categoryRefreshRunning: boolean;
+  listRenames: Array<{ id: number; name: string }>;
+  listDeletes: number[];
+  localItemsAdded: Array<{ id: number; gallery_ids: number[] }>;
   tagQueries: URLSearchParams[];
 }
 
@@ -291,6 +297,12 @@ export async function installLibManageMock(page: Page): Promise<LibManageState> 
     localItemsRemoved: [],
     tagReloads: 0,
     tagSyncStarts: 0,
+    categoryRefreshes: 0,
+    categoryRefreshPolls: 0,
+    categoryRefreshRunning: false,
+    listRenames: [],
+    listDeletes: [],
+    localItemsAdded: [],
     tagQueries: [],
   };
 
@@ -342,6 +354,22 @@ export async function installLibManageMock(page: Page): Promise<LibManageState> 
       };
       state.lists = [...state.lists, record];
       await json(route, record, 201);
+      return;
+    }
+    if (new RegExp(`^${API_ROOT}/lists/\\d+$`).test(path) && method === "PATCH") {
+      const listId = Number(path.split("/")[3]);
+      state.listRenames.push({ id: listId, name: String(body?.name ?? "") });
+      state.lists = state.lists.map((item) =>
+        item.id === listId ? { ...item, name: String(body?.name ?? "") } : item,
+      );
+      await json(route, { id: listId, name: String(body?.name ?? "") });
+      return;
+    }
+    if (new RegExp(`^${API_ROOT}/lists/\\d+$`).test(path) && method === "DELETE") {
+      const listId = Number(path.split("/")[3]);
+      state.listDeletes.push(listId);
+      state.lists = state.lists.filter((item) => item.id !== listId);
+      await json(route, { deleted: true, id: listId });
       return;
     }
     if (new RegExp(`^${API_ROOT}/lists/\\d+/items$`).test(path) && method === "POST") {
@@ -498,6 +526,26 @@ export async function installLibManageMock(page: Page): Promise<LibManageState> 
       await json(route, { status: "started", queued: 4 }, 202);
       return;
     }
+    if (path === api("/tag-sync/refresh-categories") && method === "POST") {
+      state.categoryRefreshes += 1;
+      state.categoryRefreshRunning = true;
+      await json(route, { status: "started" }, 202);
+      return;
+    }
+    if (path === api("/tag-sync/status") && method === "GET") {
+      state.categoryRefreshPolls += 1;
+      // First poll reports "running", the next one completes so the UI can
+      // render the in-progress label and then the completion toast.
+      const running = state.categoryRefreshRunning && state.categoryRefreshPolls < 2;
+      if (!running) state.categoryRefreshRunning = false;
+      await json(route, {
+        running: false,
+        category_refresh_running: running,
+        category_refreshed: 3,
+        last_error: null,
+      });
+      return;
+    }
 
     /* series */
     if (path === api("/series") && method === "GET") {
@@ -576,6 +624,15 @@ export async function installLibManageMock(page: Page): Promise<LibManageState> 
         gallery_ids: (body?.gallery_ids as number[]) ?? [],
       });
       await json(route, { id: Number(path.split("/")[3]), removed: 1 });
+      return;
+    }
+    if (new RegExp(`^${API_ROOT}/series/\\d+/items$`).test(path) && method === "POST") {
+      const galleryIds = (body?.gallery_ids as number[]) ?? [];
+      state.localItemsAdded.push({
+        id: Number(path.split("/")[3]),
+        gallery_ids: galleryIds,
+      });
+      await json(route, { id: Number(path.split("/")[3]), added: galleryIds.length });
       return;
     }
 

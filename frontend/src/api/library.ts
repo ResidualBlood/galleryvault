@@ -12,6 +12,8 @@ import { addFavoritesEp } from "./favorites";
 
 export const listsEp = ep("GET", "/api/lists");
 export const createListEp = ep("POST", "/api/lists");
+export const renameListEp = ep("PATCH", "/api/lists/{id}");
+export const deleteListEp = ep("DELETE", "/api/lists/{id}");
 export const listItemsEp = ep("POST", "/api/lists/{id}/items");
 export const removeListItemsEp = ep("POST", "/api/lists/{id}/items/remove");
 
@@ -40,6 +42,7 @@ export const removeSeriesCloudItemsEp = ep(
   "POST",
   "/api/series/{id}/cloud-items/remove",
 );
+export const addSeriesItemsEp = ep("POST", "/api/series/{id}/items");
 export const removeSeriesItemsEp = ep(
   "POST",
   "/api/series/{id}/items/remove",
@@ -51,6 +54,11 @@ export const tagsSearchEp = ep("GET", "/api/tags/search");
 export const reloadTagsEp = ep("POST", "/api/tags/search/reload");
 export const tagsStatusEp = ep("GET", "/api/tags/search/status");
 export const startTagSyncEp = ep("POST", "/api/tag-sync/start");
+export const tagSyncStatusEp = ep("GET", "/api/tag-sync/status");
+export const refreshTagCategoriesEp = ep(
+  "POST",
+  "/api/tag-sync/refresh-categories",
+);
 export const repairTagCategoriesEp = ep(
   "POST",
   "/api/tag-sync/repair-categories",
