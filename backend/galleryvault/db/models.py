@@ -551,6 +551,70 @@ class BackgroundJob(Base):
     )
 
 
+class TaskRun(Base):
+    """Durable ledger of task executions (one row per run).
+
+    In-memory task states disappear on restart and ``background_jobs`` is a
+    queue (completed rows are deleted), so neither can back the Logs page or
+    answer "was this task running when the process died?".  A run starts as
+    ``running``; at most one row per ``name`` may be running (partial unique
+    index), which makes stale-state detection a single query.  ``run_id`` is
+    unique per row so a restart cannot overwrite the previous run's row.
+
+    ``payload`` carries task-specific detail (corrupt ids, categories, ...)
+    and is bounded by :class:`~galleryvault.db.repositories.task_runs.TaskRunRepository`
+    at 256 KiB with a ``truncated`` marker.
+    """
+
+    __tablename__ = "task_runs"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(48), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="running", server_default=text("'running'"), nullable=False
+    )
+    stage: Mapped[str | None] = mapped_column(String(32))
+    cancellable: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    done: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    total: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'success', 'failed', 'cancelled', 'interrupted')",
+            name="ck_task_runs_status",
+        ),
+        UniqueConstraint("name", "run_id", name="uq_task_runs_name_run_id"),
+        Index(
+            "idx_task_runs_running_name",
+            "name",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+        ),
+        Index("idx_task_runs_name_completed", "name", text("completed_at DESC")),
+    )
+
+
 class Series(Base):
     __tablename__ = "series"
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
