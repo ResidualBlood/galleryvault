@@ -298,6 +298,18 @@ async def startup() -> None:
     except Exception:  # noqa: BLE001
         logger.warning("user settings could not be loaded at startup")
 
+    # Backfill galleries.storage_tier from the runtime cold roots before any
+    # worker starts; the 0044 migration cannot know them.  Idempotent.
+    try:
+        from ..services.cold_archive import reconcile_storage_tier
+
+        await reconcile_storage_tier(session_factory=app_state.session_factory)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "storage tier reconcile failed at startup",
+            extra=log_extra(error=type(exc).__name__),
+        )
+
     try:
         await bootstrap_auth()
         await migrate_plaintext_secrets()

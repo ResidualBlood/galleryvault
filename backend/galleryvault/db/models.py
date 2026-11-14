@@ -44,6 +44,12 @@ class Gallery(Base):
     trashed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     storage_type: Mapped[str] = mapped_column(String(16))
     storage_path: Mapped[str] = mapped_column(Text)
+    # Hot/cold is a storage location, not a format: ``storage_type`` keeps
+    # describing the on-disk shape (``cbz``/``folder``) in both tiers.
+    storage_tier: Mapped[str] = mapped_column(
+        String(8), default="hot", server_default=text("'hot'"), nullable=False
+    )
+    cold_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     path_hash: Mapped[str] = mapped_column(String(64))
     storage_mtime_ns: Mapped[int | None] = mapped_column(BigInteger)
     storage_size: Mapped[int | None] = mapped_column(BigInteger)
@@ -67,6 +73,11 @@ class Gallery(Base):
         Index("idx_galleries_path_hash", "path_hash", unique=True),
         Index("idx_galleries_tags_synced_at", "tags_synced_at"),
         Index("idx_galleries_storage_type", "storage_type"),
+        Index(
+            "idx_galleries_storage_tier_cold",
+            "id",
+            postgresql_where=text("storage_tier = 'cold'"),
+        ),
         Index("idx_galleries_posted_at", "posted_at"),
         Index("idx_galleries_rating", "rating"),
         Index("idx_galleries_page_count", "page_count"),
@@ -107,6 +118,10 @@ class Gallery(Base):
         CheckConstraint(
             "local_rating IS NULL OR (local_rating >= 1 AND local_rating <= 5)",
             name="ck_galleries_local_rating",
+        ),
+        CheckConstraint(
+            "storage_tier IN ('hot', 'cold')",
+            name="ck_galleries_storage_tier",
         ),
     )
 

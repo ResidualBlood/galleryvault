@@ -435,7 +435,24 @@ class SettingsService(BaseService):
                     updated_dict[k] = v
             await self.uow.settings.save(updated_dict)
 
-        # 3. Optional reload of services
+        # 3. Cold roots moved: re-align gallery tiers before reloading services.
+        if any(key in values for key in ("archive_roots", "cold_storage_root")):
+            app_st = _get_app_state()
+            sf = None
+            if app_st is not None:
+                sf = getattr(app_st, "worker_session_factory", None) or getattr(
+                    app_st, "session_factory", None
+                )
+            try:
+                from ..services.cold_archive import reconcile_storage_tier
+
+                await reconcile_storage_tier(session_factory=sf)
+            except Exception:
+                logger.warning(
+                    "storage tier reconcile after settings change failed", exc_info=True
+                )
+
+        # 4. Optional reload of services
         if refresh:
             await self.reload_services()
 

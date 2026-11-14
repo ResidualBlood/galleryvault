@@ -38,6 +38,13 @@ from . import galleries_common
 from .base import _chunked, path_hash
 
 
+def _storage_tier_for(path: Path | str) -> str:
+    """Return ``cold`` when the scanned path lives under a configured cold root."""
+    from ...services.cold_archive import is_under_cold
+
+    return "cold" if is_under_cold(path) else "hot"
+
+
 class GalleryIngestMixin:
     """Scanner ingest, duplicate records and recycle-bin writes (needs ``self.session``)."""
 
@@ -69,6 +76,7 @@ class GalleryIngestMixin:
                 "posted_at": gallery.posted_at,
                 "storage_type": gallery.storage_type,
                 "storage_path": str(gallery.path),
+                "storage_tier": _storage_tier_for(gallery.path),
                 "path_hash": path_hash(gallery.path),
                 "storage_mtime_ns": gallery.storage_mtime_ns,
                 "storage_size": gallery.storage_size,
@@ -117,6 +125,8 @@ class GalleryIngestMixin:
 
             if row is None:
                 row = Gallery(**values_by_key[key])
+                if row.storage_tier == "cold":
+                    row.cold_at = values_by_key[key]["updated_at"]
                 self.session.add(row)
                 if row.gid is not None:
                     existing_by_gid[row.gid] = row
@@ -138,6 +148,13 @@ class GalleryIngestMixin:
                         # Keep already-known gid/token if scanner re-scan has no metadata
                         continue
                     setattr(row, name, value)
+                # A cold→hot move must clear the timestamp; a hot→cold move
+                # stamps it once and later re-scans keep the original value.
+                if row.storage_tier == "cold":
+                    if row.cold_at is None:
+                        row.cold_at = values_by_key[key]["updated_at"]
+                else:
+                    row.cold_at = None
                 if row.gid is not None:
                     existing_by_gid[row.gid] = row
                 if row.path_hash:

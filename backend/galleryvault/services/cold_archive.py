@@ -313,6 +313,71 @@ def is_under_cold(
         return False
 
 
+async def reconcile_storage_tier(
+    *,
+    session_factory: Callable[[], AsyncSession] | None = None,
+    archive_roots: Sequence[Path | str] | None = None,
+) -> dict[str, int]:
+    """Align ``galleries.storage_tier``/``cold_at`` with the configured cold roots.
+
+    Idempotent: rows already consistent are untouched, so this can run on every
+    startup and after each ``archive_roots`` change.  ``cold_at`` is backfilled
+    from ``updated_at`` for historical rows, which is only an approximation of
+    when the gallery actually became cold.
+
+    Cold roots are runtime settings, therefore the 0044 migration cannot
+    backfill; this pass is the backfill.
+    """
+    counts = {"checked": 0, "fixed_cold": 0, "fixed_hot": 0, "cold_at_filled": 0}
+    sf = session_factory or app_state.session_factory
+    if sf is None:
+        logger.debug("reconcile_storage_tier skipped: no session factory available")
+        return counts
+
+    roots = resolve_archive_roots(archive_roots=archive_roots)
+    try:
+        async with sf() as session:
+            rows = list((await session.scalars(select(Gallery))).all())
+            now = datetime.now(UTC)
+            for gallery in rows:
+                counts["checked"] += 1
+                if is_under_cold(gallery.storage_path, roots):
+                    if gallery.storage_tier != "cold":
+                        gallery.storage_tier = "cold"
+                        counts["fixed_cold"] += 1
+                    if gallery.cold_at is None:
+                        gallery.cold_at = getattr(gallery, "updated_at", None) or now
+                        counts["cold_at_filled"] += 1
+                else:
+                    if gallery.storage_tier != "hot":
+                        gallery.storage_tier = "hot"
+                        counts["fixed_hot"] += 1
+                    if gallery.cold_at is not None:
+                        gallery.cold_at = None
+            if (
+                counts["fixed_cold"]
+                or counts["fixed_hot"]
+                or counts["cold_at_filled"]
+            ) and hasattr(session, "commit"):
+                await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "reconcile_storage_tier failed",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        return counts
+
+    logger.info(
+        "reconcile_storage_tier: checked=%d fixed_cold=%d fixed_hot=%d cold_at_filled=%d roots=%s",
+        counts["checked"],
+        counts["fixed_cold"],
+        counts["fixed_hot"],
+        counts["cold_at_filled"],
+        [str(root) for root in roots],
+    )
+    return counts
+
+
 def _validate_cold_destination(dest_path: Path) -> bool:
     """Validate that an existing cold archive destination is healthy and non-empty."""
     try:
@@ -1093,6 +1158,8 @@ async def _do_archive_locked(
         gallery_obj.storage_size = new_size
         gallery_obj.storage_signature = new_sig
         gallery_obj.page_count = len(page_names)
+        gallery_obj.storage_tier = "cold"
+        gallery_obj.cold_at = datetime.now(UTC)
         if page_names:
             gallery_obj.cover_path = page_names[0]
         gallery_obj.updated_at = datetime.now(UTC)
