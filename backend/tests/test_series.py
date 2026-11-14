@@ -14,7 +14,6 @@ from galleryvault.app.routers.series import (
     add_series_cloud_items,
     create_series,
     delete_series,
-    get_series,
     get_series_cloud_candidates,
     list_series,
     rebuild_series,
@@ -668,16 +667,6 @@ async def test_series_router_endpoints(monkeypatch) -> None:
     assert res_paged["page"] == 2
     assert res_paged["page_size"] == 10
 
-    # 2. GET /api/series/5
-    detail = await get_series(5)
-    assert detail["id"] == 5
-    assert detail["count"] == 1
-
-    # GET 404
-    with pytest.raises(HTTPException) as exc:
-        await get_series(999)
-    assert exc.value.status_code == 404
-
     # 3. POST /api/series
     c_res = await create_series(SeriesCreateRequest(name="New Manual Series"))
     assert c_res["name"] == "New Manual Series"
@@ -942,11 +931,6 @@ async def test_series_cloud_items_api_serialization(monkeypatch: pytest.MonkeyPa
     assert item["galleries"][1]["is_local"] is False
     assert item["galleries"][1]["gallery_id"] is None
     assert item["galleries"][1]["favcat"] == 2
-
-    # GET /api/series/7
-    detail = await get_series(7)
-    assert detail["count"] == 2
-    assert len(detail["galleries"]) == 2
 
 
 @pytest.mark.asyncio

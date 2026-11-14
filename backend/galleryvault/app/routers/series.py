@@ -243,48 +243,6 @@ async def list_series(
     }
 
 
-@router.get("/api/series/{series_id}")
-async def get_series(
-    series_id: int,
-    tags_limit: int | None = Query(default=None, ge=0, le=64),
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
-) -> dict[str, object]:
-    try:
-        repo, gal_repo, _ = await _resolve_repos(session, uow)
-        res = await repo.get_with_galleries(series_id)
-        if res is None:
-            raise HTTPException(status_code=404, detail="series not found")
-        s, members = res
-        local_ids = []
-        for m in members:
-            if isinstance(m, Gallery):
-                local_ids.append(m.id)
-            elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
-                local_ids.append(m["gallery_id"])
-            elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
-                local_ids.append(m.id)
-        tag_map = (
-            await _tags_for_galleries(gal_repo, local_ids, tags_limit)
-            if local_ids
-            else {}
-        )
-    except HTTPException:
-        raise
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-
-    return {
-        "id": s.id,
-        "name": s.name,
-        "match_key": s.match_key,
-        "name_manual": s.name_manual,
-        "count": len(members),
-        "created_at": s.created_at.isoformat() if s.created_at else None,
-        "galleries": [_serialize_card(m, tag_map, tags_limit) for m in members],
-    }
-
-
 @router.post("/api/series", status_code=201)
 async def create_series(
     body: SeriesCreateRequest,
