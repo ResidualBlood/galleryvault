@@ -12,10 +12,10 @@ mixed into any repository exposing a session.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import case, delete, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import ReadingHistory, ReadingProgress
+from ..models import GalleryPage, ReadingHistory, ReadingProgress
 from .galleries_common import _dialect_insert
 from .galleries_transfer import transfer_user_data as _transfer_user_data
 
@@ -195,6 +195,20 @@ class GalleryProgressMixin:
             )
         await self.session.flush()
         return row
+
+    async def page_count(self, gallery_id: int) -> int:
+        """Return the number of stored pages without loading the page rows.
+
+        Reading progress only needs the count: ``len(get_pages(...))`` used to
+        load every page (including JSON manifests) just to validate
+        ``current_page`` and default ``total_pages``.
+        """
+        counted = await self.session.scalar(
+            select(func.count())
+            .select_from(GalleryPage)
+            .where(GalleryPage.gallery_id == gallery_id)
+        )
+        return int(counted or 0)
 
     async def clear_history(self) -> None:
         await self.session.execute(delete(ReadingHistory))

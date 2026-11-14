@@ -22,6 +22,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from galleryvault.app.routers import galleries as galleries_router
+from galleryvault.app.routers import reading as reading_router
 from galleryvault.app.schemas import ProgressRequest
 from galleryvault.db.models import Gallery, ReadingHistory, ReadingProgress
 from galleryvault.db.repositories.galleries import GalleryRepository
@@ -243,10 +244,6 @@ async def test_progress_and_history_never_move_backwards() -> None:
 
 async def test_save_progress_mirrors_persisted_page_into_history(monkeypatch) -> None:
     row = SimpleNamespace(id=7, gid=42, token="tok", title="T")
-    pages = [
-        SimpleNamespace(page_index=i, member_name=f"{i:04d}.jpg", media_type="jpg", manifest={})
-        for i in range(10)
-    ]
     recorded: list[tuple[int, int, int]] = []
 
     class _Repo:
@@ -260,10 +257,10 @@ async def test_save_progress_mirrors_persisted_page_into_history(monkeypatch) ->
         async def record_history(self, gallery_id: int, current: int, total: int) -> None:
             recorded.append((gallery_id, current, total))
 
-    async def _lookup(*args: object, **kwargs: object) -> tuple[object, list[object]]:
-        return row, pages
+    async def _lookup(*args: object, **kwargs: object) -> tuple[object, int]:
+        return row, 10
 
-    monkeypatch.setattr(galleries_router, "_invoke_gallery", _lookup)
+    monkeypatch.setattr(reading_router, "_gallery_page_count", _lookup)
     monkeypatch.setattr(galleries_router, "GalleryRepository", _Repo)
 
     session = MagicMock()
