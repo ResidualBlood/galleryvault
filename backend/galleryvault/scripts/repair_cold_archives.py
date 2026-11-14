@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import (
 from galleryvault.config import get_settings
 from galleryvault.db.models import DuplicateGroup, DuplicateRecord, Gallery, GalleryMetadata
 from galleryvault.db.repositories.base import path_hash
+from galleryvault.db.repositories.galleries_ingest import sync_storage_tier
 from galleryvault.scanners.ehviewer import strip_gid_prefix
 from galleryvault.services.cold_archive import (
     compute_cold_path,
@@ -616,6 +617,13 @@ async def repair_cold_archives(
                         os.replace(old_p, new_p)
                         gallery.storage_path = expected_storage_path
                         gallery.path_hash = path_hash(new_p)
+                        # Keep the tier in step with the rewritten archive path
+                        # (a portable ``cold:`` path has no real root to match).
+                        sync_storage_tier(
+                            gallery,
+                            expected_storage_path,
+                            cold_roots=[cold_root] if isinstance(cold_root, Path) else None,
+                        )
                         duplicates_updated += await update_duplicate_records_for_rename(
                             session, raw_path, expected_storage_path
                         )
@@ -720,6 +728,9 @@ async def repair_cold_archives(
                         os.replace(old_p, new_p)
                         gallery.storage_path = expected_storage_path
                         gallery.path_hash = path_hash(new_p)
+                        # The renamed local copy may have left a cold root, so
+                        # clear/fill ``cold_at`` from the new path's tier.
+                        sync_storage_tier(gallery, expected_storage_path)
                         duplicates_updated += await update_duplicate_records_for_rename(
                             session, raw_path, expected_storage_path
                         )

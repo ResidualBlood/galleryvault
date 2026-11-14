@@ -38,11 +38,47 @@ from .base import _chunked, path_hash
 from .duplicates import DuplicateGroupRepository
 
 
-def _storage_tier_for(path: Path | str) -> str:
-    """Return ``cold`` when the scanned path lives under a configured cold root."""
+def storage_tier_for(
+    path: Path | str,
+    cold_roots: Path | str | Sequence[Path | str] | None = None,
+) -> str:
+    """Return ``cold`` when ``path`` lives under a cold root, else ``hot``.
+
+    Public form of the scanner-ingest tier rule: non-archive path rewrites
+    (delete recovery, repair script) reuse it so ``storage_tier`` always
+    matches the stored ``storage_path``.  ``cold_roots`` defaults to the
+    runtime archive roots, exactly like the ingest path.
+    """
     from ...storage_paths import is_under_cold
 
-    return "cold" if is_under_cold(path) else "hot"
+    return "cold" if is_under_cold(path, cold_roots) else "hot"
+
+
+def _storage_tier_for(path: Path | str) -> str:
+    """Return ``cold`` when the scanned path lives under a configured cold root."""
+    return storage_tier_for(path)
+
+
+def sync_storage_tier(
+    gallery: Any,
+    path: Path | str,
+    *,
+    cold_roots: Path | str | Sequence[Path | str] | None = None,
+) -> str:
+    """Align ``gallery.storage_tier``/``cold_at`` with ``path``; return the tier.
+
+    ``hot -> cold`` stamps ``cold_at`` once, ``cold -> hot`` clears it, and a
+    rewrite that stays cold keeps the original timestamp so the archive time
+    survives a rename inside the same cold root.
+    """
+    tier = storage_tier_for(path, cold_roots)
+    gallery.storage_tier = tier
+    if tier == "cold":
+        if getattr(gallery, "cold_at", None) is None:
+            gallery.cold_at = datetime.now(UTC)
+    else:
+        gallery.cold_at = None
+    return tier
 
 
 class GalleryIngestMixin:
