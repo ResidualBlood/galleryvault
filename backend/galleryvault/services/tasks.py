@@ -679,6 +679,21 @@ class TaskManager:
             logger.info("marked interrupted task runs at startup", extra={"count": interrupted})
         for name, row in rows.items():
             self._apply_restored_row(name, row)
+        await self._prune_task_runs(session_cm)
+
+    async def _prune_task_runs(self, session_cm: Callable[[], AsyncSession]) -> None:
+        """Cap ``task_runs`` history once per startup (T11.2c).
+
+        A failed prune must never block startup: the table is a log, not state.
+        """
+        try:
+            async with session_cm() as session, session.begin():
+                await TaskRunRepository(session).prune(keep_per_name=_HISTORY_LIMIT)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "failed to prune task run history",
+                extra={"error": type(exc).__name__, "detail": str(exc)[:200]},
+            )
 
     def _apply_restored_row(self, task_name: str, row: Any) -> None:
         state = self._resolve_task_state(task_name)
