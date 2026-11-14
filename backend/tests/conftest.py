@@ -64,6 +64,26 @@ def _fast_asyncio_sleep(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_loaded_settings():
+    """Clear the process-wide ``load_settings`` cache around every test.
+
+    ``load_settings`` is ``lru_cache(maxsize=1)`` in production, so the first
+    call in a process wins.  Tests that set environment variables (or replace
+    the runtime ``app_state.settings``) would otherwise observe values cached by
+    an earlier test, and a mutated ``Settings`` instance would leak forwards.
+    Clearing before and after keeps each test's baseline independent without
+    changing production caching behaviour.
+    """
+    from galleryvault.config import load_settings
+
+    load_settings.cache_clear()
+    try:
+        yield
+    finally:
+        load_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_app_state():
     """隔离每个测试对全局 app_state 和 app.state 的修改，防止状态泄露。"""
     orig_settings = app_state.settings

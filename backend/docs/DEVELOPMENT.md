@@ -377,6 +377,12 @@ docker compose -f docker-compose.dev.yml up -d --build   # backend + database
   already scrubbed in `logging.py`.
 - Do not commit cookies, `.env`, `TEMP/*`, or `media/`. (There is no longer a
   `config.json`; settings persist in the database.)
+- **Runtime settings come from `app_state.settings`.** `get_settings()` /
+  `load_settings()` only build the environment baseline (and `load_settings()`
+  is cached with `lru_cache(maxsize=1)` for the process lifetime). Anything
+  that may be changed through the settings API must read
+  `app_state.settings`, not `get_settings()`, and must not mutate the returned
+  `Settings` in place — use `model_copy(update=...)`.
 
 ## Frontend conventions (entry points)
 

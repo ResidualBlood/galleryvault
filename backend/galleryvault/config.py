@@ -1,3 +1,4 @@
+import functools
 import json
 import logging
 import os
@@ -357,6 +358,7 @@ EDITABLE_SETTINGS = {
 }
 
 
+@functools.lru_cache(maxsize=1)
 def load_settings() -> Settings:
     """Load Settings from environment variables + built-in defaults.
 
@@ -366,6 +368,13 @@ def load_settings() -> Settings:
     (``database_url``, the pool/timeout tuning knobs, ``log_level``,
     ``log_json``, ``scan_batch_size``) come from the environment, and they all
     have sensible defaults.
+
+    The result is cached for the process lifetime.  This is the environment
+    baseline only: runtime settings are read from ``app_state.settings``
+    (which may be a ``model_copy`` with database values applied).  Tests that
+    mutate the environment must clear the cache via
+    ``load_settings.cache_clear()`` (``tests/conftest.py`` does this around
+    every test).
     """
     return Settings()
 
