@@ -20,17 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....db.models import Gallery
 from ....db.repository import _chunked
 from ....db.session import safe_transaction
-from ....scanners.base import CATEGORIES
-from ....services.tag_translation import translated_tag
+from ....services.library.deps import LibraryDeps
+from ....services.library.listing import list_galleries_page
 from ...dependencies import db_error, get_session, release_session
-from ...params import (
-    _IMAGE_QUALITY,
-    _dedupe_tags,
-    _parse_posted,
-    _parse_tag_filter,
-    _resolve_search_tokens,
-    _tags_for_galleries,
-)
+from ...params import _IMAGE_QUALITY, _tags_for_galleries
 from ...schemas import BulkDeleteRequest
 from ...schemas.gallery import GalleryExpungedResponse, GalleryListResponse, GalleryTrashResponse
 
@@ -89,54 +82,24 @@ async def list_galleries(
         image_quality = None
     if storage_tier and storage_tier not in {"hot", "cold"}:
         raise HTTPException(status_code=422, detail="storage_tier must be 'hot' or 'cold'")
-    posted_from_dt = _parse_posted(posted_from)
-    posted_to_dt = _parse_posted(posted_to, upper=True)
-    if category == "":
-        category = None
-    exclude_favorited = False
-    if category == "__not_fav__":
-        exclude_favorited = True
-        category = None
-    elif category and category not in CATEGORIES:
-        raise HTTPException(status_code=422, detail=f"category must be one of {', '.join(CATEGORIES)}")
 
-    parsed_inc_tags, parsed_exc_tags = _parse_tag_filter(tags)
-    if exclude_tags:
-        extra_inc, extra_exc = _parse_tag_filter(exclude_tags)
-        parsed_exc_tags.extend(extra_inc)
-        parsed_exc_tags.extend(extra_exc)
-
-    resolved_q = q or ""
-    resolved = False
-    if q and q.strip():
-        auto_inc, auto_exc, keywords, changed = await _resolve_search_tokens(q)
-        resolved = changed
-        if changed:
-            parsed_inc_tags.extend(auto_inc)
-            parsed_exc_tags.extend(auto_exc)
-            resolved_q = keywords
-
-    parsed_inc_tags = _dedupe_tags(parsed_inc_tags)
-    parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
+    deps = LibraryDeps(
+        repo_factory=_gal("GalleryRepository"),
+        serialize_summary=_gal("serialize_gallery_summary"),
+        attr=_gal("_g"),
+    )
     try:
-        repo_cls = _gal("GalleryRepository")
-        repo = repo_cls(session)
-        tag_id_map: dict[tuple[str | None, str], int] = {}
-        if tag_match == "exact":
-            candidates = parsed_inc_tags + parsed_exc_tags
-            if candidates:
-                tag_id_map = await repo.resolve_exact_tags(candidates)
-        total, rows = await repo.list_page(
-            page,
-            page_size,
-            q=resolved_q,
-            tags=parsed_inc_tags if parsed_inc_tags else (),
-            exclude_tags=parsed_exc_tags if parsed_exc_tags else (),
+        return await list_galleries_page(
+            deps,
+            session,
+            page=page,
+            page_size=page_size,
+            q=q,
+            tags=tags,
+            exclude_tags=exclude_tags,
             tag_mode=tag_mode,
             tag_match=tag_match,
-            tag_id_map=tag_id_map,
             category=category,
-            exclude_favorited=exclude_favorited,
             order_by=order_by,
             read_status=read_status,
             min_rating=min_rating,
@@ -144,67 +107,17 @@ async def list_galleries(
             page_max=page_max,
             size_min=size_min,
             size_max=size_max,
-            posted_from=posted_from_dt,
-            posted_to=posted_to_dt,
+            posted_from=posted_from,
+            posted_to=posted_to,
             uploader=uploader,
             image_quality=image_quality,
             storage_tier=storage_tier,
             min_local_rating=min_local_rating,
             list_id=list_id,
+            tags_limit=tags_limit,
         )
-        g_ids = [r.id for r in rows if getattr(r, "id", None)]
-        tag_map = await _tags_for_galleries(repo_cls(session), g_ids, tags_limit)
-        progress_map = await repo_cls(session).progress_for_galleries(g_ids)
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-
-    tag_str_parts = []
-    if parsed_inc_tags:
-        tag_str_parts.extend(
-            f"{namespace}:{name}" if namespace else name
-            for namespace, name in parsed_inc_tags
-        )
-    if parsed_exc_tags:
-        tag_str_parts.extend(
-            f"-{namespace}:{name}" if namespace else f"-{name}"
-            for namespace, name in parsed_exc_tags
-        )
-
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "q": resolved_q,
-        "tags": ",".join(tag_str_parts),
-        "resolved": resolved,
-        "tag_mode": tag_mode,
-        "tag_match": tag_match,
-        "order_by": order_by,
-        "read_status": read_status or "all",
-        "category": "__not_fav__" if exclude_favorited else (category or ""),
-        "query_tags": (
-            [
-                {
-                    "namespace": ns,
-                    "name": name,
-                    "display": translated_tag(ns or "misc", name)[1],
-                }
-                for ns, name in parsed_inc_tags
-            ]
-            if resolved
-            else []
-        ),
-        "items": [
-            _gal("serialize_gallery_summary")(
-                row,
-                tag_map,
-                reading_progress=progress_map.get(
-                    row.id, _gal("_g")(row, "reading_progress", None)
-                ),
-            )
-            for row in rows
-        ],
-    }
 
 
 gallery_list = list_galleries

@@ -48,6 +48,18 @@ forbidden_modules =
 #   Library service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
 #   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:library-usecases-injected]
+name = library listing/deletion use-cases take collaborators by injection
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.library.listing
+    galleryvault.services.library.deletion
+forbidden_modules =
+    galleryvault.app.state
+    galleryvault.app.dependencies
+
 # slot: reading
 #   Reading service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
