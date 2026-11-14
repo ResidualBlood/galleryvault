@@ -924,7 +924,7 @@ async def test_ingest_downloaded_gallery_hook_triggers_archive(tmp_path: Path, m
 
     from galleryvault.app.state import app_state
     from galleryvault.db.models import DownloadTask
-    from galleryvault.services import download_worker
+    from galleryvault.services.download import ingest_pump as download_worker
 
     cold_root = tmp_path / "cold"
     cold_root.mkdir()
@@ -1043,7 +1043,7 @@ async def test_archive_failure_does_not_fail_download(tmp_path: Path, monkeypatc
 
     from galleryvault.app.state import app_state
     from galleryvault.db.models import DownloadTask
-    from galleryvault.services import download_worker
+    from galleryvault.services.download import ingest_pump as download_worker
 
     cold_root = tmp_path / "cold"
     cold_root.mkdir()
@@ -1157,7 +1157,7 @@ async def test_ingest_downloaded_gallery_hook_skips_archive_when_disabled_or_no_
 
     from galleryvault.app.state import app_state
     from galleryvault.db.models import DownloadTask
-    from galleryvault.services import download_worker
+    from galleryvault.services.download import ingest_pump as download_worker
 
     ssd_root = tmp_path / "ssd"
     ssd_root.mkdir()
@@ -1241,7 +1241,7 @@ async def test_archive_hook_error_does_not_break_ingest(
     from types import SimpleNamespace
 
     from galleryvault.app.state import app_state
-    from galleryvault.services import download_worker
+    from galleryvault.services.download import ingest_pump as download_worker
 
     ssd_root = tmp_path / "ssd"
     ssd_root.mkdir()
@@ -1379,7 +1379,7 @@ async def test_archive_downloaded_gallery_notifications(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
     from galleryvault.app.state import app_state
-    from galleryvault.services import download_worker
+    from galleryvault.services.download import ingest_pump as download_worker
     from galleryvault.services.notifications import clear_notifications, list_notifications
 
     clear_notifications()

@@ -19,7 +19,8 @@ from galleryvault.app.routers import galleries as galleries_router
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
 from galleryvault.db.models import DuplicateGroup
-from galleryvault.services import download_worker, updates_worker
+from galleryvault.services import updates_worker
+from galleryvault.services.download import ingest_pump as download_worker
 from galleryvault.services.download_worker import ingest_downloaded_gallery
 
 

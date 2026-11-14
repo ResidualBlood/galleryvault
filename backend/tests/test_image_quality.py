@@ -19,8 +19,8 @@ from galleryvault.app.routers.galleries import (
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
 from galleryvault.scanners.base import GalleryMeta
-from galleryvault.services import download_worker
 from galleryvault.services.deletion import remove_superseded_copy
+from galleryvault.services.download import ingest_pump as download_worker
 from galleryvault.services.download_worker import (
     infer_image_quality,
     ingest_downloaded_gallery,

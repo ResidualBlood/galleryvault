@@ -149,7 +149,7 @@ async def test_download_worker_handles_challenge_error() -> None:
     app_state.session_factory = lambda: MockAsyncContext()
 
     task = DownloadTask(999, "token_xyz", "Test Title", id=1)
-    with patch("galleryvault.services.download_worker.DownloadRepository") as mock_repo_cls:
+    with patch("galleryvault.services.download.attempt.DownloadRepository") as mock_repo_cls:
         mock_repo = MagicMock()
         mock_repo.record_attempt = AsyncMock()
         mock_repo_cls.return_value = mock_repo
@@ -179,7 +179,7 @@ async def test_challenge_probe_loop_clears_pause() -> None:
     mock_client.probe_challenge = AsyncMock(return_value=True)
     app_state.eh_client = mock_client
 
-    with patch("galleryvault.services.download_worker._CHALLENGE_PROBE_INTERVAL", 0.01):
+    with patch("galleryvault.services.download.attempt._CHALLENGE_PROBE_INTERVAL", 0.01):
         task = asyncio.create_task(challenge_probe_loop())
         await asyncio.sleep(0.05)
         task.cancel()

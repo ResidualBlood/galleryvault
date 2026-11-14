@@ -15,7 +15,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Self
 
-from galleryvault.services import download_worker as dw
+from galleryvault.services.download import wake, worker
 
 
 class _FakeBegin:
@@ -66,36 +66,36 @@ class _RecordingRepo:
 
 
 async def _start_worker(monkeypatch, repo: _RecordingRepo) -> asyncio.Task:
-    monkeypatch.setattr(dw, "_get_background_session_factory", lambda: _FakeFactory(repo))
-    monkeypatch.setattr(dw, "DownloadRepository", lambda session: session.repo)
+    monkeypatch.setattr(wake, "_get_background_session_factory", lambda: _FakeFactory(repo))
+    monkeypatch.setattr(worker, "DownloadRepository", lambda session: session.repo)
     # Keep the cooperative-drain check from exiting our sole worker.
-    monkeypatch.setattr(dw, "_target_download_concurrency", 8)
-    task = asyncio.create_task(dw._download_worker())
+    monkeypatch.setattr(worker, "_target_download_concurrency", 8)
+    task = asyncio.create_task(worker._download_worker())
     # The worker exits immediately unless it recognises itself as supervised.
-    dw._worker_tasks.append(task)
+    worker._worker_tasks.append(task)
     return task
 
 
 async def _stop_worker(task: asyncio.Task) -> None:
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
-    dw._worker_tasks[:] = [t for t in dw._worker_tasks if t is not task]
-    dw._worker_events.clear()
+    worker._worker_tasks[:] = [t for t in worker._worker_tasks if t is not task]
+    wake._worker_events.clear()
 
 
 def test_idle_poll_timeout_is_bounded() -> None:
-    assert dw._idle_poll_timeout(None) == dw._WORKER_POLL_MAX_SECONDS
+    assert worker._idle_poll_timeout(None) == worker._WORKER_POLL_MAX_SECONDS
     # A retry that is already due (or due in <1s) uses the minimum wait so the
     # worker neither spins nor sleeps past the deadline.
-    assert dw._idle_poll_timeout(datetime.now(UTC) + timedelta(seconds=0.2)) == (
-        dw._WORKER_POLL_MIN_SECONDS
+    assert worker._idle_poll_timeout(datetime.now(UTC) + timedelta(seconds=0.2)) == (
+        worker._WORKER_POLL_MIN_SECONDS
     )
     # Distant retries and SQLite's naive datetimes are clamped to the cap.
-    assert dw._idle_poll_timeout(datetime.now(UTC) + timedelta(hours=3)) == (
-        dw._WORKER_POLL_MAX_SECONDS
+    assert worker._idle_poll_timeout(datetime.now(UTC) + timedelta(hours=3)) == (
+        worker._WORKER_POLL_MAX_SECONDS
     )
     naive = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=30)
-    assert 20.0 <= dw._idle_poll_timeout(naive) <= 30.0
+    assert 20.0 <= worker._idle_poll_timeout(naive) <= 30.0
 
 
 async def test_idle_worker_reclaims_due_retry_without_event(monkeypatch) -> None:
@@ -109,14 +109,14 @@ async def test_idle_worker_reclaims_due_retry_without_event(monkeypatch) -> None
         await _stop_worker(task)
 
     assert repo.claims >= 2
-    assert not any(ev.is_set() for ev in dw._worker_events), "no external wakeup was sent"
+    assert not any(ev.is_set() for ev in wake._worker_events), "no external wakeup was sent"
     # retry_at was <1s away, so the bounded wait is the 1s minimum.
     assert elapsed <= 1.5, f"worker re-claimed only after {elapsed:.2f}s"
 
 
 async def test_idle_worker_keeps_polling_without_scheduled_retry(monkeypatch) -> None:
-    monkeypatch.setattr(dw, "_WORKER_POLL_MIN_SECONDS", 0.05)
-    monkeypatch.setattr(dw, "_WORKER_POLL_MAX_SECONDS", 0.05)
+    monkeypatch.setattr(worker, "_WORKER_POLL_MIN_SECONDS", 0.05)
+    monkeypatch.setattr(worker, "_WORKER_POLL_MAX_SECONDS", 0.05)
     repo = _RecordingRepo(None)
     task = await _start_worker(monkeypatch, repo)
     try:
@@ -127,4 +127,4 @@ async def test_idle_worker_keeps_polling_without_scheduled_retry(monkeypatch) ->
         await _stop_worker(task)
 
     assert elapsed <= 1.0, f"safety-net poll took {elapsed:.2f}s"
-    assert not any(ev.is_set() for ev in dw._worker_events)
+    assert not any(ev.is_set() for ev in wake._worker_events)

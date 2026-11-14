@@ -253,7 +253,7 @@ async def test_download_repository_list_page_archive_fallback():
 @pytest.mark.asyncio
 async def test_download_worker_progress_archive_fallback(monkeypatch):
     from galleryvault.app.state import app_state
-    from galleryvault.services.download_worker import download_progress
+    from galleryvault.services.download.notify import download_progress
 
     progress_calls = []
 
@@ -274,7 +274,7 @@ async def test_download_worker_progress_archive_fallback(monkeypatch):
         def begin(self):
             return self
 
-    monkeypatch.setattr("galleryvault.services.download_worker.DownloadRepository", FakeRepo)
+    monkeypatch.setattr("galleryvault.services.download.notify.DownloadRepository", FakeRepo)
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: FakeSession()
     try:

@@ -19,7 +19,7 @@ from sqlalchemy.dialects import postgresql
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
 from galleryvault.db.repositories.downloads import DownloadRepository
-from galleryvault.services import download_worker as dw
+from galleryvault.services.download import attempt, ingest_pump
 from galleryvault.services.downloader import DownloadTask
 
 
@@ -132,9 +132,9 @@ async def test_ingest_failure_is_not_success(monkeypatch, tmp_path: Path) -> Non
         async def record_attempt(self, *_args: object, **_kwargs: object) -> None:
             return None
 
-    monkeypatch.setattr(dw, "DownloadRepository", _FakeRepo)
-    await dw._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
-    monkeypatch.setattr(dw, "DownloadRepository", DownloadRepository)
+    monkeypatch.setattr(attempt, "DownloadRepository", _FakeRepo)
+    await attempt._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
+    monkeypatch.setattr(attempt, "DownloadRepository", DownloadRepository)
 
     assert row.status == "downloading"
     assert row.ingest_status == "pending"
@@ -143,17 +143,17 @@ async def test_ingest_failure_is_not_success(monkeypatch, tmp_path: Path) -> Non
     app_state.session_factory = lambda: _PumpSession(row)
 
     async def _explode(_result: object, *, strict: bool = False) -> None:
-        raise dw.IngestError("library insert failed")
+        raise ingest_pump.IngestError("library insert failed")
 
-    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _explode)
+    monkeypatch.setattr(ingest_pump, "ingest_downloaded_gallery", _explode)
     notified: list[tuple] = []
 
     async def _record(kind: str, title: str, detail: str | None = None) -> None:
         notified.append((kind, title, detail))
 
-    monkeypatch.setattr(dw, "record_download_notification", _record)
+    monkeypatch.setattr(ingest_pump, "record_download_notification", _record)
 
-    assert await dw.run_pending_ingest_once() is True
+    assert await ingest_pump.run_pending_ingest_once() is True
 
     assert row.status == "failed", "an ingest failure must never report success"
     assert row.ingest_status == "failed"
@@ -178,10 +178,10 @@ async def test_ok_notification_sent_after_ingest(monkeypatch) -> None:
     async def _record(_kind: str, _title: str, _detail: str | None = None) -> None:
         order.append("notify")
 
-    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
-    monkeypatch.setattr(dw, "record_download_notification", _record)
+    monkeypatch.setattr(ingest_pump, "ingest_downloaded_gallery", _ingest)
+    monkeypatch.setattr(ingest_pump, "record_download_notification", _record)
 
-    assert await dw.run_pending_ingest_once() is True
+    assert await ingest_pump.run_pending_ingest_once() is True
 
     assert order == ["ingest", "notify"]
     assert row.status == "success"
@@ -222,9 +222,9 @@ async def test_fresh_download_notifies_ok_not_updated(monkeypatch, tmp_path: Pat
         async def record_attempt(self, *_args: object, **_kwargs: object) -> None:
             return None
 
-    monkeypatch.setattr(dw, "DownloadRepository", _FakeRepo)
-    await dw._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
-    monkeypatch.setattr(dw, "DownloadRepository", DownloadRepository)
+    monkeypatch.setattr(attempt, "DownloadRepository", _FakeRepo)
+    await attempt._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
+    monkeypatch.setattr(attempt, "DownloadRepository", DownloadRepository)
 
     assert row.ingest_payload["notify_old_gid"] is None, "fresh download has no old gid"
 
@@ -236,10 +236,10 @@ async def test_fresh_download_notifies_ok_not_updated(monkeypatch, tmp_path: Pat
     async def _record(kind: str, title: str, detail: str | None = None) -> None:
         notified.append((kind, title, detail))
 
-    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
-    monkeypatch.setattr(dw, "record_download_notification", _record)
+    monkeypatch.setattr(ingest_pump, "ingest_downloaded_gallery", _ingest)
+    monkeypatch.setattr(ingest_pump, "record_download_notification", _record)
 
-    assert await dw.run_pending_ingest_once() is True
+    assert await ingest_pump.run_pending_ingest_once() is True
     assert notified and notified[0][0] == "ok", "a fresh download must notify ok"
 
 
@@ -260,12 +260,12 @@ async def test_replaced_from_gid_notifies_updated(monkeypatch, tmp_path: Path) -
         async def record_attempt(self, *_args: object, **_kwargs: object) -> None:
             return None
 
-    monkeypatch.setattr(dw, "DownloadRepository", _FakeRepo)
-    await dw._run_download_inner(
+    monkeypatch.setattr(attempt, "DownloadRepository", _FakeRepo)
+    await attempt._run_download_inner(
         DownloadTask(999, "tok", "Test", id=1, max_retries=5),
         replaced_from_gid=111,
     )
-    monkeypatch.setattr(dw, "DownloadRepository", DownloadRepository)
+    monkeypatch.setattr(attempt, "DownloadRepository", DownloadRepository)
 
     # The replacement chain gid is carried in the payload for the notification.
     assert row.ingest_payload["notify_old_gid"] == 111
@@ -278,19 +278,19 @@ async def test_replaced_from_gid_notifies_updated(monkeypatch, tmp_path: Path) -
     async def _record(kind: str, title: str, detail: str | None = None) -> None:
         notified.append((kind, title, detail))
 
-    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
-    monkeypatch.setattr(dw, "record_download_notification", _record)
+    monkeypatch.setattr(ingest_pump, "ingest_downloaded_gallery", _ingest)
+    monkeypatch.setattr(ingest_pump, "record_download_notification", _record)
 
-    assert await dw.run_pending_ingest_once() is True
+    assert await ingest_pump.run_pending_ingest_once() is True
     assert notified == [("updated", "Test", "111:999")]
 
 
 @pytest.mark.asyncio
 async def test_no_scanner_is_ingest_failure(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(dw, "registry", SimpleNamespace(for_path=lambda _path: None))
+    monkeypatch.setattr(ingest_pump, "registry", SimpleNamespace(for_path=lambda _path: None))
 
-    with pytest.raises(dw.IngestError, match="no scanner"):
-        await dw.ingest_downloaded_gallery(_result(_target(tmp_path)), strict=True)
+    with pytest.raises(ingest_pump.IngestError, match="no scanner"):
+        await ingest_pump.ingest_downloaded_gallery(_result(_target(tmp_path)), strict=True)
 
 
 @pytest.mark.asyncio
@@ -308,14 +308,14 @@ async def test_pending_ingest_survives_restart(monkeypatch) -> None:
     async def _record(*_args: object, **_kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _ingest)
-    monkeypatch.setattr(dw, "record_download_notification", _record)
+    monkeypatch.setattr(ingest_pump, "ingest_downloaded_gallery", _ingest)
+    monkeypatch.setattr(ingest_pump, "record_download_notification", _record)
 
-    assert await dw.run_pending_ingest_once() is True
+    assert await ingest_pump.run_pending_ingest_once() is True
     assert getattr(ingested[0], "gid", None) == 999
     assert row.status == "success"
     assert row.ingest_status == "done"
-    assert await dw.run_pending_ingest_once() is False
+    assert await ingest_pump.run_pending_ingest_once() is False
 
 
 def test_recover_orphans_skips_pending_ingest() -> None:
@@ -356,13 +356,13 @@ def test_ingest_payload_round_trip() -> None:
         rating=4.5,
         pages=2,
     )
-    payload = dw.serialize_ingest_payload(result)
-    replay = dw.ingest_result_from_payload(payload)
+    payload = ingest_pump.serialize_ingest_payload(result)
+    replay = ingest_pump.ingest_result_from_payload(payload)
 
     assert replay.path == "/tmp/999-Test"
     assert sorted(replay.new_files) == ["0001.jpg", "0002.jpg"]
     assert replay.tags == {"artist": ["someone"]}
     assert replay.title_jpn == "テスト"
     assert replay.rating == 4.5
-    for field in dw._INGEST_PAYLOAD_FIELDS:
+    for field in ingest_pump._INGEST_PAYLOAD_FIELDS:
         assert getattr(replay, field) is not None or getattr(result, field) is None

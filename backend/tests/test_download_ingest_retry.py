@@ -23,7 +23,7 @@ from sqlalchemy.dialects import postgresql
 from galleryvault.app.routers import downloads as downloads_router
 from galleryvault.app.state import app_state
 from galleryvault.db.repositories.downloads import DownloadRepository
-from galleryvault.services import download_worker as dw
+from galleryvault.services.download import ingest_pump as dw
 
 
 class _Task:

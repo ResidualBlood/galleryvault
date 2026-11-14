@@ -15,7 +15,7 @@ from galleryvault.app.routers import downloads as downloads_router
 from galleryvault.app.state import app_state
 from galleryvault.config import get_settings
 from galleryvault.db.models import DownloadTask
-from galleryvault.services import download_worker as dw
+from galleryvault.services.download import ingest_pump as dw
 
 
 async def _arm(factory, *task_ids: int) -> None:
