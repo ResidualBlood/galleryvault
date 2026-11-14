@@ -775,23 +775,6 @@ async def purge_galleries(
     return {"purged": purged, "failed_deletions": failed, "results": results}
 
 
-@router.get("/api/galleries/categories")
-async def list_categories(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    try:
-        counts = dict(await GalleryRepository(session).category_counts())
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {
-        "categories": [
-            {"name": cat, "count": counts.get(cat, 0)}
-            for cat in CATEGORIES
-        ]
-    }
-
-
 @router.get("/api/galleries/random")
 async def random_gallery(
     session: AsyncSession = Depends(get_session),  # noqa: B008
@@ -1037,7 +1020,6 @@ async def gallery_favorite_status(
     }
 
 
-@router.post("/api/galleries/{identifier}/favorite")
 async def toggle_gallery_favorite(
     identifier: int,
     favcat: int = 0,
@@ -1154,7 +1136,6 @@ async def gallery_progress(
 
 
 @router.put("/api/galleries/{identifier}/progress")
-@router.post("/api/galleries/{identifier}/progress")
 async def save_gallery_progress(
     identifier: int,
     body: ProgressRequest,
@@ -1187,21 +1168,6 @@ async def save_gallery_progress(
         "total_pages": progress.total_pages if progress else total_pages,
         "reading_progress": persisted,
     }
-
-
-@router.post("/api/galleries/{identifier}/read")
-async def mark_gallery_read(
-    identifier: int,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _invoke_gallery(identifier, session=session)
-    async with safe_transaction(session):
-        await GalleryRepository(session).upsert_progress(
-            row.id, max(len(pages) - 1, 0), len(pages)
-        )
-    return {"reading_progress": len(pages)}
 
 
 @router.get("/api/history")
