@@ -21,6 +21,8 @@ export type UpdateState =
 
 export type UpdateStatus = "pending" | "downloading" | "failed" | "ignored" | string;
 
+export type UpdateMatchSource = "parent_chain" | "title";
+
 export interface GalleryUpdate {
   id: number;
   gallery_id: number;
@@ -34,6 +36,15 @@ export interface GalleryUpdate {
   detected_at?: string | null;
   updated_at?: string | null;
   cover_url?: string | null;
+  /** Why the row matched: official parent/newer chain or normalized title. */
+  match_source?: UpdateMatchSource;
+  /** Current title of the re-uploaded gid (favorites/metadata). */
+  new_title?: string | null;
+  old_page_count?: number | null;
+  new_page_count?: number | null;
+  /** True when the same new gid matched more than one local gallery. */
+  ambiguous?: boolean;
+  ambiguous_count?: number | null;
 }
 
 export interface UpdatesPage {
@@ -63,11 +74,14 @@ export interface UpdatesStatus {
 export interface UpdateRunOptions {
   archive?: boolean;
   quality?: "original" | "resample";
+  /** Explicit per-row confirmation (process a title-only ambiguous match). */
+  force?: boolean;
 }
 
 export interface UpdateRunResult {
   started?: number;
   skipped?: number;
+  skipped_ambiguous?: number;
 }
 
 function queryString(query: Record<string, unknown>): string {

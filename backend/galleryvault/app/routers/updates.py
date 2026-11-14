@@ -29,6 +29,8 @@ class UpdateIdsRequest(BaseModel):
     ids: list[int] = Field(default_factory=list)
     archive: bool = False
     quality: str | None = None
+    #: Explicit single-row action: process even a title-only ambiguous match.
+    force: bool = False
 
 
 @router.get("/api/updates")
@@ -52,15 +54,18 @@ async def gallery_updates_list(
     else:
         status_filter = state
     try:
-        total, rows = await GalleryUpdatesRepository(session).list_page(
-            page, page_size, status_filter
-        )
+        repo = GalleryUpdatesRepository(session)
+        total, rows = await repo.list_page(page, page_size, status_filter)
         favcats = [r.favcat for r in rows]
         names = await FavoritesRepository(session).category_names(favcats)
+        # Older fakes / partial repositories may not expose the evidence query.
+        evidence_fn = getattr(repo, "match_evidence", None)
+        evidence = await evidence_fn(rows) if evidence_fn is not None else {}
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     items = []
     for row in rows:
+        ev = evidence.get(row.id, {})
         items.append(
             {
                 "id": row.id,
@@ -75,6 +80,12 @@ async def gallery_updates_list(
                 "detected_at": row.detected_at.isoformat() if row.detected_at else None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
                 "cover_url": f"/api/galleries/{row.gallery_id}/thumb/0",
+                "match_source": ev.get("match_source", "title"),
+                "new_title": ev.get("new_title"),
+                "old_page_count": ev.get("old_page_count"),
+                "new_page_count": ev.get("new_page_count"),
+                "ambiguous": bool(ev.get("ambiguous", False)),
+                "ambiguous_count": ev.get("ambiguous_count", 1),
             }
         )
     return {
@@ -124,7 +135,9 @@ async def gallery_updates_run(body: UpdateIdsRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="No update ids provided")
     default_quality = get_current_settings().download_quality or "resample"
     quality = body.quality or default_quality
-    result = await run_gallery_updates(body.ids, archive=body.archive, quality=quality)
+    result = await run_gallery_updates(
+        body.ids, archive=body.archive, quality=quality, force=body.force
+    )
     return {"status": "started", **result}
 
 

@@ -7,9 +7,11 @@ excluded), the download enqueue, and the API surface.
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from galleryvault.app.routers import updates as updates_router
 from galleryvault.app.state import app_state
+from galleryvault.db.repositories.updates import GalleryUpdatesRepository
 from galleryvault.services import updates_worker
 from galleryvault.services.updates_worker import (
     detect_gallery_updates,
@@ -513,6 +515,9 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
         async def get(self, update_id):
             return FakeUpdate()
 
+        async def match_evidence(self, rows):
+            return {}
+
         async def local_new_gids(self, gids):
             return set()
 
@@ -548,7 +553,7 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
     finally:
         app_state.session_factory = orig_factory
 
-    assert result == {"started": 1, "skipped": 0}
+    assert result == {"started": 1, "skipped": 0, "skipped_ambiguous": 0}
     assert created == [(500, "tok", "New version", "favorite", None)]
 
 
@@ -569,6 +574,9 @@ async def test_run_gallery_updates_archives(monkeypatch):
 
         async def get(self, update_id):
             return FakeUpdate()
+
+        async def match_evidence(self, rows):
+            return {}
 
         async def local_new_gids(self, gids):
             return set()
@@ -605,7 +613,7 @@ async def test_run_gallery_updates_archives(monkeypatch):
     finally:
         app_state.session_factory = orig_factory
 
-    assert result == {"started": 1, "skipped": 0}
+    assert result == {"started": 1, "skipped": 0, "skipped_ambiguous": 0}
     assert created == [(501, "tok2", "Archive version", "archive", "original")]
 
 
@@ -624,6 +632,9 @@ async def test_run_gallery_updates_skips_non_pending(monkeypatch):
 
         async def get(self, update_id):
             return FakeUpdate()
+
+        async def match_evidence(self, rows):
+            return {}
 
     class Sess:
         async def __aenter__(self):
@@ -651,7 +662,7 @@ async def test_run_gallery_updates_skips_non_pending(monkeypatch):
     finally:
         app_state.session_factory = orig_factory
 
-    assert result == {"started": 0, "skipped": 1}
+    assert result == {"started": 0, "skipped": 1, "skipped_ambiguous": 0}
     assert called == []
 
 
@@ -674,6 +685,9 @@ async def test_run_gallery_updates_finalizes_when_already_local(monkeypatch):
 
         async def get(self, update_id):
             return FakeUpdate()
+
+        async def match_evidence(self, rows):
+            return {}
 
         async def local_new_gids(self, gids):
             return {500}
@@ -709,9 +723,74 @@ async def test_run_gallery_updates_finalizes_when_already_local(monkeypatch):
     finally:
         app_state.session_factory = orig_factory
 
-    assert result == {"started": 1, "skipped": 0}
+    assert result == {"started": 1, "skipped": 0, "skipped_ambiguous": 0}
     assert created == []
     assert finalized == [(4, 12)]
+
+
+async def test_bulk_update_skips_ambiguous_title_matches(monkeypatch):
+    class FakeUpdate:
+        def __init__(self, update_id, new_gid):
+            self.status = "pending"
+            self.id = update_id
+            self.new_gid = new_gid
+            self.new_token = f"tok{new_gid}"
+            self.title = f"Old {update_id}"
+            self.download_task_id = None
+
+    updates = {1: FakeUpdate(1, 500), 2: FakeUpdate(2, 501)}
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, update_id):
+            return updates[update_id]
+
+        async def match_evidence(self, rows):
+            return {
+                1: {"match_source": "title", "ambiguous": True, "ambiguous_count": 2},
+                2: {"match_source": "parent_chain", "ambiguous": True, "ambiguous_count": 2},
+            }
+
+        async def local_new_gids(self, gids):
+            return set()
+
+        async def mark_downloading(self, update_id, task_id):
+            return True
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+    created = []
+
+    async def fake_create(self, gid, token, title, mode, max_pages=None, quality=None):
+        created.append(gid)
+        return SimpleNamespace(id=700 + gid)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
+
+    try:
+        bulk = await run_gallery_updates([1, 2])
+        forced = await run_gallery_updates([1], force=True)
+    finally:
+        app_state.session_factory = orig_factory
+
+    # Bulk mode: the title-only N→1 row is parked, the parent-chain row runs.
+    assert bulk == {"started": 1, "skipped": 1, "skipped_ambiguous": 1}
+    # Explicit per-row confirmation processes the parked row.
+    assert forced == {"started": 1, "skipped": 0, "skipped_ambiguous": 0}
+    assert created == [501, 500]
 
 
 async def test_finalize_updates_for_new_gid_skips_ignored(monkeypatch):
@@ -928,6 +1007,9 @@ async def test_updates_list_shapes_rows(monkeypatch):
         async def list_page(self, page, page_size, status=None):
             return 1, [row]
 
+        async def match_evidence(self, rows):
+            return {}
+
     class Sess:
         async def __aenter__(self):
             return self
@@ -957,6 +1039,160 @@ async def test_updates_list_shapes_rows(monkeypatch):
     assert item["id"] == 9 and item["old_gid"] == 100 and item["new_gid"] == 200
     assert item["favcat_name"] == "Wonderful"
     assert item["cover_url"] == "/api/galleries/12/thumb/0"
+    # Evidence keys are always present, even without lookup data.
+    for key in (
+        "match_source",
+        "new_title",
+        "old_page_count",
+        "new_page_count",
+        "ambiguous",
+    ):
+        assert key in item
+    assert item["match_source"] == "title"
+    assert item["ambiguous"] is False
+
+
+async def test_match_evidence_merges_chain_title_and_page_counts():
+    from galleryvault.db.models import GalleryUpdate
+
+    class _EvidenceSession:
+        async def execute(self, stmt):
+            # Every statement must be valid PostgreSQL SQL.
+            stmt.compile(dialect=postgresql.dialect())
+            sql = str(stmt)
+            if "favorite_items" in sql:
+                return _Res([(2001, "New Alpha (favorite)")])
+            if "gallery_metadata.parent_gid" in sql:
+                return _Res([(2001, 1001, None)])
+            if "gallery_metadata.file_count" in sql:
+                return _Res([(2001, "Cached Alpha", 24)])
+            if "count(" in sql.lower() and "gallery_updates" in sql:
+                return _Res([(2001, 2)])
+            if "galleries.id" in sql:
+                return _Res([(11, 18)])
+            if "galleries.gid" in sql:
+                return _Res([])
+            raise AssertionError(f"unexpected statement: {sql}")
+
+    rows = [
+        GalleryUpdate(
+            id=1,
+            gallery_id=11,
+            old_gid=1001,
+            new_gid=2001,
+            new_token="tok",
+            title="Old Alpha",
+            favcat=0,
+        ),
+        GalleryUpdate(
+            id=2,
+            gallery_id=12,
+            old_gid=1002,
+            new_gid=2001,
+            new_token="tok",
+            title="Old Beta",
+            favcat=0,
+        ),
+    ]
+    evidence = await GalleryUpdatesRepository(_EvidenceSession()).match_evidence(rows)
+
+    first = evidence[1]
+    assert first["match_source"] == "parent_chain"
+    assert first["new_title"] == "New Alpha (favorite)"
+    assert first["old_page_count"] == 18
+    assert first["new_page_count"] == 24
+    assert first["ambiguous"] is True
+    assert first["ambiguous_count"] == 2
+
+    second = evidence[2]
+    assert second["match_source"] == "title"
+    assert second["old_page_count"] is None
+    assert second["ambiguous"] is True
+
+
+async def test_updates_list_exposes_match_evidence(monkeypatch):
+    def row(update_id, gallery_id, old_gid, new_gid, title):
+        return SimpleNamespace(
+            id=update_id,
+            gallery_id=gallery_id,
+            old_gid=old_gid,
+            new_gid=new_gid,
+            title=title,
+            favcat=0,
+            status="pending",
+            error_message=None,
+            detected_at=None,
+            updated_at=None,
+        )
+
+    rows = [
+        row(1, 11, 1001, 2001, "Old Alpha"),
+        row(2, 12, 1002, 2002, "Old Beta"),
+    ]
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def list_page(self, page, page_size, status=None):
+            return 2, rows
+
+        async def match_evidence(self, items):
+            return {
+                1: {
+                    "match_source": "parent_chain",
+                    "new_title": "New Alpha",
+                    "old_page_count": 18,
+                    "new_page_count": 24,
+                    "ambiguous": False,
+                    "ambiguous_count": 1,
+                },
+                2: {
+                    "match_source": "title",
+                    "new_title": "New Beta",
+                    "old_page_count": 12,
+                    "new_page_count": None,
+                    "ambiguous": True,
+                    "ambiguous_count": 2,
+                },
+            }
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    class FakeFavRepo:
+        def __init__(self, session):
+            pass
+
+        async def category_names(self, favcats):
+            return {}
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_router, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_router, "FavoritesRepository", FakeFavRepo)
+
+    try:
+        body = await updates_router.gallery_updates_list(page=1, page_size=24, state="active")
+    finally:
+        app_state.session_factory = orig_factory
+
+    first, second = body["items"]
+    assert first["match_source"] == "parent_chain"
+    assert first["new_title"] == "New Alpha"
+    assert first["old_page_count"] == 18
+    assert first["new_page_count"] == 24
+    assert first["ambiguous"] is False
+    assert second["match_source"] == "title"
+    assert second["new_title"] == "New Beta"
+    assert second["old_page_count"] == 12
+    assert second["new_page_count"] is None
+    assert second["ambiguous"] is True
+    assert second["ambiguous_count"] == 2
 
 
 async def test_updates_scan_spawns_detect(monkeypatch):
