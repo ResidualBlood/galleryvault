@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "ambiguous": "<value>",
+      "ambiguous_count": "<value>",
+      "cover_url": "<value>",
+      "detected_at": "<value>",
+      "error_message": "<value>",
+      "favcat": "<value>",
+      "favcat_name": "<value>",
+      "gallery_id": "<value>",
+      "id": "<value>",
+      "match_source": "<value>",
+      "new_gid": "<value>",
+      "new_page_count": "<value>",
+      "new_title": "<value>",
+      "old_gid": "<value>",
+      "old_page_count": "<value>",
+      "status": "<value>",
+      "title": "<value>",
+      "updated_at": "<value>"
+    }
+  ],
+  "page": "<value>",
+  "page_size": "<value>",
+  "state": "<value>",
+  "total": "<value>"
+}

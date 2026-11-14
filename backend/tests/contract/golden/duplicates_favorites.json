@@ -1,0 +1,33 @@
+{
+  "done": "<value>",
+  "group_count": "<value>",
+  "groups": [
+    {
+      "artist": "<value>",
+      "items": [
+        {
+          "cover_data": "<value>",
+          "cover_url": "<value>",
+          "favcat": "<value>",
+          "favorited": "<value>",
+          "file_size": "<value>",
+          "gallery_id": "<value>",
+          "gid": "<value>",
+          "posted_at": "<value>",
+          "tags": [],
+          "title": "<value>",
+          "title_jpn": "<value>",
+          "token": "<value>",
+          "url": "<value>"
+        }
+      ],
+      "key": "<value>"
+    }
+  ],
+  "ignored": [],
+  "item_count": "<value>",
+  "last_error": "<value>",
+  "running": "<value>",
+  "stage": "<value>",
+  "total": "<value>"
+}

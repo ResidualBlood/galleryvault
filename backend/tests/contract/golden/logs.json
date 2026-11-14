@@ -1,0 +1,23 @@
+{
+  "finished": [
+    {
+      "completed_at": "<value>",
+      "done": "<value>",
+      "reason": "<value>",
+      "started_at": "<value>",
+      "status": "<value>",
+      "task": "<value>",
+      "total": "<value>"
+    }
+  ],
+  "running": [
+    {
+      "cancellable": "<value>",
+      "done": "<value>",
+      "stage": "<value>",
+      "started_at": "<value>",
+      "task": "<value>",
+      "total": "<value>"
+    }
+  ]
+}

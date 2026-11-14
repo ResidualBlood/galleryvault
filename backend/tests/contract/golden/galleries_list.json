@@ -1,0 +1,50 @@
+{
+  "category": "<value>",
+  "items": [
+    {
+      "category": "<value>",
+      "cold_at": "<value>",
+      "cover_url": "<value>",
+      "expunged": "<value>",
+      "favorite": "<value>",
+      "favorite_category": "<value>",
+      "file_size": "<value>",
+      "gid": "<value>",
+      "id": "<value>",
+      "image_quality": "<value>",
+      "local_note": "<value>",
+      "local_rating": "<value>",
+      "page_count": "<value>",
+      "posted_at": "<value>",
+      "rating": "<value>",
+      "reading_progress": "<value>",
+      "storage_size": "<value>",
+      "storage_tier": "<value>",
+      "storage_type": "<value>",
+      "tag_count": "<value>",
+      "tags": [
+        {
+          "display": "<value>",
+          "name": "<value>",
+          "namespace": "<value>"
+        }
+      ],
+      "title": "<value>",
+      "title_english": "<value>",
+      "title_jpn": "<value>",
+      "token": "<value>",
+      "uploader": "<value>"
+    }
+  ],
+  "order_by": "<value>",
+  "page": "<value>",
+  "page_size": "<value>",
+  "q": "<value>",
+  "query_tags": [],
+  "read_status": "<value>",
+  "resolved": "<value>",
+  "tag_match": "<value>",
+  "tag_mode": "<value>",
+  "tags": "<value>",
+  "total": "<value>"
+}

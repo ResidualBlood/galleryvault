@@ -1,0 +1,23 @@
+{
+  "count": "<value>",
+  "groups": [
+    {
+      "copies": [
+        {
+          "display_title": "<value>",
+          "path": "<value>",
+          "tags": [
+            {
+              "display": "<value>",
+              "name": "<value>",
+              "namespace": "<value>"
+            }
+          ],
+          "title": "<value>",
+          "title_jpn": "<value>"
+        }
+      ],
+      "gid": "<value>"
+    }
+  ]
+}
