@@ -2,7 +2,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from galleryvault.app.routers import duplicates
 from galleryvault.app.routers.duplicates import (
@@ -312,4 +313,76 @@ def test_cross_gid_no_library_delete_or_ignore_routes():
             assert "remove" not in p.lower()
             assert "resolve" not in p.lower()
             assert "dismiss" not in p.lower()
+
+
+def _duplicates_client(monkeypatch, calls, *, groups=None):
+    """Bare FastAPI app exposing only the duplicates router (HTTP-level tests)."""
+
+    class FakeSession:
+        pass
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def set_duplicate_status(self, gid, status):
+            calls.append((gid, status))
+            return gid == 12345
+
+        async def list_duplicates(self):
+            return list(groups or [])
+
+    async def fake_get_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(duplicates, "GalleryRepository", FakeRepo)
+    mini = FastAPI()
+    mini.include_router(duplicates.router)
+    mini.dependency_overrides[duplicates.get_session] = fake_get_session
+    return TestClient(mini)
+
+
+def test_duplicate_status_route_open_and_dismissed(monkeypatch):
+    calls: list[tuple[int, str]] = []
+    with _duplicates_client(monkeypatch, calls) as client:
+        resp = client.post("/api/scan/duplicates/12345/dismissed")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"status": "dismissed"}
+
+        resp = client.post("/api/scan/duplicates/12345/open")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"status": "open"}
+
+        # Legacy routes must keep working until B5 collapses them.
+        resp = client.post("/api/scan/duplicates/12345/dismiss")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"status": "dismissed"}
+
+        resp = client.post("/api/scan/duplicates/12345/restore")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"status": "open"}
+
+    assert calls == [
+        (12345, "dismissed"),
+        (12345, "open"),
+        (12345, "dismissed"),
+        (12345, "open"),
+    ]
+
+
+def test_duplicate_status_route_rejects_unknown(monkeypatch):
+    calls: list[tuple[int, str]] = []
+    monkeypatch.setattr(duplicates, "_in_roots", lambda path: True)
+    with _duplicates_client(monkeypatch, calls) as client:
+        resp = client.post("/api/scan/duplicates/12345/resolved")
+        assert resp.status_code == 422, resp.text
+        assert calls == []
+
+        # /resolve must not be shadowed by the {gid}/{status} route.
+        resp = client.post(
+            "/api/scan/duplicates/12345/resolve",
+            json={"path": "/lib/copy", "delete_others": False},
+        )
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["detail"] == "duplicate group not found"
 
