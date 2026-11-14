@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-import os
 import re
-import tempfile
+import tempfile  # noqa: F401 - kept as a patch target for tests
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -25,6 +24,7 @@ from ...db.repository import (
     GalleryUpdatesRepository,
 )
 from ...db.session import safe_transaction
+from ...fsutil import write_atomic
 from ...logging import log_extra
 from ...metadata.sidecar import normalize_posted, normalize_tags
 from ...scanners.base import CATEGORIES
@@ -982,17 +982,7 @@ def _write_cover_atomic(path: Path, data: bytes) -> None:
     Two concurrent cache misses for the same gid must not share a temp path:
     the loser would then ``replace()`` a file the winner already moved away.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f"{path.stem}.", suffix=".tmp", dir=str(path.parent)
-    )
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-        tmp.replace(path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    write_atomic(path, data)
 
 
 @router.get("/api/favorites/cover")

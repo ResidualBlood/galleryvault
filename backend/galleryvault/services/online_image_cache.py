@@ -23,14 +23,13 @@ path and the stat-based ETag helper.
 from __future__ import annotations
 
 import asyncio
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from ..app.exceptions import EhClientUnavailableError, EhQuotaExceededError
 from ..app.state import app_state
+from ..fsutil import write_atomic
 from .eh_client import (
     EhAuthRequiredError,
     EhBannedError,
@@ -79,17 +78,7 @@ def is_not_modified(if_none_match: str | None, etag: str | None) -> bool:
 
 def _write_atomic(path: Path, data: bytes) -> None:
     """Write one cache file in a single rename with a unique temp name."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f"{path.stem}.", suffix=".tmp", dir=str(path.parent)
-    )
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-        tmp.replace(path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    write_atomic(path, data)
 
 
 def prune_cache(root: Path, max_bytes: int) -> int:
