@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import func, not_, select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -720,7 +720,7 @@ def _path_info(
 
 
 async def _query_storage_aggregates(
-    session: AsyncSession, cold_root: str
+    session: AsyncSession,
 ) -> tuple[int, int, int, int, int]:
     cold_galleries = 0
     cold_images = 0
@@ -728,44 +728,34 @@ async def _query_storage_aggregates(
     library_galleries = 0
     library_images = 0
 
-    valid_cond = (Gallery.expunged.is_(False), Gallery.trashed.is_(False))
-    if cold_root:
-        size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
-        cold_stmt = select(
-            func.count(Gallery.id),
-            func.coalesce(func.sum(Gallery.page_count), 0),
-            func.coalesce(func.sum(size_col), 0),
-        ).where(
-            *valid_cond,
-            Gallery.storage_path.startswith(cold_root),
-        )
-        cold_row = (await session.execute(cold_stmt)).first()
-        if cold_row:
-            cold_galleries = int(cold_row[0] or 0)
-            cold_images = int(cold_row[1] or 0)
-            cold_bytes = int(cold_row[2] or 0)
+    size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+    # Cold rows are counted by their explicit tier (not a path prefix), so
+    # multiple ``archive_roots`` and still-trash-listed cold items (which keep
+    # consuming cold space) are all represented.  Hot rows keep the historic
+    # expunged/trashed exclusion.
+    cold_stmt = select(
+        func.count(Gallery.id),
+        func.coalesce(func.sum(Gallery.page_count), 0),
+        func.coalesce(func.sum(size_col), 0),
+    ).where(Gallery.storage_tier == "cold")
+    cold_row = (await session.execute(cold_stmt)).first()
+    if cold_row:
+        cold_galleries = int(cold_row[0] or 0)
+        cold_images = int(cold_row[1] or 0)
+        cold_bytes = int(cold_row[2] or 0)
 
-        lib_stmt = select(
-            func.count(Gallery.id),
-            func.coalesce(func.sum(Gallery.page_count), 0),
-        ).where(
-            *valid_cond,
-            Gallery.storage_path.is_(None)
-            | not_(Gallery.storage_path.startswith(cold_root)),
-        )
-        lib_row = (await session.execute(lib_stmt)).first()
-        if lib_row:
-            library_galleries = int(lib_row[0] or 0)
-            library_images = int(lib_row[1] or 0)
-    else:
-        lib_stmt = select(
-            func.count(Gallery.id),
-            func.coalesce(func.sum(Gallery.page_count), 0),
-        ).where(*valid_cond)
-        lib_row = (await session.execute(lib_stmt)).first()
-        if lib_row:
-            library_galleries = int(lib_row[0] or 0)
-            library_images = int(lib_row[1] or 0)
+    lib_stmt = select(
+        func.count(Gallery.id),
+        func.coalesce(func.sum(Gallery.page_count), 0),
+    ).where(
+        Gallery.expunged.is_(False),
+        Gallery.trashed.is_(False),
+        Gallery.storage_tier != "cold",
+    )
+    lib_row = (await session.execute(lib_stmt)).first()
+    if lib_row:
+        library_galleries = int(lib_row[0] or 0)
+        library_images = int(lib_row[1] or 0)
 
     return cold_galleries, cold_images, cold_bytes, library_galleries, library_images
 
@@ -797,7 +787,7 @@ async def system_storage(
             cold_bytes,
             library_galleries,
             library_images,
-        ) = await _query_storage_aggregates(session, cold_root)
+        ) = await _query_storage_aggregates(session)
 
         rows = await repo.largest_by_storage(10)
         largest = [

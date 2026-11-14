@@ -93,6 +93,7 @@ class GalleryQueryMixin:
         expunged: bool | None = None,
         media_type: str | None = None,
         storage_type: str | None = None,
+        storage_tier: str | None = None,
     ) -> tuple[int, list[Gallery]]:
         query = select(Gallery)
         if q and q.strip():
@@ -209,6 +210,8 @@ class GalleryQueryMixin:
             query = query.where(Gallery.expunged.is_(False))
         if storage_type:
             query = query.where(Gallery.storage_type == storage_type)
+        if storage_tier:
+            query = query.where(Gallery.storage_tier == storage_tier)
         if media_type:
             has_media = select(1).select_from(GalleryPage).where(
                 GalleryPage.gallery_id == Gallery.id,

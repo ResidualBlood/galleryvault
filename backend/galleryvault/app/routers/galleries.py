@@ -304,6 +304,7 @@ async def list_galleries(
     posted_to: str | None = None,
     uploader: str | None = None,
     image_quality: str | None = None,
+    storage_tier: str | None = None,
     min_local_rating: int | None = Query(default=None, ge=1, le=5),
     list_id: int | None = None,
     tags_limit: int | None = Query(default=None, ge=0, le=64),
@@ -325,6 +326,8 @@ async def list_galleries(
             raise HTTPException(status_code=422, detail="invalid image_quality")
     else:
         image_quality = None
+    if storage_tier and storage_tier not in {"hot", "cold"}:
+        raise HTTPException(status_code=422, detail="storage_tier must be 'hot' or 'cold'")
     posted_from_dt = _parse_posted(posted_from)
     posted_to_dt = _parse_posted(posted_to, upper=True)
     if category == "":
@@ -384,6 +387,7 @@ async def list_galleries(
             posted_to=posted_to_dt,
             uploader=uploader,
             image_quality=image_quality,
+            storage_tier=storage_tier,
             min_local_rating=min_local_rating,
             list_id=list_id,
         )
@@ -438,6 +442,10 @@ async def list_galleries(
                 "title_english": getattr(row, "title", None),
                 "title_jpn": getattr(row, "title_jpn", None),
                 "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
+                "storage_tier": getattr(row, "storage_tier", "hot"),
+                "cold_at": (
+                    row.cold_at.isoformat() if getattr(row, "cold_at", None) else None
+                ),
                 "category": getattr(row, "category", "other") or "other",
                 "page_count": getattr(row, "page_count", 0) or 0,
                 "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
@@ -839,6 +847,8 @@ async def get_gallery(
         "title_english": getattr(row, "title", None),
         "title_jpn": getattr(row, "title_jpn", None),
         "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
+        "storage_tier": getattr(row, "storage_tier", "hot"),
+        "cold_at": row.cold_at.isoformat() if getattr(row, "cold_at", None) else None,
         "category": getattr(row, "category", "other") or "other",
         "page_count": len(pages),
         "file_size": getattr(row, "file_size", None),
@@ -1418,6 +1428,20 @@ async def _filtered_delete_confirmation(request: Request) -> tuple[bool, int | N
     return bool(payload.get("confirm")), match_count
 
 
+async def _filtered_delete_storage_tier(request: Request) -> str | None:
+    """Read ``storage_tier`` from the raw body (not yet a schema field)."""
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("storage_tier")
+    if not isinstance(raw, str):
+        return None
+    return raw.strip() or None
+
+
 @router.post("/api/galleries/delete-filtered", status_code=200)
 async def delete_galleries_filtered(
     body: FilteredDeleteRequest,
@@ -1437,6 +1461,9 @@ async def delete_galleries_filtered(
         raise HTTPException(status_code=422, detail="invalid category")
     if body.read_status and body.read_status not in {"all", "unread", "reading", "completed", "read"}:
         raise HTTPException(status_code=422, detail="invalid read_status")
+    storage_tier = getattr(body, "storage_tier", None) or await _filtered_delete_storage_tier(request)
+    if storage_tier and storage_tier not in {"hot", "cold"}:
+        raise HTTPException(status_code=422, detail="storage_tier must be 'hot' or 'cold'")
     parsed_tags, parsed_exc_tags = _parse_tag_filter(body.tags or body.tag)
     if body.exclude_tags:
         extra_inc, extra_exc = _parse_tag_filter(body.exclude_tags)
@@ -1485,6 +1512,7 @@ async def delete_galleries_filtered(
                 body.expunged is not None,
                 bool(body.media_type),
                 bool(body.storage_type),
+                bool(storage_tier),
             )
         )
         if not has_filters:
@@ -1534,6 +1562,7 @@ async def delete_galleries_filtered(
                  expunged=body.expunged,
                  media_type=body.media_type,
                  storage_type=body.storage_type,
+                 storage_tier=storage_tier,
              )
             if not rows:
                 break
