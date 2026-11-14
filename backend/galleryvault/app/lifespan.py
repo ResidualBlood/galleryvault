@@ -7,7 +7,7 @@ import contextlib
 import logging
 import secrets
 import shutil
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -38,45 +38,6 @@ from .dependencies import spawn_task
 from .state import app_state, create_services, sync_state
 
 logger = logging.getLogger(__name__)
-
-translation_update_task: asyncio.Task | None = None
-
-# Backoff for restarting a crashed background worker supervisor.
-_WORKER_RESTART_INITIAL_DELAY = 1.0
-_WORKER_RESTART_MAX_DELAY = 60.0
-
-
-async def supervise_worker(
-    name: str,
-    factory: Callable[[], Awaitable[None]],
-    *,
-    initial_delay: float = _WORKER_RESTART_INITIAL_DELAY,
-    max_delay: float = _WORKER_RESTART_MAX_DELAY,
-) -> None:
-    """Run a long-lived background worker, restarting it with backoff if it crashes.
-
-    A worker that returns normally is not restarted: its loops only return when
-    their precondition is gone (e.g. no session factory), and respawning would
-    spin. Crashes are logged and retried with exponential backoff up to
-    ``max_delay`` so a transient DB or network failure does not silently stop
-    a worker until the process restarts.
-    """
-    delay = max(0.0, initial_delay)
-    while True:
-        try:
-            await factory()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.exception(
-                "background worker crashed; restarting with backoff",
-                extra=log_extra(worker=name, error=type(exc).__name__, retry_in=delay),
-            )
-            await asyncio.sleep(delay)
-            delay = min(max(delay * 2, initial_delay), max_delay)
-            continue
-        logger.info("background worker exited", extra=log_extra(worker=name))
-        return
 
 
 async def warmup_database_pool(session_factory: Any) -> None:
@@ -132,24 +93,6 @@ async def cleanup_partial_downloads(download_root: str | Path, session_factory: 
                     storage_tracker.record_download_delta(-sz)
     except Exception as exc:  # noqa: BLE001
         logger.warning("partial download cleanup failed", extra=log_extra(error=type(exc).__name__))
-
-
-async def stop_background_tasks(
-    spawned_tasks: set[asyncio.Task] | None = None,
-    specific_tasks: list[asyncio.Task | None] | None = None,
-) -> None:
-    """Gracefully cancel and await background tasks during shutdown."""
-    tasks_to_cancel: set[asyncio.Task] = set(spawned_tasks or set())
-    for t in specific_tasks or []:
-        if t is not None:
-            tasks_to_cancel.add(t)
-    for task in list(tasks_to_cancel):
-        if not task.done():
-            with contextlib.suppress(Exception):
-                task.cancel()
-    for task in list(tasks_to_cancel):
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
 
 
 def hydrate_startup_logs(max_lines: int = 500) -> None:
@@ -232,35 +175,6 @@ async def migrate_plaintext_secrets() -> None:
         logger.warning("plaintext secret migration failed", extra=log_extra(error=str(exc)))
 
 
-def ensure_translation_updater() -> asyncio.Task | None:
-    global translation_update_task
-    settings = app_state.settings or get_settings()
-    if (
-        translation_update_task is not None
-        and not translation_update_task.done()
-        and settings.tag_translation_update_interval_minutes <= 0
-    ):
-        task = translation_update_task
-        translation_update_task = None
-        task.cancel()
-        return None
-
-    if (
-        translation_update_task is None or translation_update_task.done()
-    ) and settings.tag_translation_update_interval_minutes > 0:
-        from ..services.tag_sync_worker import translation_update_loop
-
-        task = spawn_task(translation_update_loop(), "translation updater")
-        if task is not None:
-            translation_update_task = task
-        else:
-            try:
-                translation_update_task = asyncio.create_task(translation_update_loop())
-            except RuntimeError:
-                pass
-    return translation_update_task
-
-
 async def startup() -> None:
     sync_state()
     hydrate_startup_logs()
@@ -337,17 +251,20 @@ async def startup() -> None:
     start_telegram_bot()
     sync_state()
 
-    # Background tasks
+    # Background tasks.  Long-lived loops run under the registry, which restarts
+    # them with backoff when they crash or return unexpectedly; one-shot startup
+    # work keeps using ``spawn_task`` so it is not restarted.
     from ..services.download_worker import (
         download_worker_loop,
         ingest_pump_loop,
         telegram_flush_loop,
     )
+    from ..services.eh_client import cookie_health_loop, probe_cookie_health
     from ..services.favorites_worker import (
         favorites_poll_loop,
         refresh_favorite_counts,
     )
-    from ..services.tag_sync_worker import tag_sync_worker_loop
+    from ..services.tag_sync_worker import tag_sync_worker_loop, translation_update_loop
     from ..services.tag_translation import load_translations
     from ..services.thumbnail_worker import (
         orphan_thumbnail_cleanup_loop,
@@ -357,79 +274,37 @@ async def startup() -> None:
     )
     from ..services.updates_worker import gallery_updates_finalize_loop
 
-    poll_coro = favorites_poll_loop()
-    poll_task = spawn_task(poll_coro, "favorites poll")
-    if poll_task is None:
-        try:
-            poll_task = asyncio.create_task(poll_coro)
-        except RuntimeError:
-            if hasattr(poll_coro, "close"):
-                poll_coro.close()
-            poll_task = None
-    if poll_task is not None:
-        app_state.extra["favorite_poll_task"] = poll_task
+    workers = app_state.workers
+    for name, factory in (
+        ("favorites_poll", favorites_poll_loop),
+        ("cookie_health", lambda: cookie_health_loop(1800)),
+        ("download_worker", download_worker_loop),
+        ("download_ingest_pump", ingest_pump_loop),
+        ("gallery_updates_finalize", gallery_updates_finalize_loop),
+        ("telegram_flush", telegram_flush_loop),
+        ("tag_sync_worker", tag_sync_worker_loop),
+        ("thumbnail_worker", thumbnail_worker_loop),
+        ("orphan_thumbnail_cleanup", orphan_thumbnail_cleanup_loop),
+        ("thumbnail_periodic_seed", thumbnail_periodic_seed_loop),
+        ("translation_updater", translation_update_loop),
+    ):
+        workers.register(name, factory, restart_policy="always")
 
     spawn_task(refresh_favorite_counts(), "favorite counts startup warmup")
-    try:
-        from ..services.eh_client import cookie_health_loop, probe_cookie_health
-
-        spawn_task(probe_cookie_health(), "cookie health startup probe")
-        loop_task = spawn_task(cookie_health_loop(1800), "cookie health periodic probe")
-        if loop_task is None:
-            try:
-                import asyncio as _asyncio
-
-                loop_task = _asyncio.create_task(cookie_health_loop(1800))
-            except RuntimeError:
-                loop_task = None
-        if loop_task is not None:
-            app_state.extra["cookie_health_task"] = loop_task
-    except Exception:  # noqa: BLE001, S110
-        pass
+    spawn_task(probe_cookie_health(), "cookie health startup probe")
     await cleanup_partial_downloads(settings_obj.download_root, app_state.session_factory)
-
-    app_state.extra["download_worker_task"] = asyncio.create_task(
-        supervise_worker("download_worker", download_worker_loop)
-    )
-    app_state.extra["download_ingest_pump_task"] = asyncio.create_task(
-        supervise_worker("download_ingest_pump", ingest_pump_loop)
-    )
-    app_state.extra["gallery_updates_finalize_task"] = asyncio.create_task(
-        supervise_worker("gallery_updates_finalize", gallery_updates_finalize_loop)
-    )
-    app_state.extra["telegram_flush_task"] = asyncio.create_task(
-        supervise_worker("telegram_flush", telegram_flush_loop)
-    )
-    app_state.extra["tag_sync_worker_task"] = asyncio.create_task(
-        supervise_worker("tag_sync_worker", tag_sync_worker_loop)
-    )
-    app_state.extra["thumb_worker_task"] = asyncio.create_task(
-        supervise_worker("thumbnail_worker", thumbnail_worker_loop)
-    )
-    app_state.extra["thumb_cleanup_task"] = asyncio.create_task(
-        supervise_worker("orphan_thumbnail_cleanup", orphan_thumbnail_cleanup_loop)
-    )
-    app_state.extra["thumb_periodic_seed_task"] = asyncio.create_task(
-        supervise_worker("thumbnail_periodic_seed", thumbnail_periodic_seed_loop)
-    )
+    workers.start_all()
 
     from ..services.storage_usage import storage_tracker
 
-    calib_coro = storage_tracker.calibrate(
-        settings_obj.download_root,
-        Path(settings_obj.thumbnail_cache_dir).parent,
-        library_root=(settings_obj.library_roots or [None])[0],
+    spawn_task(
+        storage_tracker.calibrate(
+            settings_obj.download_root,
+            Path(settings_obj.thumbnail_cache_dir).parent,
+            library_root=(settings_obj.library_roots or [None])[0],
+        ),
+        "storage calibration startup",
     )
-    calib_task = spawn_task(calib_coro, "storage calibration startup")
-    if calib_task is None:
-        try:
-            calib_task = asyncio.create_task(calib_coro)
-        except RuntimeError:
-            if hasattr(calib_coro, "close"):
-                calib_coro.close()
-            calib_task = None
-    if calib_task is not None:
-        app_state.extra["storage_calibrate_task"] = calib_task
 
     if not encryption_enabled():
         logger.warning(
@@ -437,50 +312,21 @@ async def startup() -> None:
             "Set ENCRYPTION_KEY to enable at-rest encryption and avoid plaintext persistence."
         )
     if settings_obj.generate_thumbnails:
-        seed_coro = seed_thumbnails()
-        seed_task = spawn_task(seed_coro, "thumbnail seeding startup")
-        if seed_task is None:
-            try:
-                await seed_coro
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "thumbnail seeding failed", extra=log_extra(error=type(exc).__name__)
-                )
+        spawn_task(seed_thumbnails(), "thumbnail seeding startup")
 
-    ensure_translation_updater()
-    try:
-        coro = asyncio.to_thread(load_translations)
-        t = spawn_task(coro, "load translations")
-        if t is None:
-            await coro
-    except RuntimeError:
-        try:
-            await asyncio.to_thread(load_translations)
-        except Exception:  # noqa: BLE001, S110
-            pass
+    spawn_task(asyncio.to_thread(load_translations), "load translations")
 
     logger.info("GalleryVault started", extra=log_extra(library_roots=settings_obj.library_roots))
     sync_state()
 
 
 async def shutdown() -> None:
-    all_spawned: set[asyncio.Task] = set(app_state.extra.get("spawned_tasks", set()))
-    specific = [
-        translation_update_task,
-        app_state.extra.get("favorite_poll_task"),
-        app_state.extra.get("cookie_health_task"),
-        app_state.extra.get("telegram_bot_task"),
-        app_state.extra.get("download_worker_task"),
-        app_state.extra.get("download_ingest_pump_task"),
-        app_state.extra.get("gallery_updates_finalize_task"),
-        app_state.extra.get("telegram_flush_task"),
-        app_state.extra.get("tag_sync_worker_task"),
-        app_state.extra.get("thumb_worker_task"),
-        app_state.extra.get("thumb_cleanup_task"),
-        app_state.extra.get("thumb_periodic_seed_task"),
-        app_state.extra.get("storage_calibrate_task"),
-    ]
-    await stop_background_tasks(all_spawned, specific)
+    spawned: set[asyncio.Task] = set(app_state.extra.get("spawned_tasks", set()))
+    telegram_task = app_state.extra.get("telegram_bot_task")
+    if telegram_task is not None:
+        spawned.add(telegram_task)
+    await app_state.workers.shutdown(extra_tasks=spawned)
+    app_state.workers.clear()
     # The supervisor's own cleanup only runs if it was cancelled before it
     # finished; cancel any orphaned download workers explicitly so no page writer
     # keeps using the engines we are about to dispose.

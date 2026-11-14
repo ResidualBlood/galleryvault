@@ -351,7 +351,7 @@ async def test_delete_cleanup_waits_for_active_worker(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_supervise_worker_restarts_after_crash() -> None:
-    from galleryvault.app.lifespan import supervise_worker
+    from galleryvault.app.workers import supervise_worker
 
     calls: list[int] = []
 
@@ -359,10 +359,12 @@ async def test_supervise_worker_restarts_after_crash() -> None:
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("boom")
+        raise asyncio.CancelledError
 
-    await asyncio.wait_for(
-        supervise_worker("crasher", factory, initial_delay=0, max_delay=0), timeout=5
-    )
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(
+            supervise_worker("crasher", factory, initial_delay=0, max_delay=0), timeout=5
+        )
     assert len(calls) == 2, "a crashed worker must be restarted"
 
     async def cancelled() -> None:

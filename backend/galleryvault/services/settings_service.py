@@ -59,6 +59,21 @@ def _get_app_state() -> Any | None:
 _RETIRED_TASKS: set[asyncio.Task[None]] = set()
 
 
+def _worker_running(app_st: Any, name: str) -> bool:
+    """Return whether a supervised background worker is currently running.
+
+    Runtime workers are owned by ``app_state.workers``.  The ``<name>_task``
+    extra lookup keeps pre-registry test doubles working until the remaining
+    ``AppState.extra`` keys are migrated (T11.2).
+    """
+    workers = getattr(app_st, "workers", None)
+    if workers is not None and workers.is_running(name):
+        return True
+    extra = getattr(app_st, "extra", None)
+    legacy = extra.get(f"{name}_task") if isinstance(extra, dict) else None
+    return legacy is not None and not legacy.done()
+
+
 def _spawn_retired_task(coro: Any) -> None:
     """Spawn a drain coroutine while holding a strong reference (RUF006)."""
     try:
@@ -323,18 +338,18 @@ async def refresh_services() -> None:
 
     sync_state()
     start_telegram_bot()
-    from ..app.lifespan import ensure_translation_updater
+    from .tag_sync_worker import translation_update_loop
 
-    ensure_translation_updater()
+    workers = getattr(app_st, "workers", None)
+    if workers is not None:
+        workers.ensure("translation_updater", translation_update_loop, restart_policy="always")
 
-    dl_task = app_st.extra.get("download_worker_task")
-    if dl_task is not None and not dl_task.done():
+    if _worker_running(app_st, "download_worker"):
         from .download_worker import adjust_download_concurrency
 
         adjust_download_concurrency(settings.download_concurrency)
 
-    ts_task = app_st.extra.get("tag_sync_worker_task")
-    if ts_task is not None and not ts_task.done():
+    if _worker_running(app_st, "tag_sync_worker"):
         from .tag_sync_worker import adjust_tag_sync_concurrency
 
         adjust_tag_sync_concurrency(settings.tag_sync_concurrency)

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 
 from ..services.tasks import default_task_manager
+from .workers import WorkerRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class AppState:
     tag_service: TagSyncService | None = None
     thumbnail_service: ThumbnailService | None = None
     task_manager: TaskManager = default_task_manager
+    workers: WorkerRegistry = field(default_factory=WorkerRegistry)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -136,6 +138,7 @@ class AppState:
         self.library_service = None
         self.tag_service = None
         self.thumbnail_service = None
+        self.workers.clear()
         self.extra.clear()
 
 
@@ -167,6 +170,7 @@ def sync_state(app: Any = None) -> None:
         "tag_service",
         "thumbnail_service",
         "task_manager",
+        "workers",
     ):
         val = getattr(app_state, attr, None)
         if val is not None or not hasattr(app.state, attr):
