@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import re
@@ -91,9 +92,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _context_accepts_settings(context: Any) -> bool:
+    """Return whether ``context`` can be called with a ``settings`` keyword."""
+    if context is None:
+        return False
+    try:
+        parameters = inspect.signature(context).parameters
+    except (TypeError, ValueError):
+        return False
+    if "settings" in parameters:
+        return True
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+
 class _EhClientManagerWrapper:
     def __init__(self, target: Any) -> None:
         self._target = target
+        # Decide the calling convention once, up front: inspecting the target
+        # signature keeps the ``except TypeError`` scope away from the yielded
+        # body so a caller-raised TypeError is never mistaken for a signature
+        # mismatch.
+        self._context_accepts_settings = _context_accepts_settings(
+            getattr(target, "client_context", None)
+        )
 
     def get_client(self) -> Any:
         try:
@@ -106,14 +130,13 @@ class _EhClientManagerWrapper:
     @asynccontextmanager
     async def client_context(self, settings: Any = None) -> AsyncIterator[Any]:
         if hasattr(self._target, "client_context"):
-            try:
-                async with self._target.client_context() as client:
-                    yield client
-                    return
-            except TypeError:
-                async with self._target.client_context(settings=settings) as client:
-                    yield client
-                    return
+            if self._context_accepts_settings:
+                context = self._target.client_context(settings=settings)
+            else:
+                context = self._target.client_context()
+            async with context as client:
+                yield client
+            return
         active = getattr(self._target, "get_client", lambda: None)() or app_state.eh_client
         if active is not None:
             yield active
