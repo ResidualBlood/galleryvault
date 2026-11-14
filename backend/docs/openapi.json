@@ -112,6 +112,58 @@
         }
       }
     },
+    "/api/auth/api-token": {
+      "get": {
+        "summary": "Get Api Token",
+        "description": "Report whether a token exists; the token/hash is never returned.",
+        "operationId": "get_api_token_api_auth_api_token_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Api Token Api Auth Api Token Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Api Token",
+        "description": "Generate the single companion-script token; plaintext is returned once.",
+        "operationId": "create_api_token_api_auth_api_token_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Create Api Token Api Auth Api Token Post"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke Api Token",
+        "description": "Revoke the current token; a later request must use a newly generated one.",
+        "operationId": "revoke_api_token_api_auth_api_token_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
     "/api/onboarding/status": {
       "get": {
         "summary": "Onboarding Status",
@@ -475,6 +527,24 @@
               ],
               "title": "List Id"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -527,6 +597,24 @@
               "default": 24,
               "title": "Page Size"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -578,6 +666,24 @@
               "type": "integer",
               "default": 24,
               "title": "Page Size"
+            }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
             }
           }
         ],
@@ -792,26 +898,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/galleries/categories": {
-      "get": {
-        "summary": "List Categories",
-        "operationId": "list_categories_api_galleries_categories_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response List Categories Api Galleries Categories Get"
                 }
               }
             }
@@ -1113,56 +1199,6 @@
             }
           }
         }
-      },
-      "post": {
-        "summary": "Toggle Gallery Favorite",
-        "description": "Deprecated: prefer POST /api/favorites/add for single/batch adds.\n\nKept for backward compat (single gallery toggle). Batch adds MUST use\n/api/favorites/add which batches via successful_gids and respects cloud\nsuccess before writing favorite_items.",
-        "operationId": "toggle_gallery_favorite_api_galleries__identifier__favorite_post",
-        "parameters": [
-          {
-            "name": "identifier",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Identifier"
-            }
-          },
-          {
-            "name": "favcat",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Favcat"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Toggle Gallery Favorite Api Galleries  Identifier  Favorite Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/galleries/{identifier}/progress": {
@@ -1189,55 +1225,6 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Gallery Progress Api Galleries  Identifier  Progress Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Save Gallery Progress",
-        "operationId": "save_gallery_progress_api_galleries__identifier__progress_post",
-        "parameters": [
-          {
-            "name": "identifier",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Identifier"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProgressRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Save Gallery Progress Api Galleries  Identifier  Progress Post"
                 }
               }
             }
@@ -1334,47 +1321,6 @@
         }
       }
     },
-    "/api/galleries/{identifier}/read": {
-      "post": {
-        "summary": "Mark Gallery Read",
-        "operationId": "mark_gallery_read_api_galleries__identifier__read_post",
-        "parameters": [
-          {
-            "name": "identifier",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Identifier"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Mark Gallery Read Api Galleries  Identifier  Read Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/history": {
       "get": {
         "summary": "History",
@@ -1429,9 +1375,31 @@
       "delete": {
         "summary": "Clear History",
         "operationId": "clear_history_api_history_delete",
+        "parameters": [
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Confirm"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -1440,9 +1408,31 @@
       "delete": {
         "summary": "Clear All Gallery Progress",
         "operationId": "clear_all_gallery_progress_api_galleries_progress_delete",
+        "parameters": [
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Confirm"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -1485,6 +1475,16 @@
               "type": "boolean",
               "default": false,
               "title": "Archive"
+            }
+          },
+          {
+            "name": "allow_copy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Copy"
             }
           }
         ],
@@ -1728,6 +1728,56 @@
         }
       }
     },
+    "/api/galleries/{identifier}/pages/{page_index}/meta": {
+      "get": {
+        "summary": "Get Page Meta",
+        "operationId": "get_page_meta_api_galleries__identifier__pages__page_index__meta_get",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Identifier"
+            }
+          },
+          {
+            "name": "page_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Page Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Page Meta Api Galleries  Identifier  Pages  Page Index  Meta Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/galleries/{identifier}/thumb/{page_index}": {
       "get": {
         "summary": "Get Thumbnail",
@@ -1860,7 +1910,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DownloadListResponse"
+                  "$ref": "#/components/schemas/_DownloadListResponseOut"
                 }
               }
             }
@@ -1931,6 +1981,26 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Clear Success Downloads Api Downloads Clear Success Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/downloads/retry-all": {
+      "post": {
+        "summary": "Retry All Downloads",
+        "operationId": "retry_all_downloads_api_downloads_retry_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Retry All Downloads Api Downloads Retry All Post"
                 }
               }
             }
@@ -2415,6 +2485,27 @@
         }
       }
     },
+    "/api/system/purge-archived-sources": {
+      "post": {
+        "summary": "Purge Archived Sources",
+        "description": "Purge leftover source directories for galleries already archived to cold storage.",
+        "operationId": "purge_archived_sources_api_system_purge_archived_sources_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Purge Archived Sources Api System Purge Archived Sources Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/favorites/{favcat}/items": {
       "get": {
         "summary": "Favorite Items",
@@ -2730,6 +2821,24 @@
               ],
               "title": "Min Local Rating"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -2874,26 +2983,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/sync": {
-      "post": {
-        "summary": "Favorites Sync",
-        "operationId": "favorites_sync_api_favorites_sync_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Favorites Sync Api Favorites Sync Post"
                 }
               }
             }
@@ -3303,82 +3392,12 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
                   "items": {
-                    "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": true,
+                    "type": "object"
                   },
+                  "type": "array",
                   "title": "Response Favorite Categories Api Favorites Categories Get"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Update Favorite Category",
-        "operationId": "update_favorite_category_api_favorites_categories_post",
-        "parameters": [
-          {
-            "name": "favcat",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Favcat"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FavoriteCategoryRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Update Favorite Category Api Favorites Categories Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/metadata-status": {
-      "get": {
-        "summary": "Favorites Metadata Status",
-        "operationId": "favorites_metadata_status_api_favorites_metadata_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Favorites Metadata Status Api Favorites Metadata Status Get"
                 }
               }
             }
@@ -3406,26 +3425,6 @@
         }
       }
     },
-    "/api/favorites/compute-sizes": {
-      "post": {
-        "summary": "Compute Favorite Sizes",
-        "operationId": "compute_favorite_sizes_api_favorites_compute_sizes_post",
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Compute Favorite Sizes Api Favorites Compute Sizes Post"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/favorites/download-missing": {
       "post": {
         "summary": "Download Missing Favorites",
@@ -3439,29 +3438,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Download Missing Favorites Api Favorites Download Missing Post"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/fetch-categories": {
-      "post": {
-        "summary": "Sync Favorite Categories",
-        "operationId": "sync_favorite_categories_api_favorites_fetch_categories_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "type": "array",
-                  "title": "Response Sync Favorite Categories Api Favorites Fetch Categories Post"
                 }
               }
             }
@@ -3485,48 +3461,6 @@
                   },
                   "type": "array",
                   "title": "Response Sync Favorite Categories Api Favorites Sync Categories Post"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/check": {
-      "post": {
-        "summary": "Check Favorites",
-        "operationId": "check_favorites_api_favorites_check_post",
-        "parameters": [
-          {
-            "name": "favcat",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Favcat"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Check Favorites Api Favorites Check Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3712,6 +3646,7 @@
     "/api/tags/search/reload": {
       "post": {
         "summary": "Tag Translation Reload",
+        "description": "Start a tag-translation update in the background.\n\nThe EhTagTranslation download takes seconds; awaiting it inside the request\nmade a 202 endpoint block for 6.7s.  Claim ``running`` synchronously (no\nawait between check and claim) so a second request cannot spawn a duplicate\nbefore the coroutine starts, then hand off to ``translation_update_once``,\nwhich owns the ``tm.track_task(\"translation\")`` lifecycle.",
         "operationId": "tag_translation_reload_api_tags_search_reload_post",
         "responses": {
           "202": {
@@ -3989,7 +3924,7 @@
     "/api/tag-sync/refresh-categories": {
       "post": {
         "summary": "Trigger Category Refresh",
-        "description": "Start a one-time 大分类 backfill for galleries stuck in ``other``.",
+        "description": "Start a one-time \u5927\u5206\u7c7b backfill for galleries stuck in ``other``.",
         "operationId": "trigger_category_refresh_api_tag_sync_refresh_categories_post",
         "responses": {
           "202": {
@@ -4000,6 +3935,27 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Trigger Category Refresh Api Tag Sync Refresh Categories Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tag-sync/repair-categories": {
+      "post": {
+        "summary": "Repair Categories",
+        "description": "One-click local repair for galleries stuck in misc/other using cached metadata.",
+        "operationId": "repair_categories_api_tag_sync_repair_categories_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Repair Categories Api Tag Sync Repair Categories Post"
                 }
               }
             }
@@ -4209,6 +4165,63 @@
                     "type": "string"
                   },
                   "title": "Response Restore Duplicate Api Scan Duplicates  Gid  Restore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/duplicates/{gid}/{status}": {
+      "post": {
+        "summary": "Set Duplicate Status Route",
+        "description": "Set a duplicate group's status through the canonical frontend route.\n\nDeclared after ``/resolve``, ``/dismiss`` and ``/restore`` so those keep\nprecedence; B5 collapses the legacy routes into this one.",
+        "operationId": "set_duplicate_status_route_api_scan_duplicates__gid___status__post",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "open",
+                "dismissed"
+              ],
+              "type": "string",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Duplicate Status Route Api Scan Duplicates  Gid   Status  Post"
                 }
               }
             }
@@ -4783,6 +4796,451 @@
         }
       }
     },
+    "/api/eh/galleries/{gid}/{token}": {
+      "get": {
+        "summary": "Eh Online Gallery Detail",
+        "operationId": "eh_online_gallery_detail_api_eh_galleries__gid___token__get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Gallery Detail Api Eh Galleries  Gid   Token  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/pages": {
+      "get": {
+        "summary": "Eh Online Pages",
+        "operationId": "eh_online_pages_api_eh_galleries__gid___token__pages_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "p",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "P"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Pages Api Eh Galleries  Gid   Token  Pages Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/pages/{n}/resolve": {
+      "get": {
+        "summary": "Eh Online Resolve Page",
+        "description": "Resolve one page to a direct H@H image URL (browser fetches the bytes).",
+        "operationId": "eh_online_resolve_page_api_eh_galleries__gid___token__pages__n__resolve_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          },
+          {
+            "name": "retry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2,
+              "minimum": 0,
+              "default": 0,
+              "title": "Retry"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Resolve Page Api Eh Galleries  Gid   Token  Pages  N  Resolve Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/status": {
+      "get": {
+        "summary": "Eh Local Status",
+        "operationId": "eh_local_status_api_eh_status_get",
+        "parameters": [
+          {
+            "name": "gids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Gids"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Local Status Api Eh Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/pages/{n}/image": {
+      "get": {
+        "summary": "Eh Online Page Image",
+        "description": "Serve one reader page through the server, with a private disk cache.",
+        "operationId": "eh_online_page_image_api_eh_galleries__gid___token__pages__n__image_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/progress": {
+      "get": {
+        "summary": "Eh Online Progress",
+        "operationId": "eh_online_progress_api_eh_galleries__gid___token__progress_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Progress Api Eh Galleries  Gid   Token  Progress Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Save Eh Online Progress",
+        "operationId": "save_eh_online_progress_api_eh_galleries__gid___token__progress_put",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnlineProgressRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Save Eh Online Progress Api Eh Galleries  Gid   Token  Progress Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/history": {
+      "get": {
+        "summary": "Eh Online History",
+        "description": "Recently read online galleries, newest ``updated_at`` first.",
+        "operationId": "eh_online_history_api_eh_history_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online History Api Eh History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/notifications": {
       "get": {
         "summary": "Get Notifications",
@@ -4974,45 +5432,6 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Delete Local List Api Lists  List Id  Delete"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "summary": "Get Local List",
-        "operationId": "get_local_list_api_lists__list_id__get",
-        "parameters": [
-          {
-            "name": "list_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "List Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Local List Api Lists  List Id  Get"
                 }
               }
             }
@@ -5223,6 +5642,24 @@
               "default": 0,
               "title": "Show All"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -5290,45 +5727,6 @@
       }
     },
     "/api/series/{series_id}": {
-      "get": {
-        "summary": "Get Series",
-        "operationId": "get_series_api_series__series_id__get",
-        "parameters": [
-          {
-            "name": "series_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Series Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Series Api Series  Series Id  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
       "patch": {
         "summary": "Rename Series",
         "operationId": "rename_series_api_series__series_id__patch",
@@ -5853,37 +6251,6 @@
         ],
         "title": "DownloadBatchRequest"
       },
-      "DownloadListResponse": {
-        "properties": {
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "page": {
-            "type": "integer",
-            "title": "Page"
-          },
-          "page_size": {
-            "type": "integer",
-            "title": "Page Size"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/DownloadTaskItem"
-            },
-            "type": "array",
-            "title": "Items"
-          }
-        },
-        "type": "object",
-        "required": [
-          "total",
-          "page",
-          "page_size",
-          "items"
-        ],
-        "title": "DownloadListResponse"
-      },
       "DownloadOriginalRequest": {
         "properties": {
           "archive": {
@@ -6012,170 +6379,6 @@
         ],
         "title": "DownloadSelectedRequest"
       },
-      "DownloadTaskItem": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "gid": {
-            "type": "integer",
-            "title": "Gid"
-          },
-          "gallery_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gallery Id"
-          },
-          "cover_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cover Url"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "retry_count": {
-            "type": "integer",
-            "title": "Retry Count",
-            "default": 0
-          },
-          "max_retries": {
-            "type": "integer",
-            "title": "Max Retries",
-            "default": 10
-          },
-          "current_page": {
-            "type": "integer",
-            "title": "Current Page",
-            "default": 0
-          },
-          "total_pages": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Total Pages"
-          },
-          "error_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Message"
-          },
-          "mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mode"
-          },
-          "quality": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality"
-          },
-          "archive_fallback": {
-            "type": "boolean",
-            "title": "Archive Fallback",
-            "default": false
-          },
-          "archive_status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Archive Status"
-          },
-          "archive_error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Archive Error"
-          },
-          "speed": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Speed"
-          },
-          "eta_seconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Eta Seconds"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "gid",
-          "status"
-        ],
-        "title": "DownloadTaskItem"
-      },
       "DuplicateIgnoreRequest": {
         "properties": {
           "key": {
@@ -6237,47 +6440,6 @@
         },
         "type": "object",
         "title": "ExpungedRedownloadRequest"
-      },
-      "FavoriteCategoryRequest": {
-        "properties": {
-          "favcat": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 9.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Favcat"
-          },
-          "enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Enabled"
-          },
-          "mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mode"
-          }
-        },
-        "type": "object",
-        "title": "FavoriteCategoryRequest"
       },
       "FavoriteNoteRequest": {
         "properties": {
@@ -6847,6 +7009,55 @@
           "level"
         ],
         "title": "LogLevelRequest"
+      },
+      "OnlineProgressRequest": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "total_pages": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Pages"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "thumb": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumb"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page"
+        ],
+        "title": "OnlineProgressRequest",
+        "description": "``PUT`` body: 1-based ``page`` plus optional display metadata."
       },
       "ProgressRequest": {
         "properties": {
@@ -7554,6 +7765,31 @@
               }
             ],
             "title": "Global Paused"
+          },
+          "online_reader_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 16.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Online Reader Concurrency"
+          },
+          "online_cache_max_mb": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 16.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Online Cache Max Mb"
           }
         },
         "type": "object",
@@ -7627,6 +7863,213 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "_DownloadListResponseOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/_DownloadTaskItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "page",
+          "page_size",
+          "items"
+        ],
+        "title": "_DownloadListResponseOut"
+      },
+      "_DownloadTaskItemOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "type": "integer",
+            "title": "Gid"
+          },
+          "gallery_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gallery Id"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "retry_count": {
+            "type": "integer",
+            "title": "Retry Count",
+            "default": 0
+          },
+          "max_retries": {
+            "type": "integer",
+            "title": "Max Retries",
+            "default": 10
+          },
+          "current_page": {
+            "type": "integer",
+            "title": "Current Page",
+            "default": 0
+          },
+          "total_pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Pages"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "archive_fallback": {
+            "type": "boolean",
+            "title": "Archive Fallback",
+            "default": false
+          },
+          "archive_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Status"
+          },
+          "archive_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Error"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "eta_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta Seconds"
+          },
+          "ingest_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "gid",
+          "status"
+        ],
+        "title": "_DownloadTaskItemOut",
+        "description": "B2/T2.1: expose the ingest phase until T2.3 updates the shared schema."
       }
     }
   }
