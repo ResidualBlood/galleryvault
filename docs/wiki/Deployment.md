@@ -233,17 +233,43 @@ vault.example.com {
 - **`GV_MAX_CHALLENGE_PAUSES`（单任务 302 挑战上限）**：默认 `5`。单个任务触发 302 临时挑战并自动暂停的次数上限；达到上限后任务标记为失败并保留剩余重试预算，避免暂停/恢复/再挑战的无限循环。
 - **`THUMBNAIL_WORKERS`（缩略图 worker 数）**：默认 `4`，取值范围 `1-16`。
 
-### 3. 数据库连接池调优
+### 3. 数据库连接池与连接级超时调优
 
 针对高并发后台 worker、大批量画廊导入与并发抓取场景，系统基于 SQLAlchemy 异步连接池提供精细化调优环境变量，可按需在 `docker-compose.yml` 或 `.env` 中配置：
 
 | 环境变量 / 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `database_pool_size` | `30` | SQLAlchemy 连接池基础常驻连接数。 |
-| `database_max_overflow` | `10` | 突发高并发允许超出的临时连接数。超出部分在连接释放后自动销毁。 |
-| `database_pool_timeout` | `30` | 从连接池获取可用连接的超时等待秒数。 |
+| `database_pool_size` | `30` | API 连接池基础常驻连接数。 |
+| `database_max_overflow` | `10` | API 连接池突发高并发允许超出的临时连接数。超出部分在连接释放后自动销毁。 |
+| `database_pool_timeout` | `30` | API 从连接池获取可用连接的超时等待秒数；耗尽时接口返回 `503 Database pool exhausted`。 |
+| `database_statement_timeout_ms` | `30000` | API 连接上单条 SQL 的执行上限（毫秒，`0` 为不限）。超时由 PostgreSQL 取消语句，避免慢查询长期占用连接。 |
+| `database_lock_timeout_ms` | `5000` | API 连接等待行锁/表锁的上限（毫秒，`0` 为不限），超时由 PostgreSQL 中止语句。 |
+| `database_idle_in_tx_timeout_ms` | `60000` | API 连接的空闲事务上限（毫秒）。事务已开启但长时间没有语句执行时，PostgreSQL 终止该会话并归还连接。 |
+| `worker_database_pool_size` | `5` | 后台 worker 独立连接池的常驻连接数，与 API 池隔离，后台任务不会挤占 HTTP 请求连接。 |
+| `worker_database_max_overflow` | `5` | worker 池允许的临时溢出连接数。 |
+| `worker_database_pool_timeout` | `30` | worker 池获取连接的超时等待秒数。 |
+| `worker_database_statement_timeout_ms` | `0` | worker 连接的单条 SQL 上限（毫秒）。默认不限：全量扫描、完整性检查、归档解压等任务本身就耗时长。 |
+| `worker_database_lock_timeout_ms` | `10000` | worker 连接等待行锁/表锁的上限（毫秒，`0` 为不限）。 |
+| `worker_database_idle_in_tx_timeout_ms` | `300000` | worker 连接的空闲事务上限（毫秒，默认 5 分钟），用于回收误被长时间挂起的连接。 |
+
+上述 `*_statement_timeout_ms` / `*_lock_timeout_ms` / `*_idle_in_tx_timeout_ms` 通过 `connect_args={"server_settings": …}` 在建立连接时以 PostgreSQL 会话参数下发，因此对该池的所有连接一致生效，无需在业务 SQL 中重复设置。
+
+连接池耗尽（等待超过 `*_pool_timeout`）与真实数据库故障分开处理：池耗尽返回 `503 {"detail": "Database pool exhausted"}`，并累计 `gv_db_pool_exhausted_total` 指标、写入独立日志（可用于告警区分「容量不足」与「数据库不可用」）；其余数据库错误仍返回 `503 Database is unavailable`。
 
 配合系统的依赖注入生命周期管理与 Unit of Work（UoW）/ 事务与网络 I/O 隔离机制，连接仅在执行具体数据库操作时借出并立即归还，有效防止大规模批量任务和高并发网络 I/O 挂起并耗尽连接池。
+
+### 4. 迁移互斥锁等待上限 (`GALLERYVAULT_MIGRATION_LOCK_TIMEOUT`)
+
+后端容器每次启动都会自动执行 Alembic 迁移。为避免多副本同时启动时在同一批 DDL 上竞争，迁移会先获取 PostgreSQL 会话级 advisory lock（`pg_advisory_lock`）再执行。等待该锁的上限由环境变量 `GALLERYVAULT_MIGRATION_LOCK_TIMEOUT` 控制，单位为秒，默认 `120`：
+
+```yaml
+    environment:
+      - GALLERYVAULT_MIGRATION_LOCK_TIMEOUT=120
+```
+
+- 等待超过上限时，迁移进程以非零码退出并输出 lock timeout 提示；容器重启后重新排队，不会在未拿到锁的情况下执行 DDL。
+- 宿主机手工排障时也可临时覆盖：`GALLERYVAULT_MIGRATION_LOCK_TIMEOUT=3 alembic upgrade head`。
+- 迁移连接自身会在拿到锁后重置 `statement_timeout`/`lock_timeout`，长时间 DDL 不会被这两个值中断。
 
 ---
 

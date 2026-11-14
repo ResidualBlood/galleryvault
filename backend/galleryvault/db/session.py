@@ -21,10 +21,28 @@ from ..logging import log_extra
 logger = logging.getLogger(__name__)
 
 
+def _server_settings(
+    statement_timeout_ms: int,
+    lock_timeout_ms: int,
+    idle_in_tx_timeout_ms: int,
+) -> dict[str, str]:
+    """Build asyncpg ``server_settings`` for the connection-level timeouts.
+
+    asyncpg sends startup parameters as text; PostgreSQL treats ``0`` as
+    "disabled" for all three GUCs.
+    """
+    return {
+        "statement_timeout": str(int(statement_timeout_ms)),
+        "lock_timeout": str(int(lock_timeout_ms)),
+        "idle_in_transaction_session_timeout": str(int(idle_in_tx_timeout_ms)),
+    }
+
+
 def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker]:
-    pool_size = getattr(settings, "database_pool_size", 20)
-    max_overflow = getattr(settings, "database_max_overflow", 10)
-    pool_timeout = getattr(settings, "database_pool_timeout", 15)
+    # Defaults live in ``Settings`` so the env surface and the engine agree.
+    pool_size = settings.database_pool_size
+    max_overflow = settings.database_max_overflow
+    pool_timeout = settings.database_pool_timeout
 
     engine = create_async_engine(
         settings.database_url,
@@ -33,6 +51,13 @@ def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker
         max_overflow=max_overflow,
         pool_recycle=3600,
         pool_timeout=pool_timeout,
+        connect_args={
+            "server_settings": _server_settings(
+                settings.database_statement_timeout_ms,
+                settings.database_lock_timeout_ms,
+                settings.database_idle_in_tx_timeout_ms,
+            )
+        },
     )
 
     raw_pool = getattr(engine.sync_engine, "pool", None)
@@ -60,12 +85,15 @@ def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker
 def create_worker_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker]:
     """Create a dedicated database engine and session factory for background workers.
 
-    Uses a separate smaller connection pool (pool_size=5, max_overflow=5) to ensure
-    background jobs and scans cannot exhaust the Web API connection pool.
+    Uses a separate smaller connection pool (default pool_size=5, max_overflow=5)
+    to ensure background jobs and scans cannot exhaust the Web API connection
+    pool.  Its statement budget is unlimited by default: full scans, integrity
+    passes and archive extraction legitimately run long, while lock waits stay
+    bounded and idle transactions are still reaped.
     """
-    pool_size = getattr(settings, "worker_database_pool_size", 5)
-    max_overflow = getattr(settings, "worker_database_max_overflow", 5)
-    pool_timeout = getattr(settings, "worker_database_pool_timeout", 30)
+    pool_size = settings.worker_database_pool_size
+    max_overflow = settings.worker_database_max_overflow
+    pool_timeout = settings.worker_database_pool_timeout
 
     engine = create_async_engine(
         settings.database_url,
@@ -74,6 +102,13 @@ def create_worker_database(settings: Settings) -> tuple[AsyncEngine, async_sessi
         max_overflow=max_overflow,
         pool_recycle=3600,
         pool_timeout=pool_timeout,
+        connect_args={
+            "server_settings": _server_settings(
+                settings.worker_database_statement_timeout_ms,
+                settings.worker_database_lock_timeout_ms,
+                settings.worker_database_idle_in_tx_timeout_ms,
+            )
+        },
     )
 
     raw_pool = getattr(engine.sync_engine, "pool", None)

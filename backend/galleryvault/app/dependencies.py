@@ -13,12 +13,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from fastapi import Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings, get_settings, normalize_library_roots
 from ..db.session import release_session as _release_session
 from ..db.uow import UnitOfWork
 from ..logging import log_extra
+from ..observability import inc_counter
 from .core.eh_client_manager import EhClientManager
 from .core.task_dispatcher import TaskDispatcher
 from .core.uow import AbstractUnitOfWork, SqlAlchemyUnitOfWork
@@ -259,6 +261,16 @@ def db_error(exc: Exception) -> HTTPException:
         # A constraint conflict is a client-visible conflict, not an outage.
         logger.warning("database conflict", extra=log_extra(error=type(exc).__name__))
         return HTTPException(status_code=409, detail="Conflict")
+    if isinstance(exc, PoolTimeoutError):
+        # ``sqlalchemy.exc.TimeoutError`` from a pool checkout: every connection
+        # is busy for longer than ``pool_timeout``.  That is a saturation signal,
+        # not a database outage, so it gets its own detail + counter + log.
+        inc_counter("gv_db_pool_exhausted_total")
+        logger.error(
+            "database pool exhausted",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        return HTTPException(status_code=503, detail="Database pool exhausted")
     logger.error("database operation failed", extra=log_extra(error=type(exc).__name__))
     return HTTPException(status_code=503, detail="Database is unavailable")
 

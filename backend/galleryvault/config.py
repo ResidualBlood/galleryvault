@@ -17,6 +17,24 @@ class Settings(BaseSettings):
     database_pool_size: int = 30
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
+    # Connection-level PostgreSQL guards, in milliseconds, applied through
+    # ``connect_args["server_settings"]`` at connect time.  0 disables the cap
+    # (PostgreSQL semantics).  The API keeps tight bounds so a runaway request
+    # cannot pin a pooled connection; workers get a much larger statement
+    # budget because full scans and integrity passes legitimately run long.
+    database_statement_timeout_ms: int = Field(default=30000, ge=0, le=86_400_000)
+    database_lock_timeout_ms: int = Field(default=5000, ge=0, le=86_400_000)
+    database_idle_in_tx_timeout_ms: int = Field(default=60000, ge=0, le=86_400_000)
+    # Worker pool: kept separate from the API pool so background jobs can never
+    # exhaust the connections serving HTTP requests.
+    worker_database_pool_size: int = Field(default=5, ge=1, le=100)
+    worker_database_max_overflow: int = Field(default=5, ge=0, le=100)
+    worker_database_pool_timeout: int = Field(default=30, ge=0, le=3600)
+    worker_database_statement_timeout_ms: int = Field(default=0, ge=0, le=86_400_000)
+    worker_database_lock_timeout_ms: int = Field(default=10000, ge=0, le=86_400_000)
+    worker_database_idle_in_tx_timeout_ms: int = Field(
+        default=300000, ge=0, le=86_400_000
+    )
     library_roots: list[str] = Field(default_factory=lambda: ["/library", "/downloads"])
     download_root: str = "/downloads"
     cold_storage_root: str = ""
@@ -345,8 +363,9 @@ def load_settings() -> Settings:
     There is no config.json and no secrets file: everything user-editable is
     persisted in PostgreSQL (``app_config.user_settings``) and re-applied at
     startup.  Only infrastructure values that are needed to reach the database
-    (``database_url``, ``log_level``, ``log_json``, ``scan_batch_size``) come
-    from the environment, and they all have sensible defaults.
+    (``database_url``, the pool/timeout tuning knobs, ``log_level``,
+    ``log_json``, ``scan_batch_size``) come from the environment, and they all
+    have sensible defaults.
     """
     return Settings()
 
