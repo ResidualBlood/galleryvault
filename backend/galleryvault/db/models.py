@@ -388,6 +388,60 @@ class DuplicateRecord(Base):
     )
 
 
+class DuplicateGroup(Base):
+    """One duplicate group per kind, reconciled from every duplicate scan.
+
+    ``member_gids`` is the stable identity (sorted) and ``legacy_keys`` keeps the
+    keys a group was known by before upstream versions/merges changed its
+    display key, so a dismissed group can be re-recognised after key drift.
+    ``present`` records whether the latest scan of that kind still found the
+    group; dismissed groups that disappear are kept with ``present=false``
+    instead of being deleted, so they stay dismissed when they return.
+    """
+
+    __tablename__ = "duplicate_groups"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('same_gid', 'cross_gid', 'favorites')",
+            name="ck_duplicate_groups_kind",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'dismissed')",
+            name="ck_duplicate_groups_status",
+        ),
+        UniqueConstraint("kind", "group_key", name="uq_duplicate_groups_kind_key"),
+        Index("idx_duplicate_groups_kind_status_present", "kind", "status", "present"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    group_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), server_default=text("'open'"), nullable=False
+    )
+    member_gids: Mapped[list[int]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    legacy_keys: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    title: Mapped[str | None] = mapped_column(Text)
+    artist: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    present: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("true"), nullable=False
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
