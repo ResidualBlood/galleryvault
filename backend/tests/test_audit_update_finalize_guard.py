@@ -14,7 +14,7 @@ import pytest
 
 from galleryvault.app.state import app_state
 from galleryvault.db.models import Gallery, GalleryUpdate
-from galleryvault.services import updates_worker
+from galleryvault.services.maintain import updates_finalize
 from galleryvault.services.updates_worker import (
     finalize_gallery_update,
     gallery_updates_finalize_loop,
@@ -252,10 +252,10 @@ class _LoopSession:
 def _run_loop(monkeypatch, *, finalize, ticks: int, wait_limit: int):
     marked: list[tuple[int, str | None]] = []
     monkeypatch.setattr(app_state, "session_factory", lambda: _LoopSession())
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", _LoopRepo(marked))
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", finalize)
-    monkeypatch.setattr(updates_worker, "FINALIZE_WAIT_LIMIT", wait_limit)
-    updates_worker._finalize_wait_counts.clear()
+    monkeypatch.setattr(updates_finalize, "GalleryUpdatesRepository", _LoopRepo(marked))
+    monkeypatch.setattr(updates_finalize, "finalize_gallery_update", finalize)
+    monkeypatch.setattr(updates_finalize, "FINALIZE_WAIT_LIMIT", wait_limit)
+    updates_finalize._finalize_wait_counts.clear()
 
     seen = {"n": 0}
 
@@ -264,7 +264,7 @@ def _run_loop(monkeypatch, *, finalize, ticks: int, wait_limit: int):
         if seen["n"] > ticks:
             raise RuntimeError("stop-loop")
 
-    monkeypatch.setattr(updates_worker.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(updates_finalize.asyncio, "sleep", fake_sleep)
     return marked
 
 
@@ -284,7 +284,7 @@ async def test_finalize_loop_fails_update_after_wait_limit(monkeypatch):
     assert update_id == 99
     assert "gave up waiting for ingest" in (message or "")
     assert "old copy kept" in (message or "")
-    assert updates_worker._finalize_wait_counts == {}
+    assert updates_finalize._finalize_wait_counts == {}
 
 
 async def test_finalize_loop_resets_wait_count_after_success(monkeypatch):
@@ -292,7 +292,7 @@ async def test_finalize_loop_resets_wait_count_after_success(monkeypatch):
     snapshots: list[dict[int, int]] = []
 
     async def waiting_then_done(_row):
-        snapshots.append(dict(updates_worker._finalize_wait_counts))
+        snapshots.append(dict(updates_finalize._finalize_wait_counts))
         return f"{WAITING}: new gallery not stored yet" if len(snapshots) == 1 else None
 
     marked = _run_loop(monkeypatch, finalize=waiting_then_done, ticks=3, wait_limit=5)
@@ -302,4 +302,4 @@ async def test_finalize_loop_resets_wait_count_after_success(monkeypatch):
 
     assert snapshots == [{}, {99: 1}, {}]
     assert marked == []
-    assert updates_worker._finalize_wait_counts == {}
+    assert updates_finalize._finalize_wait_counts == {}

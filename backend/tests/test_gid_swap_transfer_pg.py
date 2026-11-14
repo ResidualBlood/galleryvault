@@ -28,7 +28,7 @@ from galleryvault.db.models import (
     SeriesExclusion,
     SeriesItem,
 )
-from galleryvault.services import updates_worker
+from galleryvault.services.maintain import updates_finalize
 from galleryvault.services.updates_worker import finalize_gallery_update
 
 OLD_PAGE = 7
@@ -71,7 +71,7 @@ async def test_finalize_transfers_user_data_to_new_gid(monkeypatch):
     list_id: int | None = None
 
     # The finalize log writes AppConfig/task history; keep the test DB clean.
-    monkeypatch.setattr(updates_worker, "record_gallery_update_log", lambda *a, **k: None)
+    monkeypatch.setattr(updates_finalize, "record_gallery_update_log", lambda *a, **k: None)
 
     original_factory = app_state.session_factory
     app_state.session_factory = factory

@@ -115,6 +115,17 @@ forbidden_modules =
 #   Maintenance service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
 #   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:maintain-no-facade-backref]
+name = maintain package must not import its legacy facades
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.maintain
+forbidden_modules =
+    galleryvault.services.updates_worker
+    galleryvault.services.favorites_worker
+
 # slot: edge
 #   Edge/telegram split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.

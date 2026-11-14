@@ -22,6 +22,7 @@ from galleryvault.services import favorites_worker as fw
 from galleryvault.services.download_prepare import PreparedGallery
 from galleryvault.services.favorites import cover_cache as fav_covers
 from galleryvault.services.favorites_mutations import add_favorites
+from galleryvault.services.maintain import favorite_duplicates
 from galleryvault.services.tasks import TaskManager
 
 
@@ -552,7 +553,7 @@ async def test_duplicates_scan_posted_refresh_releases_before_network(
 ) -> None:
     events: list[str] = []
     session = _TxSession(events)
-    monkeypatch.setattr(fw, "_get_background_session_factory", lambda: _Factory(session))
+    monkeypatch.setattr(favorite_duplicates, "_get_background_session_factory", lambda: _Factory(session))
     _patch_meta_repo(monkeypatch, {"posted": "2024-01-01T00:00:00+00:00"})
 
     async def _fake_metadata(pairs: object) -> dict[int, dict[str, object]]:
@@ -561,8 +562,8 @@ async def test_duplicates_scan_posted_refresh_releases_before_network(
     async def _noop_covers(*args: object, **kwargs: object) -> dict[int, str]:
         return {}
 
-    monkeypatch.setattr(fw, "favorites_metadata", _fake_metadata)
-    monkeypatch.setattr(fw, "remote_cover_data_batch", _noop_covers)
+    monkeypatch.setattr(favorite_duplicates, "favorites_metadata", _fake_metadata)
+    monkeypatch.setattr(favorite_duplicates, "remote_cover_data_batch", _noop_covers)
 
     class _FavRepo:
         def __init__(self, session: object) -> None:
@@ -584,10 +585,10 @@ async def test_duplicates_scan_posted_refresh_releases_before_network(
         async def sync(self, kind: str, groups: list[dict]) -> list:
             return []
 
-    monkeypatch.setattr(fw, "FavoritesRepository", _FavRepo)
-    monkeypatch.setattr(fw, "DuplicateGroupRepository", _DupRepo)
+    monkeypatch.setattr(favorite_duplicates, "FavoritesRepository", _FavRepo)
+    monkeypatch.setattr(favorite_duplicates, "DuplicateGroupRepository", _DupRepo)
     monkeypatch.setattr(
-        fw,
+        favorite_duplicates,
         "find_duplicate_groups",
         lambda *args, **kwargs: [
             {
@@ -613,7 +614,7 @@ async def test_duplicates_scan_posted_refresh_releases_before_network(
         events, {"posted": "2024-01-01T00:00:00+00:00"}
     )
     try:
-        await fw.run_duplicates_scan()
+        await favorite_duplicates.run_duplicates_scan()
     finally:
         app_state.eh_client = orig_client
 

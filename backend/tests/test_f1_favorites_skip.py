@@ -18,11 +18,11 @@ import pytest
 from galleryvault.app.state import app_state
 from galleryvault.db.repositories.favorites import FULL_CHECK_CONFIG_KEY, FavoritesRepository
 from galleryvault.services import favorites_worker as fw
-from galleryvault.services import updates_worker
 from galleryvault.services.eh_client import EhClient
 from galleryvault.services.favorites import counts as fav_counts
 from galleryvault.services.favorites import poll as fav_poll
 from galleryvault.services.favorites_worker import FAVORITES_FULL_CHECK_MAX_AGE_DAYS
+from galleryvault.services.maintain import updates_detect
 from galleryvault.services.updates_worker import detect_gallery_updates
 
 FAVCAT = 3
@@ -307,7 +307,7 @@ async def test_new_version_gid_is_matched_as_gallery_update(
             return len(entries)
 
     monkeypatch.setattr(app_state, "session_factory", Session)
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
     app_state.task_manager.gallery_updates_state.update({"detecting": False})
 
     await detect_gallery_updates()

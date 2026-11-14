@@ -24,11 +24,11 @@ from fastapi import HTTPException
 from galleryvault.app import state as state_module
 from galleryvault.app.routers import duplicates as duplicates_router
 from galleryvault.services import duplicates as duplicates_service
-from galleryvault.services import favorites_worker
 from galleryvault.services.duplicates import (
     cross_gid_scan_lock,
     scan_library_cross_gid_groups,
 )
+from galleryvault.services.maintain import favorite_duplicates
 from galleryvault.services.tasks import TaskManager
 
 
@@ -173,15 +173,15 @@ async def test_favorites_scan_persists_groups_not_state(monkeypatch):
             return {1001: ("[Alice] Book", None)}
 
     tm = TaskManager()
-    monkeypatch.setattr(favorites_worker, "FavoritesRepository", _Repo)
-    monkeypatch.setattr(favorites_worker, "find_duplicate_groups", lambda *a, **k: [group])
-    monkeypatch.setattr(favorites_worker, "DuplicateGroupRepository", _RecordingDuplicateRepo)
+    monkeypatch.setattr(favorite_duplicates, "FavoritesRepository", _Repo)
+    monkeypatch.setattr(favorite_duplicates, "find_duplicate_groups", lambda *a, **k: [group])
+    monkeypatch.setattr(favorite_duplicates, "DuplicateGroupRepository", _RecordingDuplicateRepo)
     monkeypatch.setattr(state_module.app_state, "task_manager", tm)
     monkeypatch.setattr(state_module.app_state, "session_factory", _session_factory())
     monkeypatch.setattr(state_module.app_state, "worker_session_factory", None)
     monkeypatch.setattr(state_module.app_state, "settings", Settings())
 
-    await favorites_worker.run_duplicates_scan()
+    await favorite_duplicates.run_duplicates_scan()
 
     assert _RecordingDuplicateRepo.calls, "favorites scan must persist via duplicate_groups"
     kind, persisted = _RecordingDuplicateRepo.calls[-1]

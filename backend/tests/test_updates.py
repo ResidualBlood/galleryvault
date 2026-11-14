@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 from galleryvault.app.routers import updates as updates_router
 from galleryvault.app.state import app_state
 from galleryvault.db.repositories.updates import GalleryUpdatesRepository
-from galleryvault.services import updates_worker
+from galleryvault.services.maintain import updates_detect, updates_finalize
 from galleryvault.services.updates_worker import (
     detect_gallery_updates,
     finalize_updates_for_new_gid,
@@ -122,7 +122,7 @@ async def test_detect_gallery_updates_finds_old_versions(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
 
     try:
         await detect_gallery_updates()
@@ -182,7 +182,7 @@ async def test_detect_gallery_updates_skips_already_tracked(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
 
     try:
         await detect_gallery_updates()
@@ -238,8 +238,8 @@ async def test_detect_autofinalizes_with_parent_chain(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "finalize_gallery_update", fake_finalize)
 
     try:
         await detect_gallery_updates()
@@ -297,8 +297,8 @@ async def test_detect_does_not_autofinalize_title_only_match(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "finalize_gallery_update", fake_finalize)
 
     try:
         await detect_gallery_updates()
@@ -367,8 +367,8 @@ async def test_detect_marks_many_to_one_ambiguous(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "finalize_gallery_update", fake_finalize)
 
     try:
         await detect_gallery_updates()
@@ -427,8 +427,8 @@ async def test_detect_gallery_updates_skips_ignored_even_if_new_local(monkeypatc
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "finalize_gallery_update", fake_finalize)
 
     try:
         await detect_gallery_updates()
@@ -481,7 +481,7 @@ async def test_detect_gallery_updates_pins_active_download(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
 
     try:
         await detect_gallery_updates()
@@ -545,8 +545,8 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect.DownloadRepository, "create", fake_create)
 
     try:
         result = await run_gallery_updates([1, 1])
@@ -605,9 +605,9 @@ async def test_run_gallery_updates_wakes_download_worker(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker, "DownloadRepository", FakeDownloadRepo)
-    monkeypatch.setattr(updates_worker, "notify_new_task", lambda: notified.append(1))
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "DownloadRepository", FakeDownloadRepo)
+    monkeypatch.setattr(updates_detect, "notify_new_task", lambda: notified.append(1))
 
     try:
         result = await run_gallery_updates([1])
@@ -666,8 +666,8 @@ async def test_run_gallery_updates_archives(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect.DownloadRepository, "create", fake_create)
 
     try:
         result = await run_gallery_updates([3], archive=True, quality="original")
@@ -709,14 +709,14 @@ async def test_run_gallery_updates_skips_non_pending(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
     called = []
 
     async def fake_create(self, gid, token, title, mode, max_pages=None, quality=None):
         called.append(gid)
         return SimpleNamespace(id=77)
 
-    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
+    monkeypatch.setattr(updates_detect.DownloadRepository, "create", fake_create)
 
     try:
         result = await run_gallery_updates([2])
@@ -775,9 +775,9 @@ async def test_run_gallery_updates_finalizes_when_already_local(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect.DownloadRepository, "create", fake_create)
+    monkeypatch.setattr(updates_detect, "finalize_gallery_update", fake_finalize)
 
     try:
         result = await run_gallery_updates([4])
@@ -838,8 +838,8 @@ async def test_bulk_update_skips_ambiguous_title_matches(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker.DownloadRepository, "create", fake_create)
+    monkeypatch.setattr(updates_detect, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_detect.DownloadRepository, "create", fake_create)
 
     try:
         bulk = await run_gallery_updates([1, 2])
@@ -885,8 +885,8 @@ async def test_finalize_updates_for_new_gid_skips_ignored(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+    monkeypatch.setattr(updates_finalize, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_finalize, "finalize_gallery_update", fake_finalize)
 
     try:
         done = await finalize_updates_for_new_gid(200)
@@ -938,8 +938,8 @@ async def test_finalize_updates_for_new_gid_keeps_ambiguous_pending(monkeypatch)
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker, "finalize_gallery_update", fake_finalize)
+    monkeypatch.setattr(updates_finalize, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_finalize, "finalize_gallery_update", fake_finalize)
 
     try:
         done = await finalize_updates_for_new_gid(200)
@@ -1001,8 +1001,8 @@ async def test_finalize_loop_marks_removed_task_failed(monkeypatch):
 
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Sess()
-    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
-    monkeypatch.setattr(updates_worker.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(updates_finalize, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_finalize.asyncio, "sleep", fake_sleep)
 
     try:
         with pytest.raises(RuntimeError, match="stop-loop"):
