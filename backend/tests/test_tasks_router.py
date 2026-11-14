@@ -93,3 +93,57 @@ async def test_trigger_thumbnail_generation_closure_handles_error(task_manager, 
         await captured_tasks[0][0]
 
     assert task_manager.thumb_state.get("seeding") is False
+
+
+def test_trigger_scan_uses_task_manager_lifecycle(client, task_manager, monkeypatch):
+    calls = []
+    original = task_manager.begin_task
+
+    def spy(name, cancellable=False):
+        calls.append((name, cancellable))
+        return original(name, cancellable=cancellable)
+
+    spawned = []
+
+    def fake_spawn(coro, name=None):
+        spawned.append(name)
+        coro.close()
+
+    monkeypatch.setattr(task_manager, "begin_task", spy)
+    monkeypatch.setattr(tasks_router, "spawn_task", fake_spawn)
+
+    resp = client.post("/api/scan")
+
+    assert resp.status_code == 202
+    assert resp.json() == {"status": "running"}
+    assert calls == [("scan", True)]
+    assert spawned == ["library scan"]
+    assert task_manager.scan_state["running"] is True
+
+
+def test_trigger_archive_and_unarchive_use_task_manager(client, task_manager, monkeypatch):
+    calls = []
+    original = task_manager.begin_task
+
+    def spy(name, cancellable=False):
+        calls.append(name)
+        return original(name, cancellable=cancellable)
+
+    def fake_spawn(coro, name=None):
+        coro.close()
+
+    monkeypatch.setattr(task_manager, "begin_task", spy)
+    monkeypatch.setattr(tasks_router, "spawn_task", fake_spawn)
+
+    from galleryvault.app.state import app_state
+    from galleryvault.config import Settings
+
+    monkeypatch.setattr(
+        app_state, "settings", Settings(cold_storage_root="/tmp/cold")
+    )
+
+    resp = client.post("/api/archive")
+    assert resp.status_code == 202
+    resp = client.post("/api/archive/restore", json={"ids": [1]})
+    assert resp.status_code == 202
+    assert calls == ["archive", "unarchive"]

@@ -34,6 +34,28 @@ _QUOTA_ERROR_MESSAGE = "quota check failed"
 _tag_sync_seed_state: dict[str, bool] = {"running": False}
 
 
+_TASK_STATE_ATTRS = {
+    "scan": "scan_state",
+    "archive": "archive_state",
+    "unarchive": "unarchive_state",
+}
+
+
+def _begin_task(tm: object, name: str, *, cancellable: bool = False) -> None:
+    """Use the manager lifecycle method, tolerating legacy test doubles.
+
+    Production always has ``TaskManager.begin_task``; a few router unit tests
+    pass a minimal fake that only exposes the state dict.
+    """
+    begin = getattr(tm, "begin_task", None)
+    if callable(begin):
+        begin(name, cancellable=cancellable)
+        return
+    state = getattr(tm, _TASK_STATE_ATTRS[name], None)
+    if isinstance(state, dict):
+        state["running"] = True
+
+
 async def _clear_jobs(job_type: str) -> None:
     if not app_state.session_factory:
         return
@@ -244,7 +266,7 @@ async def trigger_scan() -> dict[str, object]:
         return {"status": "paused", "detail": "Global paused: scan is disabled"}
     tm = get_task_manager()
     if not tm.scan_state["running"]:
-        tm.scan_state["running"] = True
+        _begin_task(tm, "scan", cancellable=True)
         spawn_task(run_scan(), "library scan")
     return {"status": "running" if tm.scan_state["running"] else "started"}
 
@@ -259,7 +281,8 @@ async def scan_status() -> dict[str, object]:
 async def background_task_logs() -> dict[str, object]:
     """Aggregate live background tasks and the recent activity log."""
     tm = get_task_manager()
-    return {"running": tm.get_running_summary(), "finished": list(tm.task_history)}
+    finished = await tm.history_records()
+    return {"running": tm.get_running_summary(), "finished": finished}
 
 
 @router.post("/api/logs/{task}/cancel", status_code=202)
@@ -279,12 +302,7 @@ async def cancel_background_task(task: str) -> dict[str, object]:
             raise HTTPException(status_code=409, detail=f"no active {task_key} task")
     tm.request_cancel(task_key)
     if task_key == "scan":
-        if isinstance(getattr(app_state, "scan_state", None), dict):
-            app_state.scan_state["status"] = "cancelling"
-            app_state.scan_state["running"] = False
-        if hasattr(tm, "scan_state") and isinstance(tm.scan_state, dict):
-            tm.scan_state["status"] = "cancelling"
-            tm.scan_state["running"] = False
+        tm.mark_cancelling("scan")
     elif task_key == "tag-sync":
         await _clear_jobs("tag-sync")
     elif task_key == "thumbs":
@@ -315,7 +333,7 @@ async def restore_archive(body: ArchiveRestoreRequest) -> dict[str, object]:
     if tm.unarchive_state.get("running"):
         return {"status": "running", "total": len(ids)}
     tm.clear_cancelled("unarchive")
-    tm.unarchive_state["running"] = True
+    _begin_task(tm, "unarchive", cancellable=True)
     spawn_task(run_unarchive(ids), "cold unarchive")
     return {"status": "started", "total": len(ids)}
 
@@ -332,7 +350,7 @@ async def trigger_archive() -> dict[str, object]:
     if tm.archive_state.get("running"):
         return {"status": "running"}
     tm.clear_cancelled("archive")
-    tm.archive_state["running"] = True
+    _begin_task(tm, "archive", cancellable=True)
     spawn_task(run_cold_archive(), "cold archive")
     return {"status": "started"}
 
@@ -379,17 +397,21 @@ async def trigger_thumbnail_generation() -> dict[str, object]:
     if tm.thumb_state.get("seeding"):
         return {"status": "running", "message": "Thumbnail seeding already in progress"}
     tm.thumb_state["seeding"] = True
+    # Thumbs are driven by the job queue, so open the ledger row here; the
+    # worker (or the empty-seed branch below) closes it with ``record_task``.
+    await tm.begin_persisted_task("thumbs", cancellable=True)
 
     async def _run_seed() -> None:
         try:
             await seed_thumbnails()
             queued = await jobs_count("thumb")
-            tm.thumb_state["running"] = bool(queued)
-            if queued == 0 and not tm.thumb_state.get("started_at"):
+            tm.set_task_running("thumbs", bool(queued))
+            if queued == 0 and not tm.thumb_state.get("history_recorded"):
                 now = datetime.now(UTC).isoformat()
                 tm.record_task(
                     "thumbs", now, now, "success", reason="ok 0 / fail 0", done=0, total=0
                 )
+                tm.thumb_state["history_recorded"] = True
         finally:
             tm.thumb_state["seeding"] = False
 
@@ -440,7 +462,6 @@ async def _seed_pending_tag_sync() -> None:
             done=0,
             total=0,
         )
-        spawn_task(tm.persist_history(), "persist task history")
 
 
 @router.post("/api/tag-sync/start", status_code=202)

@@ -425,6 +425,9 @@ def test_logs_shape(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None
         def __init__(self) -> None:
             self.task_history = [record]
 
+        async def history_records(self) -> list[dict[str, Any]]:
+            return list(self.task_history)
+
         def get_running_summary(self) -> list[dict[str, Any]]:
             return [
                 {

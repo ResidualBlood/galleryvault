@@ -320,7 +320,13 @@ def test_api_route_contracts_with_client(monkeypatch) -> None:
     from galleryvault.config import Settings
 
     orig_settings = app_state.settings
-    app_state.settings = Settings(auth_required=False, exhentai_base_url="https://exhentai.org")
+    app_state.settings = Settings(
+        auth_required=False,
+        exhentai_base_url="https://exhentai.org",
+        # Explicit secret keeps the first request off the database: host test
+        # runs have no reachable PG, and this test only checks route shapes.
+        auth_secret="task-state-persistence-test-secret",
+    )
     client = TestClient(app)
 
     try:

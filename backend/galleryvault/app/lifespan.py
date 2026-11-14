@@ -290,6 +290,18 @@ async def startup() -> None:
         sync_state()
         return
 
+    # T7.5: reconcile the durable task ledger before any worker starts. Leftover
+    # ``running`` rows mean the previous process died mid-task -> interrupted;
+    # the newest row per task name rehydrates the polling dicts with
+    # ``running=False`` so a restart does not show stale "in progress" state.
+    try:
+        await app_state.task_manager.restore_state()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "task state restore failed at startup",
+            extra=log_extra(error=type(exc).__name__),
+        )
+
     # Full production startup
     try:
         if app_state.session_factory:
@@ -314,7 +326,6 @@ async def startup() -> None:
     try:
         await bootstrap_auth()
         await migrate_plaintext_secrets()
-        await app_state.task_manager.restore_history()
     except Exception:  # noqa: BLE001
         logger.warning("auth bootstrap failed; using temporary credentials")
 
