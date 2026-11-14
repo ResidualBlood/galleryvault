@@ -5,6 +5,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from ..config import Settings
+from ..logging import log_extra
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +96,27 @@ def create_worker_database(settings: Settings) -> tuple[AsyncEngine, async_sessi
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     return engine, session_factory
+
+
+async def release_session(session: Any) -> None:
+    """End any open transaction so the pooled connection goes back to the pool.
+
+    FastAPI only tears ``yield`` dependencies down after the response has been
+    sent, so endpoints that return a ``StreamingResponse``/``FileResponse`` (or
+    that do long network I/O) would keep a request-level connection checked out
+    for the whole transfer.  Ending the read transaction before returning hands
+    the connection back; the session stays usable and the next statement starts
+    a fresh transaction.
+    """
+    rollback = getattr(session, "rollback", None)
+    if rollback is None:
+        return
+    try:
+        result = rollback()
+        if result is not None and hasattr(result, "__await__"):
+            await result
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("session release failed", extra=log_extra(error=type(exc).__name__))
 
 
 @asynccontextmanager
@@ -177,6 +200,7 @@ __all__ = [
     "brief_session",
     "create_database",
     "create_worker_database",
+    "release_session",
     "safe_transaction",
 ]
 

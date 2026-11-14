@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
-from ..db.session import safe_transaction
+from ..db.session import release_session, safe_transaction
 from ..logging import log_extra
 from .eh_client import FavoriteData
 
@@ -207,6 +207,10 @@ async def add_favorites(
     cloud_failed: list[int] = list(missing_token_failed)
     cloud_added = 0
     cloud_ok = True
+
+    # Read phase finished: token/title backfill above is already plain values in
+    # ``items_to_add``; return the pooled connection before the cloud call.
+    await release_session(session)
 
     if valid_pairs:
         try:

@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings, get_settings, normalize_library_roots
+from ..db.session import release_session as _release_session
 from ..db.uow import UnitOfWork
 from ..logging import log_extra
 from .core.eh_client_manager import EhClientManager
@@ -115,24 +116,8 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 async def release_session(session: Any) -> None:
-    """End any open transaction so the pooled connection goes back to the pool.
-
-    FastAPI only tears ``yield`` dependencies down after the response has been
-    sent, so endpoints that return a ``StreamingResponse``/``FileResponse`` (or
-    that do long network I/O) would keep a request-level connection checked out
-    for the whole transfer.  Ending the read transaction before returning hands
-    the connection back; the session stays usable and the next statement starts
-    a fresh transaction.
-    """
-    rollback = getattr(session, "rollback", None)
-    if rollback is None:
-        return
-    try:
-        result = rollback()
-        if result is not None and hasattr(result, "__await__"):
-            await result
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("session release failed", extra=log_extra(error=type(exc).__name__))
+    """Deprecated import location; implementation lives in ``db.session``."""
+    await _release_session(session)
 
 
 async def get_uow(
