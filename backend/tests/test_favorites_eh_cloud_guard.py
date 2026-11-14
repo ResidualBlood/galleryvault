@@ -609,3 +609,68 @@ async def test_favorites_skip_branch_does_not_nest_transaction(
     # The skip path opens a fresh session (the read session already left its
     # autobegun transaction); what matters is no nested begin ever happened.
     assert all(session.begin_calls <= 1 for session in sessions)
+
+
+# ---------------------------------------------------------------------------
+# Router: the client_context adapter must not swallow caller TypeError
+# ---------------------------------------------------------------------------
+
+
+class _NoSettingsManager:
+    """Mirrors the real ``EhClientManager.client_context(self)`` signature."""
+
+    def __init__(self, client: Any) -> None:
+        self.client = client
+        self.calls = 0
+
+    @asynccontextmanager
+    async def client_context(self) -> Any:
+        self.calls += 1
+        yield self.client
+
+
+class _SettingsManager(_NoSettingsManager):
+    @asynccontextmanager
+    async def client_context(self, settings: Any = None) -> Any:  # type: ignore[override]
+        self.calls += 1
+        self.settings = settings
+        yield self.client
+
+
+@pytest.mark.asyncio
+async def test_body_typeerror_propagates_unchanged() -> None:
+    from galleryvault.app.routers.favorites import _EhClientManagerWrapper
+
+    wrapper = _EhClientManagerWrapper(_SettingsManager(object()))
+
+    with pytest.raises(TypeError, match="boom"):
+        async with wrapper.client_context(settings=Settings()):
+            raise TypeError("boom")
+
+
+@pytest.mark.asyncio
+async def test_client_context_without_settings_parameter_is_supported() -> None:
+    from galleryvault.app.routers.favorites import _EhClientManagerWrapper
+
+    client = object()
+    manager = _NoSettingsManager(client)
+    wrapper = _EhClientManagerWrapper(manager)
+
+    async with wrapper.client_context(settings=Settings()) as leased:
+        assert leased is client
+    assert manager.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_client_context_forwards_settings_when_target_accepts_it() -> None:
+    from galleryvault.app.routers.favorites import _EhClientManagerWrapper
+
+    client = object()
+    settings = Settings()
+    manager = _SettingsManager(client)
+    wrapper = _EhClientManagerWrapper(manager)
+
+    async with wrapper.client_context(settings=settings) as leased:
+        assert leased is client
+    assert manager.calls == 1
+    assert manager.settings is settings
