@@ -6,6 +6,7 @@
   "allNamespaces": "All",
   "reload": "Reload tag library",
   "reloading": "Reloading…",
+  "reloadStarted": "Tag translation update started; this page refreshes when it finishes",
   "reloadOk": "Tag translations updated",
   "reloadFailed": "Reload failed",
   "syncAll": "Sync all tags",

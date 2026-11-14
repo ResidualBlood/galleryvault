@@ -58,12 +58,17 @@ async def test_updates_scan_returns_409_when_detecting(
 
 
 async def test_tag_translation_reload_returns_409_when_running(
-    task_manager: TaskManager,
+    task_manager: TaskManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     task_manager.translation_state["running"] = True
+    spawned: list[str] = []
+    monkeypatch.setattr(
+        tags, "spawn_task", lambda *_args: spawned.append("spawned"), raising=False
+    )
     with pytest.raises(HTTPException) as exc:
         await tags.tag_translation_reload()
     assert exc.value.status_code == 409
+    assert spawned == []
 
 
 async def test_tag_sync_start_rejects_when_global_paused(

@@ -250,6 +250,8 @@
     "openArchive": "Open archive",
     "syncAllTags": "Sync all tags",
     "forceUpdateTranslation": "Force translation update",
+    "forceUpdateTranslationStarted": "Translation update started; this page refreshes when it finishes",
+    "forceUpdateTranslationDone": "Translation update finished",
     "repairCategories": "Repair categories",
     "testTelegram": "Test Telegram",
     "changePassword": "Change password",

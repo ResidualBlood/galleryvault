@@ -25,6 +25,7 @@ import { useTagNavigation } from "@/components/tags/useTagNavigation";
 import "@/components/tags/i18n";
 import { ApiError } from "@/api/client";
 import { fetchTagFacets, type TagSuggestion } from "@/api/library";
+import { waitForTagTranslation } from "@/api/settings";
 import {
   fetchTags,
   isCjkQuery,
@@ -55,7 +56,9 @@ const namespace = ref("");
 const loading = ref(true);
 const error = ref("");
 const reloadBusy = ref(false);
+const reloadPolling = ref(false);
 const syncBusy = ref(false);
+let reloadPoll: AbortController | null = null;
 const menu = ref<TagMenuEvent | null>(null);
 
 let controller: AbortController | null = null;
@@ -220,21 +223,38 @@ function onCopied(): void {
 }
 
 async function reload(): Promise<void> {
-  if (reloadBusy.value) return;
+  if (reloadBusy.value || reloadPolling.value) return;
   reloadBusy.value = true;
   try {
-    const result = await reloadTags();
-    if (result.ok) {
-      ui.success(t("tagsPage.reloadOk"));
-      await loadFacets();
-      await load();
-    } else {
-      ui.error(result.last_error || t("tagsPage.reloadFailed"));
-    }
+    await reloadTags();
+    ui.info(t("tagsPage.reloadStarted"));
   } catch (cause) {
     ui.error(message(cause));
+    return;
   } finally {
     reloadBusy.value = false;
+  }
+  reloadPolling.value = true;
+  reloadPoll?.abort();
+  const controller = new AbortController();
+  reloadPoll = controller;
+  try {
+    const status = await waitForTagTranslation({ signal: controller.signal });
+    if (controller.signal.aborted) return;
+    if (status.last_error) {
+      ui.error(status.last_error);
+      return;
+    }
+    // Polling hit its safety timeout: keep the data as-is instead of claiming success.
+    if (status.running) return;
+    await loadFacets();
+    await load();
+    ui.success(t("tagsPage.reloadOk"));
+  } catch (cause) {
+    if (!controller.signal.aborted) ui.error(message(cause));
+  } finally {
+    if (reloadPoll === controller) reloadPoll = null;
+    reloadPolling.value = false;
   }
 }
 
@@ -264,6 +284,7 @@ watch(
 
 onBeforeUnmount(() => {
   controller?.abort();
+  reloadPoll?.abort();
 });
 
 void loadFacets();
@@ -298,12 +319,12 @@ void load();
         <Button
           variant="outlined"
           icon="retry"
-          :loading="reloadBusy"
+          :loading="reloadBusy || reloadPolling"
           data-testid="tags-reload"
           :title="t('tagsPage.reloadHint')"
           @click="reload"
         >
-          {{ reloadBusy ? t("tagsPage.reloading") : t("tagsPage.reload") }}
+          {{ reloadBusy || reloadPolling ? t("tagsPage.reloading") : t("tagsPage.reload") }}
         </Button>
         <Button
           variant="outlined"
