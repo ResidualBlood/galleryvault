@@ -1,4 +1,5 @@
 import { ep, request } from "./client";
+import { abortableDelay } from "./poll";
 
 export const settingsEp = ep("GET", "/api/settings");
 export const saveSettingsEp = ep("POST", "/api/settings");
@@ -143,24 +144,6 @@ export function reloadTagTranslation(
 
 const TAG_TRANSLATION_POLL_MS = 1_500;
 const TAG_TRANSLATION_POLL_TIMEOUT_MS = 180_000;
-
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
 
 /**
  * Poll `GET /api/tags/search/status` until the spawned update finishes.

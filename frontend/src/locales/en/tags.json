@@ -22,5 +22,11 @@
   "currentNamespace": "Namespace: {namespace}",
   "backToAll": "All tags",
   "reloadHint": "Reloading refreshes tag translation data and may take a moment.",
-  "syncHint": "Queues tag sync for every gallery that still needs it."
+  "syncHint": "Queues tag sync for every gallery that still needs it.",
+  "categoryRefresh": "Refresh categories",
+  "categoryRefreshing": "Refreshing categories…",
+  "categoryStarted": "Category refresh started",
+  "categoryRunning": "Category refresh is already running",
+  "categoryDone": "Category refresh finished ({count} updated)",
+  "categoryHint": "Backfills the top-level category of galleries still marked other using EH metadata."
 }
