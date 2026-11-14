@@ -120,6 +120,10 @@ onMounted(load);
       @back="back"
     />
 
+    <p class="favignored__persisted" data-testid="favignored-persisted">
+      {{ t("maintenance.duplicates.persisted") }}
+    </p>
+
     <SelectionBar
       :count="selectedCount"
       :label="t('maintenance.shared.selected', { n: selectedCount })"
@@ -233,5 +237,11 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: var(--gv-space-2);
+}
+
+.favignored__persisted {
+  margin: 0;
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-body-small);
 }
 </style>

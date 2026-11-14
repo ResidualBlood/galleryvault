@@ -346,6 +346,10 @@ onMounted(load);
 
     <p class="favdup__summary" data-testid="dupfav-summary">{{ summary }}</p>
 
+    <p class="favdup__summary" data-testid="dupfav-persisted">
+      {{ t("maintenance.duplicates.persisted") }}
+    </p>
+
     <div v-if="status?.running" class="favdup__progress" data-testid="dupfav-progress">
       <span class="favdup__progress-bar">
         <span

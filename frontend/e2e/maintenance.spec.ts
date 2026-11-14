@@ -5,10 +5,12 @@ import { expect, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 import { installMaintenanceMock } from "./fixtures/maintenance/mock";
 import {
+  dismissCrossGidDuplicateEp,
   duplicateStatusEp,
   ignoreFavoriteDuplicateEp,
   refreshCrossGidDuplicatesEp,
   resolveDuplicateEp,
+  restoreCrossGidDuplicateEp,
 } from "@/api/duplicates";
 import { scanIntegrityEp } from "@/api/integrity";
 import {
@@ -168,6 +170,7 @@ test.describe("maintenance @maintenance", () => {
     await page.goto(viewUrl("/duplicates"));
     await expect(page.getByTestId("duplicates-view")).toBeVisible();
     await expect(page.getByTestId("duplicates-group-9001")).toContainText("Alpha Copy");
+    await expect(page.getByTestId("duplicates-persisted")).toBeVisible();
 
     await page.getByTestId("duplicates-keep-delete-copy-b").click();
     await expect(page.getByTestId("duplicates-confirm")).toBeVisible();
@@ -205,6 +208,7 @@ test.describe("maintenance @maintenance", () => {
     await page.goto(viewUrl("/duplicates/favorites"));
     await expect(page.getByTestId("dupfav-view")).toBeVisible();
     await expect(page.getByTestId("dupfav-group-fav-group-1")).toBeVisible();
+    await expect(page.getByTestId("dupfav-persisted")).toBeVisible();
 
     await page.getByTestId("dupfav-scan").click();
     await expect.poll(() => state.favoriteScans).toBe(1);
@@ -240,6 +244,7 @@ test.describe("maintenance @maintenance", () => {
     await page.goto(viewUrl("/favorites/ignored"));
     await expect(page.getByTestId("favignored-view")).toBeVisible();
     await expect(page.getByTestId("favignored-item-4001")).toBeVisible();
+    await expect(page.getByTestId("favignored-persisted")).toBeVisible();
 
     await page.getByTestId("favignored-select-0").click();
     await page.getByTestId("favignored-restore-selected").click();
@@ -289,6 +294,55 @@ test.describe("maintenance @maintenance", () => {
       .toBe(1);
 
     expect(csp).toEqual([]);
+  });
+
+  test("cross-gid duplicates: dismiss a group, list the ignored tab and restore it", async ({
+    page,
+  }) => {
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/duplicates/cross-gid"));
+    await expect(page.getByTestId("dupxgid-item-5001")).toBeVisible();
+
+    await page.getByTestId("dupxgid-dismiss-71").click();
+    await expect(page.getByTestId("dupxgid-item-5001")).toHaveCount(0);
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === dismissCrossGidDuplicateEp.path.replace("{id}", "71"),
+          ).length,
+      )
+      .toBe(1);
+
+    await page
+      .getByTestId("dupxgid-status")
+      .locator('[data-segmented-value="dismissed"]')
+      .click();
+    await expect(page.getByTestId("dupxgid-item-5101")).toBeVisible();
+    await expect(page.getByTestId("dupxgid-restore-72")).toBeVisible();
+
+    await page.getByTestId("dupxgid-restore-72").click();
+    await expect(page.getByTestId("dupxgid-group-xgid-ignored")).toHaveCount(0);
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === restoreCrossGidDuplicateEp.path.replace("{id}", "72"),
+          ).length,
+      )
+      .toBe(1);
+
+    await page.getByTestId("dupxgid-restore-71").click();
+    await page
+      .getByTestId("dupxgid-status")
+      .locator('[data-segmented-value="open"]')
+      .click();
+    await expect(page.getByTestId("dupxgid-item-5001")).toBeVisible();
   });
 
   test("recycle: restore, confirmed purge with files and expunged redownload", async ({

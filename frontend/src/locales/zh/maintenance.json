@@ -105,6 +105,7 @@
     "listCount": "显示 {n} / 共 {total} 条"
   },
   "duplicates": {
+    "persisted": "上次扫描结果已持久化，重启后仍保留；需要最新数据时请重新扫描。",
     "library": {
       "eyebrow": "DUPLICATE COPIES",
       "title": "重复副本",
@@ -204,6 +205,16 @@
       "hintTitle": "尚未跨 GID 查重",
       "hintBody": "先扫描媒体库，再点“重新计算”按标题聚类。",
       "noneBody": "重新计算后，这里会列出疑似同一作品的不同 GID。",
+      "noneDismissed": "没有已忽略的跨 GID 重复。",
+      "noneDismissedBody": "在“待处理”列表中忽略某组后，可在这里恢复。",
+      "statusLabel": "跨 GID 组状态",
+      "statusOpen": "待处理",
+      "statusDismissed": "已忽略",
+      "dismiss": "忽略该组",
+      "dismissSelected": "忽略所选",
+      "restore": "恢复该组",
+      "restoredOk": "已恢复该组",
+      "missingId": "该组缺少持久化 ID，请刷新后重试。",
       "expandGroup": "展开该组",
       "collapseGroup": "收起该组"
     },

@@ -48,26 +48,6 @@ export const galleryPageMetaEp = ep(
 export const galleryThumbEp = ep("GET", "/api/galleries/{id}/thumb/{id}");
 export const exportGalleryCbzEp = ep("GET", "/api/galleries/{id}/export.cbz");
 
-/* ----------------------------------------------------------- maintenance */
-
-export const scanStatusEp = ep("GET", "/api/scan");
-export const startScanEp = ep("POST", "/api/scan");
-export const duplicateGroupsEp = ep("GET", "/api/scan/duplicates");
-export const resolveDuplicateEp = ep(
-  "POST",
-  "/api/scan/duplicates/{id}/resolve",
-);
-export const markDuplicateEp = ep("POST", "/api/scan/duplicates/{id}/{id}");
-export const duplicateThumbEp = ep("GET", "/api/scan/duplicates/thumb/{id}");
-export const crossGidDuplicatesEp = ep(
-  "GET",
-  "/api/library/duplicates/cross-gid",
-);
-export const refreshCrossGidDuplicatesEp = ep(
-  "POST",
-  "/api/library/duplicates/cross-gid/refresh",
-);
-
 /* --------------------------------------------------------------- updates */
 
 export const updatesEp = ep("GET", "/api/updates");

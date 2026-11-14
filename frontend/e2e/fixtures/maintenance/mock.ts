@@ -4,6 +4,7 @@ import { notificationsEp } from "@/api/system";
 import { galleryThumbEp } from "@/api/galleries";
 import {
   crossGidDuplicatesEp,
+  dismissCrossGidDuplicateEp,
   duplicateStatusEp,
   favoriteDuplicatesStatusEp,
   ignoreFavoriteDuplicateEp,
@@ -13,6 +14,7 @@ import {
   refreshCrossGidDuplicatesEp,
   removeFavoritesEp,
   resolveDuplicateEp,
+  restoreCrossGidDuplicateEp,
   scanFavoriteDuplicatesEp,
 } from "@/api/duplicates";
 import {
@@ -56,6 +58,8 @@ function pathMatcher(pattern: string): RegExp {
 const RE_THUMB = pathMatcher(galleryThumbEp.path);
 const RE_RESOLVE = pathMatcher(resolveDuplicateEp.path);
 const RE_DUPLICATE_STATUS = pathMatcher(duplicateStatusEp.path);
+const RE_CROSS_GID_DISMISS = pathMatcher(dismissCrossGidDuplicateEp.path);
+const RE_CROSS_GID_RESTORE = pathMatcher(restoreCrossGidDuplicateEp.path);
 const RE_REDOWNLOAD = pathMatcher(redownloadGalleryEp.path);
 
 export interface RecordedRequest {
@@ -70,6 +74,8 @@ export interface MaintenanceMockState {
   favoriteScans: number;
   libraryScans: number;
   removals: Array<{ gids: number[]; deleteLocal: boolean }>;
+  /** Cross-GID groups dismissed during this test (restored ones leave the set). */
+  crossGidDismissed: Set<number>;
 }
 
 const UPDATES = [
@@ -320,8 +326,10 @@ const IGNORED_FAVORITES = [
 
 const CROSS_GID = [
   {
+    id: 71,
     key: "xgid-1",
     artist: "artist two",
+    status: "open",
     items: [
       {
         gid: 5001,
@@ -344,6 +352,26 @@ const CROSS_GID = [
         page_count: 22,
         file_size: 1024 * 1024 * 38,
         cover_url: thumb(5002),
+      },
+    ],
+  },
+];
+
+const CROSS_GID_DISMISSED = [
+  {
+    id: 72,
+    key: "xgid-ignored",
+    artist: "artist three",
+    status: "dismissed",
+    items: [
+      {
+        gid: 5101,
+        gallery_id: 12,
+        title: "Cross Ignored",
+        display_title: "Cross Ignored",
+        page_count: 18,
+        file_size: 1024 * 1024 * 20,
+        storage_type: "folder",
       },
     ],
   },
@@ -502,6 +530,7 @@ export async function installMaintenanceMock(
     favoriteScans: 0,
     libraryScans: 0,
     removals: [],
+    crossGidDismissed: new Set<number>(),
   };
 
   await page.route(
@@ -604,7 +633,19 @@ export async function installMaintenanceMock(
     }
 
     if (path === crossGidDuplicatesEp.path && method === "GET") {
-      const groups = options.crossGidEmpty ? [] : CROSS_GID;
+      const dismissed = url.searchParams.get("status") === "dismissed";
+      const groups = dismissed
+        ? [
+            ...CROSS_GID_DISMISSED,
+            ...CROSS_GID.filter((group) => state.crossGidDismissed.has(group.id)).map(
+              (group) => ({ ...group, status: "dismissed" }),
+            ),
+          ]
+        : options.crossGidEmpty
+          ? []
+          : CROSS_GID.filter((group) => !state.crossGidDismissed.has(group.id)).map(
+              (group) => ({ ...group, status: "open" }),
+            );
       await json(route, {
         ready: !options.crossGidNotReady,
         count: groups.length,
@@ -612,8 +653,23 @@ export async function installMaintenanceMock(
       });
       return;
     }
+    if (RE_CROSS_GID_DISMISS.test(path) && method === "POST") {
+      const id = Number(path.split("/").at(-2));
+      state.crossGidDismissed.add(id);
+      await json(route, { status: "dismissed" });
+      return;
+    }
+    if (RE_CROSS_GID_RESTORE.test(path) && method === "POST") {
+      const id = Number(path.split("/").at(-2));
+      state.crossGidDismissed.delete(id);
+      await json(route, { status: "open" });
+      return;
+    }
     if (path === refreshCrossGidDuplicatesEp.path && method === "POST") {
-      await json(route, { ready: true, count: CROSS_GID.length, groups: CROSS_GID });
+      const groups = CROSS_GID.filter((group) => !state.crossGidDismissed.has(group.id)).map(
+        (group) => ({ ...group, status: "open" }),
+      );
+      await json(route, { ready: true, count: groups.length, groups }, 202);
       return;
     }
 

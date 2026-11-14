@@ -81,7 +81,34 @@ test("V-15 重复组与跨 gid 重复 @parity", async ({ app }) => {
       .or(page.getByTestId("dupxgid-empty"))
       .or(page.locator('[data-testid^="dupxgid-group-"]').first()),
   ).toHaveCount(1, { timeout: 20_000 });
-  annotateUnverified("duplicate resolve / keep / dismiss / cross-gid recompute were not executed");
+
+  // Dismiss and restore now hit the persisted cross-gid endpoints. The gate
+  // restores the group before it leaves the page so shared data stays intact.
+  const dismiss = page.locator('[data-testid^="dupxgid-dismiss-"]').first();
+  if (await dismiss.isVisible().catch(() => false)) {
+    const dismissId = await dismiss.getAttribute("data-testid");
+    const groupId = dismissId?.replace("dupxgid-dismiss-", "") ?? "";
+    const card = page.locator('[data-testid^="dupxgid-group-"]').first();
+    const cardId = await card.getAttribute("data-testid");
+    await dismiss.click();
+    if (cardId) await expect(page.getByTestId(cardId)).toHaveCount(0, { timeout: 20_000 });
+
+    await page
+      .getByTestId("dupxgid-status")
+      .locator('[data-segmented-value="dismissed"]')
+      .click();
+    const restore = page.getByTestId(`dupxgid-restore-${groupId}`);
+    await expect(restore).toBeVisible({ timeout: 20_000 });
+    await restore.click();
+    await page
+      .getByTestId("dupxgid-status")
+      .locator('[data-segmented-value="open"]')
+      .click();
+    if (cardId) await expect(page.getByTestId(cardId)).toHaveCount(1, { timeout: 20_000 });
+  } else {
+    annotateUnverified("cross-gid groups are empty; dismiss/restore cannot be exercised");
+  }
+  annotateUnverified("duplicate resolve / keep and cross-gid recompute were not executed");
   await app.shot("V-15");
 });
 

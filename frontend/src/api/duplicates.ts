@@ -16,6 +16,14 @@ export const refreshCrossGidDuplicatesEp = ep(
   "POST",
   "/api/library/duplicates/cross-gid/refresh",
 );
+export const dismissCrossGidDuplicateEp = ep(
+  "POST",
+  "/api/library/duplicates/cross-gid/{id}/dismiss",
+);
+export const restoreCrossGidDuplicateEp = ep(
+  "POST",
+  "/api/library/duplicates/cross-gid/{id}/restore",
+);
 
 /* ------------------------------------------------------ favorite duplicates */
 
@@ -149,8 +157,11 @@ export interface CrossGidItem {
 }
 
 export interface CrossGidGroup {
+  /** `duplicate_groups.id`; required for dismiss/restore on T5.3 and later. */
+  id?: number;
   key: string;
   artist?: string | null;
+  status?: "open" | "dismissed" | string;
   items: CrossGidItem[];
 }
 
@@ -223,15 +234,51 @@ export function duplicateThumbPath(key: string): string {
 }
 
 export function fetchCrossGidDuplicates(
+  status: "open" | "dismissed" = "open",
   signal?: AbortSignal,
 ): Promise<CrossGidResponse> {
-  return request<CrossGidResponse>(crossGidDuplicatesEp, { signal });
+  return request<CrossGidResponse>(
+    {
+      method: crossGidDuplicatesEp.method,
+      path:
+        status === "open"
+          ? crossGidDuplicatesEp.path
+          : `${crossGidDuplicatesEp.path}?status=${status}`,
+    },
+    { signal },
+  );
 }
 
 export function refreshCrossGidDuplicates(
   signal?: AbortSignal,
 ): Promise<CrossGidResponse> {
   return request<CrossGidResponse>(refreshCrossGidDuplicatesEp, { signal });
+}
+
+export function dismissCrossGidDuplicate(
+  id: number,
+  signal?: AbortSignal,
+): Promise<{ status?: string }> {
+  return request<{ status?: string }>(
+    {
+      method: dismissCrossGidDuplicateEp.method,
+      path: dismissCrossGidDuplicateEp.path.replace("{id}", String(id)),
+    },
+    { signal },
+  );
+}
+
+export function restoreCrossGidDuplicate(
+  id: number,
+  signal?: AbortSignal,
+): Promise<{ status?: string }> {
+  return request<{ status?: string }>(
+    {
+      method: restoreCrossGidDuplicateEp.method,
+      path: restoreCrossGidDuplicateEp.path.replace("{id}", String(id)),
+    },
+    { signal },
+  );
 }
 
 export function fetchFavoriteDuplicatesStatus(

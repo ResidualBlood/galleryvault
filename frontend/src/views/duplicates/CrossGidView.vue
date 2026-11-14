@@ -19,10 +19,11 @@ import DuplicateCopyRow from "./components/DuplicateCopyRow.vue";
 import DuplicateGroupCard from "./components/DuplicateGroupCard.vue";
 import MaintenanceNav from "./components/MaintenanceNav.vue";
 import {
+  dismissCrossGidDuplicate,
   fetchCrossGidDuplicates,
-  ignoreFavoriteDuplicate,
   refreshCrossGidDuplicates,
   removeFavorites,
+  restoreCrossGidDuplicate,
   type CrossGidGroup,
   type CrossGidItem,
   type CrossGidResponse,
@@ -42,7 +43,9 @@ const { t, te } = useI18n();
 
 type Filter = "all" | "local" | "cloud";
 type RemoveMode = "unfav" | "delete";
+type ListStatus = "open" | "dismissed";
 const FILTERS: readonly Filter[] = ["all", "local", "cloud"];
+const STATUSES: readonly ListStatus[] = ["open", "dismissed"];
 const PAGE_SIZE = 24;
 const STORAGE_KEYS = ["folder", "ehviewer_dir", "jhentai_dir", "cbz", "cbr", "pdf", "7z"] as const;
 
@@ -51,7 +54,7 @@ const loading = ref(true);
 const error = ref("");
 const busy = ref(false);
 const selected = ref<number[]>([]);
-const ignoredKeys = ref<string[]>([]);
+const listStatus = ref<ListStatus>("open");
 const collapsed = ref<string[]>([]);
 const confirmOpen = ref(false);
 const removeMode = ref<RemoveMode>("unfav");
@@ -113,6 +116,15 @@ const filterOptions = computed<SegmentedOption[]>(() =>
           : t("maintenance.duplicates.favorites.filterCloud"),
   })),
 );
+const statusOptions = computed<SegmentedOption[]>(() =>
+  STATUSES.map((item) => ({
+    value: item,
+    label:
+      item === "open"
+        ? t("maintenance.duplicates.cross.statusOpen")
+        : t("maintenance.duplicates.cross.statusDismissed"),
+  })),
+);
 const selectedCount = computed(() => selected.value.length);
 const favoritedSelected = computed(() => {
   const chosen = new Set(selected.value);
@@ -153,7 +165,11 @@ function categoryLabel(category: string | null | undefined): string {
 }
 
 function isIgnored(group: CrossGidGroup): boolean {
-  return ignoredKeys.value.includes(group.key);
+  return listStatus.value === "dismissed" && group.status !== "open";
+}
+
+function groupTestId(group: CrossGidGroup, verb: "dismiss" | "restore"): string {
+  return `dupxgid-${verb}-${group.id ?? group.key}`;
 }
 
 function isCollapsed(group: CrossGidGroup): boolean {
@@ -203,12 +219,22 @@ function applyResponse(data: CrossGidResponse): void {
   selected.value = selected.value.filter((gid) => available.has(gid));
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function signature(data: CrossGidResponse | null): string {
+  return JSON.stringify(
+    (data?.groups ?? []).map((group) => [group.key, group.status ?? "", group.items.length]),
+  );
+}
+
 async function load(): Promise<void> {
   const token = ++seq;
   loading.value = true;
   error.value = "";
   try {
-    const data = await fetchCrossGidDuplicates();
+    const data = await fetchCrossGidDuplicates(listStatus.value);
     if (token !== seq) return;
     applyResponse(data);
   } catch (cause) {
@@ -219,12 +245,27 @@ async function load(): Promise<void> {
   }
 }
 
+function setListStatus(next: string): void {
+  if (!STATUSES.includes(next as ListStatus) || next === listStatus.value) return;
+  listStatus.value = next as ListStatus;
+  selected.value = [];
+  void load();
+}
+
 async function recompute(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
+  const before = signature(response.value);
   try {
-    applyResponse(await refreshCrossGidDuplicates());
+    await refreshCrossGidDuplicates();
+    // T5.2 moved the scan off the request path: the POST answers 202 with the
+    // current view. Read the persisted result until the scan lands.
+    for (let index = 0; index < 6; index += 1) {
+      await delay(900);
+      await load();
+      if (signature(response.value) !== before) break;
+    }
     selected.value = [];
     void router.push({ name: "duplicates-cross-gid" });
   } catch (cause) {
@@ -284,7 +325,42 @@ async function confirmRemove(): Promise<void> {
   }
 }
 
-async function ignoreSelected(): Promise<void> {
+function removeGroup(key: string): void {
+  if (!response.value) return;
+  const groups = response.value.groups.filter((group) => group.key !== key);
+  response.value = { ...response.value, groups, count: groups.length };
+}
+
+async function dismissGroup(group: CrossGidGroup): Promise<boolean> {
+  if (group.id == null) {
+    ui.error(t("maintenance.duplicates.cross.missingId"));
+    return false;
+  }
+  try {
+    await dismissCrossGidDuplicate(group.id);
+    removeGroup(group.key);
+    return true;
+  } catch (cause) {
+    ui.error(cause instanceof Error ? cause.message : String(cause));
+    return false;
+  }
+}
+
+async function restoreGroup(group: CrossGidGroup): Promise<void> {
+  if (group.id == null) {
+    ui.error(t("maintenance.duplicates.cross.missingId"));
+    return;
+  }
+  try {
+    await restoreCrossGidDuplicate(group.id);
+    removeGroup(group.key);
+    ui.success(t("maintenance.duplicates.cross.restoredOk"));
+  } catch (cause) {
+    ui.error(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+async function dismissSelected(): Promise<void> {
   if (!selected.value.length) {
     ui.error(t("maintenance.duplicates.favorites.selectRequired"));
     return;
@@ -295,17 +371,7 @@ async function ignoreSelected(): Promise<void> {
   );
   let ok = 0;
   for (const group of targets) {
-    try {
-      await ignoreFavoriteDuplicate({
-        key: group.key,
-        title: groupTitle(group),
-        gids: group.items.map((item) => item.gid),
-      });
-      ignoredKeys.value = [...new Set([...ignoredKeys.value, group.key])];
-      ok += 1;
-    } catch {
-      /* keep going; the summary reports how many groups were ignored */
-    }
+    if (await dismissGroup(group)) ok += 1;
   }
   selected.value = [];
   ui.success(t("maintenance.duplicates.favorites.ignoredOk", { n: ok }));
@@ -313,10 +379,6 @@ async function ignoreSelected(): Promise<void> {
 
 function clearSelection(): void {
   selected.value = [];
-}
-
-function openIgnored(): void {
-  void router.push({ name: "favorites-ignored" });
 }
 
 const confirmTitle = computed(() =>
@@ -352,13 +414,7 @@ onMounted(load);
       :count-label="summary"
       :subtitle="t('maintenance.duplicates.cross.subtitle')"
       testid="dupxgid-header"
-    >
-      <template #actions>
-        <Button variant="text" icon="favorite-outline" data-testid="dupxgid-ignored-link" @click="openIgnored">
-          {{ t("maintenance.duplicates.favorites.ignoredPageLink") }}
-        </Button>
-      </template>
-    </PageHeader>
+    />
 
     <MaintenanceNav />
 
@@ -370,6 +426,18 @@ onMounted(load);
         <Button variant="outlined" icon="retry" data-testid="dupxgid-refresh" @click="load">
           {{ t("maintenance.duplicates.cross.refresh") }}
         </Button>
+      </ToolbarGroup>
+    </Toolbar>
+
+    <Toolbar class="xgid__filters" size="sm" testid="dupxgid-statusbar">
+      <ToolbarGroup>
+        <SegmentedControl
+          :model-value="listStatus"
+          :options="statusOptions"
+          :label="t('maintenance.duplicates.cross.statusLabel')"
+          testid="dupxgid-status"
+          @update:model-value="setListStatus"
+        />
       </ToolbarGroup>
     </Toolbar>
 
@@ -388,13 +456,14 @@ onMounted(load);
     <p class="xgid__summary" data-testid="dupxgid-summary">{{ summary }}</p>
 
     <SelectionBar
+      v-if="listStatus === 'open'"
       :count="selectedCount"
       :label="t('maintenance.shared.selected', { n: selectedCount })"
       testid="dupxgid-selection"
       @clear="clearSelection"
     >
-      <Button variant="outlined" data-testid="dupxgid-ignore" @click="ignoreSelected">
-        {{ t("maintenance.duplicates.favorites.ignoreSelected") }}
+      <Button variant="outlined" data-testid="dupxgid-ignore" @click="dismissSelected">
+        {{ t("maintenance.duplicates.cross.dismissSelected") }}
       </Button>
       <template #danger>
         <Button
@@ -458,8 +527,16 @@ onMounted(load);
     <EmptyState
       v-else-if="!groups.length"
       icon="duplicates"
-      :title="t('maintenance.duplicates.cross.none')"
-      :body="t('maintenance.duplicates.cross.noneBody')"
+      :title="
+        listStatus === 'dismissed'
+          ? t('maintenance.duplicates.cross.noneDismissed')
+          : t('maintenance.duplicates.cross.none')
+      "
+      :body="
+        listStatus === 'dismissed'
+          ? t('maintenance.duplicates.cross.noneDismissedBody')
+          : t('maintenance.duplicates.cross.noneBody')
+      "
       :action-label="t('maintenance.duplicates.cross.recompute')"
       testid="dupxgid-empty"
       @action="recompute"
@@ -482,12 +559,32 @@ onMounted(load);
         </template>
         <template #actions>
           <Button
+            v-if="listStatus === 'open'"
             variant="outlined"
             size="sm"
             data-testid="dupxgid-select-group"
             @click="toggleGroup(group)"
           >
             {{ t("maintenance.shared.select") }}
+          </Button>
+          <Button
+            v-if="listStatus === 'open'"
+            variant="outlined"
+            size="sm"
+            :data-testid="groupTestId(group, 'dismiss')"
+            @click="dismissGroup(group)"
+          >
+            {{ t("maintenance.duplicates.cross.dismiss") }}
+          </Button>
+          <Button
+            v-else
+            variant="outlined"
+            size="sm"
+            icon="retry"
+            :data-testid="groupTestId(group, 'restore')"
+            @click="restoreGroup(group)"
+          >
+            {{ t("maintenance.duplicates.cross.restore") }}
           </Button>
           <IconButton
             size="sm"
@@ -516,6 +613,7 @@ onMounted(load);
           >
             <template #leading>
               <Checkbox
+                v-if="listStatus === 'open'"
                 :model-value="selected.includes(item.gid)"
                 :aria-label="t('maintenance.shared.select')"
                 :data-testid="`dupxgid-select-${item.gid}`"

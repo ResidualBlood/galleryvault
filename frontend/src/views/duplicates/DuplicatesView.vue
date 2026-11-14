@@ -329,6 +329,10 @@ onMounted(load);
       <span v-if="openCount"> · {{ openCount }} {{ t("maintenance.duplicates.library.filterOpen") }}</span>
     </p>
 
+    <p class="dup__summary" data-testid="duplicates-persisted">
+      {{ t("maintenance.duplicates.persisted") }}
+    </p>
+
     <div v-if="loading" class="dup__skeletons" aria-hidden="true">
       <Skeleton v-for="index in 4" :key="index" variant="list" />
     </div>

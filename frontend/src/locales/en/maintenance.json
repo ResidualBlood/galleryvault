@@ -105,6 +105,7 @@
     "listCount": "Showing {n} of {total}"
   },
   "duplicates": {
+    "persisted": "The last scan result is persisted and survives a restart; rescan when you need fresh data.",
     "library": {
       "eyebrow": "DUPLICATE COPIES",
       "title": "Duplicate copies",
@@ -204,6 +205,16 @@
       "hintTitle": "Cross-GID scan not run yet",
       "hintBody": "Scan the library first, then press Recompute to cluster by title.",
       "noneBody": "Recompute to list different gids that look like the same work.",
+      "noneDismissed": "No dismissed cross-GID groups.",
+      "noneDismissedBody": "Dismiss a group in the Open list to restore it from here.",
+      "statusLabel": "Cross-GID group status",
+      "statusOpen": "Open",
+      "statusDismissed": "Dismissed",
+      "dismiss": "Dismiss group",
+      "dismissSelected": "Dismiss selected",
+      "restore": "Restore group",
+      "restoredOk": "Group restored",
+      "missingId": "This group has no persisted id; refresh and try again.",
       "expandGroup": "Expand group",
       "collapseGroup": "Collapse group"
     },
