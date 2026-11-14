@@ -1,27 +1,20 @@
-"""Background worker loops and synchronization tasks for favorites and duplicates."""
+"""Background worker loops and synchronization tasks for favorites and duplicates.
+
+The cover-cache, favorite-counts and check/poll clusters now live in the
+``galleryvault.services.favorites`` domain package (``cover_cache``, ``counts``,
+``poll``).  This module stays the import facade for callers and tests: it keeps
+the repository proxies, the download queue, the cloud-size estimate, the
+favorite size sync and the duplicates scan, and re-exports everything that
+moved so existing imports keep working (CR1).
+"""
 
 from __future__ import annotations
 
-import asyncio
-import base64
 import logging
-import os
-import tempfile
-import time as _time
-from collections import OrderedDict
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from typing import Any
 
-import httpx
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
-
 from ..app.state import app_state
-from ..config import get_settings
-from ..db.models import FavoriteItem, Gallery, GalleryMetadata
 from ..db.repositories.duplicates import DuplicateGroupRepository
 from ..db.repository import (
     DownloadRepository,
@@ -30,28 +23,112 @@ from ..db.repository import (
     GalleryUpdatesRepository,
 )
 from ..db.session import safe_transaction
-from ..logging import bind_log_context, log_extra
+from ..logging import log_extra
 from ..metadata.sidecar import normalize_posted, normalize_tags
-from ..services.tag_translation import translated_tag
 from .download_worker import infer_image_quality, notify_new_task
 from .duplicates import find_duplicate_groups
-from .eh_client import (
-    EXHENTAI_API_CHUNK_SIZE,
-    EhAuthRequiredError,
-    EhBannedError,
-    EhChallengeError,
-    EhImageSlowError,
-    EhQuotaExceededError,
-)
+from .eh_client import EXHENTAI_API_CHUNK_SIZE
 from .eh_metadata import refresh_gdata
-from .favorites import FavoritesService
-from .storage_usage import storage_tracker
+from .favorites import poll as _poll
+from .favorites.counts import (
+    _fav_counts_cache,
+    favorite_counts_cached,
+    refresh_favorite_counts,
+)
+from .favorites.cover_cache import (
+    _COVER_HEAL_CHUNK,
+    _COVER_SUFFIXES,
+    REMOTE_COVER_CONCURRENCY,
+    REMOTE_COVER_MIN_INTERVAL,
+    REMOTE_COVER_NEG_MAX_ENTRIES,
+    REMOTE_COVER_NEG_TTL_MISSING,
+    REMOTE_COVER_NEG_TTL_TRANSIENT,
+    _cover_cache_file,
+    _cover_cache_write_path,
+    _cover_clock,
+    _cover_failure_ttl,
+    _cover_inflight,
+    _cover_neg_cache,
+    _cover_neg_get,
+    _cover_neg_set,
+    _fill_remote_cover,
+    _get_background_session_factory,
+    _img_data_uri,
+    _remote_cover_cache_dir,
+    _write_cover_file,
+    clear_remote_cover_negative,
+    ensure_remote_cover,
+    favorites_metadata,
+    remote_cover_data_batch,
+)
+from .favorites.poll import (
+    FAVORITES_DEFAULT_INTERVAL_MINUTES,
+    FAVORITES_FULL_CHECK_MAX_AGE_DAYS,
+    FAVORITES_MIN_POLL_INTERVAL_SECONDS,
+    FAVORITES_POLL_TICK_SECONDS,
+    _favorites_effective_interval_seconds,
+    _favorites_fallback_interval_seconds,
+    _run_favorites_check_inner,
+    _run_favorites_poll_tick,
+    favorites_check_due,
+    favorites_first_page_all_known,
+    favorites_poll_loop,
+    favorites_skip_decision,
+    full_check_expired,
+    run_favorites_check,
+)
+from .tag_translation import translated_tag
+
+__all__ = [
+    "FAVORITES_DEFAULT_INTERVAL_MINUTES",
+    "FAVORITES_FULL_CHECK_MAX_AGE_DAYS",
+    "FAVORITES_MIN_POLL_INTERVAL_SECONDS",
+    "FAVORITES_POLL_TICK_SECONDS",
+    "REMOTE_COVER_CONCURRENCY",
+    "REMOTE_COVER_MIN_INTERVAL",
+    "REMOTE_COVER_NEG_MAX_ENTRIES",
+    "REMOTE_COVER_NEG_TTL_MISSING",
+    "REMOTE_COVER_NEG_TTL_TRANSIENT",
+    "_COVER_HEAL_CHUNK",
+    "_COVER_SUFFIXES",
+    "FavoriteDownloadQueue",
+    "FavoritesRepositoryProxy",
+    "_cover_cache_file",
+    "_cover_cache_write_path",
+    "_cover_clock",
+    "_cover_failure_ttl",
+    "_cover_inflight",
+    "_cover_neg_cache",
+    "_cover_neg_get",
+    "_cover_neg_set",
+    "_fav_counts_cache",
+    "_favorites_effective_interval_seconds",
+    "_favorites_fallback_interval_seconds",
+    "_fill_remote_cover",
+    "_get_background_session_factory",
+    "_img_data_uri",
+    "_remote_cover_cache_dir",
+    "_run_favorites_check_inner",
+    "_run_favorites_poll_tick",
+    "_write_cover_file",
+    "clear_remote_cover_negative",
+    "ensure_remote_cover",
+    "estimate_cloud_size",
+    "favorite_counts_cached",
+    "favorite_size_sync",
+    "favorites_check_due",
+    "favorites_first_page_all_known",
+    "favorites_metadata",
+    "favorites_poll_loop",
+    "favorites_skip_decision",
+    "full_check_expired",
+    "refresh_favorite_counts",
+    "remote_cover_data_batch",
+    "run_duplicates_scan",
+    "run_favorites_check",
+]
 
 logger = logging.getLogger(__name__)
-
-
-def _get_background_session_factory() -> Any:
-    return getattr(app_state, "background_session_factory", None) or app_state.session_factory
 
 
 class FavoritesRepositoryProxy:
@@ -141,577 +218,8 @@ class FavoriteDownloadQueue:
         logger.debug("favorite download persisted", extra=log_extra(gid=item.gid, task_id=task.id))
         return True
 
-FAVORITES_FULL_CHECK_MAX_AGE_DAYS = 15
-_FAV_COUNTS_TTL = 300.0
-_FAV_COUNTS_EMPTY_TTL = 60.0
-_COVER_SUFFIXES = (".img", ".jpg")
-_COVER_HEAL_CHUNK = 25
-# Remote cover fetches are the one EH path that fans out per gallery. During an
-# anti-bot challenge every retry re-hits upstream, so cap the fan-out, keep
-# consecutive cover requests apart, and remember recent failures per gid.
-REMOTE_COVER_CONCURRENCY = 2
-REMOTE_COVER_MIN_INTERVAL = 1.0
-# A gid that produced nothing upstream (no thumb / unexpected failure) is
-# unlikely to change soon; a challenge/auth/network failure may clear quickly.
-REMOTE_COVER_NEG_TTL_MISSING = 6 * 3600.0
-REMOTE_COVER_NEG_TTL_TRANSIENT = 30 * 60.0
-REMOTE_COVER_NEG_MAX_ENTRIES = 4096
-_cover_neg_cache: OrderedDict[int, float] = OrderedDict()
-_cover_inflight: dict[int, asyncio.Task[Path | None]] = {}
-_cover_gate: asyncio.Semaphore | None = None
-_cover_gate_loop: asyncio.AbstractEventLoop | None = None
-_cover_next_slot = 0.0
-_fav_counts_cache: dict[str, Any] = {"ts": 0.0, "counts": None}
-_fav_counts_refresh_task: asyncio.Task[None] | None = None
+
 _size_sync_inflight: set[int] = set()
-
-
-def _cover_clock() -> float:
-    """Monotonic clock for the cover negative cache (patched in tests)."""
-    return _time.monotonic()
-
-
-def _remote_cover_gate() -> asyncio.Semaphore:
-    """Return the process-wide upstream cover semaphore for the running loop."""
-    global _cover_gate, _cover_gate_loop
-    try:
-        loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
-    except RuntimeError:  # pragma: no cover - only outside an event loop
-        loop = None
-    if _cover_gate is None or _cover_gate_loop is not loop:
-        _cover_gate = asyncio.Semaphore(REMOTE_COVER_CONCURRENCY)
-        _cover_gate_loop = loop
-    return _cover_gate
-
-
-@asynccontextmanager
-async def _remote_cover_slot() -> AsyncIterator[None]:
-    """Hold one upstream cover slot, spacing consecutive requests apart."""
-    global _cover_next_slot
-    async with _remote_cover_gate():
-        wait = _cover_next_slot - _time.monotonic()
-        if wait > 0:
-            await asyncio.sleep(wait)
-        _cover_next_slot = _time.monotonic() + REMOTE_COVER_MIN_INTERVAL
-        yield
-
-
-def _cover_neg_get(gid: int) -> bool:
-    gid = int(gid)
-    expires_at = _cover_neg_cache.get(gid)
-    if expires_at is None:
-        return False
-    if expires_at <= _cover_clock():
-        _cover_neg_cache.pop(gid, None)
-        return False
-    _cover_neg_cache.move_to_end(gid)
-    return True
-
-
-def _cover_neg_set(gid: int, ttl: float) -> None:
-    gid = int(gid)
-    _cover_neg_cache[gid] = _cover_clock() + max(ttl, 0.0)
-    _cover_neg_cache.move_to_end(gid)
-    while len(_cover_neg_cache) > REMOTE_COVER_NEG_MAX_ENTRIES:
-        _cover_neg_cache.popitem(last=False)
-
-
-def clear_remote_cover_negative(gid: int | None = None) -> None:
-    """Forget cached cover failures.
-
-    Called on a successful fetch; explicit "re-fetch cover / refresh metadata"
-    entry points should call this too (``gid=None`` clears every entry) so a
-    user-triggered retry is never blocked by the negative cache.
-    """
-    if gid is None:
-        _cover_neg_cache.clear()
-    else:
-        _cover_neg_cache.pop(int(gid), None)
-
-
-def _cover_failure_ttl(exc: BaseException | None) -> float:
-    """Classify a failed cover fill: transient upstream errors retry soon."""
-    if exc is None:
-        return REMOTE_COVER_NEG_TTL_MISSING
-    if isinstance(
-        exc,
-        (
-            EhChallengeError,
-            EhAuthRequiredError,
-            EhBannedError,
-            EhImageSlowError,
-            EhQuotaExceededError,
-            httpx.HTTPError,
-            OSError,
-            TimeoutError,
-        ),
-    ):
-        return REMOTE_COVER_NEG_TTL_TRANSIENT
-    return REMOTE_COVER_NEG_TTL_MISSING
-
-
-
-def _remote_cover_cache_dir() -> Path:
-    settings = app_state.settings or get_settings()
-    d = Path(settings.thumbnail_cache_dir).parent / "remote-covers"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _cover_cache_file(cache_dir: Path, gid: int) -> Path | None:
-    for suffix in _COVER_SUFFIXES:
-        path = cache_dir / f"{int(gid)}{suffix}"
-        if path.is_file():
-            return path
-    return None
-
-
-def _cover_cache_write_path(cache_dir: Path, gid: int) -> Path:
-    return cache_dir / f"{int(gid)}.img"
-
-
-def _write_cover_file(path: Path, raw: bytes) -> None:
-    """Write a cover image in one rename, with a per-call unique temp file.
-
-    Two concurrent cache fillers for the same gid must not share a temp path:
-    the loser would then ``replace()`` a file the winner already moved away.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f"{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(raw)
-        tmp.replace(path)
-    finally:
-        tmp.unlink(missing_ok=True)
-    storage_tracker.record_cache_delta(len(raw))
-
-
-async def ensure_remote_cover(
-    gid: int,
-    token: str | None = None,
-    cache_dir: Path | None = None,
-    source: str = "thumb0",
-    *,
-    cached_meta: dict[str, Any] | None = None,
-) -> Path | None:
-    """Return the cached cover for ``gid``, filling it at most once per gid.
-
-    Misses are negative-cached (so a burst of callers cannot re-hit EH) and
-    coalesced into a single upstream flow per gid.
-    """
-    cache_dir = cache_dir or _remote_cover_cache_dir()
-    cached = _cover_cache_file(cache_dir, gid)
-    if cached is not None:
-        return cached
-
-    if _cover_neg_get(gid):
-        logger.debug(
-            "remote cover negative cache hit: gid=%s source=%s event=neg_hit",
-            gid,
-            source,
-            extra=log_extra(gid=int(gid), source=source, event="neg_hit"),
-        )
-        return None
-
-    key = int(gid)
-    pending = _cover_inflight.get(key)
-    if pending is None:
-        pending = asyncio.ensure_future(
-            _fill_remote_cover(key, token, cache_dir, source, cached_meta)
-        )
-        _cover_inflight[key] = pending
-
-        def _drop(task: asyncio.Task[Path | None], key: int = key) -> None:
-            if _cover_inflight.get(key) is task:
-                _cover_inflight.pop(key, None)
-
-        pending.add_done_callback(_drop)
-
-    try:
-        return await asyncio.shield(pending)
-    except asyncio.CancelledError:
-        raise
-    except Exception:  # noqa: BLE001 - the fill records its own failure
-        return None
-
-
-async def _fill_remote_cover(
-    gid: int,
-    token: str | None,
-    cache_dir: Path,
-    source: str,
-    cached_meta: dict[str, Any] | None,
-) -> Path | None:
-    logger.info(
-        "cover miss: gid=%s source=%s event=miss",
-        gid,
-        source,
-        extra=log_extra(gid=int(gid), source=source, event="miss"),
-    )
-
-    client = app_state.eh_client
-    if client is None:
-        return None
-
-    last_error: BaseException | None = None
-    thumb_url: str | None = None
-    has_cached_meta = False
-    if cached_meta is not None:
-        thumb_url = cached_meta.get("thumb") or None
-        has_cached_meta = True
-
-    session_factory = _get_background_session_factory()
-    if not thumb_url and not has_cached_meta and session_factory:
-        try:
-            async with session_factory() as session:
-                if hasattr(session, "scalar"):
-                    thumb_url = await session.scalar(
-                        select(FavoriteItem.thumb).where(
-                            FavoriteItem.gid == int(gid),
-                            FavoriteItem.thumb.is_not(None),
-                        ).limit(1)
-                    )
-                    if not thumb_url:
-                        thumb_url = await session.scalar(
-                            select(GalleryMetadata.thumb).where(
-                                GalleryMetadata.gid == int(gid),
-                                GalleryMetadata.thumb.is_not(None),
-                            ).limit(1)
-                        )
-                    if not thumb_url:
-                        source_meta = await session.scalar(
-                            select(Gallery.source_meta).where(
-                                Gallery.gid == int(gid),
-                                Gallery.source_meta.is_not(None),
-                            ).limit(1)
-                        )
-                        if isinstance(source_meta, dict) and source_meta.get("thumb"):
-                            thumb_url = str(source_meta["thumb"])
-                    if not thumb_url:
-                        has_cached_meta = bool(
-                            await session.scalar(
-                                select(GalleryMetadata.gid).where(
-                                    GalleryMetadata.gid == int(gid),
-                                ).limit(1)
-                            )
-                        )
-        except (SQLAlchemyError, Exception):  # noqa: BLE001
-            thumb_url = None
-
-    if not token and session_factory:
-        try:
-            async with session_factory() as session:
-                if hasattr(session, "scalar"):
-                    token = await session.scalar(
-                        select(Gallery.token).where(
-                            Gallery.gid == int(gid),
-                            Gallery.token.is_not(None),
-                        ).limit(1)
-                    )
-                    if not token:
-                        token = await session.scalar(
-                            select(FavoriteItem.token).where(
-                                FavoriteItem.gid == int(gid),
-                                FavoriteItem.token.is_not(None),
-                            ).limit(1)
-                        )
-                    if not token:
-                        token = await session.scalar(
-                            select(GalleryMetadata.token).where(
-                                GalleryMetadata.gid == int(gid),
-                                GalleryMetadata.token.is_not(None),
-                            ).limit(1)
-                        )
-        except (SQLAlchemyError, Exception):  # noqa: BLE001, S110
-            pass
-
-    if not thumb_url and not has_cached_meta and token and hasattr(client, "fetch_gmetadata"):
-        try:
-            chunk_meta = None
-            if session_factory:
-                try:
-                    async with session_factory() as session:
-                        if hasattr(session, "scalars"):
-                            # No explicit transaction: refresh_gdata releases
-                            # the read transaction before the gdata network
-                            # call and persists in a fresh short one.
-                            chunk_meta = await refresh_gdata(
-                                session, [(int(gid), token)], client=client
-                            )
-                except (SQLAlchemyError, Exception):  # noqa: BLE001
-                    chunk_meta = None
-            meta = (chunk_meta or {}).get(int(gid)) or {}
-            thumb_url = meta.get("thumb") or None
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            thumb_url = None
-
-    data: bytes | None = None
-    if thumb_url:
-        try:
-            async with _remote_cover_slot():
-                data = await client.download_image(str(thumb_url))
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            data = None
-
-    if data is None and token:
-        try:
-            async with _remote_cover_slot():
-                res = await client.fetch_gallery_cover(int(gid), token)
-            if isinstance(res, tuple) and res:
-                data = res[0]
-            elif isinstance(res, (bytes, bytearray)):
-                data = bytes(res)
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            data = None
-
-    if data:
-        write_path = _cover_cache_write_path(cache_dir, gid)
-        _write_cover_file(write_path, data)
-        clear_remote_cover_negative(gid)
-        return write_path
-
-    # Remember the miss so retries within the TTL do not hit upstream again.
-    _cover_neg_set(gid, _cover_failure_ttl(last_error))
-    return None
-
-
-def _img_data_uri(raw: bytes) -> str | None:
-    if not raw:
-        return None
-    if raw.startswith(b"\x89PNG"):
-        mime = "image/png"
-    elif raw.startswith((b"\xff\xd8\xff", b"\xff\xd8")):
-        mime = "image/jpeg"
-    elif raw.startswith(b"GIF8"):
-        mime = "image/gif"
-    elif raw.startswith(b"RIFF") and b"WEBP" in raw[:12]:
-        mime = "image/webp"
-    else:
-        mime = "image/jpeg"
-    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
-
-
-async def favorites_metadata(
-    pairs: list[tuple[int, str]], batch_size: int = EXHENTAI_API_CHUNK_SIZE
-) -> dict[int, dict[str, Any]]:
-    if not pairs:
-        return {}
-    session_factory = _get_background_session_factory()
-    if session_factory:
-        # The caller owns no transaction here: refresh_gdata releases the
-        # connection before the network and writes in a short transaction.
-        async with session_factory() as session:
-            return await refresh_gdata(
-                session, pairs, client=app_state.eh_client, batch_size=batch_size
-            )
-    if app_state.eh_client:
-        return await app_state.eh_client.fetch_gmetadata(pairs)
-    return {}
-
-
-async def remote_cover_data_batch(
-    pairs: list[tuple[int, str]],
-    metadata: dict[int, dict[str, Any]] | None = None,
-    *,
-    download: bool = True,
-    encode: bool = True,
-) -> dict[int, str]:
-    if not pairs:
-        return {}
-    if metadata is None and (download or encode):
-        metadata = await favorites_metadata(pairs)
-    metadata = metadata or {}
-    cache_dir = _remote_cover_cache_dir()
-    result: dict[int, str] = {}
-    need_download: list[tuple[int, str]] = []
-    for gid, _ in pairs:
-        cached_file = _cover_cache_file(cache_dir, gid)
-        if cached_file is not None:
-            if encode:
-                try:
-                    uri = _img_data_uri(cached_file.read_bytes())
-                    if uri:
-                        result[gid] = uri
-                except OSError:
-                    pass
-            continue
-        thumb_url = str((metadata.get(gid) or {}).get("thumb") or "")
-        if download and thumb_url:
-            need_download.append((gid, thumb_url))
-
-    if need_download and app_state.eh_client is not None:
-        async def _fetch(gid: int, url: str) -> None:
-            try:
-                assert app_state.eh_client is not None
-                # Same global gate as ensure_remote_cover: the heal loop must not
-                # burst past the upstream cover concurrency/spacing limits.
-                async with _remote_cover_slot():
-                    raw = await app_state.eh_client.download_image(url)
-                if raw:
-                    _write_cover_file(_cover_cache_write_path(cache_dir, gid), raw)
-                    clear_remote_cover_negative(gid)
-                    if encode:
-                        uri = _img_data_uri(raw)
-                        if uri:
-                            result[gid] = uri
-            except Exception as exc:  # noqa: BLE001
-                _cover_neg_set(gid, _cover_failure_ttl(exc))
-                logger.debug("cover download failed", extra=log_extra(gid=gid, error=str(exc)))
-
-        # Bound the fan-out: a folder can miss thousands of covers, and an
-        # unbounded gather would queue every download at once (memory + slow
-        # cancellation) instead of feeding the shared image semaphore steadily.
-        for start in range(0, len(need_download), _COVER_HEAL_CHUNK):
-            chunk = need_download[start : start + _COVER_HEAL_CHUNK]
-            await asyncio.gather(*[_fetch(gid, url) for gid, url in chunk])
-    return result
-
-
-def full_check_expired(last_check: datetime | None, *, now: datetime | None = None) -> bool:
-    """Whether a full folder listing is due (older than the max age or missing)."""
-    if last_check is None:
-        return True
-    current = now or datetime.now(UTC)
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=UTC)
-    if last_check.tzinfo is None:
-        last_check = last_check.replace(tzinfo=UTC)
-    return current - last_check >= timedelta(days=FAVORITES_FULL_CHECK_MAX_AGE_DAYS)
-
-
-async def favorites_first_page_all_known(favcat: int, known: set[int]) -> bool:
-    """Probe page 1 only: every gid there must already be recorded locally.
-
-    A version replacement keeps the cloud count identical but swaps in a gid we
-    have never seen, so the count alone is not enough to skip a folder.  Any
-    error, empty page or unparseable body is treated as "not proven unchanged"
-    and the caller falls back to a full check.
-    """
-    client = app_state.eh_client
-    if client is None:
-        return False
-    try:
-        items = await client.fetch_favorites(favcat, max_pages=1)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "favorites first-page probe failed",
-            extra=log_extra(favcat=favcat, error=type(exc).__name__),
-        )
-        return False
-    gids = {int(item.gid) for item in items}
-    if not gids:
-        logger.warning("favorites first-page probe returned no items", extra=log_extra(favcat=favcat))
-        return False
-    return gids.issubset(known)
-
-
-def favorites_skip_decision(
-    *,
-    scheduled: bool,
-    category_ready: bool,
-    live_count: int,
-    known: int,
-    first_page_known: bool,
-    last_full_check: datetime | None,
-    mode: str = "incremental",
-    now: datetime | None = None,
-) -> bool:
-    if mode == "force":
-        # A force folder must re-offer every cloud gid on each check.  Skipping
-        # it because the local rows happen to match the live count would hide
-        # gids whose earlier enqueue failed and was therefore never recorded.
-        return False
-    if not scheduled or not category_ready or live_count <= 0 or known != live_count:
-        return False
-    if not first_page_known:
-        return False
-    # Persisted deadline replaces the old in-memory "5 consecutive skips"
-    # counter, which a container restart (watchtower) reset before it fired.
-    return not full_check_expired(last_full_check, now=now)
-
-
-def _spawn_gallery_updates_detect() -> None:
-    from ..app.dependencies import spawn_task
-
-    try:
-        from .updates_worker import detect_gallery_updates
-
-        spawn_task(detect_gallery_updates(), "gallery updates detect")
-    except Exception:
-        logger.warning("ignoring error during post-check updates spawn", exc_info=True)
-
-
-async def _do_refresh_favorite_counts() -> None:
-    if app_state.eh_client is None:
-        return
-    try:
-        async with asyncio.timeout(60):
-            counts = await app_state.eh_client.fetch_favorite_counts()
-        if not counts:
-            # ``None``/empty means "could not confirm" (login wall, redirect or
-            # markup drift), never "the folder has zero items" — a confirmed
-            # zero arrives as ``{favcat: 0}``.
-            logger.warning("favorite counts unavailable (page header not parsed)")
-        _fav_counts_cache["ts"] = _time.time()
-        _fav_counts_cache["counts"] = counts or None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "favorite counts refresh failed", extra=log_extra(error=type(exc).__name__)
-        )
-        # Cache the failure briefly (unknown, not zero) so a cold/expired cache
-        # does not make every caller re-request the favorites page. A previously
-        # parsed mapping is kept for its normal TTL.
-        if not isinstance(_fav_counts_cache.get("counts"), dict):
-            _fav_counts_cache["ts"] = _time.time()
-            _fav_counts_cache["counts"] = None
-
-
-def _clear_refresh_task(task: asyncio.Task[None]) -> None:
-    global _fav_counts_refresh_task
-    if _fav_counts_refresh_task is task:
-        _fav_counts_refresh_task = None
-
-
-async def refresh_favorite_counts() -> None:
-    global _fav_counts_refresh_task
-    if _fav_counts_refresh_task is not None and not _fav_counts_refresh_task.done():
-        await asyncio.shield(_fav_counts_refresh_task)
-        return
-    task = asyncio.create_task(_do_refresh_favorite_counts())
-    task.add_done_callback(_clear_refresh_task)
-    _fav_counts_refresh_task = task
-    await asyncio.shield(task)
-
-
-async def favorite_counts_cached(wait_on_cold: bool = False, force: bool = False) -> dict[int, int]:
-    now = _time.time()
-    cached = _fav_counts_cache.get("counts")
-    if "counts" in _fav_counts_cache:
-        # A parsed mapping is a result (including ``{favcat: 0}``); ``None`` is
-        # "could not confirm" and is retried sooner, but still cached briefly so
-        # a broken header does not make every caller hit the favorites page.
-        ttl = _FAV_COUNTS_TTL if cached else _FAV_COUNTS_EMPTY_TTL
-        if not force and (now - float(_fav_counts_cache.get("ts", 0))) < ttl:
-            return cached if isinstance(cached, dict) else {}
-
-    if (wait_on_cold and not cached) or force:
-        await refresh_favorite_counts()
-        fresh = _fav_counts_cache.get("counts")
-        if isinstance(fresh, dict) and fresh:
-            return fresh
-        return cached if isinstance(cached, dict) else {}
-
-    from ..app.dependencies import spawn_task
-
-    spawn_task(refresh_favorite_counts(), "favorite counts warmup")
-    return cached if isinstance(cached, dict) else {}
 
 
 def estimate_cloud_size(cloud_count: int, local_count: int, local_size: int) -> int:
@@ -880,283 +388,6 @@ async def favorite_size_sync(favcat: int) -> None:
         _size_sync_inflight.discard(favcat)
 
 
-async def run_favorites_check(
-    favcat: int, service: FavoritesService, *, scheduled: bool = False
-) -> None:
-    with bind_log_context(worker="favorites", favcat=favcat):
-        await _run_favorites_check_inner(favcat, service, scheduled=scheduled)
-
-
-async def _run_favorites_check_inner(
-    favcat: int, service: FavoritesService, *, scheduled: bool = False
-) -> None:
-    from ..app.dependencies import get_task_manager
-
-    tm = get_task_manager()
-    skip_decision_fn = favorites_skip_decision
-    counts_cached_fn = favorite_counts_cached
-    session_cm = _get_background_session_factory()
-    if session_cm is None:
-        return
-
-    entry: dict[str, Any] = {
-        "running": True,
-        "started": datetime.now(UTC).isoformat(),
-        "error": None,
-        "done": 0,
-        "total": 0,
-    }
-    async with tm.track_task("favorites-check") as tracker:
-        categories = tracker.setdefault("categories", {})
-        categories[str(favcat)] = entry
-        try:
-            try:
-                try:
-                    counts = await counts_cached_fn(wait_on_cold=True)
-                except TypeError:
-                    counts = await counts_cached_fn()
-                entry["total"] = counts.get(favcat, 0)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "could not fetch live count for check progress",
-                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
-                )
-
-            live_count = int(entry.get("total") or 0)
-            category = None
-            known: set[int] = set()
-            last_full_check: datetime | None = None
-            async with session_cm() as session:
-                repo = FavoritesRepository(session)
-                category = await repo.category(favcat)
-                if (
-                    scheduled
-                    and category is not None
-                    and getattr(category, "last_success_at", None) is not None
-                ):
-                    try:
-                        known = await repo.known_gids(favcat)
-                        last_full_check = (await repo.full_check_times()).get(favcat)
-                    except Exception as exc:  # noqa: BLE001
-                        # Unknown local state must never authorise a skip.
-                        known = set()
-                        last_full_check = None
-                        logger.warning(
-                            "favorites skip heuristic failed",
-                            extra=log_extra(favcat=favcat, error=type(exc).__name__),
-                        )
-
-            if category is None:
-                category_mode = "incremental"
-            elif not getattr(category, "enabled", True):
-                category_mode = "monitor_only"
-            else:
-                category_mode = getattr(category, "mode", "incremental") or "incremental"
-
-            if (
-                scheduled
-                and category is not None
-                and getattr(category, "last_success_at", None) is not None
-                and category_mode != "force"
-                and live_count > 0
-                and len(known) == live_count
-                and not full_check_expired(last_full_check)
-            ):
-                try:
-                    first_page_known = await favorites_first_page_all_known(favcat, known)
-                    should_skip = skip_decision_fn(
-                        scheduled=True,
-                        category_ready=True,
-                        live_count=live_count,
-                        known=len(known),
-                        first_page_known=first_page_known,
-                        last_full_check=last_full_check,
-                        mode=category_mode,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    should_skip = False
-                    logger.warning(
-                        "favorites skip heuristic failed",
-                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
-                    )
-                if should_skip:
-                    entry["done"] = entry["total"] = live_count
-                    entry["skipped"] = True
-                    # Fresh session: the read session above has left its
-                    # autobegun transaction, and a nested begin() would raise.
-                    async with session_cm() as session, session.begin():
-                        await FavoritesRepository(session).checked(favcat, True)
-                    logger.info(
-                        "favorites check skipped (count unchanged and first page known)",
-                        extra=log_extra(favcat=favcat, cloud=live_count, known=len(known)),
-                    )
-                    # Cheap DB-only pass; it has its own "detecting" guard.
-                    _spawn_gallery_updates_detect()
-                    return
-
-            def _progress(done: int) -> None:
-                entry["done"] = done
-
-            settings = app_state.settings or get_settings()
-            archive_enabled = getattr(settings, "favorites_archive_enabled", False) if settings else False
-            archive_max_pages = getattr(settings, "favorites_archive_max_pages", 0) if settings else 0
-            archive_quality = getattr(settings, "archive_quality", "resample") if settings else "resample"
-            check_kwargs: dict[str, Any] = {
-                "progress": _progress,
-            }
-            if category_mode == "monitor_only":
-                check_kwargs["mode"] = "monitor_only"
-            else:
-                check_kwargs["mode"] = category_mode
-                check_kwargs["archive_enabled"] = archive_enabled
-                check_kwargs["archive_max_pages"] = archive_max_pages
-                check_kwargs["archive_quality"] = archive_quality
-
-            result = await service.check_category(favcat, **check_kwargs)
-            failed = int(getattr(result, "failed", 0) or 0)
-            if failed > 0:
-                # Keep the failure visible: a failed enqueue must not be
-                # reported as a successful check, and the full-check deadline
-                # must not move so the next poll retries the missing gids.
-                entry["error"] = f"{failed} favorite download(s) failed to enqueue"
-                tracker.update(last_error=entry["error"])
-                logger.warning(
-                    "favorites check finished with enqueue failures",
-                    extra=log_extra(favcat=favcat, failed=failed),
-                )
-                async with session_cm() as session, session.begin():
-                    await FavoritesRepository(session).checked(favcat, False)
-            else:
-                entry["error"] = None
-                async with session_cm() as session, session.begin():
-                    await FavoritesRepository(session).checked(favcat, True)
-                # Only a successful full listing refreshes the deadline; skipped
-                # runs must not extend it.  A failed write is logged, not retried as
-                # a failed check (the listing itself succeeded).
-                try:
-                    async with session_cm() as session, session.begin():
-                        await FavoritesRepository(session).set_full_check_time(favcat)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "could not persist favorites full-check timestamp",
-                        extra=log_extra(favcat=favcat, error=type(exc).__name__),
-                    )
-
-            from ..app.dependencies import spawn_task
-
-            spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
-            _spawn_gallery_updates_detect()
-        except Exception as exc:  # noqa: BLE001
-            entry["error"] = str(exc)
-            tracker.update(last_error=str(exc))
-            logger.error(
-                "favorites check failed",
-                extra=log_extra(favcat=favcat, error=str(exc) or type(exc).__name__),
-            )
-            try:
-                async with session_cm() as session, session.begin():
-                    await FavoritesRepository(session).checked(favcat, False)
-            except Exception:
-                logger.warning("ignoring error during favorites check failure record", exc_info=True)
-        finally:
-            entry["running"] = False
-            entry["completed"] = datetime.now(UTC).isoformat()
-
-
-# Fixed scheduler heartbeat.  Every tick re-reads the per-folder rows from the
-# database, so an interval change takes effect on the next tick instead of
-# waiting out the previous global sleep.  Tests patch this constant.
-FAVORITES_POLL_TICK_SECONDS = 60
-# ExHentai request budget: no folder may be checked more often than once every
-# ten minutes, even if the stored/UI value is smaller.  Failures also advance
-# ``last_checked_at`` (see ``FavoritesRepository.checked``), so a broken folder
-# is retried on this interval rather than on every tick.
-FAVORITES_MIN_POLL_INTERVAL_SECONDS = 600
-# Used only when a stored interval is missing/invalid.  The legacy global
-# ``favorites_poll_interval_minutes`` no longer drives the tick cadence; it is
-# kept as a compatibility fallback for rows that never got a per-folder value.
-FAVORITES_DEFAULT_INTERVAL_MINUTES = 720
-
-
-def _favorites_fallback_interval_seconds(settings: Any) -> int:
-    raw = getattr(settings, "favorites_poll_interval_minutes", FAVORITES_DEFAULT_INTERVAL_MINUTES)
-    try:
-        minutes = int(raw)
-    except (TypeError, ValueError):
-        minutes = FAVORITES_DEFAULT_INTERVAL_MINUTES
-    return max(FAVORITES_MIN_POLL_INTERVAL_SECONDS, minutes * 60)
-
-
-def _favorites_effective_interval_seconds(category: Any, fallback_seconds: int) -> int:
-    """Return the clamped per-folder interval (seconds)."""
-    raw = getattr(category, "poll_interval_seconds", None)
-    try:
-        seconds = int(raw)
-    except (TypeError, ValueError):
-        seconds = fallback_seconds
-    return max(FAVORITES_MIN_POLL_INTERVAL_SECONDS, seconds)
-
-
-def favorites_check_due(category: Any, now: datetime, fallback_seconds: int) -> bool:
-    """Whether ``category`` is due, based on its own interval and last check.
-
-    A missing ``last_checked_at`` counts as due (first run / new folder).
-    ``last_checked_at`` is written for failed checks too, so errors do not
-    retry on every tick.
-    """
-    last_checked = getattr(category, "last_checked_at", None)
-    if last_checked is None:
-        return True
-    if last_checked.tzinfo is None:
-        last_checked = last_checked.replace(tzinfo=UTC)
-    interval = _favorites_effective_interval_seconds(category, fallback_seconds)
-    return (now - last_checked).total_seconds() >= interval
-
-
-async def _run_favorites_poll_tick(
-    settings: Any,
-    service: FavoritesService,
-    session_factory: Any,
-    *,
-    now: datetime | None = None,
-) -> None:
-    """One scheduler tick: check only the folders whose own interval elapsed."""
-    async with session_factory() as session:
-        categories = await FavoritesRepository(session).categories()
-    fallback_seconds = _favorites_fallback_interval_seconds(settings)
-    current = now or datetime.now(UTC)
-    for cat in categories:
-        if not getattr(cat, "enabled", False):
-            continue
-        if not favorites_check_due(cat, current, fallback_seconds):
-            continue
-        await run_favorites_check(cat.favcat, service, scheduled=True)
-
-
-async def favorites_poll_loop(service: FavoritesService | None = None) -> None:
-    while True:
-        # Sleep for a fixed tick, then re-read settings and folder rows.  The
-        # per-folder interval is evaluated inside the tick; the legacy global
-        # interval is only a fallback for invalid rows.
-        await asyncio.sleep(FAVORITES_POLL_TICK_SECONDS)
-        settings = app_state.settings or get_settings()
-        if not settings.exhentai_cookies:
-            continue
-        session_factory = _get_background_session_factory()
-        if not session_factory:
-            continue
-        active_service = service or app_state.favorites_service
-        if active_service is None:
-            continue
-        try:
-            await _run_favorites_poll_tick(settings, active_service, session_factory)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "favorites scheduled poll loop error",
-                extra=log_extra(error=type(exc).__name__),
-            )
-
-
 async def run_duplicates_scan() -> None:
     session_factory = _get_background_session_factory()
     if not session_factory:
@@ -1280,3 +511,8 @@ async def run_duplicates_scan() -> None:
             )
         except Exception as exc:  # noqa: BLE001
             tracker.update(last_error=f"{type(exc).__name__}: {exc}", stage="error")
+
+
+# The check flow (poll) spawns the size sync after a successful run; register
+# the implementation without poll importing this facade.
+_poll.register_size_sync(favorite_size_sync)

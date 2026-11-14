@@ -19,6 +19,8 @@ from galleryvault.app.state import app_state
 from galleryvault.services import favorites_worker as fw
 from galleryvault.services.eh_client import FavoriteItems
 from galleryvault.services.favorites import FavoritesCheckResult, FavoritesService
+from galleryvault.services.favorites import counts as fav_counts
+from galleryvault.services.favorites import poll as fav_poll
 
 FAVCAT = 3
 
@@ -211,9 +213,9 @@ def _install_worker(
     )
     monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
     monkeypatch.setattr(app_state, "session_factory", Session)
-    monkeypatch.setattr(fw, "FavoritesRepository", lambda session: session._repo)
-    monkeypatch.setattr(fw, "favorite_counts_cached", fake_counts)
-    monkeypatch.setattr(fw, "_spawn_gallery_updates_detect", lambda: None)
+    monkeypatch.setattr(fav_poll, "FavoritesRepository", lambda session: session._repo)
+    monkeypatch.setattr(fav_counts, "favorite_counts_cached", fake_counts)
+    monkeypatch.setattr(fav_poll, "_spawn_gallery_updates_detect", lambda: None)
     monkeypatch.setattr("galleryvault.app.dependencies.spawn_task", fake_spawn)
 
 

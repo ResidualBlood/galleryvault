@@ -535,6 +535,8 @@ async def test_favorites_skip_branch_does_not_nest_transaction(
 ) -> None:
     from galleryvault.app.state import app_state
     from galleryvault.services import favorites_worker as fw
+    from galleryvault.services.favorites import counts as fav_counts
+    from galleryvault.services.favorites import poll as fav_poll
 
     sessions: list[_AutobeginSession] = []
     checked: list[tuple[int, bool]] = []
@@ -594,10 +596,10 @@ async def test_favorites_skip_branch_does_not_nest_transaction(
     try:
         app_state.session_factory = factory
         app_state.eh_client = Client()
-        monkeypatch.setattr(fw, "FavoritesRepository", lambda session: session._repo)
-        monkeypatch.setattr(fw, "favorite_counts_cached", _fake_counts)
+        monkeypatch.setattr(fav_poll, "FavoritesRepository", lambda session: session._repo)
+        monkeypatch.setattr(fav_counts, "favorite_counts_cached", _fake_counts)
         monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
-        monkeypatch.setattr(fw, "_spawn_gallery_updates_detect", lambda: None)
+        monkeypatch.setattr(fav_poll, "_spawn_gallery_updates_detect", lambda: None)
 
         await fw.run_favorites_check(1, Service(), scheduled=True)
     finally:

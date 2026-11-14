@@ -25,6 +25,7 @@ from galleryvault.services.eh_client import (
     _parse_favorite_counts,
 )
 from galleryvault.services.favorites import FavoritesService
+from galleryvault.services.favorites import counts as fav_counts
 
 # --------------------------------------------------------------------------
 # P2-8 upsert_metadata keeps cached values when the new value is None
@@ -168,12 +169,12 @@ async def test_empty_favorite_counts_cache_does_not_mean_zero(monkeypatch):
             return None
 
     monkeypatch.setattr(favorites_worker.app_state, "eh_client", FakeClient(), raising=False)
-    monkeypatch.setattr(favorites_worker, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
-    monkeypatch.setattr(favorites_worker, "_fav_counts_refresh_task", None)
+    monkeypatch.setattr(fav_counts, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
+    monkeypatch.setattr(fav_counts, "_fav_counts_refresh_task", None)
 
     assert await favorites_worker.favorite_counts_cached(wait_on_cold=True) == {}
     # Unknown is cached under the short TTL, and never stored as a zero mapping.
-    assert favorites_worker._fav_counts_cache["counts"] is None
+    assert fav_counts._fav_counts_cache["counts"] is None
     assert await favorites_worker.favorite_counts_cached(wait_on_cold=True) == {}
     assert calls["n"] == 1
 
@@ -188,13 +189,13 @@ async def test_failed_favorite_counts_refresh_is_cached_briefly(monkeypatch):
             raise RuntimeError("login wall")
 
     monkeypatch.setattr(favorites_worker.app_state, "eh_client", FailingClient(), raising=False)
-    monkeypatch.setattr(favorites_worker, "_fav_counts_cache", {"ts": 0.0, "counts": None})
-    monkeypatch.setattr(favorites_worker, "_fav_counts_refresh_task", None)
+    monkeypatch.setattr(fav_counts, "_fav_counts_cache", {"ts": 0.0, "counts": None})
+    monkeypatch.setattr(fav_counts, "_fav_counts_refresh_task", None)
 
     assert await favorites_worker.favorite_counts_cached(wait_on_cold=True) == {}
     assert await favorites_worker.favorite_counts_cached(wait_on_cold=True) == {}
     assert calls["n"] == 1
-    assert favorites_worker._fav_counts_cache["counts"] is None
+    assert fav_counts._fav_counts_cache["counts"] is None
 
 
 # --------------------------------------------------------------------------
