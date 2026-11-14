@@ -782,10 +782,13 @@ async def test_success_path_when_no_cancel(monkeypatch: pytest.MonkeyPatch) -> N
     )
 
     await run_download(DownloadTask(7, "token", "t", id=44))
-    assert row.status == "success"
+    # T2.1: files on disk only park the task for ingest; ``success`` and the
+    # ok notification are written by the ingest pump.
+    assert row.status == "downloading"
+    assert row.ingest_status == "pending"
     assert row.target_path == "/tmp/dl"
     assert row.retry_count == 0
-    assert notifications == [("ok", "t", "5")]
+    assert notifications == []
 
 
 @pytest.mark.asyncio
