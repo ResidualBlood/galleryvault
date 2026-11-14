@@ -50,6 +50,16 @@ forbidden_modules =
 #   EH client split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
 #   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:eh-parsers-pure]
+name = eh parsers are pure
+type = forbidden
+source_modules =
+    galleryvault.services.eh.parsers
+forbidden_modules =
+    galleryvault.services.eh_client
+    galleryvault.app
+    galleryvault.db
 # slot: cold
 #   Cold archive split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
