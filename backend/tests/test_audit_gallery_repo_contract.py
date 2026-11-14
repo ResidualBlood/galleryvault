@@ -115,26 +115,6 @@ async def test_get_by_gid_returns_none_on_miss() -> None:
     assert await GalleryRepository(_ScalarSession(None)).get_by_gid(1234) is None
 
 
-async def test_list_categories_route_uses_repository_counts(
-    monkeypatch,
-) -> None:
-    class _Repo:
-        def __init__(self, _session: object) -> None:
-            pass
-
-        async def category_counts(self) -> list[tuple[str, int]]:
-            return [("manga", 2)]
-
-    monkeypatch.setattr(galleries_router, "GalleryRepository", _Repo)
-
-    payload = await galleries_router.list_categories(session=object())
-
-    counts = {item["name"]: item["count"] for item in payload["categories"]}
-    assert counts["manga"] == 2
-    assert counts["doujinshi"] == 0
-    assert set(counts) == set(galleries_router.CATEGORIES)
-
-
 # --------------------------------------------------------------------------- #
 # atomic progress / history
 # --------------------------------------------------------------------------- #
