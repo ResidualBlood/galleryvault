@@ -30,6 +30,7 @@
     "allLoaded": "已全部加载",
     "noCover": "无封面",
     "openEh": "在 E-Hentai 打开",
+  "cloudOpenNeedsCookies": "未配置 EH Cookie，已在站外打开；配置 Cookie 后可在应用内打开在线详情。",
     "selectItem": "选择 {title}",
     "empty": "没有符合筛选条件的画廊。",
     "archiveTier": "归档画质",

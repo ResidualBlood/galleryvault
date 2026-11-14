@@ -270,6 +270,11 @@ def _validate_choice_values(values: dict[str, Any]) -> None:
             status_code=422,
             detail="title_display must be 'japanese', 'english', or 'directory'",
         )
+    if values.get("favorites_cloud_open") not in (None, "app", "external"):
+        raise HTTPException(
+            status_code=422,
+            detail="favorites_cloud_open must be 'app' or 'external'",
+        )
     interval = values.get("tag_translation_update_interval_minutes")
     if interval is not None and int(interval) < 0:
         raise HTTPException(

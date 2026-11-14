@@ -109,6 +109,7 @@
     "duplicate_policy": "Duplicate policy",
     "generate_thumbnails": "Generate thumbnails",
     "thumbnail_status": "Thumbnail task status",
+    "favorites_cloud_open": "Open cloud favourites",
     "download_root": "Download root",
     "download_concurrency": "Download concurrency",
     "page_concurrency": "Page concurrency",
@@ -178,6 +179,10 @@
     "onlineImage": {
       "direct": "Browser direct",
       "proxy": "Server proxy"
+    },
+    "favoritesCloudOpen": {
+      "app": "In-app online detail",
+      "external": "E-Hentai in a new tab"
     },
     "baseUrl": {
       "exhentai": "ExHentai (private)",
@@ -366,6 +371,7 @@
       "duplicate_policy": "Default policy used by the duplicates page.",
       "generate_thumbnails": "Create thumbnails when a gallery is indexed.",
       "thumbnail_status": "Result of the most recent thumbnail task.",
+      "favorites_cloud_open": "Only affects favourite entries that are not downloaded yet; in-app opens the online detail so reading progress and download context stay continuous.",
       "download_root": "Changing this requires the current password.",
       "download_concurrency": "Galleries downloaded at once, 1–32.",
       "page_concurrency": "Images downloaded at once per gallery, 1–16.",

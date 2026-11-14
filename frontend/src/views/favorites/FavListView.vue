@@ -25,6 +25,7 @@ import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
 import { PAGE_SIZES, clampPageSize } from "@/stores/library";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
+import { ensureAppSettings, peekAppSettings } from "@/composables/useAppSettings";
 import { useViewMode } from "@/composables/useViewMode";
 import {
   checkFavoriteCategory,
@@ -54,6 +55,7 @@ import {
   favoriteToGalleryItem,
 } from "./items";
 import { ensureFavoritesMessages } from "./messages";
+import { planFavoriteOpen } from "./open";
 
 ensureFavoritesMessages();
 
@@ -240,11 +242,6 @@ function categoryLabel(value: string): string {
   return t(`legacy.${keys[value] ?? "catMisc"}`);
 }
 
-function externalUrl(item: FavoriteItem): string {
-  if (item.url && /^https?:\/\//i.test(item.url)) return item.url;
-  return `https://e-hentai.org/g/${item.gid}/${encodeURIComponent(item.token)}/`;
-}
-
 function withFrom(query: Record<string, string>): Record<string, string> {
   const from = first(route.query.from);
   return from ? { ...query, from } : query;
@@ -375,9 +372,11 @@ function badgesFor(item: GalleryItem) {
 
 /**
  * Favourites mix local and cloud-only entries: cloud rows have no local
- * gallery to open, so the card link is redirected to ExHentai instead of the
- * detail route. The capture handler runs before the card's own RouterLink, so
- * the browser never follows the local `#/gallery/<id>` fallback.
+ * gallery to open, so the click is routed by ``favorites_cloud_open`` (in-app
+ * online detail by default, ExHentai in a new tab when the user prefers it).
+ * The capture handler runs before the card's own RouterLink, so the browser
+ * never follows the local `#/gallery/<id>` fallback. Middle / Ctrl clicks are
+ * untouched: they fire ``auxclick`` or open the RouterLink in a new tab.
  */
 function onCollectionClick(event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
@@ -391,10 +390,10 @@ function onCollectionClick(event: MouseEvent): void {
   if (!source) return;
   event.preventDefault();
   event.stopPropagation();
-  openFavorite(source);
+  void openFavorite(source);
 }
 
-function openFavorite(item: FavoriteItem): void {
+async function openFavorite(item: FavoriteItem): Promise<void> {
   if (item.gallery_id) {
     void router.push({
       name: "gallery",
@@ -403,7 +402,22 @@ function openFavorite(item: FavoriteItem): void {
     });
     return;
   }
-  window.open(externalUrl(item), "_blank", "noopener");
+  // The settings read is preloaded on mount; awaiting the (already resolved
+  // or in-flight) promise keeps the preference correct on a first click while
+  // still running inside the click's user activation window.
+  const settings = peekAppSettings() ?? (await ensureAppSettings());
+  const plan = planFavoriteOpen(item, settings);
+  if (plan.target.kind === "online") {
+    void router.push({
+      name: "online-detail",
+      params: { gid: plan.target.gid, token: plan.target.token },
+    });
+    return;
+  }
+  if (plan.cookieFallback) ui.info(t("favorites.list.cloudOpenNeedsCookies"));
+  if (plan.target.kind === "external") {
+    window.open(plan.target.url, "_blank", "noopener");
+  }
 }
 
 function onSort(column: TableColumn, direction: "asc" | "desc"): void {
@@ -543,6 +557,9 @@ watch(
 );
 
 onMounted(async () => {
+  // Preload the preference that decides where cloud favourites open; a
+  // click must not wait on the network (popup blockers drop that gesture).
+  void ensureAppSettings(true);
   try {
     categories.value = await fetchFavoriteCategories();
   } catch {

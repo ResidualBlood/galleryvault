@@ -108,6 +108,10 @@ class Settings(BaseSettings):
     telegram_notify_lang: str = "zh"
     favorites_categories: list[int] = Field(default_factory=lambda: list(range(10)))
     download_favorites_enabled: bool = False
+    # Where a favourites row that only exists in the cloud opens: ``app`` keeps
+    # the user in the in-app online detail (reading progress + enqueue context
+    # stay continuous), ``external`` opens the ExHentai page in a new tab.
+    favorites_cloud_open: str = "app"
     duplicate_policy: str = "keep_first"
     global_paused: bool = False
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
@@ -171,6 +175,8 @@ class Settings(BaseSettings):
             raise ValueError("favorites_archive_max_pages must be >= 0")
         if self.download_title not in {"japanese", "english"}:
             raise ValueError("download_title must be 'japanese' or 'english'")
+        if self.favorites_cloud_open not in {"app", "external"}:
+            raise ValueError("favorites_cloud_open must be 'app' or 'external'")
         if self.title_display not in {"japanese", "english", "directory"}:
             raise ValueError("title_display must be 'japanese', 'english', or 'directory'")
         if self.telegram_notify_level not in {"summary", "immediate", "failures_only", "off"}:
@@ -315,6 +321,7 @@ EDITABLE_SETTINGS = {
         "favorites_poll_interval_minutes",
     "favorites_categories",
     "download_favorites_enabled",
+    "favorites_cloud_open",
     "telegram_bot_token",
     "telegram_chat_ids",
     "telegram_allowed_user_ids",

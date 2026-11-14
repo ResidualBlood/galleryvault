@@ -277,6 +277,7 @@ class SettingsRequest(BaseModel):
     favorites_categories: list[int] | None = None
     download_favorites_enabled: bool | None = None
     favorites_poll_interval_minutes: int | None = Field(default=None, ge=1)
+    favorites_cloud_open: str | None = None
     favorites: list[dict[str, Any]] | None = None
     ipb_member_id: str | None = None
     ipb_pass_hash: str | None = None

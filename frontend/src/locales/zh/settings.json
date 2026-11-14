@@ -109,6 +109,7 @@
     "duplicate_policy": "重复画廊策略",
     "generate_thumbnails": "生成缩略图",
     "thumbnail_status": "缩略图任务状态",
+    "favorites_cloud_open": "收藏夹云端条目打开方式",
     "download_root": "下载目录",
     "download_concurrency": "下载并发",
     "page_concurrency": "页并发",
@@ -178,6 +179,10 @@
     "onlineImage": {
       "direct": "浏览器直连",
       "proxy": "服务器代理"
+    },
+    "favoritesCloudOpen": {
+      "app": "应用内在线详情",
+      "external": "站外新标签打开"
     },
     "baseUrl": {
       "exhentai": "ExHentai（里站）",
@@ -366,6 +371,7 @@
       "duplicate_policy": "查重页处理重复项时使用的默认策略。",
       "generate_thumbnails": "入库时生成缩略图。",
       "thumbnail_status": "最近一次缩略图任务的结果。",
+      "favorites_cloud_open": "仅影响收藏夹中尚未下载的云端条目；应用内会打开在线详情并沿用阅读进度与下载上下文。",
       "download_root": "改动需要当前密码确认。",
       "download_concurrency": "同时下载的画廊数，1–32。",
       "page_concurrency": "单本同时下载的图片数，1–16。",

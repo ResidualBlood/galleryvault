@@ -27,6 +27,7 @@
   "download_max_retries": 10,
   "favorites_categories": [],
   "download_favorites_enabled": false,
+  "favorites_cloud_open": "app",
   "favorites_poll_interval_minutes": 720,
   "telegram_bot_configured": false,
   "telegram_chat_ids": [],
