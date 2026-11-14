@@ -1,11 +1,11 @@
 """Gallery endpoints.
 
-The handlers live in the :mod:`listing`, :mod:`detail` and :mod:`delete`
-submodules; this module keeps the shared helpers and serialisers, the progress
-and integrity endpoints, and the test patch points.  Every sub-router is
-included at the registration position its handlers occupied before the split,
-so URL paths, route resolution order, the OpenAPI snapshot and
-``monkeypatch.setattr(galleries, ...)`` all keep working.
+The handlers live in the :mod:`listing`, :mod:`detail`, :mod:`delete` and
+``app.routers.reading`` submodules; this module keeps the shared helpers and
+serialisers, the integrity endpoints, and the test patch points.  Every
+sub-router is included at the registration position its handlers occupied
+before the split, so URL paths, route resolution order, the OpenAPI snapshot
+and ``monkeypatch.setattr(galleries, ...)`` all keep working.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from ....db.repository import (  # noqa: F401  # tests patch galleries.DownloadR
     DownloadRepository,
     GalleryRepository,
 )
-from ....db.session import safe_transaction
 from ....scanners import registry  # noqa: F401  # tests patch galleries.registry.for_path
 from ....scanners.base import CATEGORIES  # noqa: F401  # re-exported for tests
 from ....services.deletion import delete_galleries_local  # noqa: F401  # test patch point
@@ -51,11 +50,19 @@ from ...params import (  # noqa: F401  # re-exported; tests patch some of these 
     _tag_count,
     _tags_for_galleries,
 )
-from ...schemas import DownloadOriginalRequest, ProgressRequest  # noqa: F401
+from ...schemas import DownloadOriginalRequest  # noqa: F401
 from ...schemas.gallery import GalleryIntegrityResponse
 from ...state import app_state
-from .. import galleries_media
+from .. import galleries_media, reading
 from ..downloads import _create_from_prepared  # noqa: F401  # test patch point
+from ..reading import (  # noqa: F401  # re-exported handlers
+    clear_all_gallery_progress,
+    clear_gallery_progress,
+    clear_history,
+    gallery_progress,
+    history,
+    save_gallery_progress,
+)
 from . import delete, detail, listing
 from .delete import (  # noqa: F401  # re-exported handlers / test patch point
     _record_gallery_delete_log,
@@ -489,148 +496,10 @@ router.include_router(listing.bulk_router)
 router.include_router(detail.router)
 
 
-@router.get("/api/galleries/{identifier}/progress")
-async def gallery_progress(
-    identifier: int,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _invoke_gallery(identifier, session=session)
-    progress = await GalleryRepository(session).progress(row.id)
-    return {
-        "gallery_id": row.id,
-        "current_page": progress.current_page if progress else 0,
-        "total_pages": progress.total_pages if progress else len(pages),
-        "updated_at": progress.updated_at if progress else None,
-    }
-
-
-@router.put("/api/galleries/{identifier}/progress")
-async def save_gallery_progress(
-    identifier: int,
-    body: ProgressRequest,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, pages = await _invoke_gallery(identifier, session=session)
-    if not pages:
-        raise HTTPException(status_code=400, detail="Gallery has no pages")
-    current = body.current_page if body.current_page is not None else (body.page or 0)
-    total_pages = body.total_pages or len(pages)
-    if current < 0 or current >= len(pages):
-        raise HTTPException(status_code=422, detail="current_page is outside gallery")
-    async with safe_transaction(session):
-        repo = GalleryRepository(session)
-        progress, advanced = await repo.advance_progress(
-            row.id, current, total_pages
-        )
-        if advanced:
-            # History mirrors the persisted progress (same transaction), not the
-            # possibly stale page from this request.
-            await repo.record_history(
-                row.id, progress.current_page, progress.total_pages
-            )
-    persisted = progress.current_page if progress else current
-    return {
-        "gallery_id": row.id,
-        "current_page": persisted,
-        "total_pages": progress.total_pages if progress else total_pages,
-        "reading_progress": persisted,
-    }
-
-
-@router.get("/api/history")
-async def history(
-    page: int = 1,
-    page_size: int = 24,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    if page < 1 or not 1 <= page_size <= 500:
-        raise HTTPException(status_code=422, detail="invalid pagination")
-    session = await resolve_session(session, fallback_dep=get_session)
-    repo = GalleryRepository(session)
-    total, rows = await repo.history_page(page, page_size)
-    galleries = {}
-    if rows:
-        g_ids = list({x.gallery_id for x in rows})
-        found_galleries = await repo.find_by_ids(g_ids)
-        galleries = {g.id: g for g in found_galleries}
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "items": [
-            {
-                "gallery_id": x.gallery_id,
-                "current_page": x.current_page,
-                "total_pages": x.total_pages,
-                "last_read_at": x.last_read_at,
-                "title": (
-                    display_title(galleries[x.gallery_id])
-                    if x.gallery_id in galleries
-                    else None
-                ),
-                "display_title": (
-                    display_title(galleries[x.gallery_id])
-                    if x.gallery_id in galleries
-                    else None
-                ),
-                "raw_title": (
-                    galleries[x.gallery_id].title if x.gallery_id in galleries else None
-                ),
-                "title_jpn": (
-                    galleries[x.gallery_id].title_jpn if x.gallery_id in galleries else None
-                ),
-                "gid": galleries[x.gallery_id].gid if x.gallery_id in galleries else None,
-                "category": (
-                    galleries[x.gallery_id].category if x.gallery_id in galleries else None
-                ),
-                "url": f"/galleries/{x.gallery_id}",
-            }
-            for x in rows
-        ],
-    }
-
-
-@router.delete("/api/history", status_code=204)
-async def clear_history(
-    confirm: bool = False,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> None:
-    if not confirm:
-        raise HTTPException(
-            status_code=400,
-            detail="confirm=true is required to clear all history",
-        )
-    session = await resolve_session(session, fallback_dep=get_session)
-    async with safe_transaction(session):
-        await GalleryRepository(session).clear_history()
-
-
-@router.delete("/api/galleries/progress", status_code=204)
-async def clear_all_gallery_progress(
-    confirm: bool = False,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> None:
-    if not confirm:
-        raise HTTPException(
-            status_code=400,
-            detail="confirm=true is required to clear all progress",
-        )
-    session = await resolve_session(session, fallback_dep=get_session)
-    async with safe_transaction(session):
-        await GalleryRepository(session).clear_progress()
-
-
-@router.delete("/api/galleries/{identifier}/progress", status_code=204)
-async def clear_gallery_progress(
-    identifier: int,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> None:
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, _ = await _invoke_gallery(identifier, session=session)
-    async with safe_transaction(session):
-        await GalleryRepository(session).delete_progress(row.id)
+# Local reading progress/history.  The router is included at this exact spot:
+# ``DELETE /api/galleries/progress`` must be registered before the deletion
+# routes, whose ``DELETE /api/galleries/{identifier}`` would otherwise shadow it.
+router.include_router(reading.router)
 
 
 # Background single-gallery actions: redownload, archive and unarchive.

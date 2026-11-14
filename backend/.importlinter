@@ -52,6 +52,17 @@ forbidden_modules =
 #   Reading service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
 #   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:reading-usecases-injected]
+name = reading use-cases take collaborators by injection
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.reading
+forbidden_modules =
+    galleryvault.app.state
+    galleryvault.app.dependencies
+
 # slot: favorites
 #   Favorites service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.

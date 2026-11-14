@@ -18,10 +18,9 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy.exc import SQLAlchemyError
 
 from ...db.repositories.online_progress import OnlineProgressRepository
-from ...db.session import safe_transaction
+from ...services.reading import progress as reading_progress
 from ..dependencies import db_error, get_session, resolve_session
 from .eh_online import _validate_gid, _validate_token
 
@@ -68,12 +67,12 @@ def _clean_thumb(url: str | None) -> str | None:
     return url
 
 
-def _progress_payload(row: Any) -> dict[str, Any]:
-    return {
-        "page": row.current_page,
-        "total_pages": row.total_pages,
-        "updated_at": row.updated_at,
-    }
+def _deps() -> reading_progress.OnlineReadingDeps:
+    """Collaborators for the extracted online reading use-cases."""
+    return reading_progress.OnlineReadingDeps(
+        online_repo=OnlineProgressRepository,
+        db_error=db_error,
+    )
 
 
 @router.get("/api/eh/galleries/{gid}/{token}/progress")
@@ -85,13 +84,12 @@ async def eh_online_progress(
     gid = _validate_gid(gid)
     token = _validate_token(token)
     actual_session = await resolve_session(session)
-    try:
-        row = await OnlineProgressRepository(actual_session).get(gid)
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    if row is None or (row.token or "").lower() != token.lower():
+    payload = await reading_progress.get_online_progress(
+        gid, token, session=actual_session, deps=_deps()
+    )
+    if payload is None:
         raise HTTPException(status_code=404, detail="No online reading progress")
-    return _progress_payload(row)
+    return payload
 
 
 @router.put("/api/eh/galleries/{gid}/{token}/progress")
@@ -108,19 +106,16 @@ async def save_eh_online_progress(
     thumb = _clean_thumb(body.thumb)
     title = body.title[:_MAX_TITLE_LEN] if body.title else None
     actual_session = await resolve_session(session)
-    try:
-        async with safe_transaction(actual_session):
-            row, _accepted = await OnlineProgressRepository(actual_session).save(
-                gid,
-                token=token,
-                page=body.page,
-                total_pages=body.total_pages,
-                title=title,
-                thumb=thumb,
-            )
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return _progress_payload(row)
+    return await reading_progress.save_online_progress(
+        gid,
+        token,
+        session=actual_session,
+        page=body.page,
+        total_pages=body.total_pages,
+        title=title,
+        thumb=thumb,
+        deps=_deps(),
+    )
 
 
 @router.get("/api/eh/history")
@@ -131,26 +126,6 @@ async def eh_online_history(
 ) -> dict[str, Any]:
     """Recently read online galleries, newest ``updated_at`` first."""
     actual_session = await resolve_session(session)
-    try:
-        rows, total = await OnlineProgressRepository(actual_session).history(
-            (page - 1) * page_size, page_size
-        )
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {
-        "page": page,
-        "page_size": page_size,
-        "total": total,
-        "items": [
-            {
-                "gid": row.gid,
-                "token": row.token,
-                "title": row.title,
-                "thumb": row.thumb,
-                "page": row.current_page,
-                "total_pages": row.total_pages,
-                "updated_at": row.updated_at,
-            }
-            for row in rows
-        ],
-    }
+    return await reading_progress.list_online_history(
+        page, page_size, session=actual_session, deps=_deps()
+    )
