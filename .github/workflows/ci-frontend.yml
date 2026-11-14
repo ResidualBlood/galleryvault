@@ -111,6 +111,9 @@ jobs:
         env:
           PYTHONPATH: backend
         run: |
+          # Actions' default shell is `bash -e` (no pipefail): without this the
+          # pipeline would report tee's status and swallow a pytest failure.
+          set -o pipefail
           # A frontend-only edit can call a route the backend does not serve.
           # The test skips when frontend/src/api is absent; fail instead.
           test -d frontend/src/api

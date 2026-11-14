@@ -128,6 +128,9 @@ jobs:
           PYTHONPATH: backend
           DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
         run: |
+          # Actions' default shell is `bash -e` (no pipefail): without this the
+          # pipeline would report tee's status and swallow a pytest failure.
+          set -o pipefail
           # Repository-root context so frontend/src/api is visible; the module
           # skips when it is absent, which would silently drop this gate.
           test -d frontend/src/api
