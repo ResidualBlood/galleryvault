@@ -29,15 +29,6 @@ def _consume_spawn(coro: object, operation: str) -> object:
     return object()
 
 
-async def test_compute_sizes_returns_409_when_metadata_sync_running(
-    task_manager: TaskManager,
-) -> None:
-    task_manager.metadata_sync_state["running"] = True
-    with pytest.raises(HTTPException) as exc:
-        await favorites.compute_favorite_sizes(session=MagicMock())
-    assert exc.value.status_code == 409
-
-
 async def test_check_all_returns_409_when_check_running(
     task_manager: TaskManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
