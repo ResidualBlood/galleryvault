@@ -21,7 +21,13 @@ from ..logging import bind_log_context, log_extra
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
 from .storage_usage import safe_stat_size, storage_tracker
-from .tag_sync_worker import claim_jobs, complete_job, jobs_count, requeue_job
+from .tag_sync_worker import (
+    claim_jobs,
+    complete_job,
+    finalize_cancelled_run,
+    jobs_count,
+    requeue_job,
+)
 from .thumbnails import ThumbnailError, ThumbnailService
 
 logger = logging.getLogger(__name__)
@@ -237,7 +243,13 @@ async def thumbnail_worker_loop() -> None:
     async def _worker() -> None:
         while True:
             if tm and tm.is_cancelled("thumbs"):
-                break
+                # Finish this run as cancelled, then keep polling: only shutdown
+                # (CancelledError) may stop the resident worker.
+                finalize_cancelled_run(tm, thumb_state, "thumbs")
+                tm.clear_cancelled("thumbs")
+                last_activity[0] = _time.monotonic()
+                await asyncio.sleep(_THUMB_POLL_INTERVAL)
+                continue
             claimed = await claim_jobs(JOB_THUMB, 1)
             if not claimed:
                 if (

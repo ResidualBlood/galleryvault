@@ -45,6 +45,36 @@ def notify_tag_sync() -> None:
         _sync_event.set()
 
 
+def finalize_cancelled_run(tm: Any, state: dict[str, Any], task_name: str) -> None:
+    """Mark one cancelled run terminal without stopping the resident worker.
+
+    Cancelling a run must not leave ``running=True`` forever (the old loops did,
+    because they ``break``ed before the terminal-state code).  The worker keeps
+    polling afterwards; only ``asyncio.CancelledError`` ends it (shutdown).
+    """
+    completed_at = datetime.now(UTC).isoformat()
+    state["running"] = False
+    state["completed_at"] = completed_at
+    state["queued"] = 0
+    if state.get("history_recorded"):
+        return
+    state["history_recorded"] = True
+    if not tm:
+        return
+    tm.record_task(
+        task_name,
+        state.get("started_at") or completed_at,
+        completed_at,
+        "cancelled",
+        reason="cancelled",
+        done=int(state.get("processed") or 0),
+        total=int(state.get("total") or 0),
+    )
+    from ..app.dependencies import spawn_task
+
+    spawn_task(tm.persist_history(), "persist task history")
+
+
 def _get_background_session_factory() -> Any:
     """Worker-pool session factory, so background job churn never competes
     with HTTP requests for the API pool (falls back to the API pool)."""
@@ -564,10 +594,16 @@ async def _tag_sync_worker() -> None:
             return
 
         tm = app_state.task_manager
-        if tm and tm.is_cancelled("tag-sync"):
-            break
-        claimed = await claim_jobs(JOB_TAG_SYNC, 1)
         tag_sync_state = tm.tag_sync_state if tm else {}
+        if tm and tm.is_cancelled("tag-sync"):
+            # Finish this run as cancelled, then keep polling: only shutdown
+            # (CancelledError) may stop the resident worker.
+            finalize_cancelled_run(tm, tag_sync_state, "tag-sync")
+            tm.clear_cancelled("tag-sync")
+            _sync_context["last_activity"] = _time.monotonic()
+            await asyncio.sleep(1)
+            continue
+        claimed = await claim_jobs(JOB_TAG_SYNC, 1)
         if not claimed:
             if (
                 tag_sync_state.get("running")

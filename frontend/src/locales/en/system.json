@@ -9,6 +9,7 @@
     "noTasks": "No tasks yet.",
     "cancel": "Cancel task",
     "cancelling": "Cancelling…",
+    "cancelIdle": "There is no running task to cancel.",
     "task": "Task",
     "started": "Started",
     "status": "Status",
