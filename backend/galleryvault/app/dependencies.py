@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings, get_settings, normalize_library_roots
 from ..db.session import release_session as _release_session
-from ..db.uow import UnitOfWork
 from ..logging import log_extra
 from ..observability import inc_counter
 from .core.eh_client_manager import EhClientManager
@@ -122,14 +121,6 @@ async def release_session(session: Any) -> None:
     await _release_session(session)
 
 
-async def get_uow(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> AsyncIterator[UnitOfWork]:
-    """Yield a UnitOfWork wrapper over the active session."""
-    async with UnitOfWork(session) as uow:
-        yield uow
-
-
 async def get_unit_of_work(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> AsyncIterator[AbstractUnitOfWork]:
@@ -229,7 +220,7 @@ def get_page_params(
 
 
 def get_favorite_service(
-    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    uow: AbstractUnitOfWork = Depends(get_unit_of_work),  # noqa: B008
     task_dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
     eh_client_manager: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> FavoriteService:
@@ -244,7 +235,7 @@ def get_favorite_service(
 
 
 def get_gallery_service(
-    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    uow: AbstractUnitOfWork = Depends(get_unit_of_work),  # noqa: B008
     task_dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
     eh_client_manager: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> GalleryService:
@@ -466,7 +457,6 @@ __all__ = [
     "SqlAlchemyUnitOfWork",
     "StatusResponse",
     "TaskDispatcher",
-    "UnitOfWork",
     "db_error",
     "display_title",
     "get_current_settings",
@@ -487,7 +477,6 @@ __all__ = [
     "get_task_manager",
     "get_thumbnail_service",
     "get_unit_of_work",
-    "get_uow",
     "image_content_type",
     "release_session",
     "resolve_display_title",

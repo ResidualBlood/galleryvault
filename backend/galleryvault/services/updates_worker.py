@@ -126,9 +126,6 @@ def record_gallery_update_log(results: list[dict[str, Any]]) -> None:
             done=deleted,
             total=len(results),
         )
-        from ..app.dependencies import spawn_task
-
-        spawn_task(tm.persist_history(), "persist task history")
 
 
 def _is_cold_storage(gallery: Gallery) -> bool:

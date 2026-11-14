@@ -176,24 +176,6 @@ class BotContext:
             force=True,
         )
 
-    async def edit_reply_markup(
-        self,
-        reply_markup: dict[str, Any] | None = None,
-    ) -> bool:
-        """Edit the current message reply markup."""
-        if (
-            self.chat_id is None
-            or self.message_id is None
-            or not hasattr(self.notifier, "edit_message_reply_markup")
-        ):
-            return False
-        return await self.notifier.edit_message_reply_markup(
-            chat_id=self.chat_id,
-            message_id=self.message_id,
-            reply_markup=reply_markup,
-            force=True,
-        )
-
     async def answer_callback(
         self,
         text: str | None = None,

@@ -458,7 +458,6 @@ async def rebuild_series(
                 done=0,
                 total=0,
             )
-            disp.spawn(tm.persist_history(), "persist task history")
         raise
     finally:
         series_rebuild_state["running"] = False
@@ -477,5 +476,4 @@ async def rebuild_series(
             done=merged,
             total=merged,
         )
-        disp.spawn(tm.persist_history(), "persist task history")
     return {"rebuilt": True, **stats}

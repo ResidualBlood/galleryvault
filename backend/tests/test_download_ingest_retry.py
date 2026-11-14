@@ -212,13 +212,9 @@ class _PumpSession:
 class _TaskManagerStub:
     def __init__(self) -> None:
         self.records: list[tuple[tuple, dict]] = []
-        self.persisted = 0
 
     def record_task(self, *args: object, **kwargs: object) -> None:
         self.records.append((args, kwargs))
-
-    async def persist_history(self) -> None:
-        self.persisted += 1
 
 
 @pytest.mark.asyncio
@@ -254,7 +250,6 @@ async def test_ingest_failure_notifies_fail_and_records_history(
     assert "入库失败" in str(detail) and "library insert exploded" in str(detail)
     assert tm.records and tm.records[0][0][0] == "download-ingest"
     assert tm.records[0][0][3] == "failed"
-    assert tm.persisted == 1
 
 
 @pytest.mark.asyncio

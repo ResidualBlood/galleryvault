@@ -4,7 +4,7 @@ from typing import Any
 
 from ..app.dependencies import BatchOperationResult, PageParams, PageResponse
 from ..app.exceptions import NotFoundError, ValidationError
-from ..db.models import Gallery, GalleryPage, ReadingProgress
+from ..db.models import Gallery, GalleryPage
 from .base_service import BaseService
 
 
@@ -91,56 +91,12 @@ class GalleryService(BaseService):
             raise NotFoundError(f"Gallery {identifier} not found")
         return gallery
 
-    async def get_gallery_detail(self, gallery_id: int) -> dict[str, Any]:
-        """Fetch complete gallery details including pages, tags, and progress."""
-        gallery_with_pages = await self.uow.galleries.get_gallery_with_pages(gallery_id)
-        if gallery_with_pages is None:
-            raise NotFoundError(f"Gallery {gallery_id} not found")
-        gallery, pages = gallery_with_pages
-        tags = await self.uow.galleries.tags_for_gallery(gallery_id)
-        progress = await self.uow.galleries.progress(gallery_id)
-        return {
-            "gallery": gallery,
-            "pages": pages,
-            "tags": tags,
-            "progress": progress,
-        }
-
     async def get_pages(self, gallery_id: int) -> list[GalleryPage]:
         """Fetch all pages belonging to a gallery."""
         gallery = await self.uow.galleries.get_by_id(gallery_id)
         if gallery is None:
             raise NotFoundError(f"Gallery {gallery_id} not found")
         return await self.uow.galleries.get_pages(gallery_id)
-
-    async def update_gallery(
-        self,
-        gallery_id: int,
-        title: str | None = None,
-        title_jpn: str | None = None,
-        category: str | None = None,
-        local_rating: int | None = None,
-    ) -> Gallery:
-        """Update gallery metadata attributes."""
-        async with self.transaction():
-            gallery = await self.uow.galleries.get_by_id(gallery_id)
-            if gallery is None:
-                raise NotFoundError(f"Gallery {gallery_id} not found")
-
-            if title is not None or title_jpn is not None:
-                await self.uow.galleries.update_titles(gallery_id, title, title_jpn)
-
-            updates: dict[str, Any] = {}
-            if category is not None:
-                updates["category"] = category
-            if local_rating is not None:
-                updates["local_rating"] = local_rating
-
-            if updates:
-                await self.uow.galleries.update_gallery_fields(gallery_id, **updates)
-
-            await self.uow.session.refresh(gallery)
-            return gallery
 
     async def set_local_rating(self, gallery_id: int, rating: int | None) -> Gallery:
         """Set or clear local rating for a gallery."""
@@ -165,37 +121,6 @@ class GalleryService(BaseService):
                 raise NotFoundError(f"Gallery {gallery_id} not found")
             return await self.uow.galleries.set_local_tags(gallery_id, tags)
 
-    async def batch_delete_galleries(
-        self,
-        gallery_ids: Sequence[int],
-        permanent: bool = False,
-    ) -> BatchOperationResult:
-        """Batch delete galleries (soft-delete to trash or permanent purge)."""
-        valid_ids = [gid for gid in gallery_ids if gid is not None]
-        if not valid_ids:
-            return BatchOperationResult(total=0, succeeded=0, failed=0, errors=[])
-
-        task_type = "purge_galleries" if permanent else "trash_galleries"
-        async with (
-            self.audit_scope(
-                task_type=task_type,
-                message=f"{task_type} {len(valid_ids)} galleries",
-                details={"ids": valid_ids, "permanent": permanent},
-            ),
-            self.transaction(),
-        ):
-            if permanent:
-                affected_count = await self.uow.galleries.purge_galleries(valid_ids)
-            else:
-                affected_count = await self.uow.galleries.trash_galleries(valid_ids)
-
-        return BatchOperationResult(
-            total=len(valid_ids),
-            succeeded=affected_count,
-            failed=len(valid_ids) - affected_count,
-            errors=[],
-        )
-
     async def restore_galleries(self, gallery_ids: Sequence[int]) -> BatchOperationResult:
         """Restore trashed galleries back to active library."""
         valid_ids = [gid for gid in gallery_ids if gid is not None]
@@ -218,51 +143,6 @@ class GalleryService(BaseService):
             failed=len(valid_ids) - restored_count,
             errors=[],
         )
-
-    async def get_reading_progress(self, gallery_id: int) -> ReadingProgress | None:
-        """Fetch current reading progress for a gallery."""
-        return await self.uow.galleries.progress(gallery_id)
-
-    async def update_reading_progress(
-        self,
-        gallery_id: int,
-        current_page: int,
-        total_pages: int | None = None,
-    ) -> ReadingProgress:
-        """Record or update reading progress and history for a gallery."""
-        async with self.transaction():
-            gallery = await self.uow.galleries.get_by_id(gallery_id)
-            if gallery is None:
-                raise NotFoundError(f"Gallery {gallery_id} not found")
-            progress = await self.uow.galleries.upsert_progress(
-                gallery_id=gallery_id,
-                current_page=current_page,
-                total_pages=total_pages,
-            )
-            await self.uow.galleries.record_history(
-                gallery_id=gallery_id,
-                current_page=current_page,
-                total_pages=total_pages,
-            )
-            return progress
-
-    async def list_reading_history(
-        self,
-        page: int = 1,
-        page_size: int = 50,
-    ) -> PageResponse[Any]:
-        """Fetch paginated reading history entries."""
-        total, items = await self.uow.galleries.history_page(page, page_size)
-        return PageResponse.create(
-            items=items,
-            total=total,
-            params=PageParams(page=page, page_size=page_size),
-        )
-
-    async def clear_reading_history(self) -> None:
-        """Clear all reading history records."""
-        async with self.transaction():
-            await self.uow.galleries.clear_history()
 
     async def list_trashed(
         self,
@@ -316,11 +196,3 @@ class GalleryService(BaseService):
         facets = await self.uow.galleries.tag_facets()
         return [{"namespace": ns, "count": count} for ns, count in facets]
 
-    async def get_storage_stats(self) -> dict[str, Any]:
-        """Retrieve library storage sum and top largest galleries."""
-        total_storage = await self.uow.galleries.library_storage_sum()
-        largest = await self.uow.galleries.largest_by_storage(limit=10)
-        return {
-            "total_bytes": total_storage,
-            "largest_galleries": largest,
-        }

@@ -28,8 +28,6 @@ from ...scanners.base import CATEGORIES
 from ...services.cold_archive import archive_one, run_unarchive
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
-from ...services.eh_client import FavoriteData
-from ...services.gallery_service import GalleryService
 from ...services.tag_sync import (
     GalleryGidMissing,
     GalleryNotFound,
@@ -38,14 +36,11 @@ from ...services.tag_sync import (
 )
 from ...services.tag_translation import translated_tag
 from ...services.thumbnails import ThumbnailService
-from ..core.eh_client_manager import EhClientManager
 from ..dependencies import (
     db_error,
     display_title,
     get_current_settings,
     get_eh_client,
-    get_eh_client_manager,
-    get_gallery_service,
     get_session,
     get_task_manager,
     release_session,
@@ -310,7 +305,6 @@ async def list_galleries(
     list_id: int | None = None,
     tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     if page < 1 or not 1 <= page_size <= 500:
@@ -642,7 +636,6 @@ async def redownload_expunged(
             done=queued,
             total=len(valid_targets),
         )
-        spawn_task(tm.persist_history(), "persist task history")
 
     return {
         "queued": queued,
@@ -747,7 +740,6 @@ async def trigger_integrity_scan() -> dict[str, object]:
 async def restore_galleries(
     body: BulkDeleteRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     ids = body.ids or body.gallery_ids or []
@@ -764,7 +756,6 @@ async def restore_galleries(
 @router.post("/api/galleries/purge", status_code=200)
 async def purge_galleries(
     body: BulkDeleteRequest,
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
     ids = body.ids or body.gallery_ids or []
     if not ids:
@@ -915,7 +906,6 @@ async def patch_gallery_local(
     identifier: int,
     body: GalleryLocalRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     row, _ = await _invoke_gallery(identifier, session=session)
@@ -940,7 +930,6 @@ async def patch_gallery_local(
     tm = get_task_manager()
     now = datetime.now(UTC).isoformat()
     tm.record_task("gallery-local", now, now, "success", reason=f"id {row.id}", done=1, total=1)
-    spawn_task(tm.persist_history(), "persist task history")
     local_tags = [
         {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
         for ns, name in tags.get(row.id, [])
@@ -1037,105 +1026,6 @@ async def gallery_favorite_status(
     }
 
 
-async def toggle_gallery_favorite(
-    identifier: int,
-    favcat: int = 0,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
-) -> dict[str, object]:
-    """Deprecated: prefer POST /api/favorites/add for single/batch adds.
-
-    Kept for backward compat (single gallery toggle). Batch adds MUST use
-    /api/favorites/add which batches via successful_gids and respects cloud
-    success before writing favorite_items.
-    """
-    if not 0 <= favcat <= 9:
-        raise HTTPException(status_code=422, detail="favcat must be between 0 and 9")
-    session = await resolve_session(session, fallback_dep=get_session)
-    row, _ = await _invoke_gallery(identifier, session=session)
-    gid = int(row.gid) if row.gid else None
-    gallery_id = row.id
-    title = row.title
-    if not gid:
-        raise HTTPException(
-            status_code=400, detail="Gallery lacks gid for ExHentai favorites"
-        )
-    try:
-        favcats = await FavoritesRepository(session).favcats_for_gid(
-            gid, gallery_id=gallery_id
-        )
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-
-    target_state = not bool(favcats)
-    settings = get_current_settings()
-    token = row.token
-
-    if target_state:
-        if not token:
-            raise HTTPException(
-                status_code=400, detail="Gallery lacks token for ExHentai favorites"
-            )
-        # Read transaction is over: hand the pooled connection back before the
-        # (potentially slow) ExHentai call starts.
-        await release_session(session)
-        try:
-            async with eh_client_mgr.client_context(settings=settings) as client:
-                await client.add_favorite(gid, token, favcat)
-        except Exception as exc:
-            logger.warning(
-                "ExHentai cloud favorite sync failed",
-                extra=log_extra(gid=gid, error=type(exc).__name__),
-            )
-            raise HTTPException(
-                status_code=502, detail="ExHentai cloud favorite sync failed"
-            ) from exc
-
-        base_url = str(
-            getattr(settings, "exhentai_base_url", "https://exhentai.org")
-            or "https://exhentai.org"
-        ).rstrip("/")
-        fav_item = FavoriteData(
-            gid=gid,
-            token=str(token),
-            title=title or str(gid),
-            url=f"{base_url}/g/{gid}/{token}/",
-            thumb=None,
-        )
-        try:
-            async with safe_transaction(session):
-                await FavoritesRepository(session).remember(favcat, fav_item)
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-    else:
-        await release_session(session)
-        try:
-            async with eh_client_mgr.client_context(settings=settings) as client:
-                failed = await client.remove_favorites([gid])
-            if failed:
-                raise HTTPException(
-                    status_code=502, detail="ExHentai cloud favorite remove failed"
-                )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.warning(
-                "ExHentai cloud favorite remove failed",
-                extra=log_extra(gid=gid, error=type(exc).__name__),
-            )
-            raise HTTPException(
-                status_code=502, detail="ExHentai cloud favorite remove failed"
-            ) from exc
-
-        try:
-            async with safe_transaction(session):
-                await FavoritesRepository(session).remove_gids([gid])
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    return {"favorite": target_state, "favorite_category": favcat if target_state else None}
-
-
 @router.get("/api/galleries/{identifier}/progress")
 async def gallery_progress(
     identifier: int,
@@ -1157,7 +1047,6 @@ async def save_gallery_progress(
     identifier: int,
     body: ProgressRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     row, pages = await _invoke_gallery(identifier, session=session)
@@ -1392,7 +1281,6 @@ async def delete_gallery(
     delete_files: bool = False,
     delete_all_copies: bool = False,
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> None:
     session = await resolve_session(session, fallback_dep=get_session)
     results: list[dict] = []
@@ -1431,7 +1319,6 @@ async def delete_gallery(
 @router.post("/api/galleries/delete-bulk", status_code=200)
 async def delete_galleries_bulk(
     body: BulkDeleteRequest,
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
     ids = body.ids or body.gallery_ids or []
     if not ids:
@@ -1492,7 +1379,6 @@ async def delete_galleries_filtered(
     body: FilteredDeleteRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    gallery_service: GalleryService = Depends(get_gallery_service),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     if body.tag_mode not in {"and", "or"} or body.tag_match not in {"exact", "fuzzy"}:
@@ -1678,7 +1564,6 @@ def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: b
         reason += f", file deletion failed: {', '.join(str(p) for p in failed[:3])}"
     tm = get_task_manager()
     tm.record_task("gallery-delete", now, now, status, reason=reason, done=deleted, total=len(results))
-    spawn_task(tm.persist_history(), "persist task history")
 
 
 @router.post("/api/galleries/{identifier}/sync-tags")

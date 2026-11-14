@@ -130,7 +130,6 @@ async def export_gallery_cbz(
             done=done,
             total=total,
         )
-        _gal().spawn_task(tm.persist_history(), "persist task history")
 
     if not path.exists():
         _log("failed", "missing files")

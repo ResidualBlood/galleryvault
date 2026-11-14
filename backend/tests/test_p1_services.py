@@ -1306,55 +1306,6 @@ def test_observability_gauges_and_counters() -> None:
     assert "gv_scan_running 1" in rendered
 
 
-@pytest.mark.asyncio
-async def test_task_history_persistence_and_restoration() -> None:
-    from galleryvault.app.state import app_state
-    from galleryvault.services.tasks import default_task_manager
-
-    saved_rows = {}
-
-    class FakeSession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            pass
-
-        def begin(self):
-            return self
-
-        async def get(self, model, key):
-            from galleryvault.db.models import AppConfig
-
-            if key in saved_rows:
-                return AppConfig(key=key, value=saved_rows[key])
-            return None
-
-        def add(self, item):
-            saved_rows[item.key] = item.value
-
-    orig_factory = app_state.session_factory
-    app_state.session_factory = lambda: FakeSession()
-    default_task_manager.session_factory = app_state.session_factory
-
-    try:
-        default_task_manager.task_history.clear()
-        default_task_manager.record_task("scan", "2026-08-31T00:00:00Z", "2026-08-31T00:01:00Z", "success", done=10)
-        await default_task_manager.persist_history()
-        assert len(default_task_manager.task_history) == 1
-        assert "task_history" in saved_rows
-
-        default_task_manager.task_history.clear()
-        assert len(default_task_manager.task_history) == 0
-        await default_task_manager.restore_history()
-        assert len(default_task_manager.task_history) == 1
-        assert default_task_manager.task_history[0]["task"] == "scan"
-        assert default_task_manager.task_history[0]["done"] == 10
-    finally:
-        app_state.session_factory = orig_factory
-        default_task_manager.session_factory = orig_factory
-
-
 async def test_clear_progress_repository_methods() -> None:
     """Test GalleryRepository clear_progress and delete_progress methods."""
     from sqlalchemy.dialects import postgresql

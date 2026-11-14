@@ -107,7 +107,7 @@ async def fetch_gdata_batch(
         return {}
     settings = get_settings()
     if base_url:
-        settings.exhentai_base_url = base_url
+        settings = settings.model_copy(update={"exhentai_base_url": base_url})
 
     if client is not None and not str(client.base_url):
         client.base_url = httpx.URL(base_url)

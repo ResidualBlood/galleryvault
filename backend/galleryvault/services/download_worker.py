@@ -667,17 +667,6 @@ def _record_ingest_history(
         done=1,
         total=1,
     )
-    try:
-        from ..app.dependencies import spawn_task
-
-        spawn_task(tm.persist_history(), "persist task history")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "download ingest history persistence failed",
-            extra=log_extra(error=type(exc).__name__),
-        )
-
-
 async def _record_ingest_outcome(task_id: int, *, error: str | None) -> bool:
     session_cm = _get_background_session_factory()
     if session_cm is None:

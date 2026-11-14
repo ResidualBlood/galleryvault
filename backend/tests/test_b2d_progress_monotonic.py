@@ -109,7 +109,7 @@ async def test_save_progress_returns_stored_page_when_regressing(
     session.commit = MagicMock()
 
     result = await galleries.save_gallery_progress(
-        7, ProgressRequest(current_page=2), session=session, gallery_service=None
+        7, ProgressRequest(current_page=2), session=session
     )
 
     assert result["current_page"] == 8
@@ -143,7 +143,7 @@ async def test_save_progress_records_history_when_advancing(
     session.commit = MagicMock()
 
     result = await galleries.save_gallery_progress(
-        7, ProgressRequest(current_page=4), session=session, gallery_service=None
+        7, ProgressRequest(current_page=4), session=session
     )
 
     assert result["reading_progress"] == 4

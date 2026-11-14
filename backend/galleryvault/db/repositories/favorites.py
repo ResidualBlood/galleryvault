@@ -141,28 +141,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
             for favcat, known, unknown in rows
         }
 
-    async def pending_size_gids(self, favcat: int, limit: int = 200) -> list[tuple[int, str]]:
-        """``(gid, token)`` of folder galleries missing a size and not local."""
-        rows = await self.session.execute(
-            select(FavoriteItem.gid, FavoriteItem.token)
-            .select_from(FavoriteItem)
-            .outerjoin(
-                Gallery,
-                and_(
-                    Gallery.gid == FavoriteItem.gid,
-                    Gallery.expunged.is_(False),
-                    Gallery.trashed.is_(False),
-                ),
-            )
-            .where(
-                FavoriteItem.favcat == favcat,
-                Gallery.id.is_(None),
-                FavoriteItem.file_size.is_(None),
-            )
-            .limit(limit)
-        )
-        return [(int(row[0]), str(row[1])) for row in rows]
-
     async def set_file_size(self, favcat: int, gid: int, size: int | None) -> None:
         await self.session.execute(
             update(FavoriteItem)
@@ -936,30 +914,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         await self.session.flush()
         return row is not None
 
-    async def get_items_by_gids(
-        self, gids: Sequence[int], favcat: int | None = None
-    ) -> list[FavoriteItem]:
-        """Fetch favorite items for gids, optionally scoped to a single favcat."""
-        valid_gids = [g for g in gids if g is not None]
-        if not valid_gids:
-            return []
-        results: list[FavoriteItem] = []
-        for chunk in _chunked(valid_gids):
-            stmt = select(FavoriteItem).where(FavoriteItem.gid.in_(chunk))
-            if favcat is not None:
-                stmt = stmt.where(FavoriteItem.favcat == favcat)
-            rows = await self.session.scalars(stmt)
-            results.extend(rows.all())
-        return results
-
-    async def clear_folder(self, favcat: int) -> int:
-        """Remove all favorite items in a given favcat."""
-        result = await self.session.execute(
-            delete(FavoriteItem).where(FavoriteItem.favcat == favcat)
-        )
-        await self.session.flush()
-        return int(result.rowcount or 0)
-
     async def list_logs(
         self, favcat: int | None = None, limit: int = 50
     ) -> list[FavoritesCheckLog]:
@@ -970,14 +924,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         stmt = stmt.limit(limit)
         rows = await self.session.scalars(stmt)
         return list(rows.all())
-
-    async def get_item(self, favcat: int, gid: int) -> FavoriteItem | None:
-        """Fetch single favorite item by folder and gid."""
-        return await self.session.scalar(
-            select(FavoriteItem).where(
-                FavoriteItem.favcat == favcat, FavoriteItem.gid == gid
-            )
-        )
 
 
 

@@ -86,13 +86,6 @@ class LocalListRepository(BaseRepository[LocalList]):
         await self.flush()
         return int(result.rowcount or 0)
 
-    async def clear_items(self, list_id: int) -> int:
-        result = await self.session.execute(
-            delete(LocalListItem).where(LocalListItem.list_id == list_id)
-        )
-        await self.flush()
-        return int(result.rowcount or 0)
-
     async def get_items_with_galleries(self, list_id: int) -> list[Gallery]:
         stmt = (
             select(Gallery)

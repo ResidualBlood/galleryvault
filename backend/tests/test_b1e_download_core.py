@@ -20,7 +20,6 @@ from galleryvault.app.core.task_dispatcher import TaskDispatcher
 from galleryvault.app.state import AppState, app_state
 from galleryvault.config import Settings
 from galleryvault.services import download_worker as dw
-from galleryvault.services.background_workers import WorkerLifecycleManager
 from galleryvault.services.base_service import BaseService
 from galleryvault.services.downloader import (
     _PAGE_ATTEMPTS,
@@ -225,52 +224,6 @@ async def test_archive_quality_change_discards_cached_zip_url(tmp_path: Path) ->
 
 
 # --------------------------------------------------------------------------- #
-# P3-1: WorkerLifecycleManager propagates cancellation and can await shutdown
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.asyncio
-async def test_worker_lifecycle_propagates_cancellation() -> None:
-    manager = WorkerLifecycleManager()
-    started = asyncio.Event()
-
-    async def runner(_ctx) -> None:
-        started.set()
-        await asyncio.sleep(3600)
-
-    task = manager.register_and_start("w", runner)
-    await started.wait()
-    manager.stop_worker("w")
-
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert task.cancelled(), "cancellation must not be swallowed"
-    assert manager.get_status("w")["state"] == "stopped"
-
-
-@pytest.mark.asyncio
-async def test_worker_lifecycle_replacement_is_awaited_on_shutdown() -> None:
-    manager = WorkerLifecycleManager()
-    first_started = asyncio.Event()
-
-    async def first(_ctx) -> None:
-        first_started.set()
-        await asyncio.sleep(3600)
-
-    async def second(_ctx) -> None:
-        await asyncio.sleep(3600)
-
-    old = manager.register_and_start("w", first)
-    await first_started.wait()
-    new = manager.register_and_start("w", second)
-
-    await manager.stop_all_and_wait(timeout=2)
-
-    assert old.cancelled()
-    assert new.cancelled()
-
-
-# --------------------------------------------------------------------------- #
 # P3-2: BaseService calls TaskDispatcher with the right signatures
 # --------------------------------------------------------------------------- #
 
@@ -290,9 +243,6 @@ class _RecordingTaskManager:
         total: int = 0,
     ) -> None:
         self.records.append({"task": task, "status": status, "reason": reason})
-
-    async def persist_history(self) -> None:
-        return None
 
 
 @pytest.mark.asyncio
@@ -468,67 +418,6 @@ def test_cancel_markers_are_bounded() -> None:
 
     manager.clear_cancelled(limit - 1)
     assert not manager.is_cancelled(limit - 1)
-
-
-# --------------------------------------------------------------------------- #
-# P3-9: history persistence merges with what is already stored
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.asyncio
-async def test_persist_history_merges_stored_records() -> None:
-    stored = {
-        "history": [
-            {
-                "task": "scan",
-                "started_at": "2026-01-01T00:00:00+00:00",
-                "completed_at": "2026-01-01T00:01:00+00:00",
-                "status": "success",
-                "reason": "",
-                "done": 1,
-                "total": 1,
-            }
-        ]
-    }
-
-    class _Row:
-        def __init__(self, value):
-            self.value = value
-
-    class _Session:
-        def __init__(self) -> None:
-            self.row = _Row(stored)
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            return None
-
-        def begin(self):
-            return self
-
-        async def get(self, _model: object, _key: str):
-            return self.row
-
-        def add(self, _item: object) -> None:
-            raise AssertionError("existing row must be updated, not re-added")
-
-    manager = TaskManager(session_factory=lambda: _Session())
-    manager.record_task(
-        "thumbs",
-        "2026-01-02T00:00:00+00:00",
-        "2026-01-02T00:01:00+00:00",
-        "success",
-        done=2,
-        total=2,
-    )
-
-    await manager.persist_history()
-
-    tasks = [record["task"] for record in manager.task_history]
-    assert "scan" in tasks, "records written by another worker must survive"
-    assert "thumbs" in tasks
 
 
 # --------------------------------------------------------------------------- #

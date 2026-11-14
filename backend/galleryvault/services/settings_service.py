@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from ..auth import DEFAULT_PASSWORD
 from ..config import get_settings, library_root_warnings, normalize_archive_roots
-from ..db.repositories.settings import patch_settings
 from ..logging import log_extra
 from ..secrets import (
     decrypt_json_or_value,
@@ -417,48 +416,6 @@ class SettingsService(BaseService):
         async with self.transaction():
             persisted = await self.uow.settings.get()
             return decrypt_user_settings(persisted)
-
-    async def update_settings(
-        self,
-        values: dict[str, Any],
-        refresh: bool = True,
-    ) -> dict[str, Any]:
-        """Update user settings, persist to database, sync runtime state and reload services."""
-        # 1. Update runtime memory state
-        update_runtime_settings(values)
-
-        # 2. Persist to database (partial merge: only the changed keys)
-        async with self.transaction():
-            changes = {k: v for k, v in values.items() if v is not None}
-            await patch_settings(self.uow.settings, changes)
-
-        # 3. Cold roots moved: re-align gallery tiers before reloading services.
-        if any(key in values for key in ("archive_roots", "cold_storage_root")):
-            app_st = _get_app_state()
-            sf = None
-            if app_st is not None:
-                sf = getattr(app_st, "worker_session_factory", None) or getattr(
-                    app_st, "session_factory", None
-                )
-            try:
-                from ..services.cold_archive import reconcile_storage_tier
-
-                await reconcile_storage_tier(session_factory=sf)
-            except Exception:
-                logger.warning(
-                    "storage tier reconcile after settings change failed", exc_info=True
-                )
-
-        # 4. Optional reload of services
-        if refresh:
-            await self.reload_services()
-
-        return self.get_public_settings()
-
-    async def get_runtime_auth(self) -> dict[str, Any]:
-        """Fetch non-editable runtime auth settings."""
-        async with self.transaction():
-            return await self.uow.settings.get_extra()
 
     async def save_runtime_auth(self, value: dict[str, Any]) -> None:
         """Persist non-editable runtime settings (e.g. password hash)."""

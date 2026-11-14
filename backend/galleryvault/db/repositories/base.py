@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Generic, TypeVar
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -79,37 +79,9 @@ class BaseRepository(ABC, Generic[ModelT]):  # noqa: UP046
         self.session.add(entity)
         return entity
 
-    def add_many(self, entities: Sequence[ModelT]) -> None:
-        """Add multiple entities to session."""
-        self.session.add_all(entities)
-
     async def delete(self, entity: ModelT) -> None:
         """Delete an entity from session."""
         await self.session.delete(entity)
-
-    async def delete_by_id(self, id_val: Any) -> bool:
-        """Fetch entity by id and delete it. Returns True if deleted, False if not found."""
-        entity = await self.get_by_id(id_val)
-        if entity is None:
-            return False
-        await self.delete(entity)
-        return True
-
-    async def delete_by_ids(
-        self, ids: Sequence[Any], id_attr: str = "id"
-    ) -> int:
-        """Batch delete entities by IDs."""
-        valid_ids = [i for i in ids if i is not None]
-        if not valid_ids:
-            return 0
-        model_cls = self._require_model_cls()
-        column = getattr(model_cls, id_attr)
-        deleted_count = 0
-        for chunk in _chunked(valid_ids):
-            stmt = delete(model_cls).where(column.in_(chunk))
-            result = await self.session.execute(stmt)
-            deleted_count += int(result.rowcount or 0)
-        return deleted_count
 
     async def count(self, *predicates: Any) -> int:
         """Count rows matching given predicates."""

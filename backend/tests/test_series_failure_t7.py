@@ -42,9 +42,6 @@ class _FakeTaskManager:
             },
         )
 
-    async def persist_history(self) -> None:
-        return None
-
 
 class _DummySession:
     async def __aenter__(self) -> Self:
