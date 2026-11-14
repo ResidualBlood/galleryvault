@@ -11,8 +11,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
-import tempfile
 import time as _time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
@@ -27,6 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ...app.state import app_state
 from ...config import get_settings
 from ...db.models import FavoriteItem, Gallery, GalleryMetadata
+from ...fsutil import write_atomic
 from ...logging import log_extra
 from ..eh_client import (
     EXHENTAI_API_CHUNK_SIZE,
@@ -175,17 +174,7 @@ def _write_cover_file(path: Path, raw: bytes) -> None:
     Two concurrent cache fillers for the same gid must not share a temp path:
     the loser would then ``replace()`` a file the winner already moved away.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f"{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(raw)
-        tmp.replace(path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    write_atomic(path, raw, tmp_prefix=f"{path.name}.")
     storage_tracker.record_cache_delta(len(raw))
 
 
