@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from galleryvault.config import get_settings
-from galleryvault.db.models import DuplicateGroup, DuplicateRecord, Gallery, GalleryMetadata
+from galleryvault.db.models import DuplicateGroup, Gallery, GalleryMetadata
 from galleryvault.db.repositories.base import path_hash
 from galleryvault.db.repositories.galleries_ingest import sync_storage_tier
 from galleryvault.scanners.ehviewer import strip_gid_prefix
@@ -185,74 +185,83 @@ def fallback_cleanse_titles(
     return clean_title, clean_jpn
 
 
+def _rewrite_copy_paths(
+    copies: list[Any], old_path: str, new_path: str, old_key: str, new_key: str
+) -> bool:
+    """Point the copies stored at ``old_path`` at ``new_path`` (in place)."""
+    touched = False
+    for copy in copies:
+        if not isinstance(copy, dict):
+            continue
+        if str(copy.get("path") or "") != old_path:
+            continue
+        copy["path"] = new_path
+        if copy.get("key") == old_key:
+            copy["key"] = new_key
+        touched = True
+    return touched
+
+
+def _rewrite_duplicate_payload(payload: dict[str, Any], old_path: str, new_path: str) -> bool:
+    """Rewrite one duplicate payload for a rename; return whether it changed."""
+    old_key = path_hash(Path(old_path))
+    new_key = path_hash(Path(new_path))
+    copies = list(payload.get("copies") or [])
+    touched = _rewrite_copy_paths(copies, old_path, new_path, old_key, new_key)
+    if payload.get("winner_path") == old_path:
+        payload["winner_path"] = new_path
+        touched = True
+    if touched:
+        payload["copies"] = copies
+    return touched
+
+
 async def update_duplicate_records_for_rename(
     session: AsyncSession,
     old_path: str,
     new_path: str,
-    updated_rows: list[DuplicateRecord] | None = None,
+    updated_rows: list[Any] | None = None,
 ) -> int:
-    """Rewrite a renamed copy's path/key in ``duplicate_records``.
+    """Rewrite a renamed copy's path/key in ``duplicate_groups`` payloads.
 
-    Returns the number of duplicate records changed. Pass ``updated_rows`` to
-    avoid re-scanning the table for every rename in one script run.
+    Returns the number of duplicate group rows changed. Pass ``updated_rows``
+    (rows already loaded by the caller) to avoid re-scanning the table for
+    every rename in one script run; a row is either a ``DuplicateGroup`` (its
+    copies live in ``payload``) or an in-memory row exposing ``copies`` and
+    ``winner_path`` directly.
     """
     if updated_rows is None:
-        if not hasattr(session, "scalars"):
+        if session is None or not hasattr(session, "scalars"):
             return 0
-        updated_rows = list((await session.scalars(select(DuplicateRecord))).all())
-    old_key = path_hash(Path(old_path))
-    new_key = path_hash(Path(new_path))
-    changed = 0
-    for record in updated_rows:
-        touched = False
-        copies = list(record.copies or [])
-        for copy in copies:
-            if not isinstance(copy, dict):
-                continue
-            if str(copy.get("path") or "") != old_path:
-                continue
-            copy["path"] = new_path
-            if copy.get("key") == old_key:
-                copy["key"] = new_key
-            touched = True
-        if record.winner_path == old_path:
-            record.winner_path = new_path
-            touched = True
-        if touched:
-            # Reassign so SQLAlchemy sees the JSONB mutation.
-            record.copies = copies
-            changed += 1
+        updated_rows = list(
+            (
+                await session.scalars(
+                    select(DuplicateGroup).where(DuplicateGroup.kind == "same_gid")
+                )
+            ).all()
+        )
 
-    # Dual write until T5.3: keep the converged table's same-gid payload in
-    # sync so a repair run does not leave stale paths there.
-    if session is None or not hasattr(session, "scalars"):
-        return changed
-    groups = list(
-        (
-            await session.scalars(
-                select(DuplicateGroup).where(DuplicateGroup.kind == "same_gid")
-            )
-        ).all()
-    )
-    for group in groups:
-        payload = dict(group.payload or {})
-        copies = list(payload.get("copies") or [])
-        touched = False
-        for copy in copies:
-            if not isinstance(copy, dict):
+    changed = 0
+    for row in updated_rows:
+        payload = getattr(row, "payload", None)
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            if not _rewrite_duplicate_payload(payload, old_path, new_path):
                 continue
-            if str(copy.get("path") or "") != old_path:
-                continue
-            copy["path"] = new_path
-            if copy.get("key") == old_key:
-                copy["key"] = new_key
-            touched = True
-        if payload.get("winner_path") == old_path:
-            payload["winner_path"] = new_path
-            touched = True
-        if touched:
-            payload["copies"] = copies
-            group.payload = payload
+            # Reassign so SQLAlchemy sees the JSONB mutation.
+            row.payload = payload
+            changed += 1
+            continue
+
+        payload = {
+            "copies": list(getattr(row, "copies", None) or []),
+            "winner_path": getattr(row, "winner_path", None),
+        }
+        if not _rewrite_duplicate_payload(payload, old_path, new_path):
+            continue
+        row.copies = payload["copies"]
+        row.winner_path = payload["winner_path"]
+        changed += 1
     return changed
 
 
