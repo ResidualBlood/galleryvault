@@ -268,6 +268,15 @@ async def cancel_background_task(task: str) -> dict[str, object]:
     if task_key not in {"scan", "tag-sync", "thumbs", "metadata", "archive"}:
         raise HTTPException(status_code=404, detail="Unknown task")
     tm = get_task_manager()
+    if task_key in {"thumbs", "tag-sync"}:
+        state = tm.thumb_state if task_key == "thumbs" else tm.tag_sync_state
+        seeding = (
+            bool(tm.thumb_state.get("seeding"))
+            if task_key == "thumbs"
+            else _tag_sync_seed_state["running"]
+        )
+        if not (state.get("running") or int(state.get("queued") or 0) > 0 or seeding):
+            raise HTTPException(status_code=409, detail=f"no active {task_key} task")
     tm.request_cancel(task_key)
     if task_key == "scan":
         if isinstance(getattr(app_state, "scan_state", None), dict):
@@ -343,6 +352,8 @@ async def thumb_status() -> dict[str, object]:
 async def trigger_thumbnail_generation() -> dict[str, object]:
     """Queue every gallery missing thumbnails for background generation."""
     tm = get_task_manager()
+    # A previous run may have been cancelled and left its marker behind.
+    tm.clear_cancelled("thumbs")
     if tm.thumb_state.get("seeding"):
         return {"status": "running", "message": "Thumbnail seeding already in progress"}
     tm.thumb_state["seeding"] = True
@@ -413,6 +424,9 @@ async def _seed_pending_tag_sync() -> None:
 @router.post("/api/tag-sync/start", status_code=202)
 async def trigger_tag_sync() -> dict[str, object]:
     """Re-queue every gallery that still needs tag sync (manual full run)."""
+    tm = get_task_manager()
+    # A previous run may have been cancelled and left its marker behind.
+    tm.clear_cancelled("tag-sync")
     settings = app_state.settings or get_settings()
     if getattr(settings, "global_paused", False):
         return {"status": "paused", "detail": "Global paused: tag sync is disabled"}

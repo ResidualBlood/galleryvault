@@ -214,7 +214,11 @@ async function cancelTask(task: string): Promise<void> {
     await cancelBackgroundTask(task);
     await loadActivity();
   } catch (cause) {
-    ui.error(cause instanceof Error ? cause.message : String(cause));
+    if (cause && typeof cause === "object" && "status" in cause && cause.status === 409) {
+      ui.error(t("system.logs.cancelIdle"));
+    } else {
+      ui.error(cause instanceof Error ? cause.message : String(cause));
+    }
   } finally {
     cancelling.value = null;
   }

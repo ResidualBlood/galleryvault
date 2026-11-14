@@ -9,6 +9,7 @@
     "noTasks": "暂无任务。",
     "cancel": "取消任务",
     "cancelling": "正在取消…",
+    "cancelIdle": "没有正在运行的任务可取消。",
     "task": "任务",
     "started": "开始时间",
     "status": "状态",
