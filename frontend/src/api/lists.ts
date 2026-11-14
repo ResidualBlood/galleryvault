@@ -2,9 +2,11 @@ import { request } from "./client";
 import { galleryListsEp } from "./galleries";
 import {
   createListEp,
+  deleteListEp,
   listItemsEp,
   listsEp,
   removeListItemsEp,
+  renameListEp,
 } from "./library";
 
 export interface GalleryList {
@@ -29,6 +31,27 @@ export async function fetchLists(signal?: AbortSignal): Promise<GalleryList[]> {
 
 export function createList(name: string, signal?: AbortSignal): Promise<GalleryList> {
   return request<GalleryList>(createListEp, { body: { name }, signal });
+}
+
+export function renameList(
+  id: number,
+  name: string,
+  signal?: AbortSignal,
+): Promise<GalleryList> {
+  return request<GalleryList>(
+    { method: renameListEp.method, path: renameListEp.path.replace("{id}", String(id)) },
+    { body: { name }, signal },
+  );
+}
+
+export function deleteList(
+  id: number,
+  signal?: AbortSignal,
+): Promise<{ deleted: boolean; id: number }> {
+  return request<{ deleted: boolean; id: number }>(
+    { method: deleteListEp.method, path: deleteListEp.path.replace("{id}", String(id)) },
+    { signal },
+  );
 }
 
 export function addListItems(

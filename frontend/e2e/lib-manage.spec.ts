@@ -129,6 +129,36 @@ test("library saved searches, new list and add-to-list call the API @lib-manage"
   expect(csp).toEqual([]);
 });
 
+test("library lists can be renamed and deleted @lib-manage", async ({ page }) => {
+  const csp = watchCsp(page);
+  await installLibraryMock(page, { total: 12 });
+  const state = await installLibManageMock(page);
+
+  await page.goto("/#/library");
+  await libraryGrid(page);
+  await page.getByTestId("advanced-toggle").click();
+  await expect(page.getByTestId("advanced-filters")).toBeVisible();
+
+  const listSelect = page.getByTestId("list-manage-select").locator("select");
+  await listSelect.selectOption("1");
+  await page.getByTestId("list-manage-rename").click();
+  await page.getByTestId("list-rename-name").locator("input").fill("待读改名");
+  await page.getByTestId("list-rename-submit").click();
+  await expect.poll(() => state.listRenames.length).toBe(1);
+  expect(state.listRenames[0]).toEqual({ id: 1, name: "待读改名" });
+  await expect.poll(() => state.lists[0]?.name).toBe("待读改名");
+
+  await page.getByTestId("list-manage-select").locator("select").selectOption("2");
+  await page.getByTestId("list-manage-delete").click();
+  const deleteDialog = page.getByTestId("list-delete-dialog");
+  await expect(deleteDialog).toBeVisible();
+  await expect(deleteDialog).toContainText("经典");
+  await page.getByTestId("list-delete-confirm").click();
+  await expect.poll(() => state.listDeletes).toEqual([2]);
+  expect(state.lists.map((item) => item.id)).toEqual([1]);
+  expect(csp).toEqual([]);
+});
+
 test("series selection survives paging and batch download uses both sources @lib-manage", async ({
   page,
 }) => {
@@ -247,6 +277,14 @@ test("tags search, namespace filter, reload and tag sync @lib-manage", async ({ 
 
   await page.getByTestId("tags-sync").click();
   await expect.poll(() => state.tagSyncStarts).toBe(1);
+
+  await page.getByTestId("tags-refresh-categories").click();
+  await expect.poll(() => state.categoryRefreshes).toBe(1);
+  await expect(page.getByTestId("tags-refresh-categories")).toContainText("分类刷新中…");
+  await expect(page.getByTestId("tags-refresh-categories")).toContainText("刷新标签分类", {
+    timeout: 10_000,
+  });
+  await expect.poll(() => state.categoryRefreshPolls).toBeGreaterThanOrEqual(2);
   expect(csp).toEqual([]);
 });
 
@@ -271,6 +309,11 @@ test("gallery manage section edits local fields, notes, lists and deletes @lib-m
 
   await page.getByTestId("list-toggle-2").click();
   await expect.poll(() => state.lists[1]?.count).toBe(2);
+
+  await expect(page.getByTestId("gallery-series")).toBeVisible();
+  await page.getByTestId("gallery-add-to-series").click();
+  await expect.poll(() => state.localItemsAdded.length).toBe(1);
+  expect(state.localItemsAdded[0]).toEqual({ id: 41, gallery_ids: [5] });
 
   const noteInput = page.getByTestId("fav-note").locator("input");
   await expect(noteInput).toHaveValue("cloud note");

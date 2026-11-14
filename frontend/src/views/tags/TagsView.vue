@@ -29,8 +29,10 @@ import { waitForTagTranslation } from "@/api/settings";
 import {
   fetchTags,
   isCjkQuery,
+  refreshTagCategories,
   reloadTags,
   startTagSync,
+  waitForCategoryRefresh,
 } from "@/api/tags";
 import { useUiStore } from "@/stores/ui";
 import { ensureTagsMessages } from "./messages";
@@ -58,7 +60,10 @@ const error = ref("");
 const reloadBusy = ref(false);
 const reloadPolling = ref(false);
 const syncBusy = ref(false);
+const categoryBusy = ref(false);
+const categoryPolling = ref(false);
 let reloadPoll: AbortController | null = null;
+let categoryPoll: AbortController | null = null;
 const menu = ref<TagMenuEvent | null>(null);
 
 let controller: AbortController | null = null;
@@ -275,6 +280,51 @@ async function syncAll(): Promise<void> {
   }
 }
 
+/**
+ * Backfill the 大分类 of galleries still parked in `other`. The endpoint only
+ * accepts the job (202), so the button stays in "refreshing" until
+ * `category_refresh_running` flips back to false.
+ */
+async function refreshCategories(): Promise<void> {
+  if (categoryBusy.value || categoryPolling.value) return;
+  categoryBusy.value = true;
+  try {
+    const result = await refreshTagCategories();
+    ui.info(
+      result.status === "running"
+        ? t("tagsPage.categoryRunning")
+        : t("tagsPage.categoryStarted"),
+    );
+  } catch (cause) {
+    ui.error(message(cause));
+    return;
+  } finally {
+    categoryBusy.value = false;
+  }
+  categoryPolling.value = true;
+  categoryPoll?.abort();
+  const controller = new AbortController();
+  categoryPoll = controller;
+  try {
+    const status = await waitForCategoryRefresh({ signal: controller.signal });
+    if (controller.signal.aborted) return;
+    if (status.last_error) {
+      ui.error(status.last_error);
+      return;
+    }
+    // Polling hit its safety timeout: the job is still running in the backend.
+    if (status.category_refresh_running) return;
+    ui.success(
+      t("tagsPage.categoryDone", { count: status.category_refreshed ?? 0 }),
+    );
+  } catch (cause) {
+    if (!controller.signal.aborted) ui.error(message(cause));
+  } finally {
+    if (categoryPoll === controller) categoryPoll = null;
+    categoryPolling.value = false;
+  }
+}
+
 watch(
   () => route.query,
   () => {
@@ -285,6 +335,7 @@ watch(
 onBeforeUnmount(() => {
   controller?.abort();
   reloadPoll?.abort();
+  categoryPoll?.abort();
 });
 
 void loadFacets();
@@ -335,6 +386,20 @@ void load();
           @click="syncAll"
         >
           {{ t("tagsPage.syncAll") }}
+        </Button>
+        <Button
+          variant="outlined"
+          icon="retry"
+          :loading="categoryBusy || categoryPolling"
+          data-testid="tags-refresh-categories"
+          :title="t('tagsPage.categoryHint')"
+          @click="refreshCategories"
+        >
+          {{
+            categoryBusy || categoryPolling
+              ? t("tagsPage.categoryRefreshing")
+              : t("tagsPage.categoryRefresh")
+          }}
         </Button>
       </ToolbarGroup>
     </Toolbar>

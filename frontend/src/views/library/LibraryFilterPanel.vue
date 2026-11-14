@@ -23,6 +23,7 @@ import type { GalleryListQuery } from "@/stores/library";
 import type { GalleryList } from "@/api/lists";
 import { languageFromTags, withLanguageTag, type LibraryFilters } from "./filters";
 import LibrarySaveBar from "./manage/LibrarySaveBar.vue";
+import ListManageBar from "./manage/ListManageBar.vue";
 import LibraryFilteredDelete from "./manage/LibraryFilteredDelete.vue";
 
 const props = defineProps<{
@@ -131,6 +132,12 @@ function onLanguage(value: string): void {
 }
 
 function commit(): void {
+  emit("commit");
+}
+
+/** Deleting the list currently used as the filter resets it to "all". */
+function clearListFilter(): void {
+  patch({ listId: "" });
   emit("commit");
 }
 </script>
@@ -295,6 +302,13 @@ function commit(): void {
     <LibrarySaveBar
       :query="query"
       @lists-changed="emit('lists-changed')"
+    />
+
+    <ListManageBar
+      :lists="lists"
+      :active-id="modelValue.listId"
+      @lists-changed="emit('lists-changed')"
+      @cleared="clearListFilter"
     />
 
     <div class="filter-panel__footer">

@@ -22,5 +22,11 @@
   "currentNamespace": "命名空间：{namespace}",
   "backToAll": "全部标签",
   "reloadHint": "重载会更新标签翻译数据，可能需要一点时间。",
-  "syncHint": "为仍需同步的画廊重新排队标签同步。"
+  "syncHint": "为仍需同步的画廊重新排队标签同步。",
+  "categoryRefresh": "刷新标签分类",
+  "categoryRefreshing": "分类刷新中…",
+  "categoryStarted": "标签分类刷新已开始",
+  "categoryRunning": "标签分类刷新已在进行中",
+  "categoryDone": "标签分类刷新完成（更新 {count} 本）",
+  "categoryHint": "按 EH 元数据补齐仍为 other 的画廊大分类；需要联网，耗时较长。"
 }

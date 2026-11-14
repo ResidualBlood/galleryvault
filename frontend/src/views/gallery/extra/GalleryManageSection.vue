@@ -21,6 +21,7 @@ import {
   type GalleryDetail,
 } from "@/api/gallery";
 import { fetchGalleryLists, fetchLists, addListItems, removeListItems, type GalleryList } from "@/api/lists";
+import { addSeriesItems, fetchSeries, type SeriesGroup } from "@/api/series";
 import { syncGalleryTags } from "@/api/tags";
 import { useUiStore } from "@/stores/ui";
 import { ensureLibraryManageMessages } from "@/views/library/manage/messages";
@@ -129,6 +130,60 @@ async function toggleList(list: GalleryList, inList: boolean): Promise<void> {
     await loadLists();
   } catch (cause) {
     listsError.value = message(cause);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/* ----------------------------------------------------------------- series */
+
+const allSeries = ref<SeriesGroup[]>([]);
+const seriesTarget = ref("");
+const seriesError = ref("");
+
+const seriesOptions = computed(() =>
+  allSeries.value.map((item) => ({ value: String(item.id), label: item.name })),
+);
+
+async function loadSeries(): Promise<void> {
+  try {
+    const data = await fetchSeries({ page: 1, page_size: 200, show_all: true });
+    allSeries.value = data.items ?? [];
+    if (!allSeries.value.some((item) => String(item.id) === seriesTarget.value)) {
+      seriesTarget.value = allSeries.value[0] ? String(allSeries.value[0].id) : "";
+    }
+    seriesError.value = "";
+  } catch (cause) {
+    allSeries.value = [];
+    seriesTarget.value = "";
+    seriesError.value = message(cause);
+  }
+}
+
+watch(
+  () => props.gallery.id,
+  () => {
+    seriesTarget.value = "";
+    void loadSeries();
+  },
+  { immediate: true },
+);
+
+async function addToSeries(): Promise<void> {
+  const target = Number.parseInt(seriesTarget.value, 10);
+  if (!Number.isFinite(target) || busy.value) return;
+  busy.value = true;
+  seriesError.value = "";
+  try {
+    const result = await addSeriesItems(target, [props.gallery.id]);
+    ui.success(
+      result.added
+        ? t("libraryManage.seriesAdded", { count: result.added })
+        : t("libraryManage.seriesAlready"),
+    );
+    emit("refresh");
+  } catch (cause) {
+    seriesError.value = message(cause);
   } finally {
     busy.value = false;
   }
@@ -387,6 +442,32 @@ async function confirmDelete(): Promise<void> {
             <span class="card__chip-name" :title="list.name">{{ list.name }}</span>
           </Button>
         </div>
+      </section>
+
+      <section class="card" data-testid="gallery-series">
+        <h3 class="card__title">{{ t("libraryManage.seriesTitle") }}</h3>
+        <p v-if="seriesError" class="card__error">{{ seriesError }}</p>
+        <p v-if="!allSeries.length" class="card__hint">{{ t("libraryManage.seriesNone") }}</p>
+        <template v-else>
+          <Select
+            :model-value="seriesTarget"
+            :options="seriesOptions"
+            :label="t('libraryManage.seriesSelect')"
+            data-testid="gallery-series-select"
+            @update:model-value="seriesTarget = $event"
+          />
+          <p class="card__hint">{{ t("libraryManage.seriesAddHint") }}</p>
+          <Button
+            variant="outlined"
+            size="compact"
+            :disabled="!seriesTarget || busy"
+            :loading="busy"
+            data-testid="gallery-add-to-series"
+            @click="addToSeries"
+          >
+            {{ t("libraryManage.seriesAddAction") }}
+          </Button>
+        </template>
       </section>
 
       <section class="card" data-testid="favorite-note">
