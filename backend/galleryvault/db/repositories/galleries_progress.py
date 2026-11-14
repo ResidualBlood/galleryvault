@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ReadingHistory, ReadingProgress
 from .galleries_common import _dialect_insert
+from .galleries_transfer import transfer_user_data as _transfer_user_data
 
 
 class GalleryProgressMixin:
@@ -214,3 +215,21 @@ class GalleryProgressMixin:
             await self.session.delete(hist)
             deleted = True
         return deleted
+
+    async def transfer_user_data(
+        self,
+        old_gallery_id: int,
+        new_gallery_id: int,
+        old_gid: int | None,
+        new_gid: int | None,
+    ) -> dict[str, int]:
+        """Carry user data from a replaced gallery onto its new version (T3.1).
+
+        Must run in the same transaction as, and before, deleting the old
+        ``galleries`` row; the statements live in
+        :mod:`galleries_transfer` so this mixin stays the single place the
+        assembled repository gets the method from.
+        """
+        return await _transfer_user_data(
+            self.session, old_gallery_id, new_gallery_id, old_gid, new_gid
+        )

@@ -1050,10 +1050,11 @@ async def test_favcats_for_gid_with_update_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_finalize_gallery_update_migrates_metadata_and_deletes_old():
+async def test_finalize_gallery_update_migrates_metadata_and_deletes_old(monkeypatch):
     from types import SimpleNamespace
 
     from galleryvault.db.models import Gallery, GalleryUpdate
+    from galleryvault.db.repository import GalleryRepository
     from galleryvault.services.updates_worker import finalize_gallery_update
 
     old_gal = Gallery(
@@ -1069,6 +1070,7 @@ async def test_finalize_gallery_update_migrates_metadata_and_deletes_old():
         id=20,
         gid=200,
         title="New",
+        page_count=5,
         storage_path=None,
         local_rating=None,
         local_note=None,
@@ -1122,6 +1124,16 @@ async def test_finalize_gallery_update_migrates_metadata_and_deletes_old():
         async def delete(self, obj):
             deleted.append(obj)
 
+    transfer_calls: list[tuple] = []
+
+    async def _spy_transfer(self, *args, **kwargs):
+        transfer_calls.append(args)
+        return {}
+
+    monkeypatch.setattr(
+        GalleryRepository, "transfer_user_data", _spy_transfer, raising=False
+    )
+
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: FakeSession()
     try:
@@ -1130,10 +1142,13 @@ async def test_finalize_gallery_update_migrates_metadata_and_deletes_old():
     finally:
         app_state.session_factory = orig_factory
 
+    # T3.1: user data moves to the new gallery id before the old row is dropped.
+    assert transfer_calls == [(10, 20, 100, 200)]
     # Check that metadata transferred to new_gal
     assert new_gal.local_rating == 5
     assert new_gal.local_note == "Awesome note"
     assert new_gal.category == "Manga"
+    assert new_gal.page_count == 5
     # Check that old gallery was marked for deletion
     assert old_gal in deleted
     # Check that update_row status was completed

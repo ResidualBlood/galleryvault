@@ -169,6 +169,24 @@ def _ingest_pending_reason(new_gid: int | None, new_gallery: Gallery | None) -> 
     return None
 
 
+def _page_count_pending_reason(new_gallery: Gallery | None) -> str | None:
+    """Why the replacement cannot take over reading state yet.
+
+    The transfer clamps the old reading position to the new page count; without a
+    positive page count the progress would be meaningless (and the new version is
+    probably a broken/partial ingest).  ``None`` (unknown, legacy rows) still
+    passes: only a known non-positive count blocks the finalize.
+    """
+    if new_gallery is None:
+        return None
+    page_count = getattr(new_gallery, "page_count", None)
+    if page_count is None:
+        return None
+    if int(page_count) <= 0:
+        return f"{_WAIT_PREFIX}: new gallery has no pages"
+    return None
+
+
 async def finalize_gallery_update(row: Any) -> str | None:
     """Finalize one gallery update, replacing the old gallery with the new version.
 
@@ -223,6 +241,8 @@ async def finalize_gallery_update(row: Any) -> str | None:
                 )
 
             pending_reason = _ingest_pending_reason(new_gid, new_gallery)
+            if pending_reason is None:
+                pending_reason = _page_count_pending_reason(new_gallery)
             if pending_reason is not None:
                 # The replacement is not stored yet: keep the old gallery (and
                 # its files) until a later finalize pass sees a complete copy.
@@ -240,6 +260,16 @@ async def finalize_gallery_update(row: Any) -> str | None:
                     ),
                 )
                 return pending_reason
+
+            # 迁移旧版本的用户数据（进度/历史/列表/系列归属/在线进度），必须在删旧行之前
+            if (
+                new_gallery is not None
+                and old_gallery.id is not None
+                and new_gallery.id is not None
+            ):
+                await uow.galleries.transfer_user_data(
+                    old_gallery.id, new_gallery.id, old_gid, new_gid
+                )
 
             # 转移旧画廊用户数据（本地评分与备注、分类）
             if new_gallery is not None:
