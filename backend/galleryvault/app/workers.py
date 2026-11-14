@@ -33,6 +33,7 @@ async def supervise_worker(
     restart_policy: RestartPolicy = "always",
     initial_delay: float = DEFAULT_INITIAL_RESTART_DELAY,
     max_delay: float = DEFAULT_MAX_RESTART_DELAY,
+    is_stopping: Callable[[], bool] | None = None,
 ) -> None:
     """Run ``factory`` until cancelled, honouring ``restart_policy``.
 
@@ -40,14 +41,24 @@ async def supervise_worker(
     (both with backoff); a normal return is logged as a warning because a
     long-lived loop that exits means its precondition disappeared.  ``once``
     workers run exactly once and only restart after a crash.
+
+    A worker may swallow ``CancelledError`` and return normally (several loops
+    do).  Before treating that as an unexpected exit we check whether this task
+    has a pending cancellation request or the registry is stopping, and raise
+    ``CancelledError`` instead of logging/restarting.
     """
+    loop = asyncio.get_running_loop()
     delay = max(0.0, initial_delay)
     while True:
+        started = loop.time()
         try:
             await factory()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            if _cancellation_requested(is_stopping):
+                raise asyncio.CancelledError from None
+            delay = _delay_after_run(loop.time() - started, delay, initial_delay, max_delay)
             logger.exception(
                 "background worker crashed; restarting with backoff",
                 extra=log_extra(worker=name, error=type(exc).__name__, retry_in=delay),
@@ -56,16 +67,40 @@ async def supervise_worker(
             delay = min(max(delay * 2, initial_delay), max_delay)
             continue
 
+        if _cancellation_requested(is_stopping):
+            raise asyncio.CancelledError
+
         if restart_policy == "once":
             logger.info("background worker finished", extra=log_extra(worker=name))
             return
 
+        delay = _delay_after_run(loop.time() - started, delay, initial_delay, max_delay)
         logger.warning(
             "background worker returned unexpectedly; restarting with backoff",
             extra=log_extra(worker=name, retry_in=delay),
         )
         await asyncio.sleep(delay)
         delay = min(max(delay * 2, initial_delay), max_delay)
+
+
+def _cancellation_requested(is_stopping: Callable[[], bool] | None) -> bool:
+    """True when this task was cancelled or the registry started shutting down."""
+    task = asyncio.current_task()
+    if task is not None and task.cancelling() > 0:
+        return True
+    return bool(is_stopping is not None and is_stopping())
+
+
+def _delay_after_run(
+    run_duration: float,
+    delay: float,
+    initial_delay: float,
+    max_delay: float,
+) -> float:
+    """Reset backoff after a healthy run long enough to count as steady state."""
+    if run_duration >= max_delay:
+        return max(0.0, initial_delay)
+    return delay
 
 
 @dataclass
@@ -87,6 +122,7 @@ class WorkerRegistry:
     def __init__(self, *, default_shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT) -> None:
         self._workers: dict[str, WorkerSpec] = {}
         self._default_shutdown_timeout = default_shutdown_timeout
+        self._stopping = False
 
     def register(
         self,
@@ -130,6 +166,7 @@ class WorkerRegistry:
                 restart_policy=spec.restart_policy,
                 initial_delay=spec.initial_delay,
                 max_delay=spec.max_delay,
+                is_stopping=lambda: self._stopping,
             ),
             name=f"worker:{spec.name}",
         )
@@ -199,6 +236,7 @@ class WorkerRegistry:
                 with contextlib.suppress(RuntimeError):
                     task.cancel()
         self._workers.clear()
+        self._stopping = False
 
     async def shutdown(
         self,
@@ -222,6 +260,7 @@ class WorkerRegistry:
         if not named:
             return
 
+        self._stopping = True
         if timeout is None:
             timeout = max(
                 (
