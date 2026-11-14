@@ -155,7 +155,8 @@ class FavoritesService:
 
                     sf = getattr(app_state, "background_session_factory", None) or app_state.session_factory
                     if sf is not None:
-                        async with sf() as sess, sess.begin():
+                        # Fresh session: refresh_gdata releases before network.
+                        async with sf() as sess:
                             gmeta = await refresh_gdata(sess, pairs, client=self.fetcher)
                     else:
                         gmeta = await self.fetcher.fetch_gmetadata(pairs)
