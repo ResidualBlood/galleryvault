@@ -60,6 +60,20 @@ forbidden_modules =
     galleryvault.services.eh_client
     galleryvault.app
     galleryvault.db
+
+[importlinter:contract:eh-single-session]
+name = eh feature modules must not import the legacy client facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.eh.session
+    galleryvault.services.eh.gallery
+    galleryvault.services.eh.search
+    galleryvault.services.eh.favorites
+    galleryvault.services.eh.archive
+    galleryvault.services.eh.images
+forbidden_modules =
+    galleryvault.services.eh_client
 # slot: cold
 #   Cold archive split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
