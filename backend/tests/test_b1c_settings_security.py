@@ -61,8 +61,13 @@ class _Repo:
         self.session = session
         self.stored = dict(stored or {})
         self.saved: dict | None = None
+        self.locked_reads = 0
 
     async def get(self) -> dict:
+        return dict(self.stored)
+
+    async def get_for_update(self) -> dict:
+        self.locked_reads += 1
         return dict(self.stored)
 
     async def save(self, values: dict) -> None:
@@ -366,7 +371,9 @@ def test_saved_search_add_locks_settings_row(
     response = client.post("/api/saved-searches", json={"name": "New", "query": {"q": "x"}})
 
     assert response.status_code == 200
-    assert any("FOR UPDATE" in statement.upper() for statement in session.statements)
+    # The row lock now lives in SettingsRepository.get_for_update (covered by
+    # ``test_saved_search_missing_row_is_seeded_before_lock``).
+    assert repo.locked_reads == 1
     assert repo.saved is not None
     names = [item["name"] for item in repo.saved["saved_searches"]]
     assert names == ["Keep", "New"]
@@ -651,9 +658,9 @@ async def test_secret_bootstrap_database_failure_is_retryable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_saved_search_missing_row_is_seeded_before_lock():
-    from galleryvault.app.routers.settings import _locked_user_settings
+    from galleryvault.db.repositories.settings import SettingsRepository
 
     session = _LockSession({})
-    assert await _locked_user_settings(session) == {}
+    assert await SettingsRepository(session).get_for_update() == {}
     assert "ON CONFLICT" in session.statements[0]
     assert "FOR UPDATE" in session.statements[1]

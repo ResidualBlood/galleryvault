@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
+from ...db.repositories.settings import patch_settings
 from ...db.repository import BackgroundJobsRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
 from ...logging import log_extra, mask_sensitive
@@ -66,9 +67,7 @@ async def set_pause(
     update_runtime_settings({"global_paused": paused})
     try:
         async with safe_transaction(session):
-            existing = await SettingsRepository(session).get()
-            merged = {**existing, "global_paused": paused}
-            await SettingsRepository(session).save(merged)
+            await patch_settings(SettingsRepository(session), {"global_paused": paused})
     except Exception as exc:
         from ..dependencies import db_error
 

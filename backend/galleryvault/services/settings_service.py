@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..auth import DEFAULT_PASSWORD
 from ..config import get_settings, library_root_warnings, normalize_archive_roots
+from ..db.repositories.settings import patch_settings
 from ..logging import log_extra
 from ..secrets import (
     decrypt_json_or_value,
@@ -426,14 +427,10 @@ class SettingsService(BaseService):
         # 1. Update runtime memory state
         update_runtime_settings(values)
 
-        # 2. Persist to database
+        # 2. Persist to database (partial merge: only the changed keys)
         async with self.transaction():
-            current_persisted = await self.uow.settings.get()
-            updated_dict = dict(current_persisted)
-            for k, v in values.items():
-                if v is not None:
-                    updated_dict[k] = v
-            await self.uow.settings.save(updated_dict)
+            changes = {k: v for k, v in values.items() if v is not None}
+            await patch_settings(self.uow.settings, changes)
 
         # 3. Cold roots moved: re-align gallery tiers before reloading services.
         if any(key in values for key in ("archive_roots", "cold_storage_root")):
