@@ -557,6 +557,67 @@ async def test_run_gallery_updates_enqueues_download(monkeypatch):
     assert created == [(500, "tok", "New version", "favorite", None)]
 
 
+async def test_run_gallery_updates_wakes_download_worker(monkeypatch):
+    notified: list[int] = []
+
+    class FakeUpdate:
+        status = "pending"
+        id = 1
+        new_gid = 501
+        new_token = "tok"
+        title = "New version"
+        download_task_id = None
+
+    class FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, update_id):
+            return FakeUpdate()
+
+        async def match_evidence(self, rows):
+            return {}
+
+        async def local_new_gids(self, gids):
+            return set()
+
+        async def mark_downloading(self, update_id, task_id):
+            return True
+
+    class Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def begin(self):
+            return self
+
+    class FakeDownloadRepo:
+        def __init__(self, session, on_new_task=None):
+            self._on_new_task = on_new_task
+
+        async def create(self, *args, **kwargs):
+            if self._on_new_task is not None:
+                self._on_new_task()
+            return SimpleNamespace(id=88)
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: Sess()
+    monkeypatch.setattr(updates_worker, "GalleryUpdatesRepository", FakeRepo)
+    monkeypatch.setattr(updates_worker, "DownloadRepository", FakeDownloadRepo)
+    monkeypatch.setattr(updates_worker, "notify_new_task", lambda: notified.append(1))
+
+    try:
+        result = await run_gallery_updates([1])
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert result == {"started": 1, "skipped": 0, "skipped_ambiguous": 0}
+    assert len(notified) >= 1
+
+
 async def test_run_gallery_updates_archives(monkeypatch):
     created = []
 

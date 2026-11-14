@@ -21,6 +21,7 @@ from ..db.models import FavoriteItem, Gallery, GalleryUpdate
 from ..db.repository import DownloadRepository, GalleryUpdatesRepository
 from ..db.uow import UnitOfWork
 from ..logging import bind_log_context, log_extra
+from .download_worker import notify_new_task
 from .duplicate_groups import delete_group_by_key
 
 logger = logging.getLogger(__name__)
@@ -659,7 +660,12 @@ async def run_gallery_updates(
                     )
                     started += 1
                     continue
-                task = await dl_repo_cls(session).create(
+                try:
+                    dl_repo = dl_repo_cls(session, on_new_task=notify_new_task)
+                except TypeError:
+                    # Older test doubles only accept the session argument.
+                    dl_repo = dl_repo_cls(session)
+                task = await dl_repo.create(
                     row.new_gid,
                     row.new_token,
                     row.title or str(row.new_gid),
