@@ -397,11 +397,6 @@ async def test_success_preserves_started_at_and_records_attempt(monkeypatch, tmp
 
     app_state.downloader = SimpleNamespace(execute=_execute)
 
-    def _noop(*_args: object, **_kwargs: object) -> None:
-        return None
-
-    monkeypatch.setattr(dw, "maybe_scan_after_download", _noop)
-
     recorded: list[tuple] = []
 
     class _FakeRepo:
@@ -415,7 +410,11 @@ async def test_success_preserves_started_at_and_records_attempt(monkeypatch, tmp
 
     await dw._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
 
-    assert row.status == "success"
+    # B2/T2.1: success is written by the ingest pump, not by the downloader.
+    assert row.status == "downloading"
+    assert row.ingest_status == "pending"
+    assert row.ingest_payload["path"] == str(target)
+    assert row.finished_at is None
     assert row.started_at == original_start, "started_at is the first start, not the retry"
     assert recorded[-1][:3] == (1, 3, "success"), "attempt should be retry_count + 1"
 

@@ -113,12 +113,83 @@ class DownloadRepository:
         return True
 
     async def recover_orphans(self) -> int:
+        # Rows waiting for ingest (ingest_status='pending') are owned by the
+        # DB-driven ingest pump and must keep their ``downloading`` status;
+        # resetting them would re-download a gallery that is already on disk.
         result = await self.session.execute(
             update(DownloadTask)
-            .where(DownloadTask.status == "downloading")
+            .where(
+                DownloadTask.status == "downloading",
+                DownloadTask.ingest_status.is_(None),
+            )
             .values(status="pending", updated_at=datetime.now(UTC))
         )
         return int(result.rowcount or 0)
+
+    async def next_pending_ingest(self) -> dict[str, Any] | None:
+        """Oldest download whose files are on disk but not yet ingested."""
+        row = await self.session.scalar(
+            select(DownloadTask)
+            .where(
+                DownloadTask.status == "downloading",
+                DownloadTask.ingest_status == "pending",
+            )
+            .order_by(DownloadTask.id)
+            .limit(1)
+        )
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "gid": row.gid,
+            "title": row.title,
+            "ingest_payload": row.ingest_payload,
+        }
+
+    async def mark_ingest_done(self, task_id: int) -> bool:
+        """Commit ``success`` only after the gallery is in the library."""
+        now = datetime.now(UTC)
+        result = await self.session.execute(
+            update(DownloadTask)
+            .where(
+                DownloadTask.id == task_id,
+                DownloadTask.status == "downloading",
+            )
+            .values(
+                status="success",
+                ingest_status="done",
+                ingest_payload=None,
+                error_message=None,
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        return bool(result.rowcount or 0)
+
+    async def mark_ingest_failed(self, task_id: int, error: str) -> bool:
+        """Terminal ``failed`` for an ingest that could not import the files.
+
+        ``ingest_payload`` is kept so a later retry can re-run only the ingest
+        step without downloading the gallery again.
+        """
+        now = datetime.now(UTC)
+        result = await self.session.execute(
+            update(DownloadTask)
+            .where(
+                DownloadTask.id == task_id,
+                DownloadTask.status == "downloading",
+                DownloadTask.ingest_status == "pending",
+            )
+            .values(
+                status="failed",
+                ingest_status="failed",
+                error_message=f"ingest: {error}"[:2000],
+                retry_at=None,
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        return bool(result.rowcount or 0)
 
     async def claim_pending(self) -> DownloadTask | None:
         now = datetime.now(UTC)
@@ -265,6 +336,7 @@ class DownloadRepository:
                     archive_fallback=getattr(task, "archive_fallback", False),
                     archive_status=task.archive_status,
                     archive_error=task.archive_error,
+                    ingest_status=task.ingest_status,
                     retry_count=task.retry_count,
                     max_retries=task.max_retries,
                     current_page=task.current_page,

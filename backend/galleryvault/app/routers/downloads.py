@@ -34,12 +34,27 @@ from ..dependencies import (
     resolve_session,
     spawn_task,
 )
-from ..schemas import DownloadBatchRequest, DownloadListResponse, DownloadRequest
+from ..schemas import (
+    DownloadBatchRequest,
+    DownloadListResponse,
+    DownloadRequest,
+    DownloadTaskItem,
+)
 from ..state import app_state
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+class _DownloadTaskItemOut(DownloadTaskItem):
+    """B2/T2.1: expose the ingest phase until T2.3 updates the shared schema."""
+
+    ingest_status: str | None = None
+
+
+class _DownloadListResponseOut(DownloadListResponse):
+    items: list[_DownloadTaskItemOut]
 
 # How long the delete endpoint waits for a cancelled worker to stop writing
 # before giving up on removing `.gv-<gid>` itself.
@@ -223,7 +238,7 @@ def _row_val(row: Any, key: str, default: Any = None) -> Any:
     return getattr(row, key, default)
 
 
-@router.get("/api/downloads", response_model=DownloadListResponse)
+@router.get("/api/downloads", response_model=_DownloadListResponseOut)
 async def list_downloads(
     page: int = 1,
     page_size: int = 24,
@@ -269,6 +284,7 @@ async def list_downloads(
             "archive_fallback": is_fallback,
             "archive_status": _row_val(x, "archive_status"),
             "archive_error": _row_val(x, "archive_error"),
+            "ingest_status": _row_val(x, "ingest_status"),
         }
         items.append(item)
 

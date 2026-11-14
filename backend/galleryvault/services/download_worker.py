@@ -104,15 +104,79 @@ def infer_image_quality(
     return "original" if (storage_size / original_size) >= threshold else "resample"
 
 
-async def ingest_downloaded_gallery(result: Any) -> None:
-    """Ingest a freshly downloaded gallery directly from memory metadata."""
+class IngestError(RuntimeError):
+    """The main ingest step of a finished download failed.
+
+    Raised by :func:`ingest_downloaded_gallery` so the ingest pump can persist
+    ``failed`` instead of leaving the task ``downloading`` forever. Secondary
+    steps (update finalize, cold archive hook) stay best-effort warnings.
+    """
+
+
+# Every field ``ingest_downloaded_gallery`` reads from the download result.
+# ``ingest_payload`` must round-trip all of them so a restarted pump behaves
+# exactly like the first run (T2.1 risk note in PLAN).
+_INGEST_PAYLOAD_FIELDS = (
+    "path",
+    "quality",
+    "new_files",
+    "tags",
+    "file_size",
+    "title",
+    "gid",
+    "token",
+    "title_jpn",
+    "category",
+    "uploader",
+    "rating",
+    "pages",
+)
+
+
+def _jsonable(value: Any) -> Any:
+    """Convert sets/tuples/paths from a download result into JSON values."""
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def serialize_ingest_payload(result: Any) -> dict[str, Any]:
+    """Snapshot enough of a download result to replay the ingest after a restart."""
+    return {
+        field: _jsonable(getattr(result, field, None))
+        for field in _INGEST_PAYLOAD_FIELDS
+    }
+
+
+def ingest_result_from_payload(payload: dict[str, Any]) -> Any:
+    """Rebuild the object shape ``ingest_downloaded_gallery`` expects."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        **{field: payload.get(field) for field in _INGEST_PAYLOAD_FIELDS}
+    )
+
+
+
+async def ingest_downloaded_gallery(result: Any, *, strict: bool = False) -> None:
+    """Ingest a freshly downloaded gallery directly from memory metadata.
+
+    ``strict=True`` (used by the ingest pump) raises :class:`IngestError` when
+    the main import (scanner lookup, page scan, library upsert) fails, so the
+    pump can record ``failed``. The default keeps the legacy best-effort
+    behaviour for direct callers. Best-effort follow-ups (update finalize, cold
+    archive) only warn in both modes.
+    """
     try:
         path = Path(result.path)
         reg = registry
         scanner = reg.for_path(path)
         if scanner is None:
-            logger.warning("download ingest: no scanner for path", extra=log_extra(path=str(path)))
-            return
+            raise IngestError(f"no scanner for path {path}")
 
         if getattr(result, "quality", None) == "original":
             await asyncio.to_thread(
@@ -253,11 +317,22 @@ async def ingest_downloaded_gallery(result: Any) -> None:
                 "download auto archive hook failed",
                 extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__),
             )
+    except IngestError:
+        logger.exception(
+            "download ingest failed",
+            extra=log_extra(gid=getattr(result, "gid", None), error="IngestError"),
+        )
+        if strict:
+            raise
+        return
     except Exception as exc:
         logger.exception(
             "download ingest failed",
             extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__, message=str(exc)),
         )
+        if strict:
+            raise IngestError(f"{type(exc).__name__}: {exc}") from exc
+        return
 
 
 async def _archive_downloaded_gallery(gid: int) -> None:
@@ -326,19 +401,8 @@ async def _archive_downloaded_gallery(gid: int) -> None:
     await record_archive_notification(kind, title, detail)
 
 
-_pending_ingests: dict[int | str, Any] = {}
-_ingest_pump_task: asyncio.Task[None] | None = None
-_INGEST_PUMP_INTERVAL = 5.0
-
-
-def _ingest_key(result: Any) -> int | str:
-    gid = getattr(result, "gid", None)
-    if isinstance(gid, int):
-        return gid
-    path = getattr(result, "path", None)
-    if path is not None:
-        return str(path)
-    return id(result)
+_INGEST_PUMP_INTERVAL = 2.0
+_INGEST_PUMP_BATCH = 10
 
 
 def _scan_running() -> bool:
@@ -346,94 +410,121 @@ def _scan_running() -> bool:
     return bool(tm and tm.scan_state.get("running"))
 
 
-def queue_pending_ingest(result: Any) -> None:
-    """Remember a finished download that must be ingested after the scan ends."""
-    _pending_ingests.setdefault(_ingest_key(result), result)
-    tm = app_state.task_manager
-    if tm is not None:
-        now = datetime.now(UTC).isoformat()
-        tm.record_task(
-            "download-ingest",
-            now,
-            now,
-            "pending",
-            reason="waiting for running scan to finish",
-            done=0,
-            total=1,
-        )
-    _ensure_ingest_pump()
-
-
-def pending_ingest_count() -> int:
-    return len(_pending_ingests)
-
-
-async def drain_pending_ingests() -> int:
-    """Ingest every queued download result. Returns the number processed."""
-    if not _pending_ingests:
-        return 0
-    results = list(_pending_ingests.values())
-    _pending_ingests.clear()
-    ingested = 0
-    for result in results:
-        try:
-            await ingest_downloaded_gallery(result)
-            ingested += 1
-        except Exception as exc:  # one bad result must not drop the rest
-            logger.exception(
-                "deferred download ingest failed",
-                extra=log_extra(gid=getattr(result, "gid", None), error=type(exc).__name__),
+async def _previous_gid_for(gid: int) -> int | None:
+    """Gid replaced by an update, for the ok/updated notification wording."""
+    session_cm = _get_background_session_factory()
+    if session_cm is None:
+        return None
+    try:
+        async with session_cm() as session:
+            update_row = await session.scalar(
+                select(GalleryUpdate).where(GalleryUpdate.new_gid == gid)
             )
-    return ingested
+            if update_row is not None:
+                return update_row.old_gid
+            prev = await session.scalar(select(Gallery).where(Gallery.gid == gid))
+            if prev is not None:
+                return gid
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "failed to check update status for download notification",
+            extra=log_extra(gid=gid, error=type(exc).__name__),
+        )
+    return None
 
 
-async def pending_ingest_loop() -> None:
-    """Consume deferred ingests once no full-library scan is running."""
-    global _ingest_pump_task
+async def _notify_ingested(payload: dict[str, Any]) -> None:
+    gid = payload.get("gid")
+    title = payload.get("title") or str(gid)
+    old_gid = await _previous_gid_for(int(gid)) if gid is not None else None
     try:
-        while _pending_ingests:
-            await asyncio.sleep(_INGEST_PUMP_INTERVAL)
-            if _scan_running():
-                continue
-            count = await drain_pending_ingests()
-            tm = app_state.task_manager
-            if tm is not None:
-                now = datetime.now(UTC).isoformat()
-                tm.record_task(
-                    "download-ingest",
-                    now,
-                    now,
-                    "success",
-                    reason=f"ingested {count} deferred download(s)",
-                    done=count,
-                    total=count,
-                )
-            logger.info("deferred download ingests completed", extra=log_extra(count=count))
-    finally:
-        if _ingest_pump_task is asyncio.current_task():
-            _ingest_pump_task = None
+        if old_gid is not None:
+            await record_download_notification("updated", title, f"{old_gid}:{gid}")
+        else:
+            await record_download_notification("ok", title, str(payload.get("pages") or 0))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "download ingest notification failed",
+            extra=log_extra(gid=gid, error=type(exc).__name__),
+        )
 
 
-def _ensure_ingest_pump() -> None:
-    global _ingest_pump_task
-    if _ingest_pump_task is not None and not _ingest_pump_task.done():
-        return
+async def _record_ingest_outcome(task_id: int, *, error: str | None) -> bool:
+    session_cm = _get_background_session_factory()
+    if session_cm is None:
+        return False
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-    _ingest_pump_task = loop.create_task(pending_ingest_loop())
+        async with session_cm() as session, session.begin():
+            repo = DownloadRepository(session)
+            if error is None:
+                return await repo.mark_ingest_done(task_id)
+            return await repo.mark_ingest_failed(task_id, error)
+    except SQLAlchemyError as exc:
+        logger.error(
+            "download ingest state persistence failed",
+            extra=log_extra(task_id=task_id, error=type(exc).__name__),
+        )
+        return False
+
+
+async def run_pending_ingest_once() -> bool:
+    """Ingest one persisted ``downloading + ingest_status='pending'`` row.
+
+    Returns ``True`` when a row was claimed (and processed), ``False`` when the
+    queue is empty. Safe to call from tests with a fresh pump instance: the
+    queue lives in the database, not in process memory.
+    """
+    session_cm = _get_background_session_factory()
+    if session_cm is None:
+        return False
+    async with session_cm() as session:
+        pending = await DownloadRepository(session).next_pending_ingest()
+    if pending is None:
+        return False
+    task_id = int(pending["id"])
+    payload = pending.get("ingest_payload") or {}
+    if not payload:
+        await _record_ingest_outcome(task_id, error="missing ingest_payload")
+        return True
+    try:
+        await ingest_downloaded_gallery(ingest_result_from_payload(payload), strict=True)
+    except Exception as exc:  # noqa: BLE001
+        await _record_ingest_outcome(
+            task_id, error=f"{type(exc).__name__}: {exc}"
+        )
+        return True
+    # ``success`` is only written here, after the gallery is in the library.
+    if await _record_ingest_outcome(task_id, error=None):
+        await _notify_ingested(payload)
+    return True
+
+
+async def ingest_pump_loop() -> None:
+    """DB-driven ingest pump: survives restarts and outlives download slots."""
+    while True:
+        try:
+            if not _scan_running():
+                for _ in range(_INGEST_PUMP_BATCH):
+                    if not await run_pending_ingest_once():
+                        break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "download ingest pump iteration failed",
+                extra=log_extra(error=type(exc).__name__),
+            )
+        await asyncio.sleep(_INGEST_PUMP_INTERVAL)
 
 
 def maybe_scan_after_download(result: Any) -> None:
-    """Ingest the downloaded gallery, deferring while a full scan is running."""
-    if _scan_running():
-        # A full scan owns the ingest path right now; keep the result and let the
-        # pending-ingest pump import it afterwards instead of silently dropping it.
-        queue_pending_ingest(result)
-        return
-    from ..app.dependencies import spawn_task
-    spawn_task(ingest_downloaded_gallery(result), "download ingest")
+    """Deprecated no-op: ingestion is now driven by the DB queue.
+
+    Kept as an import-compatible name for external callers/tests; the pump
+    reads ``download_tasks.ingest_status='pending'`` rows instead of holding
+    results in process memory.
+    """
+    return
 
 
 async def download_progress(
@@ -900,7 +991,6 @@ async def _run_download_inner(
     if downloader is None:
         return
     notify_fn = record_download_notification
-    maybe_scan_fn = maybe_scan_after_download
 
     row = None
     exec_task: DownloadTask | None = None
@@ -978,16 +1068,18 @@ async def _run_download_inner(
                 else:
                     p.unlink(missing_ok=True)
             raise DownloadCancelledError("download was cancelled")
-        completed = False
         now = datetime.now(UTC)
+        # Files are on disk: the task stays ``downloading`` until the ingest
+        # pump has actually inserted the gallery (INV-DL-1). ``success`` is
+        # written by the pump only after a successful import.
         update_values: dict[str, Any] = {
-            "status": "success",
             "target_path": str(result.path),
             "category": result.category,
             "error_message": None,
             "retry_count": 0,
             "retry_at": None,
-            "finished_at": now,
+            "ingest_status": "pending",
+            "ingest_payload": serialize_ingest_payload(result),
             "updated_at": now,
         }
         if getattr(exec_task, "archive_fallback", False):
@@ -1026,13 +1118,14 @@ async def _run_download_inner(
                     is_cancelled = True
                 else:
                     is_cancelled = False
-                    row.status = "success"
+                    row.status = "downloading"
                     row.target_path = update_values.get("target_path")
                     row.category = update_values.get("category")
                     row.error_message = None
                     row.retry_count = 0
                     row.retry_at = None
-                    row.finished_at = update_values.get("finished_at")
+                    row.ingest_status = "pending"
+                    row.ingest_payload = update_values.get("ingest_payload")
                     if "archive_fallback" in update_values:
                         row.archive_fallback = update_values["archive_fallback"]
                     if "title" in update_values:
@@ -1057,63 +1150,13 @@ async def _run_download_inner(
             await DownloadRepository(session).record_attempt(
                 task.id or 0, attempt_no, "success"
             )
-            completed = True
 
         clear_download_cancelled(task.id)
         reset_challenge_count(task.id)
-        if completed:
-            old_gid: int | None = replaced_from_gid
-            if old_gid is None and session_cm is not None:
-                try:
-                    async with session_cm() as session:
-                        if hasattr(session, "scalars"):
-                            update_row = (
-                                await session.scalars(
-                                    select(GalleryUpdate).where(
-                                        GalleryUpdate.new_gid == task.gid
-                                    )
-                                )
-                            ).first()
-                            if update_row is not None:
-                                old_gid = update_row.old_gid
-                            else:
-                                prev = (
-                                    await session.scalars(
-                                        select(Gallery).where(
-                                            Gallery.gid == task.gid
-                                        )
-                                    )
-                                ).first()
-                                if prev is not None:
-                                    old_gid = task.gid
-                        elif hasattr(session, "scalar"):
-                            update_row = await session.scalar(
-                                select(GalleryUpdate).where(
-                                    GalleryUpdate.new_gid == task.gid
-                                )
-                            )
-                            if update_row is not None:
-                                old_gid = update_row.old_gid
-                            else:
-                                prev = await session.scalar(
-                                    select(Gallery).where(
-                                        Gallery.gid == task.gid
-                                    )
-                                )
-                                if prev is not None:
-                                    old_gid = task.gid
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "failed to check update status for download notification",
-                        extra=log_extra(gid=task.gid, error=type(exc).__name__),
-                    )
-
-            title = result.title or str(task.gid)
-            if old_gid is not None:
-                await notify_fn("updated", title, f"{old_gid}:{task.gid}")
-            else:
-                await notify_fn("ok", title, str(result.pages))
-            maybe_scan_fn(result)
+        logger.info(
+            "download finished; queued for ingest",
+            extra=log_extra(task_id=task.id, gid=task.gid, path=str(result.path)),
+        )
     except GalleryReplacedError as exc:
         from .download_prepare import MAX_FOLLOW_HOPS
 
@@ -1448,12 +1491,7 @@ async def stop_download_workers() -> None:
     Called on shutdown (before engines are disposed) and whenever the
     supervisor exits, so child workers never outlive their owner.
     """
-    global _ingest_pump_task, _worker_tasks
-    pump = _ingest_pump_task
-    _ingest_pump_task = None
-    if pump is not None and not pump.done():
-        pump.cancel()
-        await asyncio.gather(pump, return_exceptions=True)
+    global _worker_tasks
     pending = [t for t in _worker_tasks if not t.done()]
     _worker_tasks = [t for t in _worker_tasks if not t.done()]
     for t in pending:

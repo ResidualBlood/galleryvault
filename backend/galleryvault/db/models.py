@@ -172,6 +172,11 @@ class DownloadTask(Base):
     total_pages: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
     target_path: Mapped[str | None] = mapped_column(Text)
+    # B2/T2.1: download success is only reported after the gallery is in the
+    # library. ``status='downloading' AND ingest_status='pending'`` means the
+    # files are on disk and the DB-driven ingest pump still has to import them.
+    ingest_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ingest_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=True
     )
@@ -188,12 +193,21 @@ class DownloadTask(Base):
             postgresql_where=text("status IN ('pending', 'downloading')"),
         ),
         Index("idx_download_tasks_status_id", "status", text("id DESC")),
+        Index(
+            "idx_download_tasks_ingest_pending",
+            "id",
+            postgresql_where=text("ingest_status = 'pending'"),
+        ),
         # Created by migration 0001; declared here so autogenerate keeps them.
         Index("idx_download_tasks_gid", "gid"),
         Index("idx_download_tasks_status", "status"),
         CheckConstraint(
             "status IN ('pending', 'downloading', 'success', 'failed', 'cancelled')",
             name="ck_download_task_status",
+        ),
+        CheckConstraint(
+            "ingest_status IS NULL OR ingest_status IN ('pending', 'done', 'failed')",
+            name="ck_download_task_ingest_status",
         ),
         CheckConstraint("max_retries BETWEEN 0 AND 10", name="ck_download_task_max_retries"),
     )

@@ -114,15 +114,9 @@ class _Session:
 
 @pytest.fixture(autouse=True)
 def _reset_worker_state():
-    dw._pending_ingests.clear()
     dw._challenge_counts.clear()
     yield
-    dw._pending_ingests.clear()
     dw._challenge_counts.clear()
-    pump = dw._ingest_pump_task
-    dw._ingest_pump_task = None
-    if pump is not None and not pump.done():
-        pump.cancel()
 
 
 def _patch_repository(monkeypatch, recorded: list[tuple]) -> None:
@@ -214,33 +208,60 @@ async def test_challenge_budget_is_separate_and_capped(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_completed_download_during_scan_is_deferred(monkeypatch) -> None:
+    """T2.1: the deferred ingest queue lives in the DB, so a restart resumes it."""
+    from types import SimpleNamespace
+
     tm = _FakeTaskManager(scan_running=True)
     monkeypatch.setattr(app_state, "task_manager", tm)
+
+    state: dict[str, object] = {"done": False}
+
+    class _PumpSession:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        def begin(self) -> _PumpSession:
+            return self
+
+        async def scalar(self, _stmt: object) -> object | None:
+            if state["done"]:
+                return None
+            return SimpleNamespace(
+                id=7,
+                gid=42,
+                title="Test",
+                ingest_payload={"gid": 42, "path": "/tmp/gv-42", "title": "Test", "pages": 2},
+            )
+
+        async def execute(self, _stmt: object) -> object:
+            state["done"] = True
+            return SimpleNamespace(rowcount=1)
+
+    app_state.session_factory = lambda: _PumpSession()
     ingested: list[object] = []
 
-    async def _fake_ingest(result: object) -> None:
+    async def _fake_ingest(result: object, *, strict: bool = False) -> None:
         ingested.append(result)
 
     monkeypatch.setattr(dw, "ingest_downloaded_gallery", _fake_ingest)
-    monkeypatch.setattr(dw, "_INGEST_PUMP_INTERVAL", 0.01)
+    notified: list[dict[str, object]] = []
 
-    result = type("R", (), {"gid": 42, "path": "/tmp/gv-42"})()
-    dw.maybe_scan_after_download(result)
+    async def _fake_notify(payload: dict[str, object]) -> None:
+        notified.append(payload)
 
-    assert ingested == []
-    assert dw.pending_ingest_count() == 1
-    assert tm.records and tm.records[-1]["status"] == "pending"
-    assert tm.records[-1]["task"] == "download-ingest"
+    monkeypatch.setattr(dw, "_notify_ingested", _fake_notify)
 
-    tm.scan_state["running"] = False
-    for _ in range(200):
-        if ingested:
-            break
-        await asyncio.sleep(0.01)
-
-    assert ingested == [result], "the deferred ingest must run once the scan finishes"
-    assert dw.pending_ingest_count() == 0
-    assert tm.records[-1]["status"] == "success"
+    # The pump loop skips this call while a scan is running; the row stays in
+    # the DB queue either way, which is what survives a restart.
+    assert dw._scan_running() is True
+    assert await dw.run_pending_ingest_once() is True
+    assert [getattr(r, "gid", None) for r in ingested] == [42]
+    assert state["done"] is True
+    assert notified and notified[0]["gid"] == 42
+    assert await dw.run_pending_ingest_once() is False, "row is terminal, nothing left"
 
 
 @pytest.mark.asyncio

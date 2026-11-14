@@ -316,6 +316,7 @@ async def startup() -> None:
     # Background tasks
     from ..services.download_worker import (
         download_worker_loop,
+        ingest_pump_loop,
         telegram_flush_loop,
     )
     from ..services.favorites_worker import (
@@ -365,6 +366,9 @@ async def startup() -> None:
 
     app_state.extra["download_worker_task"] = asyncio.create_task(
         supervise_worker("download_worker", download_worker_loop)
+    )
+    app_state.extra["download_ingest_pump_task"] = asyncio.create_task(
+        supervise_worker("download_ingest_pump", ingest_pump_loop)
     )
     app_state.extra["gallery_updates_finalize_task"] = asyncio.create_task(
         supervise_worker("gallery_updates_finalize", gallery_updates_finalize_loop)
@@ -443,6 +447,7 @@ async def shutdown() -> None:
         app_state.extra.get("cookie_health_task"),
         app_state.extra.get("telegram_bot_task"),
         app_state.extra.get("download_worker_task"),
+        app_state.extra.get("download_ingest_pump_task"),
         app_state.extra.get("gallery_updates_finalize_task"),
         app_state.extra.get("telegram_flush_task"),
         app_state.extra.get("tag_sync_worker_task"),
