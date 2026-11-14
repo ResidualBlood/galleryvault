@@ -30,6 +30,7 @@
     "allLoaded": "All loaded",
     "noCover": "No cover",
     "openEh": "Open on E-Hentai",
+  "cloudOpenNeedsCookies": "No EH cookies configured, opened on E-Hentai instead. Configure cookies to open the in-app online detail.",
     "selectItem": "Select {title}",
     "empty": "No galleries match these filters.",
     "archiveTier": "Archive quality",

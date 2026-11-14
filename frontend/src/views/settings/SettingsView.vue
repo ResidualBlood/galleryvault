@@ -48,6 +48,7 @@ import {
   type ThumbsStatus,
 } from "@/api/settings";
 import { fetchFavoriteCategories } from "@/api/favorites";
+import { resetAppSettingsCache } from "@/composables/useAppSettings";
 import { fetchPause, purgeArchivedSources, setPaused } from "@/api/system";
 import { ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/auth";
@@ -464,6 +465,9 @@ async function submitPlan(plan: GroupSavePlan, password = ""): Promise<void> {
   confirmBusy.value = Boolean(password);
   try {
     await saveSettings(plan.payload, password);
+    // Other views read preferences (e.g. `favorites_cloud_open`) from a shared
+    // cache; a save must not leave them acting on the previous value.
+    resetAppSettingsCache();
     confirmOpen.value = false;
     pendingPlan.value = null;
     confirmPassword.value = "";

@@ -330,6 +330,18 @@
           "helpKey": "settings.help.field.generate_thumbnails"
         },
         {
+          "key": "favorites_cloud_open",
+          "storage": "us",
+          "control": "select",
+          "default": "app",
+          "labelKey": "settings.field.favorites_cloud_open",
+          "helpKey": "settings.help.field.favorites_cloud_open",
+          "options": [
+            { "value": "app", "labelKey": "settings.option.favoritesCloudOpen.app" },
+            { "value": "external", "labelKey": "settings.option.favoritesCloudOpen.external" }
+          ]
+        },
+        {
           "key": "thumbnail_status",
           "storage": "readonly",
           "control": "readonly",
