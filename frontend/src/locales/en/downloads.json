@@ -32,5 +32,16 @@
     "expand": "Expand the add panel",
     "collapse": "Collapse the add panel",
     "open": "Open"
+  },
+  "ingest": {
+    "pending": "Ingesting",
+    "failed": "Ingest failed",
+    "retry": "Retry ingest",
+    "retrying": "Re-ingesting",
+    "retryQueued": "re-ingest queued"
+  },
+  "cancel": {
+    "finished": "The task has already finished and cannot be cancelled.",
+    "finishedStatus": "The task has already finished ({status}) and cannot be cancelled."
   }
 }

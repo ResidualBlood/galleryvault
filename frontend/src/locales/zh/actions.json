@@ -25,6 +25,8 @@
   "downloadActive": "下载中 {current}/{total}",
   "downloadActiveNoTotal": "下载中 {current}",
   "downloadInLibrary": "已在库",
+  "downloadIngesting": "入库中",
+  "downloadIngestFailed": "入库失败",
   "downloadFailed": "下载失败",
   "downloadQueuedToast": "已加入下载队列",
   "downloadFailedToast": "下载失败：{message}",

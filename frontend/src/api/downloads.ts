@@ -28,6 +28,13 @@ export type DownloadStatus =
   | "failed"
   | "cancelled";
 
+/**
+ * T2.1 state machine: a task whose files are on disk but not yet visible in
+ * the library stays `downloading` with `ingest_status='pending'`. `success`
+ * is only written after the ingest pump finished (INV-DL-1).
+ */
+export type IngestStatus = "pending" | "done" | "failed";
+
 export interface DownloadTask {
   id: number;
   gid: number;
@@ -47,6 +54,7 @@ export interface DownloadTask {
   archive_status?: string | null;
   archive_error?: string | null;
   archive_fallback?: boolean;
+  ingest_status?: IngestStatus | null;
   speed?: number | null;
   eta_seconds?: number | null;
 }
@@ -211,11 +219,27 @@ export async function cancelDownload(id: number, signal?: AbortSignal): Promise<
   );
 }
 
-export async function retryDownload(id: number, signal?: AbortSignal): Promise<void> {
-  await request(
+export interface RetryDownloadResult {
+  id: number;
+  /**
+   * T2.2: `downloading` when the files are still on disk and only the ingest
+   * is re-run; `pending` when the task needs a fresh download.
+   */
+  status: string;
+}
+
+export async function retryDownload(
+  id: number,
+  signal?: AbortSignal,
+): Promise<RetryDownloadResult> {
+  const data = await request<{ id?: number; status?: string }>(
     { method: retryDownloadEp.method, path: downloadTaskPath(retryDownloadEp.path, id) },
     { signal },
   );
+  return {
+    id: Number(data?.id) || id,
+    status: typeof data?.status === "string" ? data.status : "pending",
+  };
 }
 
 export async function deleteDownloadTask(id: number, signal?: AbortSignal): Promise<void> {

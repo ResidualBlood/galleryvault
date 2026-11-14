@@ -5,6 +5,8 @@ import {
   errorSummary,
   formatDuration,
   formatSpeed,
+  ingestPhase,
+  isIngestRetry,
   parseDownloadLinks,
   taskPercent,
 } from "../format";
@@ -74,6 +76,21 @@ describe("downloads parsing and formatting", () => {
     expect(canOpenGallery({ status: "pending", gallery_id: 12 })).toBe(false);
     expect(canOpenGallery({ status: "success", gallery_id: null })).toBe(false);
     expect(canOpenGallery({ status: "success" })).toBe(false);
+  });
+
+  it('maps downloading+ingest pending to "ingesting" phase', () => {
+    expect(ingestPhase({ status: "downloading", ingest_status: "pending" })).toBe("ingesting");
+    expect(ingestPhase({ status: "downloading", ingest_status: null })).toBeNull();
+    expect(ingestPhase({ status: "pending", ingest_status: "pending" })).toBeNull();
+    expect(
+      ingestPhase({ status: "success", ingest_status: "done" }),
+    ).toBeNull();
+  });
+
+  it("marks a failed ingest as retryable without a re-download", () => {
+    expect(ingestPhase({ status: "failed", ingest_status: "failed" })).toBe("ingest-failed");
+    expect(isIngestRetry({ status: "failed", ingest_status: "failed" })).toBe(true);
+    expect(isIngestRetry({ status: "failed", ingest_status: null })).toBe(false);
   });
 
   it("formats speed, ETA, progress and gone errors", () => {

@@ -5,6 +5,7 @@ import { i18n } from "@/i18n";
 import FavButton from "@/components/actions/FavButton.vue";
 import GalleryActions from "@/components/actions/GalleryActions.vue";
 import { useUiStore } from "@/stores/ui";
+import { useDownloadsStore } from "@/stores/downloads";
 import { createDownloadEp } from "@/api/downloads";
 import { ehStatusEp } from "@/api/eh";
 
@@ -131,5 +132,61 @@ describe("quick action components", () => {
       title: "T",
       quality: "resample",
     });
+  });
+
+  it("does not treat status success without inLibrary as already in the library", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === ehStatusEp.path) return jsonResponse({ items: [] });
+      if (url.pathname === createDownloadEp.path && init?.method === "POST") {
+        return jsonResponse({ id: 9, gid: 7, title: "T", status: "pending" }, 202);
+      }
+      return jsonResponse({ total: 0, page: 1, page_size: 500, items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(GalleryActions, {
+      props: {
+        gid: 7,
+        token: "token-7",
+        title: "T",
+        density: "detail",
+        downloadStatus: "success",
+        inLibrary: false,
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="download-badge"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="download-button"]').trigger("click");
+    await flushPromises();
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          new URL(String(url), "http://localhost").pathname === createDownloadEp.path &&
+          (init as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toBe(true);
+  });
+
+  it("only shows the in-library badge once ingest_status is done", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ items: [] })));
+    const wrapper = mount(GalleryActions, {
+      props: { gid: 7, token: "token-7", title: "T", density: "detail" },
+      global: { plugins: [i18n] },
+    });
+    const store = useDownloadsStore();
+
+    store.applySeed(7, { status: "success" });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="download-badge"]').exists()).toBe(false);
+
+    store.applySeed(7, { ingestStatus: "done" });
+    await flushPromises();
+    const badge = wrapper.get('[data-testid="download-badge"]');
+    expect(badge.text()).toBe("已在库");
+    expect(badge.attributes("data-status")).toBe("success");
   });
 });

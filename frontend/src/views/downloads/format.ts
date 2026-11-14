@@ -62,6 +62,36 @@ export function formatDuration(seconds?: number | null): string {
   return `${secs}s`;
 }
 
+/** The two post-download phases introduced by T2.1 (B′ state machine). */
+export type IngestPhase = "ingesting" | "ingest-failed" | null;
+
+/**
+ * `success` no longer means "files are on disk"; it means "ingested". A row
+ * that finished downloading but waits for the ingest pump is still
+ * `downloading` with `ingest_status='pending'`, and an ingest failure is
+ * `failed` with `ingest_status='failed'` (INV-DL-1).
+ */
+export function ingestPhase(task: {
+  status?: string | null;
+  ingest_status?: string | null;
+}): IngestPhase {
+  if (task.status === "downloading" && task.ingest_status === "pending") {
+    return "ingesting";
+  }
+  if (task.status === "failed" && task.ingest_status === "failed") {
+    return "ingest-failed";
+  }
+  return null;
+}
+
+/** A failed ingest can be retried without downloading the files again. */
+export function isIngestRetry(task: {
+  status?: string | null;
+  ingest_status?: string | null;
+}): boolean {
+  return ingestPhase(task) === "ingest-failed";
+}
+
 /** DL-04: only a finished download that exists in the local library can open. */
 export function canOpenGallery(task: {
   status: string;

@@ -18,12 +18,16 @@ export const DOWNLOAD_QUALITY_KEY = "gv_download_quality";
 
 export type DownloadPhase = "idle" | "queued" | "downloading" | "success" | "failed";
 
+export type IngestPhase = "pending" | "done" | "failed" | null;
+
 export interface DownloadEntry {
   status: DownloadPhase;
   currentPage: number;
   totalPages: number | null;
   taskId: number | null;
   inLibrary: boolean;
+  /** T2.1: only an explicit `done` proves the gid is visible in the library. */
+  ingestStatus: IngestPhase;
   error: string | null;
   pending: boolean;
 }
@@ -33,6 +37,27 @@ export interface DownloadSeed {
   currentPage?: number | null;
   totalPages?: number | null;
   inLibrary?: boolean;
+  ingestStatus?: IngestPhase;
+}
+
+export function normalizeIngestStatus(raw: unknown): IngestPhase {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (value === "pending" || value === "done" || value === "failed") return value;
+  return null;
+}
+
+/**
+ * INV-DL-1 on the UI side: a gid is "in library" only when the API says so
+ * (`inLibrary`) or the ingest pump already finished (`ingest_status='done'`).
+ * `status === 'success'` alone is never enough.
+ */
+export function isInLibrary(state: {
+  inLibrary?: boolean;
+  ingestStatus?: IngestPhase;
+  ingest_status?: string | null;
+}): boolean {
+  return Boolean(state.inLibrary) ||
+    normalizeIngestStatus(state.ingestStatus ?? state.ingest_status) === "done";
 }
 
 export function normalizeQuality(value: unknown): DownloadQuality {
@@ -83,6 +108,7 @@ function emptyEntry(): DownloadEntry {
     totalPages: null,
     taskId: null,
     inLibrary: false,
+    ingestStatus: null,
     error: null,
     pending: false,
   };
@@ -130,7 +156,10 @@ export const useDownloadsStore = defineStore("downloads", () => {
     if (seed.totalPages === null || typeof seed.totalPages === "number") {
       entry.totalPages = seed.totalPages;
     }
-    if (seed.inLibrary) {
+    if (seed.ingestStatus !== undefined) {
+      entry.ingestStatus = normalizeIngestStatus(seed.ingestStatus);
+    }
+    if (isInLibrary({ inLibrary: seed.inLibrary, ingestStatus: entry.ingestStatus })) {
       entry.inLibrary = true;
       if (entry.status === "idle") entry.status = "success";
     }
@@ -202,6 +231,8 @@ export const useDownloadsStore = defineStore("downloads", () => {
       entry.currentPage = Math.max(0, Number(task.current_page) || 0);
       entry.totalPages =
         typeof task.total_pages === "number" ? Math.max(0, task.total_pages) : entry.totalPages;
+      entry.ingestStatus = normalizeIngestStatus(task.ingest_status);
+      if (isInLibrary({ ingestStatus: entry.ingestStatus })) entry.inLibrary = true;
     }
   }
 
