@@ -34,7 +34,7 @@ from ..logging import bind_log_context, log_extra
 from ..metadata.sidecar import normalize_posted, normalize_tags
 from ..services.tag_translation import translated_tag
 from .download_worker import infer_image_quality
-from .duplicates import duplicate_group_is_ignored, find_duplicate_groups
+from .duplicates import find_duplicate_groups
 from .eh_client import (
     EXHENTAI_API_CHUNK_SIZE,
     EhAuthRequiredError,
@@ -1249,25 +1249,16 @@ async def run_duplicates_scan() -> None:
                     async with session_factory() as session, session.begin():
                         await FavoritesRepository(session).update_posted_at(local_write)
 
-            async with session_factory() as session:
-                repo = FavoritesRepository(session)
-                ignored_keys = await repo.ignored_duplicate_keys()
-                ignored = await repo.ignored_duplicates()
-
-            ignored_gid_sets = [set(r.get("gids") or []) for r in ignored if r.get("gids")]
-            groups = [
-                g
-                for g in groups
-                if not duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets)
-            ]
             for g in groups:
                 g.pop("legacy_keys", None)
             groups.sort(key=lambda g: -len(g["items"]))
 
-            # Single write path (T5.2): persist into ``duplicate_groups``.
-            # ``tm.duplicates_state`` only keeps progress from here on; the
-            # legacy in-memory group payload is gone so a restart cannot lose
-            # the scan result.
+            # Single write path (T5.2/T5.3): persist every group into
+            # ``duplicate_groups`` (``kind='favorites'``).  Ignored groups are not
+            # filtered out here: their dismissal lives on this kind's row, so
+            # ``sync`` keeps it and a rescan cannot resurrect them.  The page
+            # reads the open rows and ``tm.duplicates_state`` keeps progress
+            # only, so a restart cannot lose the scan result.
             async with session_factory() as session, safe_transaction(session):
                 await DuplicateGroupRepository(session).sync("favorites", groups)
 

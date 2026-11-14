@@ -3,8 +3,8 @@
 RED targets from PLAN-backend-hardening Batch 5:
 
 * the cross-gid scan persists its groups through
-  ``DuplicateGroupRepository.sync('cross_gid', ...)`` and no longer publishes
-  the process-local ``app_state.cross_gid_duplicates`` snapshot;
+  ``DuplicateGroupRepository.sync('cross_gid', ...)`` (T5.3 removed the
+  process-local ``app_state.cross_gid_duplicates`` snapshot entirely);
 * the favorites duplicate scan persists through
   ``DuplicateGroupRepository.sync('favorites', ...)`` while
   ``tm.duplicates_state`` keeps progress only;
@@ -27,7 +27,7 @@ from galleryvault.services import duplicates as duplicates_service
 from galleryvault.services import favorites_worker
 from galleryvault.services.duplicates import (
     cross_gid_scan_lock,
-    scan_library_cross_gid_duplicates,
+    scan_library_cross_gid_groups,
 )
 from galleryvault.services.tasks import TaskManager
 
@@ -38,6 +38,8 @@ class _Rows(list):
 
 
 class _FakeSession:
+    last_marker = None
+
     async def __aenter__(self):
         return self
 
@@ -46,6 +48,15 @@ class _FakeSession:
 
     async def scalars(self, stmt):
         return _Rows([])
+
+    async def get(self, model, pk):
+        return None
+
+    def add(self, row):
+        _FakeSession.last_marker = getattr(row, "key", None)
+
+    async def flush(self):
+        return None
 
 
 def _session_factory():
@@ -121,17 +132,18 @@ async def test_cross_gid_scan_persists_groups(monkeypatch):
         "find_gallery_duplicate_groups",
         lambda *args, **kwargs: [_cross_gid_group()],
     )
-    monkeypatch.setattr(state_module.app_state, "cross_gid_duplicates", None)
-
-    groups = await scan_library_cross_gid_duplicates(_session_factory())
+    groups = await scan_library_cross_gid_groups(_session_factory())
 
     assert len(groups) == 1
     assert _RecordingDuplicateRepo.calls, "cross-gid scan must persist via duplicate_groups"
     kind, persisted = _RecordingDuplicateRepo.calls[-1]
     assert kind == "cross_gid"
     assert [g["key"] for g in persisted] == ["alice|book"]
-    assert state_module.app_state.cross_gid_duplicates is None, (
-        "the in-memory snapshot must no longer be written"
+    assert not hasattr(state_module.app_state, "cross_gid_duplicates"), (
+        "the in-memory snapshot no longer exists (T5.3)"
+    )
+    assert _FakeSession.last_marker == "duplicates_scan_cross_gid", (
+        "a completed scan must persist its ready marker"
     )
 
 
@@ -198,12 +210,20 @@ async def test_refresh_returns_202_without_waiting(monkeypatch):
         await release.wait()
         return []
 
-    monkeypatch.setattr(duplicates_service, "scan_library_cross_gid_duplicates", slow_scan)
+    monkeypatch.setattr(duplicates_service, "scan_library_cross_gid_groups", slow_scan)
     monkeypatch.setattr(state_module.app_state, "session_factory", _session_factory())
-    monkeypatch.setattr(state_module.app_state, "cross_gid_duplicates", None)
+
+    async def empty_groups(session, kind, *, status=None, present=None):
+        return []
+
+    async def not_scanned(session, kind):
+        return False
+
+    monkeypatch.setattr(duplicates_router, "list_groups", empty_groups)
+    monkeypatch.setattr(duplicates_router, "kind_scanned", not_scanned)
 
     begin = time.monotonic()
-    result = await duplicates_router.refresh_cross_gid_duplicates(session=object())
+    result = await duplicates_router.refresh_cross_gid_groups(session=object())
     elapsed = time.monotonic() - begin
 
     assert elapsed < 0.5, f"refresh blocked for {elapsed:.2f}s"
@@ -212,7 +232,7 @@ async def test_refresh_returns_202_without_waiting(monkeypatch):
     await asyncio.wait_for(started.wait(), timeout=2)
     assert cross_gid_scan_lock.locked() is True
     with pytest.raises(HTTPException) as excinfo:
-        await duplicates_router.refresh_cross_gid_duplicates(session=object())
+        await duplicates_router.refresh_cross_gid_groups(session=object())
     assert excinfo.value.status_code == 409
 
     release.set()

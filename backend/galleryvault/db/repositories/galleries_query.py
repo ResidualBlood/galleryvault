@@ -11,14 +11,13 @@ mixed into any repository exposing a session.
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
-    DuplicateRecord,
     FavoriteItem,
     Gallery,
     GalleryMetadata,
@@ -32,6 +31,7 @@ from ..models import (
 )
 from ..tag_filters import build_tag_predicates
 from .base import _chunked, count_select, escape_like_wildcards
+from .duplicates import DuplicateGroupRepository
 from .galleries_common import _title_sort_column
 
 
@@ -817,45 +817,53 @@ class GalleryQueryMixin:
         """Fetch galleries matching provided primary key ids."""
         return await self.get_by_ids(ids, id_attr="id")
 
+    async def _same_gid_group(self, gid: int) -> tuple[Any, Any]:
+        """Return ``(repo, row)`` for one same-GID duplicate group."""
+        repo = DuplicateGroupRepository(self.session)
+        for row in await repo.list("same_gid"):
+            if row.group_key == str(int(gid)):
+                return repo, row
+        return repo, None
+
     async def list_duplicates(self) -> list[dict[str, object]]:
-        rows = list(
-            (
-                await self.session.scalars(
-                    select(DuplicateRecord).order_by(DuplicateRecord.updated_at.desc())
-                )
-            ).all()
+        rows = await DuplicateGroupRepository(self.session).list("same_gid")
+        rows.sort(
+            key=lambda row: row.updated_at.timestamp() if row.updated_at else 0.0,
+            reverse=True,
         )
-        return [
-            {
-                "gid": row.gid,
-                "status": row.status,
-                "policy": row.policy,
-                "winner_path": row.winner_path,
-                "copies": row.copies or [],
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            }
-            for row in rows
-        ]
+        groups: list[dict[str, object]] = []
+        for row in rows:
+            payload = dict(row.payload or {})
+            groups.append(
+                {
+                    "gid": int(row.group_key),
+                    "status": row.status,
+                    "policy": payload.get("policy"),
+                    "winner_path": payload.get("winner_path"),
+                    "copies": list(payload.get("copies") or []),
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                }
+            )
+        return groups
 
     async def set_duplicate_status(self, gid: int, status: str) -> bool:
-        row = await self.session.get(DuplicateRecord, gid)
+        repo, row = await self._same_gid_group(gid)
         if row is None:
             return False
-        row.status = status
-        row.updated_at = datetime.now(UTC)
-        await self.session.flush()
+        await repo.set_status(row.id, status)
         return True
 
     async def delete_duplicate(self, gid: int) -> bool:
-        row = await self.session.get(DuplicateRecord, gid)
+        repo, row = await self._same_gid_group(gid)
         if row is None:
             return False
-        await self.session.delete(row)
-        await self.session.flush()
+        await repo.delete(row.id)
         return True
 
     async def duplicate_copies_for_gid(self, gid: int) -> list[dict[str, object]]:
         """Return the on-disk copy paths recorded for a duplicate group."""
-        row = await self.session.get(DuplicateRecord, gid)
-        return row.copies or [] if row is not None else []
+        _, row = await self._same_gid_group(gid)
+        if row is None:
+            return []
+        return list((row.payload or {}).get("copies") or [])

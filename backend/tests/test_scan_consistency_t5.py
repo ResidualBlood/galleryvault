@@ -245,7 +245,7 @@ async def test_run_scan_skips_expunge_when_root_missing(
             "galleryvault.services.series.rebuild_series_groups", AsyncMock(return_value={})
         )
         monkeypatch.setattr(
-            "galleryvault.services.duplicates.scan_library_cross_gid_duplicates",
+            "galleryvault.services.duplicates.scan_library_cross_gid_groups",
             AsyncMock(return_value=[]),
         )
 

@@ -218,7 +218,7 @@ async def _run_scan_with(
         "galleryvault.services.series.rebuild_series_groups", AsyncMock(return_value={})
     )
     monkeypatch.setattr(
-        "galleryvault.services.duplicates.scan_library_cross_gid_duplicates",
+        "galleryvault.services.duplicates.scan_library_cross_gid_groups",
         AsyncMock(return_value=[]),
     )
     try:

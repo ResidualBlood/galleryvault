@@ -9,16 +9,16 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.params import Depends as DependsType
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from ...db.repository import FavoritesRepository, GalleryRepository
+from ...db.repository import GalleryRepository
 from ...db.session import safe_transaction
 from ...scanners import registry
 from ...services.deletion import _scan_roots_default, in_scan_roots
+from ...services.duplicate_groups import kind_scanned, list_groups, set_group_status
 from ...services.ingest import GalleryIngestService
 from ...services.tag_translation import translated_tag
 from ...services.thumbnails import ThumbnailError, ThumbnailService
@@ -279,6 +279,9 @@ async def duplicate_thumb(
 
 def _serialize_cross_gid_group(
     group: dict[str, Any],
+    *,
+    group_id: int | None = None,
+    status: str | None = None,
 ) -> dict[str, Any]:
     items = []
     for it in group.get("items") or []:
@@ -303,51 +306,87 @@ def _serialize_cross_gid_group(
                 f"/api/favorites/cover?gid={int(it_copy['gid'])}&token={it_copy['token']}"
             )
         items.append(it_copy)
-    return {
+    serialized: dict[str, Any] = {
         "key": group.get("key"),
         "artist": group.get("artist"),
         "items": items,
     }
+    if group_id is not None:
+        serialized["id"] = group_id
+    if status is not None:
+        serialized["status"] = status
+    return serialized
+
+
+def _cross_gid_group_from_row(row: Any) -> dict[str, Any]:
+    payload = dict(getattr(row, "payload", None) or {})
+    return _serialize_cross_gid_group(
+        {
+            "key": row.group_key,
+            "artist": row.artist,
+            "items": payload.get("items") or [],
+        },
+        group_id=row.id,
+        status=row.status,
+    )
 
 
 @router.get("/api/library/duplicates/cross-gid")
-async def get_cross_gid_duplicates(
+async def list_cross_gid_groups(
+    status: Literal["open", "dismissed"] = "open",
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
-    from ...services.duplicates import duplicate_group_is_ignored
+    """List persisted cross-GID groups (T5.3: ``kind='cross_gid'`` rows).
 
-    raw_groups = app_state.cross_gid_duplicates
-    if raw_groups is None:
+    ``ready`` means the scan has completed at least once for this kind.  Rows a
+    scan no longer finds keep ``present=false``; dismissed ones stay restorable,
+    open ones are dropped by the sync, so ``present`` only hides stale payloads.
+    """
+    session = await resolve_session(session, fallback_dep=get_session)
+    rows = await list_groups(session, "cross_gid")
+    ready = any(row.last_seen_at is not None for row in rows)
+    if not ready:
+        ready = await kind_scanned(session, "cross_gid")
+    if not ready:
         return {"ready": False, "count": 0, "groups": []}
 
-    ignored_keys: set[str] = set()
-    ignored_gid_sets: list[set[int]] = []
+    visible = [
+        row
+        for row in rows
+        if row.status == status and (row.present or status == "dismissed")
+    ]
+    groups = [_cross_gid_group_from_row(row) for row in visible]
+    return {"ready": True, "count": len(groups), "groups": groups}
 
-    actual_session: AsyncSession | None = None
-    if not isinstance(session, DependsType) and session is not None:
-        actual_session = session
-    elif app_state.session_factory is not None:
-        actual_session = await resolve_session(session, fallback_dep=get_session)
 
-    if actual_session is not None:
-        fav_repo = FavoritesRepository(actual_session)
-        ignored_keys = await fav_repo.ignored_duplicate_keys()
-        ignored = await fav_repo.ignored_duplicates()
-        ignored_gid_sets = [
-            set(r.get("gids") or []) for r in ignored if r.get("gids")
-        ]
+@router.post("/api/library/duplicates/cross-gid/{group_id}/dismiss")
+async def dismiss_cross_gid_duplicate(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with safe_transaction(session):
+        row = await set_group_status(session, "cross_gid", group_id, "dismissed")
+    if row is None:
+        raise HTTPException(status_code=404, detail="duplicate group not found")
+    return {"status": "dismissed"}
 
-    filtered: list[dict[str, Any]] = []
-    for g in raw_groups:
-        if duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets):
-            continue
-        filtered.append(_serialize_cross_gid_group(g))
 
-    return {"ready": True, "count": len(filtered), "groups": filtered}
+@router.post("/api/library/duplicates/cross-gid/{group_id}/restore")
+async def restore_cross_gid_duplicate(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with safe_transaction(session):
+        row = await set_group_status(session, "cross_gid", group_id, "open")
+    if row is None:
+        raise HTTPException(status_code=404, detail="duplicate group not found")
+    return {"status": "open"}
 
 
 @router.post("/api/library/duplicates/cross-gid/refresh", status_code=202)
-async def refresh_cross_gid_duplicates(
+async def refresh_cross_gid_groups(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
@@ -364,5 +403,6 @@ async def refresh_cross_gid_duplicates(
     # view; the next GET/reload shows the persisted result.
     spawn_task(run_cross_gid_scan(session_factory), "duplicates cross-gid scan")
     await asyncio.sleep(0)
-    return await get_cross_gid_duplicates(session=session)
+    return await list_cross_gid_groups(session=session)
+
 

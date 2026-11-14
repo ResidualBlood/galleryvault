@@ -249,34 +249,12 @@ async def _register_superseded_duplicate(
         )
         return
 
-    from ..db.models import DuplicateRecord
     from ..db.repositories.duplicates import DuplicateGroupRepository
 
     async with session_cm() as session, session.begin():
-        record = await session.get(DuplicateRecord, gid)
-        if record is None:
-            session.add(
-                DuplicateRecord(
-                    gid=gid,
-                    status="open",
-                    policy=payload["policy"],
-                    winner_path=payload["winner_path"],
-                    copies=payload["copies"],
-                )
-            )
-        elif record.status == "open":
-            record.policy = payload["policy"]
-            record.winner_path = payload["winner_path"]
-            record.copies = _merge_duplicate_copies(
-                list(record.copies or []), list(payload["copies"])
-            )
-            record.updated_at = datetime.now(UTC)
-        else:
-            # The user already dismissed/resolved this group; their decision wins.
-            return
-
-        # Single source of truth (T2.4/T5.2): reconcile the whole same-gid kind
+        # Single source of truth (T2.4/T5.3): reconcile the whole same-gid kind
         # so registering one superseded copy cannot drop the other open groups.
+        # ``sync`` keeps a dismissed row dismissed (the user's decision wins).
         repo = DuplicateGroupRepository(session)
         existing_groups = [
             {

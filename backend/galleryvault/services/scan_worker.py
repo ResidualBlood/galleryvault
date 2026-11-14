@@ -13,7 +13,6 @@ from starlette.concurrency import run_in_threadpool
 
 from ..app.state import app_state
 from ..config import get_settings
-from ..db.repositories.duplicates import DuplicateGroupRepository
 from ..db.repository import GalleryRepository
 from ..logging import bind_log_context, log_extra
 from . import messages
@@ -338,25 +337,15 @@ async def run_scan() -> None:
                                             ]
                                 records = [group.record() for group in service.last_duplicates]
                             if not tm.is_cancelled("scan"):
-                                # Legacy write stays until T5.3 swaps the readers.
-                                async with session_factory() as session, session.begin():
-                                    await GalleryRepository(session).sync_duplicates(records)
-                            if not tm.is_cancelled("scan"):
-                                # Single source of truth (T5.2): the same scan
-                                # result lands in ``duplicate_groups``.
-                                groups = [
-                                    {"group_key": str(record["gid"]), **record}
-                                    for record in records
-                                    if record.get("gid") is not None
-                                ]
+                                # Single source of truth (T5.3): the scan result
+                                # lands in ``duplicate_groups`` (``kind='same_gid'``);
+                                # ``duplicate_records`` is no longer written.
                                 try:
                                     async with session_factory() as session, session.begin():
-                                        await DuplicateGroupRepository(session).sync(
-                                            "same_gid", groups
-                                        )
+                                        await GalleryRepository(session).sync_duplicates(records)
                                 except Exception as exc:  # noqa: BLE001
                                     logger.warning(
-                                        "duplicate group sync failed",
+                                        "duplicate sync failed",
                                         extra=log_extra(error=type(exc).__name__),
                                     )
                         except Exception as exc:  # noqa: BLE001
@@ -450,9 +439,9 @@ async def run_scan() -> None:
                             try:
                                 duplicates_module = __import__(
                                     "galleryvault.services.duplicates",
-                                    fromlist=["scan_library_cross_gid_duplicates_locked"],
+                                    fromlist=["scan_library_cross_gid_groups_locked"],
                                 )
-                                await duplicates_module.scan_library_cross_gid_duplicates_locked(
+                                await duplicates_module.scan_library_cross_gid_groups_locked(
                                     session_factory=session_factory, wait=True
                                 )
                             except Exception as exc:  # noqa: BLE001

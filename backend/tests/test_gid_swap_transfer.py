@@ -94,6 +94,13 @@ class _FakeSession:
             return self.update_row
         return self.new_gallery
 
+    async def scalars(self, stmt):
+        class _Rows(list):
+            def all(self):
+                return list(self)
+
+        return _Rows()
+
     async def delete(self, obj):
         self.events.append(("delete", obj))
 

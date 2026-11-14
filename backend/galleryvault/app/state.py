@@ -47,7 +47,6 @@ class AppState:
     tag_service: TagSyncService | None = None
     thumbnail_service: ThumbnailService | None = None
     task_manager: TaskManager = default_task_manager
-    cross_gid_duplicates: list[dict[str, Any]] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -137,7 +136,6 @@ class AppState:
         self.library_service = None
         self.tag_service = None
         self.thumbnail_service = None
-        self.cross_gid_duplicates = None
         self.extra.clear()
 
 

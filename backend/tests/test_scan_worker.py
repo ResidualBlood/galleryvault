@@ -304,8 +304,10 @@ async def test_sync_duplicates_accepts_caller_supplied_mappings():
     assert changed == 1
     mock_session.add.assert_called_once()
     added = mock_session.add.call_args.args[0]
-    assert added.gid == 1001
-    assert added.copies[0]["path"] == "/lib/1001"
+    # T5.3: the scan result is written to ``duplicate_groups`` now.
+    assert added.kind == "same_gid"
+    assert added.group_key == "1001"
+    assert added.payload["copies"][0]["path"] == "/lib/1001"
 
 
 def test_galleries_ingest_has_no_reverse_import_of_duplicate_resolver():

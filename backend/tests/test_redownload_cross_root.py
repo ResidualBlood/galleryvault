@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from galleryvault.app.routers import galleries as galleries_router
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
-from galleryvault.db.models import DuplicateRecord
+from galleryvault.db.models import DuplicateGroup
 from galleryvault.services import download_worker, updates_worker
 from galleryvault.services.download_worker import ingest_downloaded_gallery
 
@@ -51,6 +51,16 @@ class _FakeSession:
 
     async def get(self, _model, _pk):
         return self._duplicate
+
+    async def scalars(self, _stmt):
+        class _Rows(list):
+            def all(self):
+                return list(self)
+
+        return _Rows()
+
+    async def flush(self):
+        pass
 
     def add(self, obj):
         self.added.append(obj)
@@ -152,12 +162,14 @@ async def test_supersede_never_deletes_under_library_root(tmp_path, monkeypatch)
     assert old.exists(), "library-root copy must never be deleted by a redownload"
     assert session.added, "the kept copy must be registered as a duplicate"
     record = session.added[0]
-    assert isinstance(record, DuplicateRecord)
-    assert record.gid == 7
+    assert isinstance(record, DuplicateGroup)
+    assert record.kind == "same_gid"
+    assert record.group_key == "7"
     assert record.status == "open"
-    paths = {copy["path"] for copy in record.copies}
+    copies = record.payload["copies"]
+    paths = {copy["path"] for copy in copies}
     assert paths == {str(old), str(new)}
-    assert record.winner_path == str(new)
+    assert record.payload["winner_path"] == str(new)
 
 
 async def test_supersede_deletes_download_root_copy_with_scan_roots(tmp_path, monkeypatch):

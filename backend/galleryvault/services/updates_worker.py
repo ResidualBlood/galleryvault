@@ -17,10 +17,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..app.dependencies import db_error
 from ..app.state import app_state
 from ..db.models import DownloadTask as DownloadTaskModel
-from ..db.models import DuplicateRecord, FavoriteItem, Gallery, GalleryUpdate
+from ..db.models import FavoriteItem, Gallery, GalleryUpdate
 from ..db.repository import DownloadRepository, GalleryUpdatesRepository
 from ..db.uow import UnitOfWork
 from ..logging import bind_log_context, log_extra
+from .duplicate_groups import delete_group_by_key
 
 logger = logging.getLogger(__name__)
 
@@ -289,9 +290,10 @@ async def finalize_gallery_update(row: Any) -> str | None:
 
             await uow.session.delete(old_gallery)
             if old_gid is not None:
-                dup_row = await uow.session.get(DuplicateRecord, old_gid)
-                if dup_row is not None:
-                    await uow.session.delete(dup_row)
+                # T5.3: the duplicate group follows the GID into
+                # ``duplicate_groups``; the stale row is dropped here and the
+                # next scan re-registers the new GID.
+                await delete_group_by_key(uow.session, "same_gid", str(old_gid))
     except Exception as exc:
         logger.warning(
             "gallery update finalize failed, rolled back to downloading",

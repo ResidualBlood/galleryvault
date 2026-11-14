@@ -111,7 +111,7 @@ async def test_series_rebuild_failure_keeps_scan_ok_and_runs_dedup(
     dedup = AsyncMock(return_value=[])
     monkeypatch.setattr(series_module, "rebuild_series_groups_guarded", rebuild)
     monkeypatch.setattr(
-        duplicates_module, "scan_library_cross_gid_duplicates_locked", dedup
+        duplicates_module, "scan_library_cross_gid_groups_locked", dedup
     )
 
     with caplog.at_level("INFO", logger="galleryvault.services.scan_worker"):
@@ -140,7 +140,7 @@ async def test_scan_tail_skips_series_rebuild_when_route_holds_guard(
     dedup = AsyncMock(return_value=[])
     monkeypatch.setattr(series_module, "rebuild_series_groups", rebuild)
     monkeypatch.setattr(
-        duplicates_module, "scan_library_cross_gid_duplicates_locked", dedup
+        duplicates_module, "scan_library_cross_gid_groups_locked", dedup
     )
 
     with caplog.at_level("INFO", logger="galleryvault.services.scan_worker"):

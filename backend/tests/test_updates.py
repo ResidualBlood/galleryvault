@@ -1357,6 +1357,13 @@ async def test_finalize_gallery_update_migrates_metadata_and_deletes_old(monkeyp
                 return update_row
             return None
 
+        async def scalars(self, stmt):
+            class _Rows(list):
+                def all(self):
+                    return list(self)
+
+            return _Rows()
+
         async def delete(self, obj):
             deleted.append(obj)
 

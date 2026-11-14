@@ -31,6 +31,7 @@ from ...metadata.sidecar import normalize_posted, normalize_tags
 from ...scanners.base import CATEGORIES
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
+from ...services.duplicate_groups import list_groups, set_status_by_key
 from ...services.eh_client import EhClientError, FavoriteData, GalleryGoneError
 from ...services.favorite_service import FavoriteService
 from ...services.favorites_mutations import (
@@ -853,9 +854,26 @@ async def duplicates_scan() -> dict[str, object]:
 
 
 @router.get("/api/favorites/duplicates/status")
-async def duplicates_status() -> dict[str, object]:
+async def duplicates_status(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    """Progress from the task manager, groups from ``kind='favorites'`` rows."""
     tm = get_task_manager()
-    groups = tm.duplicates_state.get("groups") or []
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        rows = await list_groups(session, "favorites", status="open")
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    groups = [
+        {
+            "key": row.group_key,
+            "artist": row.artist,
+            "items": list((row.payload or {}).get("items") or []),
+        }
+        for row in rows
+    ]
+    # Keep the scan order the page used before the groups became persistent.
+    groups.sort(key=lambda group: -len(group["items"]))
     total_items = sum(len(g["items"]) for g in groups)
     return {
         "running": bool(tm.duplicates_state.get("running")),
@@ -866,7 +884,7 @@ async def duplicates_status() -> dict[str, object]:
         "groups": groups,
         "group_count": len(groups),
         "item_count": total_items,
-        "ignored": tm.duplicates_state.get("ignored") or [],
+        "ignored": [],
     }
 
 
@@ -876,7 +894,21 @@ async def duplicates_ignored_list(
 ) -> list[dict[str, object]]:
     session = await resolve_session(session, fallback_dep=get_session)
     try:
-        ignores = await FavoritesRepository(session).ignored_duplicates()
+        rows = await list_groups(session, "favorites", status="dismissed")
+        rows.sort(
+            key=lambda row: row.dismissed_at
+            or row.created_at
+            or datetime.min.replace(tzinfo=UTC),
+            reverse=True,
+        )
+        ignores = [
+            {
+                "key": row.group_key,
+                "title": row.title,
+                "gids": list(row.member_gids or []),
+            }
+            for row in rows
+        ]
         all_gids = [gid for entry in ignores for gid in (entry.get("gids") or [])]
         items: dict[int, dict] = {}
         if all_gids:
@@ -931,16 +963,22 @@ async def duplicates_ignore(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    if not body.key.strip():
+    key = body.key.strip()
+    if not key:
         raise HTTPException(status_code=422, detail="invalid key")
     try:
         async with safe_transaction(session):
-            await FavoritesRepository(session).add_duplicate_ignore(
-                body.key.strip(), body.title, body.gids
+            await set_status_by_key(
+                session,
+                "favorites",
+                key,
+                "dismissed",
+                title=body.title,
+                member_gids=body.gids,
             )
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    return {"ok": True, "key": body.key.strip()}
+    return {"ok": True, "key": key}
 
 
 @router.delete("/api/favorites/duplicates/ignore")
@@ -950,14 +988,15 @@ async def duplicates_unignore(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    if not key.strip():
+    key = key.strip()
+    if not key:
         raise HTTPException(status_code=422, detail="invalid key")
     try:
         async with safe_transaction(session):
-            await FavoritesRepository(session).remove_duplicate_ignore(key.strip())
+            await set_status_by_key(session, "favorites", key, "open")
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    return {"ok": True, "key": key.strip()}
+    return {"ok": True, "key": key}
 
 
 def _write_cover_atomic(path: Path, data: bytes) -> None:

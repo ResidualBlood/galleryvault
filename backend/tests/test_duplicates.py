@@ -369,13 +369,13 @@ def test_opt_lib_xgid_library_galleries_scan():
 
 @pytest.mark.asyncio
 async def test_cross_gid_same_gid_local_fav_single_item(monkeypatch):
-    """同 gid：一条 Gallery + 一条 FavoriteItem 经 scan_library_cross_gid_duplicates，
+    """同 gid：一条 Gallery + 一条 FavoriteItem 经 scan_library_cross_gid_groups，
     同 gid 在分组 item 中只有一条且优先本地（gallery_id 非空且 != FavoriteItem.id 且 favorited is True），
     不得用两个异 gid 本地行冒充。
     """
     from unittest.mock import MagicMock
 
-    from galleryvault.services.duplicates import scan_library_cross_gid_duplicates
+    from galleryvault.services.duplicates import scan_library_cross_gid_groups
 
     # 1 条本地 Gallery (gid=1001, id=10)
     g1 = MagicMock()
@@ -448,7 +448,7 @@ async def test_cross_gid_same_gid_local_fav_single_item(monkeypatch):
 
     monkeypatch.setattr("galleryvault.db.repository.FavoritesRepository", MockRepo)
 
-    groups = await scan_library_cross_gid_duplicates(MockSessionFactory())
+    groups = await scan_library_cross_gid_groups(MockSessionFactory())
     assert len(groups) == 1
     items = groups[0]["items"]
 
@@ -493,7 +493,7 @@ async def test_cross_gid_same_gid_local_fav_single_item(monkeypatch):
 
             return _Ctx()
 
-    single_groups = await scan_library_cross_gid_duplicates(MockSingleSessionFactory())
+    single_groups = await scan_library_cross_gid_groups(MockSingleSessionFactory())
     assert len(single_groups) == 0
 
 
@@ -541,11 +541,14 @@ def test_cross_gid_local_only_not_favorited():
 
 
 @pytest.mark.asyncio
-async def test_scan_library_cross_gid_duplicates_filter_ignored(monkeypatch):
-    """写入 ignore 后扫描结果不含该 key."""
+async def test_scan_library_cross_gid_groups_ignores_legacy_favorite_ignores(monkeypatch):
+    """T5.3：跨 GID 扫描不再按收藏忽略表过滤（三种 kind 互相独立，Q10-b）。
+
+    忽略状态存在 ``duplicate_groups`` 的 ``kind='cross_gid'`` 行上，由 sync 保留，
+    而不是在扫描结果里过滤。"""
     from unittest.mock import MagicMock
 
-    from galleryvault.services.duplicates import scan_library_cross_gid_duplicates
+    from galleryvault.services.duplicates import scan_library_cross_gid_groups
 
     g1 = MagicMock()
     g1.id = 1
@@ -610,9 +613,8 @@ async def test_scan_library_cross_gid_duplicates_filter_ignored(monkeypatch):
 
     monkeypatch.setattr("galleryvault.db.repository.FavoritesRepository", MockRepo)
 
-    groups = await scan_library_cross_gid_duplicates(MockSessionFactory())
-    assert all(g["key"] != "david|magicquest" for g in groups)
-    assert len(groups) == 0
+    groups = await scan_library_cross_gid_groups(MockSessionFactory())
+    assert [g["key"] for g in groups] == ["david|magicquest"]
 
 
 def test_cross_gid_duplicate_item_category_and_pages():

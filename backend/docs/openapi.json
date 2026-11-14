@@ -495,6 +495,22 @@
             }
           },
           {
+            "name": "storage_tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Storage Tier"
+            }
+          },
+          {
             "name": "min_local_rating",
             "in": "query",
             "required": false,
@@ -1497,6 +1513,90 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Redownload Gallery Api Galleries  Identifier  Redownload Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/galleries/{identifier}/archive": {
+      "post": {
+        "summary": "Archive Gallery",
+        "description": "Archive a single hot gallery to cold storage (background).",
+        "operationId": "archive_gallery_api_galleries__identifier__archive_post",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Archive Gallery Api Galleries  Identifier  Archive Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/galleries/{identifier}/unarchive": {
+      "post": {
+        "summary": "Unarchive Gallery",
+        "description": "Move a cold gallery back to the download root (background, cancellable).",
+        "operationId": "unarchive_gallery_api_galleries__identifier__unarchive_post",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Unarchive Gallery Api Galleries  Identifier  Unarchive Post"
                 }
               }
             }
@@ -3174,6 +3274,7 @@
     "/api/favorites/duplicates/status": {
       "get": {
         "summary": "Duplicates Status",
+        "description": "Progress from the task manager, groups from ``kind='favorites'`` rows.",
         "operationId": "duplicates_status_api_favorites_duplicates_status_get",
         "responses": {
           "200": {
@@ -3901,6 +4002,47 @@
         }
       }
     },
+    "/api/archive/restore": {
+      "post": {
+        "summary": "Restore Archive",
+        "description": "Move the given cold galleries back to the download root.",
+        "operationId": "restore_archive_api_archive_restore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveRestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Restore Archive Api Archive Restore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tag-sync/status": {
       "get": {
         "summary": "Tag Sync Status",
@@ -4278,17 +4420,130 @@
     },
     "/api/library/duplicates/cross-gid": {
       "get": {
-        "summary": "Get Cross Gid Duplicates",
-        "operationId": "get_cross_gid_duplicates_api_library_duplicates_cross_gid_get",
+        "summary": "List Cross Gid Groups",
+        "description": "List persisted cross-GID groups (T5.3: ``kind='cross_gid'`` rows).\n\n``ready`` means the scan has completed at least once for this kind.  Rows a\nscan no longer finds keep ``present=false``; dismissed ones stay restorable,\nopen ones are dropped by the sync, so ``present`` only hides stale payloads.",
+        "operationId": "list_cross_gid_groups_api_library_duplicates_cross_gid_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "open",
+                "dismissed"
+              ],
+              "type": "string",
+              "default": "open",
+              "title": "Status"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Get Cross Gid Duplicates Api Library Duplicates Cross Gid Get"
+                  "additionalProperties": true,
+                  "title": "Response List Cross Gid Groups Api Library Duplicates Cross Gid Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/duplicates/cross-gid/{group_id}/dismiss": {
+      "post": {
+        "summary": "Dismiss Cross Gid Duplicate",
+        "operationId": "dismiss_cross_gid_duplicate_api_library_duplicates_cross_gid__group_id__dismiss_post",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Dismiss Cross Gid Duplicate Api Library Duplicates Cross Gid  Group Id  Dismiss Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/duplicates/cross-gid/{group_id}/restore": {
+      "post": {
+        "summary": "Restore Cross Gid Duplicate",
+        "operationId": "restore_cross_gid_duplicate_api_library_duplicates_cross_gid__group_id__restore_post",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Restore Cross Gid Duplicate Api Library Duplicates Cross Gid  Group Id  Restore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -4298,17 +4553,17 @@
     },
     "/api/library/duplicates/cross-gid/refresh": {
       "post": {
-        "summary": "Refresh Cross Gid Duplicates",
-        "operationId": "refresh_cross_gid_duplicates_api_library_duplicates_cross_gid_refresh_post",
+        "summary": "Refresh Cross Gid Groups",
+        "operationId": "refresh_cross_gid_groups_api_library_duplicates_cross_gid_refresh_post",
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Refresh Cross Gid Duplicates Api Library Duplicates Cross Gid Refresh Post"
+                  "title": "Response Refresh Cross Gid Groups Api Library Duplicates Cross Gid Refresh Post"
                 }
               }
             }
@@ -6150,6 +6405,19 @@
         "type": "object",
         "title": "ArchivePreviewRequest"
       },
+      "ArchiveRestoreRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Ids"
+          }
+        },
+        "type": "object",
+        "title": "ArchiveRestoreRequest"
+      },
       "BulkDeleteRequest": {
         "properties": {
           "ids": {
@@ -7551,6 +7819,17 @@
             ],
             "title": "Favorites Poll Interval Minutes"
           },
+          "favorites_cloud_open": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorites Cloud Open"
+          },
           "favorites": {
             "anyOf": [
               {
@@ -7819,6 +8098,11 @@
               }
             ],
             "title": "Quality"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
           }
         },
         "type": "object",

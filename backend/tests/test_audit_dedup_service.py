@@ -12,8 +12,8 @@ from galleryvault.db.repositories.favorites import FavoritesRepository
 from galleryvault.services import duplicates as duplicates_service
 from galleryvault.services.duplicates import (
     cross_gid_scan_lock,
-    scan_library_cross_gid_duplicates,
-    scan_library_cross_gid_duplicates_locked,
+    scan_library_cross_gid_groups,
+    scan_library_cross_gid_groups_locked,
 )
 
 
@@ -105,7 +105,7 @@ async def test_scan_select_omits_source_meta(monkeypatch):
     session = _CapturingSession()
     monkeypatch.setattr("galleryvault.db.repository.FavoritesRepository", _FakeRepo)
 
-    await scan_library_cross_gid_duplicates(_session_factory(session))
+    await scan_library_cross_gid_groups(_session_factory(session))
 
     gallery_stmts = [str(stmt) for stmt in session.statements if "FROM galleries" in str(stmt)]
     assert gallery_stmts, "service must query the galleries table"
@@ -138,7 +138,7 @@ async def test_clustering_runs_off_event_loop_thread(monkeypatch):
 
     monkeypatch.setattr(duplicates_service, "find_gallery_duplicate_groups", fake_find)
 
-    await scan_library_cross_gid_duplicates(_session_factory(session))
+    await scan_library_cross_gid_groups(_session_factory(session))
 
     assert seen["ident"] != threading.get_ident(), "clustering must not run on the event loop"
     candidates = seen["candidates"]
@@ -156,16 +156,16 @@ async def test_locked_scan_wait_false_returns_none_while_running(monkeypatch):
         await release.wait()
         return [{"key": "k"}]
 
-    monkeypatch.setattr(duplicates_service, "scan_library_cross_gid_duplicates", slow_scan)
+    monkeypatch.setattr(duplicates_service, "scan_library_cross_gid_groups", slow_scan)
 
     assert cross_gid_scan_lock.locked() is False
     first = asyncio.create_task(
-        scan_library_cross_gid_duplicates_locked(None, wait=False)
+        scan_library_cross_gid_groups_locked(None, wait=False)
     )
     try:
         await started.wait()
         assert cross_gid_scan_lock.locked() is True
-        second = await scan_library_cross_gid_duplicates_locked(None, wait=False)
+        second = await scan_library_cross_gid_groups_locked(None, wait=False)
         assert second is None
     finally:
         release.set()

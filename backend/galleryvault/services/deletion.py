@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from ..logging import log_extra
 from ..observability import measure_duration
 from ..scanners.ehviewer import IMAGE_EXTENSIONS
+from .duplicate_groups import remove_group_copies
 from .storage_usage import safe_stat_size, storage_tracker
 
 if TYPE_CHECKING:
@@ -261,7 +262,7 @@ async def delete_galleries_local(
 
     from sqlalchemy import select
 
-    from ..db.models import DuplicateRecord, Gallery
+    from ..db.models import Gallery
     from ..db.repositories.base import path_hash
     from ..db.repository import GalleryRepository, _chunked
 
@@ -499,23 +500,12 @@ async def delete_galleries_local(
                         item["db_removed"] = False
                         item["trashed"] = True
                         if delete_all_copies and deleted_paths and gid is not None:
-                            dup_row = await sess.get(DuplicateRecord, gid)
-                            if dup_row is not None:
-                                deleted_resolved = {Path(p).resolve() for p in deleted_paths}
-                                remaining_copies = [
-                                    c for c in (dup_row.copies or [])
-                                    if Path(str(c.get("path") or "")).resolve() not in deleted_resolved
-                                ]
-                                if not remaining_copies:
-                                    await sess.delete(dup_row)
-                                else:
-                                    dup_row.copies = remaining_copies
-                                    if (
-                                        dup_row.winner_path
-                                        and Path(dup_row.winner_path).resolve() in deleted_resolved
-                                    ):
-                                        dup_row.winner_path = str(remaining_copies[0].get("path") or "")
-                                    dup_row.updated_at = datetime.now(UTC)
+                            # T5.3: the multi-copy group lives in
+                            # ``duplicate_groups``; dropping the deleted copies
+                            # from its payload keeps the cleanup page honest.
+                            await remove_group_copies(
+                                sess, "same_gid", str(gid), deleted_paths
+                            )
 
                         if storage_path and gallery is not None:
                             gallery_resolved = Path(storage_path).resolve()

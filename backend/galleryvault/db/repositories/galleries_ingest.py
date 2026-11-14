@@ -28,7 +28,6 @@ from starlette.concurrency import run_in_threadpool
 
 from ...scanners.base import ExistingGallery, GalleryMeta
 from ..models import (
-    DuplicateRecord,
     Gallery,
     GalleryPage,
     GalleryTag,
@@ -36,6 +35,7 @@ from ..models import (
 )
 from . import galleries_common
 from .base import _chunked, path_hash
+from .duplicates import DuplicateGroupRepository
 
 
 def _storage_tier_for(path: Path | str) -> str:
@@ -437,10 +437,11 @@ class GalleryIngestMixin:
         repository deliberately does not import ``services.duplicate_resolver``
         so the dependency direction stays db -> nothing.
 
-        Open records are refreshed with the current copies; records the user
-        dismissed or resolved are left alone (their decision wins).  Records
-        whose gid is no longer duplicated (copy removed on disk, or resolved
-        for real) are deleted.
+        T5.3: the write goes to ``duplicate_groups`` (``kind='same_gid'``) via
+        ``DuplicateGroupRepository.sync``; ``duplicate_records`` is no longer
+        written.  The reconciliation keeps dismissed groups (including ones the
+        scan no longer reports) and only refreshes open ones with the current
+        copies, so a user decision always wins over a later scan.
         """
         normalized: list[dict[str, Any]] = []
         for record in records:
@@ -459,21 +460,18 @@ class GalleryIngestMixin:
                 }
             )
 
-        current = {record["gid"] for record in normalized}
-        rows = list((await self.session.scalars(select(DuplicateRecord))).all())
-        by_gid = {row.gid: row for row in rows}
+        current = [record["gid"] for record in normalized]
         # Reconcile each copy against the row the gallery currently points at, so
         # the cleanup page can show which copy is the ingested one (thumbnail /
         # "current" badge) even when the winner was ingested mid-scan.
         live_rows = list(
             (
                 await self.session.scalars(
-                    select(Gallery).where(Gallery.gid.in_(list(current)))
+                    select(Gallery).where(Gallery.gid.in_(current))
                 )
             ).all()
         )
         live_by_gid = {row.gid: row for row in live_rows}
-        changed = 0
         for record in normalized:
             live = live_by_gid.get(record["gid"])
             for copy in record["copies"]:
@@ -483,30 +481,10 @@ class GalleryIngestMixin:
                     if live is not None and copy["path"] == live.storage_path
                     else copy.get("gallery_id")
                 )
-            stored = by_gid.get(record["gid"])
-            if stored is None:
-                self.session.add(
-                    DuplicateRecord(
-                        gid=record["gid"],
-                        status="open",
-                        policy=record["policy"],
-                        winner_path=record["winner_path"],
-                        copies=record["copies"],
-                    )
-                )
-                changed += 1
-            elif stored.status == "open":
-                stored.policy = record["policy"]
-                stored.winner_path = record["winner_path"]
-                stored.copies = record["copies"]
-                stored.updated_at = datetime.now(UTC)
-                changed += 1
-        for gid, stored in by_gid.items():
-            if gid not in current:
-                await self.session.delete(stored)
-                changed += 1
-        await self.session.flush()
-        return changed
+
+        groups = [{"group_key": str(record["gid"]), **record} for record in normalized]
+        saved = await DuplicateGroupRepository(self.session).sync("same_gid", groups)
+        return len(saved)
 
     async def fetch_expunge_candidates(self) -> list[dict[str, Any]]:
         """Short read: select active gallery paths and hashes without holding a transaction."""

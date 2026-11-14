@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from galleryvault.app.routers import downloads as downloads_router
@@ -16,6 +16,23 @@ from galleryvault.app.state import app_state
 from galleryvault.config import get_settings
 from galleryvault.db.models import DownloadTask
 from galleryvault.services import download_worker as dw
+
+
+async def _arm(factory, *task_ids: int) -> None:
+    """Flip rows to ``pending`` immediately before the pump call.
+
+    This database is shared with the running test backend, whose ingest pump
+    polls every couple of seconds.  A row left ``pending`` during setup can be
+    claimed by that foreign pump first (it marks it failed with its own scanner
+    error).  Arming at the last moment keeps the claim deterministic without
+    weakening any assertion.
+    """
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(DownloadTask)
+            .where(DownloadTask.id.in_(task_ids))
+            .values(ingest_status="pending")
+        )
 
 
 class _FakeScanner:
@@ -103,7 +120,7 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
                 token="tok",
                 title=f"T{gid_fail}",
                 status="downloading",
-                ingest_status="pending",
+                ingest_status=None,
                 ingest_payload=_payload(gid_fail, gallery_dir),
                 target_path=str(gallery_dir),
             )
@@ -117,7 +134,7 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
                 token="tok",
                 title=f"T{gid_ok}",
                 status="downloading",
-                ingest_status="pending",
+                ingest_status=None,
                 ingest_payload=_payload(gid_ok, ok_dir),
                 target_path=str(ok_dir),
             )
@@ -126,6 +143,7 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
             ok_id = ok_row.id
 
         monkeypatch.setattr(dw, "GalleryIngestService", _FailingIngest)
+        await _arm(factory, fail_id)
         assert await dw.run_pending_ingest_once() is True
 
         async with factory() as session:
@@ -140,13 +158,14 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
 
         # Rebuilt pump (new session + real success path) resumes the other row.
         monkeypatch.setattr(dw, "GalleryIngestService", _OkIngest)
+        await _arm(factory, ok_id)
         assert await dw.run_pending_ingest_once() is True
 
         async with factory() as session:
             ok_state = await session.scalar(
                 select(DownloadTask).where(DownloadTask.id == ok_id)
             )
-            assert ok_state.status == "success"
+            assert ok_state.status == "success", ok_state.error_message
             assert ok_state.ingest_status == "done"
             assert ok_state.ingest_payload is None
             assert ok_state.finished_at is not None
@@ -172,6 +191,7 @@ async def test_ingest_pump_failure_and_restart_resume(tmp_path: Path, monkeypatc
             assert pending_state.ingest_status == "pending"
             assert pending_state.ingest_payload is not None
 
+        await _arm(factory, fail_id)
         assert await dw.run_pending_ingest_once() is True
         async with factory() as session:
             retried_state = await session.scalar(
