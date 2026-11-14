@@ -116,8 +116,7 @@ class TagSyncService:
             try:
                 async with sf() as sess:
                     if hasattr(sess, "scalars"):
-                        async with sess.begin():
-                            return await refresh_gdata(sess, pairs, client=self.client, force=force)
+                        return await refresh_gdata(sess, pairs, client=self.client, force=force)
             except Exception:  # noqa: BLE001, S110
                 pass
         try:
@@ -169,6 +168,12 @@ class TagSyncService:
         gallery_category = getattr(gallery, "category", None)
         session = getattr(self.repository, "session", None)
         if session is not None:
+            # Detach the loaded row so refresh_gdata's release path is not
+            # suppressed by the caller-owned identity map; only plain values
+            # are used after this point.
+            expunge = getattr(session, "expunge", None)
+            if callable(expunge):
+                expunge(gallery)
             await release_session(session)
         if not force and cached and cached.get("tags"):
             if enrich_newer and cached.get("newer_gid") is None:
