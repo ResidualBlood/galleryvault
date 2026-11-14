@@ -17,8 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....db.repository import _chunked
-from ....services.library.deletion import FilteredDeleteRefused, run_filtered_delete
-from ....services.library.deps import LibraryDeps
+from ....services.library import FilteredDeleteRefused, LibraryDeps, run_filtered_delete
 from ...dependencies import db_error, get_session
 from ...schemas import BulkDeleteRequest, FilteredDeleteRequest
 

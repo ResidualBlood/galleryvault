@@ -20,7 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from ...db.repositories.online_progress import OnlineProgressRepository
-from ...services.reading import progress as reading_progress
+from ...services.reading import (
+    OnlineReadingDeps,
+    get_online_progress,
+    list_online_history,
+    save_online_progress,
+)
 from ..dependencies import db_error, get_session, resolve_session
 from .eh_online import _validate_gid, _validate_token
 
@@ -67,9 +72,9 @@ def _clean_thumb(url: str | None) -> str | None:
     return url
 
 
-def _deps() -> reading_progress.OnlineReadingDeps:
+def _deps() -> OnlineReadingDeps:
     """Collaborators for the extracted online reading use-cases."""
-    return reading_progress.OnlineReadingDeps(
+    return OnlineReadingDeps(
         online_repo=OnlineProgressRepository,
         db_error=db_error,
     )
@@ -84,7 +89,7 @@ async def eh_online_progress(
     gid = _validate_gid(gid)
     token = _validate_token(token)
     actual_session = await resolve_session(session)
-    payload = await reading_progress.get_online_progress(
+    payload = await get_online_progress(
         gid, token, session=actual_session, deps=_deps()
     )
     if payload is None:
@@ -106,7 +111,7 @@ async def save_eh_online_progress(
     thumb = _clean_thumb(body.thumb)
     title = body.title[:_MAX_TITLE_LEN] if body.title else None
     actual_session = await resolve_session(session)
-    return await reading_progress.save_online_progress(
+    return await save_online_progress(
         gid,
         token,
         session=actual_session,
@@ -126,6 +131,6 @@ async def eh_online_history(
 ) -> dict[str, Any]:
     """Recently read online galleries, newest ``updated_at`` first."""
     actual_session = await resolve_session(session)
-    return await reading_progress.list_online_history(
+    return await list_online_history(
         page, page_size, session=actual_session, deps=_deps()
     )

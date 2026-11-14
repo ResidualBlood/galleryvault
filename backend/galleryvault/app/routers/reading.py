@@ -26,7 +26,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...services.reading import progress as reading_progress
+from ...services.reading import (
+    ReadingDeps,
+    clear_all_progress,
+    delete_gallery_progress,
+    delete_history,
+    get_gallery_progress,
+    get_history,
+    update_gallery_progress,
+)
 from ..dependencies import get_session
 from ..schemas import ProgressRequest
 from ..state import app_state
@@ -67,10 +75,10 @@ async def _gallery_page_count(
         raise gal.db_error(exc) from exc
 
 
-def _deps() -> reading_progress.ReadingDeps:
+def _deps() -> ReadingDeps:
     """Build the use-case collaborators from the package's current globals."""
     gal = _gal()
-    return reading_progress.ReadingDeps(
+    return ReadingDeps(
         gallery_repo=gal.GalleryRepository,
         gallery_page_count=_gallery_page_count,
         display_title=gal.display_title,
@@ -83,7 +91,7 @@ async def gallery_progress(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await _gal().resolve_session(session, fallback_dep=_gal().get_session)
-    return await reading_progress.get_gallery_progress(
+    return await get_gallery_progress(
         identifier, session=session, deps=_deps()
     )
 
@@ -95,7 +103,7 @@ async def save_gallery_progress(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await _gal().resolve_session(session, fallback_dep=_gal().get_session)
-    return await reading_progress.update_gallery_progress(
+    return await update_gallery_progress(
         identifier, body, session=session, deps=_deps()
     )
 
@@ -107,7 +115,7 @@ async def history(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await _gal().resolve_session(session, fallback_dep=_gal().get_session)
-    return await reading_progress.get_history(
+    return await get_history(
         page, page_size, session=session, deps=_deps()
     )
 
@@ -123,7 +131,7 @@ async def clear_history(
             detail="confirm=true is required to clear all history",
         )
     session = await _gal().resolve_session(session, fallback_dep=_gal().get_session)
-    await reading_progress.delete_history(session=session, deps=_deps())
+    await delete_history(session=session, deps=_deps())
 
 
 @router.delete("/api/galleries/progress", status_code=204)
@@ -137,7 +145,7 @@ async def clear_all_gallery_progress(
             detail="confirm=true is required to clear all progress",
         )
     session = await _gal().resolve_session(session, fallback_dep=_gal().get_session)
-    await reading_progress.clear_all_progress(session=session, deps=_deps())
+    await clear_all_progress(session=session, deps=_deps())
 
 
 @router.delete("/api/galleries/{identifier}/progress", status_code=204)
@@ -146,6 +154,6 @@ async def clear_gallery_progress(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> None:
     session = await _gal().resolve_session(session, fallback_dep=_gal().get_session)
-    await reading_progress.delete_gallery_progress(
+    await delete_gallery_progress(
         identifier, session=session, deps=_deps()
     )

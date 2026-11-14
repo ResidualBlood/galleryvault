@@ -151,3 +151,103 @@ source_modules =
     galleryvault.services.favorites.counts
 forbidden_modules =
     galleryvault.services.favorites_worker
+
+# ---------------------------------------------------------------------------
+# Domain internals are private (T11.3).  A domain package may be imported by
+# the other domains and by the router layer, but only through its public
+# package surface: importing ``galleryvault.services.<domain>.<internal>``
+# from outside the domain is forbidden.  Indirect imports are allowed so the
+# contracts only police the import statements written in the source modules.
+# ---------------------------------------------------------------------------
+
+[importlinter:contract:download-internals-private]
+name = download internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.download.*
+
+[importlinter:contract:library-internals-private]
+name = library internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.library.*
+
+[importlinter:contract:reading-internals-private]
+name = reading internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.reading.*
+
+[importlinter:contract:favorites-internals-private]
+name = favorites internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.favorites.*
+
+[importlinter:contract:eh-internals-private]
+name = eh internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.eh.*
+
+[importlinter:contract:edge-not-imported]
+name = edge adapters are not imported by core or secondary domains
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+forbidden_modules =
+    galleryvault.services.tgbot
+    galleryvault.services.telegram_bot
+    galleryvault.app.routers.opds

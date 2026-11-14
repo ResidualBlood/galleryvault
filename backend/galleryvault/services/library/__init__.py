@@ -18,6 +18,14 @@ from ..duplicate_resolver import (
     resolve_group,
 )
 
+# Public surface for the router layer (T11.3): the listing/deletion use-cases
+# live in submodules, but callers import them from the package so that
+# ``galleryvault.services.library.*`` internals stay private.
+from .deletion import FilteredDeleteRefused as FilteredDeleteRefused
+from .deletion import run_filtered_delete as run_filtered_delete
+from .deps import LibraryDeps as LibraryDeps
+from .listing import list_galleries_page as list_galleries_page
+
 logger = logging.getLogger(__name__)
 
 # Process-wide record of files whose scan failed, keyed by

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 import time
@@ -218,7 +217,11 @@ async def test_resolve_search_tokens_changed_flag() -> None:
 
 
 def test_import_linter_contracts() -> None:
-    """The architecture contracts in backend/.importlinter are kept."""
+    """The architecture contracts in backend/.importlinter are all kept.
+
+    The expected count is pinned: a contract that silently disappears must fail
+    the suite instead of lowering the number while still passing.
+    """
     lint_imports = shutil.which("lint-imports")
     if lint_imports is None:
         pytest.skip("import-linter is not installed")
@@ -234,9 +237,10 @@ def test_import_linter_contracts() -> None:
     )
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
-    contracts = re.search(r"Contracts: (\d+) kept, 0 broken", output)
-    assert contracts is not None, output
-    assert int(contracts.group(1)) >= 2, output
+    # 2 baseline contracts + 8 package-split contracts (B9/B10) + 5 domain
+    # internals contracts + 1 edge contract (B11).  The reduced B11 scope has no
+    # services.organize domain and no edge-uses-public-faces contract, hence 16.
+    assert "Contracts: 16 kept, 0 broken" in output, output
 
 
 def test_request_schemas_compatibility() -> None:

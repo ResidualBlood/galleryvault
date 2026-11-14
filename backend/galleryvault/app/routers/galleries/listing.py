@@ -20,8 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....db.models import Gallery
 from ....db.repository import _chunked
 from ....db.session import safe_transaction
-from ....services.library.deps import LibraryDeps
-from ....services.library.listing import list_galleries_page
+from ....services.library import LibraryDeps, list_galleries_page
 from ...dependencies import db_error, get_session, release_session
 from ...params import _IMAGE_QUALITY, _tags_for_galleries
 from ...schemas import BulkDeleteRequest

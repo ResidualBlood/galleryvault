@@ -13,7 +13,7 @@ from ...logging import log_extra
 from ...metadata.sidecar import normalize_posted, normalize_tags
 from ..duplicates import find_duplicate_groups
 from ..eh_metadata import refresh_gdata
-from ..favorites.cover_cache import (
+from ..favorites import (
     _get_background_session_factory,
     favorites_metadata,
     remote_cover_data_batch,

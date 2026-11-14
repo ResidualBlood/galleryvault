@@ -14,6 +14,15 @@ from ..messages import (
     favorites_summary,
 )
 
+# Public surface for the other domains (T11.3): the cover-cache helpers live in
+# ``favorites.cover_cache``, but callers import them from the package so that
+# ``galleryvault.services.favorites.*`` internals stay private.
+from .cover_cache import (
+    _get_background_session_factory as _get_background_session_factory,
+)
+from .cover_cache import favorites_metadata as favorites_metadata
+from .cover_cache import remote_cover_data_batch as remote_cover_data_batch
+
 logger = logging.getLogger(__name__)
 MODES = {"monitor_only", "incremental", "force"}
 
