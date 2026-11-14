@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from ...db.repository import GalleryRepository
-from ...services import messages
 from ...services.tag_sync_worker import (
     _TRANSLATION_RELEASE_API,
     tag_facets_cached,
@@ -25,9 +24,11 @@ from ..dependencies import (
     resolve_session,
     spawn_task,
 )
-from ..state import app_state
+from .notifications import telegram_router, telegram_test
 
 router = APIRouter()
+
+__all__ = ["router", "telegram_test"]
 
 
 @router.get("/api/tags/search")
@@ -120,18 +121,5 @@ async def tag_translation_reload() -> dict[str, object]:
     return {"accepted": True}
 
 
-@router.post("/api/telegram/test")
-async def telegram_test() -> dict[str, object]:
-    notifier = app_state.telegram
-    settings = get_current_settings()
-    if notifier is None or not settings.telegram_bot_token:
-        raise HTTPException(status_code=422, detail="Telegram bot token is not configured")
-    targets = settings.telegram_chat_ids
-    if not targets:
-        raise HTTPException(status_code=422, detail="No Telegram chat IDs configured")
-    results: dict[str, object] = {}
-    message = messages.test_message(settings.telegram_notify_lang)
-    for chat_id in targets:
-        results[str(chat_id)] = await notifier.send_message(message, chat_id=chat_id)
-    ok = all(results.values())
-    return {"ok": ok, "results": results}
+# Registered where the handler used to live so the route table keeps its order.
+router.include_router(telegram_router)
