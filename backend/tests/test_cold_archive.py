@@ -532,7 +532,9 @@ async def test_router_archive_endpoints(monkeypatch: pytest.MonkeyPatch) -> None
     default_task_manager.clear_cancelled("archive")
 
     # Unknown task still 404
-    with pytest.raises(HTTPException) as exc_404:
+    from galleryvault.app.exceptions import NotFoundError
+
+    with pytest.raises(NotFoundError) as exc_404:
         await cancel_background_task("unknown_task")
     assert exc_404.value.status_code == 404
 

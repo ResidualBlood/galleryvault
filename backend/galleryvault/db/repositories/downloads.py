@@ -1,6 +1,7 @@
 import asyncio
 import html
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,8 +38,14 @@ def _clean_download_title(val: str | None) -> str | None:
 
 
 class DownloadRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        on_new_task: Callable[[], None] | None = None,
+    ) -> None:
         self.session = session
+        self._on_new_task = on_new_task
 
     async def create(
         self,
@@ -73,12 +80,11 @@ class DownloadRepository:
         )
         self.session.add(task)
         await self.session.flush()
-        try:
-            from ...services.download_worker import notify_new_task
-
-            notify_new_task()
-        except Exception:  # noqa: BLE001, S110
-            pass
+        if self._on_new_task is not None:
+            try:
+                self._on_new_task()
+            except Exception:  # noqa: BLE001, S110
+                pass
         return task
 
     async def retarget(

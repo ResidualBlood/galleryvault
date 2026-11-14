@@ -50,7 +50,7 @@ async def cmd_fav_sync(ctx: BotContext) -> None:
 
     try:
         from galleryvault.app.dependencies import get_eh_client_manager
-        from galleryvault.app.routers.favorites import sync_favorite_categories
+        from galleryvault.services.favorites import sync_favorite_categories
 
         eh_client_mgr = get_eh_client_manager()
         async with app_state.session_factory() as session:

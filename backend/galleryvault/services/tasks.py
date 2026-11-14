@@ -993,3 +993,57 @@ class TaskManager:
 
 
 default_task_manager = TaskManager()
+
+
+_CANCELLABLE_TASKS = {"scan", "tag-sync", "thumbs", "metadata", "archive", "unarchive"}
+
+
+async def _clear_jobs(job_type: str) -> None:
+    """Delete pending background-job rows for a task type (best effort)."""
+    from ..app.state import app_state
+    from ..db.repository import BackgroundJobsRepository
+    from ..db.session import safe_transaction
+
+    if not app_state.session_factory:
+        return
+    async with app_state.session_factory() as session, safe_transaction(session):
+        await BackgroundJobsRepository(session).clear(job_type)
+
+
+async def cancel_background_task(
+    task: str,
+    *,
+    manager: TaskManager | None = None,
+    clear_jobs: Any | None = None,
+    tag_sync_seeding: bool = False,
+) -> dict[str, object]:
+    """Request cancellation of a recognised background task.
+
+    Shared by ``POST /api/logs/{task}/cancel`` and the Telegram ``/kill``
+    command; the router injects its module-level ``_clear_jobs`` so existing
+    monkeypatch targets stay effective.
+    """
+    from ..app.exceptions import ConflictError, NotFoundError
+
+    task_key = "metadata" if task in {"metadata", "metadata-sync"} else task
+    if task_key not in _CANCELLABLE_TASKS:
+        raise NotFoundError("Unknown task")
+    if manager is None:
+        from ..app.state import app_state
+
+        manager = app_state.task_manager or default_task_manager
+    tm = manager
+    clear = clear_jobs if clear_jobs is not None else _clear_jobs
+    if task_key in {"thumbs", "tag-sync"}:
+        state = tm.thumb_state if task_key == "thumbs" else tm.tag_sync_state
+        seeding = tag_sync_seeding if task_key == "tag-sync" else bool(
+            state.get("seeding")
+        )
+        if not (state.get("running") or int(state.get("queued") or 0) > 0 or seeding):
+            raise ConflictError(f"no active {task_key} task")
+    tm.request_cancel(task_key)
+    if task_key == "scan":
+        tm.mark_cancelling("scan")
+    elif task_key in {"tag-sync", "thumbs"}:
+        await clear(task_key)
+    return {"task": task_key, "status": "cancelling"}

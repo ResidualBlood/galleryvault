@@ -29,6 +29,7 @@ from ...scanners.base import CATEGORIES
 from ...services.cold_archive import archive_one, run_unarchive
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
+from ...services.download_worker import notify_new_task
 from ...services.tag_sync import (
     GalleryGidMissing,
     GalleryNotFound,
@@ -1050,7 +1051,7 @@ async def download_gallery_original(
             )
     try:
         async with safe_transaction(session):
-            task = await DownloadRepository(session).create(
+            task = await DownloadRepository(session, on_new_task=notify_new_task).create(
                 gid,
                 token,
                 title,
@@ -1289,7 +1290,7 @@ async def redownload_gallery(
     mode = "gallery_archive" if archive else "gallery"
     try:
         async with safe_transaction(session):
-            task = await DownloadRepository(session).create(
+            task = await DownloadRepository(session, on_new_task=notify_new_task).create(
                 row.gid,
                 row.token,
                 row.title or str(row.gid),

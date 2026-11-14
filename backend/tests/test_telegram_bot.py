@@ -383,7 +383,7 @@ async def test_admin_commands(monkeypatch) -> None:
         async def fake_quota():
             return {"image_limit": {"current": 50, "limit": 1000}, "gp": 5000}
 
-        monkeypatch.setattr("galleryvault.app.routers.tasks.get_quota", fake_quota)
+        monkeypatch.setattr("galleryvault.services.quota.get_quota", fake_quota)
         await _update(bot, "/quota")
         assert any("配额" in c[0] or "Quota" in c[0] or "50" in c[0] for c in notifier.calls)
 
@@ -402,7 +402,7 @@ async def test_admin_commands(monkeypatch) -> None:
             }
 
         monkeypatch.setattr(
-            "galleryvault.app.routers.settings.system_storage", fake_storage
+            "galleryvault.services.storage_usage.system_storage", fake_storage
         )
         await _update(bot, "/storage")
         assert any("存储" in c[0] or "Storage" in c[0] or "图库" in c[0] for c in notifier.calls)

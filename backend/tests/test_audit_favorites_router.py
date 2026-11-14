@@ -23,9 +23,9 @@ from types import SimpleNamespace
 from typing import Any, ClassVar, Self
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
+from galleryvault.app.exceptions import ValidationError
 from galleryvault.app.schemas import FavoriteNoteRequest, FavoritesAddRequest
 from galleryvault.app.state import app_state
 from galleryvault.db.models import Gallery
@@ -160,7 +160,7 @@ async def test_note_without_token_anywhere_is_422(
 
     _install_session(monkeypatch, _FakeSession(scalars=[None, None]))
 
-    with pytest.raises(HTTPException) as excinfo:
+    with pytest.raises(ValidationError) as excinfo:
         await fav_mod.favorites_set_note(
             FavoriteNoteRequest(gid=4242, note="hello", favcat=3)
         )
@@ -225,13 +225,13 @@ async def test_add_rejects_item_note_conflicting_with_batch_note(
             note="batch-note",
             items=[{"gid": 7, "token": "tok7", "note": "item-note"}],
         )
-        with pytest.raises(HTTPException) as excinfo:
+        with pytest.raises(ValidationError) as excinfo:
             await fav_mod.favorites_add(body)
     finally:
         app_state.eh_client = original_client
 
     assert excinfo.value.status_code == 422
-    assert "note" in str(excinfo.value.detail)
+    assert "note" in str(excinfo.value.message)
     # Neither the cloud nor the local cache may be touched on a rejected body.
     assert cloud_calls == []
     assert _RecordingFavoritesRepo.remembered == []
@@ -256,7 +256,7 @@ async def test_add_rejects_item_note_when_batch_note_is_empty(
             target_favcat=3,
             items=[{"gid": 7, "token": "tok7", "note": "item-note"}],
         )
-        with pytest.raises(HTTPException) as excinfo:
+        with pytest.raises(ValidationError) as excinfo:
             await fav_mod.favorites_add(body)
     finally:
         app_state.eh_client = original_client

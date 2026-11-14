@@ -226,7 +226,7 @@ async def test_favorite_download_queue() -> None:
     try:
 
         class FakeDownloadRepo:
-            def __init__(self, session: Any) -> None:
+            def __init__(self, session: Any, **_kwargs: Any) -> None:
                 pass
 
             async def create(self, gid: int, token: str, title: str, mode: str, quality: Any = None, title_jpn: Any = None) -> SimpleNamespace:

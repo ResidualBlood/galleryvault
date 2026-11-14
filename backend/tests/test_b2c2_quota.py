@@ -40,7 +40,7 @@ def _clean_quota_state():
 
 @pytest.mark.asyncio
 async def test_quota_failure_returns_generic_error_and_logs_details(caplog) -> None:
-    from galleryvault.app.routers import tasks as tasks_mod
+    from galleryvault.services import quota as quota_mod
 
     class FailingClient:
         async def fetch_gp_balance(self) -> int:
@@ -51,8 +51,8 @@ async def test_quota_failure_returns_generic_error_and_logs_details(caplog) -> N
 
     _patch_quota_dependencies(FailingClient())
 
-    with caplog.at_level(logging.WARNING, logger="galleryvault.app.routers.tasks"):
-        result = await tasks_mod.get_quota()
+    with caplog.at_level(logging.WARNING, logger="galleryvault.services.quota"):
+        result = await quota_mod.get_quota()
 
     assert result["error"] == "quota check failed"
     assert "RuntimeError" not in result["error"]
@@ -62,7 +62,7 @@ async def test_quota_failure_returns_generic_error_and_logs_details(caplog) -> N
     logged = [
         record.context.get("detail", "")
         for record in caplog.records
-        if record.name == "galleryvault.app.routers.tasks"
+        if record.name == "galleryvault.services.quota"
         and record.getMessage() == "quota check failed"
     ]
     assert logged, "quota failure must be logged"
@@ -73,13 +73,13 @@ async def test_quota_failure_returns_generic_error_and_logs_details(caplog) -> N
     assert any(
         record.context.get("error") == "RuntimeError"
         for record in caplog.records
-        if record.name == "galleryvault.app.routers.tasks"
+        if record.name == "galleryvault.services.quota"
     )
 
 
 @pytest.mark.asyncio
 async def test_quota_cached_failure_keeps_generic_error(caplog) -> None:
-    from galleryvault.app.routers import tasks as tasks_mod
+    from galleryvault.services import quota as quota_mod
 
     class FailingClient:
         async def fetch_gp_balance(self) -> int:
@@ -90,9 +90,9 @@ async def test_quota_cached_failure_keeps_generic_error(caplog) -> None:
 
     _patch_quota_dependencies(FailingClient())
 
-    with caplog.at_level(logging.WARNING, logger="galleryvault.app.routers.tasks"):
-        first = await tasks_mod.get_quota()
-        second = await tasks_mod.get_quota()
+    with caplog.at_level(logging.WARNING, logger="galleryvault.services.quota"):
+        first = await quota_mod.get_quota()
+        second = await quota_mod.get_quota()
 
     assert first["error"] == second["error"] == "quota check failed"
     cached = app_state.extra["gp_cache"]

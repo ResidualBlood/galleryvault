@@ -41,18 +41,6 @@ from .routers import (
 from .routers import settings as settings_router
 from .state import app_state, sync_state
 
-try:
-    from . import schemas as _schemas_mod
-
-    _schemas_subpkg = Path(_schemas_mod.__file__).parent / "schemas"
-    if hasattr(_schemas_mod, "__path__"):
-        if str(_schemas_subpkg) not in _schemas_mod.__path__:
-            _schemas_mod.__path__.append(str(_schemas_subpkg))
-    else:
-        _schemas_mod.__path__ = [str(_schemas_subpkg)]
-except Exception:  # noqa: BLE001, S110
-    pass
-
 
 def _configure_logging(settings: Settings) -> None:
     log_file = settings.log_file or (

@@ -5,19 +5,17 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...auth import client_ip, verify_login_password
 from ...config import normalize_library_roots
-from ...db.models import FavoritesMonitor, Gallery
+from ...db.models import FavoritesMonitor
 from ...db.repositories.settings import patch_settings
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
@@ -44,7 +42,6 @@ from ..core.task_dispatcher import TaskDispatcher
 from ..core.uow import UnitOfWork
 from ..dependencies import (
     db_error,
-    display_title,
     get_current_settings,
     get_eh_client,
     get_session,
@@ -672,167 +669,15 @@ async def saved_searches_delete(
     return {"deleted": True, "id": search_id}
 
 
-def _path_info(
-    path: object,
-    bytes_value: int | None = None,
-    computed_at: float | None = None,
-    stale: bool = False,
-    computing: bool = False,
-) -> dict[str, object]:
-    import shutil
-
-    root = Path(str(path)) if path else Path()
-    exists = bool(path) and root.exists()
-    info: dict[str, object] = {
-        "path": str(root) if path else "",
-        "bytes": bytes_value,
-        "exists": exists,
-        "computed_at": computed_at,
-        "stale": stale,
-        "computing": computing,
-    }
-    if exists:
-        try:
-            usage = shutil.disk_usage(root)
-            info["disk_total"] = int(usage.total)
-            info["disk_used"] = int(usage.used)
-            info["disk_free"] = int(usage.free)
-        except OSError:
-            pass
-    return info
-
-
-async def _query_storage_aggregates(
-    session: AsyncSession,
-) -> tuple[int, int, int, int, int]:
-    cold_galleries = 0
-    cold_images = 0
-    cold_bytes = 0
-    library_galleries = 0
-    library_images = 0
-
-    size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
-    # Cold rows are counted by their explicit tier (not a path prefix), so
-    # multiple ``archive_roots`` and still-trash-listed cold items (which keep
-    # consuming cold space) are all represented.  Hot rows keep the historic
-    # expunged/trashed exclusion.
-    cold_stmt = select(
-        func.count(Gallery.id),
-        func.coalesce(func.sum(Gallery.page_count), 0),
-        func.coalesce(func.sum(size_col), 0),
-    ).where(Gallery.storage_tier == "cold")
-    cold_row = (await session.execute(cold_stmt)).first()
-    if cold_row:
-        cold_galleries = int(cold_row[0] or 0)
-        cold_images = int(cold_row[1] or 0)
-        cold_bytes = int(cold_row[2] or 0)
-
-    lib_stmt = select(
-        func.count(Gallery.id),
-        func.coalesce(func.sum(Gallery.page_count), 0),
-    ).where(
-        Gallery.expunged.is_(False),
-        Gallery.trashed.is_(False),
-        Gallery.storage_tier != "cold",
-    )
-    lib_row = (await session.execute(lib_stmt)).first()
-    if lib_row:
-        library_galleries = int(lib_row[0] or 0)
-        library_images = int(lib_row[1] or 0)
-
-    return cold_galleries, cold_images, cold_bytes, library_galleries, library_images
-
-
 @router.get("/api/system/storage")
 async def system_storage(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    """Thin wrapper over ``services.storage_usage.system_storage``."""
+    from ...services.storage_usage import system_storage as _system_storage
+
     session = await resolve_session(session, fallback_dep=get_session)
-    from ...services.storage_usage import storage_tracker
-
-    settings = get_current_settings()
-    cache_root = Path(settings.thumbnail_cache_dir).parent
-    cold_root = (getattr(settings, "cold_storage_root", None) or "").strip()
-    library_bytes = 0
-    cold_bytes = 0
-    library_galleries = 0
-    library_images = 0
-    cold_galleries = 0
-    cold_images = 0
-    largest: list[dict[str, object]] = []
-
-    try:
-        repo = GalleryRepository(session)
-        library_bytes = await repo.library_storage_sum()
-        (
-            cold_galleries,
-            cold_images,
-            cold_bytes,
-            library_galleries,
-            library_images,
-        ) = await _query_storage_aggregates(session)
-
-        rows = await repo.largest_by_storage(10)
-        largest = [
-            {
-                "id": row.id,
-                "title": display_title(row),
-                "storage_size": row.storage_size or row.file_size or 0,
-                "file_count": row.page_count or 0,
-            }
-            for row in rows
-        ]
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("storage dashboard db failed", extra={"error": str(exc)})
-
-    # Ensure background calibration is initiated if not already running and no snapshot exists
-    lib_path = (settings.library_roots or [None])[0]
-    dl_snap = storage_tracker.get_downloads_snapshot()
-    c_snap = storage_tracker.get_cache_snapshot()
-    l_snap = storage_tracker.get_library_snapshot()
-    if dl_snap.bytes is None or c_snap.bytes is None or (lib_path and l_snap.bytes is None):
-        storage_tracker.trigger_calibration(
-            settings.download_root, cache_root, library_root=lib_path
-        )
-
-    downloads = _path_info(
-        settings.download_root,
-        bytes_value=dl_snap.bytes,
-        computed_at=dl_snap.computed_at,
-        stale=dl_snap.stale,
-        computing=dl_snap.computing,
-    )
-    cache = _path_info(
-        str(cache_root),
-        bytes_value=c_snap.bytes,
-        computed_at=c_snap.computed_at,
-        stale=c_snap.stale,
-        computing=c_snap.computing,
-    )
-    lib_val = (
-        l_snap.bytes if l_snap.bytes is not None else (None if l_snap.computing else library_bytes)
-    )
-    library = _path_info(
-        lib_path,
-        bytes_value=lib_val,
-        computed_at=l_snap.computed_at,
-        stale=l_snap.stale,
-        computing=l_snap.computing,
-    )
-    cold = _path_info(cold_root, bytes_value=cold_bytes)
-    cache_thumbs = library_images + cold_images
-    library["gallery_count"] = library_galleries
-    library["image_count"] = library_images
-    cold["gallery_count"] = cold_galleries
-    cold["image_count"] = cold_images
-    cache["thumbnail_count"] = cache_thumbs
-    return {
-        "library": library,
-        "cold": cold,
-        "downloads": downloads,
-        "cache": cache,
-        "largest": largest,
-    }
+    return await _system_storage(session)
 
 
 @router.post("/api/system/purge-archived-sources", status_code=202)

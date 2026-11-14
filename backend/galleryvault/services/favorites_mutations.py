@@ -4,10 +4,11 @@ The HTTP layer keeps the FastAPI handler signatures, dependency resolution and
 the ``_record_*_log`` helpers; this module owns the behaviour so it can be
 exercised without FastAPI.
 
-This module deliberately imports nothing from ``galleryvault.app``: repository
-classes and request-layer helpers arrive through :class:`MutationDeps`.  The
-router builds the deps per request from its own module globals, which keeps the
-``galleryvault.app.routers.favorites.<name>`` monkeypatch targets effective.
+It imports only the shared leaf ``galleryvault.app.exceptions`` (domain errors
+mapped to HTTP by the global handler); repository classes and request-layer
+helpers still arrive through :class:`MutationDeps` from the router's module
+globals, which keeps the ``galleryvault.app.routers.favorites.<name>``
+monkeypatch targets effective.
 """
 
 from __future__ import annotations
@@ -17,9 +18,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import HTTPException
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
+from ..app.exceptions import ConflictError, DatabaseError, ValidationError
 from ..db.session import release_session, safe_transaction
 from ..logging import log_extra
 from .eh_client import FavoriteData
@@ -33,21 +35,41 @@ __all__ = [
 ]
 
 
+def _db_error(exc: Exception) -> Exception:
+    """Map SQLAlchemy failures to the shared domain exception hierarchy."""
+    if isinstance(exc, IntegrityError):
+        # A constraint conflict is a client-visible conflict, not an outage.
+        logging.getLogger(__name__).warning(
+            "database conflict", extra=log_extra(error=type(exc).__name__)
+        )
+        return ConflictError("Conflict")
+    if isinstance(exc, PoolTimeoutError):
+        from ..observability import inc_counter
+
+        inc_counter("gv_db_pool_exhausted_total")
+        logging.getLogger(__name__).error(
+            "database pool exhausted", extra=log_extra(error=type(exc).__name__)
+        )
+        return DatabaseError("Database pool exhausted")
+    logging.getLogger(__name__).error(
+        "database operation failed", extra=log_extra(error=type(exc).__name__)
+    )
+    return DatabaseError("Database is unavailable")
+
+
 @dataclass(frozen=True)
 class MutationDeps:
     """Request-scoped collaborators injected by ``app/routers/favorites.py``.
 
-    ``release_session`` and ``db_error`` live in ``galleryvault.app``; they are
-    injected rather than imported so this module stays app-layer free while the
-    endpoint behaviour (connection release before the cloud call, 503 mapping)
-    stays the same.
+    ``release_session`` lives in ``galleryvault.app``; it is injected rather
+    than imported so the endpoint behaviour (connection release before the cloud
+    call) stays the same.
     """
 
     favorites_repo: type
     gallery_repo: type
     delete_local: Callable[..., Any]
     release_session: Callable[[Any], Awaitable[None]]
-    db_error: Callable[[Exception], Exception]
     logger: logging.Logger
     # Only ``set_favorite_note`` records its own task; ``remove_favorites``
     # returns the counters so the router can call ``_record_favorites_remove_log``
@@ -81,11 +103,11 @@ async def set_favorite_note(
             if gallery is not None:
                 token = gallery.token
     except SQLAlchemyError as exc:
-        raise deps.db_error(exc) from exc
+        raise _db_error(exc) from exc
     if not token:
-        raise HTTPException(status_code=422, detail="token is required")
+        raise ValidationError("token is required")
     if favcat is None:
-        raise HTTPException(status_code=422, detail="not in favorites")
+        raise ValidationError("not in favorites")
     # Read phase finished: return the pooled connection before the cloud call.
     await deps.release_session(session)
     cloud_ok = False
@@ -106,7 +128,7 @@ async def set_favorite_note(
                     body.gid, body.note, favcat=int(favcat)
                 )
         except SQLAlchemyError as exc:
-            raise deps.db_error(exc) from exc
+            raise _db_error(exc) from exc
     if deps.record_task is not None:
         deps.record_task(body.gid, cloud_ok, local_updated)
     return {
@@ -132,7 +154,7 @@ async def add_favorites(
     as failures instead of being sent to the cloud.
     """
     if not body.items:
-        raise HTTPException(status_code=422, detail="no galleries selected")
+        raise ValidationError("no galleries selected")
 
     items_to_add: list[dict[str, Any]] = []
     seen_gids: set[int] = set()
@@ -144,9 +166,8 @@ async def add_favorites(
                 # ExHentai applies one note per addfav call, so a per-item note
                 # can never round-trip: the cloud would get the batch note while
                 # the local cache stored the item note (dual-state divergence).
-                raise HTTPException(
-                    status_code=422,
-                    detail="per-item note is not supported; send note once for the whole batch",
+                raise ValidationError(
+                    "per-item note is not supported; send note once for the whole batch"
                 )
             try:
                 gid = int(item["gid"])
@@ -164,7 +185,7 @@ async def add_favorites(
                 pass
 
     if not items_to_add:
-        raise HTTPException(status_code=422, detail="no valid galleries selected")
+        raise ValidationError("no valid galleries selected")
 
     missing_token_gids = [it["gid"] for it in items_to_add if not it.get("token")]
     if missing_token_gids:
@@ -193,7 +214,7 @@ async def add_favorites(
                     if not it.get("title"):
                         it["title"] = gm.get("title")
         except SQLAlchemyError as exc:
-            raise deps.db_error(exc) from exc
+            raise _db_error(exc) from exc
 
     valid_pairs: list[tuple[int, str]] = []
     missing_token_failed: list[int] = []
@@ -262,7 +283,7 @@ async def add_favorites(
                 )
                 local_added = len(favorite_items_to_save)
         except SQLAlchemyError as exc:
-            raise deps.db_error(exc) from exc
+            raise _db_error(exc) from exc
 
     return {
         "gids": [it["gid"] for it in items_to_add],
@@ -291,7 +312,7 @@ async def move_favorites(
     reported back for the router's ``_record_favorites_move_log``.
     """
     if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
+        raise ValidationError("no galleries selected")
     gids = list(dict.fromkeys(body.gids))
     cloud_failed: list[int] = []
     cloud_moved = 0
@@ -317,7 +338,7 @@ async def move_favorites(
                     successful_gids, body.target_favcat
                 )
         except SQLAlchemyError as exc:
-            raise deps.db_error(exc) from exc
+            raise _db_error(exc) from exc
 
     return {
         "gids": gids,
@@ -346,7 +367,7 @@ async def remove_favorites(
     stays effective.
     """
     if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
+        raise ValidationError("no galleries selected")
     gids = list(dict.fromkeys(body.gids))
     cloud_failed: list[int] = []
     cloud_removed = 0
@@ -396,7 +417,7 @@ async def remove_favorites(
                     for r in results:
                         failed_deletions.extend(r.get("failed_paths", []))
     except SQLAlchemyError as exc:
-        raise deps.db_error(exc) from exc
+        raise _db_error(exc) from exc
 
     return {
         "gids": gids,

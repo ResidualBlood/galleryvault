@@ -254,3 +254,57 @@ class FavoritesService:
                 favorites_summary(favcat, cat_name, len(candidates), downloaded, lang)
             )
         return FavoritesCheckResult(favcat, len(unique), len(candidates), downloaded, failed)
+
+
+async def sync_favorite_categories(
+    *,
+    session: Any,
+    eh_client_mgr: Any,
+    settings: Any | None = None,
+) -> list[dict[str, object]]:
+    """Refresh local favorite category names from ExHentai.
+
+    Shared by ``POST /api/favorites/sync-categories`` and the Telegram
+    ``/fav_sync`` command.  Raises domain errors; the global handler maps them
+    to HTTP responses.
+    """
+    from ..app.exceptions import GalleryVaultError, ValidationError
+    from ..db.models import FavoritesMonitor
+    from ..db.repository import FavoritesRepository
+    from ..db.session import safe_transaction
+
+    settings = settings if settings is not None else get_current_settings()
+    if not settings.exhentai_cookies:
+        raise ValidationError("ExHentai Cookie 未设置")
+    try:
+        async with eh_client_mgr.client_context(settings=settings) as client:
+            names = await client.fetch_favorite_categories()
+        async with safe_transaction(session):
+            if isinstance(names, dict):
+                for favcat, name in names.items():
+                    row = await FavoritesRepository(session).category(favcat)
+                    if row is None:
+                        row = FavoritesMonitor(favcat=favcat)
+                        session.add(row)
+                    row.name = name
+            elif isinstance(names, list):
+                for favcat, name in enumerate(names):
+                    row = await FavoritesRepository(session).category(favcat)
+                    if row is None:
+                        row = FavoritesMonitor(favcat=favcat)
+                        session.add(row)
+                    row.name = name
+    except GalleryVaultError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "favorite category synchronization failed", extra=log_extra(error=type(exc).__name__)
+        )
+        raise GalleryVaultError(
+            "无法读取 ExHentai 收藏夹分类",
+            code="FAVORITES_SYNC_FAILED",
+            status_code=503,
+        ) from exc
+    if isinstance(names, dict):
+        return [{"favcat": favcat, "name": name} for favcat, name in names.items()]
+    return [{"favcat": favcat, "name": name} for favcat, name in enumerate(names)]

@@ -23,43 +23,17 @@ from ..observability import inc_counter
 from .core.eh_client_manager import EhClientManager
 from .core.task_dispatcher import TaskDispatcher
 from .core.uow import AbstractUnitOfWork, SqlAlchemyUnitOfWork
+from .schemas.common import (
+    BatchOperationResult,
+    EntityIdResponse,
+    MessageResponse,
+    PageParams,
+    PageResponse,
+    SortDirection,
+    SortParams,
+    StatusResponse,
+)
 from .state import app_state
-
-try:
-    from . import schemas as _schemas_mod
-
-    _schemas_subpkg = Path(_schemas_mod.__file__).parent / "schemas"
-    if hasattr(_schemas_mod, "__path__"):
-        if str(_schemas_subpkg) not in _schemas_mod.__path__:
-            _schemas_mod.__path__.append(str(_schemas_subpkg))
-    else:
-        _schemas_mod.__path__ = [str(_schemas_subpkg)]
-
-    from .schemas.common import (
-        BatchOperationResult,
-        EntityIdResponse,
-        MessageResponse,
-        PageParams,
-        PageResponse,
-        SortDirection,
-        SortParams,
-        StatusResponse,
-    )
-
-    for _cls_name in (
-        "BatchOperationResult",
-        "EntityIdResponse",
-        "MessageResponse",
-        "PageParams",
-        "PageResponse",
-        "SortDirection",
-        "SortParams",
-        "StatusResponse",
-    ):
-        if not hasattr(_schemas_mod, _cls_name):
-            setattr(_schemas_mod, _cls_name, locals()[_cls_name])
-except Exception:  # noqa: BLE001, S110
-    pass
 
 if TYPE_CHECKING:
     from ..services.downloader import Downloader

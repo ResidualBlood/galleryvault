@@ -11,8 +11,8 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 
+from galleryvault.app.exceptions import ConflictError
 from galleryvault.app.routers import tasks as tasks_router
 from galleryvault.app.state import app_state
 from galleryvault.services import tag_sync_worker, thumbnail_worker
@@ -166,11 +166,11 @@ async def test_cancel_idle_thumb_task_returns_409(monkeypatch: pytest.MonkeyPatc
     tm = TaskManager()
     app_state.task_manager = tm
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ConflictError) as exc_info:
         await tasks_router.cancel_background_task("thumbs")
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "no active thumbs task"
+    assert exc_info.value.message == "no active thumbs task"
     assert tm.is_cancelled("thumbs") is False
 
 

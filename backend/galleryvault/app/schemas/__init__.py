@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..services.duplicate_resolver import DUPLICATE_POLICIES
-from ..services.eh_client import parse_gallery_url
+from ...services.duplicate_resolver import DUPLICATE_POLICIES
+from ...services.eh_client import parse_gallery_url
 
 
 class DownloadRequest(BaseModel):
@@ -304,7 +303,7 @@ class SettingsRequest(BaseModel):
     @model_validator(mode="after")
     def validate_values(self) -> SettingsRequest:
         if self.archive_roots is not None:
-            from ..config import normalize_archive_roots
+            from ...config import normalize_archive_roots
 
             normalized = normalize_archive_roots(self.archive_roots)
             object.__setattr__(self, "archive_roots", normalized)
@@ -396,14 +395,3 @@ class LogLevelRequest(BaseModel):
             raise ValueError("level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
         self.level = lvl
         return self
-
-
-# ``app.schemas`` is a module while the newer response models live in the
-# ``app/schemas/`` sub-package.  Extend the module search path so
-# ``galleryvault.app.schemas.gallery`` resolves no matter which module is
-# imported first (app.main and app.dependencies contain the same idempotent
-# shim).  The response models live in ``app.schemas.gallery`` /
-# ``app.schemas.updates`` and are imported from there directly.
-_SCHEMAS_SUBPKG = str(Path(__file__).resolve().parent / "schemas")
-if _SCHEMAS_SUBPKG not in globals().get("__path__", []):
-    globals()["__path__"] = [*globals().get("__path__", []), _SCHEMAS_SUBPKG]

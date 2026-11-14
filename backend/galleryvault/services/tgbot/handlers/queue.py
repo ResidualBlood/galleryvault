@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from galleryvault.app.dependencies import get_settings
-from galleryvault.app.lifespan import update_runtime_settings
 from galleryvault.app.state import app_state
 from galleryvault.db.models import DownloadTask as DownloadTaskModel
 from galleryvault.db.repository import DownloadRepository
@@ -28,6 +27,7 @@ from galleryvault.services.messages import (
     bot_retry_usage,
     bot_text,
 )
+from galleryvault.services.settings_service import update_runtime_settings
 from galleryvault.services.telegram_bot import cancel_download_ident, list_queue_snapshot
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.keyboards import inline_button, inline_keyboard

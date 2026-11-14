@@ -226,7 +226,7 @@ async def test_redownload_library_root_requires_allow_copy(tmp_path, monkeypatch
         return row, []
 
     monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
-    monkeypatch.setattr(galleries_router, "DownloadRepository", lambda _session: repo)
+    monkeypatch.setattr(galleries_router, "DownloadRepository", lambda _session, **_kwargs: repo)
     monkeypatch.setattr(
         app_state,
         "settings",
@@ -261,7 +261,7 @@ async def test_redownload_library_root_allow_copy_enqueues(tmp_path, monkeypatch
         return row, []
 
     monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
-    monkeypatch.setattr(galleries_router, "DownloadRepository", lambda _session: repo)
+    monkeypatch.setattr(galleries_router, "DownloadRepository", lambda _session, **_kwargs: repo)
     monkeypatch.setattr(
         app_state,
         "settings",
@@ -296,7 +296,7 @@ async def test_redownload_download_root_needs_no_confirmation(tmp_path, monkeypa
         return row, []
 
     monkeypatch.setattr(galleries_router, "_gallery_lookup", _gallery)
-    monkeypatch.setattr(galleries_router, "DownloadRepository", lambda _session: repo)
+    monkeypatch.setattr(galleries_router, "DownloadRepository", lambda _session, **_kwargs: repo)
     monkeypatch.setattr(
         app_state,
         "settings",

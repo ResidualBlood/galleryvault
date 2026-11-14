@@ -32,8 +32,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi import HTTPException
 
+from galleryvault.app.exceptions import ValidationError
 from galleryvault.app.schemas import (
     FavoriteNoteRequest,
     FavoritesAddRequest,
@@ -77,10 +77,12 @@ def _resolved_imports(path: Path) -> list[str]:
     return modules
 
 
-def test_service_module_imports_no_app_layer() -> None:
+def test_service_module_imports_no_http_layer() -> None:
     modules = _resolved_imports(Path(fm.__file__))
-    assert "galleryvault.app" not in modules
-    assert not [m for m in modules if m.startswith("galleryvault.app")]
+    allowed = {"galleryvault.app.exceptions"}
+    app_imports = {m for m in modules if m == "galleryvault.app" or m.startswith("galleryvault.app.")}
+    assert app_imports <= allowed, sorted(app_imports - allowed)
+    assert not [m for m in modules if m.startswith("galleryvault.app.routers")]
 
 
 def test_importing_service_does_not_import_routers() -> None:
@@ -270,7 +272,7 @@ async def test_missing_token_is_422_before_release_and_cloud(
     session = _FakeSession(scalars=[None, None])
     _patch_task_manager(monkeypatch)
 
-    with pytest.raises(HTTPException) as excinfo:
+    with pytest.raises(ValidationError) as excinfo:
         await fav_mod.favorites_set_note(
             FavoriteNoteRequest(gid=4242, note="hello", favcat=3),
             session=session,
@@ -278,7 +280,7 @@ async def test_missing_token_is_422_before_release_and_cloud(
         )
 
     assert excinfo.value.status_code == 422
-    assert excinfo.value.detail == "token is required"
+    assert excinfo.value.message == "token is required"
     assert cloud_calls == []
     assert session.events == []
 
@@ -304,7 +306,7 @@ async def test_missing_favcat_is_422_not_in_favorites(
     session = _FakeSession()
     _patch_task_manager(monkeypatch)
 
-    with pytest.raises(HTTPException) as excinfo:
+    with pytest.raises(ValidationError) as excinfo:
         await fav_mod.favorites_set_note(
             FavoriteNoteRequest(gid=4242, note="hello", token="tok"),
             session=session,
@@ -312,7 +314,7 @@ async def test_missing_favcat_is_422_not_in_favorites(
         )
 
     assert excinfo.value.status_code == 422
-    assert excinfo.value.detail == "not in favorites"
+    assert excinfo.value.message == "not in favorites"
     assert session.events == []
 
 
@@ -529,7 +531,7 @@ async def test_remove_empty_gids_is_422_before_any_cloud_call(
             raise AssertionError("cloud must not be called")
             yield  # pragma: no cover
 
-    with pytest.raises(HTTPException) as excinfo:
+    with pytest.raises(ValidationError) as excinfo:
         await fav_mod.favorites_remove(
             FavoritesRemoveRequest(gids=[]),
             session=_FakeSession(),
@@ -537,7 +539,7 @@ async def test_remove_empty_gids_is_422_before_any_cloud_call(
         )
 
     assert excinfo.value.status_code == 422
-    assert excinfo.value.detail == "no galleries selected"
+    assert excinfo.value.message == "no galleries selected"
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +631,7 @@ async def test_add_per_item_note_mismatch_is_422_before_any_cloud_call(
     monkeypatch.setattr(fav_mod, "GalleryRepository", _NoRepo)
     tm = _patch_task_manager(monkeypatch)
 
-    with pytest.raises(HTTPException) as excinfo:
+    with pytest.raises(ValidationError) as excinfo:
         await fav_mod.favorites_add(
             FavoritesAddRequest(
                 target_favcat=3,
@@ -641,7 +643,7 @@ async def test_add_per_item_note_mismatch_is_422_before_any_cloud_call(
         )
 
     assert excinfo.value.status_code == 422
-    assert "note" in str(excinfo.value.detail)
+    assert "note" in str(excinfo.value.message)
     # No cloud call, no local write, no task log on a rejected body.
     assert tm.recorded == []
 

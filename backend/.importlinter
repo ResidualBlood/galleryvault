@@ -4,31 +4,15 @@ root_package = galleryvault
 [importlinter:contract:1]
 name = Services, db and scanners must not import the app assembly
 type = forbidden
-# galleryvault.metadata is a namespace package (no __init__.py), so grimp does
-# not see it yet; add it here once it gets a package marker.
 source_modules =
     galleryvault.services
     galleryvault.db
     galleryvault.scanners
+    galleryvault.metadata
 forbidden_modules =
     galleryvault.app.routers
     galleryvault.app.lifespan
     galleryvault.app.main
-# services/tgbot/handlers is a namespace package (no __init__.py), so grimp does
-# not discover it. Its existing violations stay listed below as documentation
-# and will match once the package becomes visible; remove them in T8.4.
-unmatched_ignore_imports_alerting = warn
-ignore_imports =
-    # remove in T8.4
-    galleryvault.services.tgbot.handlers.admin -> galleryvault.app.routers.tasks
-    # remove in T8.4
-    galleryvault.services.tgbot.handlers.admin -> galleryvault.app.routers.settings
-    # remove in T8.4
-    galleryvault.services.tgbot.handlers.favorites -> galleryvault.app.routers.favorites
-    # remove in T8.4
-    galleryvault.services.tgbot.handlers.queue -> galleryvault.app.lifespan
-    # remove in T8.4
-    galleryvault.services.tgbot.handlers.tasks -> galleryvault.app.routers.tasks
 
 [importlinter:contract:2]
 name = The database layer must not import services
@@ -40,8 +24,3 @@ source_modules =
     galleryvault.db
 forbidden_modules =
     galleryvault.services
-ignore_imports =
-    # remove in T8.4
-    galleryvault.db.repositories.downloads -> galleryvault.services.download_worker
-    # remove in T8.4
-    galleryvault.db.repositories.galleries_ingest -> galleryvault.services.cold_archive

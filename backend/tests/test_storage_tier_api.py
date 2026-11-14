@@ -267,7 +267,7 @@ class _AggregateSession:
 
 @pytest.mark.asyncio
 async def test_storage_aggregates_use_tier() -> None:
-    from galleryvault.app.routers.settings import _query_storage_aggregates
+    from galleryvault.services.storage_usage import _query_storage_aggregates
 
     session = _AggregateSession()
     counts = await _query_storage_aggregates(session)

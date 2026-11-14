@@ -40,7 +40,7 @@ from .duplicates import DuplicateGroupRepository
 
 def _storage_tier_for(path: Path | str) -> str:
     """Return ``cold`` when the scanned path lives under a configured cold root."""
-    from ...services.cold_archive import is_under_cold
+    from ...storage_paths import is_under_cold
 
     return "cold" if is_under_cold(path) else "hot"
 

@@ -96,7 +96,7 @@ async def test_download_original_releases_before_metadata_fetch(
             return SimpleNamespace(pages=[SimpleNamespace(origin_url="https://example/orig")])
 
     class _DownloadRepo:
-        def __init__(self, _session: object) -> None:
+        def __init__(self, _session: object, **_kwargs: object) -> None:
             pass
 
         async def create(self, *args: object, **kwargs: object) -> object:

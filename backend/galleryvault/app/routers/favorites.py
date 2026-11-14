@@ -19,7 +19,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from ...db.models import FavoritesMonitor
 from ...db.repository import (
     FavoritesRepository,
     GalleryRepository,
@@ -29,6 +28,7 @@ from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...metadata.sidecar import normalize_posted, normalize_tags
 from ...scanners.base import CATEGORIES
+from ...services import favorites as favorites_service
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
 from ...services.duplicate_groups import list_groups, set_status_by_key
@@ -662,7 +662,6 @@ async def favorites_remove(
         gallery_repo=GalleryRepository,
         delete_local=delete_galleries_local,
         release_session=release_session,
-        db_error=db_error,
         logger=logger,
     )
     result = await remove_favorites(
@@ -697,7 +696,6 @@ async def favorites_move(
         gallery_repo=GalleryRepository,
         delete_local=delete_galleries_local,
         release_session=release_session,
-        db_error=db_error,
         logger=logger,
     )
     result = await move_favorites(
@@ -757,7 +755,6 @@ async def favorites_add(
         gallery_repo=GalleryRepository,
         delete_local=delete_galleries_local,
         release_session=release_session,
-        db_error=db_error,
         logger=logger,
     )
     result = await add_favorites(
@@ -807,7 +804,6 @@ async def favorites_set_note(
         delete_local=delete_galleries_local,
         record_task=_record_note_task,
         release_session=release_session,
-        db_error=db_error,
         logger=logger,
     )
     result = await set_favorite_note(
@@ -1128,38 +1124,13 @@ async def sync_favorite_categories(
     session: AsyncSession = Depends(get_session),  # noqa: B008
     eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> list[dict[str, object]]:
+    """Thin wrapper over ``services.favorites.sync_favorite_categories``."""
     session = await resolve_session(session, fallback_dep=get_session)
-    settings = get_current_settings()
-    if not settings.exhentai_cookies:
-        raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            names = await client.fetch_favorite_categories()
-        async with safe_transaction(session):
-            if isinstance(names, dict):
-                for favcat, name in names.items():
-                    row = await FavoritesRepository(session).category(favcat)
-                    if row is None:
-                        row = FavoritesMonitor(favcat=favcat)
-                        session.add(row)
-                    row.name = name
-            elif isinstance(names, list):
-                for favcat, name in enumerate(names):
-                    row = await FavoritesRepository(session).category(favcat)
-                    if row is None:
-                        row = FavoritesMonitor(favcat=favcat)
-                        session.add(row)
-                    row.name = name
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "favorite category synchronization failed", extra=log_extra(error=type(exc).__name__)
-        )
-        raise HTTPException(status_code=503, detail="无法读取 ExHentai 收藏夹分类") from exc
-    if isinstance(names, dict):
-        return [{"favcat": favcat, "name": name} for favcat, name in names.items()]
-    return [{"favcat": favcat, "name": name} for favcat, name in enumerate(names)]
+    return await favorites_service.sync_favorite_categories(
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=get_current_settings(),
+    )
 
 
 @router.post("/api/favorites/{favcat}/check", status_code=202)

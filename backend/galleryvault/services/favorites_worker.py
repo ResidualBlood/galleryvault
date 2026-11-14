@@ -33,7 +33,7 @@ from ..db.session import safe_transaction
 from ..logging import bind_log_context, log_extra
 from ..metadata.sidecar import normalize_posted, normalize_tags
 from ..services.tag_translation import translated_tag
-from .download_worker import infer_image_quality
+from .download_worker import infer_image_quality, notify_new_task
 from .duplicates import find_duplicate_groups
 from .eh_client import (
     EXHENTAI_API_CHUNK_SIZE,
@@ -110,7 +110,7 @@ class FavoriteDownloadQueue:
         self, item: Any, mode: str = "favorite", quality: str | None = None
     ) -> bool:
         if self.session is not None:
-            task = await DownloadRepository(self.session).create(
+            task = await DownloadRepository(self.session, on_new_task=notify_new_task).create(
                 item.gid,
                 item.token,
                 item.title,
@@ -127,7 +127,7 @@ class FavoriteDownloadQueue:
         if not session_factory:
             return False
         async with session_factory() as session, session.begin():
-            task = await DownloadRepository(session).create(
+            task = await DownloadRepository(session, on_new_task=notify_new_task).create(
                 item.gid,
                 item.token,
                 item.title,

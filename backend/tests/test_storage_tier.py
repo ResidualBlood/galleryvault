@@ -128,13 +128,13 @@ class _IngestSession:
 async def test_ingest_under_cold_root_sets_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from galleryvault import storage_paths
     from galleryvault.db.repositories.galleries_ingest import GalleryIngestMixin
-    from galleryvault.services import cold_archive
 
     cold_root = tmp_path / "Archive"
     cold_root.mkdir()
     monkeypatch.setattr(
-        cold_archive, "resolve_archive_roots", lambda *a, **k: [cold_root.resolve()]
+        storage_paths, "resolve_archive_roots", lambda *a, **k: [cold_root.resolve()]
     )
 
     session = _IngestSession()
@@ -154,13 +154,13 @@ async def test_ingest_under_cold_root_sets_tier(
 async def test_ingest_outside_cold_root_stays_hot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from galleryvault import storage_paths
     from galleryvault.db.repositories.galleries_ingest import GalleryIngestMixin
-    from galleryvault.services import cold_archive
 
     cold_root = tmp_path / "Archive"
     cold_root.mkdir()
     monkeypatch.setattr(
-        cold_archive, "resolve_archive_roots", lambda *a, **k: [cold_root.resolve()]
+        storage_paths, "resolve_archive_roots", lambda *a, **k: [cold_root.resolve()]
     )
 
     session = _IngestSession()

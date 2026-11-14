@@ -420,7 +420,7 @@ class _FakeCreateRepo:
         self._task = task
         self.created = None
 
-    def __call__(self, session):
+    def __call__(self, session, **_kwargs):
         self._session = session
         return self
 
@@ -586,7 +586,7 @@ class _FakeRedownloadRepo:
         self._task = task
         self.created = None
 
-    def __call__(self, session):
+    def __call__(self, session, **_kwargs):
         self._session = session
         return self
 

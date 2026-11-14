@@ -100,7 +100,7 @@ async def _create_from_prepared(
             )
     try:
         async with safe_transaction(session):
-            task = await DownloadRepository(session).create(
+            task = await DownloadRepository(session, on_new_task=notify_new_task).create(
                 prepared.gid,
                 prepared.token,
                 title,
