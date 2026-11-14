@@ -21,7 +21,7 @@ from PIL import Image as PILImage
 
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
-from galleryvault.services import download_worker as dw
+from galleryvault.services.download import attempt, ingest_pump
 from galleryvault.services.downloader import (
     DownloadCancelledError,
     Downloader,
@@ -114,9 +114,9 @@ class _Session:
 
 @pytest.fixture(autouse=True)
 def _reset_worker_state():
-    dw._challenge_counts.clear()
+    attempt._challenge_counts.clear()
     yield
-    dw._challenge_counts.clear()
+    attempt._challenge_counts.clear()
 
 
 def _patch_repository(monkeypatch, recorded: list[tuple]) -> None:
@@ -129,7 +129,7 @@ def _patch_repository(monkeypatch, recorded: list[tuple]) -> None:
         ) -> None:
             recorded.append((task_id, attempt, status, error))
 
-    monkeypatch.setattr(dw, "DownloadRepository", FakeRepo)
+    monkeypatch.setattr(attempt, "DownloadRepository", FakeRepo)
 
 
 @pytest.mark.asyncio
@@ -152,11 +152,11 @@ async def test_replacement_skip_writes_terminal_state(monkeypatch) -> None:
     async def _no_replacement(*_args: object, **_kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr(dw, "_apply_replacement", _no_replacement)
+    monkeypatch.setattr(attempt, "_apply_replacement", _no_replacement)
     recorded: list[tuple] = []
     _patch_repository(monkeypatch, recorded)
 
-    await dw._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
+    await attempt._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
 
     assert row.status == "failed", "replacement skip must not leave the task downloading"
     assert row.retry_at is None
@@ -184,25 +184,25 @@ async def test_challenge_budget_is_separate_and_capped(monkeypatch) -> None:
     async def _fake_pause(*args: object, **kwargs: object) -> None:
         paused.append((args, kwargs))
 
-    monkeypatch.setattr(dw, "_trigger_challenge_pause", _fake_pause)
-    monkeypatch.setattr(dw, "_MAX_CHALLENGE_PAUSES", 2)
+    monkeypatch.setattr(attempt, "_trigger_challenge_pause", _fake_pause)
+    monkeypatch.setattr(attempt, "_MAX_CHALLENGE_PAUSES", 2)
     recorded: list[tuple] = []
     _patch_repository(monkeypatch, recorded)
 
     task = DownloadTask(999, "tok", "Test", id=1, max_retries=5)
 
-    await dw._run_download_inner(task)
+    await attempt._run_download_inner(task)
     assert row.status == "pending"
     assert row.retry_count == 0, "a challenge pause must not consume the retry budget"
-    assert dw.challenge_count(1) == 1
+    assert attempt.challenge_count(1) == 1
     assert "1/2" in row.error_message
 
-    await dw._run_download_inner(task)
+    await attempt._run_download_inner(task)
     assert row.status == "failed", "challenge budget must terminate the pause/resume loop"
     assert row.retry_at is None
     assert row.retry_count < row.max_retries, "keep retry budget for rearm_failed"
     assert "上限" in row.error_message
-    assert dw.challenge_count(1) == 2
+    assert attempt.challenge_count(1) == 2
     assert len(paused) == 2
 
 
@@ -246,22 +246,22 @@ async def test_completed_download_during_scan_is_deferred(monkeypatch) -> None:
     async def _fake_ingest(result: object, *, strict: bool = False) -> None:
         ingested.append(result)
 
-    monkeypatch.setattr(dw, "ingest_downloaded_gallery", _fake_ingest)
+    monkeypatch.setattr(ingest_pump, "ingest_downloaded_gallery", _fake_ingest)
     notified: list[dict[str, object]] = []
 
     async def _fake_notify(payload: dict[str, object]) -> None:
         notified.append(payload)
 
-    monkeypatch.setattr(dw, "_notify_ingested", _fake_notify)
+    monkeypatch.setattr(ingest_pump, "_notify_ingested", _fake_notify)
 
     # The pump loop skips this call while a scan is running; the row stays in
     # the DB queue either way, which is what survives a restart.
-    assert dw._scan_running() is True
-    assert await dw.run_pending_ingest_once() is True
+    assert ingest_pump._scan_running() is True
+    assert await ingest_pump.run_pending_ingest_once() is True
     assert [getattr(r, "gid", None) for r in ingested] == [42]
     assert state["done"] is True
     assert notified and notified[0]["gid"] == 42
-    assert await dw.run_pending_ingest_once() is False, "row is terminal, nothing left"
+    assert await ingest_pump.run_pending_ingest_once() is False, "row is terminal, nothing left"
 
 
 @pytest.mark.asyncio

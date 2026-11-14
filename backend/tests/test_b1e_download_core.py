@@ -21,6 +21,7 @@ from galleryvault.app.state import AppState, app_state
 from galleryvault.config import Settings
 from galleryvault.services import download_worker as dw
 from galleryvault.services.base_service import BaseService
+from galleryvault.services.download import attempt as download_attempt
 from galleryvault.services.downloader import (
     _PAGE_ATTEMPTS,
     _SPEED_STATS,
@@ -356,9 +357,9 @@ async def test_success_preserves_started_at_and_records_attempt(monkeypatch, tmp
         async def record_attempt(self, task_id, attempt, status, error=None):
             recorded.append((task_id, attempt, status, error))
 
-    monkeypatch.setattr(dw, "DownloadRepository", _FakeRepo)
+    monkeypatch.setattr(download_attempt, "DownloadRepository", _FakeRepo)
 
-    await dw._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
+    await download_attempt._run_download_inner(DownloadTask(999, "tok", "Test", id=1, max_retries=5))
 
     # B2/T2.1: success is written by the ingest pump, not by the downloader.
     assert row.status == "downloading"

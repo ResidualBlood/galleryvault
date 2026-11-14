@@ -34,6 +34,16 @@ forbidden_modules =
 #   Download service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
 #   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:download-no-facade-backref]
+name = download package must not import its legacy facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+forbidden_modules =
+    galleryvault.services.download_worker
+
 # slot: library
 #   Library service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
