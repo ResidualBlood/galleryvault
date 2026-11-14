@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 
 from galleryvault.app.state import app_state
-from galleryvault.services import favorites_worker as fw
 from galleryvault.services.eh_client import EhChallengeError
+from galleryvault.services.favorites import cover_cache as fw
 
 GID = 2_285_141
 THUMB = "https://ehgt.org/t/cover.jpg"

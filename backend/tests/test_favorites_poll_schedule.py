@@ -13,6 +13,7 @@ from typing import Any, Self
 import pytest
 
 from galleryvault.services import favorites_worker as fw
+from galleryvault.services.favorites import poll as fav_poll
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 FAVCAT_A = 90
@@ -61,8 +62,8 @@ async def _tick(
             if item.favcat == favcat:
                 item.last_checked_at = NOW
 
-    monkeypatch.setattr(fw, "run_favorites_check", fake_check)
-    monkeypatch.setattr(fw, "FavoritesRepository", lambda session: repo)
+    monkeypatch.setattr(fav_poll, "run_favorites_check", fake_check)
+    monkeypatch.setattr(fav_poll, "FavoritesRepository", lambda session: repo)
     await fw._run_favorites_poll_tick(
         SimpleNamespace(favorites_poll_interval_minutes=720),
         object(),

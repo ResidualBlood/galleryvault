@@ -20,6 +20,8 @@ from galleryvault.db.repositories import favorites as favorites_repo_module
 from galleryvault.db.repositories.favorites import FavoritesRepository
 from galleryvault.services import favorites_worker
 from galleryvault.services import tag_sync_worker as tag_worker
+from galleryvault.services.favorites import counts as fav_counts
+from galleryvault.services.favorites import cover_cache
 
 
 class _Result:
@@ -241,7 +243,7 @@ async def test_remote_cover_data_batch_bounds_concurrency(monkeypatch, tmp_path)
                 self.active -= 1
 
     client = FakeClient()
-    monkeypatch.setattr(favorites_worker, "_remote_cover_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(cover_cache, "_remote_cover_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(app_state, "eh_client", client, raising=False)
 
     pairs = [(gid, f"tok{gid}") for gid in range(1, 61)]
@@ -271,8 +273,8 @@ async def test_empty_favorite_counts_are_cached(monkeypatch):
             return {}
 
     monkeypatch.setattr(favorites_worker.app_state, "eh_client", FakeClient(), raising=False)
-    monkeypatch.setattr(favorites_worker, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
-    monkeypatch.setattr(favorites_worker, "_fav_counts_refresh_task", None)
+    monkeypatch.setattr(fav_counts, "_fav_counts_cache", {"ts": 0.0, "counts": {}})
+    monkeypatch.setattr(fav_counts, "_fav_counts_refresh_task", None)
 
     assert await favorites_worker.favorite_counts_cached(wait_on_cold=True) == {}
     assert calls["n"] == 1

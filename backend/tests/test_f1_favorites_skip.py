@@ -20,6 +20,8 @@ from galleryvault.db.repositories.favorites import FULL_CHECK_CONFIG_KEY, Favori
 from galleryvault.services import favorites_worker as fw
 from galleryvault.services import updates_worker
 from galleryvault.services.eh_client import EhClient
+from galleryvault.services.favorites import counts as fav_counts
+from galleryvault.services.favorites import poll as fav_poll
 from galleryvault.services.favorites_worker import FAVORITES_FULL_CHECK_MAX_AGE_DAYS
 from galleryvault.services.updates_worker import detect_gallery_updates
 
@@ -107,8 +109,8 @@ def _install(monkeypatch: pytest.MonkeyPatch, store: _Store, *, known: int, live
     monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
     monkeypatch.setattr(app_state, "session_factory", Session)
     monkeypatch.setattr(app_state, "eh_client", Client())
-    monkeypatch.setattr(fw, "FavoritesRepository", lambda session: session._repo)
-    monkeypatch.setattr(fw, "favorite_counts_cached", fake_counts)
+    monkeypatch.setattr(fav_poll, "FavoritesRepository", lambda session: session._repo)
+    monkeypatch.setattr(fav_counts, "favorite_counts_cached", fake_counts)
     monkeypatch.setattr("galleryvault.app.dependencies.spawn_task", fake_spawn)
 
 

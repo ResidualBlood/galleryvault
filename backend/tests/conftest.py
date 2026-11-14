@@ -175,23 +175,23 @@ def _reset_login_throttle_state():
 def _reset_remote_cover_state():
     """Keep the process-local remote-cover throttle from leaking across tests.
 
-    ``favorites_worker`` remembers per-gid cover failures and holds a
+    ``favorites.cover_cache`` remembers per-gid cover failures and holds a
     single-flight map plus a semaphore bound to the running event loop. Without
     a reset a negative entry (or a stale loop-bound semaphore) written by one
     test would change the next test's upstream call count.
     """
     def _clear() -> None:
-        from galleryvault.services import favorites_worker
+        from galleryvault.services.favorites import cover_cache
 
-        clear = getattr(favorites_worker, "clear_remote_cover_negative", None)
+        clear = getattr(cover_cache, "clear_remote_cover_negative", None)
         if clear is not None:
             clear()
-        inflight = getattr(favorites_worker, "_cover_inflight", None)
+        inflight = getattr(cover_cache, "_cover_inflight", None)
         if isinstance(inflight, dict):
             inflight.clear()
-        favorites_worker._cover_gate = None
-        favorites_worker._cover_gate_loop = None
-        favorites_worker._cover_next_slot = 0.0
+        cover_cache._cover_gate = None
+        cover_cache._cover_gate_loop = None
+        cover_cache._cover_next_slot = 0.0
 
     _clear()
     try:

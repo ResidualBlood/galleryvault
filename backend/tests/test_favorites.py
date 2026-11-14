@@ -21,6 +21,9 @@ from galleryvault.config import Settings
 from galleryvault.metadata.sidecar import normalize_posted, normalize_tags
 from galleryvault.services import favorites_worker as fw
 from galleryvault.services.eh_client import EhClient, EhClientError
+from galleryvault.services.favorites import counts as fav_counts
+from galleryvault.services.favorites import cover_cache as fav_covers
+from galleryvault.services.favorites import poll as fav_poll
 from galleryvault.services.favorites_worker import (
     FAVORITES_FULL_CHECK_MAX_AGE_DAYS,
     FavoriteDownloadQueue,
@@ -100,7 +103,7 @@ def test_cover_cache_file_prefers_img(tmp_path: Path) -> None:
 async def test_remote_cover_batch_uses_img_or_jpg_without_download(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(fav_covers, "_remote_cover_cache_dir", lambda: tmp_path)
     (tmp_path / "1.img").write_bytes(b"\xff\xd8\xff" + b"a" * 8)
     (tmp_path / "2.jpg").write_bytes(b"\x89PNG\r\n\x1a\n")
     orig = app_state.eh_client
@@ -123,7 +126,7 @@ async def test_remote_cover_batch_uses_img_or_jpg_without_download(
 async def test_remote_cover_batch_writes_img_not_jpg(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(fav_covers, "_remote_cover_cache_dir", lambda: tmp_path)
     downloaded = []
 
     class Client:
@@ -337,6 +340,7 @@ async def test_favorite_size_sync_heals_missing_covers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(fav_covers, "_remote_cover_cache_dir", lambda: tmp_path)
     (tmp_path / "2.img").write_bytes(b"cached")
     downloaded: list[str] = []
 
@@ -420,6 +424,7 @@ async def test_favorite_size_sync_applies_metadata_infers_quality_and_records_hi
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(fav_covers, "_remote_cover_cache_dir", lambda: tmp_path)
     qualities: dict[int, str] = {}
     applied_calls: list[int] = []
 
@@ -510,6 +515,7 @@ async def test_favorite_size_sync_fetches_gdata_when_seeded_metadata_lacks_file_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(fw, "_remote_cover_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(fav_covers, "_remote_cover_cache_dir", lambda: tmp_path)
     fetched_pairs: list[tuple[int, str]] = []
     qualities: dict[int, str] = {}
 
@@ -761,8 +767,8 @@ async def test_run_favorites_check_records_timestamp_then_skips_within_age() -> 
         app_state.session_factory = lambda: _FakeFavoritesSession(Repo())
         app_state.eh_client = client
         app_state.favorites_service = Service()
-        monkeypatch.setattr(fw, "FavoritesRepository", lambda session: session._repo)
-        monkeypatch.setattr(fw, "favorite_counts_cached", _fake_counts)
+        monkeypatch.setattr(fav_poll, "FavoritesRepository", lambda session: session._repo)
+        monkeypatch.setattr(fav_counts, "favorite_counts_cached", _fake_counts)
         monkeypatch.setattr("galleryvault.app.dependencies.spawn_task", fake_spawn)
         monkeypatch.setattr(tm, "record_task", lambda *a, **k: None)
 
@@ -804,8 +810,8 @@ async def test_favorites_check_failure_checked_signature(monkeypatch: pytest.Mon
     app_state.session_factory = lambda: _FakeFavoritesSession(MockRepo())
 
     try:
-        monkeypatch.setattr(fw, "FavoritesRepository", lambda session: session._repo)
-        monkeypatch.setattr(fw, "favorite_counts_cached", _fake_counts_1)
+        monkeypatch.setattr(fav_poll, "FavoritesRepository", lambda session: session._repo)
+        monkeypatch.setattr(fav_counts, "favorite_counts_cached", _fake_counts_1)
         await fw._run_favorites_check_inner(
             favcat=1,
             service=FailingService(),

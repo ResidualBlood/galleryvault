@@ -20,6 +20,7 @@ from galleryvault.services import eh_metadata, tag_sync, tag_sync_worker
 from galleryvault.services import favorites as favorites_service
 from galleryvault.services import favorites_worker as fw
 from galleryvault.services.download_prepare import PreparedGallery
+from galleryvault.services.favorites import cover_cache as fav_covers
 from galleryvault.services.favorites_mutations import add_favorites
 from galleryvault.services.tasks import TaskManager
 
@@ -449,7 +450,7 @@ async def test_favorites_metadata_releases_before_network(
 ) -> None:
     events: list[str] = []
     session = _TxSession(events)
-    monkeypatch.setattr(fw, "_get_background_session_factory", lambda: _Factory(session))
+    monkeypatch.setattr(fav_covers, "_get_background_session_factory", lambda: _Factory(session))
     _patch_meta_repo(monkeypatch, {"title": "Fetched", "category": "manga", "tags": []})
     orig_client = app_state.eh_client
     app_state.eh_client = _RecordingClient(events, {"title": "Fetched", "category": "manga", "tags": []})
@@ -467,7 +468,7 @@ async def test_fill_remote_cover_releases_before_network(
 ) -> None:
     events: list[str] = []
     session = _TxSession(events)
-    monkeypatch.setattr(fw, "_get_background_session_factory", lambda: _Factory(session))
+    monkeypatch.setattr(fav_covers, "_get_background_session_factory", lambda: _Factory(session))
     _patch_meta_repo(monkeypatch, {"thumb": "http://thumb"})
     orig_client = app_state.eh_client
     app_state.eh_client = _RecordingClient(events, {"thumb": "http://thumb"})

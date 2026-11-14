@@ -4,11 +4,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from ..app.dependencies import get_current_settings
-from ..logging import log_extra
-from .eh_client import FavoriteData
-from .eh_metadata import refresh_gdata
-from .messages import (
+from ...app.dependencies import get_current_settings
+from ...logging import log_extra
+from ..eh_client import FavoriteData
+from ..eh_metadata import refresh_gdata
+from ..messages import (
     favorites_check_failed,
     favorites_enqueue_failed,
     favorites_summary,
@@ -151,7 +151,7 @@ class FavoritesService:
                 if session is not None:
                     gmeta = await refresh_gdata(session, pairs, client=self.fetcher)
                 else:
-                    from ..app.state import app_state
+                    from ...app.state import app_state
 
                     sf = getattr(app_state, "background_session_factory", None) or app_state.session_factory
                     if sf is not None:
@@ -268,10 +268,10 @@ async def sync_favorite_categories(
     ``/fav_sync`` command.  Raises domain errors; the global handler maps them
     to HTTP responses.
     """
-    from ..app.exceptions import GalleryVaultError, ValidationError
-    from ..db.models import FavoritesMonitor
-    from ..db.repository import FavoritesRepository
-    from ..db.session import safe_transaction
+    from ...app.exceptions import GalleryVaultError, ValidationError
+    from ...db.models import FavoritesMonitor
+    from ...db.repository import FavoritesRepository
+    from ...db.session import safe_transaction
 
     settings = settings if settings is not None else get_current_settings()
     if not settings.exhentai_cookies:

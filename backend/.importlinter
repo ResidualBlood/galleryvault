@@ -62,3 +62,14 @@ forbidden_modules =
 #   Edge/telegram split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
 #   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:favorites-no-facade-backref]
+name = favorites cover_cache/poll/counts must not import the legacy worker facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.favorites.cover_cache
+    galleryvault.services.favorites.poll
+    galleryvault.services.favorites.counts
+forbidden_modules =
+    galleryvault.services.favorites_worker
