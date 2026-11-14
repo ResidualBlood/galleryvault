@@ -14,15 +14,12 @@ from ...logging import log_extra
 from ..downloader import DownloadTask
 from . import wake
 from .attempt import challenge_probe_loop, retry_backoff, run_download
-from .wake import notify_new_task
+from .wake import notify_new_task, pool
 
 logger = logging.getLogger("galleryvault.services.download_worker")
 
 _WORKER_POLL_MIN_SECONDS = 1.0
 _WORKER_POLL_MAX_SECONDS = 60.0
-
-_worker_tasks: list[asyncio.Task] = []
-_target_download_concurrency: int = 2
 
 
 def _idle_poll_timeout(next_retry_at: datetime | None) -> float:
@@ -51,24 +48,23 @@ def _effective_download_concurrency(concurrency: int | None = None) -> int:
 
 
 async def _download_worker() -> None:
-    global _worker_tasks
     my_event = asyncio.Event()
-    wake._worker_events.add(my_event)
+    pool.events.add(my_event)
     try:
         while True:
             my_event.clear()
             try:
                 # Cooperative drain: if target concurrency decreased, exit after completing current gallery
                 current_task = asyncio.current_task()
-                _worker_tasks = [t for t in _worker_tasks if not t.done()]
-                if current_task is not None and current_task not in _worker_tasks:
+                pool.tasks[:] = [t for t in pool.tasks if not t.done()]
+                if current_task is not None and current_task not in pool.tasks:
                     return
-                if len(_worker_tasks) > _target_download_concurrency:
-                    if current_task in _worker_tasks:
-                        _worker_tasks.remove(current_task)
+                if len(pool.tasks) > pool.target:
+                    if current_task in pool.tasks:
+                        pool.tasks.remove(current_task)
                     logger.info(
                         "Download worker exiting cooperatively for concurrency drain",
-                        extra=log_extra(current=len(_worker_tasks), target=_target_download_concurrency),
+                        extra=log_extra(current=len(pool.tasks), target=pool.target),
                     )
                     return
 
@@ -149,32 +145,31 @@ async def _download_worker() -> None:
                 )
                 await asyncio.sleep(2)
     finally:
-        wake._worker_events.discard(my_event)
+        pool.events.discard(my_event)
 
 
 def adjust_download_concurrency(new_concurrency: int | None = None) -> None:
-    global _worker_tasks, _target_download_concurrency
     target = _effective_download_concurrency(new_concurrency)
-    _target_download_concurrency = target
+    pool.target = target
     # Keep the downloader's in-flight limit in sync too: it was fixed when the
     # instance was built, so extra workers used to claim a row and then block
     # on the old limit (report 01 P3-5).
     downloader = app_state.downloader
     if downloader is not None and hasattr(downloader, "set_concurrency"):
         downloader.set_concurrency(target)
-    _worker_tasks = [t for t in _worker_tasks if not t.done()]
-    current = len(_worker_tasks)
+    pool.tasks[:] = [t for t in pool.tasks if not t.done()]
+    current = len(pool.tasks)
     if target > current:
         for _ in range(target - current):
-            _worker_tasks.append(asyncio.create_task(_download_worker()))
+            pool.tasks.append(asyncio.create_task(_download_worker()))
         logger.info(
             "Adjusted download concurrency",
-            extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
+            extra=log_extra(previous=current, target=target, current=len(pool.tasks)),
         )
     elif target < current:
         logger.info(
             "Set target download concurrency for cooperative drain",
-            extra=log_extra(previous=current, target=target, current=len(_worker_tasks)),
+            extra=log_extra(previous=current, target=target, current=len(pool.tasks)),
         )
         notify_new_task()
 
@@ -185,20 +180,18 @@ async def stop_download_workers() -> None:
     Called on shutdown (before engines are disposed) and whenever the
     supervisor exits, so child workers never outlive their owner.
     """
-    global _worker_tasks
-    pending = [t for t in _worker_tasks if not t.done()]
-    _worker_tasks = [t for t in _worker_tasks if not t.done()]
+    pending = [t for t in pool.tasks if not t.done()]
+    pool.tasks[:] = [t for t in pool.tasks if not t.done()]
     for t in pending:
         t.cancel()
     if pending:
         await asyncio.gather(*pending, return_exceptions=True)
-    _worker_tasks = []
-    wake._worker_events.clear()
+    pool.tasks.clear()
+    pool.events.clear()
 
 
 async def download_worker_loop() -> None:
     """Recover and claim persisted jobs continuously."""
-    global _worker_tasks, _target_download_concurrency
     session_factory = wake._get_background_session_factory()
     if not session_factory:
         return
@@ -218,16 +211,16 @@ async def download_worker_loop() -> None:
     try:
         while True:
             await asyncio.sleep(10)
-            _worker_tasks = [t for t in _worker_tasks if not t.done()]
+            pool.tasks[:] = [t for t in pool.tasks if not t.done()]
             settings = app_state.settings or get_settings()
             target = _effective_download_concurrency(settings.download_concurrency)
-            _target_download_concurrency = target
+            pool.target = target
             downloader = app_state.downloader
             if downloader is not None and hasattr(downloader, "set_concurrency"):
                 downloader.set_concurrency(target)
-            if len(_worker_tasks) < target:
-                for _ in range(target - len(_worker_tasks)):
-                    _worker_tasks.append(asyncio.create_task(_download_worker()))
+            if len(pool.tasks) < target:
+                for _ in range(target - len(pool.tasks)):
+                    pool.tasks.append(asyncio.create_task(_download_worker()))
     finally:
         # Runs on cancellation *and* on an unexpected crash of the supervisor:
         # without this, orphaned page writers keep running after engine dispose.

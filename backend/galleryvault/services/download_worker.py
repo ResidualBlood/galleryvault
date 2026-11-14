@@ -41,7 +41,7 @@ from .download.notify import (
     record_download_notification,
     telegram_flush_loop,
 )
-from .download.wake import _worker_events, notify_new_task
+from .download.wake import _worker_events, notify_new_task, pool
 from .download.worker import (
     _WORKER_POLL_MAX_SECONDS,
     _WORKER_POLL_MIN_SECONDS,
@@ -82,6 +82,7 @@ __all__ = [
     "mark_download_cancelled",
     "maybe_scan_after_download",
     "notify_new_task",
+    "pool",
     "record_download_notification",
     "reset_challenge_count",
     "retry_backoff",

@@ -21,40 +21,40 @@ from galleryvault.services.tag_sync_worker import (
 @pytest.mark.asyncio
 async def test_adjust_download_concurrency_scaling():
     # Reset tasks
-    for t in worker._worker_tasks:
+    for t in worker.pool.tasks:
         t.cancel()
-    worker._worker_tasks.clear()
+    worker.pool.tasks.clear()
 
     # Scale to 2
     adjust_download_concurrency(2)
-    assert len(worker._worker_tasks) == 2
-    tasks_initial = list(worker._worker_tasks)
+    assert len(worker.pool.tasks) == 2
+    tasks_initial = list(worker.pool.tasks)
 
     # Scale up to 4
     adjust_download_concurrency(4)
-    assert len(worker._worker_tasks) == 4
+    assert len(worker.pool.tasks) == 4
     # The first 2 tasks should still be the initial tasks
-    assert worker._worker_tasks[0] == tasks_initial[0]
-    assert worker._worker_tasks[1] == tasks_initial[1]
+    assert worker.pool.tasks[0] == tasks_initial[0]
+    assert worker.pool.tasks[1] == tasks_initial[1]
 
     # Scale down to 1
     adjust_download_concurrency(1)
-    assert worker._target_download_concurrency == 1
+    assert worker.pool.target == 1
     # Cooperative drain: tasks are NOT forcibly cancelled immediately
     assert not tasks_initial[1].cancelled()
 
     # Yield loop so cooperatively draining tasks wake up, exit, and remove themselves
     await asyncio.sleep(0.05)
-    assert len(worker._worker_tasks) == 1
+    assert len(worker.pool.tasks) == 1
     # Drained task exited normally without being cancelled
     assert tasks_initial[1].done()
     assert not tasks_initial[1].cancelled()
     assert tasks_initial[1].exception() is None
 
     # Cleanup
-    for t in worker._worker_tasks:
+    for t in worker.pool.tasks:
         t.cancel()
-    worker._worker_tasks.clear()
+    worker.pool.tasks.clear()
 
 
 @pytest.mark.asyncio
