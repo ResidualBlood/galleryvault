@@ -73,6 +73,12 @@ const readStatusOptions = computed(() => [
   { value: "completed", label: t("legacy.readStatusCompleted") },
 ]);
 
+const storageTierOptions = computed(() => [
+  { value: "", label: t("library.page.storageTierAll") },
+  { value: "hot", label: t("library.page.storageTierHot") },
+  { value: "cold", label: t("library.page.storageTierCold") },
+]);
+
 const ratingOptions = computed(() => [
   { value: "", label: t("legacy.minRating") },
   { value: "2", label: "≥2" },
@@ -166,6 +172,16 @@ function clearListFilter(): void {
           :model-value="modelValue.readStatus"
           :options="readStatusOptions"
           @update:model-value="patch({ readStatus: $event })"
+          @change="commit"
+        />
+      </Field>
+      <Field :label="t('library.page.storageTierLabel')" label-for="library-filter-storage-tier">
+        <Select
+          id="library-filter-storage-tier"
+          data-testid="storage-tier-filter"
+          :model-value="modelValue.storageTier"
+          :options="storageTierOptions"
+          @update:model-value="patch({ storageTier: $event })"
           @change="commit"
         />
       </Field>

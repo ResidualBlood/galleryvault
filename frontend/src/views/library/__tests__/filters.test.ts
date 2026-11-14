@@ -33,6 +33,7 @@ describe("library filters and URL", () => {
       image_quality: "original",
       min_local_rating: "3",
       list_id: "7",
+      storage_tier: "cold",
       page_size: "100",
     };
     const filters = filtersFromQuery(query, 50);
@@ -53,11 +54,26 @@ describe("library filters and URL", () => {
       imageQuality: "original",
       minLocalRating: "3",
       listId: "7",
+      storageTier: "cold",
       pageSize: 100,
     });
 
     const url = filtersToUrlQuery(filters, { tag_mode: "and", tag_match: "exact" });
     expect(url).toEqual({ ...query, tag_mode: "and", tag_match: "exact" });
+  });
+
+  it("storage_tier round-trips URL and query", () => {
+    const filters = filtersFromQuery({ storage_tier: "cold" }, 24);
+    expect(filters.storageTier).toBe("cold");
+    expect(filtersToUrlQuery(filters).storage_tier).toBe("cold");
+    expect(toGalleryQuery(filters).storage_tier).toBe("cold");
+
+    const cleared = filtersToUrlQuery({ ...filters, storageTier: "" });
+    expect(cleared.storage_tier).toBeUndefined();
+    expect(toGalleryQuery({ ...filters, storageTier: "" }).storage_tier).toBeUndefined();
+
+    // Only the two tiers are accepted; junk is ignored instead of sent to the API.
+    expect(filtersFromQuery({ storage_tier: "warm" }, 24).storageTier).toBe("");
   });
 
   it("drops empty values but keeps the page size and tag mode", () => {

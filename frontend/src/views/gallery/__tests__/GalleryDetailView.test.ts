@@ -117,6 +117,26 @@ describe("GalleryDetailView", () => {
     expect(router.currentRoute.value.fullPath).toBe("/reader/7/3");
   });
 
+  it("shows the cold badge and the cold date for an archived gallery", async () => {
+    vi.mocked(getGallery).mockResolvedValue({
+      ...detailFixture(),
+      storage_tier: "cold",
+      cold_at: "2026-11-02T09:00:00Z",
+    });
+    vi.mocked(getGalleryProgress).mockResolvedValue({
+      gallery_id: 7,
+      current_page: 0,
+      total_pages: 10,
+      updated_at: null,
+    });
+
+    const { wrapper } = await mountAt("/gallery/7");
+
+    expect(wrapper.get('[data-testid="cold-badge"]').text()).toBe("冷库");
+    expect(wrapper.text()).toContain("冷库时间");
+    expect(wrapper.text()).toContain("2026");
+  });
+
   it("shows a retryable error state when the gallery request fails", async () => {
     vi.mocked(getGallery).mockRejectedValue(new Error("boom"));
     vi.mocked(getGalleryProgress).mockResolvedValue({

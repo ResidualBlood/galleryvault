@@ -85,5 +85,9 @@
   "redownloadQueued": "Queued for redownload",
   "redownloadCopyTitle": "Redownload into the download folder",
   "redownloadCopyBody": "This gallery is not in the download folder. Redownloading creates a second copy there, keeps the original folder, and lists it on the duplicates page.",
-  "redownloadCopyConfirm": "Download anyway"
+  "redownloadCopyConfirm": "Download anyway",
+  "restoreToHot": "Restore to hot storage",
+  "restoreConfirmTitle": "Restore to hot storage?",
+  "restoreConfirmBody": "The gallery is unpacked into the download folder and the cold pack is deleted afterwards. This cannot be undone.",
+  "restoreStarted": "Restore task started"
 }

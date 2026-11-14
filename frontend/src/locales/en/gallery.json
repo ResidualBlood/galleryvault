@@ -9,13 +9,15 @@
   "restart": "Read from start",
   "coverAlt": "Cover of {title}",
   "coverMissing": "No cover",
+  "coldBadge": "Cold storage",
   "meta": {
     "uploader": "Uploader",
     "posted": "Posted",
     "pages": "Pages",
     "size": "Size",
     "rating": "Rating",
-    "quality": "Quality"
+    "quality": "Quality",
+    "coldSince": "In cold storage since"
   },
   "quality": {
     "original": "Original",

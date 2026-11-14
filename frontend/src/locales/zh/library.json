@@ -22,6 +22,10 @@
     "orderLabel": "排序",
     "categoryLabel": "分类",
     "readStatusLabel": "阅读状态",
+    "storageTierLabel": "存储位置",
+    "storageTierAll": "全部",
+    "storageTierHot": "热库",
+    "storageTierCold": "冷库",
     "pageSizeLabel": "每页数量",
     "tagSuggestLabel": "标签建议",
     "tagSuggestEmpty": "没有匹配的标签",
@@ -52,6 +56,7 @@
     "chipQuality": "画质：{value}",
     "chipLocalRating": "本地 ≥{value} 星",
     "chipList": "清单：{value}",
+    "chipStorageTier": "存储：{value}",
     "localRatingOption": "≥{value} 星"
   }
 }

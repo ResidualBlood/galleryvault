@@ -12,6 +12,8 @@ export const galleryFavoriteEp = ep("GET", "/api/galleries/{id}/favorite");
 export const galleryListsEp = ep("GET", "/api/galleries/{id}/lists");
 export const patchGalleryLocalEp = ep("PATCH", "/api/galleries/{id}/local");
 export const deleteGalleryEp = ep("DELETE", "/api/galleries/{id}");
+export const archiveGalleryEp = ep("POST", "/api/galleries/{id}/archive");
+export const unarchiveGalleryEp = ep("POST", "/api/galleries/{id}/unarchive");
 export const redownloadGalleryEp = ep("POST", "/api/galleries/{id}/redownload");
 export const downloadGalleryOriginalEp = ep(
   "POST",

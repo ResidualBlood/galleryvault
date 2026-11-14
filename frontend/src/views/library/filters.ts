@@ -31,6 +31,8 @@ export interface LibraryFilters {
   imageQuality: string;
   minLocalRating: string;
   listId: string;
+  /** Storage tier filter (T4.2): "", "hot" or "cold". */
+  storageTier: string;
   pageSize: number;
 }
 
@@ -54,8 +56,15 @@ export function defaultFilters(pageSize = 24): LibraryFilters {
     imageQuality: "",
     minLocalRating: "",
     listId: "",
+    storageTier: "",
     pageSize,
   };
+}
+
+/** Only the two storage tiers are accepted by `GET /api/galleries`. */
+export function storageTierFromQuery(value: unknown): string {
+  const tier = firstQuery(value);
+  return tier === "hot" || tier === "cold" ? tier : "";
 }
 
 /** First value of a route query entry (arrays collapse to their first item). */
@@ -86,6 +95,7 @@ export function filtersFromQuery(
     imageQuality: firstQuery(query.image_quality),
     minLocalRating: firstQuery(query.min_local_rating),
     listId: firstQuery(query.list_id),
+    storageTier: storageTierFromQuery(query.storage_tier),
     pageSize: clampPageSize(firstQuery(query.page_size) || fallbackPageSize, fallbackPageSize),
   };
 }
@@ -124,6 +134,7 @@ export function filtersToUrlQuery(
   set("image_quality", filters.imageQuality);
   set("min_local_rating", filters.minLocalRating);
   set("list_id", filters.listId);
+  set("storage_tier", filters.storageTier);
   query.page_size = String(filters.pageSize);
   return query;
 }
@@ -163,6 +174,10 @@ export function toGalleryQuery(filters: LibraryFilters): GalleryListQuery {
     image_quality: filters.imageQuality,
     min_local_rating: positiveInt(filters.minLocalRating),
     list_id: positiveInt(filters.listId),
+    storage_tier:
+      filters.storageTier === "hot" || filters.storageTier === "cold"
+        ? filters.storageTier
+        : undefined,
     page_size: filters.pageSize,
   };
 }
@@ -182,7 +197,8 @@ export type FilterConditionKind =
   | "uploader"
   | "image_quality"
   | "min_local_rating"
-  | "list_id";
+  | "list_id"
+  | "storage_tier";
 
 export interface FilterCondition {
   kind: FilterConditionKind;
@@ -225,6 +241,7 @@ export function activeConditions(filters: LibraryFilters): FilterCondition[] {
   push("image_quality", filters.imageQuality);
   push("min_local_rating", filters.minLocalRating);
   push("list_id", filters.listId);
+  push("storage_tier", filters.storageTier);
   return out;
 }
 
@@ -250,7 +267,8 @@ export function hasAdvancedFilters(filters: LibraryFilters): boolean {
       filters.uploader.trim() ||
       filters.imageQuality ||
       filters.minLocalRating ||
-      filters.listId,
+      filters.listId ||
+      filters.storageTier,
   );
 }
 

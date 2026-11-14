@@ -93,6 +93,10 @@ export interface GalleryItem {
   title_english?: string | null;
   title_jpn?: string | null;
   storage_type?: string | null;
+  /** Storage tier (T4.2): `hot` on the download root, `cold` in the archive. */
+  storage_tier?: "hot" | "cold" | string | null;
+  /** When the gallery was moved to cold storage (ISO timestamp). */
+  cold_at?: string | null;
   category: string;
   page_count: number;
   cover_url: string | null;
@@ -150,6 +154,7 @@ export interface GalleryQuery {
   posted_to?: string;
   uploader?: string;
   image_quality?: string;
+  storage_tier?: "hot" | "cold";
   min_local_rating?: number;
   list_id?: number;
   /**

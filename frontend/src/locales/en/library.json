@@ -22,6 +22,10 @@
     "orderLabel": "Sort",
     "categoryLabel": "Category",
     "readStatusLabel": "Reading status",
+    "storageTierLabel": "Storage",
+    "storageTierAll": "All",
+    "storageTierHot": "Hot",
+    "storageTierCold": "Cold",
     "pageSizeLabel": "Page size",
     "tagSuggestLabel": "Tag suggestions",
     "tagSuggestEmpty": "No matching tags",
@@ -52,6 +56,7 @@
     "chipQuality": "Quality: {value}",
     "chipLocalRating": "Local ≥{value} stars",
     "chipList": "List: {value}",
+    "chipStorageTier": "Storage: {value}",
     "localRatingOption": "≥{value} stars"
   }
 }

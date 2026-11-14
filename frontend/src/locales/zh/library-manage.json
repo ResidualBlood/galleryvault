@@ -85,5 +85,9 @@
   "redownloadQueued": "已加入重新下载队列",
   "redownloadCopyTitle": "重新下载到下载目录",
   "redownloadCopyBody": "该画廊不在下载目录。重新下载会在下载目录生成新副本，原目录保留并出现在查重页。",
-  "redownloadCopyConfirm": "仍要下载"
+  "redownloadCopyConfirm": "仍要下载",
+  "restoreToHot": "还原到热库",
+  "restoreConfirmTitle": "还原到热库？",
+  "restoreConfirmBody": "将把画廊解包到下载目录，完成后删除冷包。此操作无法撤销。",
+  "restoreStarted": "还原任务已启动"
 }

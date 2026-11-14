@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
@@ -13,11 +13,13 @@ import {
   deleteGallery,
   downloadGalleryOriginal,
   galleryExportCbzUrl,
+  getGallery,
   getGalleryFavorite,
   isRequiresCopyError,
   patchGalleryLocal,
   redownloadGallery,
   setGalleryFavoriteNote,
+  unarchiveGallery,
   type GalleryDetail,
 } from "@/api/gallery";
 import { fetchGalleryLists, fetchLists, addListItems, removeListItems, type GalleryList } from "@/api/lists";
@@ -306,6 +308,66 @@ const deleteOpen = ref(false);
 const deleteFiles = ref(false);
 const deleteError = ref("");
 
+const isCold = computed(() => props.gallery.storage_tier === "cold");
+const restoreOpen = ref(false);
+const restoreError = ref("");
+
+const RESTORE_POLL_MS = 2000;
+const RESTORE_MAX_POLLS = 30;
+let restoreTimer: number | null = null;
+let restorePolls = 0;
+
+function stopRestorePoll(): void {
+  if (restoreTimer !== null) {
+    window.clearTimeout(restoreTimer);
+    restoreTimer = null;
+  }
+}
+
+/** Unarchive is a background task: refresh the detail once the row turns hot. */
+function scheduleRestorePoll(): void {
+  stopRestorePoll();
+  if (restorePolls >= RESTORE_MAX_POLLS) return;
+  restorePolls += 1;
+  restoreTimer = window.setTimeout(async () => {
+    try {
+      const detail = await getGallery(props.gallery.id);
+      if (detail.storage_tier !== "cold") {
+        stopRestorePoll();
+        emit("refresh");
+        return;
+      }
+    } catch {
+      /* transient error: keep polling until the budget runs out */
+    }
+    scheduleRestorePoll();
+  }, RESTORE_POLL_MS);
+}
+
+onBeforeUnmount(stopRestorePoll);
+
+function openRestore(): void {
+  restoreError.value = "";
+  restoreOpen.value = true;
+}
+
+async function confirmRestore(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  restoreError.value = "";
+  try {
+    await unarchiveGallery(props.gallery.id);
+    ui.success(t("libraryManage.restoreStarted"));
+    restoreOpen.value = false;
+    restorePolls = 0;
+    scheduleRestorePoll();
+  } catch (cause) {
+    restoreError.value = message(cause);
+  } finally {
+    busy.value = false;
+  }
+}
+
 function openDelete(): void {
   deleteFiles.value = false;
   deleteError.value = "";
@@ -334,6 +396,17 @@ async function confirmDelete(): Promise<void> {
     <div class="manage__head">
       <h2 class="manage__title">{{ t("legacy.more") }}</h2>
       <div class="manage__actions" data-gv-toolbar="manage-actions">
+        <Button
+          v-if="isCold"
+          variant="outlined"
+          size="sm"
+          icon="archive"
+          data-testid="restore-to-hot"
+          :loading="busy"
+          @click="openRestore"
+        >
+          {{ t("libraryManage.restoreToHot") }}
+        </Button>
         <Button
           variant="tonal"
           size="sm"
@@ -505,6 +578,31 @@ async function confirmDelete(): Promise<void> {
         {{ t("legacy.deleteGallery") }}
       </Button>
     </div>
+
+    <Dialog
+      :open="restoreOpen"
+      :title="t('libraryManage.restoreConfirmTitle')"
+      testid="restore-to-hot-dialog"
+      @close="restoreOpen = false"
+    >
+      <div class="manage__form">
+        <p class="card__hint">{{ t("libraryManage.restoreConfirmBody") }}</p>
+        <p v-if="restoreError" class="card__error">{{ restoreError }}</p>
+      </div>
+      <template #footer>
+        <Button variant="text" :disabled="busy" @click="restoreOpen = false">
+          {{ t("libraryManage.cancel") }}
+        </Button>
+        <Button
+          variant="filled"
+          :loading="busy"
+          data-testid="restore-to-hot-confirm"
+          @click="confirmRestore"
+        >
+          {{ t("libraryManage.restoreToHot") }}
+        </Button>
+      </template>
+    </Dialog>
 
     <Dialog
       :open="deleteOpen"

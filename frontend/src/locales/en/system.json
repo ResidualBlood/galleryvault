@@ -43,7 +43,16 @@
     "clearedFinished": "Finished tasks cleared",
     "noFinished": "No finished tasks yet",
     "noFinishedBody": "Background tasks appear here once they complete.",
-    "duration": "took {duration}"
+    "duration": "took {duration}",
+    "taskNames": {
+      "scan": "Library scan",
+      "tag-sync": "Tag sync",
+      "thumbs": "Thumbnail generation",
+      "metadata": "Metadata sync",
+      "archive": "Cold archive",
+      "unarchive": "Restore from cold storage",
+      "purge-archived-sources": "Purge archived sources"
+    }
   },
   "welcome": {
     "title": "Welcome to GalleryVault",
@@ -125,7 +134,18 @@
     },
     "progressLabel": "Archive progress",
     "emptyTitle": "No archive records yet",
-    "emptyBody": "Galleries moved from the download root to cold storage are counted here."
+    "emptyBody": "Galleries moved from the download root to cold storage are counted here.",
+    "coldTitle": "Cold library",
+    "coldCount": "{n} galleries in cold storage",
+    "coldPages": "{n} pages",
+    "coldEmptyTitle": "Cold storage is empty",
+    "coldEmptyBody": "Archived galleries appear here and can be restored to the download folder.",
+    "viewCold": "View cold library",
+    "restoreSelected": "Restore selected",
+    "restoreConfirmTitle": "Restore the selected galleries?",
+    "restoreConfirmBody": "Move {n} galleries back to the download folder and delete their cold packs. This cannot be undone.",
+    "restoreStarted": "Restore task started for {n} galleries",
+    "restoreFailed": "Could not start the restore task."
   },
   "global": {
     "pause": "Pause all tasks",

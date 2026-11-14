@@ -61,6 +61,7 @@ function listPage(state: LibraryMockState, params: URLSearchParams) {
   }
   // A title sort reverses the fixture order, making the request observable.
   const ordered = params.get("order_by") === "title_asc" ? [...ids].reverse() : ids;
+  const tier = params.get("storage_tier");
   return {
     total: state.total,
     page,
@@ -73,7 +74,11 @@ function listPage(state: LibraryMockState, params: URLSearchParams) {
     order_by: params.get("order_by") ?? "id_desc",
     read_status: params.get("read_status") ?? "all",
     category: params.get("category") ?? "",
-    items: ordered.map(gallery),
+    items: ordered.map((id) => ({
+      ...gallery(id),
+      storage_tier: tier === "cold" ? "cold" : "hot",
+      cold_at: tier === "cold" ? "2026-11-02T09:00:00Z" : null,
+    })),
   };
 }
 

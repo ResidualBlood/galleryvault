@@ -41,7 +41,7 @@ const FINISHED_PAGE_SIZE = 50;
 const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
-const { t } = useI18n();
+const { t, te } = useI18n();
 const tab = ref<Tab>(route.query.tab === "system" ? "system" : "activity");
 const activity = ref<BackgroundLogs>({ running: [], finished: [] });
 const activityError = ref("");
@@ -98,6 +98,12 @@ function statusOf(task: { status?: string }): TaskStatus {
 
 function statusLabel(task: { status?: string }): string {
   return t(`system.logs.taskStatus.${statusOf(task)}`);
+}
+
+/** Translated task label; unknown background task names stay verbatim. */
+function taskName(task: { task?: string }): string {
+  const key = `system.logs.taskNames.${task.task ?? ""}`;
+  return task.task && te(key) ? t(key) : (task.task ?? "");
 }
 
 function statusIcon(task: { status?: string }): "status-success" | "status-error" | "status-blocked" | "status-info" {
@@ -377,7 +383,7 @@ onBeforeUnmount(() => {
               <Icon name="status-info" size="dense" />
               <span>{{ t("system.logs.taskStatus.running") }}</span>
             </span>
-            <span class="logs__task-name">{{ task.task }}</span>
+            <span class="logs__task-name">{{ taskName(task) }}</span>
             <span class="logs__task-progress">
               <span class="logs__progress-track" aria-hidden="true">
                 <span
@@ -431,7 +437,7 @@ onBeforeUnmount(() => {
                 <Icon :name="statusIcon(task)" size="dense" />
                 <span>{{ statusLabel(task) }}</span>
               </span>
-              <span class="logs__task-name">{{ task.task }}</span>
+              <span class="logs__task-name">{{ taskName(task) }}</span>
               <span class="logs__task-progress">{{ progressText(task) }}</span>
               <span class="logs__task-meta">
                 <span>{{ formatTime(task.started_at) }}</span>

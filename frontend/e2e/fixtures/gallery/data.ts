@@ -4,6 +4,8 @@ export const SMALL_GALLERY_ID = 2;
 export const LARGE_GALLERY_ID = 1;
 /** Only uploader-independent facts: no uploader, no post date, no rating. */
 export const SPARSE_GALLERY_ID = 3;
+/** Archived gallery used by the T4.4 cold UI cases. */
+export const COLD_GALLERY_ID = 4;
 
 /* `display` is what the backend tag translation service returns; the zh UI
    shows it, every other locale falls back to `name` (DESIGN C07). */
@@ -71,6 +73,17 @@ export const GALLERIES: Record<number, GalleryDetail> = {
     5,
     "",
     { posted_at: null, rating: null, image_quality: null, tags: [] },
+  ),
+  [COLD_GALLERY_ID]: gallery(
+    COLD_GALLERY_ID,
+    "Cold Archived Fixture",
+    18,
+    "fixture-uploader",
+    {
+      storage_tier: "cold",
+      cold_at: "2026-11-02T09:00:00Z",
+      storage_path: "/Archive/4/cold-archived-fixture",
+    },
   ),
 };
 

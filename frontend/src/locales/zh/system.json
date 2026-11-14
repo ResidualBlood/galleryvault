@@ -43,7 +43,16 @@
     "clearedFinished": "已清空已完成任务",
     "noFinished": "还没有已完成的任务",
     "noFinishedBody": "后台任务完成后会显示在这里。",
-    "duration": "耗时 {duration}"
+    "duration": "耗时 {duration}",
+    "taskNames": {
+      "scan": "扫描资料库",
+      "tag-sync": "标签同步",
+      "thumbs": "缩略图生成",
+      "metadata": "元数据同步",
+      "archive": "冷库归档",
+      "unarchive": "冷库还原",
+      "purge-archived-sources": "清理已归档源目录"
+    }
   },
   "welcome": {
     "title": "欢迎使用 GalleryVault",
@@ -125,7 +134,18 @@
     },
     "progressLabel": "归档进度",
     "emptyTitle": "还没有归档记录",
-    "emptyBody": "把下载目录中的画廊转移到冷存储后，这里会显示进度与统计。"
+    "emptyBody": "把下载目录中的画廊转移到冷存储后，这里会显示进度与统计。",
+    "coldTitle": "冷库",
+    "coldCount": "冷库 {n} 本",
+    "coldPages": "{n} 页",
+    "coldEmptyTitle": "冷库为空",
+    "coldEmptyBody": "已归档的画廊会出现在这里，可批量还原到下载目录。",
+    "viewCold": "查看冷库",
+    "restoreSelected": "还原所选",
+    "restoreConfirmTitle": "还原所选画廊？",
+    "restoreConfirmBody": "将把 {n} 本画廊搬回下载目录，并删除冷包。此操作无法撤销。",
+    "restoreStarted": "已启动还原任务：{n} 本",
+    "restoreFailed": "无法启动还原任务。"
   },
   "global": {
     "pause": "暂停全部任务",

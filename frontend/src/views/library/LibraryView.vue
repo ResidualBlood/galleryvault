@@ -174,6 +174,12 @@ function listLabel(value: string): string {
   return found ? found.name : value;
 }
 
+function storageTierLabel(value: string): string {
+  if (value === "hot") return t("library.page.storageTierHot");
+  if (value === "cold") return t("library.page.storageTierCold");
+  return value;
+}
+
 const tagLookup = computed(() => {
   const map = new Map<string, TagLike>();
   for (const item of store.items) {
@@ -231,6 +237,8 @@ function conditionLabel(condition: FilterCondition): string {
       return t("library.page.chipLocalRating", { value });
     case "list_id":
       return t("library.page.chipList", { value: listLabel(value) });
+    case "storage_tier":
+      return t("library.page.chipStorageTier", { value: storageTierLabel(value) });
     default:
       return value;
   }
@@ -368,6 +376,9 @@ function removeCondition(condition: FilterCondition): void {
     case "list_id":
       next.listId = "";
       break;
+    case "storage_tier":
+      next.storageTier = "";
+      break;
     default:
       break;
   }
@@ -393,8 +404,26 @@ function syncFromRoute(): void {
   if (hasAdvancedFilters(filters.value) && !panelClosedByUser.value) {
     filtersOpen.value = true;
   }
-  store.start(galleryQuery.value, settings.pageSize);
+  startStore();
   restoreScrollSoon();
+}
+
+/**
+ * Start the shared list store, then re-apply `storage_tier`.
+ *
+ * `QUERY_KEYS` in the store predates the storage dimension (T4.2), so the
+ * normalised query drops it. The query object and the cache key are both
+ * writable refs: re-add the tier and make the key tier-specific so a hot list
+ * is never served from (or saved over) the cold one.
+ */
+function startStore(): void {
+  store.start(galleryQuery.value, settings.pageSize);
+  const tier = filters.value.storageTier;
+  if (tier !== "hot" && tier !== "cold") return;
+  store.currentKey = `${store.currentKey}&storage_tier=${tier}`;
+  store.currentQuery = { ...store.currentQuery, storage_tier: tier };
+  store.page = 0;
+  void store.reload();
 }
 
 function restoreScrollSoon(): void {

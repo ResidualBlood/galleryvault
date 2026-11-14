@@ -9,13 +9,15 @@
   "restart": "从头阅读",
   "coverAlt": "{title} 封面",
   "coverMissing": "暂无封面",
+  "coldBadge": "冷库",
   "meta": {
     "uploader": "上传者",
     "posted": "上传时间",
     "pages": "页数",
     "size": "大小",
     "rating": "评分",
-    "quality": "画质"
+    "quality": "画质",
+    "coldSince": "冷库时间"
   },
   "quality": {
     "original": "原图",

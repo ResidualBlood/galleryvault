@@ -3,20 +3,24 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import Button from "@/components/ui/Button.vue";
+import Checkbox from "@/components/ui/Checkbox.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
 import Icon from "@/components/icons/Icon.vue";
 import PageHeader from "@/components/ui/PageHeader.vue";
+import SelectionBar from "@/components/ui/SelectionBar.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
 import Toolbar from "@/components/ui/Toolbar.vue";
 import ToolbarGroup from "@/components/ui/ToolbarGroup.vue";
 import {
   cancelArchive,
   fetchArchiveState,
+  restoreArchives,
   startArchive,
   type ArchiveState,
 } from "@/api/archive";
+import { fetchGalleries, type GalleryItem } from "@/api/library";
 import { purgeArchivedSources } from "@/api/system";
 import { ApiError } from "@/api/client";
 import { ensureSystemMessages } from "@/components/system/messages";
@@ -155,9 +159,132 @@ async function purge(): Promise<void> {
   }
 }
 
-onMounted(() => void load());
+/* ------------------------------------------------------- cold library (T4.4) */
+
+const COLD_PAGE_SIZE = 100;
+const COLD_POLL_MS = 2500;
+const COLD_MAX_POLLS = 24;
+
+const coldItems = ref<GalleryItem[]>([]);
+const coldTotal = ref(0);
+const coldLoading = ref(true);
+const coldError = ref("");
+const coldSelected = ref<Set<number>>(new Set());
+const restoreOpen = ref(false);
+const restoreBusy = ref(false);
+const restoreError = ref("");
+const pendingCold = ref<number[]>([]);
+let coldTimer: number | null = null;
+let coldPolls = 0;
+
+function formatSize(value?: number | null): string {
+  const bytes = Number(value) || 0;
+  if (bytes <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(unit === 0 || size >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
+async function loadCold(silent = false): Promise<void> {
+  try {
+    const data = await fetchGalleries({
+      storage_tier: "cold",
+      page_size: COLD_PAGE_SIZE,
+      order_by: "id_desc",
+    });
+    coldItems.value = data.items ?? [];
+    coldTotal.value = Number(data.total) || coldItems.value.length;
+    if (!silent) coldError.value = "";
+    const visible = new Set(coldItems.value.map((item) => item.id));
+    coldSelected.value = new Set(
+      [...coldSelected.value].filter((id) => visible.has(id)),
+    );
+  } catch (cause) {
+    if (!(cause instanceof ApiError && cause.status === 401)) {
+      const message = report(cause);
+      if (silent) ui.error(message);
+      else coldError.value = message;
+    }
+  } finally {
+    coldLoading.value = false;
+  }
+}
+
+function toggleCold(id: number, checked: boolean): void {
+  const next = new Set(coldSelected.value);
+  if (checked) next.add(id);
+  else next.delete(id);
+  coldSelected.value = next;
+}
+
+function clearColdSelection(): void {
+  coldSelected.value = new Set();
+}
+
+function viewCold(): void {
+  void router.push({ name: "library", query: { storage_tier: "cold" } });
+}
+
+function openRestore(): void {
+  restoreError.value = "";
+  restoreOpen.value = true;
+}
+
+/** Unarchive runs in the background; refresh the cold list until the ids leave. */
+function scheduleColdPoll(): void {
+  if (coldTimer !== null) {
+    window.clearTimeout(coldTimer);
+    coldTimer = null;
+  }
+  if (!pendingCold.value.length || coldPolls >= COLD_MAX_POLLS) {
+    pendingCold.value = [];
+    return;
+  }
+  coldPolls += 1;
+  coldTimer = window.setTimeout(async () => {
+    await loadCold(true);
+    const remaining = new Set(coldItems.value.map((item) => item.id));
+    pendingCold.value = pendingCold.value.filter((id) => remaining.has(id));
+    scheduleColdPoll();
+  }, COLD_POLL_MS);
+}
+
+async function restoreSelected(): Promise<void> {
+  const ids = [...coldSelected.value];
+  if (!ids.length || restoreBusy.value) return;
+  restoreBusy.value = true;
+  restoreError.value = "";
+  try {
+    const result = await restoreArchives(ids);
+    if (result.status === "paused") {
+      restoreError.value = result.detail ?? t("system.archive.restoreFailed");
+      return;
+    }
+    ui.success(t("system.archive.restoreStarted", { n: ids.length }));
+    restoreOpen.value = false;
+    coldSelected.value = new Set();
+    pendingCold.value = ids;
+    coldPolls = 0;
+    scheduleColdPoll();
+  } catch (cause) {
+    restoreError.value = report(cause);
+  } finally {
+    restoreBusy.value = false;
+  }
+}
+
+onMounted(() => {
+  void load();
+  void loadCold();
+});
 onBeforeUnmount(() => {
   if (timer !== null) window.clearTimeout(timer);
+  if (coldTimer !== null) window.clearTimeout(coldTimer);
 });
 </script>
 
@@ -274,6 +401,111 @@ onBeforeUnmount(() => {
         </p>
       </template>
     </section>
+
+    <section class="archive__cold" data-testid="archive-cold">
+      <div class="archive__cold-head">
+        <div class="archive__cold-heading">
+          <h2 class="archive__cold-title">{{ t("system.archive.coldTitle") }}</h2>
+          <p class="archive__cold-count" data-testid="archive-cold-count">
+            {{ t("system.archive.coldCount", { n: coldTotal }) }}
+          </p>
+        </div>
+        <Button
+          variant="outlined"
+          icon="library"
+          data-testid="archive-cold-view"
+          @click="viewCold"
+        >
+          {{ t("system.archive.viewCold") }}
+        </Button>
+      </div>
+
+      <ErrorState
+        v-if="coldError"
+        testid="archive-cold-error"
+        :title="t('common.errorTitle')"
+        :body="coldError"
+        :retry-label="t('common.retry')"
+        @retry="loadCold"
+      />
+
+      <div v-else-if="coldLoading" class="archive__cold-skeletons" aria-hidden="true">
+        <Skeleton variant="line" :lines="3" />
+      </div>
+
+      <EmptyState
+        v-else-if="!coldItems.length"
+        icon="archive"
+        :title="t('system.archive.coldEmptyTitle')"
+        :body="t('system.archive.coldEmptyBody')"
+        testid="archive-cold-empty"
+      />
+
+      <template v-else>
+        <SelectionBar
+          :count="coldSelected.size"
+          testid="archive-cold-selection"
+          @clear="clearColdSelection"
+        >
+          <Button
+            variant="outlined"
+            icon="archive"
+            :loading="restoreBusy"
+            :disabled="restoreBusy"
+            data-testid="archive-cold-restore"
+            @click="openRestore"
+          >
+            {{ t("system.archive.restoreSelected") }}
+          </Button>
+        </SelectionBar>
+
+        <ul class="archive__cold-list" data-testid="archive-cold-list">
+          <li
+            v-for="item in coldItems"
+            :key="item.id"
+            class="archive__cold-row"
+            :data-id="item.id"
+            data-testid="archive-cold-row"
+          >
+            <Checkbox
+              :model-value="coldSelected.has(item.id)"
+              :aria-label="item.title"
+              @update:model-value="toggleCold(item.id, $event)"
+            />
+            <span class="archive__cold-name" :title="item.title">{{ item.title }}</span>
+            <span class="archive__cold-meta">
+              {{ t("system.archive.coldPages", { n: item.page_count }) }}
+              · {{ formatSize(item.storage_size ?? item.file_size) }}
+            </span>
+          </li>
+        </ul>
+      </template>
+    </section>
+
+    <Dialog
+      :open="restoreOpen"
+      :title="t('system.archive.restoreConfirmTitle')"
+      testid="archive-cold-restore-dialog"
+      @close="restoreOpen = false"
+    >
+      <p class="archive__dialog-body">
+        {{ t("system.archive.restoreConfirmBody", { n: coldSelected.size }) }}
+      </p>
+      <p v-if="restoreError" class="archive__error" role="alert">{{ restoreError }}</p>
+      <template #footer>
+        <Button variant="text" :disabled="restoreBusy" @click="restoreOpen = false">
+          {{ t("common.cancel") }}
+        </Button>
+        <Button
+          :loading="restoreBusy"
+          :disabled="restoreBusy"
+          data-testid="archive-cold-restore-confirm"
+          @click="restoreSelected"
+        >
+          {{ t("system.archive.restoreSelected") }}
+        </Button>
+      </template>
+    </Dialog>
 
     <Dialog
       :open="purgeOpen"
@@ -463,6 +695,91 @@ onBeforeUnmount(() => {
 .archive__dialog-body {
   margin: 0;
   font: var(--gv-type-body-medium);
+}
+
+.archive__cold {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-3);
+  padding: var(--gv-space-5);
+  border: 1px solid var(--gv-color-outline-variant);
+  border-radius: var(--gv-radius-lg);
+  background: var(--gv-color-surface-container);
+}
+
+.archive__cold-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gv-space-3);
+}
+
+.archive__cold-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-1);
+  min-width: 0;
+}
+
+.archive__cold-title {
+  margin: 0;
+  color: var(--gv-color-on-surface);
+  font: var(--gv-type-title-medium);
+}
+
+.archive__cold-count {
+  margin: 0;
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-body-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.archive__cold-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-2);
+}
+
+.archive__cold-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gv-space-1);
+  max-height: 360px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.archive__cold-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gv-space-3);
+  min-height: var(--gv-size-control-md);
+  padding: 0 var(--gv-space-2);
+  border-radius: var(--gv-radius-sm);
+}
+
+.archive__cold-row:hover {
+  background: var(--gv-color-surface-container-low);
+}
+
+.archive__cold-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gv-color-on-surface);
+  font: var(--gv-type-body-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive__cold-meta {
+  flex: none;
+  color: var(--gv-color-on-surface-variant);
+  font: var(--gv-type-label-small);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 599.98px) {

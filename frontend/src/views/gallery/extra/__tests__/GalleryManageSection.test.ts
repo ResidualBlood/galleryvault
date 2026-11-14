@@ -4,7 +4,7 @@ import { createPinia } from "pinia";
 import { createMemoryHistory, createRouter } from "vue-router";
 import GalleryManageSection from "@/views/gallery/extra/GalleryManageSection.vue";
 import { ApiError } from "@/api/client";
-import { redownloadGallery, type GalleryDetail } from "@/api/gallery";
+import { redownloadGallery, unarchiveGallery, type GalleryDetail } from "@/api/gallery";
 import { i18n } from "@/i18n";
 import { useUiStore } from "@/stores/ui";
 
@@ -25,6 +25,7 @@ vi.mock("@/api/gallery", async (importOriginal) => {
     setGalleryFavoriteNote: vi.fn(),
     deleteGallery: vi.fn(),
     downloadGalleryOriginal: vi.fn(),
+    unarchiveGallery: vi.fn(),
   };
 });
 
@@ -39,7 +40,7 @@ vi.mock("@/api/tags", () => ({ syncGalleryTags: vi.fn() }));
 
 const Stub = { template: "<div />" };
 
-function fixture(): GalleryDetail {
+function fixture(overrides: Partial<GalleryDetail> = {}): GalleryDetail {
   return {
     id: 7,
     gid: 123,
@@ -47,10 +48,11 @@ function fixture(): GalleryDetail {
     title: "Library copy",
     page_count: 10,
     storage_path: "/library/7-gallery",
+    ...overrides,
   };
 }
 
-async function mountSection() {
+async function mountSection(gallery: GalleryDetail = fixture()) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: "/gallery/:id", name: "gallery", component: Stub }],
@@ -59,7 +61,7 @@ async function mountSection() {
   await router.isReady();
   const pinia = createPinia();
   const wrapper = mount(GalleryManageSection, {
-    props: { gallery: fixture() },
+    props: { gallery },
     attachTo: document.body,
     global: { plugins: [pinia, router, i18n] },
   });
@@ -122,5 +124,50 @@ describe("GalleryManageSection redownload confirmation", () => {
 
     expect(redownloadGallery).toHaveBeenLastCalledWith(7, { allowCopy: true });
     expect(ui.toasts.some((toast) => toast.kind === "success")).toBe(true);
+  });
+});
+
+describe("GalleryManageSection cold restore", () => {
+  beforeEach(() => {
+    vi.mocked(unarchiveGallery).mockReset();
+    i18n.global.locale.value = "zh";
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("shows restore only for a cold gallery and confirms before unarchiving", async () => {
+    const { wrapper, ui } = await mountSection(
+      fixture({ storage_tier: "cold", cold_at: "2026-11-01T08:30:00Z" }),
+    );
+    vi.mocked(unarchiveGallery).mockResolvedValueOnce({ status: "started", id: 7 });
+
+    const restore = wrapper.find('[data-testid="restore-to-hot"]');
+    expect(restore.exists()).toBe(true);
+    await restore.trigger("click");
+    await flushPromises();
+
+    const dialog = document.body.querySelector('[data-testid="restore-to-hot-dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.textContent).toContain("下载目录");
+    expect(dialog?.textContent).toContain("删除冷包");
+    expect(unarchiveGallery).not.toHaveBeenCalled();
+
+    const confirm = document.body.querySelector(
+      '[data-testid="restore-to-hot-confirm"]',
+    ) as HTMLButtonElement;
+    confirm.click();
+    await flushPromises();
+
+    expect(unarchiveGallery).toHaveBeenCalledWith(7);
+    expect(ui.toasts.some((toast) => toast.kind === "success")).toBe(true);
+    expect(document.body.querySelector('[data-testid="restore-to-hot-dialog"]')).toBeNull();
+    wrapper.unmount();
+  });
+
+  it("hides restore for a hot gallery", async () => {
+    const { wrapper } = await mountSection(fixture({ storage_tier: "hot" }));
+    expect(wrapper.find('[data-testid="restore-to-hot"]').exists()).toBe(false);
   });
 });

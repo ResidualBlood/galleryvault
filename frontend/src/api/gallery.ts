@@ -15,6 +15,8 @@ import {
   galleryThumbEp,
   patchGalleryLocalEp,
   redownloadGalleryEp,
+  archiveGalleryEp,
+  unarchiveGalleryEp,
 } from "./galleries";
 import { favoriteNoteEp } from "./favorites";
 
@@ -42,6 +44,10 @@ export interface GalleryDetail {
   title_english?: string | null;
   title_jpn?: string | null;
   storage_type?: string | null;
+  /** Storage tier (T4.2): `hot` on the download root, `cold` in the archive. */
+  storage_tier?: "hot" | "cold" | string | null;
+  /** When the gallery was moved to cold storage (ISO timestamp). */
+  cold_at?: string | null;
   category?: string | null;
   page_count: number;
   file_size?: number | null;
@@ -230,4 +236,30 @@ export function setGalleryFavoriteNote(
 /** Direct download link for the CBZ export (rendered as an `<a download>`). */
 export function galleryExportCbzUrl(id: number): string {
   return exportGalleryCbzEp.path.replace("{id}", String(id));
+}
+
+/* ------------------------------------------------------ cold storage (T4.4) */
+
+export type ArchiveTaskReply = { status?: string; id?: number; detail?: string };
+
+/** Move one gallery back to the download root (background, cancellable). */
+export function unarchiveGallery(
+  id: number,
+  options: GalleryRequestOptions = {},
+): Promise<ArchiveTaskReply> {
+  return request<ArchiveTaskReply>(withId(unarchiveGalleryEp, id), {
+    ...options,
+    body: {},
+  });
+}
+
+/** Move one hot gallery to cold storage (background). */
+export function archiveGallery(
+  id: number,
+  options: GalleryRequestOptions = {},
+): Promise<ArchiveTaskReply> {
+  return request<ArchiveTaskReply>(withId(archiveGalleryEp, id), {
+    ...options,
+    body: {},
+  });
 }

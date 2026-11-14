@@ -26,6 +26,7 @@ import { useUiStore } from "@/stores/ui";
 import {
   categoryKey,
   formatBytes,
+  formatDate,
   formatPosted,
   formatRating,
   parseGalleryId,
@@ -118,6 +119,12 @@ const qualityLabel = computed(() => {
   return "";
 });
 
+const isCold = computed(() => gallery.value?.storage_tier === "cold");
+
+const coldAtLabel = computed(() =>
+  formatDate(gallery.value?.cold_at, locale.value === "zh" ? "zh-CN" : "en-US"),
+);
+
 /* GD-05: optional facts (uploader / rating) are dropped instead of repeated as
    "未知" placeholders; only the post date keeps an explicit "未知" (OD-01), so a
    page never shows more than one unknown. The layout degrades to a single
@@ -139,6 +146,13 @@ const meta = computed<DetailMetaItem[]>(() => {
     rows.push({ label: t("gallery.meta.rating"), value: ratingLabel.value, icon: "star" });
   }
   if (qualityLabel.value) rows.push({ label: t("gallery.meta.quality"), value: qualityLabel.value });
+  if (isCold.value) {
+    rows.push({
+      label: t("gallery.meta.coldSince"),
+      value: coldAtLabel.value || t("gallery.unknown"),
+      icon: "archive",
+    });
+  }
   return rows;
 });
 
@@ -247,6 +261,9 @@ onBeforeUnmount(() => {
       <span v-if="gallery" class="gallery-detail__category" :style="categoryStyle">
         {{ categoryLabel() }}
       </span>
+      <span v-if="isCold" class="gallery-detail__cold" data-testid="cold-badge">
+        {{ t("gallery.coldBadge") }}
+      </span>
     </template>
 
     <template #actions>
@@ -320,6 +337,18 @@ onBeforeUnmount(() => {
   border-radius: var(--gv-radius-xs);
   background: var(--category-bg, var(--gv-cat-misc));
   color: var(--category-ink, var(--gv-cat-misc-ink));
+  font: var(--gv-type-label-small);
+}
+
+.gallery-detail__cold {
+  display: inline-flex;
+  align-items: center;
+  height: var(--gv-size-tag-lg);
+  padding: 0 var(--gv-space-2);
+  border: 1px solid var(--gv-color-outline);
+  border-radius: var(--gv-radius-xs);
+  background: var(--gv-color-surface-variant);
+  color: var(--gv-color-on-surface-variant);
   font: var(--gv-type-label-small);
 }
 

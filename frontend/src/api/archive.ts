@@ -2,6 +2,7 @@ import { ep, request } from "./client";
 
 export const archiveEp = ep("GET", "/api/archive");
 export const createArchiveEp = ep("POST", "/api/archive");
+export const restoreArchivesEp = ep("POST", "/api/archive/restore");
 export const cancelArchiveEp = ep("POST", "/api/logs/archive/cancel");
 export const previewArchiveEp = ep("POST", "/api/archives/preview");
 
@@ -39,6 +40,17 @@ export function fetchArchiveState(signal?: AbortSignal): Promise<ArchiveState> {
 
 export function startArchive(): Promise<{ status?: string; detail?: string }> {
   return request<{ status?: string; detail?: string }>(createArchiveEp, { body: {} });
+}
+
+export interface RestoreReply {
+  status?: string;
+  total?: number;
+  detail?: string;
+}
+
+/** Move the selected cold galleries back to the download root (background). */
+export function restoreArchives(ids: number[]): Promise<RestoreReply> {
+  return request<RestoreReply>(restoreArchivesEp, { body: { ids } });
 }
 
 export function cancelArchive(): Promise<{ status?: string }> {
