@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from ..db.models import Gallery
+from ..db.session import release_session
 from ..logging import log_extra
 from .eh_client import EhClient
 from .eh_metadata import enrich_html_newer, refresh_gdata
@@ -161,6 +162,14 @@ class TagSyncService:
             raise GalleryTokenMissing("Gallery has no ExHentai token")
 
         cached = await self.repository.metadata_for_gid(gid)
+        # Read phase finished: capture plain values (a rollback expires ORM
+        # instances) and hand the pooled connection back before any EH call.
+        gallery_title = getattr(gallery, "title", None)
+        gallery_title_jpn = getattr(gallery, "title_jpn", None)
+        gallery_category = getattr(gallery, "category", None)
+        session = getattr(self.repository, "session", None)
+        if session is not None:
+            await release_session(session)
         if not force and cached and cached.get("tags"):
             if enrich_newer and cached.get("newer_gid") is None:
                 try:
@@ -171,9 +180,9 @@ class TagSyncService:
                 "source": "cache",
                 "gid": gid,
                 "token": token,
-                "title": cached.get("title") or getattr(gallery, "title", None),
-                "title_jpn": cached.get("title_jpn") or getattr(gallery, "title_jpn", None),
-                "category": cached.get("category") or getattr(gallery, "category", None),
+                "title": cached.get("title") or gallery_title,
+                "title_jpn": cached.get("title_jpn") or gallery_title_jpn,
+                "category": cached.get("category") or gallery_category,
                 "tags": _parse_tags(cached.get("tags")),
                 "uploader": cached.get("uploader"),
                 "posted_at": cached.get("posted_at"),
@@ -198,9 +207,9 @@ class TagSyncService:
                     "source": "network",
                     "gid": gid,
                     "token": token,
-                    "title": entry.get("title") or getattr(gallery, "title", None),
-                    "title_jpn": entry.get("title_jpn") or getattr(gallery, "title_jpn", None),
-                    "category": entry.get("category") or getattr(gallery, "category", None),
+                    "title": entry.get("title") or gallery_title,
+                    "title_jpn": entry.get("title_jpn") or gallery_title_jpn,
+                    "category": entry.get("category") or gallery_category,
                     "file_size": entry.get("file_size"),
                     "file_count": entry.get("file_count"),
                     "uploader": entry.get("uploader"),
@@ -227,9 +236,9 @@ class TagSyncService:
             "source": "network",
             "gid": getattr(metadata, "gid", gid),
             "token": token,
-            "title": getattr(metadata, "title", None) or getattr(gallery, "title", None),
-            "title_jpn": getattr(metadata, "title_jpn", None) or getattr(gallery, "title_jpn", None),
-            "category": getattr(metadata, "category", None) or getattr(gallery, "category", None),
+            "title": getattr(metadata, "title", None) or gallery_title,
+            "title_jpn": getattr(metadata, "title_jpn", None) or gallery_title_jpn,
+            "category": getattr(metadata, "category", None) or gallery_category,
             "file_size": getattr(metadata, "file_size", None),
             "file_count": getattr(metadata, "file_count", None),
             "uploader": getattr(metadata, "uploader", None),

@@ -593,7 +593,9 @@ async def redownload_expunged(
     queued = 0
     skipped_no_gid = 0
     skipped_no_token = 0
-    valid_targets: list[tuple[Gallery, int, str]] = []
+    # Capture plain values now: releasing the session before the network phase
+    # expires ORM instances, so later access to ``row.title`` would fail.
+    valid_targets: list[tuple[int, str, str | None]] = []
 
     for gid_id in unique_ids:
         row = gallery_map.get(gid_id)
@@ -604,22 +606,25 @@ async def redownload_expunged(
         if not token:
             skipped_no_token += 1
             continue
-        valid_targets.append((row, int(row.gid), str(token)))
+        valid_targets.append((int(row.gid), str(token), row.title))
 
     if valid_targets:
-        pairs = [(gid, token) for _, gid, token in valid_targets]
+        # Read phase finished: return the pooled connection before prepare_galleries
+        # performs the EH network calls.
+        await release_session(session)
+        pairs = [(gid, token) for gid, token, _ in valid_targets]
         prepared_list = await prepare_galleries(pairs)
         default_quality = get_current_settings().download_quality or "resample"
-        for (row, _, _), prepared in zip(valid_targets, prepared_list, strict=True):
-            if row.title and not prepared.title:
-                prepared.title = row.title
+        for (_, _, title), prepared in zip(valid_targets, prepared_list, strict=True):
+            if title and not prepared.title:
+                prepared.title = title
             try:
                 status, _ = await _create_from_prepared(
                     prepared,
                     mode="gallery",
                     max_pages=None,
                     quality=default_quality,
-                    fallback_title=row.title,
+                    fallback_title=title,
                 )
             except Exception:  # noqa: BLE001, S112
                 continue

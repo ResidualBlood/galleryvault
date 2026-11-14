@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..app.state import app_state
 from ..db.models import Gallery, GalleryMetadata
 from ..db.repositories.galleries import GalleryRepository
+from ..db.session import release_session, safe_transaction
 from ..logging import log_extra
 from .eh_client import EhChallengeError, EhClient, EhClientError, GalleryGoneError
 
@@ -80,6 +81,10 @@ async def refresh_gdata(
     if active_client is None or not hasattr(active_client, "fetch_gmetadata"):
         return cached
 
+    # Read phase finished (cached metadata + missing list above are plain
+    # values): hand the pooled connection back before the gdata network loop.
+    await release_session(session)
+
     fetched: dict[int, dict[str, Any]] = {}
     for start in range(0, len(missing), batch_size):
         chunk = missing[start : start + batch_size]
@@ -94,9 +99,12 @@ async def refresh_gdata(
 
     if fetched:
         entries = [{"gid": gid, **meta} for gid, meta in fetched.items()]
-        await repo.upsert_metadata(entries)
-        # Reload fully formatted metadata rows from repository
-        refreshed = await repo.metadata_map(list(fetched.keys()))
+        # The pre-network release ended the caller's read transaction, so the
+        # network results are persisted in a fresh short transaction.
+        async with safe_transaction(session):
+            await repo.upsert_metadata(entries)
+            # Reload fully formatted metadata rows from repository
+            refreshed = await repo.metadata_map(list(fetched.keys()))
         cached.update(refreshed)
 
     return cached
@@ -149,7 +157,8 @@ async def enrich_html_newer(
                 },
             )
         )
-        await session.execute(stmt)
+        async with safe_transaction(session):
+            await session.execute(stmt)
         return replaced
     except GalleryGoneError:
         now = datetime.now(UTC)
@@ -170,7 +179,8 @@ async def enrich_html_newer(
                 },
             )
         )
-        await session.execute(stmt)
+        async with safe_transaction(session):
+            await session.execute(stmt)
         return None
     except (EhChallengeError, EhClientError) as exc:
         logger.warning(
