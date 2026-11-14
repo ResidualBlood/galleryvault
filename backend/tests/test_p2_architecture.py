@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -211,6 +214,26 @@ async def test_resolve_search_tokens_changed_flag() -> None:
     assert explicit_inc == []
     assert explicit_exc == [("female", "maid")]
     assert keywords == "big_breasts"
+
+
+def test_import_linter_contracts() -> None:
+    """The architecture contracts in backend/.importlinter are kept."""
+    lint_imports = shutil.which("lint-imports")
+    if lint_imports is None:
+        pytest.skip("import-linter is not installed")
+
+    backend_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [lint_imports],
+        cwd=backend_root,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "Contracts: 2 kept, 0 broken" in output
 
 
 def test_request_schemas_compatibility() -> None:
