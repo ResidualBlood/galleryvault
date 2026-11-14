@@ -275,7 +275,7 @@ async def favorite_items(
     else:
         image_quality = None
     posted_from_dt = _parse_posted(posted_from)
-    posted_to_dt = _parse_posted(posted_to)
+    posted_to_dt = _parse_posted(posted_to, upper=True)
     if category == "":
         category = None
     if category and category not in CATEGORIES:

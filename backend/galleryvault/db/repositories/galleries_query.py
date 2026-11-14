@@ -118,7 +118,7 @@ class GalleryQueryMixin:
         if posted_from is not None:
             query = query.where(Gallery.posted_at >= posted_from)
         if posted_to is not None:
-            query = query.where(Gallery.posted_at <= posted_to)
+            query = query.where(Gallery.posted_at < posted_to)
         if uploader and uploader.strip():
             pattern = f"%{escape_like_wildcards(uploader.strip())}%"
             query = query.where(Gallery.uploader.ilike(pattern))

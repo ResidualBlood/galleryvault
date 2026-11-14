@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -71,12 +72,25 @@ router = APIRouter()
 _IMAGE_QUALITY = frozenset({"original", "resample"})
 
 
-def _parse_posted(value: str | None) -> datetime | None:
+_DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _parse_posted(value: str | None, upper: bool = False) -> datetime | None:
+    """Parse a posted-at bound.
+
+    Date-only values keep midnight for ``posted_from``; for ``posted_to``
+    (``upper=True``) they advance to the next midnight so callers can use a
+    strict ``<`` comparison and still include the whole end day. Explicit
+    timestamps are always kept as-is.
+    """
     if not value or not str(value).strip():
         return None
-    dt = parse_datetime_utc(value)
+    raw = str(value).strip()
+    dt = parse_datetime_utc(raw)
     if dt is None:
         raise HTTPException(status_code=422, detail="invalid posted date")
+    if upper and _DATE_ONLY_RE.match(raw):
+        dt += timedelta(days=1)
     return dt
 
 
@@ -311,7 +325,7 @@ async def list_galleries(
     else:
         image_quality = None
     posted_from_dt = _parse_posted(posted_from)
-    posted_to_dt = _parse_posted(posted_to)
+    posted_to_dt = _parse_posted(posted_to, upper=True)
     if category == "":
         category = None
     exclude_favorited = False
@@ -1510,7 +1524,7 @@ async def delete_galleries_filtered(
                  size_min=body.size_min,
                  size_max=body.size_max,
                  posted_from=_parse_posted(body.posted_from or body.min_posted_at),
-                 posted_to=_parse_posted(body.posted_to or body.max_posted_at),
+                 posted_to=_parse_posted(body.posted_to or body.max_posted_at, upper=True),
                  uploader=body.uploader,
                  image_quality=(
                      body.image_quality
