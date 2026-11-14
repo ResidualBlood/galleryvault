@@ -111,6 +111,16 @@ forbidden_modules =
 #   Cold archive split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.
 #   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:cold-no-facade-backref]
+name = cold package must not import its legacy facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.cold
+forbidden_modules =
+    galleryvault.services.cold_archive
+
 # slot: maintain
 #   Maintenance service split lands its contract below this marker.
 #   Keep the marker line unchanged; batched writers depend on it as an anchor.

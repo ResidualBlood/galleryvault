@@ -171,6 +171,7 @@ async def test_unarchive_failure_keeps_cold_pack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from galleryvault.services import cold_archive
+    from galleryvault.services.cold import restore as cold_restore
 
     cold_root = tmp_path / "cold"
     cold_root.mkdir()
@@ -186,7 +187,7 @@ async def test_unarchive_failure_keeps_cold_pack(
         (partial_dir / "0001.jpg").write_bytes(b"half")
         raise RuntimeError("extract failed")
 
-    monkeypatch.setattr(cold_archive, "_extract_cold_pack", _boom)
+    monkeypatch.setattr(cold_restore, "_extract_cold_pack", _boom)
 
     with pytest.raises(RuntimeError):
         await cold_archive.unarchive_one(
@@ -289,6 +290,7 @@ async def test_run_unarchive_cancels_between_galleries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from galleryvault.services import cold_archive
+    from galleryvault.services.cold import restore as cold_restore
     from galleryvault.services.tasks import TaskManager
 
     tm = TaskManager()
@@ -300,7 +302,7 @@ async def test_run_unarchive_cancels_between_galleries(
             tm.request_cancel("unarchive")
         return tmp_path / str(gallery_id)
 
-    monkeypatch.setattr(cold_archive, "unarchive_one", _fake_unarchive_one)
+    monkeypatch.setattr(cold_restore, "unarchive_one", _fake_unarchive_one)
 
     await cold_archive.run_unarchive(
         [1, 2],
