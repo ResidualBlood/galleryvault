@@ -69,17 +69,17 @@ async def _start_worker(monkeypatch, repo: _RecordingRepo) -> asyncio.Task:
     monkeypatch.setattr(wake, "_get_background_session_factory", lambda: _FakeFactory(repo))
     monkeypatch.setattr(worker, "DownloadRepository", lambda session: session.repo)
     # Keep the cooperative-drain check from exiting our sole worker.
-    monkeypatch.setattr(worker, "_target_download_concurrency", 8)
+    monkeypatch.setattr(worker.pool, "target", 8)
     task = asyncio.create_task(worker._download_worker())
     # The worker exits immediately unless it recognises itself as supervised.
-    worker._worker_tasks.append(task)
+    worker.pool.tasks.append(task)
     return task
 
 
 async def _stop_worker(task: asyncio.Task) -> None:
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
-    worker._worker_tasks[:] = [t for t in worker._worker_tasks if t is not task]
+    worker.pool.tasks[:] = [t for t in worker.pool.tasks if t is not task]
     wake._worker_events.clear()
 
 
