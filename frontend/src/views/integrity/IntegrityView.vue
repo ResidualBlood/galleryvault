@@ -12,6 +12,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import Button from "@/components/ui/Button.vue";
 import Checkbox from "@/components/ui/Checkbox.vue";
+import Dialog from "@/components/ui/Dialog.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import ErrorState from "@/components/ui/ErrorState.vue";
 import IconButton from "@/components/ui/IconButton.vue";
@@ -26,9 +27,9 @@ import GalleryCollection from "@/components/gallery/GalleryCollection.vue";
 import ViewModeToggle from "@/components/gallery/ViewModeToggle.vue";
 import type { GalleryBadge } from "@/components/gallery/BadgeStrip.vue";
 import type { GalleryItem } from "@/api/library";
+import { redownloadGallery, isRequiresCopyError } from "@/api/gallery";
 import {
   fetchIntegrity,
-  redownloadGallery,
   scanIntegrity,
   type IntegrityGallery,
   type IntegrityScanSummary,
@@ -72,6 +73,10 @@ const scanning = ref(false);
 const repairing = ref(false);
 const busyId = ref<number | null>(null);
 const infoOpen = ref(false);
+const copyDialogOpen = ref(false);
+const copyPending = ref<number[]>([]);
+const copyBulk = ref(false);
+const copyOkBefore = ref(0);
 let seq = 0;
 
 function first(value: unknown): string {
@@ -204,6 +209,27 @@ async function scan(): Promise<void> {
   }
 }
 
+function queueCopyConfirmation(ids: number[], bulk: boolean, okBefore = 0): void {
+  copyPending.value = ids;
+  copyBulk.value = bulk;
+  copyOkBefore.value = okBefore;
+  copyDialogOpen.value = true;
+}
+
+function cancelCopy(): void {
+  copyDialogOpen.value = false;
+  copyPending.value = [];
+  copyBulk.value = false;
+  copyOkBefore.value = 0;
+}
+
+function repairMessage(ok: number, failed: number): string {
+  return (
+    t("maintenance.integrity.repairQueued", { ok }) +
+    (failed ? ` · ${t("maintenance.integrity.repairFailed", { failed })}` : "")
+  );
+}
+
 async function repair(): Promise<void> {
   if (!selected.value.length) {
     ui.error(t("maintenance.integrity.selectRequired"));
@@ -214,11 +240,15 @@ async function repair(): Promise<void> {
   try {
     const results = await Promise.allSettled(ids.map((id) => redownloadGallery(id)));
     const ok = results.filter((result) => result.status === "fulfilled").length;
-    const failed = results.length - ok;
-    ui.success(
-      t("maintenance.integrity.repairQueued", { ok }) +
-        (failed ? ` · ${t("maintenance.integrity.repairFailed", { failed })}` : ""),
+    const copyIds = results.flatMap((result, index) =>
+      result.status === "rejected" && isRequiresCopyError(result.reason) ? [ids[index]] : [],
     );
+    if (copyIds.length) {
+      queueCopyConfirmation(copyIds, true, ok);
+      return;
+    }
+    const failed = results.length - ok;
+    ui.success(repairMessage(ok, failed));
     clearSelection();
   } catch (cause) {
     ui.error(cause instanceof Error ? cause.message : String(cause));
@@ -235,9 +265,35 @@ async function repairOne(id: number): Promise<void> {
     ui.success(t("maintenance.integrity.repairQueued", { ok: 1 }));
     selected.value = selected.value.filter((value) => value !== id);
   } catch (cause) {
-    ui.error(cause instanceof Error ? cause.message : String(cause));
+    if (isRequiresCopyError(cause)) queueCopyConfirmation([id], false);
+    else ui.error(cause instanceof Error ? cause.message : String(cause));
   } finally {
     busyId.value = null;
+  }
+}
+
+async function confirmCopy(): Promise<void> {
+  if (repairing.value || !copyPending.value.length) return;
+  const ids = [...copyPending.value];
+  const bulk = copyBulk.value;
+  const okBefore = copyOkBefore.value;
+  copyDialogOpen.value = false;
+  repairing.value = true;
+  try {
+    const results = await Promise.allSettled(
+      ids.map((id) => redownloadGallery(id, { allowCopy: true })),
+    );
+    const ok = results.filter((result) => result.status === "fulfilled").length;
+    ui.success(repairMessage(okBefore + ok, results.length - ok));
+    if (bulk) clearSelection();
+    else selected.value = selected.value.filter((value) => !ids.includes(value));
+  } catch (cause) {
+    ui.error(cause instanceof Error ? cause.message : String(cause));
+  } finally {
+    repairing.value = false;
+    copyPending.value = [];
+    copyBulk.value = false;
+    copyOkBefore.value = 0;
   }
 }
 
@@ -406,6 +462,32 @@ watch(
       @update:page="goPage"
       @update:page-size="onPageSize"
     />
+
+    <Dialog
+      :open="copyDialogOpen"
+      :title="t('maintenance.integrity.requiresCopyTitle')"
+      testid="integrity-copy-dialog"
+      @close="cancelCopy"
+    >
+      <p class="integrity__copy-body">{{ t("maintenance.integrity.requiresCopyBody") }}</p>
+      <template #footer>
+        <Button
+          variant="text"
+          data-testid="integrity-copy-cancel"
+          @click="cancelCopy"
+        >
+          {{ t("maintenance.shared.cancel") }}
+        </Button>
+        <Button
+          variant="filled"
+          :loading="repairing"
+          data-testid="integrity-copy-confirm"
+          @click="confirmCopy"
+        >
+          {{ t("maintenance.integrity.requiresCopyConfirm") }}
+        </Button>
+      </template>
+    </Dialog>
   </section>
 </template>
 

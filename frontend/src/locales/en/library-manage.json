@@ -68,5 +68,8 @@
   "saving": "Saving…",
   "working": "Working…",
   "redownload": "Redownload",
-  "redownloadQueued": "Queued for redownload"
+  "redownloadQueued": "Queued for redownload",
+  "redownloadCopyTitle": "Redownload into the download folder",
+  "redownloadCopyBody": "This gallery is not in the download folder. Redownloading creates a second copy there, keeps the original folder, and lists it on the duplicates page.",
+  "redownloadCopyConfirm": "Download anyway"
 }

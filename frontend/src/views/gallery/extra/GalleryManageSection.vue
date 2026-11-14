@@ -14,6 +14,7 @@ import {
   downloadGalleryOriginal,
   galleryExportCbzUrl,
   getGalleryFavorite,
+  isRequiresCopyError,
   patchGalleryLocal,
   redownloadGallery,
   setGalleryFavoriteNote,
@@ -205,17 +206,32 @@ async function syncTags(): Promise<void> {
   }
 }
 
-async function redownload(): Promise<void> {
+const copyDialogOpen = ref(false);
+
+async function queueRedownload(allowCopy: boolean): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   try {
-    await redownloadGallery(props.gallery.id);
+    await redownloadGallery(props.gallery.id, { allowCopy });
     ui.success(t("libraryManage.redownloadQueued"));
+    copyDialogOpen.value = false;
   } catch (cause) {
-    ui.error(message(cause));
+    if (!allowCopy && isRequiresCopyError(cause)) {
+      copyDialogOpen.value = true;
+    } else {
+      ui.error(message(cause));
+    }
   } finally {
     busy.value = false;
   }
+}
+
+async function redownload(): Promise<void> {
+  await queueRedownload(false);
+}
+
+async function confirmCopyRedownload(): Promise<void> {
+  await queueRedownload(true);
 }
 
 async function downloadOriginal(archive: boolean): Promise<void> {
@@ -432,6 +448,32 @@ async function confirmDelete(): Promise<void> {
           @click="confirmDelete"
         >
           {{ t("legacy.deleteGallery") }}
+        </Button>
+      </template>
+    </Dialog>
+
+    <Dialog
+      :open="copyDialogOpen"
+      :title="t('libraryManage.redownloadCopyTitle')"
+      testid="redownload-copy-dialog"
+      @close="copyDialogOpen = false"
+    >
+      <p class="card__hint">{{ t("libraryManage.redownloadCopyBody") }}</p>
+      <template #footer>
+        <Button
+          variant="text"
+          data-testid="redownload-copy-cancel"
+          @click="copyDialogOpen = false"
+        >
+          {{ t("libraryManage.cancel") }}
+        </Button>
+        <Button
+          variant="filled"
+          :loading="busy"
+          data-testid="redownload-copy-confirm"
+          @click="confirmCopyRedownload"
+        >
+          {{ t("libraryManage.redownloadCopyConfirm") }}
         </Button>
       </template>
     </Dialog>

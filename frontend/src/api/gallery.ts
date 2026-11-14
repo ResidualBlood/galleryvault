@@ -1,4 +1,10 @@
-import { request, type Endpoint, type HttpMethod, type RequestOptions } from "./client";
+import {
+  ApiError,
+  request,
+  type Endpoint,
+  type HttpMethod,
+  type RequestOptions,
+} from "./client";
 import {
   deleteGalleryEp,
   downloadGalleryOriginalEp,
@@ -157,11 +163,34 @@ export function deleteGallery(
   );
 }
 
+export interface RedownloadOptions extends GalleryRequestOptions {
+  /** Confirm creating a second copy when the gallery lives outside download_root. */
+  allowCopy?: boolean;
+}
+
+/** True for the backend's 409 `requires_copy` guard (T2.4). */
+export function isRequiresCopyError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false;
+  const detail = error.detail;
+  return (
+    typeof detail === "object" &&
+    detail !== null &&
+    (detail as { code?: unknown }).code === "requires_copy"
+  );
+}
+
 export function redownloadGallery(
   id: number,
-  options: GalleryRequestOptions = {},
+  options: RedownloadOptions = {},
 ): Promise<{ status?: string; queued?: boolean }> {
-  return request<{ status?: string; queued?: boolean }>(withId(redownloadGalleryEp, id), options);
+  const { allowCopy, ...requestOptions } = options;
+  const endpoint = withId(redownloadGalleryEp, id);
+  return request<{ status?: string; queued?: boolean }>(
+    allowCopy
+      ? { ...endpoint, path: `${endpoint.path}?allow_copy=true` }
+      : endpoint,
+    requestOptions,
+  );
 }
 
 export function downloadGalleryOriginal(

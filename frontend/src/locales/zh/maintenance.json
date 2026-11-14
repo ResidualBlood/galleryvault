@@ -265,6 +265,9 @@
     "scanSummaryTime": "已扫描 {scanned}/{total} · 损坏 {corrupt} · 完成于 {date}",
     "infoSummary": "关于缺页体检",
     "infoDetail": "扫描比较数据库记录的页数与磁盘上的实际文件数。修复会对选中的画廊重新排队下载，补齐缺失页。",
-    "fileUnknown": "—"
+    "fileUnknown": "—",
+    "requiresCopyTitle": "重新下载到下载目录",
+    "requiresCopyBody": "选中的画廊不在下载目录。重新下载会在下载目录生成新副本，原目录保留并出现在查重页。",
+    "requiresCopyConfirm": "仍要下载"
   }
 }

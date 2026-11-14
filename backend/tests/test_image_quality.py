@@ -189,7 +189,7 @@ async def test_ingest_downloaded_gallery_marks_quality_and_removes_old(
         async def ingest(self, galleries):
             ingested.extend(galleries)
 
-    async def _fake_remove(result, old_path, old_pages):
+    async def _fake_remove(result, old_path, old_pages, **_kwargs):
         removed.append((result, old_path, old_pages))
 
     orig_factory = app_state.session_factory

@@ -6,6 +6,7 @@ import inspect
 import logging
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -1264,11 +1265,29 @@ async def clear_gallery_progress(
         await GalleryRepository(session).delete_progress(row.id)
 
 
+def _storage_outside_download_root(storage_path: str | None) -> bool:
+    """True when an ingested copy exists outside ``download_root``.
+
+    Redownloading such a gallery writes a second copy into the download root and
+    keeps the original library directory. The client must acknowledge that with
+    ``allow_copy=true`` (T2.4); otherwise the request is rejected with 409.
+    """
+    if not storage_path:
+        return False
+    try:
+        resolved = Path(storage_path).resolve()
+        download_root = Path(get_current_settings().download_root).resolve()
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return False
+    return not resolved.is_relative_to(download_root)
+
+
 @router.post("/api/galleries/{identifier}/redownload", status_code=202)
 async def redownload_gallery(
     identifier: int,
     quality: str | None = None,
     archive: bool = False,
+    allow_copy: bool = False,
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
@@ -1277,6 +1296,17 @@ async def redownload_gallery(
     row, _ = await _invoke_gallery(identifier, session=session)
     if not row.gid or not row.token:
         raise HTTPException(status_code=422, detail="Gallery lacks ExHentai gid/token")
+    if not allow_copy and _storage_outside_download_root(getattr(row, "storage_path", None)):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "requires_copy",
+                "message": (
+                    "Gallery is stored outside the download root; "
+                    "resend with allow_copy=true to create a second copy"
+                ),
+            },
+        )
     if not quality:
         quality = (
             row.image_quality

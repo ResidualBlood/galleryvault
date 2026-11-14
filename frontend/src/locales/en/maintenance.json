@@ -265,6 +265,9 @@
     "scanSummaryTime": "Scanned {scanned}/{total} · corrupt {corrupt} · finished {date}",
     "infoSummary": "About integrity checks",
     "infoDetail": "The scan compares the recorded page count with the number of files on disk. Repair re-queues the selected galleries to fill in missing pages.",
-    "fileUnknown": "—"
+    "fileUnknown": "—",
+    "requiresCopyTitle": "Redownload into the download folder",
+    "requiresCopyBody": "The selected galleries are not in the download folder. Redownloading creates a second copy there, keeps the original folders, and lists them on the duplicates page.",
+    "requiresCopyConfirm": "Download anyway"
   }
 }

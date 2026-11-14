@@ -32,6 +32,11 @@ from .downloader import (
     DownloadCancelledError,
     DownloadTask,
 )
+from .duplicate_resolver import (
+    DEFAULT_DUPLICATE_POLICY,
+    Copy,
+    ResolvedGroup,
+)
 from .eh_client import (  # noqa: F401  # kept for backoff classification docs
     EhChallengeError,
     EhClientError,
@@ -167,6 +172,141 @@ def ingest_result_from_payload(payload: dict[str, Any]) -> Any:
 
 
 
+def _path_is_relative_to(path: Path, root: str | Path) -> bool:
+    """Resolve ``path``/``root`` and report whether ``path`` sits under ``root``."""
+    try:
+        return path.resolve().is_relative_to(Path(root).resolve())
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return False
+
+
+def _is_library_only_copy(path: Path, settings: Any) -> bool:
+    """True for an old copy under a library root but not under ``download_root``.
+
+    Copies outside the download root may live on a read-only library mount.  They
+    must never be removed by a download/supersede (T2.4); callers register them
+    as duplicates instead so the user decides.
+    """
+    download_root = getattr(settings, "download_root", None)
+    if download_root and _path_is_relative_to(path, download_root):
+        return False
+    roots = getattr(settings, "library_roots", None) or []
+    return any(_path_is_relative_to(path, root) for root in roots)
+
+
+def _merge_duplicate_copies(
+    existing: list[Any], additions: list[Any]
+) -> list[dict[str, Any]]:
+    """Merge new copies into an existing duplicate record without losing others."""
+    merged: dict[str, dict[str, Any]] = {}
+    for copy in existing:
+        if isinstance(copy, dict) and copy.get("path"):
+            merged[str(copy["path"])] = dict(copy)
+    for copy in additions:
+        if isinstance(copy, dict) and copy.get("path"):
+            merged[str(copy["path"])] = dict(copy)
+    copies = list(merged.values())
+    copies.sort(key=lambda copy: (not bool(copy.get("is_current")), str(copy.get("path"))))
+    return copies
+
+
+async def _register_superseded_duplicate(
+    result: Any, old_path: Path, old_pages: int
+) -> None:
+    """Record the kept old copy as a duplicate of the freshly ingested gid."""
+    gid = getattr(result, "gid", None)
+    if gid is None:
+        return
+    gid = int(gid)
+    new_path = Path(result.path)
+    group = ResolvedGroup(
+        gid=gid,
+        policy=DEFAULT_DUPLICATE_POLICY,
+        winner=Copy(
+            path=new_path,
+            gid=gid,
+            title=getattr(result, "title", "") or "",
+            title_jpn=getattr(result, "title_jpn", "") or "",
+            page_count=getattr(result, "pages", None),
+            file_size=getattr(result, "file_size", None),
+            is_current=True,
+        ),
+        losers=[
+            Copy(
+                path=old_path,
+                gid=gid,
+                page_count=old_pages,
+                is_current=False,
+            )
+        ],
+    )
+    payload = group.record()
+    session_cm = _get_background_session_factory()
+    if session_cm is None:
+        logger.warning(
+            "cannot register superseded copy without a session factory",
+            extra=log_extra(gid=gid, path=str(old_path)),
+        )
+        return
+
+    from ..db.models import DuplicateRecord
+
+    async with session_cm() as session, session.begin():
+        record = await session.get(DuplicateRecord, gid)
+        if record is None:
+            session.add(
+                DuplicateRecord(
+                    gid=gid,
+                    status="open",
+                    policy=payload["policy"],
+                    winner_path=payload["winner_path"],
+                    copies=payload["copies"],
+                )
+            )
+        elif record.status == "open":
+            record.policy = payload["policy"]
+            record.winner_path = payload["winner_path"]
+            record.copies = _merge_duplicate_copies(
+                list(record.copies or []), list(payload["copies"])
+            )
+            record.updated_at = datetime.now(UTC)
+        else:
+            # The user already dismissed/resolved this group; their decision wins.
+            return
+    logger.info(
+        "registered superseded copy as duplicate",
+        extra=log_extra(gid=gid, path=str(old_path)),
+    )
+
+
+async def _supersede_old_copy(
+    result: Any, old_path: Path, old_pages: int
+) -> None:
+    """Delete a superseded *download-root* copy, or register a library copy.
+
+    The removal path always receives the configured scan roots (the old call
+    omitted them, so a mis-configured root could silently delete a library
+    directory). Library-root copies are never deleted here.
+    """
+    new_path = Path(result.path)
+    try:
+        if old_path.resolve() == new_path.resolve():
+            return
+    except (OSError, RuntimeError, ValueError):
+        pass
+
+    settings = app_state.settings or get_settings()
+    if _is_library_only_copy(old_path, settings):
+        await _register_superseded_duplicate(result, old_path, old_pages)
+        return
+
+    from ..app import dependencies
+
+    await remove_superseded_copy(
+        result, old_path, old_pages, scan_roots=dependencies.get_scan_roots()
+    )
+
+
 async def ingest_downloaded_gallery(result: Any, *, strict: bool = False) -> None:
     """Ingest a freshly downloaded gallery directly from memory metadata.
 
@@ -265,7 +405,6 @@ async def ingest_downloaded_gallery(result: Any, *, strict: bool = False) -> Non
         )
 
         ingest_cls = GalleryIngestService
-        remove_fn = remove_superseded_copy
         session_cm = _get_background_session_factory()
         old_copy: tuple[Path, int] | None = None
 
@@ -280,7 +419,7 @@ async def ingest_downloaded_gallery(result: Any, *, strict: bool = False) -> Non
                 await ingest_cls(session).ingest([gallery_meta])
 
         if getattr(result, "quality", None) == "original" and old_copy is not None:
-            await remove_fn(result, old_copy[0], old_copy[1])
+            await _supersede_old_copy(result, old_copy[0], old_copy[1])
 
         logger.info("download ingest succeeded", extra=log_extra(gid=result.gid, path=str(path)))
         try:

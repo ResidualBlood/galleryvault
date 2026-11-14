@@ -68,5 +68,8 @@
   "saving": "保存中…",
   "working": "处理中…",
   "redownload": "重新下载",
-  "redownloadQueued": "已加入重新下载队列"
+  "redownloadQueued": "已加入重新下载队列",
+  "redownloadCopyTitle": "重新下载到下载目录",
+  "redownloadCopyBody": "该画廊不在下载目录。重新下载会在下载目录生成新副本，原目录保留并出现在查重页。",
+  "redownloadCopyConfirm": "仍要下载"
 }
