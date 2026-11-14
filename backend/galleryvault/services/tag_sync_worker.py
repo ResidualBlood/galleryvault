@@ -336,10 +336,10 @@ async def category_refresh_once() -> int:
         if pairs:
             try:
                 # ``refresh_gdata`` persists network results through the given
-                # session: without it the call raises TypeError and the whole
-                # category backfill silently degrades to cache-only reads.
+                # session; no explicit begin() so it can release the connection
+                # before the gdata call and write in a short transaction.
                 session_factory = _get_background_session_factory()
-                async with session_factory() as session, session.begin():
+                async with session_factory() as session:
                     gmeta = await refresh_gdata(session, pairs, client=app_state.eh_client)
             except (EhClientError, SQLAlchemyError) as exc:
                 logger.warning(

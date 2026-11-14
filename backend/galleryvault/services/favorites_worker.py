@@ -436,10 +436,12 @@ async def _fill_remote_cover(
                 try:
                     async with session_factory() as session:
                         if hasattr(session, "scalars"):
-                            async with session.begin():
-                                chunk_meta = await refresh_gdata(
-                                    session, [(int(gid), token)], client=client
-                                )
+                            # No explicit transaction: refresh_gdata releases
+                            # the read transaction before the gdata network
+                            # call and persists in a fresh short one.
+                            chunk_meta = await refresh_gdata(
+                                session, [(int(gid), token)], client=client
+                            )
                 except (SQLAlchemyError, Exception):  # noqa: BLE001
                     chunk_meta = None
             meta = (chunk_meta or {}).get(int(gid)) or {}
@@ -503,7 +505,9 @@ async def favorites_metadata(
         return {}
     session_factory = _get_background_session_factory()
     if session_factory:
-        async with session_factory() as session, session.begin():
+        # The caller owns no transaction here: refresh_gdata releases the
+        # connection before the network and writes in a short transaction.
+        async with session_factory() as session:
             return await refresh_gdata(
                 session, pairs, client=app_state.eh_client, batch_size=batch_size
             )
@@ -751,8 +755,11 @@ async def favorite_size_sync(favcat: int) -> None:
             tracker.update(total=len(pairs), done=0, stage="fetching")
             fetched: dict[int, dict[str, Any]] = {}
             if pairs:
-                async with session_factory() as session, session.begin():
+                async with session_factory() as session:
                     if hasattr(session, "scalars"):
+                        # refresh_gdata releases the read transaction before the
+                        # gdata network call and writes in a short transaction;
+                        # an explicit begin() here would keep the connection.
                         fetched = await refresh_gdata(
                             session,
                             pairs,
@@ -760,6 +767,8 @@ async def favorite_size_sync(favcat: int) -> None:
                             batch_size=EXHENTAI_API_CHUNK_SIZE,
                         )
                     elif app_state.eh_client:
+                        # Only reached for session doubles without ``scalars``.
+                        # Fetch outside any transaction; persist in a short one.
                         gal = GalleryRepository(session)
                         missing = [
                             (gid, token)
@@ -772,9 +781,10 @@ async def favorite_size_sync(favcat: int) -> None:
                             chunk_meta = await app_state.eh_client.fetch_gmetadata(chunk)
                             fetched.update(chunk_meta)
                         if fetched:
-                            await gal.upsert_metadata([{"gid": g, **m} for g, m in fetched.items()])
-                            refreshed = await gal.metadata_map(list(fetched.keys()))
-                            cached_meta.update(refreshed)
+                            async with safe_transaction(session):
+                                await gal.upsert_metadata([{"gid": g, **m} for g, m in fetched.items()])
+                                refreshed = await gal.metadata_map(list(fetched.keys()))
+                                cached_meta.update(refreshed)
             tracker.update(done=len(pairs))
 
             async with session_factory() as session, session.begin():
@@ -1223,7 +1233,9 @@ async def run_duplicates_scan() -> None:
             if missing_posted and app_state.eh_client is not None:
                 try:
                     if session_factory:
-                        async with session_factory() as session, session.begin():
+                        # No explicit transaction: refresh_gdata releases the
+                        # connection before this gdata call and writes after.
+                        async with session_factory() as session:
                             posted_meta = await refresh_gdata(
                                 session, missing_posted, client=app_state.eh_client
                             )

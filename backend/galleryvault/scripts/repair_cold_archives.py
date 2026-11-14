@@ -401,6 +401,13 @@ async def repair_cold_archives(
                         if semaphore is not None:
                             eh_client._semaphore = semaphore
                         try:
+                            # Plain (gid, token) values are already copied into
+                            # ``need_gdata_pairs``; no writes are pending here.
+                            # The long-lived session still owns every ORM
+                            # instance this one-shot repair pass uses for later
+                            # writes, so refresh_gdata keeps its pre-T6.1
+                            # behaviour (holds the connection) rather than
+                            # expiring/reloading the whole repair batch.
                             gdata_results = await refresh_gdata(
                                 session,
                                 need_gdata_pairs,
