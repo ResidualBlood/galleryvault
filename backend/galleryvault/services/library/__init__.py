@@ -6,12 +6,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..logging import log_extra
-from ..scanners import registry
-from ..scanners.base import ExistingGallery, GalleryMeta
-from ..scanners.ehviewer import _DIR_NAME as _BARE_DIR_NAME
-from ..scanners.ehviewer import IMAGE_EXTENSIONS
-from .duplicate_resolver import (
+from ...logging import log_extra
+from ...scanners import registry
+from ...scanners.base import ExistingGallery, GalleryMeta
+from ...scanners.ehviewer import _DIR_NAME as _BARE_DIR_NAME
+from ...scanners.ehviewer import IMAGE_EXTENSIONS
+from ..duplicate_resolver import (
     DEFAULT_DUPLICATE_POLICY,
     Copy,
     ResolvedGroup,

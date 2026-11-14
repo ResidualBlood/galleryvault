@@ -17,15 +17,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....db.repository import _chunked
-from ....scanners.base import CATEGORIES
+from ....services.library.deletion import FilteredDeleteRefused, run_filtered_delete
+from ....services.library.deps import LibraryDeps
 from ...dependencies import db_error, get_session
-from ...params import (
-    _IMAGE_QUALITY,
-    _dedupe_tags,
-    _parse_posted,
-    _parse_tag_filter,
-    _resolve_search_tokens,
-)
 from ...schemas import BulkDeleteRequest, FilteredDeleteRequest
 
 router = APIRouter()
@@ -130,173 +124,22 @@ async def delete_galleries_filtered(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await _gal("resolve_session")(session, fallback_dep=_gal("get_session"))
-    if body.tag_mode not in {"and", "or"} or body.tag_match not in {"exact", "fuzzy"}:
-        raise HTTPException(status_code=422, detail="invalid tag_mode or tag_match")
-    category = body.category or None
-    exclude_favorited = False
-    if category == "__not_fav__":
-        exclude_favorited = True
-        category = None
-    if category is not None and category not in CATEGORIES:
-        raise HTTPException(status_code=422, detail="invalid category")
-    if body.read_status and body.read_status not in {"all", "unread", "reading", "completed", "read"}:
-        raise HTTPException(status_code=422, detail="invalid read_status")
-    storage_tier = body.storage_tier
-    if storage_tier and storage_tier not in {"hot", "cold"}:
-        raise HTTPException(status_code=422, detail="storage_tier must be 'hot' or 'cold'")
-    parsed_tags, parsed_exc_tags = _parse_tag_filter(body.tags or body.tag)
-    if body.exclude_tags:
-        extra_inc, extra_exc = _parse_tag_filter(body.exclude_tags)
-        parsed_exc_tags.extend(extra_inc)
-        parsed_exc_tags.extend(extra_exc)
-    _MAX_FILTERED_DELETE = 5000
-    _CONFIRM_THRESHOLD = 200
+    deps = LibraryDeps(
+        repo_factory=_gal("GalleryRepository"),
+        delete_local=_gal("delete_galleries_local"),
+        record_delete_log=_gal("_record_gallery_delete_log"),
+    )
     try:
-        resolved_q = body.q or ""
-        order_by = body.order_by or "id_desc"
-        read_status = body.read_status
-        min_rating = body.min_rating
-        page_min = body.min_pages
-        page_max = body.max_pages
-        if body.q and body.q.strip():
-            auto_inc, auto_exc, keywords, changed = await _resolve_search_tokens(body.q)
-            if changed:
-                parsed_tags.extend(auto_inc)
-                parsed_exc_tags.extend(auto_exc)
-                parsed_tags = _dedupe_tags(parsed_tags)
-                parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
-                resolved_q = keywords
-        parsed_tags = _dedupe_tags(parsed_tags)
-        parsed_exc_tags = _dedupe_tags(parsed_exc_tags)
-        has_filters = any(
-            (
-                bool(resolved_q and resolved_q.strip()),
-                bool(parsed_tags),
-                bool(parsed_exc_tags),
-                bool(category),
-                exclude_favorited,
-                bool(read_status and read_status != "all"),
-                min_rating is not None,
-                page_min is not None,
-                page_max is not None,
-                body.size_min is not None,
-                body.size_max is not None,
-                bool(body.posted_from or body.min_posted_at),
-                bool(body.posted_to or body.max_posted_at),
-                bool(body.uploader and body.uploader.strip()),
-                bool(body.image_quality and body.image_quality in _IMAGE_QUALITY),
-                body.min_local_rating is not None,
-                body.list_id is not None,
-                body.favorite is not None,
-                body.read is not None,
-                body.expunged is not None,
-                bool(body.media_type),
-                bool(body.storage_type),
-                bool(storage_tier),
-            )
+        return await run_filtered_delete(
+            deps,
+            session,
+            body,
+            confirmation=lambda: _filtered_delete_confirmation(request),
         )
-        if not has_filters:
-            raise HTTPException(
-                status_code=400,
-                detail="Empty filter condition is not allowed for filtered deletion",
-            )
-        matching_ids: list[int] = []
-        repo = _gal("GalleryRepository")(session)
-        tag_id_map: dict[tuple[str | None, str], int] = {}
-        if body.tag_match == "exact":
-            candidates = parsed_tags + parsed_exc_tags
-            if candidates and hasattr(repo, "resolve_exact_tags"):
-                tag_id_map = await repo.resolve_exact_tags(candidates)
-        page = 1
-        while True:
-            _, rows = await repo.list_page(
-                page,
-                500,
-                q=resolved_q,
-                tags=parsed_tags,
-                exclude_tags=parsed_exc_tags,
-                tag_mode=body.tag_mode,
-                tag_match=body.tag_match,
-                tag_id_map=tag_id_map,
-                category=category,
-                exclude_favorited=exclude_favorited,
-                order_by=order_by,
-                read_status=read_status,
-                 min_rating=min_rating,
-                 page_min=page_min,
-                 page_max=page_max,
-                 size_min=body.size_min,
-                 size_max=body.size_max,
-                 posted_from=_parse_posted(body.posted_from or body.min_posted_at),
-                 posted_to=_parse_posted(body.posted_to or body.max_posted_at, upper=True),
-                 uploader=body.uploader,
-                 image_quality=(
-                     body.image_quality
-                     if body.image_quality in _IMAGE_QUALITY
-                     else None
-                 ),
-                 min_local_rating=body.min_local_rating,
-                 list_id=body.list_id,
-                 favorite=body.favorite,
-                 read=body.read,
-                 expunged=body.expunged,
-                 media_type=body.media_type,
-                 storage_type=body.storage_type,
-                 storage_tier=storage_tier,
-             )
-            if not rows:
-                break
-            matching_ids.extend(r.id for r in rows)
-            if len(matching_ids) > _MAX_FILTERED_DELETE:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"matched {len(matching_ids)} galleries exceeds safe limit {_MAX_FILTERED_DELETE}; refine filter or delete in batches",
-                )
-            if len(rows) < 500:
-                break
-            page += 1
-
-        matched = len(dict.fromkeys(matching_ids))
-        if matched > _CONFIRM_THRESHOLD:
-            confirm, expected_count = await _filtered_delete_confirmation(request)
-            if not confirm:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "CONFIRM_REQUIRED",
-                        "matched": matched,
-                        "threshold": _CONFIRM_THRESHOLD,
-                        "message": (
-                            f"matched {matched} galleries exceeds confirm threshold "
-                            f"{_CONFIRM_THRESHOLD}; resend with confirm=true and "
-                            f"match_count={matched}"
-                        ),
-                    },
-                )
-            if expected_count != matched:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"match_count mismatch: confirmed {expected_count}, current "
-                        f"match {matched}; refresh the filter preview before deleting"
-                    ),
-                )
-
-        results: list[dict] = []
-        unique_ids = list(dict.fromkeys(matching_ids))
-        if unique_ids:
-            for chunk in _chunked(unique_ids):
-                res = await _gal("delete_galleries_local")(
-                    chunk, delete_files=body.delete_files, delete_all_copies=body.delete_all_copies
-                )
-                results.extend(res)
-        _gal("_record_gallery_delete_log")(results, body.delete_files)
+    except FilteredDeleteRefused as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
-    deleted = sum(1 for r in results if r.get("db_removed") or r.get("trashed"))
-    trashed = sum(1 for r in results if r.get("trashed"))
-    failed_deletions = [p for r in results for p in r.get("failed_paths", [])]
-    return {"deleted": deleted, "trashed": trashed, "matched": len(matching_ids), "failed_deletions": failed_deletions, "results": results}
 
 
 def _record_gallery_delete_log(results: list[dict[str, object]], delete_files: bool) -> None:
