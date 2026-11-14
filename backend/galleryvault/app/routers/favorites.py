@@ -70,6 +70,15 @@ from ..dependencies import (
     spawn_task,
 )
 from ..exceptions import EhClientUnavailableError
+from ..params import (
+    _IMAGE_QUALITY,
+    _dedupe_tags,
+    _parse_posted,
+    _parse_tag_filter,
+    _resolve_search_tokens,
+    _tag_count,
+    _tags_for_galleries,
+)
 from ..schemas import (
     ArchivePreviewRequest,
     DownloadSelectedRequest,
@@ -80,15 +89,6 @@ from ..schemas import (
     FavoritesRemoveRequest,
 )
 from ..state import app_state
-from .galleries import (
-    _IMAGE_QUALITY,
-    _dedupe_tags,
-    _parse_posted,
-    _parse_tag_filter,
-    _resolve_search_tokens,
-    _tag_count,
-    _tags_for_galleries,
-)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
