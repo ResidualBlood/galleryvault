@@ -16,6 +16,11 @@ from typing import Any
 
 from ..db.models import AppConfig, DuplicateGroup
 from ..db.repositories.duplicates import DuplicateGroupRepository
+from ..db.repositories.task_runs import TaskRunRepository
+
+# ``ready`` for the cross-GID page now derives from the durable task ledger
+# (T7.5) instead of the ``duplicates_scan_cross_gid`` AppConfig marker.
+_KIND_TASK_NAMES = {"cross_gid": "duplicates-cross-gid"}
 
 
 def _scan_marker_key(kind: str) -> str:
@@ -25,9 +30,9 @@ def _scan_marker_key(kind: str) -> str:
 async def mark_kind_scanned(session: Any, kind: str) -> None:
     """Persist "this kind finished a scan", even when it found no group.
 
-    ``ready`` on the cross-GID page cannot be inferred from the rows alone: an
-    empty library scans cleanly to zero rows.  T7.4 replaces this ``app_config``
-    marker with the task-run record.
+    Kept for the legacy ``app_config`` marker; ``kind_scanned`` answers from the
+    ``task_runs`` ledger since T7.5, so the marker is only historical and can be
+    dropped once an install has run a scan after upgrading.
     """
     key = _scan_marker_key(kind)
     now = datetime.now(UTC)
@@ -42,8 +47,18 @@ async def mark_kind_scanned(session: Any, kind: str) -> None:
 
 
 async def kind_scanned(session: Any, kind: str) -> bool:
-    """Return whether this kind has completed at least one scan."""
-    return await session.get(AppConfig, _scan_marker_key(kind)) is not None
+    """Return whether this kind has completed at least one scan (from task_runs)."""
+    task_name = _KIND_TASK_NAMES.get(kind)
+    if task_name is None or not hasattr(session, "scalar"):
+        # Non-ORM session doubles (router unit tests) cannot query the ledger;
+        # fall back to the legacy marker.  A real session always has ``scalar``.
+        return await session.get(AppConfig, _scan_marker_key(kind)) is not None
+    row = await TaskRunRepository(session).latest(task_name)
+    return bool(
+        row is not None
+        and getattr(row, "status", None) == "success"
+        and getattr(row, "completed_at", None) is not None
+    )
 
 
 async def list_groups(

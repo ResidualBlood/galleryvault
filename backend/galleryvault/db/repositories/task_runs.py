@@ -81,6 +81,19 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _coerce_datetime(value: Any, default: datetime | None = None) -> datetime | None:
+    """Accept a datetime or an ISO-8601 string from the legacy task history."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if value:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return default
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return default
+
+
 class TaskRunRepository:
     """Persistence for :class:`TaskRun` rows (see module docstring)."""
 
@@ -95,6 +108,7 @@ class TaskRunRepository:
         stage: str | None = None,
         cancellable: bool = False,
         payload: Mapping[str, Any] | None = None,
+        started_at: Any = None,
     ) -> str:
         """Open a new run for ``name`` and return its ``run_id``.
 
@@ -110,6 +124,7 @@ class TaskRunRepository:
             raise ValueError(f"task run id is longer than {MAX_RUN_ID_LENGTH} characters")
 
         now = _now()
+        started = _coerce_datetime(started_at, now) or now
         await self.session.execute(
             update(TaskRun)
             .where(TaskRun.name == name, TaskRun.status == RUNNING)
@@ -131,6 +146,8 @@ class TaskRunRepository:
                 done=0,
                 total=0,
                 payload=truncate_payload(payload),
+                started_at=started,
+                heartbeat_at=started,
             )
         )
         return run_id
@@ -180,6 +197,7 @@ class TaskRunRepository:
         last_error: str | None = None,
         done: int | None = None,
         total: int | None = None,
+        completed_at: Any = None,
     ) -> bool:
         """Close the running row with a terminal ``status``; returns matched."""
         _validate_name(name)
@@ -187,12 +205,13 @@ class TaskRunRepository:
             raise ValueError(f"invalid terminal task status: {status!r}")
 
         now = _now()
+        finished = _coerce_datetime(completed_at, now) or now
         values: dict[str, Any] = {
             "status": status,
             "reason": reason or None,
-            "completed_at": now,
-            "heartbeat_at": now,
-            "updated_at": now,
+            "completed_at": finished,
+            "heartbeat_at": finished,
+            "updated_at": finished,
         }
         if payload is not None:
             values["payload"] = truncate_payload(payload)
@@ -210,6 +229,55 @@ class TaskRunRepository:
             stmt = stmt.where(TaskRun.run_id == run_id)
         result = await self.session.execute(stmt.values(**values))
         return int(result.rowcount or 0) > 0
+
+    async def record(
+        self,
+        name: str,
+        status: str,
+        *,
+        run_id: str | None = None,
+        started_at: Any = None,
+        completed_at: Any = None,
+        reason: str = "",
+        done: int = 0,
+        total: int = 0,
+        last_error: str | None = None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Insert a finished run that was never opened with :meth:`start`.
+
+        ``record_task`` callers (downloads, favorites, task dispatcher) only
+        know the outcome, not a live run.  This writes the same row shape as a
+        started+finished run so the Logs page has one source of truth.
+        """
+        name = _validate_name(name)
+        if status not in FINISHED_STATUSES:
+            raise ValueError(f"invalid terminal task status: {status!r}")
+        run_id = str(run_id or uuid.uuid4())
+        if len(run_id) > MAX_RUN_ID_LENGTH:
+            raise ValueError(f"task run id is longer than {MAX_RUN_ID_LENGTH} characters")
+
+        now = _now()
+        started = _coerce_datetime(started_at, now) or now
+        completed = _coerce_datetime(completed_at, now) or now
+        row = TaskRun(
+            name=name,
+            run_id=run_id,
+            status=status,
+            done=int(done),
+            total=int(total),
+            reason=reason or None,
+            last_error=last_error,
+            payload=truncate_payload(payload),
+            started_at=started,
+            completed_at=completed,
+            heartbeat_at=completed,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        return run_id
 
     async def latest(self, name: str) -> TaskRun | None:
         """Return the newest run for ``name`` (running or finished), if any."""
