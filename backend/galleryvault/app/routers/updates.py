@@ -21,6 +21,7 @@ from ..dependencies import (
     resolve_session,
     spawn_task,
 )
+from ..schemas.updates import GalleryUpdatesListResponse
 
 router = APIRouter()
 
@@ -33,7 +34,7 @@ class UpdateIdsRequest(BaseModel):
     force: bool = False
 
 
-@router.get("/api/updates")
+@router.get("/api/updates", response_model=GalleryUpdatesListResponse)
 async def gallery_updates_list(
     page: int = 1,
     page_size: int = 24,

@@ -7,6 +7,7 @@ import logging
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -53,6 +54,13 @@ from ..schemas import (
     FilteredDeleteRequest,
     GalleryLocalRequest,
     ProgressRequest,
+)
+from ..schemas.gallery import (
+    GalleryDetail,
+    GalleryExpungedResponse,
+    GalleryIntegrityResponse,
+    GalleryListResponse,
+    GalleryTrashResponse,
 )
 from ..state import app_state
 from . import galleries_media
@@ -213,6 +221,215 @@ def _dedupe_tags(tags: list[tuple[str | None, str]]) -> list[tuple[str | None, s
     return out
 
 
+# --- Gallery payload serialisers -------------------------------------------
+# One definition per payload shape; the endpoint lists below only combine rows
+# with the tag/progress maps.  ``_g`` keeps tolerance for older rows and the
+# lightweight doubles used by tests instead of repeating ``getattr(row, …)``.
+
+_SPIDER_KEYS = (
+    "version",
+    "start_page",
+    "gid",
+    "token",
+    "mode",
+    "preview_pages",
+    "preview_per_page",
+    "pages",
+    "p_tokens",
+    "page_entries",
+    "warnings",
+)
+
+_TRASH_ITEM_KEYS = (
+    "id",
+    "gid",
+    "token",
+    "title",
+    "title_jpn",
+    "category",
+    "page_count",
+    "cover_url",
+    "trashed_at",
+    "storage_path",
+    "tags",
+    "tag_count",
+    "reading_progress",
+)
+
+_EXPUNGED_ITEM_KEYS = (
+    "id",
+    "gid",
+    "token",
+    "title",
+    "page_count",
+    "cover_url",
+    "updated_at",
+    "storage_path",
+    "tags",
+    "tag_count",
+)
+
+_INTEGRITY_ITEM_KEYS = (
+    "id",
+    "gid",
+    "title",
+    "page_count",
+    "actual_pages",
+    "file_count",
+    "cover_url",
+    "storage_path",
+    "tags",
+)
+
+
+def _g(obj: Any, name: str, default: Any = None) -> Any:
+    """Read an optional attribute from ORM rows and lightweight test doubles."""
+    return getattr(obj, name, default)
+
+
+def _iso(value: Any) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _tag_previews(tags: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    return [
+        {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
+        for ns, name in tags
+    ]
+
+
+def serialize_gallery_summary(
+    row: Any,
+    tag_map: dict[int, list[tuple[str, str]]],
+    *,
+    reading_progress: int | None = None,
+) -> dict[str, Any]:
+    """Canonical gallery row shared by the list and the recycle views."""
+    page_count = _g(row, "page_count", 0) or 0
+    return {
+        "id": row.id,
+        "gid": _g(row, "gid"),
+        "token": _g(row, "token"),
+        "title": display_title(row),
+        "title_english": _g(row, "title"),
+        "title_jpn": _g(row, "title_jpn"),
+        "storage_type": _g(row, "storage_type", "ehviewer_dir"),
+        "storage_tier": _g(row, "storage_tier", "hot"),
+        "cold_at": _iso(_g(row, "cold_at")),
+        "category": _g(row, "category", "other") or "other",
+        "page_count": page_count,
+        "cover_url": f"/api/galleries/{row.id}/thumb/0" if page_count else None,
+        "tags": _tag_previews(tag_map.get(row.id, [])),
+        "tag_count": _tag_count(tag_map, row.id),
+        "uploader": _g(row, "uploader"),
+        "posted_at": _iso(_g(row, "posted_at")),
+        "file_size": _g(row, "file_size"),
+        "storage_size": _g(row, "storage_size", 0),
+        "rating": _g(row, "rating"),
+        "favorite": _g(row, "favorite", False),
+        "favorite_category": _g(row, "favorite_category"),
+        "reading_progress": reading_progress,
+        "expunged": _g(row, "expunged", False),
+        "image_quality": _g(row, "image_quality"),
+        "local_rating": _g(row, "local_rating"),
+        "local_note": _g(row, "local_note"),
+    }
+
+
+def serialize_gallery_trash_item(
+    row: Any,
+    tag_map: dict[int, list[tuple[str, str]]],
+    progress_map: dict[int, int],
+) -> dict[str, Any]:
+    item = serialize_gallery_summary(
+        row, tag_map, reading_progress=progress_map.get(row.id)
+    )
+    item["trashed_at"] = _iso(_g(row, "trashed_at"))
+    item["storage_path"] = _g(row, "storage_path", "")
+    return {key: item[key] for key in _TRASH_ITEM_KEYS}
+
+
+def serialize_gallery_expunged_item(
+    row: Any,
+    tag_map: dict[int, list[tuple[str, str]]],
+) -> dict[str, Any]:
+    item = serialize_gallery_summary(row, tag_map)
+    item["updated_at"] = _iso(_g(row, "updated_at"))
+    item["storage_path"] = _g(row, "storage_path", "")
+    return {key: item[key] for key in _EXPUNGED_ITEM_KEYS}
+
+
+def serialize_gallery_integrity_item(
+    row: Any,
+    tag_map: dict[int, list[tuple[str, str]]],
+    actual_pages: int,
+) -> dict[str, Any]:
+    item = serialize_gallery_summary(row, tag_map)
+    item["actual_pages"] = actual_pages
+    item["file_count"] = _g(row, "file_count")
+    item["storage_path"] = _g(row, "storage_path", "")
+    return {key: item[key] for key in _INTEGRITY_ITEM_KEYS}
+
+
+def serialize_gallery_detail(
+    row: Any,
+    pages: list[Any],
+    tags: list[tuple[str, str]],
+    settings: Any,
+) -> dict[str, Any]:
+    source_meta = _g(row, "source_meta") or {}
+    gid = _g(row, "gid")
+    token = _g(row, "token")
+    gallery_url = (
+        f"{settings.exhentai_base_url.rstrip('/')}/g/{gid}/{token}/" if gid and token else None
+    )
+    return {
+        "id": row.id,
+        "gid": gid,
+        "token": token,
+        "title": display_title(row),
+        "title_english": _g(row, "title"),
+        "title_jpn": _g(row, "title_jpn"),
+        "storage_type": _g(row, "storage_type", "ehviewer_dir"),
+        "storage_tier": _g(row, "storage_tier", "hot"),
+        "cold_at": _iso(_g(row, "cold_at")),
+        "category": _g(row, "category", "other") or "other",
+        "page_count": len(pages),
+        "file_size": _g(row, "file_size"),
+        "storage_size": _g(row, "storage_size", 0),
+        "uploader": _g(row, "uploader"),
+        "posted_at": _iso(_g(row, "posted_at")),
+        "rating": _g(row, "rating"),
+        "favorite": _g(row, "favorite", False),
+        "favorite_category": _g(row, "favorite_category"),
+        "reading_progress": _g(row, "reading_progress"),
+        "expunged": _g(row, "expunged", False),
+        "image_quality": _g(row, "image_quality"),
+        "local_rating": _g(row, "local_rating"),
+        "local_note": _g(row, "local_note"),
+        "storage_path": _g(row, "storage_path", ""),
+        "eh_url": gallery_url or "",
+        "exhentai_url": gallery_url,
+        "warnings": source_meta.get("warnings", []),
+        "spider_info": {key: source_meta[key] for key in _SPIDER_KEYS if key in source_meta},
+        "source_meta": source_meta,
+        "tags": _tag_previews(tags),
+        "tags_synced_at": _g(row, "tags_synced_at"),
+        "pages": [
+            {
+                "index": p.page_index,
+                "page_index": p.page_index,
+                "name": p.member_name,
+                "member_name": p.member_name,
+                "media_type": p.media_type,
+                "image_url": f"/api/galleries/{row.id}/pages/{p.page_index}",
+                "thumb_url": f"/api/galleries/{row.id}/thumb/{p.page_index}",
+            }
+            for p in pages
+        ],
+    }
+
+
 def _parse_tag_filter(
     tags: str | None,
 ) -> tuple[list[tuple[str | None, str]], list[tuple[str | None, str]]]:
@@ -279,7 +496,7 @@ async def _resolve_search_tokens(
     return explicit_inc, explicit_exc, " ".join(keywords), bool(explicit_inc or explicit_exc)
 
 
-@router.get("/api/galleries")
+@router.get("/api/galleries", response_model=GalleryListResponse)
 async def list_galleries(
     page: int = 1,
     page_size: int = 24,
@@ -429,43 +646,13 @@ async def list_galleries(
             else []
         ),
         "items": [
-            {
-                "id": row.id,
-                "gid": getattr(row, "gid", None),
-                "token": getattr(row, "token", None),
-                "title": display_title(row),
-                "title_english": getattr(row, "title", None),
-                "title_jpn": getattr(row, "title_jpn", None),
-                "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
-                "storage_tier": getattr(row, "storage_tier", "hot"),
-                "cold_at": (
-                    row.cold_at.isoformat() if getattr(row, "cold_at", None) else None
+            serialize_gallery_summary(
+                row,
+                tag_map,
+                reading_progress=progress_map.get(
+                    row.id, _g(row, "reading_progress", None)
                 ),
-                "category": getattr(row, "category", "other") or "other",
-                "page_count": getattr(row, "page_count", 0) or 0,
-                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
-                "tags": [
-                    {
-                        "namespace": ns,
-                        "name": name,
-                        "display": translated_tag(ns, name)[1],
-                    }
-                    for ns, name in tag_map.get(row.id, [])
-                ],
-                "tag_count": _tag_count(tag_map, row.id),
-                "uploader": getattr(row, "uploader", None),
-                "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
-                "file_size": getattr(row, "file_size", None),
-                "storage_size": getattr(row, "storage_size", 0),
-                "rating": getattr(row, "rating", None),
-                "favorite": getattr(row, "favorite", False),
-                "favorite_category": getattr(row, "favorite_category", None),
-                "reading_progress": progress_map.get(row.id, getattr(row, "reading_progress", None)),
-                "expunged": getattr(row, "expunged", False),
-                "image_quality": getattr(row, "image_quality", None),
-                "local_rating": getattr(row, "local_rating", None),
-                "local_note": getattr(row, "local_note", None),
-            }
+            )
             for row in rows
         ],
     }
@@ -474,7 +661,7 @@ async def list_galleries(
 gallery_list = list_galleries
 
 
-@router.get("/api/galleries/trash")
+@router.get("/api/galleries/trash", response_model=GalleryTrashResponse)
 async def list_trash(
     page: int = 1,
     page_size: int = 24,
@@ -496,30 +683,12 @@ async def list_trash(
         "page": page,
         "page_size": page_size,
         "items": [
-            {
-                "id": row.id,
-                "gid": getattr(row, "gid", None),
-                "token": getattr(row, "token", None),
-                "title": display_title(row),
-                "title_jpn": getattr(row, "title_jpn", None),
-                "category": getattr(row, "category", "other") or "other",
-                "page_count": getattr(row, "page_count", 0) or 0,
-                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
-                "trashed_at": row.trashed_at.isoformat() if getattr(row, "trashed_at", None) else None,
-                "storage_path": getattr(row, "storage_path", ""),
-                "tags": [
-                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                    for ns, name in tag_map.get(row.id, [])
-                ],
-                "tag_count": _tag_count(tag_map, row.id),
-                "reading_progress": progress_map.get(row.id),
-            }
-            for row in rows
+            serialize_gallery_trash_item(row, tag_map, progress_map) for row in rows
         ],
     }
 
 
-@router.get("/api/galleries/expunged")
+@router.get("/api/galleries/expunged", response_model=GalleryExpungedResponse)
 async def list_expunged(
     page: int = 1,
     page_size: int = 24,
@@ -540,22 +709,7 @@ async def list_expunged(
         "page": page,
         "page_size": page_size,
         "items": [
-            {
-                "id": row.id,
-                "gid": getattr(row, "gid", None),
-                "token": getattr(row, "token", None),
-                "title": display_title(row),
-                "page_count": getattr(row, "page_count", 0) or 0,
-                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
-                "updated_at": row.updated_at.isoformat() if getattr(row, "updated_at", None) else None,
-                "storage_path": getattr(row, "storage_path", ""),
-                "tags": [
-                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                    for ns, name in tag_map.get(row.id, [])
-                ],
-                "tag_count": _tag_count(tag_map, row.id),
-            }
-            for row in rows
+            serialize_gallery_expunged_item(row, tag_map) for row in rows
         ],
     }
 
@@ -644,7 +798,7 @@ async def redownload_expunged(
     }
 
 
-@router.get("/api/galleries/integrity")
+@router.get("/api/galleries/integrity", response_model=GalleryIntegrityResponse)
 async def list_integrity(
     page: int = 1,
     page_size: int = 24,
@@ -691,20 +845,7 @@ async def list_integrity(
         "page_size": page_size,
         "magic_scan": magic_scan_summary,
         "items": [
-            {
-                "id": row.id,
-                "gid": getattr(row, "gid", None),
-                "title": display_title(row),
-                "page_count": getattr(row, "page_count", 0) or 0,
-                "actual_pages": counts.get(row.id, 0),
-                "file_count": getattr(row, "file_count", None),
-                "cover_url": f"/api/galleries/{row.id}/thumb/0" if getattr(row, "page_count", 0) else None,
-                "storage_path": getattr(row, "storage_path", ""),
-                "tags": [
-                    {"namespace": ns, "name": name, "display": translated_tag(ns, name)[1]}
-                    for ns, name in tag_map.get(row.id, [])
-                ],
-            }
+            serialize_gallery_integrity_item(row, tag_map, counts.get(row.id, 0))
             for row in rows
         ],
     }
@@ -813,7 +954,7 @@ async def gallery_next(
     return {"id": next_id}
 
 
-@router.get("/api/galleries/{identifier}")
+@router.get("/api/galleries/{identifier}", response_model=GalleryDetail)
 async def get_gallery(
     identifier: int,
     session: AsyncSession = Depends(get_session),  # noqa: B008
@@ -822,80 +963,7 @@ async def get_gallery(
     row, pages = await _invoke_gallery(identifier, session=session)
     tags = await _gallery_tags(row.id, session=session)
     settings = get_current_settings()
-    source_meta = getattr(row, "source_meta", None) or {}
-    spider_keys = (
-        "version",
-        "start_page",
-        "gid",
-        "token",
-        "mode",
-        "preview_pages",
-        "preview_per_page",
-        "pages",
-        "p_tokens",
-        "page_entries",
-        "warnings",
-    )
-    return {
-        "id": row.id,
-        "gid": row.gid,
-        "token": getattr(row, "token", None),
-        "title": display_title(row),
-        "title_english": getattr(row, "title", None),
-        "title_jpn": getattr(row, "title_jpn", None),
-        "storage_type": getattr(row, "storage_type", "ehviewer_dir"),
-        "storage_tier": getattr(row, "storage_tier", "hot"),
-        "cold_at": row.cold_at.isoformat() if getattr(row, "cold_at", None) else None,
-        "category": getattr(row, "category", "other") or "other",
-        "page_count": len(pages),
-        "file_size": getattr(row, "file_size", None),
-        "storage_size": getattr(row, "storage_size", 0),
-        "uploader": getattr(row, "uploader", None),
-        "posted_at": row.posted_at.isoformat() if getattr(row, "posted_at", None) else None,
-        "rating": getattr(row, "rating", None),
-        "favorite": getattr(row, "favorite", False),
-        "favorite_category": getattr(row, "favorite_category", None),
-        "reading_progress": getattr(row, "reading_progress", None),
-        "expunged": getattr(row, "expunged", False),
-        "image_quality": getattr(row, "image_quality", None),
-        "local_rating": getattr(row, "local_rating", None),
-        "local_note": getattr(row, "local_note", None),
-        "storage_path": getattr(row, "storage_path", ""),
-        "eh_url": (
-            f"{settings.exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
-            if row.gid and row.token
-            else ""
-        ),
-        "exhentai_url": (
-            f"{settings.exhentai_base_url.rstrip('/')}/g/{row.gid}/{row.token}/"
-            if row.gid and row.token
-            else None
-        ),
-        "warnings": source_meta.get("warnings", []),
-        "spider_info": {key: source_meta[key] for key in spider_keys if key in source_meta},
-        "source_meta": source_meta,
-        "tags": [
-            {
-                "namespace": ns,
-                "name": name,
-                "display": translated_tag(ns, name)[1],
-            }
-            for ns, name in tags
-        ],
-        "tags_synced_at": getattr(row, "tags_synced_at", None),
-        "pages": [
-            {
-                "index": p.page_index,
-                "page_index": p.page_index,
-                "name": p.member_name,
-                "member_name": p.member_name,
-                "media_type": p.media_type,
-                "image_url": f"/api/galleries/{row.id}/pages/{p.page_index}",
-                "thumb_url": f"/api/galleries/{row.id}/thumb/{p.page_index}",
-            }
-            for p in pages
-        ],
-    }
+    return serialize_gallery_detail(row, pages, tags, settings)
 
 
 gallery_detail = get_gallery
@@ -1360,20 +1428,6 @@ async def _filtered_delete_confirmation(request: Request) -> tuple[bool, int | N
     return bool(payload.get("confirm")), match_count
 
 
-async def _filtered_delete_storage_tier(request: Request) -> str | None:
-    """Read ``storage_tier`` from the raw body (not yet a schema field)."""
-    try:
-        payload = await request.json()
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    raw = payload.get("storage_tier")
-    if not isinstance(raw, str):
-        return None
-    return raw.strip() or None
-
-
 @router.post("/api/galleries/delete-filtered", status_code=200)
 async def delete_galleries_filtered(
     body: FilteredDeleteRequest,
@@ -1392,7 +1446,7 @@ async def delete_galleries_filtered(
         raise HTTPException(status_code=422, detail="invalid category")
     if body.read_status and body.read_status not in {"all", "unread", "reading", "completed", "read"}:
         raise HTTPException(status_code=422, detail="invalid read_status")
-    storage_tier = getattr(body, "storage_tier", None) or await _filtered_delete_storage_tier(request)
+    storage_tier = body.storage_tier
     if storage_tier and storage_tier not in {"hot", "cold"}:
         raise HTTPException(status_code=422, detail="storage_tier must be 'hot' or 'cold'")
     parsed_tags, parsed_exc_tags = _parse_tag_filter(body.tags or body.tag)

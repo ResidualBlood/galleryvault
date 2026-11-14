@@ -221,7 +221,7 @@ async def test_delete_filtered_accepts_storage_tier_only(monkeypatch) -> None:
     module = _install_delete_repo(monkeypatch, captured)
 
     result = await module.delete_galleries_filtered(
-        FilteredDeleteRequest(), _StubRequest({"storage_tier": "cold"})
+        FilteredDeleteRequest(storage_tier="cold"), _StubRequest()
     )
 
     assert result["matched"] == 0
@@ -235,7 +235,7 @@ async def test_delete_filtered_rejects_unknown_tier(monkeypatch) -> None:
 
     with pytest.raises(HTTPException) as exc:
         await module.delete_galleries_filtered(
-            FilteredDeleteRequest(), _StubRequest({"storage_tier": "warm"})
+            FilteredDeleteRequest(storage_tier="warm"), _StubRequest()
         )
     assert exc.value.status_code == 422
     assert "storage_tier" not in captured

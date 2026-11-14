@@ -569,9 +569,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Galleries Api Galleries Get"
+                  "$ref": "#/components/schemas/GalleryListResponse"
                 }
               }
             }
@@ -639,9 +637,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Trash Api Galleries Trash Get"
+                  "$ref": "#/components/schemas/GalleryTrashResponse"
                 }
               }
             }
@@ -709,9 +705,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Expunged Api Galleries Expunged Get"
+                  "$ref": "#/components/schemas/GalleryExpungedResponse"
                 }
               }
             }
@@ -801,9 +795,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Integrity Api Galleries Integrity Get"
+                  "$ref": "#/components/schemas/GalleryIntegrityResponse"
                 }
               }
             }
@@ -1003,9 +995,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Gallery Api Galleries  Identifier  Get"
+                  "$ref": "#/components/schemas/GalleryDetail"
                 }
               }
             }
@@ -4613,9 +4603,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Gallery Updates List Api Updates Get"
+                  "$ref": "#/components/schemas/GalleryUpdatesListResponse"
                 }
               }
             }
@@ -7025,6 +7013,17 @@
             ],
             "title": "Storage Type"
           },
+          "storage_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Tier"
+          },
           "min_posted_at": {
             "anyOf": [
               {
@@ -7163,6 +7162,600 @@
         "type": "object",
         "title": "FilteredDeleteRequest"
       },
+      "GalleryDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "title_english": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title English"
+          },
+          "title_jpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Jpn"
+          },
+          "storage_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Type"
+          },
+          "storage_tier": {
+            "type": "string",
+            "title": "Storage Tier",
+            "default": "hot"
+          },
+          "cold_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cold At"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "other"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "storage_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Size"
+          },
+          "uploader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploader"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "favorite": {
+            "type": "boolean",
+            "title": "Favorite",
+            "default": false
+          },
+          "favorite_category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorite Category"
+          },
+          "reading_progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Progress"
+          },
+          "expunged": {
+            "type": "boolean",
+            "title": "Expunged",
+            "default": false
+          },
+          "image_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Quality"
+          },
+          "local_rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Rating"
+          },
+          "local_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Note"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "eh_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eh Url"
+          },
+          "exhentai_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exhentai Url"
+          },
+          "warnings": {
+            "items": {},
+            "type": "array",
+            "title": "Warnings"
+          },
+          "spider_info": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Spider Info"
+          },
+          "source_meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Meta"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tags_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags Synced At"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryPageItem"
+            },
+            "type": "array",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryDetail",
+        "description": "Full gallery payload of ``GET /api/galleries/{identifier}``.\n\nDeclared standalone rather than as a ``GallerySummary`` subclass: the\ndetail payload intentionally has no ``cover_url`` / ``tag_count``, and\ninheriting them would re-add those keys to the response."
+      },
+      "GalleryExpungedItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tag_count": {
+            "type": "integer",
+            "title": "Tag Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryExpungedItem",
+        "description": "Row of ``GET /api/galleries/expunged``."
+      },
+      "GalleryExpungedResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryExpungedItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryExpungedResponse"
+      },
+      "GalleryIntegrityItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "actual_pages": {
+            "type": "integer",
+            "title": "Actual Pages",
+            "default": 0
+          },
+          "file_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Count"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryIntegrityItem",
+        "description": "Row of ``GET /api/galleries/integrity``."
+      },
+      "GalleryIntegrityResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "magic_scan": {
+            "$ref": "#/components/schemas/MagicScanSummary"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryIntegrityItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryIntegrityResponse"
+      },
+      "GalleryListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "q": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "tags": {
+            "type": "string",
+            "title": "Tags",
+            "default": ""
+          },
+          "resolved": {
+            "type": "boolean",
+            "title": "Resolved",
+            "default": false
+          },
+          "tag_mode": {
+            "type": "string",
+            "title": "Tag Mode",
+            "default": "or"
+          },
+          "tag_match": {
+            "type": "string",
+            "title": "Tag Match",
+            "default": "exact"
+          },
+          "order_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By"
+          },
+          "read_status": {
+            "type": "string",
+            "title": "Read Status",
+            "default": "all"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": ""
+          },
+          "query_tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Query Tags"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GallerySummary"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryListResponse",
+        "description": "Envelope of ``GET /api/galleries``."
+      },
       "GalleryLocalRequest": {
         "properties": {
           "local_rating": {
@@ -7204,6 +7797,661 @@
         },
         "type": "object",
         "title": "GalleryLocalRequest"
+      },
+      "GalleryPageItem": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "page_index": {
+            "type": "integer",
+            "title": "Page Index"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "member_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Name"
+          },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
+          "image_url": {
+            "type": "string",
+            "title": "Image Url"
+          },
+          "thumb_url": {
+            "type": "string",
+            "title": "Thumb Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "page_index",
+          "image_url",
+          "thumb_url"
+        ],
+        "title": "GalleryPageItem",
+        "description": "One page of a gallery detail response."
+      },
+      "GallerySummary": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "title_english": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title English"
+          },
+          "title_jpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Jpn"
+          },
+          "storage_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Type"
+          },
+          "storage_tier": {
+            "type": "string",
+            "title": "Storage Tier",
+            "default": "hot"
+          },
+          "cold_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cold At"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "other"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tag_count": {
+            "type": "integer",
+            "title": "Tag Count",
+            "default": 0
+          },
+          "uploader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploader"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "storage_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Size"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "favorite": {
+            "type": "boolean",
+            "title": "Favorite",
+            "default": false
+          },
+          "favorite_category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorite Category"
+          },
+          "reading_progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Progress"
+          },
+          "expunged": {
+            "type": "boolean",
+            "title": "Expunged",
+            "default": false
+          },
+          "image_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Quality"
+          },
+          "local_rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Rating"
+          },
+          "local_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GallerySummary",
+        "description": "Gallery row as returned by ``GET /api/galleries``."
+      },
+      "GalleryTag": {
+        "properties": {
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "display": {
+            "type": "string",
+            "title": "Display"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "display"
+        ],
+        "title": "GalleryTag",
+        "description": "Tag preview attached to a gallery row or a resolved query."
+      },
+      "GalleryTrashItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "title_jpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Jpn"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "other"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "trashed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trashed At"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tag_count": {
+            "type": "integer",
+            "title": "Tag Count",
+            "default": 0
+          },
+          "reading_progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Progress"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryTrashItem",
+        "description": "Row of ``GET /api/galleries/trash``."
+      },
+      "GalleryTrashResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTrashItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryTrashResponse"
+      },
+      "GalleryUpdateItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gallery_id": {
+            "type": "integer",
+            "title": "Gallery Id"
+          },
+          "old_gid": {
+            "type": "integer",
+            "title": "Old Gid"
+          },
+          "new_gid": {
+            "type": "integer",
+            "title": "New Gid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "favcat": {
+            "type": "integer",
+            "title": "Favcat"
+          },
+          "favcat_name": {
+            "type": "string",
+            "title": "Favcat Name",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "detected_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "match_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Source"
+          },
+          "new_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Title"
+          },
+          "old_page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Page Count"
+          },
+          "new_page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Page Count"
+          },
+          "ambiguous": {
+            "type": "boolean",
+            "title": "Ambiguous",
+            "default": false
+          },
+          "ambiguous_count": {
+            "type": "integer",
+            "title": "Ambiguous Count",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "gallery_id",
+          "old_gid",
+          "new_gid",
+          "title",
+          "favcat",
+          "status"
+        ],
+        "title": "GalleryUpdateItem",
+        "description": "Row of ``GET /api/updates`` (also ``/api/updates/ignored``)."
+      },
+      "GalleryUpdatesListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "default": "active"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryUpdateItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryUpdatesListResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -7277,6 +8525,55 @@
           "level"
         ],
         "title": "LogLevelRequest"
+      },
+      "MagicScanSummary": {
+        "properties": {
+          "running": {
+            "type": "boolean",
+            "title": "Running",
+            "default": false
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "scanned": {
+            "type": "integer",
+            "title": "Scanned",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "corrupt": {
+            "type": "integer",
+            "title": "Corrupt",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "MagicScanSummary",
+        "description": "Last integrity magic-byte scan counters."
       },
       "OnlineProgressRequest": {
         "properties": {

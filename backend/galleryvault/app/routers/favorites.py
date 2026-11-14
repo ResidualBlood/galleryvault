@@ -86,6 +86,8 @@ from .galleries import (
     _parse_posted,
     _parse_tag_filter,
     _resolve_search_tokens,
+    _tag_count,
+    _tags_for_galleries,
 )
 
 logger = logging.getLogger(__name__)
@@ -229,23 +231,6 @@ def _record_favorites_move_log(
         done=local_moved,
         total=len(gids),
     )
-
-
-async def _tags_for_galleries(
-    repo: object, gallery_ids: list[int], tags_limit: int | None
-) -> dict[int, list[tuple[str, str]]]:
-    """Fetch tag previews, only overriding the cap when the client asked."""
-    limit = tags_limit if isinstance(tags_limit, int) else None
-    if limit is None:
-        return await repo.tags_for_galleries(gallery_ids)
-    return await repo.tags_for_galleries(gallery_ids, limit)
-
-
-def _tag_count(tag_map: dict[int, list[tuple[str, str]]], gallery_id: int) -> int:
-    counts = getattr(tag_map, "counts", None) or {}
-    if gallery_id in counts:
-        return int(counts[gallery_id])
-    return len(tag_map.get(gallery_id, []))
 
 
 def _clip_tags(tags: list[dict[str, str]], tags_limit: int | None) -> list[dict[str, str]]:
