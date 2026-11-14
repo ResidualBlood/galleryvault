@@ -200,3 +200,44 @@ def _check_physically_archived(
             return True
 
     return False
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    """Return True when both paths resolve to the same location (fail-open on errors)."""
+    try:
+        return left.resolve() == right.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def may_delete_copy(
+    keep: Path | str | None,
+    drop: Path | str | None,
+    *,
+    gid: int | None = None,
+    cold_roots: Sequence[Path] | None = None,
+) -> bool:
+    """Return True only when ``drop`` is provably duplicated by a retained copy.
+
+    Single gate for every destructive cold-storage decision: adopting an existing
+    cold pack, deleting the hot source after a successful archive, purging
+    leftovers of archived galleries and dropping a cold pack after a restore.
+    ``keep`` is the copy that stays behind, so a deletion is allowed only when
+    :func:`cold_copy_covers_source` proves that ``keep`` holds at least every page
+    of ``drop`` and both point at different locations.  When the retained location
+    is not known but ``gid``/``cold_roots`` are supplied, any physically archived
+    copy of that gallery covering ``drop`` counts instead.  Unknown page counts,
+    unreadable copies or a missing argument never authorize a deletion.
+    """
+    if drop is None:
+        return False
+    drop_path = Path(drop)
+
+    if keep is not None:
+        keep_path = Path(keep)
+        if not _same_path(keep_path, drop_path) and cold_copy_covers_source(drop_path, keep_path):
+            return True
+
+    if gid is not None and cold_roots:
+        return _check_physically_archived(gid, cold_roots, source=drop_path)
+    return False

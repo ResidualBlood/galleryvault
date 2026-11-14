@@ -32,7 +32,7 @@ from .orchestrate import (
 )
 from .pack import ColdStorageError, _collect_pages_from_dir
 from .paths import safe_title
-from .verify import _count_source_image_pages, _is_online_cold_root
+from .verify import _count_source_image_pages, _is_online_cold_root, may_delete_copy
 
 logger = logging.getLogger("galleryvault.services.cold_archive")
 
@@ -94,11 +94,20 @@ def _extract_cold_pack(cold_path: Path, partial_dir: Path) -> list[str]:
     return pages
 
 
-def _remove_cold_pack(cold_path: Path) -> None:
+def _remove_cold_pack(cold_path: Path, keep: Path) -> bool:
+    """Drop the cold pack only when the restored ``keep`` copy provably covers it."""
+    if not may_delete_copy(keep, cold_path):
+        logger.warning(
+            "Refusing to remove cold pack %s: restored copy %s cannot be verified to cover it",
+            cold_path,
+            keep,
+        )
+        return False
     if cold_path.is_dir():
         shutil.rmtree(cold_path)
     elif cold_path.exists():
         cold_path.unlink()
+    return True
 
 
 async def _do_unarchive_locked(
@@ -299,7 +308,7 @@ async def _do_unarchive_locked(
 
     # DB commit succeeded: the move is now durable, drop the cold copy.
     try:
-        _remove_cold_pack(cold_path)
+        _remove_cold_pack(cold_path, target)
     except OSError as exc:
         logger.warning("Failed to remove cold pack %s after unarchive: %s", cold_path, exc)
 

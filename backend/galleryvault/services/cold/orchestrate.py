@@ -35,9 +35,8 @@ from .paths import _cold_path_filter, select_archive_root
 
 logger = logging.getLogger("galleryvault.services.cold_archive")
 from .verify import (
-    _check_physically_archived,
     _is_online_cold_root,
-    cold_copy_covers_source,
+    may_delete_copy,
 )
 
 
@@ -269,7 +268,7 @@ async def _do_archive_locked(
         logger.info("Skipping gallery %s: %s", gallery_id, exc)
         return None
     except ColdDestinationExistsError as exc:
-        if exc.dest_path and cold_copy_covers_source(source_path, exc.dest_path):
+        if exc.dest_path and may_delete_copy(exc.dest_path, source_path):
             logger.info(
                 "Adopting existing cold destination for gallery %s: %s",
                 gallery_id,
@@ -394,27 +393,35 @@ async def _do_archive_locked(
         _clear_gallery_thumbs(gallery_id)
 
     # DB 更新提交成功后，按设置决定是否删除 SSD 源
-    if delete_source and source_path.resolve() != dest_path.resolve():
-        try:
-            from ..storage_usage import safe_stat_size, storage_tracker
-
-            settings = app_state.settings or get_settings()
+    if delete_source:
+        if may_delete_copy(dest_path, source_path):
             try:
-                dl_root = Path(settings.download_root).resolve()
-                is_dl = source_path.resolve().is_relative_to(dl_root)
-            except (AttributeError, ValueError, TypeError, OSError):
-                is_dl = False
-            sz = safe_stat_size(source_path) if is_dl else 0
+                from ..storage_usage import safe_stat_size, storage_tracker
 
-            if source_path.is_dir():
-                shutil.rmtree(source_path, ignore_errors=True)
-            elif source_path.is_file():
-                source_path.unlink(missing_ok=True)
-            if is_dl and sz > 0 and not source_path.exists():
-                storage_tracker.record_download_delta(-sz)
-            logger.info("Deleted SSD source %s after archive to %s", source_path, dest_path)
-        except OSError as exc:
-            logger.warning("Failed to delete SSD source %s: %s", source_path, exc)
+                settings = app_state.settings or get_settings()
+                try:
+                    dl_root = Path(settings.download_root).resolve()
+                    is_dl = source_path.resolve().is_relative_to(dl_root)
+                except (AttributeError, ValueError, TypeError, OSError):
+                    is_dl = False
+                sz = safe_stat_size(source_path) if is_dl else 0
+
+                if source_path.is_dir():
+                    shutil.rmtree(source_path, ignore_errors=True)
+                elif source_path.is_file():
+                    source_path.unlink(missing_ok=True)
+                if is_dl and sz > 0 and not source_path.exists():
+                    storage_tracker.record_download_delta(-sz)
+                logger.info("Deleted SSD source %s after archive to %s", source_path, dest_path)
+            except OSError as exc:
+                logger.warning("Failed to delete SSD source %s: %s", source_path, exc)
+        elif source_path.resolve() != dest_path.resolve():
+            logger.warning(
+                "Refusing to delete SSD source %s after archive: cold copy %s "
+                "cannot be verified to cover it",
+                source_path,
+                dest_path,
+            )
 
     return dest_path
 
@@ -708,11 +715,9 @@ async def purge_archived_sources_internal(
                     # A DB path alone is not enough: the cold copy must exist and
                     # provably cover this source before the sole source may be deleted.
                     dest = archived_paths.get(gid)
-                    has_covering_copy = dest is not None and cold_copy_covers_source(cur_dir, dest)
-                    if not has_covering_copy:
-                        has_covering_copy = _check_physically_archived(
-                            gid, online_cold_roots, source=cur_dir
-                        )
+                    has_covering_copy = may_delete_copy(
+                        dest, cur_dir, gid=gid, cold_roots=online_cold_roots
+                    )
                     if gid in archived_paths and not has_covering_copy:
                         logger.warning(
                             "Refusing to purge source directory for gallery %s: cold copy %s "
