@@ -168,6 +168,16 @@ class TaskManager:
             "started_at": None,
             "completed_at": None,
         }
+        self.unarchive_state: dict[str, Any] = {
+            "running": False,
+            "done": 0,
+            "total": 0,
+            "skipped": 0,
+            "failed": 0,
+            "last_error": None,
+            "started_at": None,
+            "completed_at": None,
+        }
         self.integrity_state: dict[str, Any] = {
             "running": False,
             "started_at": None,
@@ -210,6 +220,7 @@ class TaskManager:
             "duplicates": self.duplicates_state,
             "gallery-updates": self.gallery_updates_state,
             "archive": self.archive_state,
+            "unarchive": self.unarchive_state,
             "integrity": self.integrity_state,
         }
         if task_name in state_map:

@@ -25,6 +25,7 @@ from ...logging import log_extra
 from ...metadata.sidecar import parse_datetime_utc
 from ...scanners import registry  # noqa: F401  # tests patch galleries.registry.for_path
 from ...scanners.base import CATEGORIES
+from ...services.cold_archive import archive_one, run_unarchive
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
 from ...services.eh_client import FavoriteData
@@ -1339,6 +1340,45 @@ async def redownload_gallery(
     if task is None:
         raise HTTPException(status_code=409, detail="An active download already exists for this gid")
     return {"status": "pending", "task_id": task.id, "gid": row.gid}
+
+
+@router.post("/api/galleries/{identifier}/archive", status_code=202)
+async def archive_gallery(
+    identifier: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    """Archive a single hot gallery to cold storage (background)."""
+    session = await resolve_session(session, fallback_dep=get_session)
+    row, _ = await _invoke_gallery(identifier, session=session)
+    if getattr(row, "storage_tier", "hot") == "cold":
+        raise HTTPException(status_code=409, detail="Gallery is already in cold storage")
+    settings = get_current_settings()
+    if not (getattr(settings, "archive_roots", None) or getattr(settings, "cold_storage_root", None)):
+        raise HTTPException(status_code=422, detail="Cold storage root is not configured")
+    spawn_task(archive_one(row.id), "cold archive single")
+    return {"status": "started", "id": row.id}
+
+
+@router.post("/api/galleries/{identifier}/unarchive", status_code=202)
+async def unarchive_gallery(
+    identifier: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    """Move a cold gallery back to the download root (background, cancellable)."""
+    session = await resolve_session(session, fallback_dep=get_session)
+    row, _ = await _invoke_gallery(identifier, session=session)
+    if getattr(row, "storage_tier", "hot") != "cold":
+        raise HTTPException(status_code=409, detail="Gallery is not in cold storage")
+    tm = get_task_manager()
+    if tm.unarchive_state.get("running"):
+        return {"status": "running", "id": row.id}
+    tm.clear_cancelled("unarchive")
+    tm.unarchive_state["running"] = True
+    task = spawn_task(run_unarchive([row.id]), "cold unarchive")
+    if task is None:
+        tm.unarchive_state["running"] = False
+        raise HTTPException(status_code=503, detail="background tasks unavailable")
+    return {"status": "started", "id": row.id}
 
 
 @router.delete("/api/galleries/{identifier}", status_code=204)

@@ -6,13 +6,14 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
 from ...db.repository import BackgroundJobsRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
 from ...logging import log_extra, mask_sensitive
-from ...services.cold_archive import run_cold_archive
+from ...services.cold_archive import run_cold_archive, run_unarchive
 from ...services.scan_worker import run_scan
 from ...services.settings_service import update_runtime_settings
 from ...services.tag_sync_worker import category_refresh_once, enqueue_tag_sync, jobs_count
@@ -265,7 +266,7 @@ async def background_task_logs() -> dict[str, object]:
 @router.post("/api/logs/{task}/cancel", status_code=202)
 async def cancel_background_task(task: str) -> dict[str, object]:
     task_key = "metadata" if task in {"metadata", "metadata-sync"} else task
-    if task_key not in {"scan", "tag-sync", "thumbs", "metadata", "archive"}:
+    if task_key not in {"scan", "tag-sync", "thumbs", "metadata", "archive", "unarchive"}:
         raise HTTPException(status_code=404, detail="Unknown task")
     tm = get_task_manager()
     if task_key in {"thumbs", "tag-sync"}:
@@ -296,6 +297,28 @@ async def cancel_background_task(task: str) -> dict[str, object]:
 async def archive_status() -> dict[str, object]:
     tm = get_task_manager()
     return dict(tm.archive_state)
+
+
+class ArchiveRestoreRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+
+
+@router.post("/api/archive/restore", status_code=202)
+async def restore_archive(body: ArchiveRestoreRequest) -> dict[str, object]:
+    """Move the given cold galleries back to the download root."""
+    ids = list(dict.fromkeys(int(gid) for gid in body.ids if int(gid) > 0))
+    if not ids:
+        raise HTTPException(status_code=422, detail="ids is required")
+    settings = app_state.settings or get_settings()
+    if getattr(settings, "global_paused", False):
+        return {"status": "paused", "detail": "Global paused: unarchive is disabled"}
+    tm = get_task_manager()
+    if tm.unarchive_state.get("running"):
+        return {"status": "running", "total": len(ids)}
+    tm.clear_cancelled("unarchive")
+    tm.unarchive_state["running"] = True
+    spawn_task(run_unarchive(ids), "cold unarchive")
+    return {"status": "started", "total": len(ids)}
 
 
 @router.post("/api/archive", status_code=202)
