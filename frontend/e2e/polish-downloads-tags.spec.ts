@@ -71,15 +71,16 @@ const TASKS = [
     title: "Sunset Sketchbook — a very long title that has to be clipped at 390",
     status: "downloading",
     retry_count: 0,
-    current_page: 12,
+    current_page: 40,
     total_pages: 40,
     error_message: null,
     mode: "gallery",
     quality: "resample",
     archive_status: null,
     archive_fallback: false,
-    speed: 1_572_864,
-    eta_seconds: 95,
+    ingest_status: "pending",
+    speed: null,
+    eta_seconds: null,
   },
   {
     id: 2,
@@ -118,16 +119,17 @@ const TASKS = [
     gid: 800004,
     gallery_id: null,
     cover_url: remoteCover(800004, "token800004"),
-    title: "Gone Gallery",
+    title: "Ingest Failure",
     status: "failed",
-    retry_count: 3,
-    current_page: 0,
-    total_pages: null,
-    error_message: "GalleryGoneError: deleted or not found",
+    retry_count: 0,
+    current_page: 40,
+    total_pages: 40,
+    error_message: "ingest: scanner unavailable",
     mode: "gallery",
     quality: "resample",
     archive_status: null,
     archive_fallback: false,
+    ingest_status: "failed",
   },
   {
     id: 5,
@@ -501,14 +503,29 @@ test("@polish-downloads-tags downloads: every status renders its own icon and pr
     await expect(page.locator(".download-item")).toHaveCount(1);
   }
 
-  // A running task shows the 4px track with a width plus speed / ETA.
+  // A failed ingest says "入库失败" and its retry means "重新入库", never a
+  // fresh download.
+  await page
+    .getByTestId("downloads-status-segmented")
+    .locator('[data-segmented-value="failed"]')
+    .click();
+  const failedRow = page.locator('.download-item[data-status="failed"]');
+  await expect(failedRow.locator(".download-item__state")).toContainText("入库失败");
+  await expect(failedRow.getByTestId("downloads-retry")).toHaveAttribute(
+    "aria-label",
+    "重新入库",
+  );
+
+  // T2.1/T2.3: files on disk but not yet ingested read as "入库中", not as a
+  // page-by-page download. The 4px track stays at 100%.
   await page
     .getByTestId("downloads-status-segmented")
     .locator('[data-segmented-value="downloading"]')
     .click();
   const meta = page.getByTestId("downloads-task-meta").first();
-  await expect(meta).toContainText("12/40");
-  await expect(meta).toContainText("1.5 MB/s");
+  await expect(meta).toContainText("入库中");
+  await expect(meta).toContainText("40/40");
+  await expect(meta).not.toContainText("MB/s");
   await expect(page.locator('[data-status="downloading"] .download-item__fill')).toHaveCount(1);
 
   expect(csp).toEqual([]);

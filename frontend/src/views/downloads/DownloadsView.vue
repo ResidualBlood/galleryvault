@@ -47,6 +47,8 @@ import {
   errorSummary,
   formatDuration,
   formatSpeed,
+  ingestPhase,
+  isIngestRetry,
   parseDownloadLinks,
   taskPercent,
 } from "./format";
@@ -167,8 +169,11 @@ function statusLabel(status: string): string {
   return t(`legacy.${key[status] ?? "dlStatusPending"}`);
 }
 
-function statusIcon(status: string) {
-  return STATUS_ICONS[status] ?? "status-info";
+function statusIcon(task: DownloadTask) {
+  const phase = ingestPhase(task);
+  if (phase === "ingesting") return "downloads";
+  if (phase === "ingest-failed") return "status-error";
+  return STATUS_ICONS[task.status] ?? "status-info";
 }
 
 function isArchiveTask(task: DownloadTask): boolean {
@@ -187,6 +192,9 @@ function badgeText(task: DownloadTask): string {
 }
 
 function statusText(task: DownloadTask): string {
+  const phase = ingestPhase(task);
+  if (phase === "ingesting") return t("downloads.ingest.pending");
+  if (phase === "ingest-failed") return t("downloads.ingest.failed");
   if (task.status === "success" && task.archive_status) {
     if (task.archive_status === "ok") return t("legacy.dlArchivedCold");
     if (task.archive_status === "pending") return t("legacy.dlArchivePending");
@@ -196,6 +204,10 @@ function statusText(task: DownloadTask): string {
     }
   }
   return statusLabel(task.status);
+}
+
+function retryLabel(task: DownloadTask): string {
+  return isIngestRetry(task) ? t("downloads.ingest.retry") : t("legacy.retry");
 }
 
 function taskMeta(task: DownloadTask): string {
@@ -415,6 +427,37 @@ function actionError(cause: unknown): void {
   ui.error(cause instanceof Error ? cause.message : t("legacy.error"));
 }
 
+/**
+ * T1.2 cancel returns 409 with `{status, message:"task already finished"}`.
+ * That is not the "active download exists" conflict, so it must not reuse
+ * `dlAlreadyActive`; report the terminal state and refresh the row instead.
+ */
+function cancelError(cause: unknown): void {
+  const status =
+    cause && typeof cause === "object" && "status" in cause
+      ? (cause as { status?: number }).status
+      : undefined;
+  if (status === 409) {
+    const detail =
+      cause && typeof cause === "object" && "detail" in cause
+        ? (cause as { detail?: unknown }).detail
+        : null;
+    const finished =
+      detail && typeof detail === "object" && "status" in detail
+        ? String((detail as { status?: unknown }).status ?? "")
+        : "";
+    ui.info(
+      finished
+        ? t("downloads.cancel.finishedStatus", { status: statusLabel(finished) })
+        : t("downloads.cancel.finished"),
+    );
+    void refreshSilently();
+    void loadCounts();
+    return;
+  }
+  actionError(cause);
+}
+
 async function cancel(id: number): Promise<void> {
   try {
     await cancelDownload(id);
@@ -422,14 +465,35 @@ async function cancel(id: number): Promise<void> {
     await refreshSilently();
     void loadCounts();
   } catch (cause) {
-    actionError(cause);
+    cancelError(cause);
   }
+}
+
+/**
+ * T2.2 retry answers with `status='downloading'` (only the ingest is re-run)
+ * or `status='pending'` (fresh download). Reflect the answer immediately so
+ * the row does not keep saying "入库失败" until the poll catches up.
+ */
+function applyRetryResult(id: number, status: string): void {
+  const task = items.value.find((item) => item.id === id);
+  if (!task) return;
+  task.status = status;
+  if (status === "downloading") task.ingest_status = "pending";
+  else task.ingest_status = null;
+  task.error_message = null;
+}
+
+function retryToast(status: string): string {
+  return status === "downloading"
+    ? t("downloads.ingest.retrying")
+    : t("legacy.dlQueued");
 }
 
 async function retry(id: number): Promise<void> {
   try {
-    await retryDownload(id);
-    ui.success(`#${id} ${t("legacy.dlQueued")}`);
+    const result = await retryDownload(id);
+    applyRetryResult(id, result.status);
+    ui.success(`#${id} ${retryToast(result.status)}`);
     await refreshSilently();
     void loadCounts();
   } catch (cause) {
@@ -501,19 +565,26 @@ async function retrySelected(): Promise<void> {
     ui.info(t("legacy.retrySelected"));
     return;
   }
-  let ok = 0;
+  let queued = 0;
+  let ingest = 0;
   let fail = 0;
   for (const id of [...selected.value]) {
     try {
-      await retryDownload(id);
-      ok += 1;
+      const result = await retryDownload(id);
+      applyRetryResult(id, result.status);
+      if (result.status === "downloading") ingest += 1;
+      else queued += 1;
     } catch {
       fail += 1;
     }
   }
-  const summary = `${ok} ${t("legacy.dlQueued")}${fail ? `, ${fail} ${t("legacy.dlStatusFailed")}` : ""}`;
-  if (ok) ui.success(summary);
-  else ui.error(summary);
+  const parts: string[] = [];
+  if (queued) parts.push(`${queued} ${t("legacy.dlQueued")}`);
+  if (ingest) parts.push(`${ingest} ${t("downloads.ingest.retryQueued")}`);
+  if (fail) parts.push(`${fail} ${t("legacy.dlStatusFailed")}`);
+  const summary = parts.join(", ");
+  if (queued || ingest) ui.success(summary);
+  else ui.error(summary || t("legacy.error"));
   await refreshSilently();
   void loadCounts();
 }
@@ -808,7 +879,7 @@ onBeforeUnmount(() => {
               :title="metaText(task)"
             >
               <span class="download-item__state" :data-status="task.status">
-                <Icon :name="statusIcon(task.status)" size="dense" aria-hidden="true" />
+                <Icon :name="statusIcon(task)" size="dense" aria-hidden="true" />
                 <span>{{ statusText(task) }}</span>
               </span>
               <template v-if="taskMeta(task)">
@@ -867,7 +938,7 @@ onBeforeUnmount(() => {
             />
             <IconButton
               v-if="task.status === 'failed' || task.status === 'cancelled'"
-              :label="t('legacy.retry')"
+              :label="retryLabel(task)"
               name="retry"
               size="sm"
               data-testid="downloads-retry"

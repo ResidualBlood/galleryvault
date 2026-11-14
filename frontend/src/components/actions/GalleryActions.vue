@@ -19,7 +19,7 @@ import Sheet from "@/components/ui/Sheet.vue";
 import FavButton from "./FavButton.vue";
 import DownloadButton from "./DownloadButton.vue";
 import { useFavoritesStore } from "@/stores/favorites";
-import { useDownloadsStore } from "@/stores/downloads";
+import { isInLibrary, useDownloadsStore } from "@/stores/downloads";
 import { ensureActionMessages } from "./messages";
 
 ensureActionMessages();
@@ -78,8 +78,14 @@ const downloadEntry = computed(() => downloads.get(props.gid));
 
 const downloadBadge = computed<{ label: string; tone: string } | null>(() => {
   const entry = downloadEntry.value;
-  if (entry.inLibrary || entry.status === "success") {
+  if (isInLibrary(entry)) {
     return { label: t("actions.downloadInLibrary"), tone: "success" };
+  }
+  if (entry.ingestStatus === "pending" && entry.status === "downloading") {
+    return { label: t("actions.downloadIngesting"), tone: "primary" };
+  }
+  if (entry.ingestStatus === "failed") {
+    return { label: t("actions.downloadIngestFailed"), tone: "error" };
   }
   if (entry.status === "downloading") {
     const current = Math.max(0, entry.currentPage);

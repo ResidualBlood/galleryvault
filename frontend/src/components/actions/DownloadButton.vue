@@ -5,6 +5,7 @@ import Icon from "@/components/icons/Icon.vue";
 import Button from "@/components/ui/Button.vue";
 import {
   useDownloadsStore,
+  isInLibrary,
   readDefaultQuality,
   rememberDefaultQuality,
   type DownloadQuality,
@@ -89,7 +90,7 @@ onBeforeUnmount(() => downloads.unwatch(props.gid));
 
 function start(selected: DownloadQuality = quality.value): void {
   if (props.disabled || busy.value) return;
-  if (entry.value.inLibrary || entry.value.status === "success") {
+  if (isInLibrary(entry.value)) {
     ui.info(t("actions.downloadInLibrary"));
     return;
   }
@@ -113,7 +114,7 @@ function choose(next: DownloadQuality): void {
       quality: t(next === "original" ? "actions.qualityOriginal" : "actions.qualityResample"),
     }),
   );
-  if (!busy.value && !entry.value.inLibrary) start(quality.value);
+  if (!busy.value && !isInLibrary(entry.value)) start(quality.value);
 }
 </script>
 

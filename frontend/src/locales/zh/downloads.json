@@ -32,5 +32,16 @@
     "expand": "展开添加区",
     "collapse": "收起添加区",
     "open": "打开"
+  },
+  "ingest": {
+    "pending": "入库中",
+    "failed": "入库失败",
+    "retry": "重新入库",
+    "retrying": "正在重新入库",
+    "retryQueued": "已重新入库"
+  },
+  "cancel": {
+    "finished": "任务已结束，无法取消。",
+    "finishedStatus": "任务已结束（{status}），无法取消。"
   }
 }

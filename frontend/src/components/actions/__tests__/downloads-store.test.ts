@@ -5,6 +5,7 @@ import { ehStatusEp } from "@/api/eh";
 import {
   DOWNLOAD_ACTIVE_POLL_MS,
   DOWNLOAD_IDLE_POLL_MS,
+  isInLibrary,
   useDownloadsStore,
 } from "@/stores/downloads";
 
@@ -127,6 +128,28 @@ describe("downloads store", () => {
       token: "token-7",
       quality: "original",
     });
+  });
+
+  it("success without inLibrary is not treated as in-library", () => {
+    const store = useDownloadsStore();
+
+    store.applySeed(7, { status: "success" });
+    expect(store.get(7).status).toBe("success");
+    expect(store.get(7).inLibrary).toBe(false);
+    expect(isInLibrary(store.get(7))).toBe(false);
+
+    store.applySeed(7, { ingestStatus: "done" });
+    expect(isInLibrary(store.get(7))).toBe(true);
+    expect(store.get(7).inLibrary).toBe(true);
+  });
+
+  it("ignores an unknown ingest status", () => {
+    const store = useDownloadsStore();
+
+    store.applySeed(7, { status: "success", ingestStatus: "??" as never });
+
+    expect(store.get(7).ingestStatus).toBeNull();
+    expect(isInLibrary(store.get(7))).toBe(false);
   });
 
   it("does not enqueue a second request while one is active", async () => {
