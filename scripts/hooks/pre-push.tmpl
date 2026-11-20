@@ -1,0 +1,13 @@
+#!/bin/sh
+# 职责：推送前跑结构约束与契约检查，再按本次推送的改动并行跑定向测试；目标 ≤2 分钟。
+# 超过时间或文件上限时只跑基础项，并提供快速开关（只跑基础两项），不在这里跑全量。
+# 本模板只带断链检查这一项，项目按需在下方补结构约束 / 契约 / 定向测试命令。
+# 出处: 本机参考项目 AGENTS.md:80、docs/ops/branching.md:20-23、docs/dev/handbook/13-conventions.md:135-143（通用化，见调研 §R-constraints）
+# 设计说明：钩子只给模板与安装说明，不自动安装。
+# Pre-push hook template (not installed automatically).
+# Install from the project root:
+#   cp scripts/hooks/pre-push.tmpl .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Remove this hook with: rm .git/hooks/pre-push
+set -eu
+root=$(git rev-parse --show-toplevel)
+python3 "$root/scripts/check_doc_links.py" --root "$root" --code-comments --json >/dev/null
