@@ -86,8 +86,8 @@ To mount multiple storage pools on your NAS or scan existing collections without
       - ./downloads:/downloads
       - ./cache:/gv-cache
       # Additional disk volumes or network shares:
-      - /mnt/storage_pool2/ehviewer_export:/mnt/pool2:ro
-      - /mnt/cold_archive/disk1:/archive1:rw
+      - /path/to/gallery_export:/mnt/pool2:ro
+      - /path/to/cold_disk1:/archive1:rw
 ```
 
 **Steps to Apply**:
