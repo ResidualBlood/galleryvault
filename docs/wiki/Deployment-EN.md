@@ -86,9 +86,9 @@ To mount multiple storage pools on your NAS, use existing download directories a
       - ./downloads:/downloads
       - ./cache:/gv-cache
       # Additional disk volumes or network shares:
-      - /mnt/storage_pool2/ehviewer_export:/mnt/pool2:ro
-      - /mnt/cold_archive/disk1:/archive1:rw
-      - /mnt/cold_archive/disk2:/archive2:rw
+      - /path/to/gallery_export:/mnt/pool2:ro
+      - /path/to/cold_disk1:/archive1:rw
+      - /path/to/cold_disk2:/archive2:rw
 ```
 
 **Steps to Apply**:

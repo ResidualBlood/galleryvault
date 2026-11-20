@@ -86,9 +86,9 @@ docker compose up -d
       - ./downloads:/downloads
       - ./cache:/gv-cache
       # 额外挂载外部硬盘或多块 NAS 冷存储归档盘：
-      - /mnt/storage_pool2/ehviewer_export:/mnt/pool2:ro
-      - /mnt/cold_disk1:/archive1:rw
-      - /mnt/cold_disk2:/archive2:rw
+      - /path/to/gallery_export:/mnt/pool2:ro
+      - /path/to/cold_disk1:/archive1:rw
+      - /path/to/cold_disk2:/archive2:rw
 ```
 
 **生效与配置指引**：

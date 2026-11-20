@@ -23,7 +23,7 @@
    在扩展详情页打开 **Allow User Scripts**（旧版为开启「开发者模式」），
    否则 `GM_xmlhttpRequest` 等 API 不可用。
 4. 打开任意 EH 画廊页，首次会在面板里要求填写：
-   - **GalleryVault 地址**：如 `http://192.168.1.10:8200`
+   - **GalleryVault 地址**：如 `http://<NAS-IP>:8200`
    - **API Token**：在 GalleryVault 设置页生成（明文只显示一次）
    两者通过 `GM_setValue` 保存在脚本管理器里，不写入页面、不进日志。
 5. 若被 401（Token 被撤销 / 服务重装），面板会提示「认证失败」，重新填写即可。
