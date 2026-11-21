@@ -36,27 +36,27 @@ docker compose up -d
 ### A. 已有 Ehviewer 目录
 1. 在 compose 文件中把宿主机目录挂载至 backend 容器（例如 `/data/Ehviewer:/Ehviewer:ro`）。
 2. 打开 **设置 → 资料库**，将容器内挂载路径添加到库根目录并保存（会要求输入当前管理员密码确认）。
-3. 进入 **画廊库**（`#/library`）点击 **扫描库**。
+3. 进入 **本机库**（`#/library`）点击 **扫描库**。
 4. 详情见 [兼容格式](Compatibility) 与 [画廊库](Library#画廊库library)。
 
 ### B. 同步收藏夹
-1. 打开 **设置 → 站点与代理**，填写 Cookie 并点击 **测试登录** 验证状态。
-2. 进入 **收藏夹**（`#/favorites`），启用目标文件夹并选择增量下载或仅监控模式。
+1. 打开 **设置 → E-Hentai 站点与网络**，填写 Cookie 并点击 **测试登录** 验证状态。
+2. 进入 **收藏**（`#/favorites`），启用目标文件夹并选择增量下载或仅监控模式。
 3. 详情见 [收藏夹](Favorites#收藏夹favorites) 与 [下载](Downloads)。
 
 ### C. 去重与换 GID
-1. 进入 **管理 → 收藏夹重复**（`#/duplicates/favorites`）或 **跨 GID 重复**（`#/duplicates/cross-gid`）清理重复项目。
-2. 在收藏夹页面点击 **更新画廊**（`#/updates`）检测重传画廊并迁移状态。
+1. 进入 **查重 → 收藏夹重复**（`#/duplicates/favorites`）或 **跨 GID 重复**（`#/duplicates/cross-gid`）清理重复项目。
+2. 在收藏页面点击 **更新**（`#/updates`）检测重传画廊并迁移状态。
 3. 详情见 [库维护](Manage#重复副本与查重duplicates) 与 [更新画廊](Favorites#更新画廊updates)。
 
 ### D. 冷归档
 1. 在 compose 中挂载归档存储卷，并在 **设置 → 资料库** 中配置 `archive_roots`。
-2. 进入 **管理 → 冷库归档**（`#/archive`）执行归档；归档完成后可通过设置页面存储表格清理已归档源目录。
+2. 进入 **归档**（`#/archive`）执行归档；归档完成后可通过设置页面存储表格清理已归档源目录。
 3. 详情见 [部署指南](Deployment) 与 [冷库归档](Manage#冷库归档archive)。
 
 ### E. 系列与缺页
-1. 访问顶栏 **系列**（`#/series`）查看同系列作品聚合。
-2. 进入 **管理 → 缺页体检**（`#/integrity`）执行画廊完整性扫描与下载补页。
+1. 访问导航 **系列**（`#/series`）查看同系列作品聚合。
+2. 进入 **完整性**（`#/integrity`）执行画廊完整性扫描与下载补页。
 3. 详情见 [系列作品](Library#系列作品series) 与 [缺页体检](Manage#缺页体检integrity)。
 
 ---
