@@ -35,7 +35,7 @@ Mount Ehviewer export directories and browse them in the browser. Renaming or re
 <p align="center">
   <img src="docs/screenshots/library_en.png" alt="Library" width="270">
   <img src="docs/screenshots/reader_en.png" alt="Reader" width="270">
-  <img src="docs/screenshots/fav_dedupe_en.png" alt="Favorite duplicates" width="270">
+  <img src="docs/screenshots/duplicates_en.png" alt="Duplicates" width="270">
 </p>
 
 More screenshots: [Wiki · Screenshots](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots-EN)
