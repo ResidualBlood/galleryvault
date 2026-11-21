@@ -1,149 +1,35 @@
-# galleryvault 设计系统
+# galleryvault 前端设计规范
 
-<!-- 出处: docs/PROJECT_INIT-templates-research.md §R-ui -->
+> 权威规范在 `frontend/docs/design/DESIGN.md`（v1.0，2026-11-12）；本文件只写入口与关键约束，不复制 Token。Token 单一来源 `frontend/src/styles/tokens.css`。
 
-> 人读规范，不是构建产物：Token 用表格登记，不提供 JSON 导出格式。页面清单见 [README.md](README.md)。生成于 2026-11-20，之后由项目自己维护。
+## 入口
 
-<!-- 来源: 本仓设计，无外部依据（设计系统的范围划分：管形态与语义，不管页面布局与业务文案） -->
+| 项 | 位置 |
+| :--- | :--- |
+| 设计规范正文 | `frontend/docs/design/DESIGN.md` |
+| Token 来源 | `frontend/src/styles/tokens.css` |
+| 必备 Token 清单 | `frontend/docs/design/tokens.required.json` |
+| 静态样张 | `frontend/docs/design/specimen.html`（`#/_kit` 也渲染控件阶梯） |
+| 参考清单 | `frontend/docs/design/REFERENCES.md` |
+| 守门脚本 | `frontend/scripts/check-design.mjs` |
 
-## 1 定位与范围
+## 关键约束（每批 UI 必须满足）
 
-- 管什么：色彩、字体与数字格式、密度与形状、状态语义、图表、组件拼接规矩。
-- 不管什么：具体页面布局（见页面清单）、业务文案、组件库 API 文档。
-- 与代码冲突时以实际组件与样式文件为准，并回来改本节。
+1. 只用 `--gv-*` token；`src/**/*.{vue,css,ts}` 内不得出现裸色值、`font-size` 字面量、非 token 圆角。
+2. `node frontend/scripts/check-design.mjs` 退出码 0（`--tokens-only` 只查 token + 对比度）。
+3. 亮/暗 × 桌面 1280 / 手机 390 四张截图，存树外；验收回执列出对照的 `DESIGN.md` 章节。
+4. 组件结构、尺寸、状态按 `DESIGN.md` 第 4 节执行；偏离须在回执说明理由。
 
-<!-- 来源: DTCG Design Tokens Format Module 2025.10 §5–§6（token/group 与 `$type`/`$description`/`$deprecated`，https://www.designtokens.org/TR/2025.10/format/，2025-10-28 Final Community Group Report，正文声明该版稳定） -->
+## 组件体系
 
-- 规则层级：Token → 组件规矩 → 页面；上层不得绕过下层直接写值。
-- 主题：<是否支持多主题，例外写在哪>。
+- 无第三方组件库；原语在 `frontend/src/components/ui/`（Button/IconButton/Input/Select/Switch/Dialog/Sheet/Toast/EmptyState/ErrorState/Skeleton 等）。
+- 控件尺寸阶梯：`--gv-size-control-xl/lg/md/sm` = 48/40/36/32（触屏 48/44/40/36）；登录/欢迎表单保留 48。
+- 图标只从注册表取：`<Icon name="..." />`（`frontend/src/components/icons/`）；Unicode glyph 与每页 `~icons/` 导入会被设计守门拒绝。
+- 标签命名空间配色：`--gv-tagns-<namespace>` 15 个 EH 命名空间，各 ≥4.5:1 对比度。
+- 页面骨架：`PageHeader`（h1/count/crumbs/actions）+ `Toolbar`（一档尺寸）+ `GalleryCollection`（grid/list/table）+ `EmptyState`。
 
-<!-- 来源: WCAG 2.2 SC 1.4.3 Contrast (Minimum)（文本 4.5:1、大字号 3:1，https://www.w3.org/TR/WCAG22/#contrast-minimum）+ SC 1.4.11 Non-text Contrast（https://www.w3.org/TR/WCAG22/#non-text-contrast） -->
+## 交互与可访问性
 
-## 2 色彩与对比度
-
-每个色值必须写用途与实测对比度；不达标的写清“用在哪、为什么不改”。
-
-| Token | 值 | 用途 | 对比度（前景/背景） | 是否达标 |
-|---|---|---|---|---|
-<!-- 例：color-bg-base | #FFFFFF | 页面底色 | — | — -->
-
-<!-- 来源: WCAG 2.2 SC 1.4.3（阈值 4.5:1 / 3:1）+ 本仓设计，无外部依据（实测工具与日期要登记） -->
-
-- 正文文本对比度至少 4.5:1；大字号（≥18.66px 粗体或 ≥24px）与图形/控件边界至少 3:1。
-- 实测结果注明工具与日期；色值必须写实测值（工具 + 取色对象），只抄设计稿数值的标“未实测”。
-
-<!-- 来源: 本仓设计，无外部依据（字体阶梯与数字格式的统一口径） -->
-
-## 3 字体与数字
-
-- 字族与回退顺序：<正文字族、等宽字族、系统回退>。
-- 字号阶梯：<层级 → 字号/行高/字重>。
-- 数字格式：小数位、千分位、单位位置、负号与缺省值（如 `—`）统一在此定义；同一指标在页面与导出文件中格式必须一致。
-
-<!-- 来源: 本仓设计，无外部依据（字体与数字格式表） -->
-
-| 层级 | 字号 / 行高 / 字重 | 用途 |
-|---|---|---|
-| — | — | — |
-
-- 数字统一：小数位、千分位、单位位置、负数与空值显示（`—` 还是 `0`）写死。
-- 等宽数字用于会跳动的读数与表格列。
-
-<!-- 来源: 本仓设计，无外部依据（间距/圆角/高度按 Token 命名的做法） -->
-
-## 4 密度与形状
-
-| 项 | 取值 | 用在哪 |
-|---|---|---|
-| 基础间距 | <4/8 的倍数> | 卡片、列表、表单 |
-| 圆角 | <px 或 token> | 按钮/卡片/输入框 |
-| 控件高度 | <px> | 桌面/移动两档 |
-| 描边 | <px 与色> | 分割线、输入框 |
-
-<!-- 来源: 本仓设计，无外部依据（密度档位与命名） -->
-
-- 间距 `space.*`、圆角 `radius.*`、控件高度 `control.height.*` 按 Token 命名，不写裸值。
-- 同一屏只用一档密度；紧凑档只用于表格与看板。
-
-<!-- 来源: WCAG 2.2 SC 1.4.1 Use of Color（不得只靠颜色传达信息，https://www.w3.org/TR/WCAG22/#use-of-color）；状态分档为本仓设计，无外部依据 -->
-
-## 5 状态语义
-
-颜色只是冗余通道：每个状态必须同时有文字或图标，不得只靠颜色区分。
-
-| 状态 | 语义 | 颜色 Token | 冗余标识 | 用在哪 |
-|---|---|---|---|---|
-| 正常 | <运行中/已连接> | <token> | <文字/图标> | <页面或组件> |
-| 警告 | <需关注、未中断> | <token> | <文字/图标> | — |
-| 告警 | <已中断/需处置> | <token> | <文字/图标> | — |
-| 未知 | <失联/无数据> | <token> | <文字/图标> | — |
-
-状态与告警码的对应见 `docs/reference/alarms-troubleshooting.md`；本文不重复码值。
-
-<!-- 来源: WCAG 2.2 SC 1.4.11 Non-text Contrast（非文本状态标识 3:1，https://www.w3.org/TR/WCAG22/#non-text-contrast）+ 本仓设计，无外部依据（冗余通道清单） -->
-
-- 状态不得只靠颜色表达；色盲冗余（图标、文案、线型）必须写清。
-- 非文本状态标识与相邻颜色的对比度不低于 3:1。
-
-<!-- 来源: 本仓设计，无外部依据（图表规范；缺测与 0 值分开画是项目约定） -->
-
-## 6 图表
-
-- 坐标轴、单位、图例、缺测点（断线/空洞）、超限标注的写法各写一句。
-- 趋势图必须标数据刷新周期与时间范围；缺测与 0 值不得混画。
-- 配色只从第 2 节 Token 取，不临时新增色。
-
-<!-- 来源: 本仓设计，无外部依据（系列配色顺序与阈值线写法） -->
-
-- 系列配色按固定顺序取 Token，不按数据顺序临时分配。
-- 阈值线与告警区的颜色、线型与图例文案写清。
-
-<!-- 来源: DTCG Design Tokens Format Module 2025.10 §5.2（`$type`/`$description`/`$deprecated`）与 §6（group，https://www.designtokens.org/TR/2025.10/format/）；命名格式 `类别-用途-变体` 与不采用 JSON 导出均为本仓设计，无外部依据 -->
-
-## 7 Token 表
-
-命名统一 `类别-用途-变体`；每条带说明；弃用只标不改名，避免大面积重命名。
-
-| Token | 类别 | 用途 | 变体/类型 | 默认值 | 说明 | 弃用 |
-|---|---|---|---|---|---|---|
-<!-- 例：color-text-primary | color | 正文 | color | <值> | <一句话> | 否 -->
-
-<!-- 来源: 本仓设计，无外部依据（Token 必须有唯一名字与说明；弃用保留替代项） -->
-
-- 每个 Token 有唯一名字、类型与说明；弃用的 Token 保留并标替代项，不直接删。
-
-<!-- 来源: 本仓设计，无外部依据（组件拼接规矩与例外登记） -->
-
-## 8 组件规矩
-
-- 页面只允许用本表登记的组合方式拼组件；新组合先补表再用。
-- 禁止在页面内覆盖组件内部间距/色值；需要例外时在此登记“例外 + 原因 + 范围”。
-- 同一交互（确认、删除、批量操作）在全部页面用同一组件与同一文案模板。
-
-<!-- 来源: 本仓设计，无外部依据（破坏性操作保留一次确认） -->
-
-- 破坏性操作（清理、恢复出厂、升级、卸载）保留一次“确定 / 取消”，其余不弹确认。
-
-<!-- 来源: WCAG 2.2 SC 2.1.1 Keyboard（https://www.w3.org/TR/WCAG22/#keyboard） -->
-
-## 9 键盘与焦点
-
-- 所有可操作元素可 Tab 到达，焦点样式可见且不被 `outline: none` 抹掉。
-- 弹窗打开后焦点进入弹窗，关闭后回到触发元素；Esc 关闭的规则全站一致。
-- 表格、树、看板等复合控件写清方向键行为。
-
-<!-- 来源: WCAG 2.2 SC 1.4.4 Resize Text（文本放大到 200%，https://www.w3.org/TR/WCAG22/#resize-text） -->
-
-- 文本放大到 200% 不丢内容与功能。
-
-<!-- 来源: 本仓设计，无外部依据（例外与妥协逐条登记） -->
-
-## 10 已知限制
-
-- 例外与妥协逐条写：现象、影响范围、为什么不改、复核时机。
-- 未实测的项（对比度、真机字体渲染等）列在此，不写成已达标。
-
-<!-- 来源: 本仓设计，无外部依据（限制登记表） -->
-
-| 限制 | 影响范围 | 临时做法 | 何时解决 |
-|---|---|---|---|
+- 视图切换按页记忆（`localStorage.gv_view_mode`），<600px 无表格（回退 list，不覆盖原值）。
+- tag 点击行为、chip 展示（色点 + 命名空间）、`+N` 真实计数见 `frontend/README.md`「视图切换与 tag 规则」。
+- WCAG 对比度门槛与实测方法见 `DESIGN.md`「色彩与对比度」。

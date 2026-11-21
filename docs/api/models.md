@@ -1,42 +1,66 @@
-# galleryvault 数据模型与错误码
+# GalleryVault 数据模型与错误格式
 
-<!-- 出处: docs/PROJECT_INIT-templates-research.md §R-api -->
+> 数据库表模型见 `backend/galleryvault/db/models.py`（SQLAlchemy 2.x Declarative）；Pydantic 响应/请求模型见 `backend/galleryvault/app/schemas/`。本文件只写概要与错误体，字段级口径以代码为准。
 
-> 端点清单见 [README.md](README.md)；这里只写跨端点共用的数据模型与错误体，字段落地以 yaml 的 `components` 为准。生成于 2026-11-20，之后由项目自己维护。
+## 错误响应体
 
-<!-- 来源: OpenAPI 3.1.1 components（schema 容器，https://spec.openapis.org/oas/v3.1.1.html#components-object）+ 本仓设计，无外部依据（时间/分页/排序的命名约定） -->
+GalleryVault **不采用 RFC 9457（`application/problem+json`）**，而是用自定义的 `{detail, code, details?}` 结构。错误基类与序列化在 `backend/galleryvault/app/exceptions.py`：
 
-## 1 数据模型
-
-| 模型 | 用途 | 关键字段 | 字段口径来源 |
-|---|---|---|---|
-<!-- 例：<Device> | <端点返回的资源> | id / name / status | docs/reference/data-dictionary.md -->
-
-- 字段类型与必填在 yaml 的 schema 里定义；本表只列“读接口的人最常问的字段”。
-- 时间字段统一：<ISO 8601 带时区 / epoch 秒>；单位与精度见数据字典。
-- 分页、排序、筛选的参数名全服务统一，写清一次，不在每个端点重复。
-
-<!-- 来源: Zalando RESTful API Guidelines §176（MUST support problem JSON，https://opensource.zalando.com/restful-api-guidelines/#176）+ RFC 9457 Problem Details（2023-07，字段 type/title/status/detail/instance，https://www.rfc-editor.org/rfc/rfc9457.html） -->
-
-## 2 错误体
-
-错误响应统一用 RFC 9457 的 Problem Details（`application/problem+json`）；项目自定义字段只能作为扩展：
+- `GalleryVaultError.to_dict()`（`exceptions.py:25`）输出：
 
 ```json
-{"type": "/problems/<稳定 slug>", "title": "<简短标题>", "status": 400, "detail": "<人能读的一句话>", "instance": "/<请求路径>", "trace_id": "<请求追踪号，可选>"}
+{ "detail": "<message>", "code": "<CODE>" }
 ```
 
-- `type` 是稳定的问题类型标识，发布后不改；`title` 面向人、可改文案；`detail` 只放补充说明，不塞长日志；`instance` 指向本次请求。
-- `trace_id` 是本仓扩展字段（RFC 9457 与 Zalando §176 都没有该字段），默认按项目需要决定是否填、是否必填；不要把它写成协议强制要求。
-- 返回 4xx/5xx 时以 Problem Details 为准，客户端不得只解析 `title`。
+- 有附加信息时追加 `details`（如 `NotFoundError` 会带 `entity`、`identifier`，见 `exceptions.py:67-75`）。
+- 全局异常处理器在 `main.py:88-98`：捕获 `GalleryVaultError`，按 `status_code` 返回 `JSONResponse`，body 即 `to_dict()`。
 
-<!-- 来源: 本仓设计，无外部依据（错误码表）；HTTP 状态码语义见 RFC 9110 §15（https://www.rfc-editor.org/rfc/rfc9110.html#name-status-codes），逐端点错误响应要求见 Zalando §151 -->
+错误码层级（均在 `exceptions.py`）：
 
-## 3 错误码表
+| 异常类 | 默认 code | 默认 status |
+| :--- | :--- | :--- |
+| `GalleryVaultError`（基类） | `INTERNAL_ERROR` | 500 |
+| `DomainError` | `DOMAIN_ERROR` | 400 |
+| `NotFoundError` | `NOT_FOUND` | 404 |
+| `ValidationError` | `VALIDATION_ERROR` | 422 |
+| `ConflictError` | `CONFLICT` | 409 |
+| `EhClientError` | `EH_CLIENT_ERROR` | 502 |
+| `EhClientUnavailableError` | `EH_CLIENT_UNAVAILABLE` | 503 |
+| `EhQuotaExceededError` | `EH_QUOTA_EXCEEDED` | 429 |
+| `DatabaseError` | `DATABASE_ERROR` | 503 |
 
-| HTTP | code | 含义 | 客户端该做什么 |
-|---|---|---|---|
-<!-- 例：401 | auth_required | 未登录/会话过期 | 跳登录，保留原路径 -->
+典型鉴权失败（无业务异常）：未认证的 `/api/*` 返回 `401 {"detail":"Authentication required"}`（由中间件生成，非上述异常）；CSRF 失败同样 401/403。
 
-- 校验失败必须指出哪个字段；批量接口逐项返回，部分失败也返回 200 以外的明确码。
-- 不在表里的码不许临时现造；新增先改本表与 yaml，再改代码。
+## 数据库表（SQLAlchemy 模型）
+
+`backend/galleryvault/db/models.py` 定义 30 张表，`Base` 在 `models.py:25`。按领域分组：
+
+| 表名 | 模型类 | 位置 | 用途 |
+| :--- | :--- | :--- | :--- |
+| `galleries` | `Gallery` | `models.py:29` | 画廊主记录（gid、标题、分类、页数、评分、存储层等） |
+| `gallery_pages` | `GalleryPage` | `models.py:129` | 画廊单页（页号、文件名、hash、大小） |
+| `tags` | `Tag` | `models.py:143` | 标签（namespace、name、display） |
+| `gallery_tags` | `GalleryTag` | `models.py:159` | 画廊↔标签多对多 |
+| `download_tasks` | `DownloadTask` | `models.py:168` | 下载任务（状态、进度、重试） |
+| `favorites_monitor` | `FavoritesMonitor` | `models.py:231` | 收藏夹监控配置（每夹模式/间隔） |
+| `gallery_updates` | `GalleryUpdate` | `models.py:254` | 重传版本检测结果 |
+| `favorite_items` | `FavoriteItem` | `models.py:281` | 收藏夹条目 |
+| `gallery_metadata` | `GalleryMetadata` | `models.py:304` | 画廊元数据（jsonb） |
+| `local_lists` / `local_list_items` | `LocalList` / `LocalListItem` | `models.py:333/342` | 本地自定义列表 |
+| `favorite_duplicate_ignores` | `DuplicateIgnore` | `models.py:353` | 收藏夹查重已忽略组 |
+| `duplicate_records` / `duplicate_groups` | `DuplicateRecord` / `DuplicateGroup` | `models.py:369/391` | 同 GID 副本记录与分组 |
+| `app_config` | `AppConfig` | `models.py:445` | 运行时键值配置（含持久化 auth secret 等） |
+| `reading_progress` / `online_reading_progress` | `ReadingProgress` / `OnlineReadingProgress` | `models.py:454/466` | 本地/在线阅读进度 |
+| `reading_history` | `ReadingHistory` | `models.py:487` | 阅读历史 |
+| `favorites_check_logs` | `FavoritesCheckLog` | `models.py:502` | 收藏夹检查日志 |
+| `download_attempts` | `DownloadAttempt` | `models.py:514` | 下载尝试记录 |
+| `background_jobs` | `BackgroundJob` | `models.py:525` | 后台任务记录 |
+| `task_runs` | `TaskRun` | `models.py:554` | 任务运行历史（启动时按任务名裁剪） |
+| `series` / `series_items` / `series_exclusions` | `Series` / `SeriesItem` / `SeriesExclusion` | `models.py:618/631/643` | 系列聚合 |
+| `series_cloud_items` / `series_cloud_exclusions` | `SeriesCloudItem` / `SeriesCloudExclusion` | `models.py:653/665` | 系列云端补全条目 |
+
+迁移由 Alembic 管理（`backend/alembic/versions/`，共 46 个迁移脚本），启动时自动迁移。
+
+## Pydantic 请求/响应模型
+
+`backend/galleryvault/app/schemas/`（`common.py`、`gallery.py`、`updates.py`）存放 API 层 Pydantic 模型；`galleryvault/app/routers/` 内各 router 也内联了不少 `_*Response` 模型（如 `downloads.py` 的 `_DownloadListResponseOut`）。机读 schema 以 `docs/api/galleryvault-api.yaml` 为准。

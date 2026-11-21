@@ -1,92 +1,28 @@
-<!-- 出处: GitLab runbooks https://gitlab.com/gitlab-com/runbooks/-/raw/master/README.md（Post-checks：写清期望值）；KEP https://raw.githubusercontent.com/kubernetes/enhancements/master/keps/NNNN-kep-template/README.md（Rollout, Upgrade and Rollback Planning）。 -->
+# GalleryVault 安装与部署
 
-# galleryvault 安装手册
+> 摘要 + 入口；完整步骤、存储拓扑、权限与性能调优见 wiki [部署指南](../wiki/Deployment.md)（中英：`Deployment-EN.md`）。
 
-> 从空环境装到可验收：先准备，再装，再自检；每步都有通过标准。生成于 2026-11-20，之后由项目自己维护。
+## 快速开始（docker compose）
 
-## 1 前置与回滚预案
+```bash
+mkdir galleryvault && cd galleryvault
+curl -fsSL https://raw.githubusercontent.com/ResidualBlood/galleryvault/main/docker-compose.yml -o docker-compose.yml
+docker compose up -d
+```
 
-<!-- 出处: KEP https://raw.githubusercontent.com/kubernetes/enhancements/master/keps/NNNN-kep-template/README.md（Rollout, Upgrade and Rollback Planning）；前置表字段为本仓设计，无外部依据 -->
+- 访问 `http://<主机IP>:8000`；默认密码 `p1a2s3s4`（登录后进入 `#/welcome`，首次必须改密）。
+- 数据目录：`./library`、`./downloads`、`./db-data`、`./cache`。
 
-| 项 | 要求 | 判定 |
-|---|---|---|
-| 版本 | 与发布资产清单一致 | 文件名与校验值对上 |
-| 空间 | 安装盘剩余 ≥ <值> | `df` 实测 |
-| 端口 | <端口清单> 未被占用 | 占用检查 |
-| 账号 | 安装/服务/备份账号已建 | 能登录且权限正确 |
-| 回滚 | 旧版本、旧配置、旧数据备份可取回 | 试读一次备份 |
+## 部署要点
 
-回滚预案至少要回答：退回哪个版本、配置怎么还原、数据要不要回灌、谁批准回退。
+- **挂载**：把宿主机 Ehviewer 目录挂到 backend 容器（例 `/data/Ehviewer:/Ehviewer:ro`），再到 设置 → 资料库 添加库根。
+- **权限**：可设 `PUID`/`PGID` 降权运行；PostgreSQL 数据目录 uid 999，勿 chown。
+- **冷归档**：挂载归档卷 + 在设置里配 `archive_roots`（容器内路径，每行一个）。
+- **代理/信任**：`TRUSTED_PROXIES` 配反代信任网段；`http_proxy`/`socks5_proxy` 二选一。
+- **多架构**：AMD64 + ARM64 双架构镜像。
 
-## 2 设备端安装
+## 详细参考
 
-<!-- 出处: 本仓设计，无外部依据（单机安装五步：停旧、装包、初始配置、启动自启、首次自检） -->
-
-| 步 | 动作 | 命令或入口 | 通过标准 |
-|---|---|---|---|
-| 2.1 | 停旧服务或确认新机 | <命令> | 无残留进程占端口 |
-| 2.2 | 安装包与依赖 | <命令> | 无报错，版本号正确 |
-| 2.3 | 配置初始值 | <配置文件与键> | 与矩阵默认值一致或已记录差异 |
-| 2.4 | 启动并设开机自启 | <命令> | 重启后自动起来 |
-| 2.5 | 首次自检 | 见 §5 | 全部通过 |
-
-## 3 服务端安装
-
-<!-- 出处: 本仓设计，无外部依据（服务端安装四步：建库建账号、部署服务、初始化数据、联调） -->
-
-| 步 | 动作 | 通过标准 | 失败先看 |
-|---|---|---|---|
-| 3.1 | 建库/建目录/建账号 | 权限最小化 | 账号权限 |
-| 3.2 | 部署服务与前端 | 静态资源与接口均可访问 | 路径、反向代理 |
-| 3.3 | 初始化数据 | 初始数据条数与预期一致 | 初始化日志 |
-| 3.4 | 联调设备端 | 设备上线、数据入库 | 网络与证书 |
-
-## 4 网络与对时
-
-<!-- 出处: 本仓设计，无外部依据（网络与对时配置步骤） -->
-
-1. 地址、网关、DNS 按现场单配置，改完记录旧值。
-2. 对时指向 <源>，偏差超过 <阈值> 时先修时源。
-3. 设备端与服务端互 ping/端口探测各一次，结果入记录表。
-
-## 5 传输与访问
-
-<!-- 出处: 本仓设计，无外部依据（传输与访问检查表） -->
-
-| 项 | 配置 | 验证 |
-|---|---|---|
-| 访问入口 | <HTTPS、证书路径> | 浏览器无告警，证书有效 |
-| 文件传输 | <协议、目录、账号> | 上传、下载、删除各一次 |
-| 权限 | 只给需要的目录与动作 | 用只读账号试越权 |
-
-## 6 安装后自检
-
-<!-- 出处: GitLab runbooks https://gitlab.com/gitlab-com/runbooks/-/raw/master/README.md（Post-checks：每项写期望值）；自检项为本仓设计 -->
-
-| 检查 | 期望 | 实际 | 结论 |
-|---|---|---|---|
-| 服务状态 | 运行中且自启 | <填> | <通过/不通过> |
-| 版本 | <x.y.z> | <填> | — |
-| 数据链路 | 一条真实数据入库 | <填> | — |
-| 页面 | 能登录、关键页可打开 | <填> | — |
-| 时间 | 偏差 ≤ <阈值> | <填> | — |
-| 备份 | 首次备份成功且可读 | <填> | — |
-
-任一项不通过：按 `troubleshoot.md` 对应现象处理，全部通过再进入验收。
-
-## 7 卸载与空间回收
-
-<!-- 出处: 本仓设计，无外部依据（卸载与空间回收顺序） -->
-
-1. 停服务并取消自启。
-2. 导出配置与数据，记下存放位置。
-3. 按 <顺序> 删除程序与临时文件；数据目录先确认再删。
-4. 删账号与授权，回收端口与证书。
-
-## 8 修订记录
-
-<!-- 出处: NUCATS《Writing Standard Operating Procedures》https://nucats.northwestern.edu/docs/cecd/writing-sops-and-templates.pdf 第 8 页 Revision History 表（Revision / Date / Description of changes / Requested By） -->
-
-| Rev | 日期 | 变更摘要 | 提出人 |
-|---|---|---|---|
-| 1 | 2026-11-20 | 初版骨架 | <角色> |
+- 完整 Compose 配置、存储拓扑、性能调优、修复脚本：[部署指南](../wiki/Deployment.md)。
+- 配置项默认值与出处：[dev/config](../dev/config.md)。
+- 兼容格式与目录拓扑：[兼容格式](../wiki/Compatibility.md)。

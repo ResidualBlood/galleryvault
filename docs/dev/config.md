@@ -1,118 +1,75 @@
-<!-- 出处: docs/PROJECT_INIT-templates-research.md §R-config -->
-# 配置项规范与默认值出处
+# GalleryVault 配置项
 
-> 可选章节：项目没有可配置项时删除本文件（本仓设计，无外部依据）。本文件规定“每个可调项怎么登记、默认值从哪来”，不复制具体取值表。
+> 唯一事实来源是 `backend/galleryvault/config.py` 的 `Settings`（pydantic-settings，`model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)`）。环境变量名 = 字段名（大小写不敏感）；下表只列常用项，完整默认值与校验见 `config.py`。
 
-## 分层与优先级
+## 数据库
 
-<!-- 来源: 12factor III. Config（https://12factor.net/config，配置与代码严格分离）；分层顺序（后者覆盖前者）为本仓设计。 -->
+| 字段（环境变量） | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `database_url` | `postgresql+asyncpg://galleryvault:galleryvault@db:5432/galleryvault` | 主库连接串 |
+| `database_pool_size` / `database_max_overflow` / `database_pool_timeout` | 30 / 10 / 30 | API 连接池 |
+| `database_statement_timeout_ms` / `database_lock_timeout_ms` / `database_idle_in_tx_timeout_ms` | 30000 / 5000 / 60000 | 语句/锁/空闲事务上限 |
+| `worker_database_pool_size` 等 | 5 / 5 / 30 | worker 独立连接池 |
 
-从低到高，后者覆盖前者：
+## 存储路径
 
-1. 代码内默认值（出厂值，只写一处）。
-2. 配置文件。
-3. 环境变量。
-4. 命令行参数 / 下发包。
+| 字段 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `library_roots` | `["/library", "/downloads"]` | 库扫描根（容器内路径） |
+| `download_root` | `/downloads` | 下载落盘目录 |
+| `cold_storage_root` | `""` | 冷存储根（未配置时回退 `archive_roots`） |
+| `archive_roots` | `[]` | 归档根（多盘，每行一个） |
+| `thumbnail_cache_dir` | `/gv-cache/thumbs` | 缩略图缓存 |
+| `log_file` / `log_max_bytes` / `log_backup_count` | 无 / 10MB / 3 | 日志文件与轮转 |
 
-- 随部署变化的值（凭据、资源地址、端口）属于配置，不进仓库。
-- 判断标准（litmus test）：不改代码、只改配置，能否换一个部署环境？不能则不是配置。
+## 鉴权与安全
 
-## 元数据表
+| 字段 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `auth_required` | `True` | 是否要求登录 |
+| `auth_cookie_name` | `galleryvault_session` | 会话 Cookie 名 |
+| `auth_session_ttl` | 2592000（30 天） | 会话有效期（秒） |
+| `auth_password` / `auth_password_hash` | 无 | 初始密码/密码哈希（凭据：只写“值放哪”，不写值；运行时保存在 `app_config`） |
+| `auth_secret` | 无 | 会话签名密钥（持久化到 DB，重启保持登录） |
+| `trusted_proxies` | `[]` | 反向代理信任网段 |
+| `PUID` / `PGID`（经 Compose 传参） | — | 降权运行 |
 
-<!-- 来源: 03-配置体系 §2.1（12 个固定字段 + 补充规则） -->
+## ExHentai 与下载
 
-每个可调项、只读项、运行态字段都登记在同一张表里，不再另起一套。
+| 字段 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `exhentai_base_url` | `https://exhentai.org` | 里站基址（校验只允许 `exhentai.org` / `e-hentai.org` 域名） |
+| `exhentai_cookies` | `{}` | Cookie（JSON 对象；加密存储，见 wiki [静态加密](../wiki/Encryption.md)） |
+| `http_proxy` / `socks5_proxy` | 无 | 代理（二者只能配一个，`config.py:185`） |
+| `download_quality` | `resample` | 下载画质（`original`/`resample`） |
+| `archive_quality` | `resample` | Archive 通道画质 |
+| `download_concurrency` | 2 | 下载并发 |
+| `page_concurrency` | 4 | 页并发 |
+| `exhentai_max_concurrency` | 6 | 全后台 EH 请求并发上限 |
+| `image_download_timeout_seconds` / `image_slow_warmup_seconds` / `image_min_speed_kb_s` | 120 / 30 / 10 | 图片下载看门狗 |
 
-| 字段 | 必填 | 说明 |
-|---|---|---|
-| 键名 | 是 | 稳定英文点号键；改名要带迁移映射 |
-| 显示名 | 是 | 界面文字，可随版本改，不影响键名 |
-| 类型 | 是 | 整数 / 小数 / 布尔 / 枚举 / 字符串 / 时间点 / 时长 / 点列 / 曲线 |
-| 默认值 | 是 | 出厂值，必须是具体值；无法预设的项列入“不可预设项” |
-| 范围 / 枚举 | 是 | 最小 / 最大 / 步长，或允许的枚举值；只读项写“固定” |
-| 单位 | 是 | 存储单位与显示单位分别写；没有单位的写“无” |
-| 生效方式 | 是 | 立即 / 下次运行 / 重启进程 / 重启主机 |
-| 可改角色 | 是 | 只读 / 普通用户 / 管理员 / 超级管理员 |
-| 所属包 | 是 | 按功能分组（通讯 / 装置 / 运行态） |
-| 风险等级 | 是 | 普通 / 高；只用于提示与日志标注，不阻断写入 |
-| 版本号 | 是 | 项级单调递增整数，从 1 开始；每次成功写入加 1 |
-| 修改来源 | 是 | 最近一次写入的账号、角色、通道、时间、原因、旧值、新值 |
+## 收藏 / 标签 / 通知 / Telegram
 
-补充规则：单位只写在元数据里、不进键名；枚举用固定字符串；只读项也登记；运行态字段登记但不入包；多种合理做法做成枚举型配置项，不拆两套键。
+| 字段 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `favorites_poll_interval_minutes` | 720 | 收藏夹全局轮询（前端每夹可调，最小 10 分钟） |
+| `favorites_categories` | `[0..9]` | 启用的收藏夹 |
+| `favorites_cloud_open` | `app` | 云端条目打开方式（`app`/`external`） |
+| `favorites_archive_enabled` / `favorites_archive_max_pages` / `archive_fallback_pages` | False / 0 / True | 定时收藏走 Archive 通道的阈值与回退 |
+| `duplicate_policy` | `keep_first` | 同 GID 副本保留策略 |
+| `auto_sync_tags` / `tag_sync_interval_seconds` / `tag_sync_concurrency` | True / 1.5 / 4 | 标签同步 |
+| `telegram_bot_token` / `telegram_chat_ids` / `telegram_allowed_user_ids` | 无 | Telegram Bot（token 为凭据，只写“值放哪”） |
+| `telegram_notify_level` / `telegram_notify_lang` | `summary` / `zh` | 通知级别/语言 |
+| `global_paused` | False | 全局暂停开关 |
 
-## 默认值与出处
+## 前端偏好（localStorage，非环境变量）
 
-<!-- 来源: 08a 默认值 §2.1（出处四类：源码给文件:行 / 示例库实际值 / 旧文档章节 / 推荐+理由）；标注 [证据]/[推断]/推荐 -->
+- `gv_theme`（dark/light/system）、`gv_lang`（zh/en）、`gv_page_size`、`gv_view_mode`（每页视图模式）——见 `frontend/src/stores/settings.ts:7-9` 与 `frontend/src/composables/useViewMode.ts`。
 
-| 键名 | 显示名 | 默认值 | 出处 | 示例库实际值 | 旧版要求 | 可选值 / 范围 | 所在文档章节 |
-|---|---|---|---|---|---|---|---|
+## 凭据位置（只写“在哪”，不写值）
 
-- 每个默认值必须标出处类型并给定位；没有依据的写“推荐”并写理由。
-- 示例库实际值与旧版要求只在与默认值不同时填写，相同时写“同默认”。
-- 默认值只写一处，不在界面、接口、文档里各抄一份。
+- 测试登录口令：`local-credentials` 的 `galleryvault-test.env`（见项目 AGENTS.md「环境与端口」+ skill `galleryvault-maintenance`）。
+- 生产口令：HANDOFF.md §1（本地、gitignore）；禁止抄进被跟踪文件。
+- E-Hentai Cookie：测试用本地 `TEMP/cookies.txt`（见项目 AGENTS.md「环境与端口」，gitignore）。
 
-## 生效方式
-
-<!-- 来源: 03-配置体系 §2.7（生效方式枚举） -->
-
-| 生效方式 | 含义 | 界面提示 |
-|---|---|---|
-| 立即 | 写入即生效 | — |
-| 下次运行 | 下一个任务 / 任务周期生效 | 标“待生效” |
-| 重启进程 | 需要重启软件 | 标“待生效”并提示 |
-| 重启主机 | 需要重启设备 | 标“待生效”并提示 |
-
-## 版本与改名迁移
-
-<!-- 来源: 03-配置体系 §2.1（键名稳定、改名走别名；项级版本号） -->
-
-- 键名不改；必须改时保留旧名作别名，并写迁移映射与生效版本。
-- 项级版本号用于差异提示与并发写入检测；不用于业务语义。
-- 升级时旧配置按别名补齐，缺项取默认值。
-
-## 导入前检查与失败回滚
-
-<!-- 来源: 03-配置体系 §2.8（生效方式与失败回滚） -->
-
-- 导入前检查：范围、跨项约束、权限、未知键、只读项；结果只提示，不因单条失败让整包失败。
-- 写入顺序：可立即生效的先写，需重启的进“待生效”队列。
-- 失败回滚：记录旧值，失败项逐条回报原因，已成功的项不回滚，除非整包校验不通过。
-
-## 本机与下发冲突
-
-<!-- 来源: 03-配置体系 §2.9（冲突策略） -->
-
-| 场景 | 采用谁 | 记录 |
-|---|---|---|
-| 本机改过、下发包更旧 | — | 写操作日志 |
-| 下发包与本机同时改 | — | 报冲突，不静默覆盖 |
-| 只读项被下发 | 跳过并提示 | 写回执 |
-
-## 不可预设项
-
-<!-- 来源: 12factor III. Config（凭据与资源地址属配置）；03-配置体系 §2.1（无法预设的项单列并写原因） -->
-
-| 项 | 为什么不给默认值 | 谁填 | 存在哪（只写位置） |
-|---|---|---|---|
-
-## 设计原则（按项目取舍）
-
-<!-- 出处: 本机参考项目 AGENTS.md:51-54,57（确认弹窗白名单、可配置即配置、多套做法可选、写操作记日志、以最新修改为准、原材料列举的特定功能不改原始字段）、docs/dev/handbook/11-testing.md:147,220（数据集只读、新增操作带日志用例）（通用化，见调研 §R-constraints） -->
-
-<!-- 派生说明：本节“原始数据只追加……修正另记一条”一条为派生，材料只有 AGENTS.md:57“原材料列举的特定功能不改原始字段”与 docs/dev/handbook/11-testing.md:147“数据集只读”，无“另记一条”原文；正文该条标“（可选）”，不把原材料的范围概括成通用硬规则。 -->
-
-可选节：与项目定位冲突时按项目取舍删除，删除时在本节留一行说明理由。
-
-- 可配置即配置：能配置的都做成配置项；每项登记（键名、默认值、范围、生效方式）并给出默认值与出处，确实没有默认值的列入白名单并写原因。
-- 多套做法做成可选：用枚举型配置项或开关表达，不写两套代码；项目明确“只要 N 种”的写成例外并记决定。
-- 确认弹窗白名单：默认不加确认弹窗和阻断，只对破坏性 / 不可逆操作保留一次“确定/取消”；每加一项记决定与日期，其余操作不弹确认。
-- 写操作记日志：记谁、何时、旧值与新值、结果；新增操作带日志用例。
-- 原始数据只追加（可选）：不就地改写原始记录，修正另记一条并保留旧值。<!-- 派生：本仓设计，无外部依据，可选，待项目确认 -->
-- 以最新修改为准：新决定覆盖旧决定时保留覆盖关系，不删历史。
-
-## 凭据只登记位置
-
-<!-- 来源: 12factor III. Config（https://12factor.net/config）；本仓设计（凭据只登记位置，不写值）。 -->
-
-- 本文件只写“凭据类型的名字 + 存放位置”，不写值。
-- 仓库、日志、回执里都不出现口令与 Key。
+> 项目根 AGENTS.md 与 HANDOFF.md 均被 `.gitignore` 忽略、含内网信息，只读、不得抄进被跟踪文档。

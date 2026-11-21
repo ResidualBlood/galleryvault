@@ -1,61 +1,61 @@
-<!-- 出处: docs/PROJECT_INIT-templates-research.md §R-dev；arc42 https://docs.arc42.org/home/ （§3 上下文 / §4 策略 / §5 构建块 / §6 运行时 / §7 部署 / §8 横切） -->
-# galleryvault 架构
+# GalleryVault 架构
 
-> 只写稳定的结构与边界；易变的实现细节以代码为准。arc42 的“上下文 / 策略 / 构建块 / 运行时 / 部署 / 横切”各成一节，本节顺序即接手阅读顺序。
+> 面向接手开发者的模块划分与数据流。用户向功能说明见 wiki [功能特性](../wiki/Features.md)；后端更细的说明见 `backend/docs/DEVELOPMENT.md`。
 
-## 上下文
+## 总览
 
-<!-- 来源: arc42 §3 Context and Scope（黑盒视角：谁在用、外部系统边界） -->
+Monorepo：`backend/`（FastAPI JSON API + PostgreSQL）+ `frontend/`（Vue 3 + Vite + TS SPA，nginx 服务）+ `docs/`（文档）。拓扑：
 
-| 外部方 | 与本系统交换什么 | 方向 | 协议 / 格式 |
-|---|---|---|---|
+```
+Browser ── :8000 ──▶ nginx (frontend/: SPA + 反代 /api,/login,/logout)
+                        │
+Browser ── :8001 ──▶ FastAPI (backend/galleryvault/app/main.py + routers) ──▶ PostgreSQL
+```
 
-## 策略
+后端是纯 JSON API（`backend/galleryvault/app/main.py:82` 创建 `FastAPI(title="GalleryVault")`）；前端 SPA 由 nginx 服务并反代 `/api`、`/login`、`/logout`。
 
-<!-- 来源: arc42 §4 Solution Strategy -->
+## 后端模块划分（`backend/galleryvault/`）
 
-- 总体做法：`<一句话>`。
-- 关键取舍及理由：指向 `docs/decisions/` 的具体文件名。
+| 包/模块 | 职责 | 关键文件 |
+| :--- | :--- | :--- |
+| `app/` | 应用装配与横切：工厂、中间件、异常、生命周期、全局状态 | `app/main.py`、`app/middleware.py`、`app/exceptions.py`、`app/state.py`、`app/lifespan.py` |
+| `app/routers/` | HTTP 路由，按领域拆分（`galleries/`、`maintain/` 为子包） | `app/routers/*.py`（见 [API 文档](../api/README.md)） |
+| `app/schemas/` | Pydantic 请求/响应模型 | `app/schemas/{common,gallery,updates}.py` |
+| `app/core/` | 应用核心协作对象（EhClient 管理、任务分发、UoW） | `app/core/eh_client_manager.py`、`task_dispatcher.py`、`uow.py` |
+| `config.py` | `Settings`（pydantic-settings），全部环境变量与默认值 | `config.py` |
+| `db/` | SQLAlchemy 模型、session、repository、UoW | `db/models.py`、`db/session.py`、`db/repository.py`、`db/repositories/` |
+| `services/` | 业务用例，按领域分包 | `services/{download,eh,favorites,reading,library,cold,maintain,tgbot,tasks}/` |
+| `scanners/` | 文件系统扫描（Ehviewer 目录、CBZ/RAR/7z/PDF） | `scanners/` |
+| `metadata/` | SpiderInfo / sidecar 元数据解析 | `metadata/` |
+| `scripts/` | 运维/导出脚本（含 `export_openapi.py`） | `scripts/` |
+| `alembic/` | 数据库迁移（46 个版本） | `alembic/versions/` |
 
-## 构建块
+`services/` 是按领域拆包后的业务层；旧的平铺模块通过 re-export 保留兼容（见 HANDOFF 2026-11-15 记录）。`services/tgbot/` 是 Telegram Bot 控制面。
 
-<!-- 来源: arc42 §5 Building Block View；dev/handbook/02 架构（进程/端口/目录/主数据流三张表） -->
+## 关键横切设计
 
-### 模块与职责
+- **鉴权/CSRF**：全局中间件 `auth_and_csrf_middleware`（`app/middleware.py`）；会话 Cookie + 双提交 CSRF，Bearer 白名单见同文件 `_BEARER_ALLOWED_ROUTES`。
+- **全局状态**：`app_state`（`app/state.py`）持有 settings、engine、task_manager、eh_client 等单例；`create_app()` 时装配。
+- **后台 worker**：`app/workers.py` + `services/tasks` 的任务管理器；下载/标签同步/收藏检查/缩略图/更新检测等后台任务通过 `app/state.py` 的 `task_manager` 调度。
+- **EH 客户端**：`app/core/eh_client_manager.py` 管理 ExHentai 客户端生命周期；`services/eh/` 实现解析与请求。
 
-| 模块 | 职责 | 入口 | 依赖 |
-|---|---|---|---|
+## 前端模块划分（`frontend/src/`）
 
-### 目录
+| 目录 | 职责 |
+| :--- | :--- |
+| `router/` | hash 路由表（`routes.ts`）+ 守卫；旧锚点别名保留 |
+| `views/` | 每屏一个目录（browse/online/library/gallery/reader/series/tags/history/downloads/logs/settings/favorites/duplicates/updates/recycle/integrity/archive） |
+| `components/` | 设计系统原语 `ui/`、画廊数据视图 `gallery/`、标签 `tags/`、外壳 `shell/`、动作 `actions/` |
+| `stores/` | Pinia（auth/settings/ui/library/favorites/downloads/online） |
+| `api/` | HTTP client + 全部端点声明（按领域分组） |
+| `i18n/` + `locales/` | vue-i18n，构建期预编译（zh/en） |
+| `reader/` | 阅读器页源抽象（local / online-direct / online-proxy） |
 
-| 目录 | 放什么 | 不放什么 |
-|---|---|---|
+前端权威说明见 `frontend/README.md`（基础组件、视图切换、tag 规则、API client 契约）；设计 token 见 `frontend/docs/design/DESIGN.md`。
 
-### 外部依赖
+## 数据流（核心链路）
 
-| 依赖 | 版本约束 | 用途 | 不可用时的行为 |
-|---|---|---|---|
-
-## 运行时
-
-<!-- 来源: arc42 §6 Runtime View；dev/handbook/02 主数据流 -->
-
-- 主流程：`<从入口到落库 / 输出，依次经过哪些组件>`。
-- 一条请求 / 一次业务流程的时序：`<步骤编号>`。
-- 并发与失败处理：`<重试、超时、熔断、幂等>`。
-
-## 部署
-
-<!-- 来源: arc42 §7 Deployment View -->
-
-| 运行单元 | 跑在哪 | 启动方式 | 数据与日志位置 |
-|---|---|---|---|
-
-## 横切概念
-
-<!-- 来源: arc42 §8 Cross-cutting Concepts；§9 决策与 §12 术语在各自文件 -->
-
-- 日志：`<位置、级别、轮转>`。
-- 配置：见 [config.md](config.md)。
-- 错误处理与重试口径。
-- 安全与权限：`<认证、授权、凭据存放位置>`。
+1. **扫描入库**：`scanners/` 扫 `<gid>-标题/` 或压缩包 → 解析 `metadata/` → 写入 `galleries`/`gallery_pages`/`tags` → 缩略图 worker 生成封面。
+2. **下载**：`POST /api/downloads` 入队 → `services/download` worker 逐页/官方 Archive 下载 → 落盘 → 入库（`services/library`）→ 通知。
+3. **收藏同步**：`services/favorites` 定时检查 → 云端确认后写 `favorite_items` → 按模式入队下载。
+4. **阅读**：前端 reader 经 `GET /api/galleries/{id}/pages/{n}` 取本地页；在线模式浏览器直连 H@H（后端只解析 URL），回退走 `eh_online_proxy`。

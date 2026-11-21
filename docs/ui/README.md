@@ -1,76 +1,53 @@
 # galleryvault 页面清单
 
-<!-- 出处: docs/PROJECT_INIT-templates-research.md §R-ui -->
+> 回答“有哪些页面/屏、从哪进、数据从哪来”。路由权威源是 `frontend/src/router/routes.ts`；导航权威源是 `frontend/src/components/shell/navigation.ts`。视觉与 Token 见 [design-system.md](design-system.md)。
 
-> 本文件回答“有哪些页面/屏、从哪进、谁能看、数据从哪来”；视觉与 Token 见 [design-system.md](design-system.md)，两者互引，不互相复制。生成于 2026-11-20，之后由项目自己维护。
+## 页面与屏清单
 
-<!-- 来源: 本机实施文档 docs/ui/pages.md §1（导航骨架、旧页面→新导航归属；非公开规范） -->
+导航共 15 个目的地（`navigation.ts` 的 `navDestinations`），加登录/欢迎/详情/阅读器等子页。路径为 hash 路由（旧锚点别名保留）。
 
-## 1 页面与屏清单
-
-按导航组织：同一上级的页面相邻；`编号` 一经使用不再改，删页只标状态。状态只填三档：`已实现`、`未实现`、`待确认`。
-
-| 编号 | 名称 | 入口 | 上级 | 角色可见 | 数据源 | 状态 |
-|---|---|---|---|---|---|---|
-<!-- 例：P1 | <页面名> | <导航项/URL 路径> | <上级编号或“顶栏”> | <角色列表> | <接口/表/数据点> | 已实现 -->
-
-- 多屏共用（顶栏、轮播、全局提示）归入“顶栏”，由各屏引用，不重复登记。
-- 数据源写到接口名或表名一级；字段口径见 `docs/reference/data-dictionary.md`。
-
-<!-- 来源: 本机实施文档 docs/ui/screen-inventory.md（共用组件写一次再逐屏引用；屏↔网页对照；非公开规范） -->
-
-## 2 共用组件与导航
-
-| 组件/区域 | 作用 | 出现位置 | 备注 |
+| 页面 | 入口 `#/` | 数据源（API） | 状态 |
 |---|---|---|---|
-<!-- 例：顶栏 | <状态灯+轮播+全局提示> | 全部页面 | <多屏共用，只在此登记> -->
+| 登录 | `/login` | `POST /login` | 已实现 |
+| 浏览（首页） | `/browse` | `GET /api/galleries` + 阅读进度 | 已实现 |
+| 在线（发现） | `/online`（别名 `/discover`） | `GET /api/eh/search`、`/api/eh/status` | 已实现 |
+| 本机库 | `/library` | `GET /api/galleries` | 已实现 |
+| 画廊详情 | `/gallery/:id` | `GET /api/galleries/{id}` | 已实现 |
+| 阅读器 | `/reader/:id/:page` | `GET /api/galleries/{id}/pages/{n}` | 已实现 |
+| 在线阅读器 | `/online/g/:gid/:token/read/:page` | `GET /api/eh/galleries/...` | 已实现 |
+| 系列 | `/series` | `GET /api/series` | 已实现 |
+| 标签 | `/tags` | `GET /api/tags/search` | 已实现 |
+| 历史 | `/history` | `GET /api/history` | 已实现 |
+| 收藏 | `/favorites` | `GET /api/favorites/categories`、`/check-status` | 已实现 |
+| 下载 | `/downloads` | `GET /api/downloads` | 已实现 |
+| 更新 | `/updates`（子页 `/updates/ignored`） | `GET /api/updates` | 已实现 |
+| 查重 | `/duplicates`（子页 `/duplicates/cross-gid`、`/duplicates/favorites`） | `GET /api/scan/duplicates` 等 | 已实现 |
+| 回收站 | `/recycle` | `GET /api/galleries/trash`、`/expunged` | 已实现 |
+| 完整性 | `/integrity` | `GET /api/galleries/integrity` | 已实现 |
+| 归档 | `/archive` | `GET /api/archive`、`/api/system/storage` | 已实现 |
+| 日志 | `/logs` | `GET /api/logs`、`/api/system/logs` | 已实现 |
+| 设置 | `/settings/:group?` | `GET /api/settings` | 已实现 |
+| 欢迎（首登向导） | `/welcome` | `GET /api/onboarding/status` | 已实现 |
+| 样张（设计调试） | `/_kit` | 静态（懒加载，不进导航） | 已实现 |
 
-屏与网页/路由的对照写在页面行内（`入口` 列）；同一页有桌面与移动两版时分行写，`名称` 相同、`入口` 不同。
+## 共用组件与导航
 
-<!-- 来源: 本机实施文档 docs/ui/pages.md §1.1（旧页面→新导航归属；非公开规范） -->
+| 组件/区域 | 作用 | 出现位置 |
+|---|---|---|
+| 顶栏 | 菜单、品牌、页标题、通知、全局控制、主题/语言/退出 | 全部（reader 等沉浸页除外） |
+| 抽屉/侧轨/底栏 | 三处渲染同一导航表（`navGroups`/`navFixed`/`bottomDestinations`） | 全部非沉浸页 |
+| 维护导航 Tab | 回收站/重复副本/收藏夹重复/跨 GID 重复/缺页体检/归档 六页切换（`MaintenanceNav`/`MaintenanceTabs`） | 维护类页 |
+| 视图切换 | grid/list/table 三态，按页记忆（`useViewMode`） | 浏览类列表页 |
 
-## 3 旧 → 新映射
+## 每页要素
 
-迁移期专用；迁完保留表并标“已下线”，便于查旧链接与老截图。
+- 指标、操作、空态、错误态：各页在 `frontend/src/locales/{zh,en}/<feature>.json` 里定义文案；空态组件 `EmptyState`、错误态 `ErrorState` 统一。
+- 测试钩子：稳定 `data-testid`（`gallery-card`、`gv-page-header`、`gv-toolbar` 等），mock/real E2E 共用。
 
-| 旧页面 | 旧入口 | 新归属 | 处理 |
-|---|---|---|---|
-<!-- 例：<旧页名> | <旧菜单/URL> | <新编号> | 合并/改名/下线 -->
+## 设计系统
 
-<!-- 来源: 本仓设计，无外部依据（每页四项要素：指标/操作/空态/错误态） -->
+- Token、色彩/对比度、密度、状态语义统一写在 [design-system.md](design-system.md) 与 `frontend/docs/design/DESIGN.md`。
 
-## 4 每页要素
+## 无障碍
 
-每个页面至少写清四项，缺项写“无”而不留空：
-
-- 指标：本页展示哪些数字/状态，单位与刷新周期。
-- 操作：用户能做什么、是否高危、是否需要确认。
-- 空态：没有数据时显示什么、下一步引导到哪。
-- 错误态：取数失败/权限不足/超时分别怎么提示、能否重试。
-
-指标口径以 `docs/reference/data-dictionary.md` 为准；错误提示与告警分级见 `docs/reference/alarms-troubleshooting.md`。
-
-<!-- 来源: 本仓设计，无外部依据（清单与设计系统互引，不复制 Token） -->
-
-## 5 设计系统
-
-- Token、色彩与对比度、字体、密度、状态语义、图表与组件规矩统一写在 [design-system.md](design-system.md)。
-- 本文件只写“哪个页面用了什么”，不写具体色值；改 Token 只改 design-system，不回填本表。
-
-<!-- 来源: WCAG 2.2 SC 1.4.11 Non-text Contrast（https://www.w3.org/TR/WCAG22/#non-text-contrast）与 SC 2.1.1 Keyboard（https://www.w3.org/TR/WCAG22/#keyboard） -->
-
-## 6 无障碍
-
-| 页面/组件 | 键盘可达 | 焦点可见 | 非文本对比度 | 备注 |
-|---|---|---|---|---|
-<!-- 例：<页面名> | 是/否/未核对 | 是/否/未核对 | 达标/不达标/未核对 | <用的组件或例外> -->
-
-- 只填“已核对”的结论；没测过写“未核对”，不写“应该可以”。
-- 对比度门槛与实测方法见 design-system 的“色彩与对比度”节。
-
-<!-- 来源: 本机实施文档 docs/ui/pages.md §4（未实现/待确认页；非公开规范） -->
-
-## 7 未实现与待确认
-
-- 未实现页：已在第 1 节标 `未实现`，在此列阻塞原因与前置条件。
-- 待确认页：需求未定稿的页面列在此，写“谁拍板、缺什么信息”；定稿后移入第 1 节并删掉本行。
+- 键盘可达/焦点可见/非文本对比度：以 `frontend/scripts/check-design.mjs` 的 glyph/原生控件扫描 + E2E 审计为准；未逐页核对的写“未核对”。

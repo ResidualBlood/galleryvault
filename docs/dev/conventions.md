@@ -1,61 +1,27 @@
-<!-- 出处: docs/PROJECT_INIT-templates-research.md §R-dev -->
-# 约定
+# GalleryVault 开发约定
 
-> 团队约定写在根 `AGENTS.md`，本文件补充开发细节；两者冲突时以 `AGENTS.md` 为准。
+> 团队共享约定已写进项目根 `AGENTS.md`；本文件只登记“写代码时要遵守、能脚本校验”的约定与出处。
 
-## 分支与提交
+## 后端（`backend/`）
 
-<!-- 来源: R-release 分支模型 / Conventional Commits；dev/handbook/13 约定 -->
+- **lint/格式化**：`ruff`（见 `backend/pyproject.toml` 的 `[tool.ruff]`）；测试容器内 `ruff check galleryvault/`。
+- **类型与结构**：`.importlinter` 16 条契约，`test_p2_architecture` 钉死导入边界（领域包之间不得互相 import；见 HANDOFF 2026-11-15「导入契约收紧」）。
+- **生产代码禁止引用 `app.main` 除装配外的符号**（AGENTS.md），避免 import 时连带 DB/worker 副作用。
+- **错误**：抛 `app/exceptions.py` 里的领域异常，不裸抛 `HTTPException`；错误体 `{detail, code}` 见 [models.md](../api/models.md)。
+- **写文件用原子写**：`services/fsutil` 共享一个原子 cache 写入器（commit 63f89af）。
+- **DB 会话**：只读路径用 `Depends(get_session)`；EH 网络前先释放 session（见 HANDOFF 2026-11-14「四个读写路径释放 session」）。
 
-- 分支：`<主干名>` 为唯一集成线；功能分支短命，从主干切、回合主干；发布分支见 [release.md](release.md)。
-- 提交信息：`<type>(<scope>): <描述>`；破坏性变更在提交正文写 `BREAKING CHANGE:`。
-- 一个提交只做一件事；代码与对应开发记录同一提交。
+## 前端（`frontend/`）
 
-## 目录
+- **端点声明只放 `src/api/<domain>.ts`**，用 `ep("GET","/api/...")` 声明；ESLint 拒绝在 `src/api/` 之外出现裸 `/api/` 字面量（`frontend/README.md`「API client contract」）。
+- **组件/样式**：只用 `--gv-*` token，禁裸色值/字面量 `font-size`/非 token 圆角；用 `<Icon name="...">` 不用 Unicode glyph；控件走 `src/components/ui/` 的尺寸阶梯。守门脚本 `frontend/scripts/check-design.mjs`（退出码 0）。
+- **i18n**：文案按 feature 分 `src/locales/{zh,en}/<feature>.json`，键集必须一致（单测校验）；vue-i18n 构建期预编译。
+- **测试钩子**：稳定 `data-testid`（`gallery-card`、`gv-page-header`、`gv-toolbar` 等），mock/real E2E 共用选择器。
+- **提交前**：`npm run typecheck`、`npm run lint`、`npm run test:unit`、`npm run build`、`node scripts/check-design.mjs`、`node scripts/check-parity.mjs`。
 
-<!-- 来源: dev/handbook/02 架构（目录职责） -->
+## 通用
 
-| 目录 | 放什么 |
-|---|---|
-| `<源码目录>` | 源码 |
-| `<测试目录>` | 测试与测试数据（规范见 [testdata.md](testdata.md)） |
-| `docs/` | 文档；运行态与生成物不进 Git |
-
-## 共享文件的写范围
-
-<!-- 出处: 本机参考项目 AGENTS.md:62-67（共享文件规则：接线文件/主程序/CI/E2E 各由哪类任务改）；docs/dev/shared-files.md:3-33（写范围表、功能任务写法、同批冲突避免）；docs/dev/handbook/13-conventions.md:38-60（共享文件写范围、Register 入口、冲突就地合入）（通用化，见调研 §R-constraints） -->
-
-多任务并行时，下表文件同一时刻只允许一个任务改；功能任务在自己的模块里导出入口，由接线/集成任务统一接入。
-
-| 共享文件 | 说明 | 谁可以改 |
-|---|---|---|
-| `<路由接线文件>` | 各能力模块的统一挂载表 | 接线/集成任务 |
-| `<主程序装配文件>` | 进程装配与启动顺序 | 集成任务 |
-| `<CI 工作流>` | CI 接线 | CI 接线任务 |
-| `<页面 E2E 用例>` | 单页 E2E | 对应页面任务 |
-| `<E2E 汇总目录>` | 汇总运行器与可见性矩阵 | E2E 汇总任务 |
-
-- 功能任务导出 `Register(...)` 一类入口；不为“让我的接口可达”去改共享文件，可达性以接线任务完成为准。
-- 子命令、插件、算法套件按注册表或工厂登记，不在共享文件里堆 `switch`。
-- 同批任务的写范围不重叠；两个任务都要动同一共享文件时排到不同批并写依赖。
-- 遇到冲突就地按语义合入并复跑检查，不静默等待、不丢对方改动；评审先看 `git diff --stat` 是否越过 scope。
-
-## 代码风格
-
-<!-- 来源: agents.md（`## Code style` 一句 + `## Setup commands` 可执行检查，https://agents.md/）；dev/handbook/13 约定 -->
-
-- 风格以项目自带的格式化 / lint 配置为准，不另立规则。
-- 提交前必须通过：
-
-```bash
-<format / lint 命令>
-<test 命令>
-```
-
-## 禁止提交项
-
-<!-- 来源: 12factor III. Config（配置与代码分离）；dev/handbook/13 约定 -->
-
-- 本机配置、凭据、密钥、真实地址。
-- 构建产物、依赖目录、运行态文件与日志。
-- 生成物（索引、报告）只由主控在主干重建。
+- **验证必须进测试容器**（测试栈 compose，:8200/:8201），不能只在宿主编译树报绿（AGENTS.md 铁律）；测试栈命令见 skill `galleryvault-maintenance`。
+- **完成态拆三截**：验证 → commit（只 commit，默认 `dev`）→ 发布（人授权才 push）。
+- **文档**：权威源 `docs/wiki/`（中英成对）；dev 推送后由 `.github/workflows/sync-wiki.yml` rsync 到 wiki 仓，不直接改 wiki 仓。
+- **凭据**：密码/cookie/token 不写进仓库、wiki、commit、PLAN、HANDOFF；值用 `op-run`/env 注入，只写“值放哪”。

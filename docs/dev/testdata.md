@@ -1,96 +1,23 @@
-<!-- 出处: docs/PROJECT_INIT-templates-research.md §R-testdata；insta https://insta.rs/docs/quickstart/ （Snapshot Files / Redactions / Reviewing Snapshots）、VCR.py https://vcrpy.readthedocs.io/en/latest/usage.html （录一次回放多次） -->
-# 测试数据规范
+# GalleryVault 测试数据规范
 
-> 测试数据与代码同仓、可复现、可校验。先写死口径，再写数据；口径不清的数据宁可不用。
+> 测试数据只放仓库 `backend/tests/` 下或测试栈 DB；生产数据、真实 Cookie、口令一律不进仓库。真实环境验证进测试容器（:8200/:8201）。
 
-## 分类与存放
+## 仓库内测试数据
 
-<!-- 来源: dev/testing.md §1 分层；VCR.py（录一次回放多次） -->
+| 位置 | 内容 | 用途 |
+| :--- | :--- | :--- |
+| `backend/tests/fixtures/eh_online/` | `gallery-detail.html`、`search-list-compact.html`（E-Hentai 页面 HTML 快照） | EH 解析器单测（不联网） |
+| `backend/tests/contract/golden/` | `galleries_list.json`、`downloads_list.json`、`settings.json` 等 10 个响应快照 | 契约测试（`tests/contract/`）比对响应结构 |
 
-| 类别 | 用途 | 存放位置 | 是否入库 |
-|---|---|---|---|
-| 模拟器 | 无真机时跑通流程 | `testdata/sim/` | 是（配置与脚本） |
-| 回放 | 用录到的输入重复跑 | `testdata/fixtures/` | 是（脱敏后） |
-| 黄金对照 | 与期望输出逐位 / 逐字段比对 | `testdata/snapshots/` | 是 |
-| 压力 | 长稳与并发 | `testdata/stress/` | 脚本入库，大文件不入库 |
+## 测试栈数据（不进仓库）
 
-## 目录命名
+- 测试 compose 挂载 `test-data/db-data`（PostgreSQL，uid 999，勿 chown）、`library`、`TEMP`、`test-data/downloads`、`test-data/cache` 等目录（见 skill `galleryvault-maintenance`）。
+- 测试库含少量真实画廊（用于真实 E2E/截图），登录口令按名加载 `local-credentials/galleryvault-test.env`（禁止抄进仓库）。
+- E-Hentai 表站测试账号：无里站权限（`igneous` 空），Cookie 只放本地 `TEMP/cookies.txt`；测发现页须 `exhentai_base_url=https://e-hentai.org`。禁止配进生产。
 
-<!-- 来源: insta（Snapshot Files：同仓独立目录）；VCR.py（`fixtures/*.yaml`） -->
+## 约定
 
-- 目录固定：`testdata/`、`fixtures/`、`snapshots/`；不再新造同义目录。
-- 文件名 = `<场景>-<来源>-<版本或日期>`；同一场景不同版本并列，不覆盖。
-
-## 录制
-
-<!-- 来源: VCR.py “record … to fixtures … will replay”；dev/replay.md（回放入口与来源） -->
-
-| 数据 | 谁录 | 用什么录 | 版本 / 环境 | 录制日期 |
-|---|---|---|---|---|
-
-- 录制时记下来源（设备型号、软件版本、串口参数或接口地址）与压力条件。
-- 一份数据只对应一个来源；来源变了重新录，不在原文件上改。
-
-## 确定性
-
-<!-- 来源: VCR.py（回放换快、确定、离线）；dev/testing §2（硬性口径） -->
-
-- 回放不依赖网络与真机；离线可跑。
-- 时间、随机数、自增 ID、排序在回放中固定；不得依赖“当前时间”。
-- 浮点比较写明精度与取整方式；逐位比较用于二进制输出。
-
-## 逐位对拍
-
-<!-- 来源: insta（黄金文件改动需审阅接受）；dev/handbook/06 §6（逐位对拍） -->
-
-- 二进制输出（帧、文件、固件交互）按字节比对，差异给偏移与前后值。
-- 文本输出按行比对，先统一换行与尾随空白。
-- 对拍失败时输出“期望 vs 实际”的最小片段，不打印整包。
-
-## SHA256SUMS 与更新时机
-
-<!-- 来源: GNU coreutils sha2（`sha256sum -c` 作完整性闸门，清单入库） -->
-
-- 每个数据目录放 `SHA256SUMS`，清单与数据同一提交。
-- 校验命令：
-
-```bash
-sha256sum -c SHA256SUMS
-```
-
-- 更新时机：数据变更的同一提交内重算；只改测试代码不改数据时不重算。
-- 校验失败视为测试失败，不放行。
-
-## 脱敏与大文件
-
-<!-- 来源: insta Redactions（敏感字段替换）；“大文件不入库”为本仓设计，无外部依据。 -->
-
-- 录制后替换：凭据、口令、真实地址、个人信息；替换规则写在本文件。
-- 大文件（超过仓库限制的二进制、长时间日志）不入库；写生成脚本与校验和，按需再生成。
-
-## 更新审阅
-
-<!-- 来源: insta Reviewing Snapshots；dev/testing §4（提交要求） -->
-
-- 黄金文件变更必须在开发记录里写“为什么变”，并与被测代码同一提交。
-- 审阅时逐条确认差异是预期变化，不整体覆盖。
-
-## 测试执行纪律
-
-<!-- 出处: 本机参考项目 AGENTS.md:81-84（定向测试/全量时机/并行/子智能体 30 分钟）；docs/dev/handbook/11-testing.md:5-7,196-215（三条硬规则、分层时机、并行与本机限并发）；docs/dev/handbook/13-conventions.md:91-93（测试纪律：失败不 push、全量 race 与 E2E 不与前端构建同机同跑）；docs/dev/handbook/14-pitfalls.md:24-36,209-220（固定等待、超时换绿）；.opencode/local/MEMORY.md 规则节:12,16（全量只在本轮修完且设备更新后跑、只由指定会话跑）（通用化，见调研 §R-constraints） -->
-
-- 日常只跑改动相关的定向测试，加契约 / 注册表 / 断链等快检；全量只在里程碑或明确要求时跑。
-- 全量由**一个指定会话**统一跑，其他会话不另开全量；本轮问题全部修完、现场设备也更新完之后再跑。
-- 验收命令写成可并行的形式（后端、契约、前端单测、E2E 同时开），不逐项串行等待；但同一台机器上不把全量 race、E2E 与前端构建混跑（本机资源互斥）。
-- 本机资源有限时限并发：单测 worker 封顶，同一时刻只开一组 E2E；改公共页面会把大量相关用例牵出来，改为只跑目标文件。
-- 禁止靠拉长超时换绿；测试明确失败时不 push、不打 tag、不发布。
-- 时序敏感用例不加固定等待，用通道、条件轮询或假时钟替代。
-
-## 未覆盖清单
-
-<!-- 来源: KEP 模板 Test Plan（分层并声明“什么不算覆盖”） -->
-
-| 未覆盖项 | 原因 | 替代验证 | 何时补 |
-|---|---|---|---|
-
-- 明确写“什么不算覆盖”：例如只跑了模拟器、未上真机；只测了正常路径、未测断电。
+- **不复制被测算法**：测试真实实现，按需 mock，不用复制被测算法来“证明”自己（AGENTS.md）。
+- **凭据零落盘**：Playwright/测试里读口令只走 env 或 local-credentials 注入，不写进测试文件、报告、截图。
+- **污染隔离**：测试栈与生产隔离；测完 `docker compose stop` 保留（不 down/rmi），下次有更新先 `docker cp` + `pip install -e ".[dev]"` 再 `start`。
+- **新增 fixture**：EH HTML 快照要脱敏（去掉个人 Cookie/账号痕迹）再入库。
