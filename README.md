@@ -35,7 +35,7 @@
 <p align="center">
   <img src="docs/screenshots/library_zh.png" alt="画廊库" width="270">
   <img src="docs/screenshots/reader_zh.png" alt="阅读器" width="270">
-  <img src="docs/screenshots/fav_dedupe_zh.png" alt="收藏夹查重" width="270">
+  <img src="docs/screenshots/duplicates_zh.png" alt="查重" width="270">
 </p>
 
 更多截图：[Wiki · 界面截图](https://github.com/ResidualBlood/galleryvault/wiki/Screenshots)
