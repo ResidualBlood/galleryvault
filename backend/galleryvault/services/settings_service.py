@@ -171,6 +171,9 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
     filtered = {k: v for k, v in values.items() if k in allowed and v is not None}
     if "exhentai_cookies" in filtered:
         c = filtered["exhentai_cookies"]
+        # Runtime state must hold plaintext; accept at-rest ciphertext defensively.
+        if is_encrypted(c):
+            c = decrypt_json_or_value(c)
         if isinstance(c, str):
             try:
                 import json
@@ -180,6 +183,8 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         if not isinstance(c, dict):
             c = {}
         filtered["exhentai_cookies"] = {str(k): str(v) for k, v in c.items()}
+    if is_encrypted(filtered.get("telegram_bot_token")):
+        filtered["telegram_bot_token"] = decrypt_or_plain(filtered["telegram_bot_token"])
     if "archive_roots" in filtered:
         filtered["archive_roots"] = normalize_archive_roots(filtered["archive_roots"])
         filtered["cold_storage_root"] = (

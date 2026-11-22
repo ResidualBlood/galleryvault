@@ -404,6 +404,11 @@ async def _save_settings(
         )
         raise db_error(exc) from exc
 
+    # The running app needs the plaintext values; only the persisted copy is
+    # encrypted.  Feeding ciphertext to the runtime would wipe the cookies (and
+    # corrupt the bot token) until the next restart.
+    runtime_values = dict(values)
+
     # Encrypt only the values this request actually carries.  Persisted
     # ciphertext is never decrypted/re-encrypted just because it exists.
     cookies = values.get("exhentai_cookies")
@@ -452,7 +457,7 @@ async def _save_settings(
 
     # Runtime (in-memory) settings only change once the database write succeeded,
     # so a failed save cannot make the running app diverge from disk state.
-    update_runtime_settings(values)
+    update_runtime_settings(runtime_values)
 
     old_base = str(db_settings.get("exhentai_base_url") or "")
     new_base = str(values.get("exhentai_base_url") or old_base)

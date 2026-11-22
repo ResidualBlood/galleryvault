@@ -136,5 +136,61 @@ def test_settings_save_keeps_keys_missing_from_request(
     assert repo.saved["telegram_bot_token"]
 
 
+def test_settings_save_keeps_plaintext_cookies_in_runtime(
+    settings_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saving cookies encrypts the DB copy only; runtime must keep plaintext.
+
+    Regression: the ciphertext was fed to ``update_runtime_settings`` which
+    could not parse it, so the rebuilt EhClient ran without any cookie.
+    """
+    from galleryvault import secrets
+    from galleryvault.app.routers import settings as settings_router
+
+    monkeypatch.setenv("ENCRYPTION_KEY", "unit-test-key-0123456789abcdef0123456789")
+    secrets._key.cache_clear()
+    repo = _Repo(None, stored={})
+    monkeypatch.setattr(settings_router, "SettingsRepository", lambda session: repo)
+    monkeypatch.setattr(settings_router, "refresh_services", _noop_async)
+    cookies = {"ipb_member_id": "123", "ipb_pass_hash": "deadbeef", "igneous": "abc"}
+    try:
+        response = settings_client.post(
+            "/api/settings", json={**cookies, "telegram_bot_token": "bot-token"}
+        )
+
+        assert response.status_code == 200
+        assert repo.saved is not None
+        assert secrets.is_encrypted(repo.saved["exhentai_cookies"])
+        assert secrets.decrypt_json_or_value(repo.saved["exhentai_cookies"]) == cookies
+        assert secrets.is_encrypted(repo.saved["telegram_bot_token"])
+        assert app_state.settings.exhentai_cookies == cookies
+        assert app_state.settings.telegram_bot_token == "bot-token"
+    finally:
+        secrets._key.cache_clear()
+
+
+def test_update_runtime_settings_decrypts_ciphertext(monkeypatch: pytest.MonkeyPatch) -> None:
+    from galleryvault import secrets
+    from galleryvault.services.settings_service import update_runtime_settings
+
+    monkeypatch.setenv("ENCRYPTION_KEY", "unit-test-key-0123456789abcdef0123456789")
+    secrets._key.cache_clear()
+    original = app_state.settings
+    app_state.settings = (original or app.state.settings).model_copy()
+    cookies = {"ipb_member_id": "1", "ipb_pass_hash": "h", "igneous": "i"}
+    try:
+        update_runtime_settings(
+            {
+                "exhentai_cookies": secrets.encrypt_json(cookies),
+                "telegram_bot_token": secrets.encrypt("bot-token"),
+            }
+        )
+        assert app_state.settings.exhentai_cookies == cookies
+        assert app_state.settings.telegram_bot_token == "bot-token"
+    finally:
+        app_state.settings = original
+        secrets._key.cache_clear()
+
+
 async def _noop_async() -> None:
     return None
