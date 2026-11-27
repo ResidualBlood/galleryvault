@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { i18n, setLocale } from "@/i18n";
@@ -18,15 +18,26 @@ function makeRouter() {
   });
 }
 
+const mounted: Array<{ unmount: () => void }> = [];
+
 async function mountMenu(source: "local" | "online" = "local") {
   const router = makeRouter();
   await router.push("/browse");
   await router.isReady();
   const wrapper = mount(TagMenu, {
     props: { tag, x: 120, y: 140, source },
+    attachTo: document.body,
     global: { plugins: [i18n, router], stubs: { teleport: true } },
   });
+  mounted.push(wrapper);
+  await flushPromises();
   return { wrapper, router };
+}
+
+/** Dispatch a key like a real user: from the focused element, bubbling to document. */
+function press(key: string): void {
+  const target = document.activeElement ?? document.body;
+  target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
 }
 
 describe("TagMenu", () => {
@@ -36,6 +47,11 @@ describe("TagMenu", () => {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
+  });
+
+  afterEach(() => {
+    while (mounted.length) mounted.pop()?.unmount();
+    document.body.innerHTML = "";
   });
 
   it("copies the raw ns:name text and closes", async () => {
@@ -80,5 +96,60 @@ describe("TagMenu", () => {
     await flushPromises();
     expect(router.currentRoute.value.name).toBe("library");
     expect(router.currentRoute.value.query.tags).toBe("-female:big breasts");
+  });
+
+  it("focuses the first action when it opens", async () => {
+    const { wrapper } = await mountMenu();
+    expect(document.activeElement).toBe(
+      wrapper.get('[data-testid="tag-menu-copy"]').element,
+    );
+  });
+
+  it("cycles with ArrowUp / ArrowDown / Home / End", async () => {
+    const { wrapper } = await mountMenu();
+    const item = (id: string) => wrapper.get(`[data-testid="${id}"]`).element;
+
+    expect(document.activeElement).toBe(item("tag-menu-copy"));
+
+    press("ArrowUp");
+    expect(document.activeElement).toBe(item("tag-menu-exclude"));
+
+    press("ArrowDown");
+    expect(document.activeElement).toBe(item("tag-menu-copy"));
+
+    press("ArrowDown");
+    expect(document.activeElement).toBe(item("tag-menu-filter"));
+
+    press("End");
+    expect(document.activeElement).toBe(item("tag-menu-exclude"));
+
+    press("Home");
+    expect(document.activeElement).toBe(item("tag-menu-copy"));
+  });
+
+  it("closes with Escape and returns focus to the element that opened it", async () => {
+    const opener = document.createElement("button");
+    opener.type = "button";
+    opener.textContent = "chip";
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const { wrapper } = await mountMenu();
+    expect(document.activeElement).toBe(
+      wrapper.get('[data-testid="tag-menu-copy"]').element,
+    );
+
+    press("Escape");
+    await flushPromises();
+
+    expect(wrapper.emitted("close")).toBeTruthy();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("closes on Tab without attempting to restore focus", async () => {
+    const { wrapper } = await mountMenu();
+    press("Tab");
+    await flushPromises();
+    expect(wrapper.emitted("close")).toBeTruthy();
   });
 });
