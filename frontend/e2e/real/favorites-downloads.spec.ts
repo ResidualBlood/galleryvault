@@ -94,7 +94,7 @@ test("V-09 下载：列表 / 过滤 / 新建 / 配额 / 暂停 / 批量对话框
   await page.getByTestId("downloads-add-archive").click();
   await expect(
     page
-      .getByRole("status")
+      .locator(".toast")
       .filter({ hasText: /没有识别到画廊链接|No gallery links recognised/ }),
   ).toBeVisible();
   await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);

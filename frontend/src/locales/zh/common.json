@@ -8,5 +8,6 @@
   "emptyBody": "数据出现后会显示在这里。",
   "errorTitle": "加载失败",
   "errorBody": "请稍后重试。",
-  "notAvailable": "暂不可用"
+  "notAvailable": "暂不可用",
+  "toastRegion": "通知"
 }

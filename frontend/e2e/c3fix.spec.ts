@@ -161,7 +161,7 @@ test.describe("C3 round 2 fixes @c3r2", () => {
     // DownloadsView passes these ids as the Dialog `testid` prop; the root is a
     // Teleport target, so a plain `data-testid` attribute never reaches the DOM.
     await page.getByTestId("downloads-add-archive").click();
-    await expect(page.getByRole("status").filter({ hasText: "没有识别到画廊链接" })).toBeVisible();
+    await expect(page.locator(".toast").filter({ hasText: "没有识别到画廊链接" })).toBeVisible();
     await expect(page.getByTestId("downloads-archive-dialog")).toHaveCount(0);
 
     await page.getByTestId("downloads-urls").locator("textarea").fill("123456/abcdef");
